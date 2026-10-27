@@ -113,3 +113,75 @@ async fn us13_nach_der_gnadenfrist_ist_der_name_frei() {
     assert_eq!(frei.json["kennung"], "claude@127.0.0.1");
     assert_eq!(altes_token.status, 401);
 }
+
+#[tokio::test]
+async fn us12_wiederkehr_mit_token_ist_dieselbe_sitzung_ein_anderer_name_wird_abgewiesen() {
+    let instanz = gemeinsam::wegwerf_starten();
+    let (eins, zwei) = (Absender::von("127.0.0.1"), Absender::von("127.0.0.2"));
+    let token = token_aus(
+        &zwei
+            .beitreten(&instanz.adresse, json!({"name": "claude"}), None)
+            .await,
+    );
+
+    let wieder = zwei
+        .beitreten(&instanz.adresse, json!({"name": "claude"}), Some(&token))
+        .await;
+    let anderer_name = zwei
+        .beitreten(
+            &instanz.adresse,
+            json!({"name": "claude-neu"}),
+            Some(&token),
+        )
+        .await;
+    let ich = zwei.ich(&instanz.adresse, Some(&token)).await;
+    let claude_neu = eins
+        .beitreten(&instanz.adresse, json!({"name": "claude-neu"}), None)
+        .await;
+
+    assert_eq!(wieder.status, 200, "{}", wieder.json);
+    assert_eq!(wieder.json["token"], token.as_str());
+    assert_eq!(wieder.json["kennung"], "claude@127.0.0.2");
+    assert_eq!(wieder.json["gnadenfrist_s"], 60);
+    assert_eq!(anderer_name.status, 422, "{}", anderer_name.json);
+    assert!(anderer_name.json["fehler"].is_string());
+    assert_eq!(ich.json["kennung"], "claude@127.0.0.2");
+    assert_eq!(claude_neu.status, 201, "claude-neu war nicht belegt");
+}
+
+#[tokio::test]
+async fn ein_unbekanntes_token_beim_beitreten_zaehlt_nicht_es_ist_ein_neuer_beitritt() {
+    let instanz = gemeinsam::wegwerf_starten();
+    let absender = Absender::von("127.0.0.1");
+
+    let antwort = absender
+        .beitreten(
+            &instanz.adresse,
+            json!({"name": "frisch"}),
+            Some("00000000000000000000000000000000"),
+        )
+        .await;
+
+    assert_eq!(antwort.status, 201, "{}", antwort.json);
+    assert_eq!(antwort.json["kennung"], "frisch@127.0.0.1");
+    assert_ne!(antwort.json["token"], "00000000000000000000000000000000");
+}
+
+/// Eigene Variante: das Token einer anderen Herkunft ist keine Wiederkehr — der Name ist dann vergeben.
+#[tokio::test]
+async fn das_token_von_einer_anderen_herkunft_ist_keine_wiederkehr() {
+    let instanz = gemeinsam::wegwerf_starten();
+    let (eins, zwei) = (Absender::von("127.0.0.1"), Absender::von("127.0.0.2"));
+    let token = token_aus(
+        &zwei
+            .beitreten(&instanz.adresse, json!({"name": "claude"}), None)
+            .await,
+    );
+
+    let fremd = eins
+        .beitreten(&instanz.adresse, json!({"name": "claude"}), Some(&token))
+        .await;
+
+    assert_eq!(fremd.status, 409, "{}", fremd.json);
+    assert!(fremd.json.get("token").is_none(), "{}", fremd.json);
+}

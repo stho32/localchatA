@@ -3,14 +3,14 @@
 
 use super::Zustand;
 use super::grenzschutz::einziger_wert;
-use crate::anwesenheit::Art;
+use crate::anwesenheit::{Anwesenheit, Art, Sitzung};
 use crate::gespraeche::Kennung;
 use crate::name::Name;
 use crate::zufall::Token;
 use axum::Json;
 use axum::extract::{ConnectInfo, FromRequestParts};
 use axum::http::request::Parts;
-use axum::http::{HeaderName, StatusCode};
+use axum::http::{HeaderMap, HeaderName, StatusCode};
 use axum::response::{IntoResponse, Response};
 use serde_json::json;
 use std::net::{IpAddr, SocketAddr};
@@ -36,12 +36,8 @@ impl FromRequestParts<Arc<Zustand>> for Teilnehmer {
             .extensions
             .get::<ConnectInfo<SocketAddr>>()
             .map(|ConnectInfo(gegenstelle)| gegenstelle.ip());
-        let sitzung_header = HeaderName::from_static(SITZUNG_HEADER);
-        let token = einziger_wert(&teile.headers, &sitzung_header).and_then(Token::lesen);
-        let sitzung = match (token, herkunft) {
-            (Some(token), Some(herkunft)) => zustand.anwesenheit.wiederkehren(&token, herkunft),
-            _ => None,
-        };
+        let sitzung = herkunft
+            .and_then(|herkunft| gemeldete_sitzung(&teile.headers, herkunft, &zustand.anwesenheit));
         let Some(sitzung) = sitzung else {
             return Err(nicht_erkannt());
         };
@@ -52,6 +48,18 @@ impl FromRequestParts<Arc<Zustand>> for Teilnehmer {
             art: sitzung.art,
         })
     }
+}
+
+/// Die Sitzung, deren Token die Anfrage im Header nennt — nur von derselben Herkunft; zählt als
+/// Lebenszeichen. Fehlt der Header, ist er mehrfach oder unlesbar, gibt es keine.
+pub fn gemeldete_sitzung(
+    kopf: &HeaderMap,
+    herkunft: IpAddr,
+    anwesenheit: &Anwesenheit,
+) -> Option<Sitzung> {
+    let sitzung_header = HeaderName::from_static(SITZUNG_HEADER);
+    let token = einziger_wert(kopf, &sitzung_header).and_then(Token::lesen)?;
+    anwesenheit.wiederkehren(&token, herkunft)
 }
 
 /// Der Nachweis einer Sitzung bei jedem Aufruf (ADR-0012).

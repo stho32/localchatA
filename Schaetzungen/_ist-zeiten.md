@@ -67,3 +67,4 @@ Nie vom User erfragen.
 | 2026-10-28 | R00003 Namen wählen und beitreten | B0052 Wiederkehren | Standard | 0,4h | 0,01h | 0,01h | autonom |
 | 2026-10-28 | R00003 Namen wählen und beitreten | B0053 Teilnehmer an der Grenze erkennen | Standard | 0,4h | 0,02h | 0,03h | autonom |
 | 2026-10-28 | R00003 Namen wählen und beitreten | B0054 Ich beantworten | Standard | 0,4h | 0,01h | 0,02h | autonom |
+| 2026-10-28 | R00003 Namen wählen und beitreten | B0055 Wiederkehr beim Beitreten | Standard | 0,4h | 0,02h | 0,02h | autonom |

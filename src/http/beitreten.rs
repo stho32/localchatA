@@ -1,11 +1,13 @@
-//! Beitreten beantworten (B0049): `POST /api/beitreten {name, art?}` → 201 mit Token und Kennung,
-//! 409 Name vergeben, 422 Regelverstoß, 429 zu viele Sitzungen; ohne JSON 415 (axum `Json`).
+//! Beitreten beantworten (B0049, B0055): `POST /api/beitreten {name, art?}` → 201 mit Token und Kennung,
+//! 409 Name vergeben, 422 Regelverstoß, 429 zu viele Sitzungen; ohne JSON 415 (axum `Json`). Mit gültigem
+//! Token derselben Herkunft im Header ist es eine Wiederkehr: 200 dieselbe Sitzung, anderer Name 422.
 
 use super::Zustand;
+use super::teilnehmer::gemeldete_sitzung;
 use crate::anwesenheit::{Abweisung, Beitrittsfehler, Beitrittswunsch, Sitzung};
 use axum::Json;
 use axum::extract::{ConnectInfo, State};
-use axum::http::StatusCode;
+use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use chrono::SecondsFormat;
 use serde_json::{Value, json};
@@ -15,6 +17,7 @@ use std::sync::Arc;
 pub async fn beantworten(
     State(zustand): State<Arc<Zustand>>,
     ConnectInfo(gegenstelle): ConnectInfo<SocketAddr>,
+    kopf: HeaderMap,
     Json(koerper): Json<Value>,
 ) -> Response {
     let wunsch = match Beitrittswunsch::pruefen(&koerper) {
@@ -22,6 +25,9 @@ pub async fn beantworten(
         Err(abweisung) => return regelverstoss(abweisung),
     };
     let anwesenheit = &zustand.anwesenheit;
+    if let Some(sitzung) = gemeldete_sitzung(&kopf, gegenstelle.ip(), anwesenheit) {
+        return wiederkehr(&sitzung, &wunsch, anwesenheit.gnadenfrist().as_secs());
+    }
     match anwesenheit.beitreten(&wunsch, gegenstelle.ip()) {
         Ok(sitzung) => {
             let gnadenfrist_s = anwesenheit.gnadenfrist().as_secs();
@@ -34,6 +40,23 @@ pub async fn beantworten(
         Err(fehler) => beitrittsfehler(fehler, &wunsch, gegenstelle),
     }
 }
+
+/// Ein Name je Sitzung: denselben Namen gibt es zurück, einen Namenswechsel gibt es nicht — auch nicht still.
+fn wiederkehr(sitzung: &Sitzung, wunsch: &Beitrittswunsch, gnadenfrist_s: u64) -> Response {
+    if sitzung.name == wunsch.name {
+        return (StatusCode::OK, sitzung_als_json(sitzung, gnadenfrist_s)).into_response();
+    }
+    regelverstoss(Abweisung {
+        fehler: format!(
+            "Diese Sitzung trägt den Namen {} — einen Namenswechsel gibt es nicht.",
+            sitzung.name
+        ),
+        regel: REGEL_EIN_NAME,
+        vorschlag: None,
+    })
+}
+
+const REGEL_EIN_NAME: &str = "eine Sitzung trägt genau einen Namen";
 
 /// Die Antwort mit Token — nur hier verlässt es den Server (ADR-0012).
 pub fn sitzung_als_json(sitzung: &Sitzung, gnadenfrist_s: u64) -> Json<Value> {
