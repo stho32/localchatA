@@ -13,6 +13,11 @@ pub fn nachschlagen(name: &str) -> Option<EingebetteteDatei> {
         "index.html" => (include_bytes!("../../web/index.html"), HTML),
         "lc-tokens.css" => (include_bytes!("../../web/lc-tokens.css"), CSS),
         "lc-seite.css" => (include_bytes!("../../web/lc-seite.css"), CSS),
+        "start.js" => (include_bytes!("../../web/start.js"), JS),
+        "api.js" => (include_bytes!("../../web/api.js"), JS),
+        "sitzung.js" => (include_bytes!("../../web/sitzung.js"), JS),
+        "namensregel.js" => (include_bytes!("../../web/namensregel.js"), JS),
+        "beitreten.js" => (include_bytes!("../../web/beitreten.js"), JS),
         _ => return None,
     };
     Some(EingebetteteDatei { inhalt, typ })
@@ -20,6 +25,7 @@ pub fn nachschlagen(name: &str) -> Option<EingebetteteDatei> {
 
 const HTML: &str = "text/html; charset=utf-8";
 const CSS: &str = "text/css; charset=utf-8";
+const JS: &str = "text/javascript; charset=utf-8";
 
 #[cfg(test)]
 mod tests {
@@ -59,6 +65,21 @@ mod tests {
     }
 
     #[test]
+    fn die_module_der_oberflaeche_sind_javascript() {
+        for name in [
+            "start.js",
+            "api.js",
+            "sitzung.js",
+            "namensregel.js",
+            "beitreten.js",
+        ] {
+            let modul = nachschlagen(name).unwrap_or_else(|| panic!("{name} eingebettet"));
+            assert_eq!(modul.typ, "text/javascript; charset=utf-8", "{name}");
+            assert!(!modul.inhalt.is_empty(), "{name}");
+        }
+    }
+
+    #[test]
     fn unbekannte_und_ausbrechende_namen_gibt_es_nicht() {
         for name in [
             "gibtsnicht.js",
@@ -66,6 +87,7 @@ mod tests {
             "../Cargo.toml",
             "index.html/",
             "INDEX.HTML",
+            "package.json",
         ] {
             assert_eq!(nachschlagen(name), None, "{name}");
         }

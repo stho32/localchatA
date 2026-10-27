@@ -1,3 +1,23 @@
 /* localchatA — Seitenstil (ADR-0014: kein Inline-Stil, alles aus Dateien unter /web/) */
 html, body { margin: 0; height: 100%; }
 body { background: var(--kd-bg); color: var(--kd-ink); font-family: var(--font-sans); }
+
+/* Grundformen aus dem Designsystem (components/bundle.css), soweit die Oberfläche sie nutzt */
+.lc, .lc * { box-sizing: border-box; }
+.lc { font-family: var(--font-sans); font-size: 13px; line-height: 20px; color: var(--kd-ink); background: var(--kd-bg); }
+:where(.lc) :where(button, input, textarea) { font: inherit; color: inherit; border-radius: var(--kd-radius); }
+.lc :focus-visible { outline: 2px solid var(--kd-focus); outline-offset: -2px; }
+.lc-label { font-size: 11px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--kd-ink-muted); }
+.lc-btn { height: var(--kd-row); padding: 0 var(--kd-space-12); border: 1px solid var(--kd-line-strong); background: var(--kd-surface); color: var(--kd-ink); cursor: pointer; font-weight: 600; }
+.lc-btn.primary { background: var(--kd-accent); border-color: var(--kd-accent); color: var(--kd-on-accent); }
+.lc-btn:disabled { cursor: progress; opacity: .7; }
+
+/* Beitreten-Bildschirm (4.1) */
+.lc-beitreten { min-height: 100%; display: grid; place-items: center; padding: var(--kd-space-24); }
+.lc-beitreten-karte { width: min(100%, 420px); display: grid; gap: var(--kd-space-8); padding: var(--kd-space-24); background: var(--kd-surface); border: 1px solid var(--kd-line); }
+.lc-beitreten-titel { margin: 0 0 var(--kd-space-8); font-family: var(--font-mono); font-size: 16px; font-weight: 600; }
+.lc-beitreten-zeile { display: flex; gap: var(--kd-space-8); }
+.lc-feld { flex: 1; min-width: 0; height: var(--kd-row); padding: 0 var(--kd-space-8); border: 1px solid var(--kd-line-strong); background: var(--kd-surface); font-family: var(--font-mono); }
+.lc-hinweis { margin: 0; font-size: 12px; color: var(--kd-ink-muted); }
+.lc-meldung { display: flex; flex-wrap: wrap; align-items: center; gap: var(--kd-space-8); }
+.lc-meldung > span:first-child { flex: 1 1 100%; }
