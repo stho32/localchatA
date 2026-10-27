@@ -47,3 +47,4 @@ Nie vom User erfragen.
 | 2026-10-27 | R00002 Nachricht landet im Log | B0032 Tagesdatei als Bytes laden | Nacharbeit | 0,4h | 0,3h | 0,3h | autonom |
 | 2026-10-27 | R00002 Nachricht landet im Log | B0033 Startzeit, die kein UTF-8 ist, ablehnen | Nacharbeit | 0,4h | 0,05h | 0,05h | autonom |
 | 2026-10-27 | R00003 Namen wählen und beitreten | B0034 Aufruf um `--erreichbar-als` erweitern | Standard | 0,4h | 0,02h | 0,1h | autonom |
+| 2026-10-27 | R00003 Namen wählen und beitreten | B0035 Rechnername lesen | Standard | 0,4h | 0,01h | 0,02h | autonom |
