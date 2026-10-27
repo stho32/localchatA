@@ -17,6 +17,7 @@ path = "src/lib.rs"
 [dependencies]
 axum = "0.8"
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
+getrandom = "0.4"
 hyper = { version = "1", features = ["server", "http1"] }
 hyper-util = { version = "0.1", features = ["tokio", "service"] }
 serde = { version = "1", features = ["derive"] }

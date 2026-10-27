@@ -10,3 +10,8 @@ mod http;
 mod name;
 pub mod start;
 pub mod uhr;
+#[cfg_attr(
+    not(test),
+    expect(dead_code, reason = "die Anwesenheit zieht Tokens ab B0048")
+)]
+mod zufall;
