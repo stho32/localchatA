@@ -26,3 +26,7 @@ Eine Zeile je Auftrag an eine Rolle und je Retrospektive.
 | 2026-10-27 | #2 I0002 | Security-Review | security-reviewer | bestanden | 0:05 | parallel; Optional-Punkte an #8, #3, #18 |
 | 2026-10-27 | #2 I0002 | Code-Review | code-reviewer | befund | 0:14 | B1 UTF-8 löscht ganzen Tag (nachgeprobt); Nacharbeit 1 |
 | 2026-10-27 | #2 I0002 | Entwicklung | entwickler | bestanden | 0:11 | Nacharbeit 1: B1, A2 (3e07878, b74ebdd), 169 Tests nachgeprüft |
+| 2026-10-27 | #2 I0002 | Code-Review | code-reviewer | bestanden | 0:03 | Wiederholung B1 behoben |
+| 2026-10-27 | #2 I0002 | Entwicklertest | entwicklertester | bestanden | 0:15 | US-1–US-8, explorativ ohne Befund |
+| 2026-10-27 | #2 I0002 | Security-Review | security-reviewer | bestanden | 0:04 | Rückschritt-Prüfung ohne Befund |
+| 2026-10-27 | #2 I0002 | Retrospektive | director | — | — | Mutationsprobe mit touch → Vorschlag; Hinweise an #7, #8, #10, #18; drei Prüfungen parallel bei festem Code bewährt |
