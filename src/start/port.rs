@@ -16,10 +16,25 @@ pub fn kandidaten(wunsch: Portwunsch) -> Vec<u16> {
     }
 }
 
-/// Bindet den ersten freien Kandidaten; ausgewichen wird nur beim Standard-Port.
+/// Welche Ports versucht werden und ob bei einem belegten zum nächsten ausgewichen wird.
+#[derive(Debug, PartialEq, Eq)]
+struct Bindeplan {
+    kandidaten: Vec<u16>,
+    ausweichen: bool,
+}
+
+/// Ausgewichen wird nur beim Standard-Port; ein ausdrücklicher Port scheitert, wenn er belegt ist.
+fn bindeplan(wunsch: Portwunsch) -> Bindeplan {
+    Bindeplan {
+        kandidaten: kandidaten(wunsch),
+        ausweichen: wunsch == Portwunsch::Standard,
+    }
+}
+
+/// Bindet den ersten freien Kandidaten nach dem Bindeplan.
 pub async fn listener_binden(host: &str, wunsch: Portwunsch) -> Result<TcpListener, Startfehler> {
-    let ausweichen = wunsch == Portwunsch::Standard;
-    erster_freier(host, &kandidaten(wunsch), ausweichen).await
+    let plan = bindeplan(wunsch);
+    erster_freier(host, &plan.kandidaten, plan.ausweichen).await
 }
 
 async fn erster_freier(
@@ -68,6 +83,15 @@ mod tests {
     fn fester_port_und_systemwahl_haben_genau_einen_kandidaten() {
         assert_eq!(kandidaten(Portwunsch::Fest(8123)), vec![8123]);
         assert_eq!(kandidaten(Portwunsch::System), vec![0]);
+    }
+
+    #[test]
+    fn nur_der_standard_port_weicht_aus() {
+        let standard = bindeplan(Portwunsch::Standard);
+        assert_eq!(standard.kandidaten, kandidaten(Portwunsch::Standard));
+        assert!(standard.ausweichen);
+        assert!(!bindeplan(Portwunsch::Fest(8123)).ausweichen);
+        assert!(!bindeplan(Portwunsch::System).ausweichen);
     }
 
     #[tokio::test]

@@ -25,3 +25,4 @@ Nie vom User erfragen.
 | 2026-10-27 | R00001 Instanz starten | Lauf R00001 | Nacharbeit | — | — | 0,01h | autonom |
 | 2026-10-27 | R00001 Instanz starten | Lauf R00001 | Konsolidierung | — | — | 0,01h | autonom |
 | 2026-10-27 | R00001 Instanz starten | B0014 Signale vor der Startzeile abfangen | Nacharbeit | 2h | 0,15h | 0,15h | autonom |
+| 2026-10-27 | R00001 Instanz starten | B0015 Ausweichregel ohne festen Port prüfen | Nacharbeit | 2h | 0,1h | 0,1h | autonom |
