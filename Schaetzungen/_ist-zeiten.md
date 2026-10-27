@@ -27,3 +27,4 @@ Nie vom User erfragen.
 | 2026-10-27 | R00001 Instanz starten | B0014 Signale vor der Startzeile abfangen | Nacharbeit | 2h | 0,15h | 0,15h | autonom |
 | 2026-10-27 | R00001 Instanz starten | B0015 Ausweichregel ohne festen Port prüfen | Nacharbeit | 2h | 0,1h | 0,1h | autonom |
 | 2026-10-27 | R00001 Instanz starten | B0016 Startzeile mit Zeitgrenze abwarten | Nacharbeit | 2h | 0,05h | 0,05h | autonom |
+| 2026-10-27 | R00001 Instanz starten | B0017 Verbindungen begrenzen | Nacharbeit | 2h | 0,11h | 0,15h | autonom |

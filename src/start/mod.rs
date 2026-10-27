@@ -3,14 +3,17 @@
 //! Reihenfolge: Aufruf lesen → Ordner vorbereiten → sperren → binden → Startzeile → Browser → ausliefern bis zum Signal.
 
 mod aufruf;
+mod ausliefern;
 mod browser;
 mod ordner;
 mod port;
 mod sperre;
 mod startfehler;
+mod verbindungen;
 
 use aufruf::{Aufruf, Portwunsch, Startauftrag};
 use startfehler::Startfehler;
+use verbindungen::Verbindungsgrenzen;
 
 use crate::http::{self, Zustand};
 use aufruf::HILFE;
@@ -55,14 +58,14 @@ async fn starten(auftrag: Startauftrag) -> Result<(), Startfehler> {
         browser::oeffnen(adresse);
     }
     let app = http::router(Zustand { ordner });
-    axum::serve(listener, app)
-        .with_graceful_shutdown(beenden)
-        .await
-        .map_err(|fehler| Startfehler::Port {
-            host: auftrag.host,
-            port: adresse.port(),
-            grund: fehler.to_string(),
-        })
+    ausliefern::ausliefern(
+        listener,
+        app,
+        beenden,
+        Verbindungsgrenzen::fuer_diesen_prozess(),
+    )
+    .await;
+    Ok(())
 }
 
 /// Die einzige Zeile auf stdout; Tests und Director lesen die Adresse daraus (X00001).
