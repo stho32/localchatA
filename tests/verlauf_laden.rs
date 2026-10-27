@@ -301,3 +301,31 @@ async fn ungueltiges_byte_in_der_kopfzeile_ist_ein_defekt_des_satzes_der_nachbar
         "{stderr}"
     );
 }
+
+#[cfg(unix)]
+#[test]
+fn a2_startzeit_die_kein_utf8_ist_endet_mit_exit_zwei_und_nennt_die_variable() {
+    use std::os::unix::ffi::OsStrExt;
+    let wurzel = tempfile::tempdir().expect("Wegwerf-Ordner");
+    let mut kind = std::process::Command::new(gemeinsam::PROGRAMM)
+        .arg(wurzel.path())
+        .args(["--port", "0", "--host", "127.0.0.1", "--kein-browser"])
+        .env("TZ", "Europe/Berlin")
+        .env("LOCALCHATA_JETZT", std::ffi::OsStr::from_bytes(b"\xff"))
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .expect("localchatA startet");
+    let status = gemeinsam::warten(&mut kind, std::time::Duration::from_secs(5));
+    if status.is_none() {
+        let _ = kind.kill();
+    }
+    let ausgabe = kind.wait_with_output().expect("Ausgabe");
+    let stderr = String::from_utf8_lossy(&ausgabe.stderr);
+
+    assert_eq!(status.and_then(|s| s.code()), Some(2), "stderr: {stderr}");
+    let zeilen: Vec<&str> = stderr.lines().collect();
+    assert_eq!(zeilen.len(), 1, "{stderr:?}");
+    assert!(zeilen[0].contains("LOCALCHATA_JETZT"), "{}", zeilen[0]);
+    assert!(ausgabe.stdout.is_empty(), "keine Startzeile");
+}

@@ -34,8 +34,8 @@ pub async fn ausfuehren<I: IntoIterator<Item = String>>(argumente: I) -> ExitCod
             ExitCode::SUCCESS
         }
         Ok(Aufruf::Starten(auftrag)) => {
-            let startzeit = std::env::var(uhr::STARTZEIT_VARIABLE).ok();
-            let uhr = match uhr::aus_umgebung(startzeit.as_deref()) {
+            let startzeit = std::env::var_os(uhr::STARTZEIT_VARIABLE);
+            let uhr = match uhr::startzeit_lesen(startzeit.as_deref()).and_then(uhr::aus_umgebung) {
                 Ok(uhr) => uhr,
                 Err(fehler) => {
                     eprintln!("{fehler}");

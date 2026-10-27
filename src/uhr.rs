@@ -4,6 +4,7 @@
 //! verglichen, nie als Zeichenkette. Das lokale Datum folgt der Zeitzone des Prozesses (`TZ`).
 
 use chrono::{DateTime, FixedOffset, Local, TimeZone, Timelike, Utc};
+use std::ffi::OsStr;
 use std::fmt;
 use std::time::Instant;
 
@@ -32,6 +33,17 @@ impl fmt::Display for Startzeitfehler {
             self.wert
         )
     }
+}
+
+/// Der Wert von `LOCALCHATA_JETZT` als Text; ist er gesetzt, aber kein UTF-8, ist er unlesbar wie jeder
+/// andere falsche Wert — nie still „nicht gesetzt“ (Code-Review A2).
+pub fn startzeit_lesen(wert: Option<&OsStr>) -> Result<Option<&str>, Startzeitfehler> {
+    wert.map(|roh| {
+        roh.to_str().ok_or_else(|| Startzeitfehler {
+            wert: roh.to_string_lossy().into_owned(),
+        })
+    })
+    .transpose()
 }
 
 /// Bildet die Uhr des Prozesses: ohne Wert die Systemuhr, sonst eine Uhr, die ab diesem Zeitpunkt weiterläuft.
@@ -165,6 +177,27 @@ mod tests {
             assert!(text.contains("LOCALCHATA_JETZT"), "{text}");
             assert!(!text.contains('\n'), "{text}");
         }
+    }
+
+    #[test]
+    fn startzeit_in_utf8_wird_text_fehlende_bleibt_fehlend() {
+        assert_eq!(
+            startzeit_lesen(Some(OsStr::new("2026-10-27T12:00:00+01:00"))),
+            Ok(Some("2026-10-27T12:00:00+01:00"))
+        );
+        assert_eq!(startzeit_lesen(None), Ok(None));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn startzeit_die_kein_utf8_ist_ist_ein_fehler_der_die_variable_nennt() {
+        use std::os::unix::ffi::OsStrExt;
+
+        let fehler = startzeit_lesen(Some(OsStr::from_bytes(b"2026\xff")))
+            .expect_err("kein UTF-8 darf keine Startzeit ergeben");
+
+        assert_eq!(fehler.wert, "2026\u{FFFD}");
+        assert!(fehler.to_string().contains("LOCALCHATA_JETZT"), "{fehler}");
     }
 
     #[test]
