@@ -6,6 +6,8 @@ use std::fmt;
 pub enum Fehler {
     /// Eine Eingabe verletzt eine Regel; der Text nennt Wert und Regel.
     Ungueltig(String),
+    /// Das Gemeinte gibt es nicht (z. B. ein Gespräch, das weder geladen noch angelegt ist).
+    Unbekannt(String),
     /// Die Ablage im Ordner lässt sich nicht lesen oder schreiben; der Text nennt Ort und Grund.
     Ablage(String),
 }
@@ -13,7 +15,9 @@ pub enum Fehler {
 impl fmt::Display for Fehler {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Fehler::Ungueltig(text) | Fehler::Ablage(text) => write!(f, "{text}"),
+            Fehler::Ungueltig(text) | Fehler::Unbekannt(text) | Fehler::Ablage(text) => {
+                write!(f, "{text}")
+            }
         }
     }
 }

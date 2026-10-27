@@ -89,12 +89,10 @@ async fn starten(auftrag: Startauftrag, uhr: Box<dyn Uhr>) -> Result<(), Startfe
 /// Lädt den Verlauf vor dem Binden — ab der Startzeile ist er vollständig da (A00003).
 /// Jeder Defekt steht als eine Zeile `<datei>:<zeile>` auf stderr (X00004).
 fn verlauf_laden(ordner: &Path, uhr: Box<dyn Uhr>) -> Result<Gespraeche, Startfehler> {
-    let gespraeche =
-        Gespraeche::laden(Box::new(Dateiablage::neu(ordner)), uhr).map_err(|fehler| {
-            Startfehler::Laden {
-                ordner: ordner.to_path_buf(),
-                grund: fehler.to_string(),
-            }
+    let gespraeche = Gespraeche::laden(Arc::new(Dateiablage::neu(ordner)), Arc::from(uhr))
+        .map_err(|fehler| Startfehler::Laden {
+            ordner: ordner.to_path_buf(),
+            grund: fehler.to_string(),
         })?;
     for defekt in gespraeche.defekte() {
         eprintln!("{defekt}");

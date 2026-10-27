@@ -38,7 +38,7 @@ pub(crate) mod testserver {
     pub async fn starten(ordner: &Path) -> String {
         let leer = tempfile::tempdir().expect("Wegwerf-Ordner");
         let gespraeche =
-            Gespraeche::laden(Box::new(Dateiablage::neu(leer.path())), Box::new(Systemuhr))
+            Gespraeche::laden(Arc::new(Dateiablage::neu(leer.path())), Arc::new(Systemuhr))
                 .expect("leerer Ordner geladen");
         let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0))
             .await
