@@ -18,7 +18,6 @@ use std::sync::Arc;
 
 /// Wer eine Anfrage stellt — geprüft; das Token bleibt in der Anwesenheit.
 #[derive(Debug, Clone, PartialEq, Eq)]
-#[cfg_attr(not(test), expect(dead_code, reason = "B0054 /api/ich"))]
 pub struct Teilnehmer {
     pub kennung: Kennung,
     pub name: Name,
@@ -56,10 +55,8 @@ impl FromRequestParts<Arc<Zustand>> for Teilnehmer {
 }
 
 /// Der Nachweis einer Sitzung bei jedem Aufruf (ADR-0012).
-#[cfg_attr(not(test), expect(dead_code, reason = "B0054 /api/ich"))]
 pub const SITZUNG_HEADER: &str = "x-localchata-sitzung";
 
-#[cfg_attr(not(test), expect(dead_code, reason = "B0054 /api/ich"))]
 fn nicht_erkannt() -> Response {
     let fehler = "Keine gültige Sitzung — mit POST /api/beitreten beitreten und das Token im Header X-LocalchatA-Sitzung senden (gültig nur von derselben Herkunft).";
     (StatusCode::UNAUTHORIZED, Json(json!({ "fehler": fehler }))).into_response()

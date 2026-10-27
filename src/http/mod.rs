@@ -4,6 +4,7 @@ mod beitreten;
 mod eingebettet;
 mod gesundheit;
 mod grenzschutz;
+mod ich;
 mod oberflaeche;
 mod teilnehmer;
 
@@ -35,6 +36,7 @@ pub fn router(zustand: Zustand) -> Router {
         .route("/web/{datei}", get(oberflaeche::datei))
         .route("/api/gesundheit", get(gesundheit::beantworten))
         .route("/api/beitreten", post(beitreten::beantworten))
+        .route("/api/ich", get(ich::beantworten))
         .with_state(Arc::new(zustand))
         .layer(middleware::from_fn_with_state(
             grenzschutz,

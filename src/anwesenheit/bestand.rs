@@ -105,7 +105,6 @@ impl Anwesenheit {
 
     /// Gültiges Token derselben Herkunft → die Sitzung, ihr Lebenszeichen erneuert; sonst keine
     /// (unbekannt, abgelaufen, andere Herkunft — eine fremde Herkunft erneuert nichts).
-    #[cfg_attr(not(test), expect(dead_code, reason = "B0054 /api/ich"))]
     pub fn wiederkehren(&self, token: &Token, herkunft: IpAddr) -> Option<Sitzung> {
         let jetzt = self.uhr.jetzt();
         let mut sitzungen = self.lebende_sitzungen(jetzt);
