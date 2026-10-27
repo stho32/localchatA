@@ -1,8 +1,9 @@
 //! Start: vom Aufruf bis zum lauschenden Server (A00003).
 //!
-//! Reihenfolge: Aufruf lesen → Ordner vorbereiten → sperren → binden → Startzeile → ausliefern bis zum Signal.
+//! Reihenfolge: Aufruf lesen → Ordner vorbereiten → sperren → binden → Startzeile → Browser → ausliefern bis zum Signal.
 
 mod aufruf;
+pub mod browser;
 pub mod ordner;
 pub mod port;
 pub mod sperre;
@@ -49,6 +50,9 @@ async fn starten(auftrag: Startauftrag) -> Result<(), Startfehler> {
         grund: fehler.to_string(),
     })?;
     startzeile_schreiben(&ordner, adresse);
+    if auftrag.browser_oeffnen {
+        browser::oeffnen(adresse);
+    }
     let app = http::router(Zustand { ordner });
     axum::serve(listener, app)
         .with_graceful_shutdown(beenden_verlangt())

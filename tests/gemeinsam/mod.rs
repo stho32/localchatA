@@ -3,7 +3,7 @@
 
 use std::io::{BufRead, BufReader, Read};
 use std::path::{Path, PathBuf};
-use std::process::{Child, ChildStdout, Command, ExitStatus, Stdio};
+use std::process::{Child, ChildStderr, ChildStdout, Command, ExitStatus, Stdio};
 use std::time::{Duration, Instant};
 
 pub const PROGRAMM: &str = env!("CARGO_BIN_EXE_localchatA");
@@ -15,6 +15,7 @@ pub struct Instanz {
     pub startzeile: String,
     pub adresse: String,
     stdout: BufReader<ChildStdout>,
+    stderr: Option<ChildStderr>,
 }
 
 /// Endet mit dem Drop: SIGTERM, damit das Programm geordnet endet; notfalls hart. Danach erst den Ordner weg.
@@ -50,6 +51,21 @@ impl Instanz {
         warten(&mut self.kind, Duration::from_secs(5)).expect("Programm endet nach dem Signal")
     }
 
+    /// Wartet höchstens `hoechstens` auf die nächste Zeile auf stderr (nur bei `starten_mit`).
+    pub fn stderr_zeile_abwarten(&mut self, hoechstens: Duration) -> Option<String> {
+        let stderr = self.stderr.take()?;
+        let (senden, empfangen) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let mut zeile = String::new();
+            let _ = BufReader::new(stderr).read_line(&mut zeile);
+            let _ = senden.send(zeile);
+        });
+        empfangen
+            .recv_timeout(hoechstens)
+            .ok()
+            .filter(|zeile| !zeile.is_empty())
+    }
+
     /// Was nach der Startzeile noch auf stdout kam (liest bis zum Ende des Programms).
     pub fn restliche_ausgabe(&mut self) -> String {
         let mut rest = String::new();
@@ -80,13 +96,32 @@ pub fn warten(kind: &mut Child, hoechstens: Duration) -> Option<ExitStatus> {
 
 /// Startet das Programm mit `<ordner> <argumente…>` und wartet auf die Startzeile.
 pub fn starten(ordner: &Path, argumente: &[&str]) -> Instanz {
-    let mut kind = Command::new(PROGRAMM)
+    let kind = Command::new(PROGRAMM)
         .arg(ordner)
         .args(argumente)
         .stdout(Stdio::piped())
         .stderr(Stdio::inherit())
         .spawn()
         .expect("localchatA startet");
+    auf_startzeile_warten(ordner, kind)
+}
+
+/// Wie `starten`, mit zusätzlichen Umgebungsvariablen und mitgelesenem stderr.
+pub fn starten_mit(ordner: &Path, argumente: &[&str], umgebung: &[(&str, &str)]) -> Instanz {
+    let kind = Command::new(PROGRAMM)
+        .arg(ordner)
+        .args(argumente)
+        .envs(umgebung.iter().copied())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("localchatA startet");
+    let mut instanz = auf_startzeile_warten(ordner, kind);
+    instanz.stderr = instanz.kind.stderr.take();
+    instanz
+}
+
+fn auf_startzeile_warten(ordner: &Path, mut kind: Child) -> Instanz {
     let mut stdout = BufReader::new(kind.stdout.take().expect("stdout"));
     let mut startzeile = String::new();
     stdout.read_line(&mut startzeile).expect("Startzeile lesen");
@@ -108,6 +143,7 @@ pub fn starten(ordner: &Path, argumente: &[&str]) -> Instanz {
         startzeile,
         adresse,
         stdout,
+        stderr: None,
     }
 }
 
