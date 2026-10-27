@@ -4,7 +4,8 @@
 
 use chrono::NaiveDate;
 use std::fmt;
-use std::io;
+use std::fs::File;
+use std::io::{self, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 
 /// Ein Gespräch ist ein Ordner unter `channels/<slug>` oder `direkt/<name>`.
@@ -44,6 +45,21 @@ pub trait Logablage: Send + Sync {
     fn gespraeche(&self) -> io::Result<Vec<Gespraech>>;
     fn tage(&self, gespraech: &Gespraech) -> io::Result<Vec<NaiveDate>>;
     fn lesen(&self, gespraech: &Gespraech, tag: NaiveDate) -> io::Result<String>;
+
+    /// Hängt einen fertigen Satz in einem Schreibaufruf an die Tagesdatei (neuer Tag → neue Datei).
+    /// Endet die Datei nicht auf `\n`, wird zuerst `\n` geschrieben (Zeilenende-Wächter, ADR-0011).
+    fn anhaengen(
+        &self,
+        gespraech: &Gespraech,
+        tag: NaiveDate,
+        satz: &str,
+    ) -> io::Result<Angehaengt>;
+}
+
+/// Was beim Anhängen geschrieben wurde: der Satz, davor womöglich ein ergänztes `\n`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Angehaengt {
+    pub zeilenende_ergaenzt: bool,
 }
 
 /// Die Ablage im Ordner der Instanz.
@@ -90,6 +106,42 @@ impl Logablage for Dateiablage {
     fn lesen(&self, gespraech: &Gespraech, tag: NaiveDate) -> io::Result<String> {
         std::fs::read_to_string(self.ordner.join(gespraech.tagesdatei(tag)))
     }
+
+    fn anhaengen(
+        &self,
+        gespraech: &Gespraech,
+        tag: NaiveDate,
+        satz: &str,
+    ) -> io::Result<Angehaengt> {
+        let pfad = self.ordner.join(gespraech.tagesdatei(tag));
+        let mut datei = std::fs::OpenOptions::new()
+            .read(true)
+            .append(true)
+            .create(true)
+            .open(&pfad)?;
+        let zeilenende_ergaenzt = !endet_mit_zeilenende(&mut datei)?;
+        let mut bytes = Vec::with_capacity(satz.len() + 1);
+        if zeilenende_ergaenzt {
+            bytes.push(b'\n');
+        }
+        bytes.extend_from_slice(satz.as_bytes());
+        datei.write_all(&bytes)?;
+        Ok(Angehaengt {
+            zeilenende_ergaenzt,
+        })
+    }
+}
+
+/// Leer oder letztes Byte `\n` — dann beginnt der nächste Satz in Spalte 1.
+fn endet_mit_zeilenende(datei: &mut File) -> io::Result<bool> {
+    let laenge = datei.metadata()?.len();
+    if laenge == 0 {
+        return Ok(true);
+    }
+    let mut letztes = [0u8; 1];
+    datei.seek(SeekFrom::Start(laenge - 1))?;
+    datei.read_exact(&mut letztes)?;
+    Ok(letztes[0] == b'\n')
 }
 
 /// Namen der Unterordner; fehlt der Ordner, gibt es keine.
@@ -196,6 +248,101 @@ mod tests {
                 .expect("lesen"),
             "d\n"
         );
+    }
+
+    fn allgemein(ordner: &Path) -> (Dateiablage, Gespraech) {
+        fs::create_dir_all(ordner.join("channels/allgemein")).expect("Channel-Ordner");
+        (Dateiablage::neu(ordner), Gespraech::channel("allgemein"))
+    }
+
+    #[test]
+    fn zwei_saetze_stehen_in_reihenfolge_in_der_tagesdatei() {
+        let wurzel = tempfile::tempdir().expect("Wegwerf-Ordner");
+        let (ablage, allgemein) = allgemein(wurzel.path());
+
+        let erstes = ablage
+            .anhaengen(&allgemein, tag("2026-10-27"), "@ eins\n  a\n\n")
+            .expect("angehängt");
+        ablage
+            .anhaengen(&allgemein, tag("2026-10-27"), "@ zwei\n  b\n\n")
+            .expect("angehängt");
+
+        assert!(!erstes.zeilenende_ergaenzt);
+        assert_eq!(
+            fs::read_to_string(wurzel.path().join("channels/allgemein/2026-10-27.log"))
+                .expect("Tagesdatei"),
+            "@ eins\n  a\n\n@ zwei\n  b\n\n"
+        );
+    }
+
+    #[test]
+    fn neuer_tag_oeffnet_neue_datei_und_laesst_den_alten_byte_gleich() {
+        let wurzel = tempfile::tempdir().expect("Wegwerf-Ordner");
+        let (ablage, allgemein) = allgemein(wurzel.path());
+        ablage
+            .anhaengen(&allgemein, tag("2026-10-27"), "@ alt\n\n")
+            .expect("angehängt");
+        let alt = wurzel.path().join("channels/allgemein/2026-10-27.log");
+        let vorher = fs::read(&alt).expect("alter Tag");
+
+        ablage
+            .anhaengen(&allgemein, tag("2026-10-28"), "@ neu\n\n")
+            .expect("angehängt");
+
+        assert_eq!(fs::read(&alt).expect("alter Tag"), vorher);
+        assert_eq!(
+            fs::read_to_string(wurzel.path().join("channels/allgemein/2026-10-28.log"))
+                .expect("neuer Tag"),
+            "@ neu\n\n"
+        );
+    }
+
+    #[test]
+    fn endet_die_datei_ohne_zeilenende_beginnt_der_satz_in_einer_neuen_zeile() {
+        let wurzel = tempfile::tempdir().expect("Wegwerf-Ordner");
+        let (ablage, allgemein) = allgemein(wurzel.path());
+        let pfad = wurzel.path().join("channels/allgemein/2026-10-27.log");
+        fs::write(&pfad, "@ eins\n  Rest").expect("ohne Zeilenende");
+
+        let angehaengt = ablage
+            .anhaengen(&allgemein, tag("2026-10-27"), "@ zwei\n\n")
+            .expect("angehängt");
+
+        assert!(angehaengt.zeilenende_ergaenzt);
+        assert_eq!(
+            fs::read_to_string(&pfad).expect("Tagesdatei"),
+            "@ eins\n  Rest\n@ zwei\n\n"
+        );
+    }
+
+    #[test]
+    fn leere_vorhandene_datei_braucht_kein_zeilenende() {
+        let wurzel = tempfile::tempdir().expect("Wegwerf-Ordner");
+        let (ablage, allgemein) = allgemein(wurzel.path());
+        let pfad = wurzel.path().join("channels/allgemein/2026-10-27.log");
+        fs::write(&pfad, "").expect("leer");
+
+        let angehaengt = ablage
+            .anhaengen(&allgemein, tag("2026-10-27"), "@ eins\n\n")
+            .expect("angehängt");
+
+        assert!(!angehaengt.zeilenende_ergaenzt);
+        assert_eq!(fs::read_to_string(&pfad).expect("Tagesdatei"), "@ eins\n\n");
+    }
+
+    #[test]
+    fn unbekanntes_gespraech_wird_nicht_angelegt() {
+        let wurzel = tempfile::tempdir().expect("Wegwerf-Ordner");
+        let ablage = Dateiablage::neu(wurzel.path());
+
+        let ergebnis = ablage.anhaengen(
+            &Gespraech::channel("gibtsnicht"),
+            tag("2026-10-27"),
+            "@ x\n\n",
+        );
+
+        assert!(ergebnis.is_err());
+        assert!(!wurzel.path().join("channels/gibtsnicht").exists());
     }
 
     #[test]
