@@ -28,3 +28,4 @@ Nie vom User erfragen.
 | 2026-10-27 | R00001 Instanz starten | B0015 Ausweichregel ohne festen Port prüfen | Nacharbeit | 2h | 0,1h | 0,1h | autonom |
 | 2026-10-27 | R00001 Instanz starten | B0016 Startzeile mit Zeitgrenze abwarten | Nacharbeit | 2h | 0,05h | 0,05h | autonom |
 | 2026-10-27 | R00001 Instanz starten | B0017 Verbindungen begrenzen | Nacharbeit | 2h | 0,11h | 0,15h | autonom |
+| 2026-10-27 | R00002 Nachricht landet im Log | B0018 Uhr mit Startzeit aus der Umgebung | Standard | 0,4h | 0,03h | 0,03h | autonom |

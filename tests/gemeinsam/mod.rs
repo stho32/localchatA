@@ -216,8 +216,14 @@ pub struct Ende {
 
 /// Ruft das Programm auf und wartet höchstens fünf Sekunden auf sein Ende (sonst `exit: None`).
 pub fn aufrufen(argumente: &[&str]) -> Ende {
+    aufrufen_mit(argumente, &[])
+}
+
+/// Wie `aufrufen`, mit zusätzlichen Umgebungsvariablen.
+pub fn aufrufen_mit(argumente: &[&str], umgebung: &[(&str, &str)]) -> Ende {
     let mut kind = Command::new(PROGRAMM)
         .args(argumente)
+        .envs(umgebung.iter().copied())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()

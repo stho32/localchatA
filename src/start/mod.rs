@@ -16,26 +16,38 @@ use startfehler::Startfehler;
 use verbindungen::Verbindungsgrenzen;
 
 use crate::http::{self, Zustand};
+use crate::uhr::{self, Uhr};
 use aufruf::HILFE;
 use std::net::SocketAddr;
 use std::path::Path;
 use std::process::ExitCode;
 
 /// Führt einen Aufruf (Argumente ohne Programmnamen) bis zum Ende aus und liefert den Exit-Code:
-/// 0 geordnet beendet oder Hilfe, 1 Ordner, Port oder Sperre scheitert, 2 falscher Aufruf.
+/// 0 geordnet beendet oder Hilfe, 1 Ordner, Port oder Sperre scheitert, 2 falscher Aufruf oder
+/// unlesbare Startzeit in `LOCALCHATA_JETZT`.
 pub async fn ausfuehren<I: IntoIterator<Item = String>>(argumente: I) -> ExitCode {
     match Startauftrag::aus_argumenten(argumente) {
         Ok(Aufruf::Hilfe) => {
             println!("{HILFE}");
             ExitCode::SUCCESS
         }
-        Ok(Aufruf::Starten(auftrag)) => match starten(auftrag).await {
-            Ok(()) => ExitCode::SUCCESS,
-            Err(fehler) => {
-                eprintln!("{fehler}");
-                ExitCode::FAILURE
+        Ok(Aufruf::Starten(auftrag)) => {
+            let startzeit = std::env::var(uhr::STARTZEIT_VARIABLE).ok();
+            let uhr = match uhr::aus_umgebung(startzeit.as_deref()) {
+                Ok(uhr) => uhr,
+                Err(fehler) => {
+                    eprintln!("{fehler}");
+                    return ExitCode::from(2);
+                }
+            };
+            match starten(auftrag, uhr).await {
+                Ok(()) => ExitCode::SUCCESS,
+                Err(fehler) => {
+                    eprintln!("{fehler}");
+                    ExitCode::FAILURE
+                }
             }
-        },
+        }
         Err(fehler) => {
             eprintln!("{fehler}");
             ExitCode::from(2)
@@ -43,7 +55,7 @@ pub async fn ausfuehren<I: IntoIterator<Item = String>>(argumente: I) -> ExitCod
     }
 }
 
-async fn starten(auftrag: Startauftrag) -> Result<(), Startfehler> {
+async fn starten(auftrag: Startauftrag, _uhr: Box<dyn Uhr>) -> Result<(), Startfehler> {
     let ordner = ordner::ordner_vorbereiten(&auftrag.ordner)?;
     let _sperre = sperre::ordner_sperren(&ordner)?;
     let listener = port::listener_binden(&auftrag.host, auftrag.port).await?;
