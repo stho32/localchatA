@@ -2,17 +2,36 @@
 #![allow(dead_code)]
 
 use std::io::{BufRead, BufReader, Read};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::{Child, ChildStdout, Command, ExitStatus, Stdio};
 use std::time::{Duration, Instant};
 
 pub const PROGRAMM: &str = env!("CARGO_BIN_EXE_localchatA");
 
 pub struct Instanz {
+    pub ordner: PathBuf,
+    wegwerf: Option<tempfile::TempDir>,
     pub kind: Child,
     pub startzeile: String,
     pub adresse: String,
     stdout: BufReader<ChildStdout>,
+}
+
+/// Endet mit dem Drop: SIGTERM, damit das Programm geordnet endet; notfalls hart. Danach erst den Ordner weg.
+impl Drop for Instanz {
+    fn drop(&mut self) {
+        if let Ok(None) = self.kind.try_wait() {
+            let _ = Command::new("kill")
+                .arg("-TERM")
+                .arg(self.kind.id().to_string())
+                .status();
+            if warten(&mut self.kind, Duration::from_secs(5)).is_none() {
+                let _ = self.kind.kill();
+                let _ = self.kind.wait();
+            }
+        }
+        self.wegwerf.take();
+    }
 }
 
 impl Instanz {
@@ -83,11 +102,21 @@ pub fn starten(ordner: &Path, argumente: &[&str]) -> Instanz {
         .expect("Adresse am Ende der Startzeile")
         .to_string();
     Instanz {
+        ordner: ordner.to_path_buf(),
+        wegwerf: None,
         kind,
         startzeile,
         adresse,
         stdout,
     }
+}
+
+/// Eine lokale Instanz in einem eigenen Wegwerf-Ordner.
+pub fn wegwerf_starten() -> Instanz {
+    let wurzel = tempfile::tempdir().expect("Wegwerf-Ordner");
+    let mut instanz = lokal_starten(wurzel.path());
+    instanz.wegwerf = Some(wurzel);
+    instanz
 }
 
 /// Wie `starten`, auf Port 0, nur 127.0.0.1, ohne Browser.
