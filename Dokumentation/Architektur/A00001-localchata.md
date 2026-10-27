@@ -23,7 +23,7 @@ Bringt Menschen und KI-Agenten im LAN in Channels und Direktgesprächen zusammen
 
 ## Schnittstellen
 
-- **Eingehend — Mensch im Browser:** HTTP (Seite, JSON-API, Server-Sent Events) auf einem Port im LAN, ohne Anmeldung; Identität `name@herkunft` über ein Sitzungs-Token ([ADR-0008](../ADRs/0008-identitaet-peer-adresse-und-sitzungs-token.md)).
+- **Eingehend — Mensch im Browser:** HTTP (Seite, JSON-API, Server-Sent Events) auf einem Port im LAN, ohne Anmeldung; Identität `name@herkunft` über ein Sitzungs-Token ([ADR-0012](../ADRs/0012-identitaet-und-sitzung.md)); Host-, Origin-Prüfung und Sicherheitsheader an der Grenze ([ADR-0014](../ADRs/0014-grenzschutz-host-origin-sicherheitsheader.md)).
 - **Eingehend — Agent:** dieselbe JSON-API; Warten auf Neues als Long-Poll `GET /api/warten` ([ADR-0007](../ADRs/0007-live-kanal-sse-fuer-browser-long-poll-fuer-agenten.md)).
 - **Ausgehend — Dateisystem:** ein Ordner, Aufruf `localchatA <ordner>`; Layout und Format in [ADR-0003](../ADRs/0003-ablage-layout-im-ordner.md) und [ADR-0004](../ADRs/0004-logformat-kopfzeile-und-eingerueckter-text.md). Lesen darf jeder, schreiben nur das Programm ([ADR-0005](../ADRs/0005-programm-als-einziger-schreiber-und-reihenfolge.md)).
 - **Ausgehend — Browser des Startenden:** öffnet beim Start die Seite (abschaltbar), wie kanbanD.
@@ -43,10 +43,13 @@ Bringt Menschen und KI-Agenten im LAN in Channels und Direktgesprächen zusammen
 - [ADR-0005: Das Programm ist einziger Schreiber; Reihenfolge über Sperre je Gespräch und monotone Zeit](../ADRs/0005-programm-als-einziger-schreiber-und-reihenfolge.md) — Vorgeschlagen, 2026-10-27
 - [ADR-0006: Verlaufsindex im Speicher über dem Rohtext der Tagesdateien](../ADRs/0006-verlaufsindex-im-speicher.md) — Akzeptiert, 2026-10-27
 - [ADR-0007: Live-Kanal — SSE für Browser, Long-Poll für Agenten, ein Ereignisbus](../ADRs/0007-live-kanal-sse-fuer-browser-long-poll-fuer-agenten.md) — Vorgeschlagen, 2026-10-27
-- [ADR-0008: Identität — Herkunft aus der Peer-Adresse, Nachweis über Sitzungs-Token](../ADRs/0008-identitaet-peer-adresse-und-sitzungs-token.md) — Vorgeschlagen, 2026-10-27
+- [ADR-0008: Identität — Herkunft aus der Peer-Adresse, Nachweis über Sitzungs-Token](../ADRs/0008-identitaet-peer-adresse-und-sitzungs-token.md) — Abgelöst durch ADR-0012, 2026-10-27
 - [ADR-0009: Teststrategie, Gate und Health-Check](../ADRs/0009-teststrategie-gate-und-health-check.md) — Akzeptiert, 2026-10-27
 - [ADR-0010: Eigene Annahmeschleife mit hyper http1 statt `axum::serve`](../ADRs/0010-eigene-annahmeschleife-hyper-http1.md) — Akzeptiert, 2026-10-27
 - [ADR-0011: Anhängen mit Rückbau bei Fehler und Zeilenende-Wächter](../ADRs/0011-anhaengen-mit-rueckbau-und-zeilenende-waechter.md) — Akzeptiert, 2026-10-27
+- [ADR-0012: Identität und Sitzung — Herkunft aus der Gegenstelle, Sitzungs-Token im Speicher, eine Sitzung je Browser](../ADRs/0012-identitaet-und-sitzung.md) — Akzeptiert, 2026-10-27
+- [ADR-0013: Namensregel als Erlaubnisliste — `[a-z0-9-]`, 1 bis 32 Zeichen, abweisen statt umformen](../ADRs/0013-namensregel-als-erlaubnisliste.md) — Akzeptiert, 2026-10-27
+- [ADR-0014: Grenzschutz im LAN — Host-Erlaubnisliste, Origin-Prüfung für Schreibendes, Sicherheitsheader auf jeder Antwort](../ADRs/0014-grenzschutz-host-origin-sicherheitsheader.md) — Akzeptiert, 2026-10-27
 
 ## Offene Fragen
 

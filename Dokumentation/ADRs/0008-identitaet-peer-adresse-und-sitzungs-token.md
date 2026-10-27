@@ -1,6 +1,6 @@
 # ADR-0008: Identität — Herkunft aus der Peer-Adresse, Nachweis über Sitzungs-Token
 
-**Status**: Vorgeschlagen
+**Status**: Abgelöst durch ADR-0012
 **Datum**: 2026-10-27
 **Entscheider**: Claude (autonom, architekt, Auftrag des Directors, Karte #1 I0001) — wartet auf fachliche Klärung durch den `planer` (siehe Aufgaben)
 **Kontext-Anforderung**: — (WBS I0004, I0005, I0006, I0014)
