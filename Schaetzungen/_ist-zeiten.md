@@ -44,3 +44,4 @@ Nie vom User erfragen.
 | 2026-10-27 | R00002 Nachricht landet im Log | B0031 Nachricht senden | Standard | 0,4h | 0,02h | 0,02h | autonom |
 | 2026-10-27 | R00002 Nachricht landet im Log | Lauf R00002 | Nacharbeit | — | — | 0,06h | autonom |
 | 2026-10-27 | R00002 Nachricht landet im Log | Lauf R00002 | Konsolidierung | — | — | 0,02h | autonom |
+| 2026-10-27 | R00002 Nachricht landet im Log | B0032 Tagesdatei als Bytes laden | Nacharbeit | 0,4h | 0,3h | 0,3h | autonom |

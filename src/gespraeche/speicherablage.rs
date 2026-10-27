@@ -68,8 +68,10 @@ impl Logablage for Speicherablage {
         Ok(tage.keys().copied().collect())
     }
 
-    fn lesen(&self, gespraech: &Gespraech, tag: NaiveDate) -> io::Result<String> {
-        self.inhalt(gespraech, tag).ok_or_else(unbekannt)
+    fn lesen(&self, gespraech: &Gespraech, tag: NaiveDate) -> io::Result<Vec<u8>> {
+        self.inhalt(gespraech, tag)
+            .map(String::into_bytes)
+            .ok_or_else(unbekannt)
     }
 
     fn anhaengen(
@@ -139,7 +141,7 @@ mod tests {
         );
         assert_eq!(
             ablage.lesen(&allgemein, tag("2026-10-26")).expect("lesen"),
-            "@ eins\n\n"
+            b"@ eins\n\n"
         );
     }
 

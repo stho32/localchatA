@@ -493,14 +493,21 @@ mod tests {
         );
     }
 
+    /// Nicht lesbar heißt: das Dateisystem verweigert die Datei (hier per Rechte); ungültiges UTF-8 ist
+    /// kein Lesefehler, sondern ein Defekt seiner Zeile (Code-Review B1).
+    #[cfg(unix)]
     #[test]
     fn nicht_lesbare_tagesdatei_ist_ein_defekt_und_der_rest_wird_geladen() {
+        use std::os::unix::fs::PermissionsExt;
         let wurzel = tempfile::tempdir().expect("Wegwerf-Ordner");
         let ordner = wurzel.path();
-        datei(ordner, "channels/a/2026-10-26.log", b"@ 2026\xff kaputt\n");
+        datei(ordner, "channels/a/2026-10-26.log", TAG_26.as_bytes());
+        let gesperrt = ordner.join("channels/a/2026-10-26.log");
+        fs::set_permissions(&gesperrt, fs::Permissions::from_mode(0o000)).expect("Rechte");
         datei(ordner, "channels/a/2026-10-27.log", DIREKT.as_bytes());
 
         let gespraeche = laden_um(ordner, "2026-10-27T12:00:00+01:00");
+        fs::set_permissions(&gesperrt, fs::Permissions::from_mode(0o644)).expect("Rechte");
 
         assert_eq!(gespraeche.kennzahlen().nachrichten, 1);
         assert_eq!(gespraeche.kennzahlen().defekte_zeilen, 1);
@@ -509,6 +516,30 @@ mod tests {
             gespraeche.defekte()[0].art,
             Defektart::Unlesbar(_)
         ));
+    }
+
+    #[test]
+    fn ungueltiges_utf8_ist_ein_zeilendefekt_der_tag_bleibt_mit_rohbytes_und_juengster_zeit() {
+        let wurzel = tempfile::tempdir().expect("Wegwerf-Ordner");
+        let rohtext: &[u8] = b"@ 2026-10-27T10:00:00.000+01:00 a@b\n  eins\n\n@ 2026-10-27T10:00:06.000+01:00 c@d\n  Scan l\xC3";
+        datei(wurzel.path(), "channels/a/2026-10-27.log", rohtext);
+
+        let gespraeche = laden_um(wurzel.path(), "2026-10-27T12:00:00+01:00");
+
+        let kennzahlen = gespraeche.kennzahlen();
+        assert_eq!(kennzahlen.nachrichten, 2);
+        assert_eq!(kennzahlen.log_bytes, rohtext.len() as u64);
+        assert_eq!(
+            gespraeche.defekte(),
+            &[Ladedefekt {
+                datei: "channels/a/2026-10-27.log".into(),
+                art: Defektart::Zeile(5),
+            }]
+        );
+        assert_eq!(
+            gespraeche.letzte_zeit(),
+            Some(zeit("2026-10-27T10:00:06+01:00"))
+        );
     }
 
     #[test]

@@ -44,7 +44,8 @@ impl fmt::Display for Gespraech {
 pub trait Logablage: Send + Sync {
     fn gespraeche(&self) -> io::Result<Vec<Gespraech>>;
     fn tage(&self, gespraech: &Gespraech) -> io::Result<Vec<NaiveDate>>;
-    fn lesen(&self, gespraech: &Gespraech, tag: NaiveDate) -> io::Result<String>;
+    /// Die Bytes der Tagesdatei, ungeprüft — ob sie gültiges UTF-8 sind, entscheidet das Logformat je Zeile.
+    fn lesen(&self, gespraech: &Gespraech, tag: NaiveDate) -> io::Result<Vec<u8>>;
 
     /// Hängt einen fertigen Satz in einem Schreibaufruf an die Tagesdatei (neuer Tag → neue Datei).
     /// Endet die Datei nicht auf `\n`, wird zuerst `\n` geschrieben (Zeilenende-Wächter, ADR-0011).
@@ -103,8 +104,8 @@ impl Logablage for Dateiablage {
         Ok(tage)
     }
 
-    fn lesen(&self, gespraech: &Gespraech, tag: NaiveDate) -> io::Result<String> {
-        std::fs::read_to_string(self.ordner.join(gespraech.tagesdatei(tag)))
+    fn lesen(&self, gespraech: &Gespraech, tag: NaiveDate) -> io::Result<Vec<u8>> {
+        std::fs::read(self.ordner.join(gespraech.tagesdatei(tag)))
     }
 
     fn anhaengen(
@@ -259,13 +260,13 @@ mod tests {
             ablage
                 .lesen(&Gespraech::channel("allgemein"), tag("2026-10-26"))
                 .expect("lesen"),
-            "eins\n"
+            b"eins\n"
         );
         assert_eq!(
             ablage
                 .lesen(&gespraeche[2], tag("2026-10-27"))
                 .expect("lesen"),
-            "d\n"
+            b"d\n"
         );
     }
 

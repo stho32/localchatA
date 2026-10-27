@@ -221,3 +221,83 @@ fn nicht_lesbare_ablage_beendet_den_start_mit_exit_eins_und_nennt_den_ordner() {
     assert!(zeilen[0].contains(&ordner), "{}", zeilen[0]);
     assert_eq!(ende.stdout, "", "keine Startzeile");
 }
+
+/// Zwei heile Sätze, dann ein dritter, mitten im Zeichen `ä` abgeschnitten (177 Bytes, Code-Review B1).
+const ABGESCHNITTEN: &[u8] = b"@ 2026-10-27T10:00:00.000+01:00 shoff@127.0.0.1\n  Wie weit?\n\n@ 2026-10-27T10:00:05.000+01:00 claude@10.0.0.5\n  Fertig.\n\n@ 2026-10-27T10:00:06.000+01:00 claude@10.0.0.5\n  Scan l\xC3";
+
+fn datei_bytes(ordner: &Path, pfad: &str, inhalt: &[u8]) {
+    let ziel = ordner.join(pfad);
+    fs::create_dir_all(ziel.parent().expect("Elternordner")).expect("Ordner");
+    fs::write(ziel, inhalt).expect("Datei");
+}
+
+#[tokio::test]
+async fn b1a_mitten_im_zeichen_abgeschnitten_verliert_nur_die_zeile_nicht_den_tag() {
+    let wurzel = tempfile::tempdir().expect("Wegwerf-Ordner");
+    datei_bytes(
+        wurzel.path(),
+        "channels/allgemein/2026-10-27.log",
+        ABGESCHNITTEN,
+    );
+    assert_eq!(ABGESCHNITTEN.len(), 177, "Datei wie in der Abnahme-Probe");
+
+    let (inhalt, stderr, _) =
+        kennzahlen_und_ausgaben(wurzel.path(), "2026-10-27T12:00:00+01:00").await;
+
+    assert_eq!(
+        inhalt["nachrichten"], 3,
+        "zwei heile und der verkürzte Satz"
+    );
+    assert_eq!(inhalt["log_bytes"], 177);
+    assert_eq!(inhalt["defekte_zeilen"], 1);
+    let zeilen: Vec<&str> = stderr.lines().collect();
+    assert_eq!(zeilen.len(), 1, "{stderr:?}");
+    assert!(
+        zeilen[0].contains("channels/allgemein/2026-10-27.log:8"),
+        "{}",
+        zeilen[0]
+    );
+}
+
+#[tokio::test]
+async fn b1b_ungueltiges_byte_im_ersten_satz_ist_ein_defekt_seiner_zeile() {
+    let wurzel = tempfile::tempdir().expect("Wegwerf-Ordner");
+    datei_bytes(
+        wurzel.path(),
+        "channels/allgemein/2026-10-27.log",
+        b"@ 2026-10-27T10:00:00.000+01:00 shoff@127.0.0.1\n  Wie we\xffit?\n\n@ 2026-10-27T10:00:05.000+01:00 claude@10.0.0.5\n  Fertig.\n\n",
+    );
+
+    let (inhalt, stderr, _) =
+        kennzahlen_und_ausgaben(wurzel.path(), "2026-10-27T12:00:00+01:00").await;
+
+    assert_eq!(inhalt["nachrichten"], 2);
+    assert_eq!(inhalt["defekte_zeilen"], 1);
+    let zeilen: Vec<&str> = stderr.lines().collect();
+    assert_eq!(zeilen.len(), 1, "{stderr:?}");
+    assert!(
+        zeilen[0].contains("channels/allgemein/2026-10-27.log:2"),
+        "{}",
+        zeilen[0]
+    );
+}
+
+#[tokio::test]
+async fn ungueltiges_byte_in_der_kopfzeile_ist_ein_defekt_des_satzes_der_nachbar_bleibt() {
+    let wurzel = tempfile::tempdir().expect("Wegwerf-Ordner");
+    datei_bytes(
+        wurzel.path(),
+        "channels/allgemein/2026-10-27.log",
+        b"@ 2026-10-27T10:00:00.000+01:00 sh\xc3ff@127.0.0.1\n  eins\n\n@ 2026-10-27T10:00:05.000+01:00 claude@10.0.0.5\n  zwei\n\n",
+    );
+
+    let (inhalt, stderr, _) =
+        kennzahlen_und_ausgaben(wurzel.path(), "2026-10-27T12:00:00+01:00").await;
+
+    assert_eq!(inhalt["nachrichten"], 1);
+    assert_eq!(inhalt["defekte_zeilen"], 1);
+    assert!(
+        stderr.contains("channels/allgemein/2026-10-27.log:1"),
+        "{stderr}"
+    );
+}

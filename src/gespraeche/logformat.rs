@@ -5,6 +5,7 @@
 use super::{Kennung, Nachricht};
 use crate::uhr::Zeit;
 use chrono::DateTime;
+use std::borrow::Cow;
 
 /// Ein gültiger Satz im Rohtext: Kopf und Byte-Spanne `anfang..ende` (bis vor den nächsten Satz).
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -54,18 +55,25 @@ pub fn text(satz: &str) -> String {
     zeilen.join("\n").trim_end_matches('\n').to_string()
 }
 
-/// Zerlegt den Rohtext einer Tagesdatei in Sätze und Defekte, in der Reihenfolge, in der sie abgeschlossen werden.
-pub fn saetze(rohtext: &str) -> Vec<Result<SatzBereich, Defekt>> {
+/// Zerlegt die Bytes einer Tagesdatei in Sätze und Defekte, in der Reihenfolge, in der sie abgeschlossen werden.
+/// Die Bytespannen beziehen sich auf die Rohbytes. Eine Zeile, die kein gültiges UTF-8 ist, ist ein Defekt
+/// ihrer Zeile — als Kopfzeile ein Defekt des ganzen Satzes —, nie des ganzen Tages (ADR-0011).
+pub fn saetze(rohtext: &[u8]) -> Vec<Result<SatzBereich, Defekt>> {
     let mut ergebnis = Vec::new();
     let mut offen = Offen::Anfang;
     let mut anfang = 0;
-    for (index, zeile) in rohtext.split_inclusive('\n').enumerate() {
+    for (index, zeile) in rohtext.split_inclusive(|&byte| byte == b'\n').enumerate() {
         let nummer = index + 1;
-        let inhalt = zeile.strip_suffix('\n').unwrap_or(zeile);
-        match zeilenart(inhalt) {
+        let roh = zeile.strip_suffix(b"\n").unwrap_or(zeile);
+        let (inhalt, gueltig) = match std::str::from_utf8(roh) {
+            Ok(inhalt) => (Cow::Borrowed(inhalt), true),
+            Err(_) => (String::from_utf8_lossy(roh), false),
+        };
+        match zeilenart(&inhalt) {
             Zeilenart::Kopf => {
                 offen.schliessen(anfang, &mut ergebnis);
-                offen = match kopf_lesen(inhalt) {
+                let kopf = if gueltig { kopf_lesen(&inhalt) } else { None };
+                offen = match kopf {
                     Some((zeit, von)) => Offen::Satz { zeit, von, anfang },
                     None => {
                         ergebnis.push(Err(Defekt { zeile: nummer }));
@@ -76,6 +84,9 @@ pub fn saetze(rohtext: &str) -> Vec<Result<SatzBereich, Defekt>> {
             Zeilenart::Satzinhalt if matches!(offen, Offen::Anfang) => {
                 ergebnis.push(Err(Defekt { zeile: nummer }));
                 offen = Offen::DefekterSatz;
+            }
+            Zeilenart::Satzinhalt if !gueltig && matches!(offen, Offen::Satz { .. }) => {
+                ergebnis.push(Err(Defekt { zeile: nummer }));
             }
             Zeilenart::Satzinhalt | Zeilenart::Leer => {}
             Zeilenart::Defekt => ergebnis.push(Err(Defekt { zeile: nummer })),
@@ -145,15 +156,11 @@ mod tests {
     const TAG_27: &str = "@ 2026-10-27T10:00:00.000+01:00 shoff@127.0.0.1\n  Wie weit?\n\nkaputt\n@ 2026-10-27T10:00:05.000+01:00 claude@10.0.0.5\n  Fertig.\n\n";
 
     fn gueltige(rohtext: &str) -> Vec<SatzBereich> {
-        saetze(rohtext).into_iter().filter_map(Result::ok).collect()
+        gueltige_roh(rohtext.as_bytes())
     }
 
     fn defekte(rohtext: &str) -> Vec<usize> {
-        saetze(rohtext)
-            .into_iter()
-            .filter_map(Result::err)
-            .map(|defekt| defekt.zeile)
-            .collect()
+        defekte_roh(rohtext.as_bytes())
     }
 
     #[test]
@@ -242,7 +249,7 @@ mod tests {
         let original = "# Titel\n\n@ kein Kopf\n  eingerückt\n```\ncode\n```";
         let rohtext = satz(&nachricht("2026-10-27T14:07:12.345+01:00", "a@b", original));
 
-        let gelesen = saetze(&rohtext);
+        let gelesen = saetze(rohtext.as_bytes());
 
         assert_eq!(gelesen.len(), 1);
         let bereich = gelesen[0].clone().expect("gültiger Satz");
@@ -269,8 +276,8 @@ mod tests {
 
     #[test]
     fn leerer_rohtext_hat_weder_saetze_noch_defekte() {
-        assert!(saetze("").is_empty());
-        assert!(saetze("\n\n").is_empty());
+        assert!(saetze(b"").is_empty());
+        assert!(saetze(b"\n\n").is_empty());
     }
 
     #[test]
@@ -286,5 +293,58 @@ mod tests {
         let saetze = gueltige(rohtext);
         assert_eq!(saetze.len(), 1);
         assert_eq!(saetze[0].ende, rohtext.len());
+    }
+
+    fn gueltige_roh(rohtext: &[u8]) -> Vec<SatzBereich> {
+        saetze(rohtext).into_iter().filter_map(Result::ok).collect()
+    }
+
+    fn defekte_roh(rohtext: &[u8]) -> Vec<usize> {
+        saetze(rohtext)
+            .into_iter()
+            .filter_map(Result::err)
+            .map(|defekt| defekt.zeile)
+            .collect()
+    }
+
+    #[test]
+    fn mitten_im_zeichen_abgeschnittener_text_ist_ein_defekt_seiner_zeile_der_satz_bleibt() {
+        let rohtext = b"@ 2026-10-27T10:00:00.000+01:00 a@b\n  eins\n\n@ 2026-10-27T10:00:06.000+01:00 c@d\n  Scan l\xC3";
+
+        let saetze = gueltige_roh(rohtext);
+
+        assert_eq!(saetze.len(), 2);
+        assert_eq!(saetze[1].ende, rohtext.len(), "Spanne über die Rohbytes");
+        assert_eq!(defekte_roh(rohtext), vec![5]);
+    }
+
+    #[test]
+    fn ungueltiges_byte_mitten_im_text_trifft_nur_seine_zeile() {
+        let rohtext = b"@ 2026-10-27T10:00:00.000+01:00 a@b\n  Wie we\xffit?\n  weiter\n\n@ 2026-10-27T10:00:05.000+01:00 c@d\n  Fertig.\n\n";
+
+        let saetze = gueltige_roh(rohtext);
+
+        assert_eq!(saetze.len(), 2);
+        assert_eq!(saetze[0].ende, saetze[1].anfang);
+        assert_eq!(defekte_roh(rohtext), vec![2]);
+    }
+
+    #[test]
+    fn ungueltiges_byte_in_der_kopfzeile_ist_ein_defekt_des_ganzen_satzes() {
+        let rohtext = b"@ 2026-10-27T10:00:00.000+01:00 a\xc3@b\n  eins\n  zw\xffei\n\n@ 2026-10-27T10:00:05.000+01:00 c@d\n  zwei\n\n";
+
+        let saetze = gueltige_roh(rohtext);
+
+        assert_eq!(saetze.len(), 1);
+        assert_eq!(saetze[0].von.als_text(), "c@d");
+        assert_eq!(defekte_roh(rohtext), vec![1], "ein Defekt je defektem Satz");
+    }
+
+    #[test]
+    fn ungueltige_zeile_vor_dem_ersten_kopf_und_als_eigene_zeile_ist_ein_defekt() {
+        let rohtext = b"  verw\xffaist\n@ 2026-10-27T10:00:00.000+01:00 a@b\n  eins\nkap\xffutt\n";
+
+        assert_eq!(gueltige_roh(rohtext).len(), 1);
+        assert_eq!(defekte_roh(rohtext), vec![1, 4]);
     }
 }

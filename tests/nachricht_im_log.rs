@@ -52,7 +52,7 @@ fn tagesdatei(ordner: &Path, tag: &str) -> PathBuf {
 
 /// Zeiten der Sätze einer Tagesdatei in Dateireihenfolge, gelesen über das Logformat.
 fn zeiten_in(datei: &Path) -> Vec<Zeit> {
-    let rohtext = fs::read_to_string(datei).expect("Tagesdatei");
+    let rohtext = fs::read(datei).expect("Tagesdatei");
     saetze(&rohtext)
         .into_iter()
         .map(|satz| satz.expect("kein Defekt").zeit)
@@ -366,4 +366,46 @@ async fn reihenfolge_unter_last_zwanzig_mal_fuenfzig_streng_steigend_ohne_doppel
     let inhalt = neustart_kennzahlen(wurzel.path(), "2026-10-27T15:00:00+01:00").await;
     assert_eq!(inhalt["nachrichten"], 1000);
     assert_eq!(inhalt["defekte_zeilen"], 0);
+}
+
+/// Datei der Abnahme-Probe B1 a): zwei heile Sätze, der dritte mitten im Zeichen `ä` abgeschnitten (177 Bytes).
+const ABGESCHNITTEN: &[u8] = b"@ 2026-10-27T10:00:00.000+01:00 shoff@127.0.0.1\n  Wie weit?\n\n@ 2026-10-27T10:00:05.000+01:00 claude@10.0.0.5\n  Fertig.\n\n@ 2026-10-27T10:00:06.000+01:00 claude@10.0.0.5\n  Scan l\xC3";
+
+#[test]
+fn b1c_senden_in_einen_abgeschnittenen_tag_bleibt_byte_gleich_und_ueberlebt_das_neue_laden() {
+    let wurzel = ordner_mit_allgemein();
+    let datei = tagesdatei(wurzel.path(), "2026-10-27");
+    fs::write(&datei, ABGESCHNITTEN).expect("abgeschnittener Tag");
+    let (vorher, _) = laden(wurzel.path(), "2026-10-27T12:00:00+01:00");
+    let geladen = vorher.kennzahlen().nachrichten;
+    assert!(geladen >= 2, "beide heilen Sätze geladen: {geladen}");
+
+    vorher
+        .senden(
+            &allgemein(),
+            &Kennung::bilden("a@b").expect("Kennung"),
+            "neu",
+        )
+        .expect("gesendet");
+
+    assert_eq!(
+        vorher.kennzahlen().log_bytes,
+        fs::metadata(&datei).expect("Datei").len(),
+        "Index byte-gleich mit der Datei (A00009)"
+    );
+    let (nachher, _) = laden(wurzel.path(), "2026-10-27T12:00:00+01:00");
+    assert_eq!(nachher.kennzahlen().nachrichten, geladen + 1);
+}
+
+#[test]
+fn b1_die_zeit_setzt_nach_den_saetzen_eines_abgeschnittenen_tages_fort() {
+    let wurzel = ordner_mit_allgemein();
+    fs::write(tagesdatei(wurzel.path(), "2026-10-27"), ABGESCHNITTEN).expect("abgeschnittener Tag");
+    let (gespraeche, _) = laden(wurzel.path(), "2026-10-27T09:00:00+01:00");
+
+    let gesendet = gespraeche
+        .senden(&allgemein(), &claude(), "danach")
+        .expect("gesendet");
+
+    assert_eq!(gesendet.zeit, zeit("2026-10-27T10:00:06.001+01:00"));
 }
