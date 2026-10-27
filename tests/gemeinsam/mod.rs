@@ -126,10 +126,29 @@ pub fn starten_mit(ordner: &Path, argumente: &[&str], umgebung: &[(&str, &str)])
     instanz
 }
 
-fn auf_startzeile_warten(ordner: &Path, mut kind: Child) -> Instanz {
+fn auf_startzeile_warten(ordner: &Path, kind: Child) -> Instanz {
+    auf_startzeile_warten_hoechstens(ordner, kind, Duration::from_secs(30))
+}
+
+/// Wartet höchstens `hoechstens` auf die Startzeile; sonst ist der Prozess beendet und der Test rot.
+pub fn auf_startzeile_warten_hoechstens(
+    ordner: &Path,
+    mut kind: Child,
+    hoechstens: Duration,
+) -> Instanz {
     let mut stdout = BufReader::new(kind.stdout.take().expect("stdout"));
-    let mut startzeile = String::new();
-    stdout.read_line(&mut startzeile).expect("Startzeile lesen");
+    let (senden, empfangen) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let mut startzeile = String::new();
+        let gelesen = stdout.read_line(&mut startzeile);
+        let _ = senden.send((stdout, startzeile, gelesen));
+    });
+    let Ok((stdout, startzeile, gelesen)) = empfangen.recv_timeout(hoechstens) else {
+        let _ = kind.kill();
+        let _ = kind.wait();
+        panic!("keine Startzeile binnen {hoechstens:?} — Programm beendet");
+    };
+    gelesen.expect("Startzeile lesen");
     assert!(
         !startzeile.is_empty(),
         "keine Startzeile — Programm beendet: {:?}",
