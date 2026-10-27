@@ -1,28 +1,25 @@
 //! Kennung `name@herkunft` des Absenders — geprüft beim Bilden, damit das Logformat sich darauf verlassen kann.
 
 use crate::fehler::Fehler;
+use crate::name::Name;
 use std::fmt;
 
-/// Nicht leer, ohne Leer- und Steuerzeichen, genau ein `@` zwischen Name und Herkunft.
+/// Name nach der Namensregel (ADR-0013), genau ein `@`, Herkunft als Textform einer IP-Adresse
+/// (`[0-9a-f.:]`, 1 bis 45 Zeichen).
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Kennung(String);
 
 impl Kennung {
     pub fn bilden(text: &str) -> Result<Kennung, Fehler> {
-        let ohne_trenner = !text
-            .chars()
-            .any(|zeichen| zeichen.is_whitespace() || zeichen.is_control());
-        let name_und_herkunft = match text.split_once('@') {
-            Some((name, herkunft)) => {
-                !name.is_empty() && !herkunft.is_empty() && !herkunft.contains('@')
-            }
+        let gueltig = match text.split_once('@') {
+            Some((name, herkunft)) => Name::bilden(name).is_ok() && herkunft_gueltig(herkunft),
             None => false,
         };
-        if ohne_trenner && name_und_herkunft {
+        if gueltig {
             Ok(Kennung(text.to_string()))
         } else {
             Err(Fehler::Ungueltig(format!(
-                "Kennung {text:?} ungültig — erwartet name@herkunft ohne Leer- und Steuerzeichen"
+                "Kennung {text:?} ungültig — erwartet name@herkunft, Name 1 bis 32 Zeichen aus a–z, 0–9 und -, Herkunft eine IP-Adresse"
             )))
         }
     }
@@ -30,6 +27,11 @@ impl Kennung {
     pub fn als_text(&self) -> &str {
         &self.0
     }
+}
+
+fn herkunft_gueltig(herkunft: &str) -> bool {
+    let erlaubt = |zeichen: char| matches!(zeichen, '0'..='9' | 'a'..='f' | '.' | ':');
+    (1..=45).contains(&herkunft.len()) && herkunft.chars().all(erlaubt)
 }
 
 impl fmt::Display for Kennung {
@@ -48,7 +50,10 @@ mod tests {
             "claude@10.0.0.5",
             "claude@::1",
             "shoff@127.0.0.1",
-            "ä@fe80::1",
+            "shoff@fe80::1",
+            "claude-2@127.0.0.1",
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa@10.0.0.5",
+            "a@1",
         ] {
             let kennung = Kennung::bilden(text).expect(text);
             assert_eq!(kennung.als_text(), text);
@@ -71,6 +76,53 @@ mod tests {
             "a\u{0}@b",
             "a\u{a0}b@c",
         ] {
+            ungueltig(text);
+        }
+    }
+
+    #[test]
+    fn ein_name_gegen_die_namensregel_macht_die_kennung_ungueltig() {
+        for text in [
+            "ä@fe80::1",
+            "Claude@127.0.0.1",
+            "jörg@127.0.0.1",
+            "chef\u{200B}@127.0.0.1",
+            "\u{202E}abc@127.0.0.1",
+            "\u{FEFF}abc@127.0.0.1",
+            "a_b@127.0.0.1",
+            "a.b@127.0.0.1",
+            "a/b@127.0.0.1",
+            "a\\b@127.0.0.1",
+            "a+b@127.0.0.1",
+            "-a@127.0.0.1",
+            "a-@127.0.0.1",
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa@127.0.0.1",
+        ] {
+            ungueltig(text);
+        }
+    }
+
+    #[test]
+    fn eine_herkunft_ausserhalb_von_0_9_a_f_punkt_doppelpunkt_oder_ueber_45_zeichen_ist_ungueltig()
+    {
+        let sechsundvierzig = format!("a@{}", "1".repeat(46));
+        let fuenfundvierzig = format!("a@{}", "1".repeat(45));
+        for text in [
+            "claude@localhost",
+            "claude@FE80::1",
+            "claude@g::1",
+            "claude@10.0.0.5/24",
+            "claude@[::1]",
+            "claude@10.0.0.5\u{200B}",
+            sechsundvierzig.as_str(),
+        ] {
+            ungueltig(text);
+        }
+        assert!(Kennung::bilden(&fuenfundvierzig).is_ok());
+    }
+
+    fn ungueltig(text: &str) {
+        {
             match Kennung::bilden(text) {
                 Err(Fehler::Ungueltig(meldung)) => {
                     assert!(meldung.contains("Kennung"), "{meldung}")

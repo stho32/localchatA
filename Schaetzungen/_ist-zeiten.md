@@ -54,3 +54,4 @@ Nie vom User erfragen.
 | 2026-10-27 | R00003 Namen wählen und beitreten | B0040 Seitenstil in eine Datei auslagern | Standard | 0,4h | 0,01h | 0,01h | autonom |
 | 2026-10-27 | R00003 Namen wählen und beitreten | B0039 Grenzschutz verdrahten | Standard | 0,4h | 0,03h | 0,04h | autonom |
 | 2026-10-27 | R00003 Namen wählen und beitreten | B0041 Name prüfen und Umformung vorschlagen | Standard | 0,4h | 0,01h | 0,07h | autonom |
+| 2026-10-27 | R00003 Namen wählen und beitreten | B0042 Kennung nach der Namensregel bilden | Standard | 0,4h | 0,01h | 0,02h | autonom |

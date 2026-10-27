@@ -5,7 +5,7 @@ pub mod gespraeche;
 mod http;
 #[cfg_attr(
     not(test),
-    expect(dead_code, reason = "Kennung nutzt den Namen ab B0042")
+    expect(dead_code, reason = "Regel und Vorschlag nutzt das Beitreten ab B0046")
 )]
 mod name;
 pub mod start;
