@@ -16,7 +16,23 @@ zuletzt: 2026-10-27
 |---|---|---|---|---|---|---|---|---|---|---|---|
 | A0001 | Application | — | localchatA | rot | alle Dialogs gruen | | | | | | Leitplanken aus der Vision: Rust, ein Programm für Weboberfläche und WebAPI, täglich rotierende Logdateien statt Git oder Datenbank, eine gemeinsame LAN-Instanz, Bedienkonzept wie kanbanD, Oberfläche deutsch, MIT. Leistungsziel 100.000 Nachrichten gilt für jede Interaction mit Verlauf |
 | D0001 | Dialog | A0001 | Start und Ablage | rot | alle Interactions gruen | | | | | | aus Vision, kein Requirement |
-| I0001 | Interaction | D0001 | Instanz starten | rot | `localchatA <ordner>` startet Weboberfläche und API, im LAN erreichbar | | | | | | aus Vision, kein Requirement |
+| I0001 | Interaction | D0001 | Instanz starten | rot | `localchatA <ordner>` startet Weboberfläche und API, im LAN erreichbar | | | | | | aus Vision; Walking Skeleton (Gerüst nach ADR-0001/0002/0009); drei Slices F0001–F0003; Logablage, Index, Live-Kanal gehören nicht hierher |
+| F0001 | Feature | I0001 | Starten mit Adresse | rot | `localchatA <ordner>` lauscht (Standard 0.0.0.0:7430, belegt → nächster freier, `--port 0` wählt das System), schreibt die Startzeile mit der tatsächlichen Adresse, `GET /api/gesundheit` → 200 `bereit`; `--hilfe` Exit 0, falscher Aufruf Exit 2, SIGTERM/Strg+C beendet geordnet mit Exit 0 |  |  |  |  |  | A00002, A00003; ADR-0001, ADR-0009 |
+| B0001 | Bubble | F0001 | Crate-Gerüst | rot |  | Crate-Liste ADR-0001 → baubare Crate `localchata` (lib + bin `localchatA`, Edition 2024), fmt und clippy grün | 2 |  |  |  | Integration; Module nach ADR-0001 zunächst leer |
+| B0002 | Bubble | F0001 | Aufruf lesen | rot |  | Argumente → `Startauftrag {ordner, port, host, browser_oeffnen}` \| `Aufruffehler` \| Hilfewunsch | 2 |  |  |  | Operation, rein; erster Unit-Test laut A00003 |
+| B0003 | Bubble | F0001 | Ordner vorbereiten | rot |  | `Startauftrag.ordner` → angelegter Ordner als absoluter Pfad \| `Startfehler` | 2 |  |  |  | Operation |
+| B0004 | Bubble | F0001 | Listener binden | rot |  | Host, Wunschport (Standard 7430 \| n \| 0) → gebundener Listener + tatsächliche Adresse \| `Startfehler` | 2 |  |  |  | Operation; Ausweichen höchstens 50 Versuche, nur beim Standard-Port |
+| B0005 | Bubble | F0001 | Gesundheit beantworten | rot |  | `GET /api/gesundheit` → 200 `{"status":"bereit","ordner",…}` | 2 |  |  |  | Integration an der HTTP-Grenze; Kennzahlen für leeren Ordner 0 |
+| B0006 | Bubble | F0001 | Start verdrahten | rot |  | `Startauftrag` → laufender Server + Startzeile auf stdout; SIGTERM/Strg+C → geordnetes Ende, Exit-Code | 2-4 |  |  |  | Integration (`main`); Signale und geordnetes Beenden unklar |
+| B0007 | Bubble | F0001 | Testhilfe Programm starten | rot |  | Wegwerf-Ordner → laufende Instanz mit Adresse aus der Startzeile, beendet beim Drop | 2 |  |  |  | `tests/gemeinsam/mod.rs` nach ADR-0009 |
+| F0002 | Feature | I0001 | Ordner gegen zweite Instanz sperren | rot | ein zweiter Start auf demselben Ordner endet mit Exit 1 und einer Meldung, die die Sperre nennt; die erste Instanz läuft weiter; nach ihrem Ende startet eine neue |  |  |  | F0001 |  | ADR-0005 (Ordner-Sperre); A00003 |
+| B0008 | Bubble | F0002 | Ordner sperren | rot |  | angelegter Ordner → gehaltene Sperre `.localchatA.sperre` (`File::try_lock`) \| `Sperrfehler` | 2 |  |  |  | Operation |
+| B0009 | Bubble | F0002 | Startfehler melden | rot |  | `Startfehler` (Ordner, Port, Sperre) → eine Zeile auf stderr + Exit 1; `Aufruffehler` → Exit 2 | 2 |  |  |  | Integration; Aspekt X00004, X00001 |
+| F0003 | Feature | I0001 | Oberfläche ausliefern | rot | `GET /` liefert die eingebettete deutsche Seite mit `<title>localchatA</title>`, unbekannte `/web/…` → 404; ohne `--kein-browser` öffnet sich der Browser mit der Seite |  |  |  | F0001 |  | ADR-0002; A00004, A00005 |
+| B0010 | Bubble | F0003 | Eingebettete Datei nachschlagen | rot |  | Pfad unter `/web/` → eingebettete Datei mit Content-Type \| keine | 2 |  |  |  | Operation, rein (`include_bytes!`) |
+| B0011 | Bubble | F0003 | Oberfläche ausliefern | rot |  | `GET /`, `GET /web/<datei>` → 200 mit Inhalt und `Cache-Control: no-cache` \| 404 | 2 |  |  |  | Integration an der HTTP-Grenze |
+| B0012 | Bubble | F0003 | Browser öffnen | rot |  | Adresse, `browser_oeffnen` → Aufruf des Standardbrowsers \| Hinweis auf stderr, Start läuft weiter | 2-4 |  |  |  | Operation; Mechanismus je Plattform unklar |
+| B0013 | Bubble | F0003 | E2E-Gerüst | rot |  | `e2e/` (Konfiguration, Bauen, Hilfen) → Playwright startet das Programm auf Port 0 im Wegwerf-Ordner und sieht die Seite | 2-4 |  |  |  | nach ADR-0009; erste Einrichtung Playwright unklar |
 | I0002 | Interaction | D0001 | Nachricht landet im Log | rot | jede Nachricht steht mit Absender und Zeit im Log ihres Channels; Logs rotieren täglich | | | | I0001 | | aus Vision, kein Requirement |
 | I0003 | Interaction | D0001 | Fremde Änderung erscheint live | verworfen | Änderung per Editor oder `git pull` erscheint ohne Reload in allen Sichten | | | | I0002 | | verworfen 2026-10-27: Datenhaltung ohne Git (Vision) |
 | D0002 | Dialog | A0001 | Teilnehmen | rot | alle Interactions gruen | | | | | | aus Vision, kein Requirement |
@@ -40,6 +56,8 @@ zuletzt: 2026-10-27
 | I0016 | Interaction | D0005 | Auf Nachrichten warten | rot | Agent wartet blockierend auf Neues für sich (Channel, Direktnachricht, Erwähnung) und erhält es ohne Polling-Schleife | | | | I0015 | | aus Vision, kein Requirement |
 
 ## Offene Fragen
+
+- B0006 Start verdrahten, B0012 Browser öffnen, B0013 E2E-Gerüst als unklar (2-4) geschätzt — Signale, Plattform-Aufruf des Browsers und erste Playwright-Einrichtung sind im Projekt noch unerprobt (verfeinern --still, 2026-10-27).
 
 ## Notizen / Quellen
 
