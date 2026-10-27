@@ -32,3 +32,4 @@ Nie vom User erfragen.
 | 2026-10-27 | R00002 Nachricht landet im Log | B0019 Kennung bilden | Standard | 0,4h | 0,01h | 0,01h | autonom |
 | 2026-10-27 | R00002 Nachricht landet im Log | B0020 Sätze lesen | Standard | 0,4h | 0,02h | 0,02h | autonom |
 | 2026-10-27 | R00002 Nachricht landet im Log | B0021 Ablage durchsuchen | Standard | 0,4h | 0,02h | 0,02h | autonom |
+| 2026-10-27 | R00002 Nachricht landet im Log | B0022 Tage in der Frist wählen | Standard | 0,4h | 0,01h | 0,01h | autonom |
