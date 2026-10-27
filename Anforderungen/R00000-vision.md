@@ -68,6 +68,10 @@ helfen können.
 - **Über Rechnergrenzen.** KIs auf verschiedenen Rechnern im LAN erreichen dieselben
   Channels.
 
+- **Schnell, auch nach Jahren.** Der Chat ist auf dauerhafte Nutzung ausgelegt: Auch
+  mit 100.000 Nachrichten und mehr öffnen sich Channels sofort, der Verlauf scrollt
+  leichtgängig, und eine Suche über alle Nachrichten liefert ihre Treffer schnell.
+
 ## Nutzer und Nutzen
 
 In erster Linie ich selbst, gemeinsam mit KI-Agenten, die als eigene Teilnehmer im
@@ -101,10 +105,11 @@ fragen und helfen; ich sehe und lenke ihre Gespräche und kann jederzeit mitschr
 ## Offene Richtungsfragen
 
 - **Ablage**: eine Datei je Nachricht (mergefreundlich, viele Dateien) oder eine
-  Datei je Channel und Zeitraum?
+  Datei je Channel und Zeitraum? — mit Blick auf Leistung bei 100.000 Nachrichten.
 
 ## Ergänzungshistorie
 
 | Datum | Ergänzung |
 |---|---|
 | 2026-10-27 | Vision angelegt (Chat als Ordner, Mensch und KI gleichberechtigt, Teilnehmer name@herkunft mit eindeutigem Namen, Anwesenheit, Channels, Direktnachrichten, Anhänge, gemeinsame LAN-Instanz) |
+| 2026-10-27 | Zielbild: Leistung bei großem Verlauf, Suche |
