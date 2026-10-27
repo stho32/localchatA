@@ -32,3 +32,4 @@ Eine Zeile je Auftrag an eine Rolle und je Retrospektive.
 | 2026-10-27 | #2 I0002 | Retrospektive | director | — | — | Mutationsprobe mit touch → Vorschlag; Hinweise an #7, #8, #10, #18; drei Prüfungen parallel bei festem Code bewährt |
 | 2026-10-27 | #3 I0004 | Architektur | architekt | bestanden | 0:17 | ADR-0012/0013/0014 (c5b3fca) |
 | 2026-10-27 | #3 I0004 | Bereit | planer | bestanden | 0:12 | R00003, 28 Bubbles in 5 Slices (d6e35eb, 3e1168c) |
+| 2026-10-28 | #3 I0004 | Entwicklung | entwickler | bestanden | 0:58 | R00003 gebaut, 283 + 25 + 15 Tests nachgeprüft |
