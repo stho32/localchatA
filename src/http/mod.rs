@@ -1,5 +1,6 @@
 //! HTTP-Schnittstelle: Router an der Systemgrenze (A00004).
 
+pub mod eingebettet;
 mod gesundheit;
 
 use axum::Router;
