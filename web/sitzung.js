@@ -20,6 +20,9 @@ export async function beimLaden(speicher, api, geschwister = KEINE_GESCHWISTER) 
     if (ich.status === 200) {
       return { art: 'kopfzeile', teilnehmer: ich.daten };
     }
+    if (ich.status !== 401) {
+      return { art: 'fehler', name: gemerkterName, fehler: fehlertext(ich) };
+    }
     tokenVergessen(speicher, token);
   }
   if (gemerkterName) {
@@ -65,15 +68,32 @@ export async function beitreten(name, speicher, api) {
   switch (antwort.status) {
     case 200:
     case 201:
-      speicher.setItem(SITZUNG, daten.token);
-      speicher.setItem(NAME, daten.name);
+      sitzungMerken(speicher, daten);
       return { art: 'kopfzeile', teilnehmer: teilnehmerAus(daten) };
     case 409:
       return { art: 'vergeben', name, belegtVon: daten.belegt_von, seit: daten.seit, vorschlag: daten.vorschlag };
     case 422:
       return { art: 'ungueltig', name, fehler: daten.fehler, vorschlag: daten.vorschlag || '' };
     default:
-      return { art: 'fehler', name, fehler: daten.fehler || `Unerwartete Antwort ${antwort.status}` };
+      return { art: 'fehler', name, fehler: fehlertext(antwort) };
+  }
+}
+
+function fehlertext(antwort) {
+  if (antwort.daten && antwort.daten.fehler) {
+    return antwort.daten.fehler;
+  }
+  return `Unerwartete Antwort ${antwort.status}`;
+}
+
+// Der Beitritt gilt auch, wenn der Browser nichts speichern lässt (Speicher voll, gesperrt) — nur das
+// Wiederfinden beim Neuladen fehlt dann.
+function sitzungMerken(speicher, daten) {
+  try {
+    speicher.setItem(SITZUNG, daten.token);
+    speicher.setItem(NAME, daten.name);
+  } catch (ausnahme) {
+    console.warn(`localchatA: Sitzung nicht gemerkt, Neuladen fragt erneut nach dem Namen — ${ausnahme.message}`);
   }
 }
 

@@ -214,3 +214,34 @@ test('B1: schreibt ein anderer Tab sein Token, bevor das eigene 401 ankommt, ble
   assert.deepEqual(zustand, { art: 'kopfzeile', teilnehmer: SHOFF });
   assert.deepEqual(speicher.alles(), { [SITZUNG]: 'frisch', [NAME]: 'shoff' });
 });
+
+// Code-Review A6: nur 401 heißt „Sitzung weg“; andere Antworten von ich führen nicht in den stillen Beitritt.
+for (const [status, daten] of [[500, { fehler: 'Interner Fehler' }], [503, null], [403, { fehler: 'Host nicht freigegeben' }], [429, { fehler: 'Zu viele' }]]) {
+  test(`A6: ich antwortet ${status} — Zustand Fehler mit Text, kein Beitritt, Token bleibt`, async () => {
+    const speicher = speicherMit({ [SITZUNG]: 'alt', [NAME]: 'shoff' });
+    const api = apiMit({ ich: { serverWeg: false, status, daten }, beitreten: angenommen(201) });
+
+    const zustand = await beimLaden(speicher, api);
+
+    let erwarteterText = `Unerwartete Antwort ${status}`;
+    if (daten) {
+      erwarteterText = daten.fehler;
+    }
+    assert.deepEqual(zustand, { art: 'fehler', name: 'shoff', fehler: erwarteterText });
+    assert.deepEqual(api.aufrufe, [['ich', 'alt']]);
+    assert.deepEqual(speicher.alles(), { [SITZUNG]: 'alt', [NAME]: 'shoff' });
+  });
+}
+
+test('A6: lässt sich die Sitzung nicht merken (setItem wirft), zeigt der Tab trotzdem die Kopfzeile und warnt', async (t) => {
+  const speicher = speicherMit();
+  speicher.setItem = () => { throw new Error('QuotaExceededError'); };
+  const warnungen = [];
+  t.mock.method(console, 'warn', (...teile) => warnungen.push(teile.join(' ')));
+
+  const zustand = await beitreten('shoff', speicher, apiMit({ beitreten: angenommen(201) }));
+
+  assert.deepEqual(zustand, { art: 'kopfzeile', teilnehmer: SHOFF });
+  assert.equal(warnungen.length, 1);
+  assert.match(warnungen[0], /nicht gemerkt/);
+});

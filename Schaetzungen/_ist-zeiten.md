@@ -77,3 +77,4 @@ Nie vom User erfragen.
 | 2026-10-28 | R00003 Namen wählen und beitreten | Lauf R00003 | Nacharbeit | — | — | 0,01h | autonom |
 | 2026-10-28 | R00003 Namen wählen und beitreten | Lauf R00003 | Konsolidierung | — | — | 0,03h | autonom |
 | 2026-10-28 | R00003 Namen wählen und beitreten | B0062 Gleichzeitige Tabs teilen die Sitzung | Nacharbeit | 0,4h | 0,25h | 0,25h | autonom |
+| 2026-10-28 | R00003 Namen wählen und beitreten | B0063 Antworten von ich unterscheiden, Speicherfehler sichtbar | Nacharbeit | 0,4h | 0,05h | 0,05h | autonom |
