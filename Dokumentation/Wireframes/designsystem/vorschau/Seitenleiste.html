@@ -1,0 +1,23 @@
+<!-- @dsCard group="Rahmen" height=380 -->
+<!doctype html>
+<html lang="de">
+<head><link rel="stylesheet" href="../tokens.css"><link rel="stylesheet" href="../components/bundle.css"><meta charset="utf-8"><title>Seitenleiste</title>
+<style>html,body{margin:0} body{background:var(--kd-bg)} .wrap{padding:16px;display:flex;flex-direction:column;gap:16px} .cap{font-family:var(--font-mono);font-size:11px;color:var(--kd-ink-muted);margin:0 0 4px}</style>
+</head>
+<body class="lc">
+
+<nav class="lc-side" aria-label="Channels und Direktnachrichten" style="height:380px">
+ <div class="lc-sect"><span>Channels</span><button type="button" aria-label="Channel anlegen" title="Channel anlegen (Strg Alt N)">+</button></div>
+ <a class="lc-item"><span class="hash">#</span><span class="n">allgemein</span></a>
+ <a class="lc-item unread" aria-current="page"><span class="hash">#</span><span class="n">entwicklung</span><span class="lc-count mention" aria-label="2 Erwähnungen">@2</span></a>
+ <a class="lc-item unread"><span class="hash">#</span><span class="n">security-scan</span><span class="lc-count unread" aria-label="48 ungelesen">48</span></a>
+ <a class="lc-item unread"><span class="hash">#</span><span class="n">release-2.4</span><span class="lc-count mention" aria-label="1 Erwähnung">@1</span><span class="lc-count unread" aria-label="9 ungelesen">9</span></a>
+ <a class="lc-item"><span class="hash">#</span><span class="n">build-03-logs</span></a>
+ <div class="lc-sect" style="margin-top:8px"><span>Direktnachrichten</span></div>
+ <a class="lc-item unread"><span class="lc-dot on" aria-hidden="true"></span><span class="n">claude-entwickler</span><span class="lc-count mention" aria-label="1 neue Direktnachricht">@1</span></a>
+ <a class="lc-item"><span class="lc-dot on" aria-hidden="true"></span><span class="n">security-scan</span></a>
+ <a class="lc-item"><span class="lc-dot weg" aria-hidden="true"></span><span class="n">mkoch</span><span class="lc-status">gleich weg</span></a>
+ <a class="lc-item"><span class="lc-dot off" aria-hidden="true"></span><span class="n">review-bot</span><span class="lc-status">offline</span></a>
+</nav>
+</body>
+</html>

@@ -1,0 +1,24 @@
+<!-- @dsCard group="Verlauf" height=420 -->
+<!doctype html>
+<html lang="de">
+<head><meta charset="utf-8"><title>VerlaufsMarken</title>
+<style>html,body{margin:0} body{background:var(--kd-bg)} .wrap{padding:16px;display:flex;flex-direction:column;gap:16px} .cap{font-family:var(--font-mono);font-size:11px;color:var(--kd-ink-muted);margin:0 0 4px}</style>
+</head>
+<body class="lc">
+
+<section class="lc-log" style="padding-top:0">
+ <div class="lc-conn lost" role="status"><b>⚠ Verbindung verloren.</b><span class="lc-muted">Neuer Versuch in 4 s · Lesen geht weiter, Gesendetes wird gepuffert.</span></div>
+ <div class="lc-conn" role="status">✓ Wieder verbunden · 23 Nachrichten nachgeladen</div>
+ <div class="lc-loadmore" aria-live="polite"><span class="lc-skel" style="width:120px"></span> Ältere Nachrichten werden geladen … <span class="lc-skel" style="width:120px"></span></div>
+ <div class="lc-day" role="separator">Montag, 26. Oktober 2026</div>
+ <div class="lc-msg first"><div class="g"><span class="lc-tile agent" aria-hidden="true">ct</span></div><div><div class="lc-meta"><span class="lc-who agent">claude-tester</span><span class="lc-origin">@server.de</span> <span class="lc-tag">Agent</span><time>17:48</time></div><div class="lc-body"><p>Testlauf grün, 412 Tests.</p></div></div></div>
+ <div class="lc-day" role="separator">Heute</div>
+ <div class="lc-new" role="separator" aria-label="Ab hier ungelesen">Neu</div>
+ <div class="lc-msg first"><div class="g"><span class="lc-tile agent" aria-hidden="true">ss</span></div><div><div class="lc-meta"><span class="lc-who agent">security-scan</span><span class="lc-origin">@build-03</span> <span class="lc-tag">Agent</span><time>09:12</time></div><div class="lc-body"><p>Nachtscan abgeschlossen: 2 neue Befunde.</p></div></div></div>
+ <div style="display:flex;justify-content:center;gap:8px;padding:12px">
+  <button class="lc-pill" type="button">↓ 12 neue Nachrichten <kbd>Ende</kbd></button>
+  <button class="lc-pill" type="button">↓ Zum Neuesten <kbd>Ende</kbd></button>
+ </div>
+</section>
+</body>
+</html>

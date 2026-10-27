@@ -1,0 +1,29 @@
+<!-- @dsCard group="Verlauf" height=560 -->
+<!doctype html>
+<html lang="de">
+<head><link rel="stylesheet" href="../tokens.css"><link rel="stylesheet" href="../components/bundle.css"><meta charset="utf-8"><title>LangeNachricht</title>
+<style>html,body{margin:0} body{background:var(--kd-bg)} .wrap{padding:16px;display:flex;flex-direction:column;gap:16px} .cap{font-family:var(--font-mono);font-size:11px;color:var(--kd-ink-muted);margin:0 0 4px}</style>
+</head>
+<body class="lc">
+
+<section class="lc-log" aria-label="Verlauf" style="padding-top:0">
+ <div class="lc-msg first"><div class="g"><span class="lc-tile agent" aria-hidden="true">ss</span></div><div><div class="lc-meta"><span class="lc-who agent">security-scan</span><span class="lc-origin">@build-03</span> <span class="lc-tag">Agent</span><time>14:05</time></div>
+ <div class="lc-body lc-fold" id="m1">
+  <h1>Befunde Scan #4128 · feature/upload</h1>
+  <table><thead><tr><th>#</th><th>Stufe</th><th>Ort</th><th>Befund</th></tr></thead><tbody>
+  <tr><td>1</td><td><span class="sev hoch">HOCH</span></td><td><code>upload.ts:41</code></td><td>Größe erst nach vollständigem Puffern geprüft</td></tr>
+  <tr><td>2</td><td><span class="sev mittel">MITTEL</span></td><td><code>upload.ts:58</code></td><td>Dateiname ungefiltert in Pfad übernommen</td></tr>
+  <tr><td>3</td><td><span class="sev niedrig">NIEDRIG</span></td><td><code>mime.ts:12</code></td><td>MIME-Typ nur aus Endung</td></tr>
+  </tbody></table>
+  <div class="lc-code"><div class="lc-code-head"><span>typescript · upload.ts</span><button type="button">Kopieren</button></div><pre><code><span class="k">async function</span> <span class="f">handleUpload</span>(req, res) {
+  <span class="k">const</span> body = <span class="k">await</span> <span class="f">readAll</span>(req);      <span class="c">// puffert alles</span>
+  <span class="k">if</span> (body.length &gt; <span class="num">25</span> * <span class="num">1024</span> * <span class="num">1024</span>) {
+    <span class="k">return</span> res.<span class="f">status</span>(<span class="num">413</span>).<span class="f">send</span>(<span class="s">"Datei zu groß"</span>);
+  }</code></pre></div>
+  <h2>Empfehlung</h2><ul><li>Größe aus <code>Content-Length</code> vorab prüfen, Strom abbrechen</li></ul>
+ </div>
+ <div class="lc-foldbar"><button type="button" aria-expanded="false" aria-controls="m1">Ganze Nachricht anzeigen</button><span class="lc-small lc-muted" style="font-size:12px">64 Zeilen · 20 Befunde · 2 Codeblöcke</span></div>
+ </div></div>
+</section>
+</body>
+</html>

@@ -1,0 +1,24 @@
+<!-- @dsCard group="Eingabe" height=330 -->
+<!doctype html>
+<html lang="de">
+<head><meta charset="utf-8"><title>Eingabe</title>
+<style>html,body{margin:0} body{background:var(--kd-bg)} .wrap{padding:16px;display:flex;flex-direction:column;gap:16px} .cap{font-family:var(--font-mono);font-size:11px;color:var(--kd-ink-muted);margin:0 0 4px}</style>
+</head>
+<body class="lc">
+
+<div style="padding-top:150px;background:var(--kd-surface)">
+<div class="lc-comp">
+ <div class="lc-pop" role="listbox" aria-label="Teilnehmer erwähnen">
+  <div class="lc-sect"><span>Erwähnen · „@cl“</span></div>
+  <div class="lc-item" role="option" aria-selected="true"><span class="lc-tile agent" aria-hidden="true">ce</span><span class="n lc-mono" style="font-size:12px">claude-entwickler<span class="lc-muted">@server.de</span></span><span class="lc-dot on"></span></div>
+  <div class="lc-item" role="option"><span class="lc-tile agent" aria-hidden="true">ct</span><span class="n lc-mono" style="font-size:12px">claude-tester<span class="lc-muted">@server.de</span></span><span class="lc-dot on"></span></div>
+  <div class="lc-item" role="option"><span class="lc-tile agent" aria-hidden="true">cl</span><span class="n lc-mono" style="font-size:12px">claude<span class="lc-muted">@localhost</span></span><span class="lc-dot off"></span><span class="lc-status">offline</span></div>
+ </div>
+ <div class="lc-comp-box">
+  <div class="lc-reply">↩ Antwort an <b class="lc-who agent" style="font-weight:600">security-scan</b> · „Befunde Scan #4128 …“ <button class="lc-tbtn" style="margin-left:auto" aria-label="Antwort abbrechen">✕</button></div>
+  <textarea aria-label="Nachricht an # entwicklung" rows="2">Danke. @cl</textarea>
+  <div class="lc-comp-bar"><button class="lc-tbtn" type="button" title="Datei anhängen">⎘ Anhang</button><button class="lc-tbtn" type="button" title="Code (Strg E)">&lt;/&gt;</button><span class="lc-hint"><kbd>Enter</kbd> senden · <kbd>Shift Enter</kbd> neue Zeile</span><button class="lc-btn primary" type="button">Senden</button></div>
+ </div>
+</div></div>
+</body>
+</html>

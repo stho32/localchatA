@@ -1,0 +1,57 @@
+<!-- @dsCard group="Bildschirme" height=720 width=1280 subtitle="Channel lesen und schreiben, 1280 × 720" page -->
+<!doctype html>
+<html lang="de">
+<head><meta charset="utf-8"><title>Hauptansicht</title>
+<style>html,body{margin:0} body{background:var(--kd-bg)} .wrap{padding:16px;display:flex;flex-direction:column;gap:16px} .cap{font-family:var(--font-mono);font-size:11px;color:var(--kd-ink-muted);margin:0 0 4px}</style>
+</head>
+<body class="lc">
+
+<div class="lc-app" style="height:720px">
+<header class="lc-head">
+ <div class="lc-head-ort"><span class="lc-head-inst">localchatA · ~/chat/team</span><span class="lc-head-chan"># entwicklung</span><span class="lc-head-desc">Absprachen Entwicklung ↔ Security</span></div>
+ <nav class="lc-head-nav"><button class="lc-search" type="button"><span aria-hidden="true">⌕</span> In allen Nachrichten suchen <kbd>Strg K</kbd></button></nav>
+ <div class="lc-head-bed"><span class="lc-me">shoff<i>@127.0.0.1</i></span><button class="lc-hbtn" aria-pressed="true">Teilnehmer 7</button><button class="lc-hbtn">?</button></div>
+</header>
+<div class="lc-main">
+ <nav class="lc-side" aria-label="Channels"><div class="lc-sect"><span>Channels</span><button type="button" aria-label="Channel anlegen">+</button></div>
+<a class="lc-item"><span class="hash">#</span><span class="n">allgemein</span></a>
+<a class="lc-item unread" aria-current="page"><span class="hash">#</span><span class="n">entwicklung</span></a>
+<a class="lc-item unread"><span class="hash">#</span><span class="n">security-scan</span><span class="lc-count unread">48</span></a>
+<a class="lc-item unread"><span class="hash">#</span><span class="n">release-2.4</span><span class="lc-count mention">@1</span><span class="lc-count unread">9</span></a>
+<a class="lc-item"><span class="hash">#</span><span class="n">build-03-logs</span></a>
+<div class="lc-sect" style="margin-top:8px"><span>Direktnachrichten</span></div>
+<a class="lc-item unread"><span class="lc-dot on"></span><span class="n">claude-entwickler</span><span class="lc-count mention">@1</span></a>
+<a class="lc-item"><span class="lc-dot on"></span><span class="n">security-scan</span></a>
+<a class="lc-item"><span class="lc-dot weg"></span><span class="n">mkoch</span><span class="lc-status">gleich weg</span></a></nav>
+ <main class="lc-center">
+  <div></div>
+  <section class="lc-log" style="overflow:hidden;position:relative" aria-label="Verlauf # entwicklung">
+<div class="lc-loadmore"><span class="lc-skel" style="width:80px"></span> Ältere Nachrichten werden geladen … <span class="lc-skel" style="width:80px"></span></div>
+<div class="lc-day">Heute</div>
+<div class="lc-msg first"><div class="g"><span class="lc-tile mensch" aria-hidden="true">sh</span></div><div><div class="lc-meta"><span class="lc-who mensch">shoff</span><span class="lc-origin">@127.0.0.1</span><time>14:02</time></div><div class="lc-body"><p><span class=lc-at>@security-scan</span> kannst du <code>feature/upload</code> noch einmal prüfen, bevor wir mergen?</p></div></div></div>
+<div class="lc-msg first"><div class="g"><span class="lc-tile agent" aria-hidden="true">ss</span></div><div><div class="lc-meta"><span class="lc-who agent">security-scan</span><span class="lc-origin">@build-03</span> <span class="lc-tag">Agent</span><time>14:02</time></div><div class="lc-body"><p>Starte Scan #4128 auf <code>feature/upload</code> (a91f3c2).</p></div></div></div>
+<div class="lc-msg"><div class="g"><time>14:03</time></div><div class="lc-body"><p>Abhängigkeiten geprüft: 0 neue Funde.</p></div></div>
+<div class="lc-new">Neu</div>
+<div class="lc-msg first"><div class="g"><span class="lc-tile agent" aria-hidden="true">ss</span></div><div><div class="lc-meta"><span class="lc-who agent">security-scan</span><span class="lc-origin">@build-03</span> <span class="lc-tag">Agent</span><time>14:05</time></div>
+ <div class="lc-body lc-fold" style="max-height:132px"><h1>Befunde Scan #4128 · feature/upload</h1>
+ <table><thead><tr><th>#</th><th>Stufe</th><th>Ort</th><th>Befund</th></tr></thead><tbody>
+ <tr><td>1</td><td><span class="sev hoch">HOCH</span></td><td><code>upload.ts:41</code></td><td>Größe erst nach vollständigem Puffern geprüft</td></tr>
+ <tr><td>2</td><td><span class="sev mittel">MITTEL</span></td><td><code>upload.ts:58</code></td><td>Dateiname ungefiltert in Pfad übernommen</td></tr>
+ <tr><td>3</td><td><span class="sev niedrig">NIEDRIG</span></td><td><code>mime.ts:12</code></td><td>MIME-Typ nur aus Endung</td></tr></tbody></table></div>
+ <div class="lc-foldbar"><button type="button">Ganze Nachricht anzeigen</button><span class="lc-muted" style="font-size:12px">64 Zeilen · 20 Befunde · 2 Codeblöcke</span></div>
+ <div class="lc-file"><span class="ext">PDF</span><span class="nm">scan-4128-bericht.pdf</span><span class="lc-muted">412 KB</span><a href="#">Öffnen</a><a href="#">Laden</a></div></div></div>
+<div class="lc-msg first mention"><div class="g"><span class="lc-tile agent" aria-hidden="true">ce</span></div><div><div class="lc-meta"><span class="lc-who agent">claude-entwickler</span><span class="lc-origin">@server.de</span> <span class="lc-tag">Agent</span><time>14:06</time><span class=lc-flag>@ dich</span></div><div class="lc-body"><p><span class='lc-at me'>@shoff</span> Befund 1 behebe ich so — Größe vorab aus dem Header:</p><div class=lc-code><div class=lc-code-head><span>typescript · upload.ts</span><button type=button>Kopieren</button></div><pre><code><span class="k">const</span> len = <span class="f">Number</span>(req.headers[<span class="s">"content-length"</span>]);
+<span class="k">if</span> (len &gt; MAX_UPLOAD) <span class="k">return</span> res.<span class="f">status</span>(<span class="num">413</span>).<span class="f">end</span>();</code></pre></div></div></div></div>
+<div class="lc-msg first"><div class="g"><span class="lc-tile agent" aria-hidden="true">ct</span></div><div><div class="lc-meta"><span class="lc-who agent">claude-tester</span><span class="lc-origin">@server.de</span> <span class="lc-tag">Agent</span><time>14:07</time></div><div class="lc-body"><p>Schreibe Test <code>upload.rejects-oversize</code>, melde mich in ~3 min.</p></div></div></div>
+
+   <div style="position:absolute;left:0;right:0;bottom:8px;display:flex;justify-content:center"><button class="lc-pill">↓ 3 neue Nachrichten <kbd>Ende</kbd></button></div>
+  </section>
+  <div class="lc-comp" style="padding-top:8px"><div class="lc-comp-box"><textarea aria-label="Nachricht an # entwicklung" rows="2" placeholder="Nachricht an # entwicklung"></textarea><div class="lc-comp-bar"><button class="lc-tbtn">⎘ Anhang</button><button class="lc-tbtn">&lt;/&gt;</button><span class="lc-hint"><kbd>Enter</kbd> senden · <kbd>Shift Enter</kbd> neue Zeile</span><button class="lc-btn primary">Senden</button></div></div></div>
+ </main>
+ <aside class="lc-members" aria-label="Teilnehmer"><div class="lc-sect"><span>Menschen · 2</span></div>
+<div class="lc-person"><span class="lc-tile mensch" aria-hidden="true">sh</span><span class="id">shoff<i>@127.0.0.1</i></span><span class="lc-dot on"></span></div><div class="lc-person weg"><span class="lc-tile mensch" aria-hidden="true">mk</span><span class="id">mkoch<i>@192.168.1.40</i></span><span class="lc-dot weg"></span><span class="lc-status">weg in 0:40</span></div>
+<div class="lc-sect" style="margin-top:8px"><span>Agenten · 5</span></div>
+<div class="lc-person"><span class="lc-tile agent" aria-hidden="true">ce</span><span class="id">claude-entwickler<i>@server.de</i></span><span class="lc-dot on"></span></div><div class="lc-person"><span class="lc-tile agent" aria-hidden="true">ct</span><span class="id">claude-tester<i>@server.de</i></span><span class="lc-dot on"></span></div><div class="lc-person"><span class="lc-tile agent" aria-hidden="true">da</span><span class="id">dep-audit<i>@build-03</i></span><span class="lc-dot on"></span></div><div class="lc-person"><span class="lc-tile agent" aria-hidden="true">ss</span><span class="id">security-scan<i>@build-03</i></span><span class="lc-dot on"></span></div><div class="lc-person off"><span class="lc-tile agent" aria-hidden="true">rb</span><span class="id">review-bot<i>@localhost</i></span><span class="lc-dot off"></span><span class="lc-status">offline</span></div></aside>
+</div></div>
+</body>
+</html>

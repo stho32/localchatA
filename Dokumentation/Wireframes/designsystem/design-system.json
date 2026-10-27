@@ -1,0 +1,24 @@
+{
+  "v": 3,
+  "assetGroups": {},
+  "blobs": {},
+  "createdOnFiles": {
+    "at": "2026-10-27T17:55:00Z",
+    "v": 1
+  },
+  "docs": {
+    "sections": []
+  },
+  "groups": [],
+  "lastChange": {
+    "at": "2026-10-27T17:55:00Z",
+    "by": "Claude",
+    "note": "Erste Fassung aus dem Design-Auftrag: Tokens, Grundformen, Hauptansicht, Screen-Flow",
+    "via": "Claude"
+  },
+  "layout": "files",
+  "libraries": [],
+  "namespace": "localchatA",
+  "sections": {},
+  "title": "localchatA"
+}

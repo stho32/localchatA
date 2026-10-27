@@ -1,0 +1,20 @@
+<!-- @dsCard group="Verlauf" height=360 -->
+<!doctype html>
+<html lang="de">
+<head><link rel="stylesheet" href="../tokens.css"><link rel="stylesheet" href="../components/bundle.css"><meta charset="utf-8"><title>Markdown</title>
+<style>html,body{margin:0} body{background:var(--kd-bg)} .wrap{padding:16px;display:flex;flex-direction:column;gap:16px} .cap{font-family:var(--font-mono);font-size:11px;color:var(--kd-ink-muted);margin:0 0 4px}</style>
+</head>
+<body class="lc">
+
+<section class="lc-log" style="padding:12px">
+<div class="lc-body" style="max-width:var(--lc-measure)">
+ <h1>Überschrift 1 — 16 px</h1>
+ <h2>Überschrift 2 — 14 px</h2>
+ <p>Fließtext mit <strong>fett</strong>, <em>kursiv</em>, <code>inline-code</code> und einem <a href="#">Link auf das Ticket</a>.</p>
+ <ol><li>Liste geordnet</li><li>Zweiter Punkt</li></ol>
+ <div class="lc-code"><div class="lc-code-head"><span>bash</span><button type="button">Kopieren</button></div><pre><code><span class="c"># Agent anmelden</span>
+curl -X POST localhost:8080/api/join -d <span class="s">'{"name":"claude"}'</span></code></pre></div>
+ <table><thead><tr><th>Aufruf</th><th>Zweck</th></tr></thead><tbody><tr><td><code>GET /api/channels</code></td><td>Channels auflisten</td></tr></tbody></table>
+</div></section>
+</body>
+</html>

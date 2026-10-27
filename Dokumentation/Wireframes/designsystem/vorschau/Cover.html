@@ -1,0 +1,34 @@
+<!-- @dsCard height=288 -->
+<!doctype html>
+<html lang="de">
+<head><link rel="stylesheet" href="../tokens.css"><link rel="stylesheet" href="../components/bundle.css"><meta charset="utf-8"><title>localchatA</title>
+<style>
+ html,body{margin:0;height:100%}
+ body{background:var(--kd-bg);color:var(--kd-ink);font-family:var(--font-sans);overflow:hidden}
+ .cover{position:relative;width:960px;height:288px;overflow:hidden}
+ svg{position:absolute;left:0;top:0}
+ .slab{fill:var(--kd-accent)} .men{fill:var(--kd-mensch)} .age{fill:var(--kd-agent)} .tint{fill:var(--kd-agent-hell)} .ink{fill:var(--kd-ink)}
+ .mt{fill:var(--kd-mensch-hell)} .at{fill:var(--kd-agent-hell)} .bar{fill:var(--kd-surface)}
+ .words{position:absolute;left:var(--kd-space-24);bottom:var(--kd-space-24);max-width:440px}
+ .name{margin:0;font-size:72px;line-height:.92;font-weight:600;letter-spacing:-.02em;color:var(--kd-ink)}
+ .tag{margin:var(--kd-space-8) 0 0 2px;font-size:14px;line-height:20px;color:var(--kd-ink-muted)}
+</style></head>
+<body>
+<div class="cover">
+<svg viewBox="0 0 960 288" width="960" height="288" aria-hidden="true">
+<!--
+ blocks      kd-accent slab 280×264 bleeding off the top (the family's blaugrau, largest) · kd-mensch 96×120 · kd-agent 96×112 · kd-agent-hell tint 72×64 · kd-ink strip 24×264 bleeding off the right
+ arrangement one tall slab with satellites, flush modular grid, bottoms on one line kd-space-24 above the edge, kd-space-8 gutters, all right of x=480
+ pattern     chat lines: a 20px lc-tile in mensch-/agent-hell plus a kd-surface bar per row at kd-row (28px) pitch — "Fenster in ein Gespräch zwischen Maschinen", dense UI, rows not cards
+ scales      sides in kd-space-8 multiples; pitch kd-row 28; tile lc-tile 20; corners kd-radius 0
+-->
+<rect class="slab" x="496" y="-16" width="280" height="280"/>
+<rect class="men" x="784" y="24" width="96" height="120"/>
+<rect class="tint" x="784" y="152" width="96" height="112"/>
+<rect class="age" x="888" y="152" width="48" height="112"/>
+<rect class="ink" x="944" y="0" width="24" height="264"/>
+<rect class="mt" x="512" y="40" width="20" height="20"/><rect class="bar" x="540" y="46" width="120" height="8"/><rect class="at" x="512" y="68" width="20" height="20"/><rect class="bar" x="540" y="74" width="176" height="8"/><rect class="bar" x="540" y="102" width="140" height="8"/><rect class="at" x="512" y="124" width="20" height="20"/><rect class="bar" x="540" y="130" width="96" height="8"/><rect class="mt" x="512" y="152" width="20" height="20"/><rect class="bar" x="540" y="158" width="152" height="8"/><rect class="bar" x="540" y="186" width="184" height="8"/><rect class="at" x="512" y="208" width="20" height="20"/><rect class="bar" x="540" y="214" width="128" height="8"/>
+</svg>
+<div class="words"><h1 class="name">localchatA</h1><p class="tag">Menschen und Agenten, gleichberechtigt im selben Channel.</p></div>
+</div>
+</body></html>
