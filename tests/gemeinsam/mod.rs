@@ -22,10 +22,7 @@ pub struct Instanz {
 impl Drop for Instanz {
     fn drop(&mut self) {
         if let Ok(None) = self.kind.try_wait() {
-            let _ = Command::new("kill")
-                .arg("-TERM")
-                .arg(self.kind.id().to_string())
-                .status();
+            let _ = signal_zustellen(&self.kind, "TERM");
             if warten(&mut self.kind, Duration::from_secs(5)).is_none() {
                 let _ = self.kind.kill();
                 let _ = self.kind.wait();
@@ -74,13 +71,21 @@ impl Instanz {
     }
 }
 
+/// Schickt ein Signal (`TERM`, `INT`) per Systemaufruf — ohne den Umweg über einen `kill`-Prozess.
 pub fn signal_senden(kind: &Child, signal: &str) {
-    let gesendet = Command::new("kill")
-        .arg(format!("-{signal}"))
-        .arg(kind.id().to_string())
-        .status()
-        .expect("kill aufgerufen");
-    assert!(gesendet.success(), "Signal {signal} nicht zugestellt");
+    if let Err(fehler) = signal_zustellen(kind, signal) {
+        panic!("Signal {signal} nicht zugestellt: {fehler}");
+    }
+}
+
+fn signal_zustellen(kind: &Child, signal: &str) -> std::io::Result<()> {
+    use rustix::process::{Pid, Signal, kill_process};
+    let signal = match signal {
+        "TERM" => Signal::TERM,
+        "INT" => Signal::INT,
+        anderes => panic!("unbekanntes Signal {anderes}"),
+    };
+    kill_process(Pid::from_child(kind), signal).map_err(std::io::Error::from)
 }
 
 pub fn warten(kind: &mut Child, hoechstens: Duration) -> Option<ExitStatus> {

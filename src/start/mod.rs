@@ -49,13 +49,14 @@ async fn starten(auftrag: Startauftrag) -> Result<(), Startfehler> {
         port: 0,
         grund: fehler.to_string(),
     })?;
+    let beenden = beenden_einrichten();
     startzeile_schreiben(&ordner, adresse);
     if auftrag.browser_oeffnen {
         browser::oeffnen(adresse);
     }
     let app = http::router(Zustand { ordner });
     axum::serve(listener, app)
-        .with_graceful_shutdown(beenden_verlangt())
+        .with_graceful_shutdown(beenden)
         .await
         .map_err(|fehler| Startfehler::Port {
             host: auftrag.host,
@@ -72,32 +73,59 @@ fn startzeile_schreiben(ordner: &Path, adresse: SocketAddr) {
     );
 }
 
-/// Strg+C oder SIGTERM verlangen ein geordnetes Ende.
-async fn beenden_verlangt() {
-    #[cfg(unix)]
-    {
-        use tokio::signal::unix::{SignalKind, signal};
-        match signal(SignalKind::terminate()) {
-            Ok(mut sigterm) => {
-                tokio::select! {
-                    _ = strg_c() => {}
-                    _ = sigterm.recv() => {}
-                }
-            }
-            Err(fehler) => {
-                eprintln!("SIGTERM lässt sich nicht abfangen ({fehler}) — Ende nur mit Strg+C");
-                strg_c().await;
-            }
+/// Richtet den Empfang von Strg+C und SIGTERM sofort ein — vor der Startzeile, denn ab ihr gilt die Instanz
+/// als bereit, und ein Signal ab da muss geordnet beenden. Das Ergebnis endet, sobald eines eintrifft.
+#[cfg(unix)]
+fn beenden_einrichten() -> impl Future<Output = ()> + Send + 'static {
+    use tokio::signal::unix::SignalKind;
+    let strg_c = signal_einrichten(SignalKind::interrupt(), "Strg+C");
+    let sigterm = signal_einrichten(SignalKind::terminate(), "SIGTERM");
+    async move {
+        tokio::select! {
+            _ = eintreffen(strg_c) => {}
+            _ = eintreffen(sigterm) => {}
         }
     }
-    #[cfg(not(unix))]
-    strg_c().await;
 }
 
-/// Wartet auf Strg+C; lässt es sich nicht abfangen, wird nie beendet statt sofort.
-async fn strg_c() {
-    if let Err(fehler) = tokio::signal::ctrl_c().await {
-        eprintln!("Strg+C lässt sich nicht abfangen ({fehler})");
-        std::future::pending::<()>().await;
+/// Lässt sich ein Signal nicht abfangen, steht ein Hinweis auf stderr; beendet wird dann nur über das andere.
+#[cfg(unix)]
+fn signal_einrichten(
+    art: tokio::signal::unix::SignalKind,
+    name: &str,
+) -> Option<tokio::signal::unix::Signal> {
+    match tokio::signal::unix::signal(art) {
+        Ok(signal) => Some(signal),
+        Err(fehler) => {
+            eprintln!("{name} lässt sich nicht abfangen ({fehler})");
+            None
+        }
+    }
+}
+
+#[cfg(unix)]
+async fn eintreffen(signal: Option<tokio::signal::unix::Signal>) {
+    match signal {
+        Some(mut signal) => {
+            signal.recv().await;
+        }
+        None => std::future::pending::<()>().await,
+    }
+}
+
+/// Wie unter Unix, nur mit Strg+C; lässt es sich nicht abfangen, wird nie beendet statt sofort.
+#[cfg(windows)]
+fn beenden_einrichten() -> impl Future<Output = ()> + Send + 'static {
+    let strg_c = tokio::signal::windows::ctrl_c();
+    async move {
+        match strg_c {
+            Ok(mut strg_c) => {
+                strg_c.recv().await;
+            }
+            Err(fehler) => {
+                eprintln!("Strg+C lässt sich nicht abfangen ({fehler})");
+                std::future::pending::<()>().await;
+            }
+        }
     }
 }
