@@ -42,3 +42,5 @@ Nie vom User erfragen.
 | 2026-10-27 | R00002 Nachricht landet im Log | B0029 Teilschreiben zurückbauen | unklar | 2-4h | 0,02h | 0,02h | autonom |
 | 2026-10-27 | R00002 Nachricht landet im Log | B0030 Speicher-Logablage | Standard | 0,4h | 0,02h | 0,02h | autonom |
 | 2026-10-27 | R00002 Nachricht landet im Log | B0031 Nachricht senden | Standard | 0,4h | 0,02h | 0,02h | autonom |
+| 2026-10-27 | R00002 Nachricht landet im Log | Lauf R00002 | Nacharbeit | — | — | 0,06h | autonom |
+| 2026-10-27 | R00002 Nachricht landet im Log | Lauf R00002 | Konsolidierung | — | — | 0,02h | autonom |
