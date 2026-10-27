@@ -14,6 +14,10 @@ pub enum Startfehler {
         port: u16,
         grund: String,
     },
+    Sperre {
+        ordner: PathBuf,
+        grund: String,
+    },
 }
 
 impl fmt::Display for Startfehler {
@@ -28,6 +32,13 @@ impl fmt::Display for Startfehler {
             }
             Startfehler::Port { host, port, grund } => {
                 write!(f, "Port {port} auf {host} lässt sich nicht binden: {grund}")
+            }
+            Startfehler::Sperre { ordner, grund } => {
+                write!(
+                    f,
+                    "Ordner {} lässt sich nicht sperren: {grund}",
+                    ordner.display()
+                )
             }
         }
     }

@@ -1,10 +1,11 @@
 //! Start: vom Aufruf bis zum lauschenden Server (A00003).
 //!
-//! Reihenfolge: Aufruf lesen → Ordner vorbereiten → binden → Startzeile → ausliefern bis zum Signal.
+//! Reihenfolge: Aufruf lesen → Ordner vorbereiten → sperren → binden → Startzeile → ausliefern bis zum Signal.
 
 mod aufruf;
 pub mod ordner;
 pub mod port;
+pub mod sperre;
 mod startfehler;
 
 pub use aufruf::{AUFRUF, Aufruf, Aufruffehler, Portwunsch, Startauftrag};
@@ -28,6 +29,7 @@ pub async fn ausfuehren<I: IntoIterator<Item = String>>(argumente: I) -> ExitCod
 
 async fn starten(auftrag: Startauftrag) -> Result<(), Startfehler> {
     let ordner = ordner::ordner_vorbereiten(&auftrag.ordner)?;
+    let _sperre = sperre::ordner_sperren(&ordner)?;
     let listener = port::listener_binden(&auftrag.host, auftrag.port).await?;
     let adresse = listener.local_addr().map_err(|fehler| Startfehler::Port {
         host: auftrag.host.clone(),
