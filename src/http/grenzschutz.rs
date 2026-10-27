@@ -1,5 +1,7 @@
-//! Grenzschutz (ADR-0014): welche Host-Namen die Instanz anspricht — gegen DNS-Rebinding.
+//! Grenzschutz (ADR-0014): welche Host-Namen die Instanz anspricht (gegen DNS-Rebinding) und von welchem
+//! Ursprung sie Wirkung annimmt (gegen CSRF).
 
+use axum::http::Method;
 use std::fmt;
 use std::net::{Ipv4Addr, Ipv6Addr};
 
@@ -50,6 +52,55 @@ impl Grenzschutz {
             || ist(rechnername)
             || (!rechnername.is_empty() && ist(&format!("{rechnername}.local")))
             || self.erreichbar_als.iter().any(|frei| ist(frei))
+    }
+}
+
+/// Eine nicht lesende Anfrage kommt von einem fremden Ursprung; `grund` nennt den Header.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UrsprungAbgewiesen {
+    pub grund: String,
+}
+
+/// Lesende Methoden (`GET`, `HEAD`, `OPTIONS`) sind wirkungsfrei und immer erlaubt. Jede andere braucht:
+/// `Origin` fehlt oder ist genau `http://<Host>` (Name ohne Groß-/Kleinschreibung, `null` nie), und
+/// `Sec-Fetch-Site` fehlt oder ist `same-origin` bzw. `none`. Fehlen beide, kommt sie nicht vom Browser.
+pub fn ursprung_erlaubt(
+    methode: &Method,
+    origin: Option<&str>,
+    sec_fetch_site: Option<&str>,
+    host: Option<&str>,
+) -> Result<(), UrsprungAbgewiesen> {
+    let lesend = [Method::GET, Method::HEAD, Method::OPTIONS].contains(methode);
+    if lesend {
+        return Ok(());
+    }
+    if let Some(origin) = origin {
+        let eigener_ursprung = host.map(|host| format!("http://{host}"));
+        let ist_eigener =
+            eigener_ursprung.is_some_and(|eigener| eigener.eq_ignore_ascii_case(origin));
+        if !ist_eigener {
+            return Err(UrsprungAbgewiesen {
+                grund: format!("Origin {origin:?} ist nicht der Ursprung dieser Instanz"),
+            });
+        }
+    }
+    if let Some(site) = sec_fetch_site
+        && !["same-origin", "none"].contains(&site)
+    {
+        return Err(UrsprungAbgewiesen {
+            grund: format!("Sec-Fetch-Site {site:?} ist nicht same-origin"),
+        });
+    }
+    Ok(())
+}
+
+impl fmt::Display for UrsprungAbgewiesen {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "Anfrage von einer fremden Website abgewiesen — {}.",
+            self.grund
+        )
     }
 }
 
@@ -212,5 +263,117 @@ mod tests {
         let text = HostAbgewiesen { name: None }.to_string();
         assert!(text.contains("keinen Host"), "{text}");
         assert!(text.contains("IP-Adresse"), "{text}");
+    }
+
+    const HOST: Option<&str> = Some("127.0.0.1:7430");
+
+    fn ursprung(methode: Method, origin: Option<&str>, sec_fetch_site: Option<&str>) -> bool {
+        ursprung_erlaubt(&methode, origin, sec_fetch_site, HOST).is_ok()
+    }
+
+    #[test]
+    fn lesende_methoden_werden_nie_nach_dem_ursprung_abgewiesen() {
+        for methode in [Method::GET, Method::HEAD, Method::OPTIONS] {
+            assert!(
+                ursprung(
+                    methode.clone(),
+                    Some("http://evil.example"),
+                    Some("cross-site")
+                ),
+                "{methode}"
+            );
+        }
+    }
+
+    #[test]
+    fn ohne_origin_und_ohne_sec_fetch_site_ist_es_kein_browser_und_erlaubt() {
+        for methode in [Method::POST, Method::PUT, Method::DELETE, Method::PATCH] {
+            assert!(ursprung(methode.clone(), None, None), "{methode}");
+        }
+    }
+
+    #[test]
+    fn der_eigene_ursprung_ist_erlaubt_auch_mit_sec_fetch_site_same_origin_oder_none() {
+        assert!(ursprung(Method::POST, Some("http://127.0.0.1:7430"), None));
+        assert!(ursprung(
+            Method::POST,
+            Some("http://127.0.0.1:7430"),
+            Some("same-origin")
+        ));
+        assert!(ursprung(Method::POST, None, Some("none")));
+        assert!(
+            ursprung_erlaubt(
+                &Method::POST,
+                Some("http://LocalHost:7430"),
+                None,
+                Some("localhost:7430")
+            )
+            .is_ok()
+        );
+        assert!(
+            ursprung_erlaubt(
+                &Method::POST,
+                Some("http://[::1]:7430"),
+                Some("same-origin"),
+                Some("[::1]:7430")
+            )
+            .is_ok()
+        );
+    }
+
+    #[test]
+    fn fremder_origin_wird_bei_jeder_nicht_lesenden_methode_abgewiesen() {
+        for origin in [
+            "http://evil.example",
+            "null",
+            "http://127.0.0.1:7421",
+            "https://127.0.0.1:7430",
+            "http://127.0.0.1:7430/",
+            "http://127.0.0.1",
+            "http://127.0.0.1:7430.evil.example",
+            "",
+        ] {
+            for methode in [Method::POST, Method::PUT, Method::DELETE, Method::PATCH] {
+                assert!(
+                    !ursprung(methode.clone(), Some(origin), None),
+                    "{methode} {origin:?}"
+                );
+            }
+        }
+        let eigene = Method::from_bytes(b"FANGEN").expect("Methode");
+        assert!(!ursprung(eigene, Some("http://evil.example"), None));
+    }
+
+    #[test]
+    fn sec_fetch_site_ausser_same_origin_und_none_wird_abgewiesen() {
+        for wert in ["cross-site", "same-site", "SAME-ORIGIN", "", "same-origin "] {
+            assert!(!ursprung(Method::POST, None, Some(wert)), "{wert:?}");
+        }
+        assert!(!ursprung(
+            Method::POST,
+            Some("http://127.0.0.1:7430"),
+            Some("cross-site")
+        ));
+    }
+
+    #[test]
+    fn origin_ohne_host_wird_abgewiesen() {
+        assert!(
+            ursprung_erlaubt(&Method::POST, Some("http://127.0.0.1:7430"), None, None).is_err()
+        );
+    }
+
+    #[test]
+    fn die_ursprungs_abweisung_nennt_den_header() {
+        let origin = ursprung_erlaubt(&Method::POST, Some("null"), None, HOST);
+        let site = ursprung_erlaubt(&Method::POST, None, Some("cross-site"), HOST);
+        assert!(
+            matches!(&origin, Err(abgewiesen) if abgewiesen.grund.contains("Origin")),
+            "{origin:?}"
+        );
+        assert!(
+            matches!(&site, Err(abgewiesen) if abgewiesen.grund.contains("Sec-Fetch-Site")),
+            "{site:?}"
+        );
     }
 }
