@@ -72,6 +72,35 @@ impl Uhr for Startuhr {
     }
 }
 
+/// Uhr für Tests: steht, bis sie gestellt wird (X00007 „Test: fest/verschiebbar“).
+pub struct GestellteUhr {
+    zeit: std::sync::Mutex<Zeit>,
+}
+
+impl GestellteUhr {
+    pub fn neu(zeit: Zeit) -> GestellteUhr {
+        GestellteUhr {
+            zeit: std::sync::Mutex::new(zeit),
+        }
+    }
+
+    pub fn stellen(&self, zeit: Zeit) {
+        *self
+            .zeit
+            .lock()
+            .unwrap_or_else(|vergiftet| vergiftet.into_inner()) = zeit;
+    }
+}
+
+impl Uhr for GestellteUhr {
+    fn jetzt(&self) -> Zeit {
+        *self
+            .zeit
+            .lock()
+            .unwrap_or_else(|vergiftet| vergiftet.into_inner())
+    }
+}
+
 /// Zeitpunkt in der lokalen Zone des Prozesses, auf Millisekunden gekürzt.
 fn lokal(zeitpunkt: DateTime<Utc>) -> Zeit {
     let lokal = Local
@@ -131,6 +160,15 @@ mod tests {
         let vorher = Utc::now() - chrono::Duration::milliseconds(1);
         let jetzt = aus_umgebung(None).expect("Systemuhr").jetzt();
         assert!(jetzt >= vorher && jetzt <= Utc::now(), "{jetzt}");
+    }
+
+    #[test]
+    fn gestellte_uhr_steht_bis_sie_gestellt_wird() {
+        let uhr = GestellteUhr::neu(zeit("2026-10-27T14:07:12.345+01:00"));
+        assert_eq!(uhr.jetzt(), zeit("2026-10-27T14:07:12.345+01:00"));
+        assert_eq!(uhr.jetzt(), zeit("2026-10-27T14:07:12.345+01:00"));
+        uhr.stellen(zeit("2026-10-28T00:00:00.000+01:00"));
+        assert_eq!(uhr.jetzt(), zeit("2026-10-28T00:00:00.000+01:00"));
     }
 
     #[test]
