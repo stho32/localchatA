@@ -30,7 +30,7 @@ zuletzt: 2026-10-27
 | B0009 | Bubble | F0002 | Startfehler melden | gruen |  | `Startfehler` (Ordner, Port, Sperre) → eine Zeile auf stderr + Exit 1; `Aufruffehler` → Exit 2 | 2 |  |  |  | Integration; Aspekt X00004, X00001 |
 | F0003 | Feature | I0001 | Oberfläche ausliefern | gelb | `GET /` liefert die eingebettete deutsche Seite mit `<title>localchatA</title>`, unbekannte `/web/…` → 404; ohne `--kein-browser` öffnet sich der Browser mit der Seite |  |  |  | F0001 | R00001 | ADR-0002; A00004, A00005 |
 | B0010 | Bubble | F0003 | Eingebettete Datei nachschlagen | gruen |  | Pfad unter `/web/` → eingebettete Datei mit Content-Type \| keine | 2 |  |  |  | Operation, rein (`include_bytes!`) |
-| B0011 | Bubble | F0003 | Oberfläche ausliefern | rot |  | `GET /`, `GET /web/<datei>` → 200 mit Inhalt und `Cache-Control: no-cache` \| 404 | 2 |  |  |  | Integration an der HTTP-Grenze |
+| B0011 | Bubble | F0003 | Oberfläche ausliefern | gruen |  | `GET /`, `GET /web/<datei>` → 200 mit Inhalt und `Cache-Control: no-cache` \| 404 | 2 |  |  |  | Integration an der HTTP-Grenze |
 | B0012 | Bubble | F0003 | Browser öffnen | rot |  | Adresse, `browser_oeffnen` → Aufruf des Standardbrowsers \| Hinweis auf stderr, Start läuft weiter | 2-4 |  |  |  | Operation; Mechanismus je Plattform unklar |
 | B0013 | Bubble | F0003 | E2E-Gerüst | rot |  | `e2e/` (Konfiguration, Bauen, Hilfen) → Playwright startet das Programm auf Port 0 im Wegwerf-Ordner und sieht die Seite | 2-4 |  |  |  | nach ADR-0009; erste Einrichtung Playwright unklar |
 | I0002 | Interaction | D0001 | Nachricht landet im Log | rot | jede Nachricht steht mit Absender und Zeit im Log ihres Channels; Logs rotieren täglich | | | | I0001 | | aus Vision, kein Requirement |

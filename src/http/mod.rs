@@ -1,7 +1,8 @@
 //! HTTP-Schnittstelle: Router an der Systemgrenze (A00004).
 
-pub mod eingebettet;
+mod eingebettet;
 mod gesundheit;
+mod oberflaeche;
 
 use axum::Router;
 use axum::routing::get;
@@ -16,6 +17,8 @@ pub struct Zustand {
 
 pub fn router(zustand: Zustand) -> Router {
     Router::new()
+        .route("/", get(oberflaeche::wurzel))
+        .route("/web/{datei}", get(oberflaeche::datei))
         .route("/api/gesundheit", get(gesundheit::beantworten))
         .with_state(Arc::new(zustand))
 }
