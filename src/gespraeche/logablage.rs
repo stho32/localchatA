@@ -113,28 +113,47 @@ impl Logablage for Dateiablage {
         tag: NaiveDate,
         satz: &str,
     ) -> io::Result<Angehaengt> {
-        let pfad = self.ordner.join(gespraech.tagesdatei(tag));
+        let tagesdatei = gespraech.tagesdatei(tag);
         let mut datei = std::fs::OpenOptions::new()
             .read(true)
             .append(true)
             .create(true)
-            .open(&pfad)?;
-        let zeilenende_ergaenzt = !endet_mit_zeilenende(&mut datei)?;
+            .open(self.ordner.join(&tagesdatei))?;
+        let laenge = datei.metadata()?.len();
+        let zeilenende_ergaenzt = !endet_mit_zeilenende(&mut datei, laenge)?;
         let mut bytes = Vec::with_capacity(satz.len() + 1);
         if zeilenende_ergaenzt {
             bytes.push(b'\n');
         }
         bytes.extend_from_slice(satz.as_bytes());
-        datei.write_all(&bytes)?;
+        if let Err(fehler) = datei.write_all(&bytes) {
+            if let Some(meldung) = zurueckbauen(|auf| datei.set_len(auf), laenge, &tagesdatei) {
+                eprintln!("{meldung}");
+            }
+            return Err(fehler);
+        }
         Ok(Angehaengt {
             zeilenende_ergaenzt,
         })
     }
 }
 
+/// Schneidet nach einem gescheiterten Schreiben auf die alte Länge zurück (ADR-0011). Scheitert auch das,
+/// kommt die Meldung für stderr zurück; der Zeilenende-Wächter fängt den Rest beim nächsten Satz.
+fn zurueckbauen(
+    kuerzen: impl FnOnce(u64) -> io::Result<()>,
+    laenge: u64,
+    tagesdatei: &str,
+) -> Option<String> {
+    kuerzen(laenge).err().map(|fehler| {
+        format!(
+            "{tagesdatei}: Rückbau auf {laenge} Bytes gescheitert, Rest bleibt stehen ({fehler})"
+        )
+    })
+}
+
 /// Leer oder letztes Byte `\n` — dann beginnt der nächste Satz in Spalte 1.
-fn endet_mit_zeilenende(datei: &mut File) -> io::Result<bool> {
-    let laenge = datei.metadata()?.len();
+fn endet_mit_zeilenende(datei: &mut File, laenge: u64) -> io::Result<bool> {
     if laenge == 0 {
         return Ok(true);
     }
@@ -343,6 +362,41 @@ mod tests {
 
         assert!(ergebnis.is_err());
         assert!(!wurzel.path().join("channels/gibtsnicht").exists());
+    }
+
+    #[test]
+    fn gescheiterter_rueckbau_meldet_datei_und_laenge_gelungener_nichts() {
+        let gelungen = zurueckbauen(|_| Ok(()), 55, "channels/allgemein/2026-10-27.log");
+        assert_eq!(gelungen, None);
+
+        let gescheitert = zurueckbauen(
+            |_| Err(io::Error::other("Platte weg")),
+            55,
+            "channels/allgemein/2026-10-27.log",
+        )
+        .expect("Meldung");
+
+        assert!(
+            gescheitert.contains("channels/allgemein/2026-10-27.log"),
+            "{gescheitert}"
+        );
+        assert!(gescheitert.contains("55"), "{gescheitert}");
+        assert!(gescheitert.contains("Platte weg"), "{gescheitert}");
+        assert!(!gescheitert.contains('\n'), "{gescheitert}");
+    }
+
+    #[test]
+    fn rueckbau_kuerzt_auf_die_uebergebene_laenge() {
+        let mut gekuerzt = None;
+        zurueckbauen(
+            |auf| {
+                gekuerzt = Some(auf);
+                Ok(())
+            },
+            55,
+            "x",
+        );
+        assert_eq!(gekuerzt, Some(55));
     }
 
     #[test]
