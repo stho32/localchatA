@@ -17,3 +17,4 @@ Nie vom User erfragen.
 | 2026-10-27 | R00001 Instanz starten | B0006 Start verdrahten | unklar | 2-4h | 0,01h | 0,02h | autonom |
 | 2026-10-27 | R00001 Instanz starten | B0007 Testhilfe Programm starten | Standard | 2h | 0,04h | 0,05h | autonom |
 | 2026-10-27 | R00001 Instanz starten | B0008 Ordner sperren | Standard | 2h | 0,01h | 0,01h | autonom |
+| 2026-10-27 | R00001 Instanz starten | B0009 Startfehler melden | Standard | 2h | 0,01h | 0,01h | autonom |

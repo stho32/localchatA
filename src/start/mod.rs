@@ -8,22 +8,34 @@ pub mod port;
 pub mod sperre;
 mod startfehler;
 
-pub use aufruf::{AUFRUF, Aufruf, Aufruffehler, Portwunsch, Startauftrag};
+pub use aufruf::{Aufruf, Aufruffehler, Portwunsch, Startauftrag};
 pub use startfehler::Startfehler;
 
 use crate::http::{self, Zustand};
+use aufruf::HILFE;
 use std::net::SocketAddr;
 use std::path::Path;
 use std::process::ExitCode;
 
-/// Führt einen Aufruf (Argumente ohne Programmnamen) bis zum Ende aus und liefert den Exit-Code.
+/// Führt einen Aufruf (Argumente ohne Programmnamen) bis zum Ende aus und liefert den Exit-Code:
+/// 0 geordnet beendet oder Hilfe, 1 Ordner, Port oder Sperre scheitert, 2 falscher Aufruf.
 pub async fn ausfuehren<I: IntoIterator<Item = String>>(argumente: I) -> ExitCode {
     match Startauftrag::aus_argumenten(argumente) {
+        Ok(Aufruf::Hilfe) => {
+            println!("{HILFE}");
+            ExitCode::SUCCESS
+        }
         Ok(Aufruf::Starten(auftrag)) => match starten(auftrag).await {
             Ok(()) => ExitCode::SUCCESS,
-            Err(_) => ExitCode::FAILURE,
+            Err(fehler) => {
+                eprintln!("{fehler}");
+                ExitCode::FAILURE
+            }
         },
-        _ => ExitCode::FAILURE,
+        Err(fehler) => {
+            eprintln!("{fehler}");
+            ExitCode::from(2)
+        }
     }
 }
 

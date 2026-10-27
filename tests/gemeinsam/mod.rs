@@ -146,3 +146,30 @@ pub fn lan_adresse() -> std::net::IpAddr {
     );
     ip
 }
+
+/// Ergebnis eines Aufrufs, der von selbst endet: Exit-Code, stdout, stderr.
+pub struct Ende {
+    pub exit: Option<i32>,
+    pub stdout: String,
+    pub stderr: String,
+}
+
+/// Ruft das Programm auf und wartet höchstens fünf Sekunden auf sein Ende (sonst `exit: None`).
+pub fn aufrufen(argumente: &[&str]) -> Ende {
+    let mut kind = Command::new(PROGRAMM)
+        .args(argumente)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("localchatA startet");
+    let status = warten(&mut kind, Duration::from_secs(5));
+    if status.is_none() {
+        let _ = kind.kill();
+    }
+    let ausgabe = kind.wait_with_output().expect("Ausgabe");
+    Ende {
+        exit: status.and_then(|s| s.code()),
+        stdout: String::from_utf8_lossy(&ausgabe.stdout).into_owned(),
+        stderr: String::from_utf8_lossy(&ausgabe.stderr).into_owned(),
+    }
+}

@@ -3,8 +3,16 @@
 use std::fmt;
 use std::path::PathBuf;
 
-pub const AUFRUF: &str =
-    "Aufruf: localchatA [<ordner>] [--port <n>] [--host <adresse>] [--kein-browser] [--hilfe]";
+/// Aufrufzeile mit allen Optionen, darunter je Option eine Erklärung.
+pub const HILFE: &str = concat!(
+    "Aufruf: localchatA [<ordner>] [--port <n>] [--host <adresse>] [--kein-browser] [--hilfe]\n",
+    "\n",
+    "  <ordner>          Ordner der Instanz, wird angelegt (Standard: aktuelles Verzeichnis)\n",
+    "  --port <n>        Port; ohne Angabe 7430 oder der nächste freie, 0 wählt das System\n",
+    "  --host <adresse>  Adresse zum Lauschen (Standard: 0.0.0.0, alle Schnittstellen im LAN)\n",
+    "  --kein-browser    nach dem Start keinen Browser öffnen\n",
+    "  --hilfe           diese Hilfe zeigen",
+);
 
 /// Welcher Port verlangt ist: der Standard mit Ausweichen, die Wahl des Systems oder genau einer.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
