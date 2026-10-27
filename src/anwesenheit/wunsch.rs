@@ -27,11 +27,10 @@ pub struct Abweisung {
 }
 
 /// Für spätere Sammel-Erwähnungen (I0013) beim Beitreten nicht wählbar.
-pub const RESERVIERTE_NAMEN: [&str; 2] = ["alle", "hier"];
-pub const REGEL_RESERVIERT: &str = "alle und hier sind reserviert";
-pub const REGEL_ART: &str = "art ist mensch oder agent";
-pub const REGEL_FORM: &str =
-    "ein JSON-Objekt mit name (Text) und art (mensch oder agent, optional)";
+const RESERVIERTE_NAMEN: [&str; 2] = ["alle", "hier"];
+const REGEL_RESERVIERT: &str = "alle und hier sind reserviert";
+const REGEL_ART: &str = "art ist mensch oder agent";
+const REGEL_FORM: &str = "ein JSON-Objekt mit name (Text) und art (mensch oder agent, optional)";
 
 impl Beitrittswunsch {
     /// Name nach der Namensregel und nicht reserviert, `art` fehlt oder ist `mensch` | `agent`.

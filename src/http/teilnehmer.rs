@@ -63,7 +63,7 @@ pub fn gemeldete_sitzung(
 }
 
 /// Der Nachweis einer Sitzung bei jedem Aufruf (ADR-0012).
-pub const SITZUNG_HEADER: &str = "x-localchata-sitzung";
+const SITZUNG_HEADER: &str = "x-localchata-sitzung";
 
 fn nicht_erkannt() -> Response {
     let fehler = "Keine gültige Sitzung — mit POST /api/beitreten beitreten und das Token im Header X-LocalchatA-Sitzung senden (gültig nur von derselben Herkunft).";

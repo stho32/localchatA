@@ -5,5 +5,5 @@ pub mod gnadenfrist;
 mod vorschlag;
 mod wunsch;
 
-pub use bestand::{Anwesenheit, Beitrittsfehler, Sitzung};
+pub use bestand::{Anwesenheit, Beitrittsfehler, GESAMT, JE_HERKUNFT, Sitzung};
 pub use wunsch::{Abweisung, Art, Beitrittswunsch};

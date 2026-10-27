@@ -5,7 +5,7 @@ use std::fmt;
 use std::time::Duration;
 
 pub const VARIABLE: &str = "LOCALCHATA_GNADENFRIST_MS";
-pub const STANDARD: Duration = Duration::from_secs(60);
+const STANDARD: Duration = Duration::from_secs(60);
 
 /// `LOCALCHATA_GNADENFRIST_MS` ist gesetzt, aber keine ganze Zahl von Millisekunden.
 #[derive(Debug, Clone, PartialEq, Eq)]

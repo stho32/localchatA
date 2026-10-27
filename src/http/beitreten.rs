@@ -4,7 +4,9 @@
 
 use super::Zustand;
 use super::teilnehmer::gemeldete_sitzung;
-use crate::anwesenheit::{Abweisung, Beitrittsfehler, Beitrittswunsch, Sitzung};
+use crate::anwesenheit::{
+    Abweisung, Beitrittsfehler, Beitrittswunsch, GESAMT, JE_HERKUNFT, Sitzung,
+};
 use axum::Json;
 use axum::extract::{ConnectInfo, State};
 use axum::http::{HeaderMap, StatusCode};
@@ -59,7 +61,7 @@ fn wiederkehr(sitzung: &Sitzung, wunsch: &Beitrittswunsch, gnadenfrist_s: u64) -
 const REGEL_EIN_NAME: &str = "eine Sitzung trägt genau einen Namen";
 
 /// Die Antwort mit Token — nur hier verlässt es den Server (ADR-0012).
-pub fn sitzung_als_json(sitzung: &Sitzung, gnadenfrist_s: u64) -> Json<Value> {
+fn sitzung_als_json(sitzung: &Sitzung, gnadenfrist_s: u64) -> Json<Value> {
     Json(json!({
         "token": sitzung.token.als_text(),
         "kennung": sitzung.kennung.als_text(),
@@ -70,7 +72,7 @@ pub fn sitzung_als_json(sitzung: &Sitzung, gnadenfrist_s: u64) -> Json<Value> {
     }))
 }
 
-pub fn regelverstoss(abweisung: Abweisung) -> Response {
+fn regelverstoss(abweisung: Abweisung) -> Response {
     let mut antwort = json!({ "fehler": abweisung.fehler, "regel": abweisung.regel });
     if let Some(vorschlag) = abweisung.vorschlag {
         antwort["vorschlag"] = json!(vorschlag.als_text());
@@ -104,7 +106,7 @@ fn beitrittsfehler(
         }
         Beitrittsfehler::ZuVieleSitzungen => {
             let text = format!(
-                "Zu viele Sitzungen — höchstens 64 je Herkunft ({}) und 512 insgesamt.",
+                "Zu viele Sitzungen — höchstens {JE_HERKUNFT} je Herkunft ({}) und {GESAMT} insgesamt.",
                 gegenstelle.ip()
             );
             (

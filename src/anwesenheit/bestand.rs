@@ -131,7 +131,7 @@ impl Anwesenheit {
 
 /// Eine Sitzung lebt, solange ihr letztes Lebenszeichen höchstens die Gnadenfrist zurückliegt (ADR-0012).
 /// Geprüft wird beim Zugriff; einen Takt, der „weg“ meldet, gibt es erst mit I0006.
-pub fn lebt(letztes_lebenszeichen: Zeit, jetzt: Zeit, gnadenfrist: Duration) -> bool {
+fn lebt(letztes_lebenszeichen: Zeit, jetzt: Zeit, gnadenfrist: Duration) -> bool {
     let frist = chrono::Duration::from_std(gnadenfrist).unwrap_or(chrono::Duration::MAX);
     jetzt - letztes_lebenszeichen <= frist
 }
