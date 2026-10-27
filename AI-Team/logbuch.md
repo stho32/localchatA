@@ -17,3 +17,6 @@ Eine Zeile je Auftrag an eine Rolle und je Retrospektive.
 | 2026-10-27 | #1 I0001 | Entwicklung | entwickler | bestanden | 0:11 | Nacharbeit Security: Verbindungsgrenzen (6812820), 69 Tests grün nachgeprüft |
 | 2026-10-27 | #1 I0001 | Code-Review | code-reviewer | bestanden | 0:08 | 6812820 ohne Befund |
 | 2026-10-27 | #1 I0001 | Security-Review | security-reviewer | bestanden | 0:12 | Wiederholung: Slowloris behoben, Rest Optional |
+| 2026-10-27 | #1 I0001 | Entwicklertest | entwicklertester | bestanden | 0:05 | enge Wiederholung nach 6812820 |
+| 2026-10-27 | #1 I0001 | Abnahme | director | Zug | — | kein Remote, nichts zu pushen; wartet auf Betreiber |
+| 2026-10-27 | #1 I0001 | Retrospektive | director | — | — | Lehren: Projektschicht entwicklertester (Browser), gelerntes (Annahmeschleife, LAN-Fläche); Vorschläge Scratchpad, Playwright-Ordner |

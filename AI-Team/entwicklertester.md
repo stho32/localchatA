@@ -23,3 +23,4 @@ IDs aus `AI-Team/quellen.md`, die diese Rolle besonders braucht, mit Anlass.
 - Q02 — Fertig-Kriterien
 
 ## Gelerntes
+- 2026-10-27 (#1): Nie den Standardbrowser des Betreibers öffnen — immer `--kein-browser` oder `LOCALCHATA_BROWSER=<marker>`; der echte Browserweg ist Sache der Abnahme.
