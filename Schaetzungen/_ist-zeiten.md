@@ -64,3 +64,4 @@ Nie vom User erfragen.
 | 2026-10-27 | R00003 Namen wählen und beitreten | B0049 Beitreten beantworten | Standard | 0,4h | 0,02h | 0,04h | autonom |
 | 2026-10-28 | R00003 Namen wählen und beitreten | B0050 Gnadenfrist aus der Umgebung | Standard | 0,4h | 0,01h | 0,02h | autonom |
 | 2026-10-28 | R00003 Namen wählen und beitreten | B0051 Lebensdauer beim Zugriff | Standard | 0,4h | 0,01h | 0,01h | autonom |
+| 2026-10-28 | R00003 Namen wählen und beitreten | B0052 Wiederkehren | Standard | 0,4h | 0,01h | 0,01h | autonom |

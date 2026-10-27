@@ -103,6 +103,22 @@ impl Anwesenheit {
         Ok(sitzung)
     }
 
+    /// Gültiges Token derselben Herkunft → die Sitzung, ihr Lebenszeichen erneuert; sonst keine
+    /// (unbekannt, abgelaufen, andere Herkunft — eine fremde Herkunft erneuert nichts).
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "der Extraktor Teilnehmer kommt mit B0053")
+    )]
+    pub fn wiederkehren(&self, token: &Token, herkunft: IpAddr) -> Option<Sitzung> {
+        let jetzt = self.uhr.jetzt();
+        let mut sitzungen = self.lebende_sitzungen(jetzt);
+        let sitzung = sitzungen
+            .get_mut(token)
+            .filter(|sitzung| sitzung.herkunft == herkunft)?;
+        sitzung.letztes_lebenszeichen = jetzt;
+        Some(sitzung.clone())
+    }
+
     /// Der Bestand unter der Sperre, abgelaufene Sitzungen schon entfernt: ihr Token ist ungültig, ihr Name frei.
     fn lebende_sitzungen(&self, jetzt: Zeit) -> MutexGuard<'_, HashMap<Token, Sitzung>> {
         let mut sitzungen = self.sitzungen();
@@ -323,6 +339,88 @@ mod tests {
         let danach = anwesenheit.beitreten(&wunsch("n65", Art::Agent), ip("127.0.0.1"));
 
         assert!(danach.is_ok(), "{danach:?}");
+    }
+
+    fn mit_gestellter_uhr() -> (Arc<GestellteUhr>, Anwesenheit) {
+        let uhr = Arc::new(GestellteUhr::neu(zeit(T0)));
+        let anwesenheit = Anwesenheit::neu(
+            Arc::clone(&uhr) as Arc<dyn Uhr>,
+            Arc::new(FesteFolge::neu(1..=100)),
+            Duration::from_secs(60),
+        );
+        (uhr, anwesenheit)
+    }
+
+    fn sekunden_nach_t0(sekunden: i64) -> Zeit {
+        zeit(T0) + chrono::Duration::seconds(sekunden)
+    }
+
+    /// Erster Test aus A00010 und Kriterium „Standard ohne Testknopf“ (R00003, F0009).
+    #[test]
+    fn wiederkehren_erneuert_das_lebenszeichen_danach_laeuft_die_frist_neu() {
+        let (uhr, anwesenheit) = mit_gestellter_uhr();
+        let sitzung = anwesenheit
+            .beitreten(&wunsch("claude", Art::Agent), ip("10.0.0.5"))
+            .expect("beigetreten");
+
+        uhr.stellen(sekunden_nach_t0(59));
+        let vergeben_bei_59 =
+            anwesenheit.beitreten(&wunsch("claude", Art::Mensch), ip("127.0.0.1"));
+        let wiedergekehrt = anwesenheit.wiederkehren(&sitzung.token, ip("10.0.0.5"));
+        uhr.stellen(sekunden_nach_t0(59 + 59));
+        let vergeben_bei_118 =
+            anwesenheit.beitreten(&wunsch("claude", Art::Mensch), ip("127.0.0.1"));
+        uhr.stellen(sekunden_nach_t0(59 + 61));
+        let frei_bei_120 = anwesenheit.beitreten(&wunsch("claude", Art::Mensch), ip("127.0.0.1"));
+
+        assert!(matches!(
+            vergeben_bei_59,
+            Err(Beitrittsfehler::NameVergeben { .. })
+        ));
+        let wiedergekehrt = wiedergekehrt.expect("Sitzung");
+        assert_eq!(wiedergekehrt.kennung, sitzung.kennung);
+        assert_eq!(wiedergekehrt.letztes_lebenszeichen, sekunden_nach_t0(59));
+        assert_eq!(wiedergekehrt.seit, zeit(T0));
+        assert!(
+            matches!(vergeben_bei_118, Err(Beitrittsfehler::NameVergeben { .. })),
+            "{vergeben_bei_118:?}"
+        );
+        assert!(frei_bei_120.is_ok(), "{frei_bei_120:?}");
+        assert_eq!(
+            anwesenheit.wiederkehren(&sitzung.token, ip("10.0.0.5")),
+            None,
+            "altes Token ungültig"
+        );
+    }
+
+    #[test]
+    fn eine_andere_herkunft_kehrt_nicht_wieder_und_erneuert_nichts() {
+        let (uhr, anwesenheit) = mit_gestellter_uhr();
+        let sitzung = anwesenheit
+            .beitreten(&wunsch("claude", Art::Agent), ip("10.0.0.5"))
+            .expect("beigetreten");
+
+        uhr.stellen(sekunden_nach_t0(30));
+        let fremd = anwesenheit.wiederkehren(&sitzung.token, ip("10.0.0.6"));
+        uhr.stellen(sekunden_nach_t0(61));
+        let frei = anwesenheit.beitreten(&wunsch("claude", Art::Agent), ip("127.0.0.1"));
+
+        assert_eq!(fremd, None);
+        assert!(
+            frei.is_ok(),
+            "die fremde Herkunft hat kein Lebenszeichen gesetzt: {frei:?}"
+        );
+    }
+
+    #[test]
+    fn ein_unbekanntes_token_kehrt_nicht_wieder() {
+        let (_, anwesenheit) = mit_gestellter_uhr();
+        anwesenheit
+            .beitreten(&wunsch("claude", Art::Agent), ip("10.0.0.5"))
+            .expect("beigetreten");
+        let unbekannt = Token::lesen("00000000000000000000000000000000").expect("Token");
+
+        assert_eq!(anwesenheit.wiederkehren(&unbekannt, ip("10.0.0.5")), None);
     }
 
     #[test]
