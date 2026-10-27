@@ -41,7 +41,10 @@ pub fn router(zustand: Zustand) -> Router {
 pub(crate) mod testserver {
     use super::{Grenzschutz, Zustand, router};
     use crate::gespraeche::{Dateiablage, Gespraeche};
+    use crate::start::ausliefern::ausliefern;
+    use crate::start::verbindungen::Verbindungsgrenzen;
     use crate::uhr::Systemuhr;
+    use axum::Router;
     use std::path::Path;
     use std::sync::Arc;
 
@@ -52,16 +55,44 @@ pub(crate) mod testserver {
         let gespraeche =
             Gespraeche::laden(Arc::new(Dateiablage::neu(leer.path())), Arc::new(Systemuhr))
                 .expect("leerer Ordner geladen");
-        let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0))
-            .await
-            .expect("Testport gebunden");
-        let adresse = listener.local_addr().expect("Adresse");
         let app = router(Zustand {
             ordner: ordner.to_path_buf(),
             gespraeche: Arc::new(gespraeche),
             grenzschutz: Grenzschutz::neu(None, Vec::new()),
         });
-        tokio::spawn(async move { axum::serve(listener, app).await });
+        app_starten(app).await
+    }
+
+    /// Liefert `app` im Testprozess auf einem freien Port aus — über dieselbe Annahmeschleife wie das
+    /// Programm (ADR-0010, ein Server-Stack), damit Handler die Herkunft sehen — und liefert die Basisadresse.
+    pub async fn app_starten(app: Router) -> String {
+        let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0))
+            .await
+            .expect("Testport gebunden");
+        let adresse = listener.local_addr().expect("Adresse");
+        let grenzen = Verbindungsgrenzen::fuer_deskriptoren(None);
+        tokio::spawn(ausliefern(listener, app, std::future::pending(), grenzen));
         format!("http://{adresse}/")
+    }
+
+    #[tokio::test]
+    async fn der_testserver_liefert_ueber_denselben_stack_wie_das_programm_mit_herkunft() {
+        use axum::extract::ConnectInfo;
+        use axum::routing::get;
+        use std::net::SocketAddr;
+        let app = Router::new().route(
+            "/",
+            get(
+                |ConnectInfo(gegenstelle): ConnectInfo<SocketAddr>| async move {
+                    gegenstelle.ip().to_string()
+                },
+            ),
+        );
+
+        let adresse = app_starten(app).await;
+        let antwort = reqwest::get(adresse).await.expect("Antwort");
+
+        assert_eq!(antwort.status(), 200);
+        assert_eq!(antwort.text().await.expect("Text"), "127.0.0.1");
     }
 }

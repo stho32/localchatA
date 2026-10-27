@@ -3,14 +3,14 @@
 //! Reihenfolge: Aufruf lesen → Uhr → Ordner vorbereiten → sperren → Verlauf laden → binden → Startzeile → Browser → ausliefern bis zum Signal.
 
 mod aufruf;
-mod ausliefern;
+pub(crate) mod ausliefern;
 mod browser;
 mod ordner;
 mod port;
 mod rechnername;
 mod sperre;
 mod startfehler;
-mod verbindungen;
+pub(crate) mod verbindungen;
 
 use aufruf::{Aufruf, Portwunsch, Startauftrag};
 use startfehler::Startfehler;
