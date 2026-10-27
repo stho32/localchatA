@@ -365,3 +365,25 @@ fn variante_doppelte_kopfzeilen_werden_abgewiesen() {
     assert_eq!(zwei_origins.status, 403);
     assert_eq!(zwei_sites.status, 403);
 }
+
+/// Eigene Variante aus ADR-0014 „Durchsetzung“: die Route mit Wirkung ist unter fremdem Host gesperrt,
+/// und die Abweisung belegt keinen Namen.
+#[test]
+fn variante_beitreten_unter_fremdem_host_ergibt_403_und_belegt_nichts() {
+    let instanz = wegwerf_starten();
+    let koerper = r#"{"name":"opfer"}"#;
+    let senden = |host: &str| {
+        roh_anfragen(
+            ziel(&instanz),
+            &format!("POST /api/beitreten HTTP/1.1\r\n{host}\r\nContent-Type: application/json"),
+            koerper,
+        )
+    };
+
+    let fremd = senden("Host: evil.example");
+    let eigen = senden(&eigener_host(&instanz));
+
+    assert_eq!(fremd.status, 403);
+    header_satz(&fremd, true);
+    assert_eq!(eigen.status, 201, "{}", eigen.inhalt);
+}
