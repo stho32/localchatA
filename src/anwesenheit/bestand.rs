@@ -10,6 +10,7 @@ use crate::zufall::{Token, Zufall, Zufallsfehler};
 use std::collections::HashMap;
 use std::net::IpAddr;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::time::Duration;
 
 /// Lebende Sitzungen je Herkunft und gesamt — gleich den Verbindungsgrenzen (ADR-0012).
 pub const JE_HERKUNFT: usize = 64;
@@ -42,16 +43,23 @@ pub enum Beitrittsfehler {
 pub struct Anwesenheit {
     uhr: Arc<dyn Uhr>,
     zufall: Arc<dyn Zufall>,
+    gnadenfrist: Duration,
     sitzungen: Mutex<HashMap<Token, Sitzung>>,
 }
 
 impl Anwesenheit {
-    pub fn neu(uhr: Arc<dyn Uhr>, zufall: Arc<dyn Zufall>) -> Anwesenheit {
+    pub fn neu(uhr: Arc<dyn Uhr>, zufall: Arc<dyn Zufall>, gnadenfrist: Duration) -> Anwesenheit {
         Anwesenheit {
             uhr,
             zufall,
+            gnadenfrist,
             sitzungen: Mutex::new(HashMap::new()),
         }
+    }
+
+    /// So lange lebt eine Sitzung nach ihrem letzten Lebenszeichen (ADR-0012).
+    pub fn gnadenfrist(&self) -> Duration {
+        self.gnadenfrist
     }
 
     /// Unter einer Sperre: Name lebend belegt (egal von wo) → vergeben mit Vorschlag; Grenze je Herkunft
@@ -116,7 +124,11 @@ mod tests {
     }
 
     fn anwesenheit(zufall: FesteFolge) -> Anwesenheit {
-        Anwesenheit::neu(Arc::new(GestellteUhr::neu(zeit(T0))), Arc::new(zufall))
+        Anwesenheit::neu(
+            Arc::new(GestellteUhr::neu(zeit(T0))),
+            Arc::new(zufall),
+            Duration::from_secs(60),
+        )
     }
 
     fn wunsch(name: &str, art: Art) -> Beitrittswunsch {

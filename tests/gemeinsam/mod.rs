@@ -305,3 +305,71 @@ pub fn roh_anfragen(ziel: std::net::SocketAddr, anfrage: &str, koerper: &str) ->
         inhalt: inhalt.to_string(),
     }
 }
+
+/// Antwort einer API-Anfrage: Status, Kopf, Inhalt als JSON (`Null`, wenn er keines ist).
+#[derive(Debug)]
+pub struct ApiAntwort {
+    pub status: u16,
+    pub kopf: reqwest::header::HeaderMap,
+    pub json: serde_json::Value,
+}
+
+/// Ein Teilnehmer im Test: sendet von einer festen Absenderadresse (`127.0.0.2` per Linux-Loopback).
+pub struct Absender {
+    client: reqwest::Client,
+}
+
+impl Absender {
+    pub fn von(adresse: &str) -> Absender {
+        let ip: std::net::IpAddr = adresse.parse().expect("Absenderadresse");
+        Absender {
+            client: reqwest::Client::builder()
+                .local_address(ip)
+                .build()
+                .expect("Client"),
+        }
+    }
+
+    /// `POST <basis>api/beitreten` mit JSON und optional dem Sitzungs-Header.
+    pub async fn beitreten(
+        &self,
+        basis: &str,
+        koerper: serde_json::Value,
+        token: Option<&str>,
+    ) -> ApiAntwort {
+        let mut anfrage = self
+            .client
+            .post(format!("{basis}api/beitreten"))
+            .json(&koerper);
+        if let Some(token) = token {
+            anfrage = anfrage.header("X-LocalchatA-Sitzung", token);
+        }
+        api_antwort(anfrage).await
+    }
+
+    /// `GET <basis>api/ich` mit optional dem Sitzungs-Header.
+    pub async fn ich(&self, basis: &str, token: Option<&str>) -> ApiAntwort {
+        let mut anfrage = self.client.get(format!("{basis}api/ich"));
+        if let Some(token) = token {
+            anfrage = anfrage.header("X-LocalchatA-Sitzung", token);
+        }
+        api_antwort(anfrage).await
+    }
+
+    /// Eine beliebig zusammengesetzte Anfrage dieses Absenders.
+    pub fn anfrage(&self, methode: reqwest::Method, url: String) -> reqwest::RequestBuilder {
+        self.client.request(methode, url)
+    }
+}
+
+pub async fn api_antwort(anfrage: reqwest::RequestBuilder) -> ApiAntwort {
+    let antwort = anfrage.send().await.expect("Antwort");
+    let status = antwort.status().as_u16();
+    let kopf = antwort.headers().clone();
+    let text = antwort.text().await.expect("Inhalt");
+    ApiAntwort {
+        status,
+        kopf,
+        json: serde_json::from_str(&text).unwrap_or(serde_json::Value::Null),
+    }
+}

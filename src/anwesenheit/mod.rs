@@ -3,3 +3,6 @@
 mod bestand;
 mod vorschlag;
 mod wunsch;
+
+pub use bestand::{Anwesenheit, Beitrittsfehler, Sitzung};
+pub use wunsch::{Abweisung, Beitrittswunsch};

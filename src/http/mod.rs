@@ -1,5 +1,6 @@
 //! HTTP-Schnittstelle: Router an der Systemgrenze (A00004).
 
+mod beitreten;
 mod eingebettet;
 mod gesundheit;
 mod grenzschutz;
@@ -7,19 +8,21 @@ mod oberflaeche;
 
 pub use grenzschutz::Grenzschutz;
 
+use crate::anwesenheit::Anwesenheit;
 use crate::gespraeche::Gespraeche;
 use axum::Router;
 use axum::middleware;
-use axum::routing::get;
+use axum::routing::{get, post};
 use std::path::PathBuf;
 use std::sync::Arc;
 
-/// Was die Handler über die laufende Instanz wissen: ihren Ordner, die geladenen Gespräche und die
-/// Namen, unter denen sie antworten darf.
+/// Was die Handler über die laufende Instanz wissen: ihren Ordner, die geladenen Gespräche, die
+/// Anwesenheit und die Namen, unter denen sie antworten darf.
 #[derive(Clone)]
 pub struct Zustand {
     pub ordner: PathBuf,
     pub gespraeche: Arc<Gespraeche>,
+    pub anwesenheit: Arc<Anwesenheit>,
     pub grenzschutz: Grenzschutz,
 }
 
@@ -30,6 +33,7 @@ pub fn router(zustand: Zustand) -> Router {
         .route("/", get(oberflaeche::wurzel))
         .route("/web/{datei}", get(oberflaeche::datei))
         .route("/api/gesundheit", get(gesundheit::beantworten))
+        .route("/api/beitreten", post(beitreten::beantworten))
         .with_state(Arc::new(zustand))
         .layer(middleware::from_fn_with_state(
             grenzschutz,
@@ -40,13 +44,16 @@ pub fn router(zustand: Zustand) -> Router {
 #[cfg(test)]
 pub(crate) mod testserver {
     use super::{Grenzschutz, Zustand, router};
+    use crate::anwesenheit::Anwesenheit;
     use crate::gespraeche::{Dateiablage, Gespraeche};
     use crate::start::ausliefern::ausliefern;
     use crate::start::verbindungen::Verbindungsgrenzen;
     use crate::uhr::Systemuhr;
+    use crate::zufall::Betriebssystemzufall;
     use axum::Router;
     use std::path::Path;
     use std::sync::Arc;
+    use std::time::Duration;
 
     /// Startet den Router im Testprozess auf einem freien Port und liefert die Basisadresse;
     /// die Gespräche kommen aus einem leeren Wegwerf-Ordner, `ordner` steht nur in den Antworten.
@@ -58,6 +65,11 @@ pub(crate) mod testserver {
         let app = router(Zustand {
             ordner: ordner.to_path_buf(),
             gespraeche: Arc::new(gespraeche),
+            anwesenheit: Arc::new(Anwesenheit::neu(
+                Arc::new(Systemuhr),
+                Arc::new(Betriebssystemzufall),
+                Duration::from_secs(60),
+            )),
             grenzschutz: Grenzschutz::neu(None, Vec::new()),
         });
         app_starten(app).await
