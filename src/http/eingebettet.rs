@@ -12,6 +12,7 @@ pub fn nachschlagen(name: &str) -> Option<EingebetteteDatei> {
     let (inhalt, typ): (&'static [u8], _) = match name {
         "index.html" => (include_bytes!("../../web/index.html"), HTML),
         "lc-tokens.css" => (include_bytes!("../../web/lc-tokens.css"), CSS),
+        "lc-seite.css" => (include_bytes!("../../web/lc-seite.css"), CSS),
         _ => return None,
     };
     Some(EingebetteteDatei { inhalt, typ })
@@ -47,6 +48,14 @@ mod tests {
             text(tokens),
             include_str!("../../Dokumentation/Wireframes/designsystem/tokens.css")
         );
+    }
+
+    #[test]
+    fn der_seitenstil_ist_eine_eigene_css_datei() {
+        let seite = nachschlagen("lc-seite.css").expect("lc-seite.css eingebettet");
+
+        assert_eq!(seite.typ, "text/css; charset=utf-8");
+        assert!(text(seite).contains("var(--kd-bg)"));
     }
 
     #[test]

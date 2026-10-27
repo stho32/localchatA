@@ -1,0 +1,3 @@
+/* localchatA — Seitenstil (ADR-0014: kein Inline-Stil, alles aus Dateien unter /web/) */
+html, body { margin: 0; height: 100%; }
+body { background: var(--kd-bg); color: var(--kd-ink); font-family: var(--font-sans); }

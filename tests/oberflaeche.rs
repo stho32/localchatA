@@ -70,3 +70,61 @@ async fn us10_unbekannte_dateien_und_pfade_ergeben_404() {
         assert_eq!(antwort.status, 404, "{pfad}");
     }
 }
+
+/// Stellen im HTML, die eine CSP mit `script-src 'self'; style-src 'self'` verletzen würden (ADR-0014 Regel 6).
+fn inline_code(html: &str) -> Vec<String> {
+    let klein = html.to_lowercase();
+    let mut funde = Vec::new();
+    if klein.contains("<style") {
+        funde.push("<style>".to_string());
+    }
+    for (stelle, _) in klein.match_indices("<script") {
+        let tag = &klein[stelle
+            ..klein[stelle..]
+                .find('>')
+                .map_or(klein.len(), |ende| stelle + ende)];
+        if !tag.contains(" src=") {
+            funde.push(format!("Skript ohne src: {tag}"));
+        }
+    }
+    let woerter: Vec<&str> = klein
+        .split(|zeichen: char| zeichen.is_whitespace())
+        .collect();
+    for wort in woerter {
+        let attribut = wort.split('=').next().unwrap_or_default();
+        let ist_on_attribut = wort.contains('=')
+            && attribut.len() > 2
+            && attribut.starts_with("on")
+            && attribut
+                .chars()
+                .all(|zeichen| zeichen.is_ascii_alphabetic());
+        if attribut == "style" && wort.contains('=') || ist_on_attribut {
+            funde.push(wort.to_string());
+        }
+    }
+    funde
+}
+
+#[test]
+fn die_pruefung_auf_inline_code_findet_jede_art() {
+    let html = "<style>a{}</style><p style=\"x\" onclick=\"y\"><script>1</script><script type=module src=/a.js></script>";
+    assert_eq!(inline_code(html).len(), 4, "{:?}", inline_code(html));
+}
+
+#[tokio::test]
+async fn die_seite_kommt_ohne_inline_stil_und_skript_aus_der_seitenstil_als_css_datei() {
+    let instanz = wegwerf_starten();
+
+    let seite = holen(instanz.adresse.clone()).await;
+    let stil = holen(format!("{}web/lc-seite.css", instanz.adresse)).await;
+
+    assert_eq!(inline_code(&seite.inhalt), Vec::<String>::new());
+    assert!(
+        seite.inhalt.contains("href=\"/web/lc-seite.css\""),
+        "{}",
+        seite.inhalt
+    );
+    assert_eq!(stil.status, 200);
+    assert!(stil.typ.starts_with("text/css"), "{}", stil.typ);
+    assert!(stil.inhalt.contains("var(--kd-bg)"), "{}", stil.inhalt);
+}
