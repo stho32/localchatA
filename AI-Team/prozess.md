@@ -1,0 +1,19 @@
+# Prozess
+
+Je Spalte des Boards: Art (`Team` bearbeitet der Director mit der Rolle, `Manuell` gehört dem Menschen), Rolle (nur bei Team), Phase der Phasen-Datei (falls die Spalte eine darstellt) und was in der Spalte getan wird. `python3 werkzeuge/board_aus_prozess.py <projekt>/AI-Team` schreibt die Spalten mit dieser Beschreibung als Notiz aufs Board.
+
+| Spalte | Art | Rolle | Phase | Was hier getan wird |
+|---|---|---|---|---|
+| Backlog | Manuell | — | — | Sammlung; der Betreiber gibt frei, indem er Karten nach „Architektur“ legt |
+| Architektur | Team | architekt | — | prüfen, ob die Karte eine Technikfrage aufwirft; wenn ja entscheiden und als ADR festhalten, sonst sofort weiter; die erste Karte bringt die Technikwahl |
+| Bereit | Team | planer | — | Interaction bis Bubble verfeinern, Anforderung schreiben |
+| Entwicklung | Team | entwickler | Entwicklung | bauen, Test zuerst, Gate |
+| Code-Review | Team | code-reviewer | — | Korrektheit gegen Kriterien, Tests, Wartbarkeit, Leistung je Nachricht |
+| UX-Review | Team | ux-reviewer | — | gegen Designsystem, Tastatur, Barrierefreiheit im Browser; Karten ohne Oberfläche gehen direkt weiter |
+| Entwicklertest | Team | entwicklertester | Entwicklertest | User Story im echten Programm |
+| Security-Review | Team | security-reviewer | — | Angriffsweg mit Probe |
+| Abnahme | Manuell | — | Abnahme | der Betreiber nimmt gegen die Akzeptanzkriterien ab |
+| Erledigt | Manuell | — | — | abgenommen |
+| Ohne Mensch nicht lösbar | Manuell | — | — | Schleifen und Entscheidungen, die ein Mensch treffen muss |
+
+Schleifen an den Menschen: Ohne Mensch nicht lösbar
