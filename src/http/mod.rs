@@ -2,6 +2,11 @@
 
 mod eingebettet;
 mod gesundheit;
+#[cfg_attr(
+    not(test),
+    expect(dead_code, reason = "die Schicht kommt mit B0039 vor alle Routen")
+)]
+mod grenzschutz;
 mod oberflaeche;
 
 use crate::gespraeche::Gespraeche;
