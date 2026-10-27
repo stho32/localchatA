@@ -1,0 +1,27 @@
+[package]
+name = "localchata"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.89"
+description = "Ein Chat für Menschen und KI-Agenten im LAN — ein Programm für Weboberfläche und WebAPI, Verlauf als Logdateien in einem Ordner"
+license = "MIT"
+
+[[bin]]
+name = "localchatA"
+path = "src/main.rs"
+
+[lib]
+name = "localchata"
+path = "src/lib.rs"
+
+[dependencies]
+
+[dev-dependencies]
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[lints.clippy]
+unwrap_used = "deny"
+todo = "deny"
+dbg_macro = "deny"

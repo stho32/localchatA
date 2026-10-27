@@ -1,2 +1,6 @@
 .claude/planung/*.html
 .claude/wireframes/*.html
+/target/
+/e2e/node_modules/
+/e2e/test-results/
+/e2e/playwright-report/
