@@ -5,12 +5,15 @@ use std::path::PathBuf;
 
 /// Aufrufzeile mit allen Optionen, darunter je Option eine Erklärung.
 pub const HILFE: &str = concat!(
-    "Aufruf: localchatA [<ordner>] [--port <n>] [--host <adresse>] [--kein-browser] [--hilfe]\n",
+    "Aufruf: localchatA [<ordner>] [--port <n>] [--host <adresse>] [--kein-browser] [--erreichbar-als <name>]… [--hilfe]\n",
     "\n",
     "  <ordner>          Ordner der Instanz, wird angelegt (Standard: aktuelles Verzeichnis)\n",
     "  --port <n>        Port; ohne Angabe 7430 oder der nächste freie, 0 wählt das System\n",
     "  --host <adresse>  Adresse zum Lauschen (Standard: 0.0.0.0, alle Schnittstellen im LAN)\n",
     "  --kein-browser    nach dem Start keinen Browser öffnen\n",
+    "  --erreichbar-als <name>\n",
+    "                    Host-Name, unter dem die Instanz zusätzlich antwortet (mehrfach erlaubt);\n",
+    "                    IP-Adressen, localhost und der Rechnername gelten immer\n",
     "  --hilfe           diese Hilfe zeigen",
 );
 
@@ -29,6 +32,8 @@ pub struct Startauftrag {
     pub port: Portwunsch,
     pub host: String,
     pub browser_oeffnen: bool,
+    /// Weitere Host-Namen, unter denen die Instanz antworten darf (Grenzschutz, ADR-0014).
+    pub erreichbar_als: Vec<String>,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -70,6 +75,7 @@ impl Startauftrag {
             port: Portwunsch::Standard,
             host: "0.0.0.0".into(),
             browser_oeffnen: true,
+            erreichbar_als: Vec::new(),
         };
         let mut ordner_gelesen = false;
         let mut args = args.into_iter();
@@ -78,6 +84,10 @@ impl Startauftrag {
                 "--hilfe" => return Ok(Aufruf::Hilfe),
                 "--kein-browser" => auftrag.browser_oeffnen = false,
                 "--host" => auftrag.host = args.next().ok_or(Aufruffehler::WertFehlt(argument))?,
+                "--erreichbar-als" => {
+                    let name = args.next().ok_or(Aufruffehler::WertFehlt(argument))?;
+                    auftrag.erreichbar_als.push(name);
+                }
                 "--port" => {
                     let wert = args.next().ok_or(Aufruffehler::WertFehlt(argument))?;
                     auftrag.port = portwunsch(wert)?;
@@ -128,6 +138,7 @@ mod tests {
                 port: Portwunsch::System,
                 host: "0.0.0.0".into(),
                 browser_oeffnen: false,
+                erreichbar_als: vec![],
             }
         );
     }
@@ -141,6 +152,7 @@ mod tests {
                 port: Portwunsch::Standard,
                 host: "0.0.0.0".into(),
                 browser_oeffnen: true,
+                erreichbar_als: vec![],
             }
         );
     }
@@ -152,6 +164,42 @@ mod tests {
         assert_eq!(gelesen.host, "127.0.0.1");
         assert_eq!(gelesen.ordner, PathBuf::from("ordner"));
         assert!(gelesen.browser_oeffnen);
+    }
+
+    #[test]
+    fn erreichbar_als_ist_mehrfach_erlaubt_und_sammelt_die_namen_in_der_reihenfolge() {
+        let gelesen = auftrag(&[
+            "/tmp/x",
+            "--erreichbar-als",
+            "chat.lan",
+            "--erreichbar-als",
+            "nuc",
+        ]);
+        assert_eq!(gelesen.erreichbar_als, vec!["chat.lan", "nuc"]);
+        assert_eq!(gelesen.ordner, PathBuf::from("/tmp/x"));
+    }
+
+    #[test]
+    fn erreichbar_als_ohne_wert_ist_ein_aufruffehler() {
+        assert_eq!(
+            lies(&["/tmp/x", "--erreichbar-als"]),
+            Err(Aufruffehler::WertFehlt("--erreichbar-als".into()))
+        );
+    }
+
+    #[test]
+    fn die_hilfe_nennt_erreichbar_als_in_der_aufrufzeile_und_erklaert_es() {
+        let aufrufzeile = HILFE.lines().next().unwrap_or_default();
+        assert!(
+            aufrufzeile.contains("--erreichbar-als <name>"),
+            "{aufrufzeile}"
+        );
+        assert!(
+            HILFE
+                .lines()
+                .any(|zeile| zeile.trim_start().starts_with("--erreichbar-als")),
+            "{HILFE}"
+        );
     }
 
     #[test]

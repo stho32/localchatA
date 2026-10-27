@@ -20,7 +20,14 @@ fn us4_hilfe_zeigt_die_aufrufzeile_mit_allen_optionen_und_endet_mit_exit_null() 
         aufrufzeile.starts_with("Aufruf: localchatA"),
         "{aufrufzeile}"
     );
-    for option in ["<ordner>", "--port", "--host", "--kein-browser", "--hilfe"] {
+    for option in [
+        "<ordner>",
+        "--port",
+        "--host",
+        "--kein-browser",
+        "--erreichbar-als",
+        "--hilfe",
+    ] {
         assert!(
             aufrufzeile.contains(option),
             "{option} fehlt in {aufrufzeile}"
@@ -43,6 +50,22 @@ fn us4_unbekannte_option_endet_mit_exit_zwei_und_verweist_auf_die_hilfe() {
 #[test]
 fn fehlender_portwert_ist_ebenfalls_ein_falscher_aufruf_mit_exit_zwei() {
     assert_eq!(aufrufen(&["--port"]).exit, Some(2));
+}
+
+#[test]
+fn erreichbar_als_ohne_wert_endet_mit_exit_zwei_und_nennt_die_option() {
+    let wurzel = tempfile::tempdir().expect("Wegwerf-Ordner");
+    let ordner = wurzel.path().display().to_string();
+
+    let ende = aufrufen(&[&ordner, "--erreichbar-als"]);
+
+    assert_eq!(ende.exit, Some(2));
+    assert!(
+        genau_eine_zeile(&ende.stderr).contains("--erreichbar-als"),
+        "{}",
+        ende.stderr
+    );
+    assert_eq!(ende.stdout, "");
 }
 
 #[test]
