@@ -12,3 +12,4 @@ Eine Zeile je Auftrag an eine Rolle und je Retrospektive.
 | 2026-10-27 | #1 I0001 | Entwicklung | entwickler | bestanden | 0:06 | Nacharbeit 1: B1, B2, A2 (ccdd4b5, 45b0cd4, e468ffd), Gate mit belegtem 7430 grün |
 | 2026-10-27 | #1 I0001 | Code-Review | code-reviewer | bestanden | 0:05 | Wiederholung: B1, B2 behoben; Anmerkung Verdrahtung Bindeplan |
 | 2026-10-27 | #1 I0001 | UX-Review | — | entfällt | — | leere Seite ohne Bedienung |
+| 2026-10-27 | #1 I0001 | Entwicklertest | entwicklertester | bestanden | 0:20 | 9/10 bestanden, US-8 Und-Zeile nicht beobachtbar → Restrisiko, Betreiber sieht es in der Abnahme |
