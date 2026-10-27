@@ -8,3 +8,4 @@ Eine Zeile je Auftrag an eine Rolle und je Retrospektive.
 | 2026-10-27 | #1 I0001 | Architektur | architekt | bestanden | 0:14 | Modell + ADR-0001…0009 (9733c55); Frage an Betreiber zu ADR-0005 offen |
 | 2026-10-27 | #1 I0001 | Bereit | planer | bestanden | 0:04 | R00001, 13 Bubbles (73b60e8, dccaa5f) |
 | 2026-10-27 | #1 I0001 | Entwicklung | entwickler | bestanden | 0:18 | R00001 gebaut, Gate grün nachgeprüft (51 + 1 E2E) |
+| 2026-10-27 | #1 I0001 | Code-Review | code-reviewer | befund | 0:05 | B1 Signal-Fenster, B2 feste Ports in Tests (nachgeprobt); Nacharbeit 1 |
