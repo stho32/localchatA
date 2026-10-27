@@ -3,6 +3,7 @@ application: localchatA
 system: localchatA
 vision: Anforderungen/R00000-vision.md
 wireframes: Dokumentation/Wireframes/
+kanban: {folder: /home/shoff/Projekte/localchatA-kanbanD, board: entwicklung, application: lc, url: http://127.0.0.1:7421/}
 sprache: de
 zuletzt: 2026-10-27
 ---
