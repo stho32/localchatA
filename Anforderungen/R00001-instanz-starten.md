@@ -1,6 +1,6 @@
 ---
 id: R00001
-status: Neu
+status: Erledigt
 datum: 2026-10-27
 ---
 
