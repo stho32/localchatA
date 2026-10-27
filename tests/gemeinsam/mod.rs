@@ -248,3 +248,60 @@ pub fn aufrufen_mit(argumente: &[&str], umgebung: &[(&str, &str)]) -> Ende {
         stderr: String::from_utf8_lossy(&ausgabe.stderr).into_owned(),
     }
 }
+
+/// Antwort auf eine Anfrage, die Byte für Byte so gesendet wurde, wie der Test sie schreibt.
+#[derive(Debug)]
+pub struct RohAntwort {
+    pub status: u16,
+    /// Header-Namen klein geschrieben, in der Reihenfolge der Antwort.
+    pub kopf: Vec<(String, String)>,
+    pub inhalt: String,
+}
+
+impl RohAntwort {
+    /// Der Wert eines Headers (Name klein), wenn er genau einmal vorkommt; mehrfach ist ein Fehler im Test.
+    pub fn header(&self, name: &str) -> Option<&str> {
+        let werte: Vec<&str> = self
+            .kopf
+            .iter()
+            .filter(|(kopfname, _)| kopfname == name)
+            .map(|(_, wert)| wert.as_str())
+            .collect();
+        assert!(werte.len() <= 1, "{name} mehrfach: {werte:?}");
+        werte.first().copied()
+    }
+}
+
+/// Sendet `anfrage` (Kopfzeilen ohne Leerzeile am Ende; `Connection: close` hängt die Hilfe an) roh an
+/// `ziel` und liest die Antwort bis zum Ende der Verbindung.
+pub fn roh_anfragen(ziel: std::net::SocketAddr, anfrage: &str, koerper: &str) -> RohAntwort {
+    use std::io::Write;
+    let mut verbindung = std::net::TcpStream::connect(ziel).expect("Verbindung");
+    verbindung
+        .set_read_timeout(Some(Duration::from_secs(5)))
+        .expect("Lesegrenze");
+    let text = format!(
+        "{anfrage}\r\nConnection: close\r\nContent-Length: {}\r\n\r\n{koerper}",
+        koerper.len()
+    );
+    verbindung.write_all(text.as_bytes()).expect("Anfrage");
+    let mut roh = Vec::new();
+    verbindung.read_to_end(&mut roh).expect("Antwort");
+    let roh = String::from_utf8_lossy(&roh).into_owned();
+    let (kopfteil, inhalt) = roh.split_once("\r\n\r\n").expect("Kopf und Inhalt");
+    let mut zeilen = kopfteil.split("\r\n");
+    let status = zeilen
+        .next()
+        .and_then(|statuszeile| statuszeile.split(' ').nth(1))
+        .and_then(|code| code.parse().ok())
+        .unwrap_or_else(|| panic!("keine Statuszeile: {roh:?}"));
+    let kopf = zeilen
+        .filter_map(|zeile| zeile.split_once(':'))
+        .map(|(name, wert)| (name.trim().to_lowercase(), wert.trim().to_string()))
+        .collect();
+    RohAntwort {
+        status,
+        kopf,
+        inhalt: inhalt.to_string(),
+    }
+}

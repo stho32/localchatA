@@ -2,37 +2,44 @@
 
 mod eingebettet;
 mod gesundheit;
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "die Schicht kommt mit B0039 vor alle Routen")
-)]
 mod grenzschutz;
 mod oberflaeche;
 
+pub use grenzschutz::Grenzschutz;
+
 use crate::gespraeche::Gespraeche;
 use axum::Router;
+use axum::middleware;
 use axum::routing::get;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-/// Was die Handler über die laufende Instanz wissen: ihren Ordner und die geladenen Gespräche.
+/// Was die Handler über die laufende Instanz wissen: ihren Ordner, die geladenen Gespräche und die
+/// Namen, unter denen sie antworten darf.
 #[derive(Clone)]
 pub struct Zustand {
     pub ordner: PathBuf,
     pub gespraeche: Arc<Gespraeche>,
+    pub grenzschutz: Grenzschutz,
 }
 
+/// Alle Routen unter der Schicht `grenzschutz` (ADR-0014) — sie ist die äußerste, auch für 404 und 405.
 pub fn router(zustand: Zustand) -> Router {
+    let grenzschutz = Arc::new(zustand.grenzschutz.clone());
     Router::new()
         .route("/", get(oberflaeche::wurzel))
         .route("/web/{datei}", get(oberflaeche::datei))
         .route("/api/gesundheit", get(gesundheit::beantworten))
         .with_state(Arc::new(zustand))
+        .layer(middleware::from_fn_with_state(
+            grenzschutz,
+            grenzschutz::schicht,
+        ))
 }
 
 #[cfg(test)]
 pub(crate) mod testserver {
-    use super::{Zustand, router};
+    use super::{Grenzschutz, Zustand, router};
     use crate::gespraeche::{Dateiablage, Gespraeche};
     use crate::uhr::Systemuhr;
     use std::path::Path;
@@ -52,6 +59,7 @@ pub(crate) mod testserver {
         let app = router(Zustand {
             ordner: ordner.to_path_buf(),
             gespraeche: Arc::new(gespraeche),
+            grenzschutz: Grenzschutz::neu(None, Vec::new()),
         });
         tokio::spawn(async move { axum::serve(listener, app).await });
         format!("http://{adresse}/")

@@ -7,13 +7,6 @@ mod ausliefern;
 mod browser;
 mod ordner;
 mod port;
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "der Start reicht ihn mit B0039 an den Grenzschutz"
-    )
-)]
 mod rechnername;
 mod sperre;
 mod startfehler;
@@ -24,7 +17,7 @@ use startfehler::Startfehler;
 use verbindungen::Verbindungsgrenzen;
 
 use crate::gespraeche::{Dateiablage, Gespraeche};
-use crate::http::{self, Zustand};
+use crate::http::{self, Grenzschutz, Zustand};
 use crate::uhr::{self, Uhr};
 use aufruf::HILFE;
 use std::net::SocketAddr;
@@ -83,6 +76,7 @@ async fn starten(auftrag: Startauftrag, uhr: Box<dyn Uhr>) -> Result<(), Startfe
     let app = http::router(Zustand {
         ordner,
         gespraeche: Arc::new(gespraeche),
+        grenzschutz: Grenzschutz::neu(rechnername::lesen(), auftrag.erreichbar_als),
     });
     ausliefern::ausliefern(
         listener,

@@ -24,7 +24,7 @@ const ENDE_FRIST: Duration = Duration::from_secs(5);
 const BEOBACHTEN: Duration = Duration::from_secs(20);
 
 const HALBER_KOPF: &[u8] = b"GET / HTTP/1.1\r\n";
-const VOLLSTAENDIGER_REQUEST: &[u8] = b"GET /api/gesundheit HTTP/1.1\r\nHost: localchata\r\n\r\n";
+const VOLLSTAENDIGER_REQUEST: &[u8] = b"GET /api/gesundheit HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n";
 
 fn verbinden(instanz: &Instanz) -> TcpStream {
     TcpStream::connect(("127.0.0.1", instanz.port())).expect("Verbindung zur Instanz")

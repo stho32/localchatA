@@ -1,13 +1,68 @@
 //! Grenzschutz (ADR-0014): welche Host-Namen die Instanz anspricht (gegen DNS-Rebinding) und von welchem
 //! Ursprung sie Wirkung annimmt (gegen CSRF).
 
+use axum::Json;
+use axum::extract::{Request, State};
 use axum::http::header::{
-    CACHE_CONTROL, CONTENT_SECURITY_POLICY, HeaderName, HeaderValue, REFERRER_POLICY,
-    X_CONTENT_TYPE_OPTIONS, X_FRAME_OPTIONS,
+    CACHE_CONTROL, CONTENT_SECURITY_POLICY, CONTENT_TYPE, HOST, HeaderName, HeaderValue, ORIGIN,
+    REFERRER_POLICY, X_CONTENT_TYPE_OPTIONS, X_FRAME_OPTIONS,
 };
-use axum::http::{HeaderMap, Method};
+use axum::http::{HeaderMap, Method, StatusCode};
+use axum::middleware::Next;
+use axum::response::{IntoResponse, Response};
+use serde_json::json;
 use std::fmt;
 use std::net::{Ipv4Addr, Ipv6Addr};
+use std::sync::Arc;
+
+/// Die äußerste Schicht vor jeder Route (auch 404 und 405): Host prüfen (403 mit Ausweg als Text),
+/// Ursprung prüfen (403 `{fehler}`), dann die Route; auf jede Antwort kommt der Header-Satz.
+pub async fn schicht(
+    State(schutz): State<Arc<Grenzschutz>>,
+    anfrage: Request,
+    weiter: Next,
+) -> Response {
+    let pfad = anfrage.uri().path().to_string();
+    let mut antwort = match abweisung(&schutz, anfrage.method(), anfrage.headers()) {
+        Some(abweisung) => abweisung,
+        None => weiter.run(anfrage).await,
+    };
+    sicherheitsheader_setzen(antwort.headers_mut(), &pfad);
+    antwort
+}
+
+fn abweisung(schutz: &Grenzschutz, methode: &Method, kopf: &HeaderMap) -> Option<Response> {
+    let host = einziger_wert(kopf, &HOST);
+    if let Err(abgewiesen) = schutz.host_erlaubt(host) {
+        let text = [(CONTENT_TYPE, "text/plain; charset=utf-8")];
+        return Some((StatusCode::FORBIDDEN, text, abgewiesen.to_string()).into_response());
+    }
+    let sec_fetch_site = HeaderName::from_static("sec-fetch-site");
+    let ursprung = ursprung_erlaubt(
+        methode,
+        einziger_wert(kopf, &ORIGIN),
+        einziger_wert(kopf, &sec_fetch_site),
+        host,
+    );
+    match ursprung {
+        Ok(()) => None,
+        Err(abgewiesen) => {
+            let fehler = Json(json!({ "fehler": abgewiesen.to_string() }));
+            Some((StatusCode::FORBIDDEN, fehler).into_response())
+        }
+    }
+}
+
+/// Der Wert einer Kopfzeile, die höchstens einmal vorkommen darf. Mehrfach oder kein Text gilt als
+/// leerer Wert — den lässt keine der drei Prüfungen durch, ein erlaubter erster Wert versteckt so keinen zweiten.
+fn einziger_wert<'a>(kopf: &'a HeaderMap, name: &HeaderName) -> Option<&'a str> {
+    let mut werte = kopf.get_all(name).iter();
+    let erster = werte.next()?;
+    if werte.next().is_some() {
+        return Some("");
+    }
+    Some(erster.to_str().unwrap_or_default())
+}
 
 /// Die beim Start festgelegten Namen, unter denen die Instanz außer IP-Literalen und `localhost` antwortet.
 #[derive(Debug, Clone, PartialEq, Eq)]
