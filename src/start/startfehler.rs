@@ -5,7 +5,15 @@ use std::path::PathBuf;
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum Startfehler {
-    Ordner { ordner: PathBuf, grund: String },
+    Ordner {
+        ordner: PathBuf,
+        grund: String,
+    },
+    Port {
+        host: String,
+        port: u16,
+        grund: String,
+    },
 }
 
 impl fmt::Display for Startfehler {
@@ -17,6 +25,9 @@ impl fmt::Display for Startfehler {
                     "Ordner {} lässt sich nicht anlegen: {grund}",
                     ordner.display()
                 )
+            }
+            Startfehler::Port { host, port, grund } => {
+                write!(f, "Port {port} auf {host} lässt sich nicht binden: {grund}")
             }
         }
     }

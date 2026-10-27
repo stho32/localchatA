@@ -15,6 +15,7 @@ name = "localchata"
 path = "src/lib.rs"
 
 [dependencies]
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "signal"] }
 
 [dev-dependencies]
 tempfile = "3"
