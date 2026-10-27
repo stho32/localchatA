@@ -1,6 +1,6 @@
 //! Start: vom Aufruf bis zum lauschenden Server (A00003).
 //!
-//! Reihenfolge: Aufruf lesen → Ordner vorbereiten → sperren → binden → Startzeile → Browser → ausliefern bis zum Signal.
+//! Reihenfolge: Aufruf lesen → Uhr → Ordner vorbereiten → sperren → Verlauf laden → binden → Startzeile → Browser → ausliefern bis zum Signal.
 
 mod aufruf;
 mod ausliefern;
@@ -15,12 +15,14 @@ use aufruf::{Aufruf, Portwunsch, Startauftrag};
 use startfehler::Startfehler;
 use verbindungen::Verbindungsgrenzen;
 
+use crate::gespraeche::{Dateiablage, Gespraeche};
 use crate::http::{self, Zustand};
 use crate::uhr::{self, Uhr};
 use aufruf::HILFE;
 use std::net::SocketAddr;
 use std::path::Path;
 use std::process::ExitCode;
+use std::sync::Arc;
 
 /// Führt einen Aufruf (Argumente ohne Programmnamen) bis zum Ende aus und liefert den Exit-Code:
 /// 0 geordnet beendet oder Hilfe, 1 Ordner, Port oder Sperre scheitert, 2 falscher Aufruf oder
@@ -55,9 +57,10 @@ pub async fn ausfuehren<I: IntoIterator<Item = String>>(argumente: I) -> ExitCod
     }
 }
 
-async fn starten(auftrag: Startauftrag, _uhr: Box<dyn Uhr>) -> Result<(), Startfehler> {
+async fn starten(auftrag: Startauftrag, uhr: Box<dyn Uhr>) -> Result<(), Startfehler> {
     let ordner = ordner::ordner_vorbereiten(&auftrag.ordner)?;
     let _sperre = sperre::ordner_sperren(&ordner)?;
+    let gespraeche = verlauf_laden(&ordner, uhr)?;
     let listener = port::listener_binden(&auftrag.host, auftrag.port).await?;
     let adresse = listener.local_addr().map_err(|fehler| Startfehler::Port {
         host: auftrag.host.clone(),
@@ -69,7 +72,10 @@ async fn starten(auftrag: Startauftrag, _uhr: Box<dyn Uhr>) -> Result<(), Startf
     if auftrag.browser_oeffnen {
         browser::oeffnen(adresse);
     }
-    let app = http::router(Zustand { ordner });
+    let app = http::router(Zustand {
+        ordner,
+        gespraeche: Arc::new(gespraeche),
+    });
     ausliefern::ausliefern(
         listener,
         app,
@@ -78,6 +84,22 @@ async fn starten(auftrag: Startauftrag, _uhr: Box<dyn Uhr>) -> Result<(), Startf
     )
     .await;
     Ok(())
+}
+
+/// Lädt den Verlauf vor dem Binden — ab der Startzeile ist er vollständig da (A00003).
+/// Jeder Defekt steht als eine Zeile `<datei>:<zeile>` auf stderr (X00004).
+fn verlauf_laden(ordner: &Path, uhr: Box<dyn Uhr>) -> Result<Gespraeche, Startfehler> {
+    let gespraeche =
+        Gespraeche::laden(Box::new(Dateiablage::neu(ordner)), uhr).map_err(|fehler| {
+            Startfehler::Laden {
+                ordner: ordner.to_path_buf(),
+                grund: fehler.to_string(),
+            }
+        })?;
+    for defekt in gespraeche.defekte() {
+        eprintln!("{defekt}");
+    }
+    Ok(gespraeche)
 }
 
 /// Die einzige Zeile auf stdout; Tests und Director lesen die Adresse daraus (X00001).

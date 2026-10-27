@@ -18,6 +18,10 @@ pub enum Startfehler {
         ordner: PathBuf,
         grund: String,
     },
+    Laden {
+        ordner: PathBuf,
+        grund: String,
+    },
 }
 
 impl fmt::Display for Startfehler {
@@ -37,6 +41,13 @@ impl fmt::Display for Startfehler {
                 write!(
                     f,
                     "Ordner {} lässt sich nicht sperren: {grund}",
+                    ordner.display()
+                )
+            }
+            Startfehler::Laden { ordner, grund } => {
+                write!(
+                    f,
+                    "Verlauf in {} lässt sich nicht laden: {grund}",
                     ordner.display()
                 )
             }

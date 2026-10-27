@@ -17,15 +17,16 @@ pub struct Gesundheit {
 }
 
 /// Antwortet der Port, ist die Instanz bereit: geladen wird vor dem Binden (A00003).
-/// Die Kennzahlen bleiben 0, bis die Logablage (I0002) Nachrichten führt.
+/// Die Kennzahlen kommen aus Laden und Verlaufsindex (R00002).
 pub async fn beantworten(State(zustand): State<Arc<Zustand>>) -> Json<Gesundheit> {
+    let kennzahlen = zustand.gespraeche.kennzahlen();
     Json(Gesundheit {
         status: "bereit",
         ordner: zustand.ordner.display().to_string(),
-        nachrichten: 0,
-        log_bytes: 0,
-        ladezeit_ms: 0,
-        defekte_zeilen: 0,
+        nachrichten: kennzahlen.nachrichten,
+        log_bytes: kennzahlen.log_bytes,
+        ladezeit_ms: kennzahlen.ladezeit_ms,
+        defekte_zeilen: kennzahlen.defekte_zeilen,
     })
 }
 

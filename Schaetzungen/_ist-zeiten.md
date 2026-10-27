@@ -35,3 +35,4 @@ Nie vom User erfragen.
 | 2026-10-27 | R00002 Nachricht landet im Log | B0022 Tage in der Frist wählen | Standard | 0,4h | 0,01h | 0,01h | autonom |
 | 2026-10-27 | R00002 Nachricht landet im Log | B0023 Verlauf aufnehmen | Standard | 0,4h | 0,01h | 0,01h | autonom |
 | 2026-10-27 | R00002 Nachricht landet im Log | B0024 Ordner laden | Standard | 0,4h | 0,04h | 0,04h | autonom |
+| 2026-10-27 | R00002 Nachricht landet im Log | B0025 Laden in den Start einhängen | Standard | 0,4h | 0,03h | 0,03h | autonom |

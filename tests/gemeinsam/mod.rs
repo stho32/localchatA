@@ -63,6 +63,15 @@ impl Instanz {
             .filter(|zeile| !zeile.is_empty())
     }
 
+    /// Alles, was auf stderr kam (nur bei `starten_mit`; liest bis zum Ende des Programms).
+    pub fn stderr_bis_zum_ende(&mut self) -> String {
+        let mut text = String::new();
+        if let Some(mut stderr) = self.stderr.take() {
+            stderr.read_to_string(&mut text).expect("stderr lesen");
+        }
+        text
+    }
+
     /// Was nach der Startzeile noch auf stdout kam (liest bis zum Ende des Programms).
     pub fn restliche_ausgabe(&mut self) -> String {
         let mut rest = String::new();
