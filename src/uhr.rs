@@ -109,6 +109,18 @@ fn lokal(zeitpunkt: DateTime<Utc>) -> Zeit {
     auf_millisekunden(lokal)
 }
 
+/// Die Zeit der nächsten Nachricht: `max(jetzt, letzte + 1 ms)`, verglichen als Zeitpunkt (ADR-0005).
+/// Läuft die Zeit der Uhr voraus, steht sie im Versatz von `jetzt` — dem lokalen Versatz der Gegenwart.
+pub fn naechste_zeit(jetzt: Zeit, letzte: Option<Zeit>) -> Zeit {
+    let jetzt = auf_millisekunden(jetzt);
+    match letzte {
+        Some(letzte) if jetzt <= letzte => {
+            (letzte + chrono::Duration::milliseconds(1)).with_timezone(jetzt.offset())
+        }
+        _ => jetzt,
+    }
+}
+
 /// Kürzt auf ganze Millisekunden — feiner steht keine Zeit im Log.
 pub fn auf_millisekunden(zeit: Zeit) -> Zeit {
     let millis = zeit.nanosecond() / 1_000_000 * 1_000_000;
@@ -160,6 +172,71 @@ mod tests {
         let vorher = Utc::now() - chrono::Duration::milliseconds(1);
         let jetzt = aus_umgebung(None).expect("Systemuhr").jetzt();
         assert!(jetzt >= vorher && jetzt <= Utc::now(), "{jetzt}");
+    }
+
+    #[test]
+    fn ohne_letzte_zeit_gilt_jetzt_auf_millisekunden() {
+        assert_eq!(
+            naechste_zeit(zeit("2026-10-27T14:07:12.345678+01:00"), None),
+            zeit("2026-10-27T14:07:12.345+01:00")
+        );
+    }
+
+    #[test]
+    fn gleiche_millisekunde_ergibt_eine_millisekunde_spaeter() {
+        let jetzt = zeit("2026-10-27T14:07:12.345+01:00");
+        let erste = naechste_zeit(jetzt, None);
+        let zweite = naechste_zeit(jetzt, Some(erste));
+        assert_eq!(erste.to_rfc3339(), "2026-10-27T14:07:12.345+01:00");
+        assert_eq!(zweite.to_rfc3339(), "2026-10-27T14:07:12.346+01:00");
+    }
+
+    #[test]
+    fn spaetere_uhr_gilt_unveraendert() {
+        assert_eq!(
+            naechste_zeit(
+                zeit("2026-10-27T14:07:13.000+01:00"),
+                Some(zeit("2026-10-27T14:07:12.345+01:00"))
+            )
+            .to_rfc3339(),
+            "2026-10-27T14:07:13+01:00"
+        );
+    }
+
+    #[test]
+    fn zurueckgestellte_uhr_ergibt_eine_millisekunde_nach_der_letzten() {
+        assert_eq!(
+            naechste_zeit(
+                zeit("2026-10-27T14:00:00.000+01:00"),
+                Some(zeit("2026-10-27T14:07:12.345+01:00"))
+            )
+            .to_rfc3339(),
+            "2026-10-27T14:07:12.346+01:00"
+        );
+    }
+
+    #[test]
+    fn zeitumstellung_wird_als_zeitpunkt_verglichen_und_jetzt_behaelt_seine_zeit() {
+        assert_eq!(
+            naechste_zeit(
+                zeit("2026-10-25T02:00:00.000+01:00"),
+                Some(zeit("2026-10-25T02:59:59.999+02:00"))
+            )
+            .to_rfc3339(),
+            "2026-10-25T02:00:00+01:00"
+        );
+    }
+
+    #[test]
+    fn vorauslaufende_zeit_steht_im_versatz_von_jetzt() {
+        assert_eq!(
+            naechste_zeit(
+                zeit("2026-10-25T01:30:00.000+01:00"),
+                Some(zeit("2026-10-25T02:59:59.999+02:00"))
+            )
+            .to_rfc3339(),
+            "2026-10-25T02:00:00+01:00"
+        );
     }
 
     #[test]
