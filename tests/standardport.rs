@@ -5,9 +5,9 @@ mod gemeinsam;
 
 use gemeinsam::{gesundheit, starten};
 use std::net::TcpListener;
-use std::sync::Mutex;
+use tokio::sync::Mutex;
 
-static STANDARDPORTS: Mutex<()> = Mutex::new(());
+static STANDARDPORTS: Mutex<()> = Mutex::const_new(());
 
 fn belegen(port: u16) -> TcpListener {
     TcpListener::bind(("0.0.0.0", port))
@@ -20,9 +20,7 @@ fn ist_frei(port: u16) {
 
 #[tokio::test]
 async fn ohne_port_und_mit_freiem_7430_lauscht_die_instanz_auf_0_0_0_0_7430() {
-    let _nacheinander = STANDARDPORTS
-        .lock()
-        .unwrap_or_else(|vergiftet| vergiftet.into_inner());
+    let _nacheinander = STANDARDPORTS.lock().await;
     let wurzel = tempfile::tempdir().expect("Wegwerf-Ordner");
     ist_frei(7430);
 
@@ -38,9 +36,7 @@ async fn ohne_port_und_mit_freiem_7430_lauscht_die_instanz_auf_0_0_0_0_7430() {
 
 #[tokio::test]
 async fn us2_ohne_port_und_mit_belegten_7430_und_7431_nimmt_die_instanz_7432() {
-    let _nacheinander = STANDARDPORTS
-        .lock()
-        .unwrap_or_else(|vergiftet| vergiftet.into_inner());
+    let _nacheinander = STANDARDPORTS.lock().await;
     let wurzel = tempfile::tempdir().expect("Wegwerf-Ordner");
     let _erster = belegen(7430);
     let _zweiter = belegen(7431);
