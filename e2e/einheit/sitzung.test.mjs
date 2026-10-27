@@ -129,3 +129,88 @@ test('andere Antworten (429, 503) werden mit dem Text des Servers gemeldet', asy
 
   assert.deepEqual(zustand, { art: 'fehler', name: 'n65', fehler: 'Zu viele Sitzungen' });
 });
+
+// Code-Review B1: zwei Tabs laden gleichzeitig, beide bekommen 401; der andere Tab tritt zuerst bei.
+function apiMitAnderemTab(speicher, { tokenDesAnderenTabs, schreibtVor409 }) {
+  const aufrufe = [];
+  const vergeben = { belegt_von: 'shoff@127.0.0.1', seit: '2026-10-28T00:10:00.000+01:00', vorschlag: 'shoff-2', fehler: 'x' };
+  return {
+    aufrufe,
+    ich: async (token) => {
+      aufrufe.push(['ich', token]);
+      if (token === tokenDesAnderenTabs) {
+        return { serverWeg: false, status: 200, daten: SHOFF };
+      }
+      return { serverWeg: false, status: 401, daten: {} };
+    },
+    beitreten: async (name) => {
+      aufrufe.push(['beitreten', name]);
+      if (schreibtVor409) {
+        speicher.setItem(SITZUNG, tokenDesAnderenTabs);
+      }
+      return { serverWeg: false, status: 409, daten: vergeben };
+    },
+  };
+}
+
+test('B1: schreibt ein anderer Tab zwischen 401 und 409 ein gültiges Token, zeigt der Tab die Kopfzeile, nicht vergeben', async () => {
+  const speicher = speicherMit({ [SITZUNG]: 'alt', [NAME]: 'shoff' });
+  const api = apiMitAnderemTab(speicher, { tokenDesAnderenTabs: 'frisch', schreibtVor409: true });
+
+  const zustand = await beimLaden(speicher, api);
+
+  assert.deepEqual(zustand, { art: 'kopfzeile', teilnehmer: SHOFF });
+  assert.deepEqual(api.aufrufe, [['ich', 'alt'], ['beitreten', 'shoff'], ['ich', 'frisch']]);
+  assert.deepEqual(speicher.alles(), { [SITZUNG]: 'frisch', [NAME]: 'shoff' });
+});
+
+test('B1: kommt das Token des anderen Tabs erst nach dem 409, wartet der Tab darauf und zeigt die Kopfzeile', async () => {
+  const speicher = speicherMit({ [SITZUNG]: 'alt', [NAME]: 'shoff' });
+  const api = apiMitAnderemTab(speicher, { tokenDesAnderenTabs: 'frisch', schreibtVor409: false });
+  const geschwister = { neuesToken: async () => { speicher.setItem(SITZUNG, 'frisch'); return 'frisch'; } };
+
+  const zustand = await beimLaden(speicher, api, geschwister);
+
+  assert.deepEqual(zustand, { art: 'kopfzeile', teilnehmer: SHOFF });
+  assert.deepEqual(api.aufrufe, [['ich', 'alt'], ['beitreten', 'shoff'], ['ich', 'frisch']]);
+});
+
+test('B1: kommt kein Token eines anderen Tabs, bleibt es beim echten Name vergeben', async () => {
+  const speicher = speicherMit({ [SITZUNG]: 'alt', [NAME]: 'shoff' });
+  const api = apiMitAnderemTab(speicher, { tokenDesAnderenTabs: 'frisch', schreibtVor409: false });
+  const geschwister = { neuesToken: async () => null };
+
+  const zustand = await beimLaden(speicher, api, geschwister);
+
+  assert.equal(zustand.art, 'vergeben');
+  assert.equal(zustand.vorschlag, 'shoff-2');
+  assert.deepEqual(api.aufrufe, [['ich', 'alt'], ['beitreten', 'shoff']]);
+});
+
+test('B1: ist das Token des anderen Tabs selbst ungültig, bleibt es bei Name vergeben', async () => {
+  const speicher = speicherMit({ [SITZUNG]: 'alt', [NAME]: 'shoff' });
+  const api = apiMitAnderemTab(speicher, { tokenDesAnderenTabs: 'frisch', schreibtVor409: false });
+  const geschwister = { neuesToken: async () => 'kaputt' };
+
+  const zustand = await beimLaden(speicher, api, geschwister);
+
+  assert.equal(zustand.art, 'vergeben');
+  assert.deepEqual(api.aufrufe.at(-1), ['ich', 'kaputt']);
+});
+
+test('B1: schreibt ein anderer Tab sein Token, bevor das eigene 401 ankommt, bleibt dessen Token stehen', async () => {
+  const speicher = speicherMit({ [SITZUNG]: 'alt', [NAME]: 'shoff' });
+  const api = apiMitAnderemTab(speicher, { tokenDesAnderenTabs: 'frisch', schreibtVor409: false });
+  const ichMitAnderemTab = api.ich;
+  api.ich = async (token) => {
+    if (token === 'alt') {
+      speicher.setItem(SITZUNG, 'frisch');
+    }
+    return ichMitAnderemTab(token);
+  };
+
+  const zustand = await beimLaden(speicher, api);
+
+  assert.deepEqual(zustand, { art: 'kopfzeile', teilnehmer: SHOFF });
+  assert.deepEqual(speicher.alles(), { [SITZUNG]: 'frisch', [NAME]: 'shoff' });
+});

@@ -7,7 +7,9 @@
 export const SITZUNG = 'localchatA.sitzung';
 export const NAME = 'localchatA.name';
 
-export async function beimLaden(speicher, api) {
+const KEINE_GESCHWISTER = { neuesToken: async () => null };
+
+export async function beimLaden(speicher, api, geschwister = KEINE_GESCHWISTER) {
   const token = speicher.getItem(SITZUNG);
   const gemerkterName = speicher.getItem(NAME) || '';
   if (token) {
@@ -18,12 +20,40 @@ export async function beimLaden(speicher, api) {
     if (ich.status === 200) {
       return { art: 'kopfzeile', teilnehmer: ich.daten };
     }
-    speicher.removeItem(SITZUNG);
+    tokenVergessen(speicher, token);
   }
   if (gemerkterName) {
-    return beitreten(gemerkterName, speicher, api);
+    return stillBeitreten(gemerkterName, speicher, api, geschwister);
   }
   return { art: 'beitreten', name: '' };
+}
+
+// Nur das eigene, abgelehnte Token: hat ein anderer Tab inzwischen ein neues geschrieben, bleibt es stehen.
+function tokenVergessen(speicher, abgelehntesToken) {
+  if (speicher.getItem(SITZUNG) === abgelehntesToken) {
+    speicher.removeItem(SITZUNG);
+  }
+}
+
+// Ein 409 auf den eigenen gemerkten Namen kann von einem anderen Tab desselben Browsers stammen, der gerade
+// zuerst beigetreten ist: dessen Token ist dann die gemeinsame Sitzung.
+async function stillBeitreten(name, speicher, api, geschwister) {
+  const zustand = await beitreten(name, speicher, api);
+  if (zustand.art !== 'vergeben') {
+    return zustand;
+  }
+  let tokenEinesAnderenTabs = speicher.getItem(SITZUNG);
+  if (!tokenEinesAnderenTabs) {
+    tokenEinesAnderenTabs = await geschwister.neuesToken();
+  }
+  if (!tokenEinesAnderenTabs) {
+    return zustand;
+  }
+  const ich = await api.ich(tokenEinesAnderenTabs);
+  if (ich.serverWeg || ich.status !== 200) {
+    return zustand;
+  }
+  return { art: 'kopfzeile', teilnehmer: ich.daten };
 }
 
 export async function beitreten(name, speicher, api) {
