@@ -26,6 +26,33 @@ test('Bildschirm: Namensfeld hat nach dem Öffnen den Fokus, Schalter Beitreten'
   expect(fehler).toEqual([]);
 });
 
+async function kopfzeile(page) {
+  return page.getByRole('banner').locator('.lc-me');
+}
+
+test('US-15: erster Beitritt — Fokus im Feld, shoff und Enter, Kopfzeile shoff@127.0.0.1, Sitzung gemerkt', async ({ page, request }) => {
+  instanz = await instanzStarten();
+  const fehler = fehlerSammeln(page);
+  await page.goto(instanz.adresse);
+  await expect(page.getByLabel('Name')).toBeFocused();
+
+  await page.keyboard.type('shoff');
+  await page.keyboard.press('Enter');
+
+  const kennung = await kopfzeile(page);
+  await expect(kennung).toHaveText('shoff@127.0.0.1');
+  await expect(kennung.locator('i')).toHaveText('@127.0.0.1');
+  await expect(page.getByLabel('Name')).toHaveCount(0);
+  const gemerkt = await page.evaluate(() => ({
+    sitzung: localStorage.getItem('localchatA.sitzung'), name: localStorage.getItem('localchatA.name'),
+  }));
+  expect(gemerkt.name).toBe('shoff');
+  const ich = await request.get(instanz.adresse + 'api/ich', { headers: { 'X-LocalchatA-Sitzung': gemerkt.sitzung } });
+  expect(ich.status()).toBe(200);
+  expect((await ich.json()).art).toBe('mensch');
+  expect(fehler).toEqual([]);
+});
+
 test('US-16: Jörg zeigt vor dem Senden den Hinweis mit joerg, Enter tritt nicht bei', async ({ page, request }) => {
   instanz = await instanzStarten();
   const fehler = fehlerSammeln(page);
@@ -65,6 +92,8 @@ test('US-17: Name vergeben nennt Träger und Uhrzeit HH:MM und füllt den Vorsch
   await expect(meldung).toContainText(uhrzeit);
   await expect(page.getByLabel('Name')).toHaveValue('shoff-2');
   await expect(page.getByLabel('Name')).toBeFocused();
+  await page.keyboard.press('Enter');
+  await expect(await kopfzeile(page)).toHaveText('shoff-2@127.0.0.1');
   expect(fehler).toEqual([]);
 });
 

@@ -72,3 +72,4 @@ Nie vom User erfragen.
 | 2026-10-28 | R00003 Namen wählen und beitreten | B0057 API aufrufen | Standard | 0,4h | 0,00h | 0,01h | autonom |
 | 2026-10-28 | R00003 Namen wählen und beitreten | B0058 Zustand beim Laden wählen | Standard | 0,4h | 0,00h | 0,01h | autonom |
 | 2026-10-28 | R00003 Namen wählen und beitreten | B0059 Beitreten-Bildschirm zeichnen | unklar | 2-4h | 0,05h | 0,07h | autonom |
+| 2026-10-28 | R00003 Namen wählen und beitreten | B0060 Eigene Kennung in der Kopfzeile | Standard | 0,4h | 0,02h | 0,02h | autonom |

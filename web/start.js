@@ -2,6 +2,7 @@
 import { rufen } from './api.js';
 import * as sitzung from './sitzung.js';
 import * as beitretenBildschirm from './beitreten.js';
+import * as kopfzeile from './kopfzeile.js';
 
 const api = {
   ich: (token) => rufen('/api/ich', { token }),
@@ -15,6 +16,7 @@ zeigen(await sitzung.beimLaden(speicher, api));
 
 function zeigen(zustand) {
   if (zustand.art === 'kopfzeile') {
+    kopfzeile.zeichnen(wurzel, zustand.teilnehmer);
     return;
   }
   beitretenBildschirm.zeichnen(wurzel, zustand, {

@@ -21,3 +21,17 @@ body { background: var(--kd-bg); color: var(--kd-ink); font-family: var(--font-s
 .lc-hinweis { margin: 0; font-size: 12px; color: var(--kd-ink-muted); }
 .lc-meldung { display: flex; flex-wrap: wrap; align-items: center; gap: var(--kd-space-8); }
 .lc-meldung > span:first-child { flex: 1 1 100%; }
+
+/* Kopfzeile und Kennung (Bausteine Kopfzeile, Kennung) */
+#app { min-height: 100%; }
+.lc-head { height: var(--kd-header); background: var(--kd-header-bg); color: var(--kd-header-ink); display: grid; grid-template-columns: minmax(0, 1fr) minmax(200px, 420px) auto; align-items: center; gap: var(--kd-space-16); padding: 0 var(--kd-space-8) 0 var(--kd-space-12); }
+.lc-head :focus-visible { outline-color: var(--lc-focus-header); }
+.lc-head-ort { display: flex; align-items: baseline; gap: var(--kd-space-8); white-space: nowrap; min-width: 0; overflow: hidden; }
+.lc-head-inst { font-family: var(--font-mono); font-size: 12px; color: var(--kd-header-muted); min-width: 0; overflow: hidden; text-overflow: ellipsis; flex: 0 1 auto; }
+.lc-head-bed { white-space: nowrap; display: flex; align-items: center; gap: var(--kd-space-8); }
+.lc-me { font-family: var(--font-mono); font-size: 12px; color: var(--kd-header-ink); }
+.lc-me i { font-style: normal; color: var(--kd-header-muted); }
+.lc-tile { width: var(--lc-tile); height: var(--lc-tile); flex: none; display: inline-grid; place-items: center; font-family: var(--font-mono); font-size: 10px; font-weight: 600; text-transform: uppercase; }
+.lc-tile.mensch { background: var(--kd-mensch-hell); color: var(--kd-mensch); }
+.lc-tile.agent { background: var(--kd-agent-hell); color: var(--kd-agent); }
+.lc-tag { font-size: 10px; line-height: 14px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; padding: 0 var(--kd-space-4); background: var(--kd-agent-hell); color: var(--kd-agent); }
