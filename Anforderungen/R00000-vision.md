@@ -16,9 +16,8 @@ Wird fortgeschrieben, nie abgehakt.
 localchatA ist ein Chat, der ein Ordner ist. Ein einziges Programm liefert eine
 anmeldungsfreie Weboberfläche und eine WebAPI zugleich aus; darin schreiben Menschen
 und KI-Agenten gleichberechtigt in mehreren Channels, senden, empfangen und
-verarbeiten Nachrichten. Channels und Nachrichten liegen als Markdown-Dateien in
-einem Git-Repository, und jede Nachricht ist ein Commit — so wie Aufgaben und Boards
-beim Geschwisterprogramm kanbanD.
+verarbeiten Nachrichten. Channels und Nachrichten liegen als Textdateien in einem
+Ordner — je Channel ein täglich rotierendes Log, ohne Datenbank und ohne Git.
 
 ## Anlass
 
@@ -31,12 +30,16 @@ helfen können.
 
 ## Zielbild
 
-- **Ein Chat, der ein Ordner ist.** Channels und Nachrichten liegen als
-  Markdown-Dateien vor und sind ohne localchatA lesbar.
+- **Ein Chat, der ein Ordner ist.** Channels und Nachrichten liegen als Textdateien
+  in einem Ordner — je Channel ein rotierendes Log, lesbar ohne localchatA.
 
-- **Git ist das Gedächtnis.** Jede Nachricht ergibt einen Commit unter dem Namen
-  dessen, der sie geschrieben hat. Der Verlauf lässt sich diffen, durchsuchen und
-  mergen.
+- **Das Log ist das Gedächtnis.** Jede Nachricht wird mit Absender und Zeit an das
+  Log ihres Channels angehängt. Die Logs rotieren täglich; Tage, die älter sind als
+  die Aufbewahrungsfrist des Channels, entfallen. Die Frist ist je Channel wählbar,
+  Standard sind 7 Tage.
+
+- **Markdown in Nachrichten.** Nachrichten dürfen Markdown enthalten; die Oberfläche
+  zeigt es formatiert.
 
 - **Mensch und KI sind gleichberechtigt.** Der Mensch schreibt im Browser, der
   Agent über die API oder an den Dateien. Wer schreiben will, gibt sich selbst einen
@@ -60,7 +63,7 @@ helfen können.
 - **Anhänge.** An eine Nachricht lassen sich eine oder mehrere Dateien hängen.
 
 - **Live überall.** Eine neue Nachricht erscheint sofort in allen offenen Sichten,
-  egal ob sie aus Browser, API, Editor oder einem `git pull` kommt.
+  egal ob sie aus dem Browser oder über die API kommt.
 
 - **Agenten können warten und reagieren.** Ein Agent holt neue Nachrichten ab oder
   wartet auf sie, verarbeitet sie und antwortet — ohne einen Menschen dazwischen.
@@ -68,8 +71,8 @@ helfen können.
 - **Über Rechnergrenzen.** KIs auf verschiedenen Rechnern im LAN erreichen dieselben
   Channels.
 
-- **Schnell, auch nach Jahren.** Der Chat ist auf dauerhafte Nutzung ausgelegt: Auch
-  mit 100.000 Nachrichten und mehr öffnen sich Channels sofort, der Verlauf scrollt
+- **Schnell, auch bei großem Verlauf.** Der Chat ist auf dauerhafte Nutzung ausgelegt:
+  Auch mit 100.000 Nachrichten und mehr innerhalb der Frist öffnen sich Channels sofort, der Verlauf scrollt
   leichtgängig, und eine Suche über alle Nachrichten liefert ihre Treffer schnell.
 
 ## Nutzer und Nutzen
@@ -85,7 +88,8 @@ fragen und helfen; ich sehe und lenke ihre Gespräche und kann jederzeit mitschr
   wie kanbanD.
 - **Gleiches Bedienkonzept wie kanbanD.**
 - **Keine Anmeldung** in der Weboberfläche.
-- **Datenhaltung als Markdown in einem Git-Repository**, keine Datenbank.
+- **Datenhaltung in täglich rotierenden Logdateien** je Channel, kein Git, keine
+  Datenbank.
 - **Eine gemeinsame Instanz** im LAN, die alle Teilnehmer ansprechen — auch über
   Rechnergrenzen.
 - **Lokal bzw. LAN** als Einsatzraum.
@@ -104,8 +108,7 @@ fragen und helfen; ich sehe und lenke ihre Gespräche und kann jederzeit mitschr
 
 ## Offene Richtungsfragen
 
-- **Ablage**: eine Datei je Nachricht (mergefreundlich, viele Dateien) oder eine
-  Datei je Channel und Zeitraum? — mit Blick auf Leistung bei 100.000 Nachrichten.
+Derzeit keine.
 
 ## Ergänzungshistorie
 
@@ -113,3 +116,4 @@ fragen und helfen; ich sehe und lenke ihre Gespräche und kann jederzeit mitschr
 |---|---|
 | 2026-10-27 | Vision angelegt (Chat als Ordner, Mensch und KI gleichberechtigt, Teilnehmer name@herkunft mit eindeutigem Namen, Anwesenheit, Channels, Direktnachrichten, Anhänge, gemeinsame LAN-Instanz) |
 | 2026-10-27 | Zielbild: Leistung bei großem Verlauf, Suche |
+| 2026-10-27 | Datenhaltung: täglich rotierende Logdateien je Channel statt Markdown in Git (Grund: Git für Chatinhalte nicht nötig); Aufbewahrungsfrist je Channel, Standard 7 Tage — entscheidet die offene Frage zur Ablage; „Schnell, auch nach Jahren“ wird „auch bei großem Verlauf“; Zielbild: Markdown in Nachrichten |
