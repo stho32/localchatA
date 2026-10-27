@@ -1,6 +1,6 @@
 //! Start: vom Aufruf bis zum lauschenden Server (A00003).
 //!
-//! Reihenfolge: Aufruf lesen → Uhr → Ordner vorbereiten → sperren → Verlauf laden → binden → Startzeile → Browser → ausliefern bis zum Signal.
+//! Reihenfolge: Aufruf lesen → Uhr → Gnadenfrist → Ordner vorbereiten → sperren → Verlauf laden → Anwesenheit → binden → Startzeile → Browser → ausliefern bis zum Signal.
 
 mod aufruf;
 pub(crate) mod ausliefern;
@@ -16,7 +16,7 @@ use aufruf::{Aufruf, Portwunsch, Startauftrag};
 use startfehler::Startfehler;
 use verbindungen::Verbindungsgrenzen;
 
-use crate::anwesenheit::Anwesenheit;
+use crate::anwesenheit::{Anwesenheit, gnadenfrist};
 use crate::gespraeche::{Dateiablage, Gespraeche};
 use crate::http::{self, Grenzschutz, Zustand};
 use crate::uhr::{self, Uhr};
@@ -28,12 +28,9 @@ use std::process::ExitCode;
 use std::sync::Arc;
 use std::time::Duration;
 
-/// So lange lebt eine Sitzung ohne Lebenszeichen (ADR-0012).
-const GNADENFRIST: Duration = Duration::from_secs(60);
-
 /// Führt einen Aufruf (Argumente ohne Programmnamen) bis zum Ende aus und liefert den Exit-Code:
 /// 0 geordnet beendet oder Hilfe, 1 Ordner, Port oder Sperre scheitert, 2 falscher Aufruf oder
-/// unlesbare Startzeit in `LOCALCHATA_JETZT`.
+/// unlesbare Startzeit in `LOCALCHATA_JETZT` bzw. Gnadenfrist in `LOCALCHATA_GNADENFRIST_MS`.
 pub async fn ausfuehren<I: IntoIterator<Item = String>>(argumente: I) -> ExitCode {
     match Startauftrag::aus_argumenten(argumente) {
         Ok(Aufruf::Hilfe) => {
@@ -49,7 +46,15 @@ pub async fn ausfuehren<I: IntoIterator<Item = String>>(argumente: I) -> ExitCod
                     return ExitCode::from(2);
                 }
             };
-            match starten(auftrag, uhr).await {
+            let gnadenfrist_wert = std::env::var_os(gnadenfrist::VARIABLE);
+            let gnadenfrist = match gnadenfrist::aus_umgebung(gnadenfrist_wert.as_deref()) {
+                Ok(gnadenfrist) => gnadenfrist,
+                Err(fehler) => {
+                    eprintln!("{fehler}");
+                    return ExitCode::from(2);
+                }
+            };
+            match starten(auftrag, uhr, gnadenfrist).await {
                 Ok(()) => ExitCode::SUCCESS,
                 Err(fehler) => {
                     eprintln!("{fehler}");
@@ -64,12 +69,16 @@ pub async fn ausfuehren<I: IntoIterator<Item = String>>(argumente: I) -> ExitCod
     }
 }
 
-async fn starten(auftrag: Startauftrag, uhr: Box<dyn Uhr>) -> Result<(), Startfehler> {
+async fn starten(
+    auftrag: Startauftrag,
+    uhr: Box<dyn Uhr>,
+    gnadenfrist: Duration,
+) -> Result<(), Startfehler> {
     let uhr: Arc<dyn Uhr> = Arc::from(uhr);
     let ordner = ordner::ordner_vorbereiten(&auftrag.ordner)?;
     let _sperre = sperre::ordner_sperren(&ordner)?;
     let gespraeche = verlauf_laden(&ordner, Arc::clone(&uhr))?;
-    let anwesenheit = Anwesenheit::neu(uhr, Arc::new(Betriebssystemzufall), GNADENFRIST);
+    let anwesenheit = Anwesenheit::neu(uhr, Arc::new(Betriebssystemzufall), gnadenfrist);
     let listener = port::listener_binden(&auftrag.host, auftrag.port).await?;
     let adresse = listener.local_addr().map_err(|fehler| Startfehler::Port {
         host: auftrag.host.clone(),
