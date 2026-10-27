@@ -4,6 +4,7 @@ pub mod frist;
 mod kennung;
 pub mod logablage;
 pub mod logformat;
+pub mod verlaufsindex;
 
 pub use kennung::Kennung;
 pub use logablage::{Dateiablage, Gespraech, Logablage};
