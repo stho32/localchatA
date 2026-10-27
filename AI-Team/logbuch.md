@@ -9,3 +9,4 @@ Eine Zeile je Auftrag an eine Rolle und je Retrospektive.
 | 2026-10-27 | #1 I0001 | Bereit | planer | bestanden | 0:04 | R00001, 13 Bubbles (73b60e8, dccaa5f) |
 | 2026-10-27 | #1 I0001 | Entwicklung | entwickler | bestanden | 0:18 | R00001 gebaut, Gate grün nachgeprüft (51 + 1 E2E) |
 | 2026-10-27 | #1 I0001 | Code-Review | code-reviewer | befund | 0:05 | B1 Signal-Fenster, B2 feste Ports in Tests (nachgeprobt); Nacharbeit 1 |
+| 2026-10-27 | #1 I0001 | Entwicklung | entwickler | bestanden | 0:06 | Nacharbeit 1: B1, B2, A2 (ccdd4b5, 45b0cd4, e468ffd), Gate mit belegtem 7430 grün |
