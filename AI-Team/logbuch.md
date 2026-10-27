@@ -23,3 +23,5 @@ Eine Zeile je Auftrag an eine Rolle und je Retrospektive.
 | 2026-10-27 | #2 I0002 | Architektur | architekt | bestanden | 0:12 | ADR-0011 Rückbau/Wächter; Nachzug ADR-0010 Annahmeschleife (b536c1c, 688f270, 135de1b) |
 | 2026-10-27 | #2 I0002 | Bereit | planer | bestanden | 0:07 | R00002, 14 Bubbles (3f98537, 919aed2) |
 | 2026-10-27 | #2 I0002 | Entwicklung | entwickler | bestanden | 0:27 | R00002 gebaut, 156 Tests + e2e nachgeprüft |
+| 2026-10-27 | #2 I0002 | Security-Review | security-reviewer | bestanden | 0:05 | parallel; Optional-Punkte an #8, #3, #18 |
+| 2026-10-27 | #2 I0002 | Code-Review | code-reviewer | befund | 0:14 | B1 UTF-8 löscht ganzen Tag (nachgeprobt); Nacharbeit 1 |
