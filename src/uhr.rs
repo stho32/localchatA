@@ -228,6 +228,18 @@ mod tests {
     }
 
     #[test]
+    fn in_der_wiederholten_stunde_gilt_jetzt_obwohl_die_ziffern_kleiner_sind() {
+        assert_eq!(
+            naechste_zeit(
+                zeit("2026-10-25T02:30:00.000+01:00"),
+                Some(zeit("2026-10-25T02:59:59.999+02:00"))
+            )
+            .to_rfc3339(),
+            "2026-10-25T02:30:00+01:00"
+        );
+    }
+
+    #[test]
     fn vorauslaufende_zeit_steht_im_versatz_von_jetzt() {
         assert_eq!(
             naechste_zeit(
