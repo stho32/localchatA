@@ -69,8 +69,8 @@ impl Anwesenheit {
         wunsch: &Beitrittswunsch,
         herkunft: IpAddr,
     ) -> Result<Sitzung, Beitrittsfehler> {
-        let mut sitzungen = self.sitzungen();
         let jetzt = self.uhr.jetzt();
+        let mut sitzungen = self.lebende_sitzungen(jetzt);
         let traeger = sitzungen
             .values()
             .find(|sitzung| sitzung.name == wunsch.name);
@@ -103,11 +103,25 @@ impl Anwesenheit {
         Ok(sitzung)
     }
 
+    /// Der Bestand unter der Sperre, abgelaufene Sitzungen schon entfernt: ihr Token ist ungültig, ihr Name frei.
+    fn lebende_sitzungen(&self, jetzt: Zeit) -> MutexGuard<'_, HashMap<Token, Sitzung>> {
+        let mut sitzungen = self.sitzungen();
+        sitzungen.retain(|_, sitzung| lebt(sitzung.letztes_lebenszeichen, jetzt, self.gnadenfrist));
+        sitzungen
+    }
+
     fn sitzungen(&self) -> MutexGuard<'_, HashMap<Token, Sitzung>> {
         self.sitzungen
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
     }
+}
+
+/// Eine Sitzung lebt, solange ihr letztes Lebenszeichen höchstens die Gnadenfrist zurückliegt (ADR-0012).
+/// Geprüft wird beim Zugriff; einen Takt, der „weg“ meldet, gibt es erst mit I0006.
+pub fn lebt(letztes_lebenszeichen: Zeit, jetzt: Zeit, gnadenfrist: Duration) -> bool {
+    let frist = chrono::Duration::from_std(gnadenfrist).unwrap_or(chrono::Duration::MAX);
+    jetzt - letztes_lebenszeichen <= frist
 }
 
 #[cfg(test)]
@@ -241,6 +255,74 @@ mod tests {
             "{ergebnis:?}"
         );
         assert!(anwesenheit.sitzungen().is_empty());
+    }
+
+    #[test]
+    fn lebt_bis_einschliesslich_der_gnadenfrist_danach_nicht_mehr() {
+        let frist = Duration::from_secs(60);
+        let t0 = zeit(T0);
+        let nach = |millisekunden: i64| t0 + chrono::Duration::milliseconds(millisekunden);
+
+        assert!(lebt(t0, t0, frist));
+        assert!(lebt(t0, nach(60_000), frist));
+        assert!(!lebt(t0, nach(60_001), frist));
+        assert!(!lebt(t0, nach(3_600_000), frist));
+        assert!(
+            lebt(t0, nach(-5_000), frist),
+            "eine zurückgestellte Uhr beendet nichts"
+        );
+    }
+
+    #[test]
+    fn nach_der_gnadenfrist_ist_der_name_frei_und_die_sitzung_zaehlt_nicht_mehr() {
+        let uhr = Arc::new(GestellteUhr::neu(zeit(T0)));
+        let anwesenheit = Anwesenheit::neu(
+            Arc::clone(&uhr) as Arc<dyn Uhr>,
+            Arc::new(FesteFolge::neu(1..=100)),
+            Duration::from_secs(60),
+        );
+        anwesenheit
+            .beitreten(&wunsch("claude", Art::Agent), ip("10.0.0.5"))
+            .expect("beigetreten");
+
+        uhr.stellen(zeit("2026-10-27T09:14:59.000+01:00"));
+        let nach_59 = anwesenheit.beitreten(&wunsch("claude", Art::Mensch), ip("127.0.0.1"));
+        uhr.stellen(zeit("2026-10-27T09:15:01.000+01:00"));
+        let nach_61 = anwesenheit.beitreten(&wunsch("claude", Art::Mensch), ip("127.0.0.1"));
+
+        assert!(
+            matches!(nach_59, Err(Beitrittsfehler::NameVergeben { .. })),
+            "{nach_59:?}"
+        );
+        assert_eq!(
+            nach_61.map(|sitzung| sitzung.kennung.to_string()),
+            Ok("claude@127.0.0.1".into())
+        );
+        assert_eq!(
+            anwesenheit.sitzungen().len(),
+            1,
+            "die abgelaufene Sitzung ist weg"
+        );
+    }
+
+    #[test]
+    fn abgelaufene_sitzungen_zaehlen_nicht_gegen_die_grenze() {
+        let uhr = Arc::new(GestellteUhr::neu(zeit(T0)));
+        let anwesenheit = Anwesenheit::neu(
+            Arc::clone(&uhr) as Arc<dyn Uhr>,
+            Arc::new(FesteFolge::neu(1..=100)),
+            Duration::from_secs(60),
+        );
+        for nummer in 1..=JE_HERKUNFT {
+            anwesenheit
+                .beitreten(&wunsch(&format!("n{nummer}"), Art::Agent), ip("127.0.0.1"))
+                .expect("innerhalb der Grenze");
+        }
+
+        uhr.stellen(zeit("2026-10-27T09:16:00.000+01:00"));
+        let danach = anwesenheit.beitreten(&wunsch("n65", Art::Agent), ip("127.0.0.1"));
+
+        assert!(danach.is_ok(), "{danach:?}");
     }
 
     #[test]
