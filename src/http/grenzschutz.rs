@@ -1,7 +1,11 @@
 //! Grenzschutz (ADR-0014): welche Host-Namen die Instanz anspricht (gegen DNS-Rebinding) und von welchem
 //! Ursprung sie Wirkung annimmt (gegen CSRF).
 
-use axum::http::Method;
+use axum::http::header::{
+    CACHE_CONTROL, CONTENT_SECURITY_POLICY, HeaderName, HeaderValue, REFERRER_POLICY,
+    X_CONTENT_TYPE_OPTIONS, X_FRAME_OPTIONS,
+};
+use axum::http::{HeaderMap, Method};
 use std::fmt;
 use std::net::{Ipv4Addr, Ipv6Addr};
 
@@ -103,6 +107,43 @@ impl fmt::Display for UrsprungAbgewiesen {
         )
     }
 }
+
+/// Setzt den Header-Satz aus ADR-0014 Regel 5 auf eine Antwort (vorhandene Werte werden ersetzt), unter
+/// `/api/` zusätzlich `Cache-Control: no-store`, und entfernt jede CORS-Freigabe (Regel 4).
+pub fn sicherheitsheader_setzen(kopf: &mut HeaderMap, pfad: &str) {
+    let cors_freigaben: Vec<HeaderName> = kopf
+        .keys()
+        .filter(|name| name.as_str().starts_with("access-control-allow-"))
+        .cloned()
+        .collect();
+    for name in cors_freigaben {
+        kopf.remove(name);
+    }
+    for (name, wert) in HEADER_SATZ {
+        kopf.insert(name, HeaderValue::from_static(wert));
+    }
+    if pfad.starts_with("/api/") {
+        kopf.insert(CACHE_CONTROL, HeaderValue::from_static("no-store"));
+    }
+}
+
+const HEADER_SATZ: [(HeaderName, &str); 6] = [
+    (X_CONTENT_TYPE_OPTIONS, "nosniff"),
+    (
+        CONTENT_SECURITY_POLICY,
+        "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'",
+    ),
+    (X_FRAME_OPTIONS, "DENY"),
+    (REFERRER_POLICY, "no-referrer"),
+    (
+        HeaderName::from_static("cross-origin-opener-policy"),
+        "same-origin",
+    ),
+    (
+        HeaderName::from_static("cross-origin-resource-policy"),
+        "same-origin",
+    ),
+];
 
 enum Hostanteil<'a> {
     IpLiteral,
@@ -374,6 +415,76 @@ mod tests {
         assert!(
             matches!(&site, Err(abgewiesen) if abgewiesen.grund.contains("Sec-Fetch-Site")),
             "{site:?}"
+        );
+    }
+
+    const CSP: &str = "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'";
+
+    fn kopf_nach(pfad: &str, vorher: &[(&'static str, &'static str)]) -> HeaderMap {
+        let mut kopf = HeaderMap::new();
+        for (name, wert) in vorher {
+            kopf.insert(*name, wert.parse().expect("Wert"));
+        }
+        sicherheitsheader_setzen(&mut kopf, pfad);
+        kopf
+    }
+
+    fn wert<'a>(kopf: &'a HeaderMap, name: &str) -> Option<&'a str> {
+        kopf.get(name).and_then(|wert| wert.to_str().ok())
+    }
+
+    #[test]
+    fn jede_antwort_bekommt_den_header_satz_mit_genau_diesen_werten() {
+        let kopf = kopf_nach("/", &[]);
+        assert_eq!(wert(&kopf, "x-content-type-options"), Some("nosniff"));
+        assert_eq!(wert(&kopf, "content-security-policy"), Some(CSP));
+        assert_eq!(wert(&kopf, "x-frame-options"), Some("DENY"));
+        assert_eq!(wert(&kopf, "referrer-policy"), Some("no-referrer"));
+        assert_eq!(
+            wert(&kopf, "cross-origin-opener-policy"),
+            Some("same-origin")
+        );
+        assert_eq!(
+            wert(&kopf, "cross-origin-resource-policy"),
+            Some("same-origin")
+        );
+        assert_eq!(wert(&kopf, "cache-control"), None);
+        assert_eq!(kopf.len(), 6);
+    }
+
+    #[test]
+    fn unter_api_kommt_no_store_dazu_und_ersetzt_anderes() {
+        let kopf = kopf_nach("/api/gesundheit", &[("cache-control", "no-cache")]);
+        assert_eq!(wert(&kopf, "cache-control"), Some("no-store"));
+        assert_eq!(kopf.get_all("cache-control").iter().count(), 1);
+        assert_eq!(wert(&kopf, "x-frame-options"), Some("DENY"));
+    }
+
+    #[test]
+    fn ausserhalb_von_api_bleibt_das_cache_control_der_route() {
+        let kopf = kopf_nach("/web/lc-tokens.css", &[("cache-control", "no-cache")]);
+        assert_eq!(wert(&kopf, "cache-control"), Some("no-cache"));
+        let aehnlich = kopf_nach("/apix", &[]);
+        assert_eq!(wert(&aehnlich, "cache-control"), None);
+    }
+
+    #[test]
+    fn vorhandene_werte_werden_ueberschrieben_und_cors_freigaben_entfernt() {
+        let kopf = kopf_nach(
+            "/api/x",
+            &[
+                ("x-frame-options", "SAMEORIGIN"),
+                ("access-control-allow-origin", "*"),
+                ("access-control-allow-credentials", "true"),
+            ],
+        );
+        assert_eq!(wert(&kopf, "x-frame-options"), Some("DENY"));
+        assert_eq!(kopf.get_all("x-frame-options").iter().count(), 1);
+        assert!(
+            !kopf
+                .keys()
+                .any(|name| name.as_str().starts_with("access-control-allow-")),
+            "{kopf:?}"
         );
     }
 }

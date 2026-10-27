@@ -50,3 +50,4 @@ Nie vom User erfragen.
 | 2026-10-27 | R00003 Namen wählen und beitreten | B0035 Rechnername lesen | Standard | 0,4h | 0,01h | 0,02h | autonom |
 | 2026-10-27 | R00003 Namen wählen und beitreten | B0036 Host prüfen | Standard | 0,4h | 0,01h | 0,02h | autonom |
 | 2026-10-27 | R00003 Namen wählen und beitreten | B0037 Ursprung prüfen | Standard | 0,4h | 0,01h | 0,02h | autonom |
+| 2026-10-27 | R00003 Namen wählen und beitreten | B0038 Sicherheitsheader setzen | Standard | 0,4h | 0,01h | 0,01h | autonom |
