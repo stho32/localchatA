@@ -6,6 +6,7 @@ url: http://127.0.0.1:7421
 empfaenger: betreiber
 betreiber: sh
 director: dir
+anwendung: lc
 angelegt: 2026-10-27
 ---
 
