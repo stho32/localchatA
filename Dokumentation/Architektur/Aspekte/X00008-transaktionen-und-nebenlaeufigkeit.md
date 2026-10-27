@@ -30,4 +30,5 @@ Atomar ist das Senden einer Nachricht in ein Gespräch: unter einer Sperre je Ge
 ## Notizen / Quellen
 
 Entworfen am 2026-10-27.
+
 - **Ergänzung 2026-10-27 (Karte #2, Nachzug aus #1) — Verbindungen:** gebaut ist bisher nur die Nebenläufigkeit der Auslieferung ([ADR-0010](../../ADRs/0010-eigene-annahmeschleife-hyper-http1.md)): eine Annahmeschleife (`tokio::select!` über Signal, `accept`, `JoinSet::join_next`), je Verbindung ein Task im `JoinSet`; die Belegung je Gegenstelle ist ein `std::sync::Mutex` mit kurzer Haltezeit, nie über ein `await` gehalten, freigegeben im `Drop` des Platzes (vergiftete Sperre wird weiterbenutzt, `PoisonError::into_inner`); das Ende wird über einen `watch`-Kanal an alle Verbindungen gemeldet, danach `JoinSet` mit Frist 5 s, sonst `shutdown`. Lange Antworten (SSE, Long-Poll) belegen Plätze und enden beim Signal erst durch Abbruch, solange sie das Ende-Signal nicht selbst hören ([A00011](../A00011-live-kanal.md)). Durchsetzung wie oben plus `tests/verfuegbarkeit.rs` (Grenzen über das echte Programm) und Unit-Tests in `src/start/verbindungen.rs`.
