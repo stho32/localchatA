@@ -2,7 +2,7 @@
 //!
 //! Rein, ohne Platte: übersetzt zwischen Rohtext einer Tagesdatei und Sätzen.
 
-use super::Kennung;
+use super::{Kennung, Nachricht};
 use crate::uhr::Zeit;
 use chrono::DateTime;
 
@@ -19,6 +19,39 @@ pub struct SatzBereich {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Defekt {
     pub zeile: usize,
+}
+
+/// Der Satz einer Nachricht: Kopfzeile, Text mit zwei Leerzeichen eingerückt (leere Zeile bleibt leer),
+/// `\r\n` als `\n`, ohne abschließende Leerzeilen, danach eine Leerzeile als Abschluss.
+pub fn satz(nachricht: &Nachricht) -> String {
+    let mut satz = format!(
+        "@ {} {}\n",
+        nachricht.zeit.format("%Y-%m-%dT%H:%M:%S%.3f%:z"),
+        nachricht.von
+    );
+    let text = nachricht.text.replace("\r\n", "\n");
+    for zeile in text.trim_end_matches('\n').split('\n') {
+        if !zeile.is_empty() {
+            satz.push_str("  ");
+            satz.push_str(zeile);
+        }
+        satz.push('\n');
+    }
+    satz.push('\n');
+    satz
+}
+
+/// Der Text eines Satzes ohne Kopf, Metazeilen und Einrückung (Umkehrung von `satz`).
+pub fn text(satz: &str) -> String {
+    let zeilen: Vec<&str> = satz
+        .split('\n')
+        .filter_map(|zeile| match zeilenart(zeile) {
+            Zeilenart::Satzinhalt => zeile.strip_prefix("  "),
+            Zeilenart::Leer => Some(""),
+            Zeilenart::Kopf | Zeilenart::Defekt => None,
+        })
+        .collect();
+    zeilen.join("\n").trim_end_matches('\n').to_string()
 }
 
 /// Zerlegt den Rohtext einer Tagesdatei in Sätze und Defekte, in der Reihenfolge, in der sie abgeschlossen werden.
@@ -174,6 +207,64 @@ mod tests {
         assert_eq!(saetze.len(), 1);
         assert_eq!(saetze[0].ende, rohtext.len());
         assert!(defekte(rohtext).is_empty());
+    }
+
+    fn nachricht(zeit: &str, von: &str, text: &str) -> Nachricht {
+        Nachricht {
+            zeit: DateTime::parse_from_rfc3339(zeit).expect("Zeit"),
+            von: Kennung::bilden(von).expect("Kennung"),
+            text: text.to_string(),
+        }
+    }
+
+    #[test]
+    fn satz_hat_kopf_eingerueckten_text_und_leerzeile_genau_wie_im_kriterium() {
+        let satz = satz(&nachricht(
+            "2026-10-27T14:07:12.345+01:00",
+            "claude@10.0.0.5",
+            "# Titel\n\n@ kein Kopf\n\tTab\r\nEnde\n\n",
+        ));
+
+        assert_eq!(
+            satz,
+            "@ 2026-10-27T14:07:12.345+01:00 claude@10.0.0.5\n  # Titel\n\n  @ kein Kopf\n  \tTab\n  Ende\n\n"
+        );
+    }
+
+    #[test]
+    fn zeit_steht_immer_mit_millisekunden_und_versatz() {
+        let satz = satz(&nachricht("2026-10-27T14:07:12Z", "a@b", "x"));
+        assert_eq!(satz, "@ 2026-10-27T14:07:12.000+00:00 a@b\n  x\n\n");
+    }
+
+    #[test]
+    fn rundweg_satz_saetze_text_ergibt_denselben_text_und_einen_satz() {
+        let original = "# Titel\n\n@ kein Kopf\n  eingerückt\n```\ncode\n```";
+        let rohtext = satz(&nachricht("2026-10-27T14:07:12.345+01:00", "a@b", original));
+
+        let gelesen = saetze(&rohtext);
+
+        assert_eq!(gelesen.len(), 1);
+        let bereich = gelesen[0].clone().expect("gültiger Satz");
+        assert_eq!(text(&rohtext[bereich.anfang..bereich.ende]), original);
+    }
+
+    #[test]
+    fn rundweg_normalisiert_zeilenenden_und_abschliessende_leerzeilen() {
+        let rohtext = satz(&nachricht(
+            "2026-10-27T14:07:12.345+01:00",
+            "a@b",
+            "\neins\r\n\r\nzwei\n\n\n",
+        ));
+        assert_eq!(text(&rohtext), "\neins\n\nzwei");
+    }
+
+    #[test]
+    fn text_ueberspringt_metazeilen_und_defekte_zeilen() {
+        assert_eq!(
+            text("@ 2026-10-27T14:00:00.000+01:00 a@b\n+ antwort: x\n  eins\nkaputt\n  zwei\n\n"),
+            "eins\nzwei"
+        );
     }
 
     #[test]

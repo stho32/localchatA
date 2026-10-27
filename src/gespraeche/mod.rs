@@ -18,6 +18,14 @@ use std::sync::Mutex;
 use std::time::{Duration, Instant};
 use verlaufsindex::Verlauf;
 
+/// Eine Nachricht, wie sie im Log steht; die Zeit ist zugleich ihre ID (ADR-0005).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Nachricht {
+    pub zeit: Zeit,
+    pub von: Kennung,
+    pub text: String,
+}
+
 /// Alle Gespräche des Ordners mit ihrem Verlauf in der Frist.
 pub struct Gespraeche {
     verlaeufe: BTreeMap<Gespraech, Mutex<Verlauf>>,
