@@ -58,3 +58,4 @@ Nie vom User erfragen.
 | 2026-10-27 | R00003 Namen wählen und beitreten | B0043 Herkunft je Verbindung setzen | Standard | 0,4h | 0,01h | 0,01h | autonom |
 | 2026-10-27 | R00003 Namen wählen und beitreten | B0044 Testserver über `ausliefern` | Standard | 0,4h | 0,01h | 0,01h | autonom |
 | 2026-10-27 | R00003 Namen wählen und beitreten | B0045 Zufall für Tokens | Standard | 0,4h | 0,01h | 0,02h | autonom |
+| 2026-10-27 | R00003 Namen wählen und beitreten | B0046 Beitrittswunsch prüfen | Standard | 0,4h | 0,02h | 0,02h | autonom |
