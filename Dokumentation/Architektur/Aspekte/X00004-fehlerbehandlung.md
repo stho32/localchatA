@@ -28,3 +28,5 @@ Geplant: Fachbausteine liefern `Result<_, Fehler>`; ein `enum Fehler` (ungültig
 ## Notizen / Quellen
 
 Entworfen am 2026-10-27.
+
+- **Ergänzung 2026-10-27 (Karte #2, I0002):** Schreibfehler beim Anhängen: zusätzlich zu „Index und Live unberührt“ wird die Datei auf die Länge vor dem Schreiben zurückgebaut; scheitert der Rückbau, steht eine Zeile auf stderr, und der nächste Satz beginnt nach einem `\n` ([ADR-0011](../../ADRs/0011-anhaengen-mit-rueckbau-und-zeilenende-waechter.md)).
