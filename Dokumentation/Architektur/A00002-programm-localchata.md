@@ -5,7 +5,7 @@ code: localchatA
 ebene: Container
 eltern: A00001
 repo: localchatA
-status: Geplant
+status: Aktiv
 herkunft: dialog
 quellen:
   - Cargo.toml
@@ -34,11 +34,11 @@ Liefert aus einem einzigen Prozess Weboberfläche, JSON-API und Live-Kanal für 
 
 ## Abhaengigkeiten
 
-Kinder (alle geplant):
+Kinder:
 
-- [Start](A00003-start.md) (geplant)
-- [HTTP-Schnittstelle](A00004-http-schnittstelle.md) (geplant)
-- [Weboberfläche](A00005-weboberflaeche.md) (geplant)
+- [Start](A00003-start.md) (aktiv)
+- [HTTP-Schnittstelle](A00004-http-schnittstelle.md) (aktiv)
+- [Weboberfläche](A00005-weboberflaeche.md) (aktiv)
 - [Gespräche](A00006-gespraeche.md) (geplant)
 - [Anwesenheit](A00010-anwesenheit.md) (geplant)
 - [Live-Kanal](A00011-live-kanal.md) (geplant)
@@ -49,6 +49,7 @@ Crates (ADR-0001): `axum` 0.8 (mit `multipart`), `tokio`, `tokio-stream`, `futur
 
 - [ADR-0001: Ein Programm in Rust mit axum und tokio, Bibliothek plus Binärprogramm](../ADRs/0001-ein-programm-rust-axum-tokio.md) — Akzeptiert, 2026-10-27
 - [ADR-0009: Teststrategie, Gate und Health-Check](../ADRs/0009-teststrategie-gate-und-health-check.md) — Akzeptiert, 2026-10-27
+- [ADR-0010: Eigene Annahmeschleife mit hyper http1 statt `axum::serve`](../ADRs/0010-eigene-annahmeschleife-hyper-http1.md) — Akzeptiert, 2026-10-27
 
 ## Offene Fragen
 
@@ -59,3 +60,4 @@ Crates (ADR-0001): `axum` 0.8 (mit `multipart`), `tokio`, `tokio-stream`, `futur
 - Entworfen am 2026-10-27 per `/architektur brainstorming --still`.
 - `ausgenommen`: `src/lib.rs` (nur Moduldeklarationen), `src/fehler.rs` (Aspekt [Fehlerbehandlung](Aspekte/X00004-fehlerbehandlung.md)), `src/uhr.rs` (Aspekt [Zeit](Aspekte/X00007-zeit.md)) — querschnittlich, kein eigener Baustein.
 - Vorbild kanbanD (Q04): `src/main.rs` (Start, geordnetes Beenden), `src/start/` (Aufruf, freier Port), `src/web/mod.rs` (Router, `spawn_blocking`-Muster `blockierend`).
+- **Stand 2026-10-27 (Ist nach I0001, Karte #2 Nachzug):** gebaut sind Start und HTTP-Schnittstelle mit `/`, `/web/{datei}`, `/api/gesundheit`; Auslieferung über eine eigene Annahmeschleife statt `axum::serve` ([ADR-0010](../ADRs/0010-eigene-annahmeschleife-hyper-http1.md)): Kopf-/Leerlaufgrenze 10 s, höchstens 64 Verbindungen je Gegenstelle, gesamt `min(512, weiche Deskriptorgrenze / 2)`, beim Ende Frist 5 s, nur HTTP/1.1 ohne Upgrades. Direkte Abhängigkeiten heute: `axum`, `tokio`, `serde`, `serde_json`, `hyper`, `hyper-util`, unter Unix `rustix`; die übrigen Crates der Liste oben kommen mit ihrer Interaction (Nachtrag in [ADR-0001](../ADRs/0001-ein-programm-rust-axum-tokio.md)). `src/fehler.rs` und `src/uhr.rs` (unter `ausgenommen`) existieren noch nicht — sie entstehen mit I0002. Gespräche, Anwesenheit und Live-Kanal sind geplant.

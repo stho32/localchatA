@@ -52,3 +52,9 @@ Ein Container „Programm localchatA“, eine Crate `localchata` mit Bibliothek 
 
 - [A00002 Programm localchatA](../Architektur/A00002-programm-localchata.md), [A00001 localchatA](../Architektur/A00001-localchata.md) (Makroarchitektur)
 - Vision `Anforderungen/R00000-vision.md`, Leitplanken; kanbanD `Cargo.toml`, `src/main.rs`, `src/web/mod.rs` (Q04, nur gelesen)
+
+## Nachträge
+
+Die Entscheidung oben bleibt unverändert; hier steht, was der Bau gezeigt hat.
+
+- **2026-10-27 (Karte #2, Nachzug aus #1):** Ausgeliefert wird nicht über `axum::serve`, sondern über eine eigene Annahmeschleife mit `hyper` http1 — Entscheidung und Folgen in [ADR-0010](0010-eigene-annahmeschleife-hyper-http1.md). axum bleibt Router und Extraktoren. Direkte Abhängigkeiten nach I0001 (`Cargo.toml`): `axum`, `tokio` (`rt-multi-thread`, `macros`, `net`, `signal`, `sync`, `time`), `serde`, `serde_json`, `hyper` (`server`, `http1`), `hyper-util` (`tokio`, `service`), unter Unix `rustix` (`process`, für die Deskriptorgrenze); dev: `reqwest` (`json`), `tempfile`. Die übrigen Crates der Liste oben (`chrono`, `toml`, `tokio-stream`, `futures-util`, `utoipa`, `utoipa-axum`, Feature `multipart`, `tokio`-Feature `fs`) kommen bewusst erst mit der Interaction, die sie braucht — `chrono` mit I0002 (Uhr, Nachrichtenzeit), `toml` mit I0007/I0018, `tokio-stream`/`futures-util` mit dem Live-Kanal, `multipart` mit I0010, `utoipa` mit der Agenten-API. Von den Modulen gibt es `start` und `http`; `fehler` und `uhr` entstehen mit dem ersten Bedarf (I0002). Die Bibliothek zeigt nach außen nur `start::ausfuehren`.

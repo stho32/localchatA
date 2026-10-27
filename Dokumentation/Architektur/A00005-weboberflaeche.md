@@ -5,7 +5,7 @@ code: web
 ebene: Komponente
 eltern: A00002
 repo: localchatA
-status: Geplant
+status: Aktiv
 herkunft: dialog
 quellen:
   - web/
@@ -41,3 +41,4 @@ Zeigt dem Menschen im Browser Verlauf, Eingabe und Teilnehmer nach dem Designsys
 
 - Vanilla-JavaScript-Dateien, je eine Verantwortung, reine Funktionen auch in Node testbar (Unit-Tests der Oberfläche unter `e2e/einheit/` wie kanbanD).
 - Schriften IBM Plex lokal eingebettet (keine Netzabhängigkeit im LAN).
+- **Ist 2026-10-27 (nach I0001):** `web/index.html` (Titel `localchatA`, deutsch) und `web/lc-tokens.css`, eingebettet per `include_bytes!` (`src/http/eingebettet.rs`); noch kein JavaScript, kein `EventSource`.

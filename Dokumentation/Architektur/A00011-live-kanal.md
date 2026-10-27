@@ -34,6 +34,7 @@ Verteilt jedes Ereignis an genau die offenen Sichten und wartenden Agenten, für
 ## Entscheidungen
 
 - [ADR-0007: Live-Kanal — SSE für Browser, Long-Poll für Agenten, ein Ereignisbus](../ADRs/0007-live-kanal-sse-fuer-browser-long-poll-fuer-agenten.md) — Vorgeschlagen, 2026-10-27
+- [ADR-0010: Eigene Annahmeschleife mit hyper http1 statt `axum::serve`](../ADRs/0010-eigene-annahmeschleife-hyper-http1.md) — Akzeptiert, 2026-10-27
 
 ## Offene Fragen
 
@@ -41,3 +42,4 @@ Verteilt jedes Ereignis an genau die offenen Sichten und wartenden Agenten, für
 
 - `seit` ist eine Nachrichtenzeit; weil Zeiten global streng steigen ([ADR-0005](../ADRs/0005-programm-als-einziger-schreiber-und-reihenfolge.md)), verliert ein Agent zwischen zwei Warte-Aufrufen nichts — auch nicht über einen Neustart des Programms.
 - Erster Test (Unit, tokio): Abonnent `shoff` mit Filter `erwaehnung`; Ereignis ohne `@shoff` → nichts, mit `@shoff` → genau eins; Direktnachricht `claude→mia` erreicht `shoff` nie.
+- **Ergänzung 2026-10-27 (Karte #2, Nachzug aus #1):** Die Auslieferung ([ADR-0010](../ADRs/0010-eigene-annahmeschleife-hyper-http1.md)) bestimmt drei Randbedingungen: (1) laufende Antworten werden von der Kopf-Zeitgrenze (10 s) nicht abgeschnitten; (2) jeder Strom und jeder wartende Aufruf belegt einen der 64 Plätze seiner Gegenstelle — Tabs und Agenten eines Rechners teilen sie sich; (3) beim Ende werden offene Antworten nach 5 s abgebrochen. Deshalb hören `abonnieren` und `warten` ein Ende-Signal (wie `ende` in `src/start/ausliefern.rs`) und enden selbst: der Strom schließt, `warten` antwortet leer. Erster Test dazu (Integration): offener SSE-Strom, SIGTERM → Strom endet und Prozess endet mit Exit 0 in deutlich unter 5 s.

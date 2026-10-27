@@ -5,7 +5,7 @@ art: Aspekt
 geltung: Makro
 befund: Einheitlich
 hausantwort:
-betrifft: [A00006, A00008, A00009, A00010, A00011, A00004]
+betrifft: [A00006, A00008, A00009, A00010, A00011, A00004, A00003]
 herkunft: dialog
 quellen:
   - tests/
@@ -29,3 +29,4 @@ Drei Ebenen nach [ADR-0009](../../ADRs/0009-teststrategie-gate-und-health-check.
 ## Notizen / Quellen
 
 Entworfen am 2026-10-27.
+- **Ergänzung 2026-10-27 (Karte #2, Nachzug aus #1):** Ist-Stand und zwei Regeln aus dem Bau, Einzelheiten im Nachtrag zu [ADR-0009](../../ADRs/0009-teststrategie-gate-und-health-check.md). (1) **Zwei Server-Stacks:** Programm über die eigene Annahmeschleife ([ADR-0010](../../ADRs/0010-eigene-annahmeschleife-hyper-http1.md)), In-Process-`testserver` über `axum::serve` — In-Process nur für Routing und Serialisierung; Herkunft, Ströme, Zeit- und Verbindungsgrenzen über das echte Programm, bis der Testserver über `ausliefern` läuft. (2) **Baustein-Tests im Modul:** die Bibliothek zeigt nur `start::ausfuehren`; Tests einzelner Bausteine gegen `tempfile` stehen als `#[cfg(test)]` im Modul (wie `src/http/gesundheit.rs`), `tests/` fährt immer das Binärprogramm. Abweichung von der Systemantwort oben: die Logablage-Integration „gegen `tempfile` in `tests/*.rs`“ (ADR-0009) liegt damit im Modul — kein Befund, weil die Hilfe dieselbe ist.

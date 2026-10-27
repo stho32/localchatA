@@ -58,3 +58,7 @@ In Kauf genommen: Herkunft als Adresse statt Rechnername; hinter einem Proxy wä
 
 - [A00010 Anwesenheit](../Architektur/A00010-anwesenheit.md), [A00004 HTTP-Schnittstelle](../Architektur/A00004-http-schnittstelle.md); ADR-0003 (Ordnernamen der Direktgespräche), ADR-0007
 - Vision, Zielbild „Mensch und KI sind gleichberechtigt“, „Wer da ist, ist sichtbar“; Designsystem `3-offene-fragen.md` Fragen 3, 7, 8; kanbanD `X-KanbanD-Wer` (Q04)
+
+## Ergänzungen
+
+- **2026-10-27 (Karte #2, Nachzug aus #1):** `ConnectInfo<SocketAddr>` steht in Handlern **nicht** zur Verfügung: axum setzt es nur in `axum::serve`, das Programm liefert aber über eine eigene Annahmeschleife aus ([ADR-0010](0010-eigene-annahmeschleife-hyper-http1.md)). Vor I0004 muss die Schleife die bei `accept` bekannte Gegenstelle je Request als Extension `ConnectInfo<SocketAddr>` einsetzen (`src/start/ausliefern.rs`, `bedienen`), damit Handler wie geplant extrahieren. Die Normalisierung „IPv4-gemappte IPv6 als IPv4“ geschieht einmal dort, sodass Platzzählung je Gegenstelle und Herkunft dieselbe Adresse sehen. Erster Test über das echte Programm: Beitreten von `127.0.0.2` ergibt Herkunft `127.0.0.2`. Der In-Process-Testserver (`axum::serve`) taugt für Herkunftstests nicht, solange er nicht über `ausliefern` läuft. Der Status bleibt `Vorgeschlagen` (fachliche Klärung durch den `planer` offen).

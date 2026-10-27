@@ -54,3 +54,9 @@ Festlegungen:
 
 - [A00002 Programm localchatA](../Architektur/A00002-programm-localchata.md), [A00001 localchatA](../Architektur/A00001-localchata.md) (Makroarchitektur); Aspekt [Testbarkeit](../Architektur/Aspekte/X00009-testbarkeit.md)
 - kanbanD `tests/programm.rs`, `e2e/` (Q04, nur gelesen); `AI-Team/umgebung.md`; Factory `gemeinsam/gelerntes.md` „Probe gegen den echten Einstieg“, „Konfiguration über den echten Weg prüfen“
+
+## Nachträge
+
+Die Entscheidung oben bleibt unverändert; hier steht, was der Bau gezeigt hat.
+
+- **2026-10-27 (Karte #2, Nachzug aus #1):** Gerüst steht (`tests/gemeinsam/mod.rs`, `e2e/playwright.config.js`, `e2e/bauen.js`, `e2e/tests/hilfen.js`); die Startzeile wird mit Zeitgrenze abgewartet (B0016). Seit [ADR-0010](0010-eigene-annahmeschleife-hyper-http1.md) gibt es **zwei Server-Stacks**: das Programm liefert über die eigene Annahmeschleife aus, der In-Process-Testserver (`src/http/mod.rs`, `testserver`) noch über `axum::serve`. Damit gilt die Erlaubnis für In-Process-Tests (Option B) nur für Routing und Serialisierung; was Herkunft (`ConnectInfo`), Ströme, Zeitgrenzen oder Verbindungsgrenzen berührt, wird über das echte Programm geprüft (wie `tests/verfuegbarkeit.rs`), bis der Testserver über `ausliefern` läuft (Folgeaufgabe in ADR-0010). Weil die Bibliothek nur `start::ausfuehren` zeigt, laufen Tests einzelner Bausteine gegen `tempfile` als `#[cfg(test)]` im Modul, nicht unter `tests/`. Verfügbarkeitsgrenzen werden über das echte Programm geprüft (Deskriptorgrenze per `sh -c ulimit`, zweiter Absender `127.0.0.2`); der LAN-Test braucht eine Nicht-Loopback-IPv4 mit Default-Route (`AI-Team/umgebung.md`).
