@@ -5,6 +5,7 @@ mod eingebettet;
 mod gesundheit;
 mod grenzschutz;
 mod oberflaeche;
+mod teilnehmer;
 
 pub use grenzschutz::Grenzschutz;
 
@@ -55,14 +56,19 @@ pub(crate) mod testserver {
     use std::sync::Arc;
     use std::time::Duration;
 
-    /// Startet den Router im Testprozess auf einem freien Port und liefert die Basisadresse;
-    /// die Gespräche kommen aus einem leeren Wegwerf-Ordner, `ordner` steht nur in den Antworten.
+    /// Startet den Router im Testprozess auf einem freien Port und liefert die Basisadresse.
     pub async fn starten(ordner: &Path) -> String {
+        app_starten(router(zustand(ordner))).await
+    }
+
+    /// Ein Zustand wie im Programm: Gespräche aus einem leeren Wegwerf-Ordner (`ordner` steht nur in den
+    /// Antworten), Anwesenheit mit Systemuhr, Betriebssystem-Zufall und 60 s Gnadenfrist.
+    pub fn zustand(ordner: &Path) -> Zustand {
         let leer = tempfile::tempdir().expect("Wegwerf-Ordner");
         let gespraeche =
             Gespraeche::laden(Arc::new(Dateiablage::neu(leer.path())), Arc::new(Systemuhr))
                 .expect("leerer Ordner geladen");
-        let app = router(Zustand {
+        Zustand {
             ordner: ordner.to_path_buf(),
             gespraeche: Arc::new(gespraeche),
             anwesenheit: Arc::new(Anwesenheit::neu(
@@ -71,8 +77,7 @@ pub(crate) mod testserver {
                 Duration::from_secs(60),
             )),
             grenzschutz: Grenzschutz::neu(None, Vec::new()),
-        });
-        app_starten(app).await
+        }
     }
 
     /// Liefert `app` im Testprozess auf einem freien Port aus — über dieselbe Annahmeschleife wie das

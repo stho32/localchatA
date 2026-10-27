@@ -18,10 +18,7 @@ pub trait Zufall: Send + Sync {
 
 impl Token {
     /// Ein Token aus einem Header: genau 32 Zeichen `[0-9a-f]`, sonst keines.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "der Sitzungs-Header kommt mit B0053")
-    )]
+    #[cfg_attr(not(test), expect(dead_code, reason = "B0054 /api/ich"))]
     pub fn lesen(text: &str) -> Option<Token> {
         let hex = |zeichen: u8| zeichen.is_ascii_digit() || (b'a'..=b'f').contains(&zeichen);
         let gueltig = text.len() == 32 && text.bytes().all(hex);

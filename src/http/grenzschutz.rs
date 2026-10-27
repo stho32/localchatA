@@ -54,8 +54,8 @@ fn abweisung(schutz: &Grenzschutz, methode: &Method, kopf: &HeaderMap) -> Option
 }
 
 /// Der Wert einer Kopfzeile, die höchstens einmal vorkommen darf. Mehrfach oder kein Text gilt als
-/// leerer Wert — den lässt keine der drei Prüfungen durch, ein erlaubter erster Wert versteckt so keinen zweiten.
-fn einziger_wert<'a>(kopf: &'a HeaderMap, name: &HeaderName) -> Option<&'a str> {
+/// leerer Wert — den lässt keine Prüfung durch, ein erlaubter erster Wert versteckt so keinen zweiten.
+pub(super) fn einziger_wert<'a>(kopf: &'a HeaderMap, name: &HeaderName) -> Option<&'a str> {
     let mut werte = kopf.get_all(name).iter();
     let erster = werte.next()?;
     if werte.next().is_some() {
