@@ -4,10 +4,12 @@ pub mod frist;
 mod kennung;
 pub mod logablage;
 pub mod logformat;
+mod speicherablage;
 pub mod verlaufsindex;
 
 pub use kennung::Kennung;
-pub use logablage::{Dateiablage, Gespraech, Logablage};
+pub use logablage::{Angehaengt, Dateiablage, Gespraech, Logablage};
+pub use speicherablage::Speicherablage;
 
 use crate::fehler::Fehler;
 use crate::uhr::{Uhr, Zeit};
