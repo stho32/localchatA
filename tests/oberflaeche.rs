@@ -128,3 +128,36 @@ async fn die_seite_kommt_ohne_inline_stil_und_skript_aus_der_seitenstil_als_css_
     assert!(stil.typ.starts_with("text/css"), "{}", stil.typ);
     assert!(stil.inhalt.contains("var(--kd-bg)"), "{}", stil.inhalt);
 }
+
+#[tokio::test]
+async fn die_seite_laedt_genau_ein_modul_skript_und_die_module_kommen_als_javascript() {
+    let instanz = wegwerf_starten();
+
+    let seite = holen(instanz.adresse.clone()).await;
+
+    assert_eq!(
+        seite.inhalt.matches("<script").count(),
+        1,
+        "{}",
+        seite.inhalt
+    );
+    assert!(
+        seite
+            .inhalt
+            .contains("<script type=\"module\" src=\"/web/start.js\"></script>"),
+        "{}",
+        seite.inhalt
+    );
+    for modul in [
+        "start.js",
+        "api.js",
+        "sitzung.js",
+        "namensregel.js",
+        "beitreten.js",
+        "kopfzeile.js",
+    ] {
+        let antwort = holen(format!("{}web/{modul}", instanz.adresse)).await;
+        assert_eq!(antwort.status, 200, "{modul}");
+        assert_eq!(antwort.typ, "text/javascript; charset=utf-8", "{modul}");
+    }
+}
