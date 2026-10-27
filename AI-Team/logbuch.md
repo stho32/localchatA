@@ -30,3 +30,4 @@ Eine Zeile je Auftrag an eine Rolle und je Retrospektive.
 | 2026-10-27 | #2 I0002 | Entwicklertest | entwicklertester | bestanden | 0:15 | US-1–US-8, explorativ ohne Befund |
 | 2026-10-27 | #2 I0002 | Security-Review | security-reviewer | bestanden | 0:04 | Rückschritt-Prüfung ohne Befund |
 | 2026-10-27 | #2 I0002 | Retrospektive | director | — | — | Mutationsprobe mit touch → Vorschlag; Hinweise an #7, #8, #10, #18; drei Prüfungen parallel bei festem Code bewährt |
+| 2026-10-27 | #3 I0004 | Architektur | architekt | bestanden | 0:17 | ADR-0012/0013/0014 (c5b3fca) |
