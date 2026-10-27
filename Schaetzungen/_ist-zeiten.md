@@ -22,3 +22,5 @@ Nie vom User erfragen.
 | 2026-10-27 | R00001 Instanz starten | B0011 Oberfläche ausliefern | Standard | 2h | 0,01h | 0,01h | autonom |
 | 2026-10-27 | R00001 Instanz starten | B0012 Browser öffnen | unklar | 2-4h | 0,03h | 0,03h | autonom |
 | 2026-10-27 | R00001 Instanz starten | B0013 E2E-Gerüst | unklar | 2-4h | 0,01h | 0,02h | autonom |
+| 2026-10-27 | R00001 Instanz starten | Lauf R00001 | Nacharbeit | — | — | 0,01h | autonom |
+| 2026-10-27 | R00001 Instanz starten | Lauf R00001 | Konsolidierung | — | — | 0,01h | autonom |
