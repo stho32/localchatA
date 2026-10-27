@@ -21,3 +21,4 @@ Eine Zeile je Auftrag an eine Rolle und je Retrospektive.
 | 2026-10-27 | #1 I0001 | Abnahme | director | Zug | — | kein Remote, nichts zu pushen; wartet auf Betreiber |
 | 2026-10-27 | #1 I0001 | Retrospektive | director | — | — | Lehren: Projektschicht entwicklertester (Browser), gelerntes (Annahmeschleife, LAN-Fläche); Vorschläge Scratchpad, Playwright-Ordner |
 | 2026-10-27 | #2 I0002 | Architektur | architekt | bestanden | 0:12 | ADR-0011 Rückbau/Wächter; Nachzug ADR-0010 Annahmeschleife (b536c1c, 688f270, 135de1b) |
+| 2026-10-27 | #2 I0002 | Bereit | planer | bestanden | 0:07 | R00002, 14 Bubbles (3f98537, 919aed2) |
