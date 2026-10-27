@@ -3,6 +3,7 @@
 use crate::fehler::Fehler;
 use crate::name::Name;
 use std::fmt;
+use std::net::IpAddr;
 
 /// Name nach der Namensregel (ADR-0013), genau ein `@`, Herkunft als Textform einer IP-Adresse
 /// (`[0-9a-f.:]`, 1 bis 45 Zeichen).
@@ -22,6 +23,12 @@ impl Kennung {
                 "Kennung {text:?} ungültig — erwartet name@herkunft, Name 1 bis 32 Zeichen aus a–z, 0–9 und -, Herkunft eine IP-Adresse"
             )))
         }
+    }
+
+    /// Aus einem geprüften Namen und der Herkunft einer Verbindung — die Textform einer IP-Adresse erfüllt
+    /// die Herkunftsregel immer.
+    pub(crate) fn aus(name: &Name, herkunft: IpAddr) -> Kennung {
+        Kennung(format!("{name}@{herkunft}"))
     }
 
     pub fn als_text(&self) -> &str {
@@ -77,6 +84,24 @@ mod tests {
             "a\u{a0}b@c",
         ] {
             ungueltig(text);
+        }
+    }
+
+    #[test]
+    fn aus_name_und_herkunft_entsteht_dieselbe_kennung_wie_beim_bilden() {
+        let name = Name::bilden("claude").expect("Name");
+        for herkunft in [
+            "127.0.0.2",
+            "::1",
+            "fe80::1",
+            "ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff",
+        ] {
+            let ip: IpAddr = herkunft.parse().expect("IP");
+            let text = format!("claude@{herkunft}");
+            assert_eq!(
+                Kennung::aus(&name, ip),
+                Kennung::bilden(&text).expect(&text)
+            );
         }
     }
 
