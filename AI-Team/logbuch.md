@@ -25,3 +25,4 @@ Eine Zeile je Auftrag an eine Rolle und je Retrospektive.
 | 2026-10-27 | #2 I0002 | Entwicklung | entwickler | bestanden | 0:27 | R00002 gebaut, 156 Tests + e2e nachgeprüft |
 | 2026-10-27 | #2 I0002 | Security-Review | security-reviewer | bestanden | 0:05 | parallel; Optional-Punkte an #8, #3, #18 |
 | 2026-10-27 | #2 I0002 | Code-Review | code-reviewer | befund | 0:14 | B1 UTF-8 löscht ganzen Tag (nachgeprobt); Nacharbeit 1 |
+| 2026-10-27 | #2 I0002 | Entwicklung | entwickler | bestanden | 0:11 | Nacharbeit 1: B1, A2 (3e07878, b74ebdd), 169 Tests nachgeprüft |
