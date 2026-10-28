@@ -2,7 +2,7 @@
 // tragen den Versatz des Servers; Uhrzeit und Datum folgen ihm, nie der Zeitzone des Testprozesses.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { uhrzeit, zeitTitel } from '../../web/gliederung.js';
+import { uhrzeit, zeitTitel, gliederung } from '../../web/gliederung.js';
 
 test('Uhrzeit HH:MM im Versatz der Nachricht, auch über die Zeitumstellung', () => {
   assert.equal(uhrzeit('2026-10-24T23:30:00.000+02:00'), '23:30');
@@ -22,4 +22,30 @@ test('Uhrzeit hängt nicht an der Zeitzone des Prozesses', async () => {
     }).toString().trim();
     assert.equal(ausgabe, '23:30 09:05', zone);
   }
+});
+
+const nachricht = (von, zeit) => ({ von, zeit, text: 'x' });
+const ALPHA = 'alpha@127.0.0.2';
+const BETA = 'beta@127.0.0.3';
+
+test('Gruppierung als Spanne: bis 5:00,000 nach der vorigen ohne Kopf, ab 5:00,001 mit', () => {
+  const vorige = nachricht(ALPHA, '2026-10-27T14:00:00.000+01:00');
+
+  assert.deepEqual(gliederung(vorige, nachricht(ALPHA, '2026-10-27T14:05:00.000+01:00')), { kopf: false, tagestrenner: null });
+  assert.deepEqual(gliederung(vorige, nachricht(ALPHA, '2026-10-27T14:05:00.001+01:00')), { kopf: true, tagestrenner: null });
+  assert.deepEqual(gliederung(vorige, nachricht(ALPHA, '2026-10-27T14:04:00.000+01:00')), { kopf: false, tagestrenner: null });
+  assert.deepEqual(gliederung(vorige, nachricht(ALPHA, '2026-10-27T14:06:00.000+01:00')), { kopf: true, tagestrenner: null });
+});
+
+test('anderer Absender, neuer Tag oder keine vorige: mit Kopf', () => {
+  assert.deepEqual(gliederung(nachricht(ALPHA, '2026-10-27T14:00:00.000+01:00'), nachricht(BETA, '2026-10-27T14:01:00.000+01:00')),
+    { kopf: true, tagestrenner: null });
+  assert.deepEqual(gliederung(nachricht(ALPHA, '2026-10-27T23:59:00.000+01:00'), nachricht(ALPHA, '2026-10-28T00:01:00.000+01:00')),
+    { kopf: true, tagestrenner: '2026-10-28' });
+  assert.deepEqual(gliederung(null, nachricht(ALPHA, '2026-10-27T14:00:00.000+01:00')), { kopf: true, tagestrenner: '2026-10-27' });
+});
+
+test('die Zeitspanne wird als Zeitpunkt gerechnet, über die Zeitumstellung', () => {
+  const vorige = nachricht(ALPHA, '2026-10-25T02:58:00.000+02:00');
+  assert.deepEqual(gliederung(vorige, nachricht(ALPHA, '2026-10-25T02:02:00.000+01:00')), { kopf: false, tagestrenner: null });
 });

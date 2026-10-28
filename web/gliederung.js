@@ -17,3 +17,23 @@ export function zeitTitel(zeit) {
   const { jahr, monat, tag, stunde, minute, sekunde } = teile(zeit);
   return `${tag}.${monat}.${jahr}, ${stunde}:${minute}:${sekunde}`;
 }
+
+// Wie eine Nachricht nach der vorigen (oder null) steht (Designsystem Nachricht, R00007): ohne Kopf, wenn derselbe
+// Absender sie höchstens 5 Minuten nach der vorigen schrieb und kein Tagestrenner dazwischen steht; ein
+// Tagestrenner steht vor der ersten Nachricht eines Tages (Datum im Versatz der Nachricht).
+// → { kopf, tagestrenner: 'JJJJ-MM-TT' | null }
+export function gliederung(vorige, nachricht) {
+  const GRUPPE_HOECHSTENS_MS = 5 * 60 * 1000;
+  const datum = datumDer(nachricht.zeit);
+  if (vorige === null || datumDer(vorige.zeit) !== datum) {
+    return { kopf: true, tagestrenner: datum };
+  }
+  const abstand = Date.parse(nachricht.zeit) - Date.parse(vorige.zeit);
+  const gruppiert = vorige.von === nachricht.von && abstand <= GRUPPE_HOECHSTENS_MS;
+  return { kopf: !gruppiert, tagestrenner: null };
+}
+
+function datumDer(zeit) {
+  const { jahr, monat, tag } = teile(zeit);
+  return `${jahr}-${monat}-${tag}`;
+}
