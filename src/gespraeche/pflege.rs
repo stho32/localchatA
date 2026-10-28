@@ -720,4 +720,51 @@ mod tests {
         );
         assert_eq!(gespraeche.channels().stand, 2);
     }
+
+    /// R00008 F0038 „Löschfehler im Index“ (ADR-0030 Regel 4, ADR-0032 Regel 6): der Tag bleibt in Ablage und
+    /// Index, der Bericht nennt ihn; die übrigen entfallenden Tage gehen.
+    #[test]
+    fn ein_gescheitertes_entfernen_laesst_den_tag_in_ablage_und_index_die_uebrigen_gehen() {
+        let ablage = Arc::new(Speicherablage::neu());
+        let gespraech = Gespraech::channel("allgemein");
+        ablage.einstellungen_setzen(&gespraech, b"frist_tage = 30\n");
+        for (tag_text, anzahl) in [
+            ("2026-10-20", 2),
+            ("2026-10-21", 3),
+            ("2026-10-22", 1),
+            ("2026-10-28", 1),
+        ] {
+            ablage.tag_setzen(&gespraech, tag(tag_text), &satz(tag_text).repeat(anzahl));
+        }
+        let gespraeche = geladen(&ablage);
+        ablage.entfernen_scheitern(&gespraech, tag("2026-10-21"));
+
+        let gesetzt = gespraeche
+            .frist_setzen("allgemein", 7, true, &beta())
+            .expect("gesetzt");
+
+        assert_eq!(
+            gesetzt.berichte,
+            vec![
+                Pflegebericht::Entfallen {
+                    channel: allgemein(),
+                    tage: vec![tag("2026-10-20")],
+                    nachrichten: 2,
+                    frist: 7,
+                    anlass: Pflegeanlass::FristGesetzt { von: beta() },
+                },
+                Pflegebericht::NichtEntfallen {
+                    channel: allgemein(),
+                    datei: "channels/allgemein/2026-10-21.log".into(),
+                    grund: "Entfernen scheitert (Speicher-Logablage)".into(),
+                },
+            ]
+        );
+        assert_eq!(gesetzt.entfallen(), (1, 2));
+        assert_eq!(
+            crate::gespraeche::Logablage::tage(ablage.as_ref(), &gespraech).expect("Tage"),
+            vec![tag("2026-10-21"), tag("2026-10-22"), tag("2026-10-28")]
+        );
+        assert_eq!(gespraeche.kennzahlen().nachrichten, 3 + 1 + 1);
+    }
 }

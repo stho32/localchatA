@@ -68,6 +68,21 @@ impl Instanz {
             .filter(|zeile| !zeile.is_empty())
     }
 
+    /// Liest stderr ab jetzt in einem Thread zeilenweise mit (nur bei `starten_mit`); die Zeilen stehen in der
+    /// gelieferten Liste, sobald sie gelesen sind.
+    pub fn stderr_mitschreiben(&mut self) -> std::sync::Arc<std::sync::Mutex<Vec<String>>> {
+        let zeilen = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        if let Some(stderr) = self.stderr.take() {
+            let ziel = std::sync::Arc::clone(&zeilen);
+            std::thread::spawn(move || {
+                for zeile in BufReader::new(stderr).lines().map_while(Result::ok) {
+                    ziel.lock().expect("Zeilen").push(zeile);
+                }
+            });
+        }
+        zeilen
+    }
+
     /// Alles, was auf stderr kam (nur bei `starten_mit`; liest bis zum Ende des Programms).
     pub fn stderr_bis_zum_ende(&mut self) -> String {
         let mut text = String::new();
