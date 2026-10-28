@@ -36,6 +36,18 @@ pub struct Nachricht {
     pub text: String,
 }
 
+/// Ein Block des Verlaufs als Nachrichten, älteste zuerst (ADR-0025 Regel 3).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Nachrichtenblock {
+    pub nachrichten: Vec<Nachricht>,
+    pub aelter: bool,
+    pub neuer: bool,
+}
+
+/// Den Channel gibt es nicht — unbekannt oder kein gültiger Name.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Unbekannt;
+
 /// Alle Gespräche des Ordners mit ihrem Verlauf in der Frist.
 pub struct Gespraeche {
     ablage: Arc<dyn Logablage>,
@@ -286,6 +298,31 @@ impl Gespraeche {
                 ));
             }
             Anlegefehler::Ablage(grund)
+        })
+    }
+
+    /// Ein Block aus dem Verlauf des Channels `name` (ADR-0025 Regel 5): das Verzeichnis lesend nur zum
+    /// Nachschlagen, die Sperre des Gesprächs nur zum Herauskopieren der Sätze; gedeutet wird ohne Sperre.
+    pub fn verlauf(
+        &self,
+        name: &str,
+        abfrage: &abfrage::Abfrage,
+    ) -> Result<Nachrichtenblock, Unbekannt> {
+        let name = Channelname::bilden(name).map_err(|_| Unbekannt)?;
+        let verlauf = lesend(&self.verzeichnis)
+            .verlaeufe
+            .get(&Gespraech::channel(name.als_text()))
+            .cloned()
+            .ok_or(Unbekannt)?;
+        let block = sperren(&verlauf).block(abfrage);
+        Ok(Nachrichtenblock {
+            nachrichten: block
+                .saetze
+                .iter()
+                .filter_map(|satz| logformat::satz_als_nachricht(satz))
+                .collect(),
+            aelter: block.aelter,
+            neuer: block.neuer,
         })
     }
 
@@ -1187,5 +1224,80 @@ mod tests {
         let danach = gespraeche.channel_anlegen("neu", &alpha());
         assert!(danach.is_ok(), "{danach:?}");
         assert_eq!(*sperren(&veroeffentlicht), vec![1]);
+    }
+    fn abfrage(abschnitt: abfrage::Abschnitt, n: usize) -> abfrage::Abfrage {
+        abfrage::Abfrage {
+            abschnitt,
+            n: abfrage::Blockgroesse::bilden(n).expect("Blockgröße"),
+        }
+    }
+
+    /// 250 Nachrichten in `allgemein`, 150 am 27. ab 23:00 im Sekundentakt und 100 am 28. — Text „n<nummer>“.
+    fn zweihundertfuenfzig_ueber_mitternacht() -> (Gespraeche, Vec<Nachricht>) {
+        let (gespraeche, _, uhr) = im_speicher("2026-10-27T23:00:00.000+01:00");
+        let allgemein = Gespraech::channel("allgemein");
+        let mut gesendet = Vec::new();
+        for nummer in 0..250 {
+            let sekunden = if nummer < 150 { nummer } else { 3600 + nummer };
+            uhr.stellen(
+                zeit("2026-10-27T23:00:00.000+01:00") + chrono::Duration::seconds(sekunden),
+            );
+            gesendet.push(
+                gespraeche
+                    .senden(&allgemein, &claude(), &format!("n{nummer}\nzweite Zeile"))
+                    .expect("gesendet"),
+            );
+        }
+        (gespraeche, gesendet)
+    }
+
+    #[test]
+    fn verlauf_liefert_die_neuesten_als_nachrichten_mit_zeit_absender_und_text() {
+        let (gespraeche, gesendet) = zweihundertfuenfzig_ueber_mitternacht();
+
+        let block = gespraeche
+            .verlauf("allgemein", &abfrage(abfrage::Abschnitt::Neueste, 100))
+            .expect("bekannt");
+
+        assert_eq!(block.nachrichten, gesendet[150..].to_vec());
+        assert_eq!(block.nachrichten[0].text, "n150\nzweite Zeile");
+        assert!(block.aelter);
+        assert!(!block.neuer);
+    }
+
+    #[test]
+    fn verlauf_vor_der_ersten_reicht_ueber_mitternacht_und_nach_der_letzten_ist_leer() {
+        let (gespraeche, gesendet) = zweihundertfuenfzig_ueber_mitternacht();
+
+        let davor = gespraeche
+            .verlauf(
+                "allgemein",
+                &abfrage(abfrage::Abschnitt::Vor(gesendet[150].zeit), 100),
+            )
+            .expect("bekannt");
+        let danach = gespraeche
+            .verlauf(
+                "allgemein",
+                &abfrage(abfrage::Abschnitt::Nach(gesendet[249].zeit), 100),
+            )
+            .expect("bekannt");
+
+        assert_eq!(davor.nachrichten, gesendet[50..150].to_vec());
+        assert!(davor.aelter && davor.neuer);
+        assert!(danach.nachrichten.is_empty());
+        assert!(danach.aelter && !danach.neuer);
+    }
+
+    #[test]
+    fn verlauf_eines_unbekannten_oder_ungueltigen_namens_ist_unbekannt() {
+        let (gespraeche, _, _) = im_speicher("2026-10-27T23:00:00.000+01:00");
+
+        for name in ["fehlt", "Allgemein", "../allgemein", ""] {
+            assert_eq!(
+                gespraeche.verlauf(name, &abfrage(abfrage::Abschnitt::Neueste, 100)),
+                Err(Unbekannt),
+                "{name}"
+            );
+        }
     }
 }
