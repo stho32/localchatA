@@ -25,7 +25,7 @@ Heute gehen Fehler auf stderr. Dort sind sie verloren, sobald niemand das Termin
 ### Protokoll schreibt (F0051; ADR-0040 Regeln 1–8 mit Ergänzung, ADR-0041 Regeln 1–3, ADR-0042 Regeln 2–3 und Ergänzung 7)
 
 - **Ort**: `<ordner>/logs/` wird nach der Sperre und vor dem Laden angelegt. Vor der Sperre (Aufruf, Ordner, Sperre, Umgebungswerte) bleiben stderr und die Exit-Codes wie heute.
-- **Datei** `logs/JJJJ-MM-TT.log` trägt das lokale Datum der Eintragszeit aus dem Uhr-Provider. Ein Eintrag um 23:59:59.999 steht in der Datei des Tages, einer um 00:00:00.000 in der des Folgetags. Liegt das Datum zurück (Uhr zurückgestellt), wird an die ältere Datei angehängt. Geschrieben wird mit append und create, je Eintrag ein `write_all` der ganzen Zeile.
+- **Datei** `logs/JJJJ-MM-TT.log` trägt das lokale Datum der Eintragszeit aus dem Uhr-Provider. Ein Eintrag um 23:59:59.999 steht in der Datei des Tages, einer um 00:00:00.000 in der des Folgetags. Liegt das Datum zurück (Uhr zurückgestellt), wird an die ältere Datei angehängt. Jeder Eintrag öffnet seine Datei mit append und create (fehlt `logs/`, wird es angelegt), schreibt die ganze Zeile mit einem `write_all` und schließt die Datei wieder; keine Datei bleibt über einen Eintrag hinaus offen. Löscht, verschiebt oder kürzt die Betreiberin im laufenden Tag `heute.log` oder ganz `logs/`, steht schon der nächste Eintrag in einer neuen `heute.log` (ADR-0040, Ergänzung „gelöschte Tagesdatei“; ADR-0041, Ergänzung M1). `protokoll_bytes_heute` ist die Größe der Datei nach dem Schreiben.
 - **Zeile**: `<zeit> <STUFE> <bereich> <text>[ | <schlüssel>=<wert> …]` und `\n`.
   - `<zeit>` ist RFC 3339 mit Millisekunden und Versatz.
   - `<STUFE>` ist eine von `DEBUG`, `INFORMATION`, `WARNING`, `ERROR`, `EXCEPTION`.
@@ -33,13 +33,15 @@ Heute gehen Fehler auf stderr. Dort sind sie verloren, sobald niemand das Termin
   - Die Schlüssel stammen aus der Erlaubnisliste in ADR-0040 Regel 3 samt Ergänzung (`typ`, `name`, `bytes`, `art`, `verworfen`, `operation`). Werte mit Leerzeichen, `=`, `|` oder `"` stehen in `"…"` mit `\"`.
 - **Escape** an genau einer Stelle, für Text und jeden Wert:
   - `\` wird zu `\\`.
-  - U+0000–U+001F, U+007F–U+009F, U+2028, U+2029, U+200E, U+200F, U+202A–U+202E und U+2066–U+2069 werden zu `\u{…}` in Kleinbuchstaben-Hex.
+  - U+0000–U+001F, U+007F–U+009F, U+061C, U+2028, U+2029, U+200E, U+200F, U+202A–U+202E und U+2066–U+2069 werden zu `\u{…}` in Kleinbuchstaben-Hex.
+  - Im Text wird jedes `|` zu `\u{7c}`; so ist das erste „ | “ einer Zeile immer der Trenner zum Kontext, und ein fremder Text (etwa ein Panik-Text) kann keinen Kontext vortäuschen (ADR-0040, Ergänzung „`|` im Text wird escaped“).
   - Ein Wert wird auf höchstens 256 Zeichen gekürzt, der Text auf höchstens 1.024, jeweils mit `…` am Ende.
+  - Gekürzt wird **an der Quelle**: ein Wert schon beim Eintritt in den Kontext, ein Text beim Eintritt in den Eintrag, roh auf ein Zeichen mehr als die Grenze (257 bzw. 1.025), damit der Formatierer das `…` setzen kann. Eine offene Episode hält so je Wert höchstens ≈ 1 KiB, 1.024 Episoden höchstens wenige MiB (CWE-770; ADR-0040, Ergänzung „an der Quelle kürzen; U+061C“).
 - **Nie im Protokoll**: Sitzungs-Token, der Kopf `X-LocalchatA-Sitzung` (auch nicht gekürzt oder gehasht), `Authorization`, `Cookie`, Nachrichtentexte, Channel-Beschreibungen, Anfragekörper, ganze Kopfzeilen. Routen erscheinen als Muster (`GET /api/channels/{name}/nachrichten`).
 - **stderr**: jeder Eintrag ab `WARNING` steht zusätzlich auf stderr, in derselben Zeilenform. `DEBUG` und `INFORMATION` gehen nie auf stderr (Ausnahme: der Rückfall). stdout bleibt allein der Startzeile.
-- **Start und Ende**: `INFORMATION start` folgt nach der Startzeile mit `version`, `adresse`, `ordner`, `stufe`, `anzahl` (Nachrichten) und `dauer_ms` (Laden). `INFORMATION ende` mit `grund` (`Strg+C` oder `SIGTERM`) und `dauer_ms` (Laufzeit) wird geschrieben, sobald das Ende-Signal eintrifft, und noch einmal als „beendet“ nach dem Ablauf der Ende-Frist.
+- **Start und Ende**: `INFORMATION start` steht **vor** der Startzeile (ADR-0041, Ergänzung „`INFORMATION start` steht vor der Startzeile“): wer die Startzeile gelesen hat, findet die Zeile schon in der Datei. Sie trägt `version`, `adresse`, `ordner`, `stufe`, `anzahl` (Nachrichten) und `dauer_ms` (Laden). `INFORMATION ende` mit `grund` (`Strg+C` oder `SIGTERM`) und `dauer_ms` (Laufzeit) wird geschrieben, sobald das Ende-Signal eintrifft, und noch einmal als „beendet“ nach dem Ablauf der Ende-Frist.
 - **Bisherige Meldungen**: jede stderr-Meldung nach der Sperre wird ein Eintrag mit der Stufe aus dem Katalog in ADR-0042 Regel 2:
-  - Ladedefekt WARNING, je Datei höchstens 10 einzeln, dann eine Zeile „und n weitere“;
+  - Ladedefekt WARNING, je Datei höchstens 10 einzeln, dann eine Zeile „und 1 weiterer Defekt in dieser Datei“ bzw. ab zwei „und n weitere Defekte in dieser Datei“;
   - Einstellungsdatei defekt und Ordner mit ungültigem Channelnamen WARNING;
   - Abrisspflege nicht setzbar WARNING;
   - Rückbau gescheitert ERROR;
@@ -64,7 +66,7 @@ Heute gehen Fehler auf stderr. Dort sind sie verloren, sobald niemand das Termin
   - Je Takt laufen zuerst die Sekundenaufgaben, dann die fälligen Tagesaufgaben in Anmeldereihenfolge, jede für sich über `spawn_blocking` und abgewartet. `zuletzt` wird **vor** dem Aufruf gesetzt.
   - Gerät eine Tagesaufgabe in Panik, läuft der Takt weiter, und die übrigen Aufgaben dieses Takts laufen auch. Der Takt schreibt `ERROR programmfehler Tagesaufgabe <name> gescheitert — <folge>; erneuter Versuch beim nächsten Tageswechsel | operation=<name> grund=panik`; bei einem Abbruch ohne Panik steht dieselbe Zeile als `EXCEPTION` mit `grund=abgebrochen`. Erneut versucht wird erst beim nächsten Datumswechsel. Folge-Text der Bereinigung: „alte Protokolldateien bleiben bis dahin liegen“.
   - Gerät eine Sekundenaufgabe in Panik, wird nur sie abgemeldet: `ERROR programmfehler Hintergrundaufgabe <name> beendet — <folge>`, danach wird sie nie wieder aufgerufen. Die Tagesaufgaben laufen weiter.
-- Die Bereinigung schreibt `INFORMATION protokoll <n> Protokolldateien entfallen (<älteste> bis <jüngste>; Aufbewahrung 14 Tage; Start|Tageswechsel)`, aber nur, wenn etwas entfiel. Je gescheiterter Datei kommt `ERROR protokoll Protokolldatei nicht entfallen | datei=… grund=…`. Der nächste Versuch folgt erst beim nächsten Anlass.
+- Die Bereinigung schreibt `INFORMATION protokoll 1 Protokolldatei entfällt (<datum> bis <datum>; Aufbewahrung 14 Tage; Start|Tageswechsel)` bzw. ab zwei Dateien `INFORMATION protokoll <n> Protokolldateien entfallen (<älteste> bis <jüngste>; Aufbewahrung 14 Tage; Start|Tageswechsel)`, aber nur, wenn etwas entfiel. Je gescheiterter Datei kommt `ERROR protokoll Protokolldatei nicht entfallen | datei=… grund=…`. Der nächste Versuch folgt erst beim nächsten Anlass.
 
 ### Programmfehler (F0053; ADR-0042 Regel 4 und Ergänzung 6)
 
@@ -120,7 +122,7 @@ Heute gehen Fehler auf stderr. Dort sind sie verloren, sobald niemand das Termin
 ## Nicht-funktionale Anforderungen
 
 - **Sicherheit** (CWE-117, CWE-770, CWE-532): eine Zeile je Eintrag, was immer ein Client als Name, Host oder Pfad schickt; kein Token, kein Körper, kein Nachrichtentext im Protokoll; Clients bestimmen die Protokollmenge nicht (Einzel-4xx nur auf Debug, Abweisungen als Episode, Tagesbudget). Höchstens 128 MiB je Tag, über 14 Tage höchstens 1,75 GiB (Rechnung ADR-0042 Regel 6).
-- **Leistung**: ein Systemaufruf je Eintrag; im Lastprofil auf Information ≈ 0,1 Einträge/s (gerechnet, ADR-0041 Regel 3). Die Sperre des Protokolls wird nie über ein `.await` gehalten.
+- **Leistung**: vier Systemaufrufe je Eintrag (öffnen, schreiben, Größe, schließen); im Lastprofil auf Information ≈ 0,1 Einträge/s, also ≈ 0,4 Aufrufe/s, auf Debug unter Volllast ≈ 1.000 Aufrufe/s (gerechnet, ADR-0041 Regel 3 mit Ergänzung M1). Die Sperre des Protokolls wird nie über ein `.await` gehalten.
 - **Betrieb**: das Protokoll verhindert nie den Start oder die Arbeit (Rückfall).
 - **Zeitkriterien** nach `AI-Team/planer.md`: jede Zeitgrenze nennt Zweck, Startpunkt der Uhr und erwarteten Wert und liegt mindestens 30 % über dem erwarteten Wert. Regeln prüft der Unit-Test mit gestellter Uhr exakt, das echte Programm nur die obere Grenze.
 
@@ -141,14 +143,31 @@ Gemeinsam für alle Integrationskriterien: Start mit `localchatA <ordner> --port
   - Vorstellung: `2026-03-29T01:59:59.999+01:00` und `2026-03-29T03:00:00.000+02:00` → beide in `logs/2026-03-29.log`.
   - Rückwärts über Mitternacht: erst `2026-10-29T00:00:01.000+01:00`, dann `2026-10-28T23:59:59.000+01:00` → der zweite Eintrag hängt an `logs/2026-10-28.log` an.
   - Mutante „Datum in UTC“ wird rot: der Eintrag um 00:30+01:00 landete am Vortag.
+- [ ] **Gelöschte Tagesdatei am selben Tag** (Unit, Wegwerf-Ordner, gleicher Tag 2026-10-28; Abnahme-Probe M1 aus dem Observability-Review #24 und ADR-0040, Ergänzung „gelöschte Tagesdatei“, wörtlich übernommen):
+  - `anhaengen(tag, "a\n")`; `remove_file(logs/2026-10-28.log)`; `anhaengen(tag, "b\n")` → die Datei existiert und enthält genau `b\n`, Rückgabe 2.
+  - Varianten im selben Test: `remove_dir_all(logs)` → `c\n` steht in einer neuen Datei; `rename` nach `logs/alt.log` → `d\n` steht in einer neuen `2026-10-28.log`, `alt.log` bleibt unverändert; Datei auf 0 Bytes abgeschnitten → Rückgabe = Länge der neuen Zeile.
+  - Mutante „Datei bleibt offen“ (Handle bei gleichem Tag wiederverwenden) wird in allen vier Varianten rot.
+- [ ] **Gelöschtes Protokoll im laufenden Betrieb** (Integration): `alpha` tritt bei; danach `rm logs/<heute>.log` (Lauf 1) bzw. `rm -rf logs` (Lauf 2); dann tritt `beta` bei.
+  - `heute.log` existiert und enthält die Zeile `INFORMATION sitzung Sitzung beigetreten | kennung=beta@127.0.0.1`.
+  - `/proc/<pid>/fd` zeigt keine Datei mit `(deleted)`; `/api/gesundheit` nennt `protokoll_ok: true`.
+  - Gegenprobe: ist `logs` danach eine Datei, greift der Rückfall wie im Kriterium „Rückfall“.
+- [ ] **Kürzen an der Quelle** (Unit und Integration; Abnahme-Probe aus dem Security-Review #24, O1, und ADR-0040, Ergänzung, wörtlich übernommen):
+  - Unit: `Kontext::mit(Grund, "x".repeat(400_000))` hält höchstens 257 Zeichen; die Zeile endet den Wert auf `…` (255 `x` und `…`, wie im Formatierer-Kriterium).
+  - Integration (Release-Build): 300 Herkünfte (`127.0.0.2` bis `127.0.0.255` und weitere aus `127.0.1.0/24`) schicken je `GET /` mit einem `Host:`-Kopf von 400 KB → je 403; der RSS-Zuwachs der Instanz ist höchstens 50 MB (gemessen vor dem Fix: 309 MB).
+  - Mutante „Kürzung erst im Formatierer“ wird in der Speicherprobe rot.
+- [ ] **Strich und U+061C** (Unit, Formatierer):
+  - Text `x | kennung=admin` ohne Kontext → die Zeile enthält `x \u{7c} kennung=admin` und kein „ | “; mit Kontext `grund=panik` → genau ein „ | “, das vor `grund=`.
+  - Wert mit U+061C → `\u{61c}` in der Zeile.
+  - Mutanten „Escape von `|` aus“ und „U+061C fehlt in der Liste“ werden je rot.
 - [ ] **Start** (Integration, echtes Programm, `LOCALCHATA_JETZT=2026-10-28T12:00:00+01:00`):
-  - Sobald die Startzeile gelesen ist, enthält `logs/2026-10-28.log` genau eine `INFORMATION start`-Zeile mit `version=`, `adresse=`, `ordner=`, `stufe=information`, `option=standard`, `anzahl=0` und `dauer_ms=`.
+  - Sobald die Startzeile gelesen ist — ohne Warten, die Zeile steht vor der Startzeile —, enthält `logs/2026-10-28.log` genau eine `INFORMATION start`-Zeile mit `version=`, `adresse=`, `ordner=`, `stufe=information`, `option=standard`, `anzahl=0` und `dauer_ms=`.
   - Ein Channel `logs` lässt sich anlegen und liegt unter `channels/logs/`; `logs/` enthält danach nur `2026-10-28.log`.
 - [ ] **Ende** (Integration): nach SIGTERM endet das Programm mit Exit 0, und `heute.log` enthält in dieser Reihenfolge eine `INFORMATION ende`-Zeile mit `grund=SIGTERM` und `dauer_ms=` sowie eine zweite `INFORMATION ende`-Zeile „beendet“.
 - [ ] **Ladedefekte** (Integration): vor dem Start liegt `channels/allgemein/2026-10-28.log` mit 13 defekten Kopfzeilen. Erwartet:
-  - `heute.log` enthält genau 10 `WARNING laden`-Zeilen mit `datei=channels/allgemein/2026-10-28.log` und `zeile=` sowie eine Zeile „und 3 weitere“;
+  - `heute.log` enthält genau 10 `WARNING laden`-Zeilen mit `datei=channels/allgemein/2026-10-28.log` und `zeile=` sowie eine Zeile „und 3 weitere Defekte in dieser Datei“;
   - `/api/gesundheit` meldet weiter `defekte_zeilen: 13`;
   - stderr enthält dieselben 11 Zeilen.
+  - Unit: mit 11 Defekten heißt die Restzeile „und 1 weiterer Defekt in dieser Datei“; Mutante „immer Mehrzahl“ wird rot.
 - [ ] **stderr nur im Protokollformat ab Warning** (Integration, Lauf aus dem Ladedefekt-Kriterium): jede stderr-Zeile nach der Startzeile ist eine Protokollzeile mit `WARNING`, `ERROR` oder `EXCEPTION` und steht wortgleich in `heute.log`. `INFORMATION`- und `DEBUG`-Zeilen stehen nie auf stderr, auch nicht mit `--protokoll-stufe debug`. stdout enthält genau die Startzeile.
 - [ ] **Betriebsereignisse und keine Tokens** (Integration, mit `LOCALCHATA_PROTOKOLL_STUFE=debug`):
   - Ablauf: `beta` tritt bei; `beta` legt `# planung` mit Beschreibung `GEHEIM-BESCHREIBUNG-41` an; `GET /api/ich` mit dem Kopf `X-LocalchatA-Sitzung: 0123456789abcdef0123456789abcdef` (unbekannt) ergibt 401; `beta` verlässt.
@@ -158,6 +177,10 @@ Gemeinsam für alle Integrationskriterien: Start mit `localchatA <ordner> --port
   - Die Instanz startet: die Startzeile erscheint, und `/api/gesundheit` ergibt 200 mit `protokoll_ok: false`.
   - stderr enthält genau eine `WARNING protokoll … nicht schreibbar`-Zeile mit `datei=` und `grund=` und die `INFORMATION start`-Zeile (im Rückfall gehen alle Stufen ab der Mindeststufe auf stderr).
   - Wird danach die Datei `logs` entfernt und tritt `beta` bei, dann existiert `logs/<heute>.log` mit einer `INFORMATION`-Zeile, die die Episode beendet, und der Beitrittszeile; `protokoll_ok` ist `true`.
+- [ ] **Umgestellte Meldungen mit Test** (Unit, Speicher-Senke; Nacharbeit aus dem Code-Review #24, B1): je Meldung ein Test, der mit der Mutante „Eintrag entfernt“ rot wird:
+  - die erste gescheiterte Abrisspflege → genau eine `WARNING verbindung Abrisspflege nicht setzbar — …` mit `option=` und `grund=`, eine zweite gescheiterte keine weitere;
+  - ein gescheiterter Rückbau → genau eine `ERROR senden Rückbau gescheitert — …` mit `datei=`, `grund=` und `anzahl=`;
+  - „Verlauf nicht gelesen“ → genau eine `ERROR verlauf Verlauf nicht gelesen`-Zeile mit `grund=` (R00018 macht daraus eine `EXCEPTION`, derselbe Test zieht mit).
 - [ ] **Durchsetzung** (Review-Punkt): `eprintln!` und `println!` kommen nur in `src/protokoll/`, in der Startzeile und auf den Pfaden vor der Sperre vor (A00015, „Durchsetzung“).
 
 ### F0052 Bereinigung nach 14 Tagen
@@ -166,7 +189,7 @@ Gemeinsam für alle Integrationskriterien: Start mit `localchatA <ordner> --port
   - Vorher liegen in `logs/`: `2026-10-13.log`, `2026-10-14.log`, `2026-10-15.log`, `2026-10-28.log`, `notizen.txt`, `2026-10-14.log.gz`, `2026-10-01.log` als Symlink auf eine Datei außerhalb von `logs/` und ein Ordner `2026-10-02.log/`.
   - `bereinigen(2026-10-28)` entfernt genau `-13` und `-14`. `-15` (Grenze: 15 ≥ 28 − 13), `-28`, `notizen.txt`, `.gz`, der Symlink, sein Ziel und der Ordner bleiben.
   - Mutanten, die rot werden müssen: Aufbewahrung 13 (`-15` fehlt), Aufbewahrung 15 (`-14` bleibt), `metadata` statt `symlink_metadata` (Symlink oder Ziel fehlt), Pfad aus dem gelesenen Namen statt aus dem Datum.
-- [ ] **Bericht** (Unit): die Bereinigung oben schreibt genau eine Zeile `INFORMATION protokoll 2 Protokolldateien entfallen (2026-10-13 bis 2026-10-14; Aufbewahrung 14 Tage; Start)`. Ohne Entfallendes kommt keine Zeile. Ist eine Datei nicht löschbar (`logs/` ohne Schreibrecht), kommt je Datei eine `ERROR protokoll Protokolldatei nicht entfallen`-Zeile mit `datei=` und `grund=`.
+- [ ] **Bericht** (Unit): die Bereinigung oben schreibt genau eine Zeile `INFORMATION protokoll 2 Protokolldateien entfallen (2026-10-13 bis 2026-10-14; Aufbewahrung 14 Tage; Start)`. Entfällt nur `2026-10-14.log`, heißt sie `INFORMATION protokoll 1 Protokolldatei entfällt (2026-10-14 bis 2026-10-14; Aufbewahrung 14 Tage; Start)`; Mutante „immer Mehrzahl“ wird rot, und `grep -r '1 Protokolldateien' src tests Anforderungen` findet nichts. Ohne Entfallendes kommt keine Zeile. Ist eine Datei nicht löschbar (`logs/` ohne Schreibrecht), kommt je Datei eine `ERROR protokoll Protokolldatei nicht entfallen`-Zeile mit `datei=` und `grund=`.
 - [ ] **Tagestakt** (Unit, `tokio::time::pause`, gestellte Uhr, aufzeichnende Aufgaben A und B, Protokoll in eine Speicher-Senke; ADR-0041, Ergänzung, „Erste Tests“). Fünf Teile:
   - **Grenze**: `zuletzt` beider Aufgaben 2026-10-28. Uhr 2026-10-28T23:59:59.999 und ein Takt → kein Aufruf. Uhr 2026-10-29T00:00:00.000 und ein Takt → je Aufgabe genau ein Aufruf mit 2026-10-29, erst A, dann B. Zehn weitere Takte am 29. → kein Aufruf. Mutanten, die rot werden müssen: „läuft in jedem Takt“, „vergleicht die Uhrzeit statt des Datums“.
   - **Rückwärts**: danach Uhr 2026-10-28T23:00 und ein Takt → je Aufgabe genau ein Aufruf mit 2026-10-28; weitere Takte → keiner; wieder 2026-10-29T00:00:00.000 → je Aufgabe einer mit 2026-10-29. Mutante „`>` statt `≠`“ → rot.
@@ -181,7 +204,7 @@ Gemeinsam für alle Integrationskriterien: Start mit `localchatA <ordner> --port
     - Erwartet sind ≈ 2–3 s: höchstens 2 s bis Mitternacht (Laden und Binden laufen schon vorher), höchstens 1 s bis zum nächsten Takt, dazu wenige Millisekunden Arbeit.
     - Die Grenze liegt 33 % über 3 s.
     - Geprüft wird durch Abfrage alle 100 ms, nicht mit festem `sleep`.
-  - `logs/2026-10-29.log` enthält eine `INFORMATION protokoll 1 Protokolldateien entfallen (2026-10-15 bis 2026-10-15; Aufbewahrung 14 Tage; Tageswechsel)`-Zeile.
+  - `logs/2026-10-29.log` enthält eine `INFORMATION protokoll 1 Protokolldatei entfällt (2026-10-15 bis 2026-10-15; Aufbewahrung 14 Tage; Tageswechsel)`-Zeile.
   - `logs/2026-10-28.log` enthält die Start-Bereinigung von `-14`.
   - Die Mitternachtsregel selbst prüft der Takt-Unit-Test, nicht dieser Test.
 
@@ -234,6 +257,9 @@ Gemeinsam für alle Integrationskriterien: Start mit `localchatA <ordner> --port
   - je Abweisung genau eine `DEBUG`-Zeile mit `route="POST /api/beitreten"`, `status=` und `herkunft=127.0.0.1`;
   - die 415-Zeile trägt `typ=text/plain`, die 413-Zeile `art=zu_gross`, `bytes=` und `verworfen=vollständig`;
   - `GET /api/gibtsnicht%0aX` ergibt eine `DEBUG`-Zeile mit dem Pfad escaped (`\u{a}`) in genau einer Zeile.
+- [ ] **Debug-Abläufe mit Test** (Unit, Speicher-Senke, Stufe debug; Nacharbeit aus dem Code-Review #24, B1): je Eintrag ein Test, der mit der Mutante „Eintrag entfernt“ rot wird:
+  - eine angenommene Verbindung endet → genau eine `DEBUG verbindung Verbindung beendet` mit `herkunft=` und `dauer_ms=`;
+  - ein Wechsel nach online bzw. offline → je genau eine `DEBUG sitzung Sitzung online` bzw. `Sitzung offline` mit `kennung=`; ein Wechsel nach `weg` schreibt hier keine Zeile.
 
 ### F0055 Grenzen, Episoden und Tagesbudget
 
@@ -257,6 +283,10 @@ Gemeinsam für alle Integrationskriterien: Start mit `localchatA <ordner> --port
   - 30 weitere abgewiesene ergeben keine zusätzliche Zeile.
   - Mit `LOCALCHATA_EPISODE_RUHE_MS=1000` steht 2 s nach dem Schließen genau eine Ende-Zeile mit `31` da.
 - [ ] **Grenzschutz** (Integration): 50 × `GET /` mit `Host: boese.example` ergeben 50 × 403 und genau eine `WARNING grenzschutz … Episode beginnt` mit `grund=` (escaped, höchstens 256 Zeichen).
+- [ ] **Grenz-Episoden mit Test** (Nacharbeit aus dem Code-Review #24, B1): je Quelle ein Test, der mit der Mutante „Eintrag entfernt“ rot wird; die Grenzen liest der Test aus den Konstanten (nach R00015 je Herkunft 128):
+  - ein Beitritt über der Sitzungsgrenze (429) → genau eine `WARNING sitzung Beitritt an der Sitzungsgrenze abgewiesen — Episode beginnt` mit `herkunft=` und `grenze=`;
+  - ein Anlegen über der Channel-Grenze (429) → genau eine `WARNING channels Anlegen an der Channel-Grenze abgewiesen — Episode beginnt` mit `herkunft=` und `grenze=`;
+  - ein `ZuGross` und danach ein `Abgebrochen` derselben Quelle (Speicher-Senke, Ruhe abgelaufen) → die Zusammenfassung der Körper-Episode nennt 2, je Art 1; Mutante „`episode_falls_offen` entfernt“ → 1, rot.
 - [ ] **Ruhe einstellen** (Integration): `LOCALCHATA_EPISODE_RUHE_MS=0` ergibt Exit 2, die stderr-Zeile nennt die Variable.
 - [ ] **Tagesbudget** (Unit, Budget im Konstruktor 1 KiB je Klasse, gestellte Uhr):
   - Debug-Einträge zu je 100 Bytes bis über das Budget ergeben 10 geschriebene und genau eine `WARNING protokoll Tagesbudget DEBUG erreicht …`-Zeile.
@@ -277,8 +307,8 @@ Gemeinsam für alle Integrationskriterien: Start mit `localchatA <ordner> --port
 
 ### Ablauf
 
-1. **Start**: Aufruf lesen (inkl. Stufe) → Ordner → Sperre → `Protokoll::oeffnen` (Rückfall möglich) → Panik-Haken setzen → `bereinigen(heute, Start)` (Datum b) → Laden (Defekte als Einträge) → (I0018: Fristpflege beim Start, Datum p) → Binden → Ende-Signal → Anwesenheits-Takt und Tagestakt (beide bewacht; Tagesaufgaben `bereinigen` mit `zuletzt = b`, ab I0018 `fristpflege` mit `zuletzt = p`; Sekundenaufgabe `episoden_schliessen`) → Startzeile → `INFORMATION start`. Der Tagestakt startet vor der Startzeile (ADR-0041, Ergänzung (b)); fällt ein Tageswechsel in die Millisekunden davor, stehen seine Einträge vor `INFORMATION start`.
-2. **Eintrag**: Stufe < Mindeststufe → nur zählen; sonst Budget prüfen → Zeile bilden (Escape) → Datei des lokalen Datums → `write_all` → ab Warning stderr; Fehler → Rückfall.
+1. **Start**: Aufruf lesen (inkl. Stufe) → Ordner → Sperre → `Protokoll::oeffnen` (Rückfall möglich) → Panik-Haken setzen → `bereinigen(heute, Start)` (Datum b) → Laden (Defekte als Einträge) → (I0018: Fristpflege beim Start, Datum p) → Binden → Ende-Signal → Anwesenheits-Takt und Tagestakt (beide bewacht; Tagesaufgaben `bereinigen` mit `zuletzt = b`, ab I0018 `fristpflege` mit `zuletzt = p`; Sekundenaufgabe `episoden_schliessen`) → `INFORMATION start` → Startzeile. Der Tagestakt startet vor der Startzeile (ADR-0041, Ergänzung (b)); fällt ein Tageswechsel in die Millisekunden davor, stehen seine Einträge vor `INFORMATION start`.
+2. **Eintrag**: Stufe < Mindeststufe → nur zählen; sonst Budget prüfen → Zeile bilden (Escape) → Datei des lokalen Datums öffnen → `write_all` → Größe → schließen → ab Warning stderr; Fehler → Rückfall.
 3. **Abweisung**: Grenze trifft → `episode(art, quelle, …)` → beginnt/zählt; Debug-Zeile je Einzelfall.
 4. **Ende**: Signal → `INFORMATION ende` → Ende-Frist → `INFORMATION ende` „beendet“.
 
@@ -291,6 +321,7 @@ Die Bubbles der WBS sind Vorplanung; welche Bubbles es am Ende werden, entscheid
 - F0053: B0270 Panik-Haken · B0271 Abbruch an der Grenze · B0272 Hintergrundaufgaben bewachen · B0273 Testknopf Panik
 - F0054: B0274 Stufe lesen · B0275 Stufe wirksam · B0276 Kennzahlen im Health-Check · B0277 Körperfehler unterscheiden und zählen · B0278 Debug je Anfrage
 - F0055: B0279 Episode führen · B0280 Episoden im Sekundentakt schließen · B0281 Abweisungen als Episode · B0282 Tagesbudget
+- Nacharbeit #24 (Auto-Reviews: Observability M1, Code-Review B1 und H1, Rechtschreib-Review Muss, Security-Review O1 und O2): F0051 B0292 Tagesdatei je Eintrag öffnen · B0293 Umgestellte Meldungen belegt · B0294 Rest der Ladedefekte in Einzahl und Mehrzahl · B0295 An der Quelle kürzen · B0296 Strich und U+061C escapen; F0052 B0297 Bereinigungszeile in Einzahl und Mehrzahl; F0054 B0298 Debug-Abläufe belegt; F0055 B0299 Grenz-Episoden belegt
 
 Elemente nach A00015 (Signaturen dort): `Protokoll` (Integration über Datei und Uhr; `oeffnen`, `eintragen`, `episode`, `exception`, `bereinigen`, `episoden_schliessen`, `kennzahlen`), `Eintrag` (immutable: Stufe, Bereich, Text, Kontext), `Kontext` (benannte Sammlung typisierter Schlüssel), `Stufe`, `Bereich`, `Schluessel` (Aufzählungen), `zeile(&Eintrag, Zeit) -> String` und `entfaellt(datei_tag, heute) -> bool` (rein), `Episoden` (Zustand mit Uhr), `Tagesbudget`, `Protokollkennzahlen` (DTO), `tagestakt::takten`, `bewacht(name, folge, future)`.
 
@@ -325,6 +356,7 @@ Nach Skill `test-pyramide`.
   - (4) Im Rückfall legt der nächste Eintrag `logs/` neu an.
 - An den Director, nicht blockierend: R00008 (I0018) sagt INFORMATION-Zeilen auf stderr zu, etwa „Frist 7 → 30 Tage, gesetzt von …“. Das widerspricht ADR-0040 Regel 6; Empfehlung ist ein Anbindungs-Feature in I0018 wie F0057, vor dem Bau von I0018.
 - Geklärt 2026-10-28 (ADR-0041, Ergänzung „Vertrag des Tagestakts“): der Tagestakt startet vor der Startzeile, führt `zuletzt` je Tagesaufgabe, vergleicht auf Ungleichheit und läuft nach der Panik einer Tagesaufgabe weiter; die Fristpflege aus I0018 ist seine zweite Tagesaufgabe, kein eigener Takt (WBS, „Offene Fragen“, Punkt geschlossen).
+- Nachgezogen 2026-10-28 (`/anforderung review` nach den Auto-Reviews #24 und den ADR-Ergänzungen vom selben Tag): Senke öffnet je Eintrag, `INFORMATION start` vor der Startzeile, Pluralformen, `|` im Text, U+061C, Kürzen an der Quelle, Tests für acht Einträge ohne Test. Die übrigen Ergänzungen (Ereignisstrom, Annahmefehler, Regelschlüssel, Serialisierung als Exception, `ursache`, `werkbank_geschlossen`, Abriss-Episode, Werkbank-Felder, Budget über Neustarts, Meldungstexte) baut R00018 (F0059–F0062).
 - Nicht blockierend: die Budgets (64/32/32 MiB) sind gerechnet, nicht gemessen. Der Messwert unter Last nach Profil (ADR-0042, Aufgaben) ist kein Teil dieser Anforderung.
 
 ## Manuelle Vorbereitungstätigkeiten
@@ -345,6 +377,7 @@ Gezählt aus der WBS (Bubbles). 0,4 h ist die Untergrenze je Bubble nach dem Ski
 - F0054 Stufe und Kennzahlen: 5 Bubbles · 4 klar (1,6 h) · 1 unklar (2–4 h)
 - F0055 Grenzen, Episoden und Tagesbudget: 4 Bubbles · 2 klar (0,8 h) · 2 unklar (4–8 h)
 - Zusammen: 24 Bubbles · 7,2 h klar + 12–24 h unklar; Wellen F0051 → F0052 ‖ F0053 → F0054 → F0055
+- Nacharbeit #24 (gezählt aus der WBS, 2026-10-28): 8 Bubbles · 6 klar (2,4 h, Richtwert ungemessen) · 2 unklar (B0293, B0299; 4–8 h); untereinander parallel
 
 ## Warum löst diese Anforderung das Problem? (Pflicht)
 
