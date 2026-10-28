@@ -87,10 +87,12 @@ async fn us2_nur_tage_in_der_frist_heute_zaehlt_mit() {
     assert_eq!(inhalt["log_bytes"], EIN_SATZ.len());
     assert_eq!(inhalt["defekte_zeilen"], 0);
     assert_eq!(stderr, "");
-    assert_eq!(
-        fs::read_to_string(wurzel.path().join("channels/allgemein/2026-10-20.log"))
-            .expect("liegt noch"),
-        alt
+    // Seit R00008 (I0018) entfällt der Tag jenseits der Frist beim Start, statt ungeladen liegen zu bleiben.
+    assert!(
+        !wurzel
+            .path()
+            .join("channels/allgemein/2026-10-20.log")
+            .exists()
     );
 }
 

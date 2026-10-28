@@ -48,6 +48,14 @@ fn stderr_zeilen(mut instanz: Instanz, teil: &str) -> Vec<String> {
         .collect()
 }
 
+/// Nur die `laden`-Zeilen — die `WARNING frist … Einstellungen defekt` daneben (R00017) zählt hier nicht.
+fn laden_zeilen(zeilen: Vec<String>) -> Vec<String> {
+    zeilen
+        .into_iter()
+        .filter(|zeile| zeile.contains(" laden "))
+        .collect()
+}
+
 #[tokio::test]
 async fn us14_ordner_mit_ungueltigem_namen_werden_beim_start_uebergangen_und_bleiben() {
     let wurzel = tempfile::tempdir().expect("Wegwerf-Ordner");
@@ -104,7 +112,7 @@ async fn us14_eine_defekte_einstellungsdatei_wird_als_unbekannt_gelesen_und_nie_
         namen,
         json!([{ "name": "kaputt", "angelegt": null, "angelegt_von": null, "beschreibung": null, "frist_tage": null }])
     );
-    let zeilen = stderr_zeilen(instanz, "channels/kaputt/einstellungen.toml");
+    let zeilen = laden_zeilen(stderr_zeilen(instanz, "channels/kaputt/einstellungen.toml"));
     assert_eq!(zeilen.len(), 1, "{zeilen:?}");
     assert!(
         ort(&zeilen[0]) == "channels/kaputt/einstellungen.toml:1",
@@ -133,7 +141,7 @@ async fn r00007_eine_beschreibung_gegen_die_regel_macht_die_einstellungen_defekt
         json!([{ "name": "kaputt", "angelegt": null, "angelegt_von": null, "beschreibung": null, "frist_tage": null }])
     );
     assert_eq!(gesundheit["defekte_zeilen"], 1);
-    let zeilen = stderr_zeilen(instanz, "channels/kaputt/einstellungen.toml");
+    let zeilen = laden_zeilen(stderr_zeilen(instanz, "channels/kaputt/einstellungen.toml"));
     assert_eq!(zeilen.len(), 1, "{zeilen:?}");
     assert!(
         ort(&zeilen[0]) == "channels/kaputt/einstellungen.toml:2",
