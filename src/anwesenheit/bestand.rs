@@ -374,6 +374,11 @@ impl Anwesenheit {
         (stand, ergebnis)
     }
 
+    /// Die Serverzeit, unter der Sperre gelesen und nie früher als jede schon verwendete (ADR-0019 Regel 2).
+    pub fn jetzt(&self) -> Zeit {
+        self.bestand_und_jetzt().1
+    }
+
     /// Für den Betrieb: wie viele Sitzungen leben und wie viele Halter (offene Ströme) sie zusammen haben.
     pub fn betrieb(&self) -> Betrieb {
         let (bestand, jetzt) = self.bestand_und_jetzt();
@@ -1118,6 +1123,22 @@ mod tests {
         assert_eq!(
             (danach.liste[0].status, danach.liste[0].seit, danach.stand),
             (Status::Offline, nach_ms(1000), 2)
+        );
+    }
+
+    #[test]
+    fn jetzt_faellt_nie_auch_wenn_die_uhr_zurueckspringt() {
+        let (uhr, anwesenheit) = mit_gestellter_uhr();
+        uhr.stellen(nach_ms(2000));
+        let erst = anwesenheit.jetzt();
+        uhr.stellen(nach_ms(1000));
+        let dann = anwesenheit.jetzt();
+        uhr.stellen(nach_ms(3000));
+        let spaeter = anwesenheit.jetzt();
+
+        assert_eq!(
+            (erst, dann, spaeter),
+            (nach_ms(2000), nach_ms(2000), nach_ms(3000))
         );
     }
 

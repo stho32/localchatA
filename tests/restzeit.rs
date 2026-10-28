@@ -191,3 +191,28 @@ async fn us7_weg_genau_nach_der_restzeit() {
     eprintln!("messung us7_offline_bis_weg_ms={}", zustellung.as_millis());
     assert!(zustellung <= Duration::from_secs(3), "{zustellung:?}");
 }
+
+/// US-8 (Kriterium „Herzschlag“, `LOCALCHATA_HERZSCHLAG_MS=500`): in 2 s mindestens 2 Herzschläge (erwartet 4),
+/// jeder mit `data: {"jetzt": …}`, kein `jetzt` kleiner als das vorige.
+#[tokio::test]
+async fn us8_der_herzschlag_traegt_die_serverzeit() {
+    let wurzel = tempfile::tempdir().expect("Wegwerf-Ordner");
+    let instanz = starten_mit(wurzel.path(), LOKAL, &[("LOCALCHATA_HERZSCHLAG_MS", "500")]);
+    let zwei = Absender::von("127.0.0.2");
+    let alpha = beitreten(&zwei, &instanz, "alpha").await;
+    let mut strom = Strom::oeffnen(&zwei, &instanz.adresse, &alpha).await;
+
+    strom.mitlesen(Duration::from_secs(2)).await;
+
+    let zeiten: Vec<DateTime<FixedOffset>> = strom
+        .ereignisse
+        .iter()
+        .filter(|e| e.event == "herzschlag")
+        .map(|e| zeit(&e.data["jetzt"]))
+        .collect();
+    assert!(zeiten.len() >= 2, "{:?}", strom.ereignisse);
+    assert!(
+        zeiten.windows(2).all(|paar| paar[0] <= paar[1]),
+        "{zeiten:?}"
+    );
+}

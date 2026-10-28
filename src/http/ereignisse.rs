@@ -69,7 +69,7 @@ impl Strom {
         let ereignis = match self.naechste_ausgabe().await? {
             Ausgabe::Stand(stand) => stand_ereignis(&stand),
             Ausgabe::Wechsel(wechsel) => wechsel_ereignis(&wechsel),
-            Ausgabe::Herzschlag => Event::default().event("herzschlag").data("{}"),
+            Ausgabe::Herzschlag => herzschlag_ereignis(&self.anwesenheit),
         };
         Some((Ok(ereignis), self))
     }
@@ -101,6 +101,12 @@ impl Strom {
             });
         }
     }
+}
+
+/// Der Herzschlag trägt die Serverzeit (B0107, ADR-0019 Regel 2): daran gleicht der Leser seine Uhr ab.
+fn herzschlag_ereignis(anwesenheit: &Anwesenheit) -> Event {
+    let jetzt = json!({ "jetzt": zeit_als_text(&anwesenheit.jetzt()) });
+    Event::default().event("herzschlag").data(jetzt.to_string())
 }
 
 fn stand_ereignis(stand: &Stand) -> Event {
