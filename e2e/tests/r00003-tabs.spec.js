@@ -46,7 +46,7 @@ function beitritteZaehlen(context) {
 }
 
 async function gleichzeitigNeuLaden(tabs) {
-  await Promise.all(tabs.map((tab) => tab.reload()));
+  await Promise.all(tabs.map((tab) => tab.goto(instanz.adresse)));
 }
 
 async function alleTeilenEineSitzung(tabs, fehler, request) {
@@ -70,7 +70,12 @@ const NEUSTART = async () => {
   await instanz.beenden();
   await instanz.starten();
 };
+// Seit R00004 hält jeder offene Tab die Sitzung über seinen Ereignisstrom am Leben (Halter, ADR-0012): die
+// Gnadenfrist läuft erst ab, wenn keine Seite der Instanz mehr offen ist.
 const GNADENFRIST = async (tabs) => {
+  for (const tab of tabs) {
+    await tab.goto('about:blank');
+  }
   await tabs[0].waitForTimeout(1500);
 };
 

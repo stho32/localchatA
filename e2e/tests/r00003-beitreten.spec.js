@@ -166,14 +166,21 @@ test('US-18: Neuladen, neuer Tab, Neustart auf demselben Port — derselbe Teiln
   expect(fehlerImTab).toEqual([]);
 });
 
+// Seit R00004 hält ein offener Tab die Sitzung über seinen Ereignisstrom am Leben (Halter, ADR-0012) — untätig
+// über die Gnadenfrist heißt deshalb: keine Seite der Instanz offen, kein Strom, keine Anfrage.
+async function untaetigOhneOffeneSeite(page, dauerMs) {
+  await page.goto('about:blank');
+  await page.waitForTimeout(dauerMs);
+}
+
 test('US-19: untätig über die Gnadenfrist — Neuladen tritt still wieder bei', async ({ page }) => {
   instanz = await instanzStarten({ umgebung: { LOCALCHATA_GNADENFRIST_MS: '2000' } });
   const fehler = fehlerSammeln(page);
   await beitretenImBrowser(page, 'shoff');
 
-  await page.waitForTimeout(3000);
+  await untaetigOhneOffeneSeite(page, 3000);
   const aufrufe = beitrittsaufrufeZaehlen(page);
-  await page.reload();
+  await page.goto(instanz.adresse);
 
   await expect(await kopfzeile(page)).toHaveText('shoff@127.0.0.1');
   await expect(page.getByLabel('Name')).toHaveCount(0);
@@ -186,9 +193,9 @@ test('US-19: hat in der Gnadenfrist ein anderer den Namen genommen, zeigt Neulad
   const fehler = fehlerSammeln(page);
   await beitretenImBrowser(page, 'shoff');
 
-  await page.waitForTimeout(3000);
+  await untaetigOhneOffeneSeite(page, 3000);
   expect((await beitretenPerApi(request, 'shoff')).status()).toBe(201);
-  await page.reload();
+  await page.goto(instanz.adresse);
 
   await expect(page.locator('#lc-meldung')).toContainText('vergeben');
   await expect(page.getByLabel('Name')).toHaveValue('shoff-2');
