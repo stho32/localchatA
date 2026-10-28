@@ -260,7 +260,8 @@ impl Gespraeche {
         Ok(channel)
     }
 
-    /// Ordner und Einstellungsdatei des neuen Channels (ADR-0020 Regel 5, ADR-0022 Regel 2).
+    /// Ordner und Einstellungsdatei des neuen Channels (ADR-0020 Regel 5, ADR-0022 Regel 2); scheitern die
+    /// Einstellungen, wird der eben angelegte Ordner entfernt — kein halber Channel (ADR-0021 Regel 1, 500).
     fn ablegen(&self, gespraech: &Gespraech, channel: &Channel) -> Result<(), Anlegefehler> {
         let einstellungen = einstellungen::Einstellungen {
             angelegt: channel.angelegt,
@@ -273,11 +274,18 @@ impl Gespraeche {
                 std::io::ErrorKind::AlreadyExists => Anlegefehler::OrdnerVorhanden,
                 _ => Anlegefehler::Ablage(format!("{gespraech}: {fehler}")),
             })?;
-        self.ablage
-            .einstellungen_schreiben(gespraech, text.as_bytes())
-            .map_err(|fehler| {
-                Anlegefehler::Ablage(format!("{}: {fehler}", gespraech.einstellungsdatei()))
-            })
+        let geschrieben = self
+            .ablage
+            .einstellungen_schreiben(gespraech, text.as_bytes());
+        geschrieben.map_err(|fehler| {
+            let mut grund = format!("{}: {fehler}", gespraech.einstellungsdatei());
+            if let Err(rueckbau) = self.ablage.ordner_entfernen(gespraech) {
+                grund.push_str(&format!(
+                    "; Rückbau von {gespraech} gescheitert ({rueckbau})"
+                ));
+            }
+            Anlegefehler::Ablage(grund)
+        })
     }
 
     /// Alle Channels nach Name mit `stand`.
@@ -1149,5 +1157,34 @@ mod tests {
             ablage.inhalt(&notizen, tag("2026-10-28")).as_deref(),
             Some("von Hand\n")
         );
+    }
+
+    #[test]
+    fn scheitern_die_einstellungen_wird_der_ordner_zurueckgebaut_ohne_stand_und_ohne_rueckruf() {
+        let ablage = Arc::new(Speicherablage::neu());
+        let uhr = Arc::new(GestellteUhr::neu(zeit("2026-10-28T10:15:00.123+01:00")));
+        let veroeffentlicht: Arc<Mutex<Vec<u64>>> = Arc::default();
+        let gespraeche = Gespraeche::laden(ablage.clone(), uhr)
+            .expect("geladen")
+            .mit_veroeffentlichen({
+                let veroeffentlicht = Arc::clone(&veroeffentlicht);
+                Arc::new(move |wechsel: &ChannelWechsel| {
+                    sperren(&veroeffentlicht).push(wechsel.stand);
+                })
+            });
+        ablage.einstellungen_scheitern();
+
+        let gescheitert = gespraeche.channel_anlegen("neu", &alpha());
+
+        let Err(Anlegefehler::Ablage(grund)) = gescheitert else {
+            panic!("{gescheitert:?}");
+        };
+        assert!(grund.contains("channels/neu"), "{grund}");
+        assert!(ablage.gespraeche().expect("Gespräche").is_empty());
+        assert_eq!(gespraeche.channels().stand, 0);
+        assert!(sperren(&veroeffentlicht).is_empty());
+        let danach = gespraeche.channel_anlegen("neu", &alpha());
+        assert!(danach.is_ok(), "{danach:?}");
+        assert_eq!(*sperren(&veroeffentlicht), vec![1]);
     }
 }

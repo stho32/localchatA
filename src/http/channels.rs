@@ -2,7 +2,8 @@
 //! 201 `{channel}` | 409 `{fehler, channel}` oder `{fehler, regel: "ordner-vorhanden"}` | 422 `{fehler, regel, vorschlag?}` | 429 `{fehler, grenze,
 //! hoechstens}`; `GET /api/channels` → 200
 //! `{stand, liste}` nach Name. Ohne Sitzung 401 (Extraktor `Teilnehmer`), fremder `Origin` 403 (Grenzschutz),
-//! ohne JSON 415, kaputtes JSON 400, zu großer Körper 413. Die Arbeit am Verzeichnis läuft über `spawn_blocking`.
+//! ohne JSON 415, kaputtes JSON 400, zu großer Körper 413; Plattenfehler 500 `{fehler}` und eine Zeile auf
+//! stderr mit Pfad und Grund. Die Arbeit am Verzeichnis läuft über `spawn_blocking`.
 
 use super::Zustand;
 use super::koerper::{Koerperfehler, json_lesen};
@@ -120,7 +121,10 @@ fn anlegefehler(fehler: Anlegefehler, name: &str) -> Response {
         }
         Anlegefehler::Regel(fehler) => regelverstoss(&fehler),
         Anlegefehler::Grenze(grenze) => grenze_erreicht(grenze),
-        Anlegefehler::Ablage(grund) => ablagefehler(&grund),
+        Anlegefehler::Ablage(grund) => {
+            eprintln!("Channel nicht angelegt: {grund}");
+            ablagefehler(&grund)
+        }
     }
 }
 

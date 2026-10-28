@@ -4,10 +4,13 @@
 
 mod gemeinsam;
 
+use gemeinsam::strom::Strom;
 use gemeinsam::{Absender, Instanz, gesundheit, starten_mit};
 use serde_json::{Value, json};
 use std::fs;
+use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
+use std::time::Duration;
 
 const LOKAL: &[&str] = &["--port", "0", "--host", "127.0.0.1", "--kein-browser"];
 
@@ -174,4 +177,67 @@ async fn us12_ein_von_hand_angelegter_ordner_wird_nicht_ueberschrieben_und_beim_
         nachher,
         json!([{ "name": "notizen", "angelegt": null, "angelegt_von": null, "beschreibung": null }])
     );
+}
+
+/// Nur als normaler Benutzer aussagekräftig: unter root wirkt `chmod a-w` nicht (R00006, Vorbereitung).
+#[tokio::test]
+async fn us13_ein_plattenfehler_hinterlaesst_keinen_halben_channel_und_kein_ereignis() {
+    let wurzel = tempfile::tempdir().expect("Wegwerf-Ordner");
+    let ordner = wurzel.path();
+    let instanz = starten_mit(ordner, LOKAL, &[]);
+    let zwei = Absender::von("127.0.0.2");
+    let drei = Absender::von("127.0.0.3");
+    let alpha = beitreten(&zwei, &instanz, "alpha").await;
+    let beta = beitreten(&drei, &instanz, "beta").await;
+    let anlegen = |name: &'static str| {
+        zwei.channel_anlegen(&instanz.adresse, &alpha, json!({ "name": name }))
+    };
+    assert_eq!(anlegen("allgemein").await.status, 201);
+    let mut strom = Strom::oeffnen(&drei, &instanz.adresse, &beta).await;
+    strom
+        .bis(Duration::from_secs(5), |e| e.data["art"] == "channels")
+        .await
+        .expect("Stand der Channels");
+    let channels = ordner.join("channels");
+    fs::set_permissions(&channels, fs::Permissions::from_mode(0o555)).expect("chmod a-w");
+
+    let gescheitert = anlegen("neu").await;
+    let ereignis = strom
+        .bis(Duration::from_millis(500), |e| e.data["art"] == "channel")
+        .await;
+    fs::set_permissions(&channels, fs::Permissions::from_mode(0o755)).expect("chmod u+w");
+    let danach = anlegen("neu").await;
+
+    assert_eq!(gescheitert.status, 500, "{}", gescheitert.json);
+    assert!(
+        gescheitert.json["fehler"].is_string(),
+        "{}",
+        gescheitert.json
+    );
+    assert!(ereignis.is_none(), "{ereignis:?}");
+    assert_eq!(danach.status, 201, "{}", danach.json);
+    let zeilen = stderr_zeilen(instanz, "channels/neu");
+    assert_eq!(zeilen.len(), 1, "{zeilen:?}");
+    assert!(zeilen[0].contains("Permission denied"), "{zeilen:?}");
+}
+
+#[tokio::test]
+async fn us13_ohne_rechte_entsteht_kein_ordner() {
+    let wurzel = tempfile::tempdir().expect("Wegwerf-Ordner");
+    let ordner = wurzel.path();
+    fs::create_dir_all(ordner.join("channels")).expect("channels");
+    let instanz = starten_mit(ordner, LOKAL, &[]);
+    let zwei = Absender::von("127.0.0.2");
+    let alpha = beitreten(&zwei, &instanz, "alpha").await;
+    let channels = ordner.join("channels");
+    fs::set_permissions(&channels, fs::Permissions::from_mode(0o555)).expect("chmod a-w");
+
+    let gescheitert = zwei
+        .channel_anlegen(&instanz.adresse, &alpha, json!({ "name": "neu" }))
+        .await;
+    let gibt_es = ordner.join("channels/neu").exists();
+    fs::set_permissions(&channels, fs::Permissions::from_mode(0o755)).expect("chmod u+w");
+
+    assert_eq!(gescheitert.status, 500, "{}", gescheitert.json);
+    assert!(!gibt_es);
 }
