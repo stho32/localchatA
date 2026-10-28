@@ -395,3 +395,65 @@ async fn kein_name_ueber_den_neustart() {
         (201, "claude@127.0.0.1")
     );
 }
+
+/// Nacharbeit Code-Review A2 / Security-Review A4 (B0069): Körper, die kein JSON-Objekt ergeben, und falsche
+/// Content-Types bekommen eine deutsche `{fehler}`-Antwort mit Grund und Ausweg statt des Klartexts von axum.
+#[tokio::test]
+async fn a2_kaputtes_json_und_falscher_content_type_ergeben_deutsches_fehler_json() {
+    let instanz = wegwerf_starten();
+    let absender = Absender::von("127.0.0.1");
+    let url = format!("{}api/beitreten", instanz.adresse);
+    let zu_gross = format!("{{\"name\":\"{}\"}}", "x".repeat(3 * 1024 * 1024));
+    let json = Some("application/json");
+    let ohne_json = "Content-Type: application/json";
+    let kaputt = "kein gültiges JSON";
+    let objekt = || String::from("{\"name\":\"x\"}");
+    let faelle: [(Option<&str>, String, u16, &str); 9] = [
+        (json, "{kaputt".into(), 400, kaputt),
+        (json, String::new(), 400, kaputt),
+        (json, "{\"name\":".into(), 400, kaputt),
+        (json, "[1,".into(), 400, kaputt),
+        (Some("text/plain"), objekt(), 415, ohne_json),
+        (None, objekt(), 415, ohne_json),
+        (
+            Some("application/xml"),
+            "<name>x</name>".into(),
+            415,
+            ohne_json,
+        ),
+        (Some("multipart/form-data"), "name=x".into(), 415, ohne_json),
+        (json, zu_gross, 413, "zu groß"),
+    ];
+
+    for (content_type, koerper, erwartet, kern) in faelle {
+        let mut anfrage = absender.anfrage(reqwest::Method::POST, url.clone());
+        if let Some(content_type) = content_type {
+            anfrage = anfrage.header("Content-Type", content_type);
+        }
+        let antwort = api_antwort(anfrage.body(koerper.clone())).await;
+        let fall = format!("{content_type:?} {:.20}", koerper);
+
+        assert_eq!(antwort.status, erwartet, "{fall}: {}", antwort.json);
+        let fehler = antwort.json["fehler"].as_str().unwrap_or_default();
+        assert!(fehler.contains(kern), "{fall}: {fehler:?}");
+        assert!(
+            fehler.contains("{\"name\":\"shoff\"}"),
+            "Ausweg fehlt — {fall}: {fehler:?}"
+        );
+        assert!(
+            antwort.kopf["content-type"]
+                .to_str()
+                .is_ok_and(|wert| wert.starts_with("application/json")),
+            "{fall}: {:?}",
+            antwort.kopf
+        );
+        header_satz_mit_no_store(&antwort);
+    }
+    let danach = absender
+        .beitreten(&instanz.adresse, json!({"name": "x"}), None)
+        .await;
+    assert_eq!(
+        danach.status, 201,
+        "kein abgewiesener Körper belegt einen Namen"
+    );
+}
