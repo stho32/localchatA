@@ -67,3 +67,5 @@ Eine Zeile je Auftrag an eine Rolle und je Retrospektive.
 | 2026-10-28 | #5 I0006 | Entwicklung | entwickler | bestanden | 0:55 | R00005 B0099–B0115, Liste 264 px (e9a4de3…2f4318f) |
 | 2026-10-28 | #5 I0006 | Reviews | code-, ux-, security-reviewer | befund | 0:35 | UX bestanden; Code B1 Pflege im Start ungetestet; Security verlassen hebt Platzgrenze auf → Nacharbeit 1 (nur Muss), Sollte nach #18 |
 | 2026-10-28 | #5 I0006 | Entwicklung (Nacharbeit 1) | entwickler, architekt | bestanden | 0:25 | verlassen reserviert Platz bis Gnadenfrist (ADR-0018 2a), Start-Pflege getestet (34a97a5, 56bd997…0df1232) |
+| 2026-10-28 | #5 I0006 | Reviews + Entwicklertest (Nacharbeit 1) | code-, security-reviewer, entwicklertester | befund | 0:30 | Security bestanden, Entwicklertest 15/17 (US-3/US-4 Messwert für die Abnahme); Code B1′ Untergrenze fehlt → Nacharbeit code-review-2 |
+| 2026-10-28 | #5 I0006 | Messanleitung US-3/US-4 | entwicklertester | — | — | zweites Gerät über LAN als mia; WLAN aus/Deckel zu + Stoppuhr; anhalten, wenn mia nicht mehr online (erwartet ≈ 14 s, höchstens 22 s); nach 30 s WLAN an, ohne Neuladen wieder online; ≥ 3 Läufe, Werte in ADR-0017 |
