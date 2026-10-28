@@ -100,3 +100,4 @@ Eine Zeile je Auftrag an eine Rolle und je Retrospektive.
 | 2026-10-28 | #20 Befund | Entwicklertest + Abnahme | entwicklertester, director | bestanden / Zug | 0:20 | 22 Fälle grün, Demo auf f867195 |
 | 2026-10-28 | #23 Befund | Detailplanung | planer | bestanden | 0:15 | R00013, F0050 B0253–B0258; F0041 braucht F0050 (aus vorlauf/23b) |
 | 2026-10-28 | — | Prozess | Betreiber | — | — | neue Rolle observability-reviewer (obs) in Auto-Reviews; Logging-Konzept ./logs täglich, 14 Tage; Interaction „Betriebsprotokoll“ mit Vorrang |
+| 2026-10-28 | — | Lastprofil | Betreiber | — | — | „Team-LAN“: 20 Menschen + 50 Agenten, Spitze 30 Nachrichten/s, dauerhaft 5/s, 100.000 je Channel, 50 Channels; Zustellung < 1 s, Öffnen < 500 ms, Suche < 1 s |
