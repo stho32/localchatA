@@ -84,3 +84,6 @@ Eine Zeile je Auftrag an eine Rolle und je Retrospektive.
 | 2026-10-28 | #12 I0018 | Detailplanung | planer | bestanden | 0:20 | R00008, 27 Bubbles (aus vorlauf/12b übernommen); Puffer voll: #7, #12 |
 | 2026-10-28 | #6 I0007 | Nacharbeit 1 | entwickler | bestanden | 0:25 | umformen höchstens 4×32 Zeichen, Akzente O(1); Fokus nach Fehlerantwort und Esc unter 720 px (d09e76d…0957bca) |
 | 2026-10-28 | #7 I0008 | Entwicklung (Start) | entwickler | — | — | aus dem Puffer gezogen; Nachzug: #8 I0009 Architektur in vorlauf/8; #6 in Wiederholung (Security, UX) und Entwicklertest |
+| 2026-10-28 | #6 I0007 | Wiederholung + Entwicklertest | ux-, security-reviewer, entwicklertester | bestanden | 0:40 | alle Phasen bestanden; Variante 2b und Anmerkungen → #18; Befundkarten #20 (Kopfzeile 320 px), #21 (JSON 2 MiB) |
+| 2026-10-28 | #6 I0007 | Abnahme | director | Zug | — | Demo aus Commit 0957bca (Skript baut jetzt aus Git-Commits) |
+| 2026-10-28 | #6 I0007 | Retrospektive | director | — | — | etwa 3 h, eine Nacharbeit (Muss aus Security und UX), parallel zum Vorlauf von #7/#12. Puffer hat getragen: der Engpass wartete nach der Nacharbeit nicht. Neu: zweiter Vorfall „Scratchpad geleert“ (Vorschlag); Befunde aus älteren Karten als eigene Befundkarten statt Nacharbeit |
