@@ -61,9 +61,12 @@ body { background: var(--kd-bg); color: var(--kd-ink); font-family: var(--font-s
 .lc-members { background: var(--kd-surface); border-left: 1px solid var(--kd-line); padding: var(--kd-space-8) 0; overflow-y: auto; min-width: 0; }
 .lc-sect { font-size: 11px; line-height: 16px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--kd-ink-muted); padding: var(--kd-space-8) var(--kd-space-12) var(--kd-space-4); }
 .lc-sect.lc-unterkopf { padding-top: var(--kd-space-4); text-transform: none; letter-spacing: 0; font-weight: 400; }
-/* Volle Kennung statt Auslassung: lange Namen brechen um, damit die Herkunft sichtbar bleibt */
-.lc-person { min-height: var(--kd-row); display: flex; align-items: center; gap: var(--kd-space-8); padding: var(--kd-space-4) var(--kd-space-12); }
-.lc-person .lc-id { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+/* Volle Kennung statt Auslassung: umbrochen wird vor dem @ (wbr), erst ein überlanger Name bricht in sich;
+   „Agent“ und „(du)“ stehen in einer zweiten Zeile unter der Kennung, damit sie die Breite behält */
+.lc-person { min-height: var(--kd-row); display: grid; grid-template-columns: var(--lc-tile) minmax(0, 1fr) auto; align-items: center; column-gap: var(--kd-space-8); row-gap: var(--kd-space-2); padding: var(--kd-space-4) var(--kd-space-12); }
+.lc-person .lc-id { min-width: 0; overflow-wrap: anywhere; }
+.lc-person-status { display: inline-flex; align-items: center; gap: var(--kd-space-4); }
+.lc-person-merkmale { grid-column: 2 / -1; display: flex; align-items: center; gap: var(--kd-space-8); }
 .lc-person .lc-id i { font-style: normal; color: var(--kd-ink-muted); }
 .lc-person.off .lc-id { color: var(--kd-ink-muted); }
 .lc-dot { width: 8px; height: 8px; border-radius: 50%; flex: none; display: inline-block; }

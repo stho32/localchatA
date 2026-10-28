@@ -234,3 +234,29 @@ test('verzögerter Strom: der erste Stand kommt 1 s später — die Seite steht,
   await expect(page.locator('#lc-verbindung')).toBeHidden();
   expect(fehler).toEqual([]);
 });
+
+// Selbstprüfung gegen das Designsystem (AI-Team/entwickler.md, #3): bei üblichen Längen bleibt der Name in
+// einer Zeile und die Herkunft in einer — umbrochen wird höchstens vor dem @, nie mitten im Namen.
+test('Zeilen bleiben lesbar: der Name bricht nicht, umbrochen wird höchstens vor dem @', async ({ page }) => {
+  instanz = await instanzStarten();
+  await page.setViewportSize({ width: 1280, height: 800 });
+  for (const name of ['claude-entwickler', 'review-bot']) {
+    expect((await beitretenPerApi(instanz.adresse, name)).status).toBe(201);
+  }
+  await beitreten(page, 'shoff');
+  await istOnline(zeileVon(page, 'shoff@127.0.0.1'));
+  await expect(region(page).locator('.lc-person')).toHaveCount(3);
+
+  const zeilen = await region(page).locator('.lc-id').evaluateAll((kennungen) => kennungen.map((kennung) => {
+    function zeilenVon(knoten) {
+      const bereich = document.createRange();
+      bereich.selectNodeContents(knoten);
+      return new Set([...bereich.getClientRects()].map((rechteck) => Math.round(rechteck.top))).size;
+    }
+    return { kennung: kennung.textContent, name: zeilenVon(kennung.firstChild), herkunft: zeilenVon(kennung.querySelector('i')) };
+  }));
+
+  for (const zeile of zeilen) {
+    expect(zeile, zeile.kennung).toEqual({ kennung: zeile.kennung, name: 1, herkunft: 1 });
+  }
+});

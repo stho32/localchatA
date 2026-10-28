@@ -106,22 +106,30 @@ function unterkopf(herkunft) {
   return element('div', { className: 'lc-sect lc-unterkopf' }, [element('span', { className: 'lc-id', textContent: herkunft })]);
 }
 
+// Erste Zeile: Kachel, Kennung (umbrochen höchstens vor dem @), Status als Form und bei offline als Wort.
+// Zweite Zeile, nur wenn nötig: „Agent“ und „(du)“ — so bleibt der Kennung die Breite der Spalte.
 function zeileZeichnen(zeile) {
   const art = artDer(zeile);
   const istOffline = zeile.status === 'offline';
   const kachel = element('span', { className: `lc-tile ${art}`, textContent: kuerzel(zeile.name) });
   kachel.setAttribute('aria-hidden', 'true');
-  const kennung = element('span', { className: 'lc-id' }, [zeile.name, element('i', { textContent: `@${zeile.herkunft}` })]);
-  const teile = [kachel, kennung];
-  if (art === 'agent') {
-    teile.push(element('span', { className: 'lc-tag', textContent: 'Agent' }));
-  }
-  teile.push(punkt(istOffline));
+  const kennung = element('span', { className: 'lc-id' }, [
+    zeile.name, element('wbr'), element('i', { textContent: `@${zeile.herkunft}` }),
+  ]);
+  const status = element('span', { className: 'lc-person-status' }, [punkt(istOffline)]);
   if (istOffline) {
-    teile.push(element('span', { className: 'lc-status', textContent: 'offline' }));
+    status.append(element('span', { className: 'lc-status', textContent: 'offline' }));
+  }
+  const teile = [kachel, kennung, status];
+  const merkmale = [];
+  if (art === 'agent') {
+    merkmale.push(element('span', { className: 'lc-tag', textContent: 'Agent' }));
   }
   if (zeile.eigene) {
-    teile.push(element('span', { className: 'lc-du', textContent: '(du)' }));
+    merkmale.push(element('span', { className: 'lc-du', textContent: '(du)' }));
+  }
+  if (merkmale.length > 0) {
+    teile.push(element('span', { className: 'lc-person-merkmale' }, merkmale));
   }
   let klassen = 'lc-person';
   if (istOffline) {
