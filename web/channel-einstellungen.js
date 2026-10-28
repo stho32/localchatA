@@ -1,8 +1,9 @@
 // Channel-Einstellungen (R00008 F0037, ADR-0033; Designsystem ChannelEinstellungen): `# name` in der Kopfzeile
 // öffnet den modalen Dialog „# name — Einstellungen“ mit dem Feld „Aufbewahrungsfrist“. Speichern sendet ohne
 // Bestätigung; würden Tage entfallen (409 `bestaetigen`), folgt ein zweiter Schritt im selben Dialog mit den Zahlen
-// und dem Fokus auf „Zurück“. Fehler bleiben im offenen Dialog, die Eingabe steht noch; Esc und „Abbrechen“ schließen,
-// der Fokus kehrt zum Auslöser zurück.
+// und dem Fokus auf „Zurück“, der den Satz als Beschreibung trägt; ein gesperrter Dialog trägt den Sperrhinweis als
+// Beschreibung (WCAG 4.1.3, 1.3.1). Fehler bleiben im offenen Dialog, die Eingabe steht noch; Esc und „Abbrechen“
+// schließen, der Fokus kehrt zum Auslöser zurück.
 import { fristPruefen, bestaetigungText, statusText, inzwischenText } from './frist.js';
 
 const HINWEIS = 'Ältere Tage entfallen. Heute zählt mit. Standard: 7 Tage.';
@@ -133,10 +134,11 @@ function dialogZeichnen(channel) {
   const fehlertext = element('span');
   const fehler = element('div', { id: 'lc-frist-fehler', className: 'lc-meldung lc-fehler', hidden: true }, [fehlertext]);
   fehler.setAttribute('role', 'alert');
-  const bestaetigung = element('p', { className: 'lc-bestaetigung', hidden: true });
+  const bestaetigung = element('p', { id: 'lc-frist-bestaetigung', className: 'lc-bestaetigung', hidden: true });
   const abbrechen = element('button', { type: 'button', className: 'lc-btn', textContent: 'Abbrechen' });
   const speichern = element('button', { type: 'submit', className: 'lc-btn primary', textContent: 'Speichern', disabled: gesperrt });
   const zurueck = element('button', { type: 'button', className: 'lc-btn', textContent: 'Zurück', hidden: true });
+  zurueck.setAttribute('aria-describedby', 'lc-frist-bestaetigung');
   const verkuerzen = element('button', { type: 'button', className: 'lc-btn primary', textContent: 'Frist verkürzen', hidden: true });
   const formular = element('form', { className: 'lc-dialog-formular', noValidate: true }, [
     element('h2', { id: 'lc-einstellungen-titel', className: 'lc-dialog-titel', textContent: `# ${channel.name} — Einstellungen` }),
@@ -150,12 +152,15 @@ function dialogZeichnen(channel) {
   formular.append(fehler, bestaetigung, element('div', { className: 'lc-dialog-schalter' }, [abbrechen, speichern, zurueck, verkuerzen]));
   const dialog = element('dialog', { className: 'lc-dialog' }, [formular]);
   dialog.setAttribute('aria-labelledby', 'lc-einstellungen-titel');
+  if (gesperrt) {
+    dialog.setAttribute('aria-describedby', 'lc-frist-gesperrt');
+  }
   return { dialog, formular, feld, inzwischen, fehler, fehlertext, bestaetigung, abbrechen, speichern, zurueck, verkuerzen };
 }
 
 // ADR-0033 Regel 4: der Pfad der defekten Datei in Mono, „in diesem Channel entfällt nichts“.
 function gesperrtZeichnen(name) {
-  return element('p', { className: 'lc-meldung lc-fehler lc-gesperrt' }, [
+  return element('p', { id: 'lc-frist-gesperrt', className: 'lc-meldung lc-fehler lc-gesperrt' }, [
     element('span', {}, [
       '⚠ Die Einstellungsdatei ',
       element('code', { textContent: `channels/${name}/einstellungen.toml` }),

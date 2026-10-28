@@ -23,16 +23,23 @@ function einstellungen(ordner, name, inhalt) {
   fs.writeFileSync(path.join(pfad, 'einstellungen.toml'), inhalt);
 }
 
-// `allgemein` mit Frist 30 und 20.(2), 21.(3), 22.(1), 28.(1) (US-17).
-function verkuerzbar(ordner) {
-  const satz = (tag, nummer, versatz) => [`${tag}T09:0${nummer}:00.000${versatz}`, 'alpha@127.0.0.2', `${tag} n${nummer}`];
-  const tage = {};
-  for (const [tag, anzahl, versatz] of [['2026-10-20', 2, '+02:00'], ['2026-10-21', 3, '+02:00'], ['2026-10-22', 1, '+02:00'], ['2026-10-28', 1, '+01:00']]) {
-    tage[tag] = Array.from({ length: anzahl }, (_, nummer) => satz(tag, nummer, versatz));
-  }
-  channelAnlegen(ordner, 'allgemein', tage);
-  einstellungen(ordner, 'allgemein', 'frist_tage = 30\n');
+// `allgemein` mit Frist 30 und den Tagen [tag, anzahl, versatz] → Vorbereitung für instanzStarten.
+function fristDreissigMit(tageMitAnzahl) {
+  return (ordner) => {
+    const satz = (tag, nummer, versatz) => [`${tag}T09:0${nummer}:00.000${versatz}`, 'alpha@127.0.0.2', `${tag} n${nummer}`];
+    const tage = {};
+    for (const [tag, anzahl, versatz] of tageMitAnzahl) {
+      tage[tag] = Array.from({ length: anzahl }, (_, nummer) => satz(tag, nummer, versatz));
+    }
+    channelAnlegen(ordner, 'allgemein', tage);
+    einstellungen(ordner, 'allgemein', 'frist_tage = 30\n');
+  };
 }
+
+// 20.(2), 21.(3), 22.(1), 28.(1) (US-17).
+const verkuerzbar = fristDreissigMit([['2026-10-20', 2, '+02:00'], ['2026-10-21', 3, '+02:00'], ['2026-10-22', 1, '+02:00'], ['2026-10-28', 1, '+01:00']]);
+// 21.(1), 22.(1), 28.(1) (US-25).
+const einTagVerkuerzbar = fristDreissigMit([['2026-10-21', 1, '+02:00'], ['2026-10-22', 1, '+02:00'], ['2026-10-28', 1, '+01:00']]);
 
 async function starten(vorbereiten) {
   instanz = await instanzStarten({ umgebung: { LOCALCHATA_JETZT: JETZT }, vorbereiten });
@@ -322,5 +329,53 @@ test('Verkürzen in zwei Schritten (US-17, B0198): zweimal Enter löscht nichts,
   await expect(a.page.locator('.lc-msg')).toHaveCount(2);
   await expect(a.page.locator('.lc-msg').first().locator('.lc-body')).toHaveText('2026-10-22 n0');
   expect(tagDa('2026-10-20') || tagDa('2026-10-21')).toBe(false);
+  expect(a.fehler).toEqual([]);
+});
+
+// Abnahme-Probe UX-Review #12, Muss 1: der Bildschirmleser liest den Satz mit dem Fokus auf „Zurück“ vor. Statt des
+// Musters /2 Tage .* 5 Nachrichten .* nicht rückgängig/ der ganze Satz aus US-26 — das Muster verlangt ein Leerzeichen
+// nach „Nachrichten“, im Satz steht dort der Punkt.
+test('Bildschirmleser (US-26, B0317): im zweiten Schritt trägt „Zurück“ den Satz mit 2 Tagen und 5 Nachrichten als Beschreibung', async ({ browser }) => {
+  await starten(verkuerzbar);
+  const a = await seiteMitFehlern(browser, { zusaetzlich: { '/api/channels/allgemein/frist': [409] } });
+  await beitreten(a.page, 'shoff');
+  await schalter(a.page).click();
+
+  await feld(a.page).fill('7');
+  await feld(a.page).press('Enter');
+
+  const zurueck = a.page.getByRole('button', { name: 'Zurück' });
+  await expect(zurueck).toBeFocused();
+  await expect(zurueck).toHaveAccessibleDescription(
+    'Bei 7 Tagen entfallen sofort 2 Tage bis einschließlich 21. Oktober 2026 mit 5 Nachrichten. Das lässt sich nicht rückgängig machen.',
+  );
+  expect(a.fehler).toEqual([]);
+});
+
+test('Bildschirmleser (US-25, US-26, B0317): ein einzelner Tag — „Zurück“ trägt „… entfällt sofort 1 Tag … mit 1 Nachricht“ als Beschreibung', async ({ browser }) => {
+  await starten(einTagVerkuerzbar);
+  const a = await seiteMitFehlern(browser, { zusaetzlich: { '/api/channels/allgemein/frist': [409] } });
+  await beitreten(a.page, 'shoff');
+  await schalter(a.page).click();
+
+  await feld(a.page).fill('7');
+  await feld(a.page).press('Enter');
+
+  const satz = 'Bei 7 Tagen entfällt sofort 1 Tag bis einschließlich 21. Oktober 2026 mit 1 Nachricht. Das lässt sich nicht rückgängig machen.';
+  await expect(dialog(a.page).locator('.lc-bestaetigung')).toHaveText(satz);
+  const zurueck = a.page.getByRole('button', { name: 'Zurück' });
+  await expect(zurueck).toBeFocused();
+  await expect(zurueck).toHaveAccessibleDescription(satz);
+  expect(a.fehler).toEqual([]);
+});
+
+test('Bildschirmleser (US-27, B0317): gesperrt — der Dialog trägt Datei und „in diesem Channel entfällt nichts“ als Beschreibung', async ({ browser }) => {
+  await starten((ordner) => einstellungen(ordner, 'kaputt', 'frist_tage = "sieben"\n'));
+  const a = await seiteMitFehlern(browser);
+  await beitreten(a.page, 'shoff', 'kaputt');
+
+  await schalter(a.page, 'kaputt').click();
+
+  await expect(dialog(a.page)).toHaveAccessibleDescription(/channels\/kaputt\/einstellungen\.toml.*in diesem Channel entfällt nichts/);
   expect(a.fehler).toEqual([]);
 });
