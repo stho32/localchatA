@@ -112,3 +112,4 @@ Eine Zeile je Auftrag an eine Rolle und je Retrospektive.
 | 2026-10-28 | — | Detailplanung Betriebsprotokoll, Grenzen | planer | bestanden | 0:20 | I0021 (R00014, 24 Bubbles), F0056 (R00015), F0057 (R00016); Karten #24, #25 (Vorrang) |
 | 2026-10-28 | #7 | Entwicklertest → Abnahme | entwicklertester | bestanden | 0:45 | US-1–US-24 grün; Anmerkungen → #18 |
 | 2026-10-28 | — | Architektur-Nachzüge | architekt | bestanden | 0:15 | ADR-0010/0012/0021/0039/0040/0042/0043/0030: Grenzen 160/128/128, Lesefrist 408, zu_langsam, I0018 bindet über Anbindungs-Feature an |
+| 2026-10-28 | — | Tagestakt-Vertrag | architekt, planer | bestanden | 0:20 | ADR-0041 (a)–(e); R00014/R00008/R00017 nachgezogen; #24 baufertig |
