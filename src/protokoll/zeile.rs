@@ -375,6 +375,10 @@ mod tests {
         assert_eq!(gekuerzt.chars().count(), 256);
         let genau = "a".repeat(256);
         assert_eq!(neutralisieren(&genau, WERT_HOECHSTENS), genau);
+        assert_eq!(
+            neutralisieren(&"a".repeat(257), WERT_HOECHSTENS),
+            format!("{}…", "a".repeat(255))
+        );
     }
 
     #[test]
