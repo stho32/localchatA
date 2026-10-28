@@ -15,6 +15,38 @@ pub struct Einstellungen {
     pub angelegt_von: Option<Kennung>,
 }
 
+/// Höchstens so viele Unicode-Zeichen hat eine Beschreibung (ADR-0022 Regel 5).
+pub const BESCHREIBUNG_HOECHSTENS: usize = 200;
+
+/// Ein Satz Beschreibung: 1 bis 200 Unicode-Zeichen ohne Steuerzeichen (Kategorie Cc).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Beschreibung(String);
+
+/// Die Beschreibung verletzt die Regel.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Beschreibungsfehler;
+
+impl Beschreibung {
+    /// `""` ist keine Beschreibung; sonst geprüft, nie umgeformt.
+    /// Gelesen werden höchstens 201 Zeichen — mehr entscheidet nichts.
+    pub fn bilden(text: &str) -> Result<Option<Beschreibung>, Beschreibungsfehler> {
+        if text.is_empty() {
+            return Ok(None);
+        }
+        let zeichen: Vec<char> = text.chars().take(BESCHREIBUNG_HOECHSTENS + 1).collect();
+        if zeichen.len() > BESCHREIBUNG_HOECHSTENS
+            || zeichen.iter().any(|zeichen| zeichen.is_control())
+        {
+            return Err(Beschreibungsfehler);
+        }
+        Ok(Some(Beschreibung(text.to_string())))
+    }
+
+    pub fn als_text(&self) -> &str {
+        &self.0
+    }
+}
+
 /// Die Datei ist nicht lesbar: Zeile (ab 1) und Grund.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Defekt {
@@ -210,5 +242,37 @@ mod tests {
     fn ein_unbekannter_schluessel_ist_kein_defekt() {
         assert_eq!(lesen(b"farbe = \"rot\"\n"), Ok(Einstellungen::default()));
         assert_eq!(lesen(b""), Ok(Einstellungen::default()));
+    }
+    fn beschreibung(text: &str) -> Result<Option<String>, Beschreibungsfehler> {
+        Beschreibung::bilden(text).map(|gebildet| gebildet.map(|b| b.als_text().to_string()))
+    }
+
+    #[test]
+    fn beschreibung_als_spanne_zweihundert_zeichen_gehen_zweihunderteins_nicht() {
+        assert_eq!(beschreibung(""), Ok(None));
+        assert_eq!(beschreibung(&"ä".repeat(200)), Ok(Some("ä".repeat(200))));
+        assert_eq!(beschreibung(&"😀".repeat(200)), Ok(Some("😀".repeat(200))));
+        assert_eq!(beschreibung("a"), Ok(Some("a".to_string())));
+        assert_eq!(beschreibung(&"ä".repeat(201)), Err(Beschreibungsfehler));
+        assert_eq!(beschreibung(&"😀".repeat(201)), Err(Beschreibungsfehler));
+    }
+
+    #[test]
+    fn beschreibung_ohne_steuerzeichen_formatzeichen_sind_erlaubt() {
+        for verstoss in ["a\nb", "a\tb", "a\u{7}", "a\rb", "\u{85}", "a\u{7f}", "\0"] {
+            assert_eq!(
+                beschreibung(verstoss),
+                Err(Beschreibungsfehler),
+                "{verstoss:?}"
+            );
+        }
+        assert_eq!(
+            beschreibung("\u{202e}abc"),
+            Ok(Some("\u{202e}abc".to_string()))
+        );
+        assert_eq!(
+            beschreibung("  Absprachen  "),
+            Ok(Some("  Absprachen  ".to_string()))
+        );
     }
 }
