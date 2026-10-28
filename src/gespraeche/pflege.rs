@@ -790,4 +790,28 @@ mod tests {
         assert!(sperren(&aufgezeichnet).is_empty());
         assert_eq!(einstellungen_von(&ablage, "allgemein"), None);
     }
+
+    /// Fehler je Datei, nie je Lauf (ADR-0032 Regel 6): scheitert der älteste Tag, gehen die jüngeren trotzdem.
+    #[test]
+    fn nach_einem_gescheiterten_tag_werden_die_folgenden_weiter_gepflegt() {
+        let ablage = Arc::new(Speicherablage::neu());
+        let gespraech = Gespraech::channel("allgemein");
+        for tag_text in ["2026-10-19", "2026-10-20", "2026-10-21", "2026-10-28"] {
+            ablage.tag_setzen(&gespraech, tag(tag_text), &satz(tag_text));
+        }
+        ablage.entfernen_scheitern(&gespraech, tag("2026-10-19"));
+        let gespraeche = geladen(&ablage);
+
+        let berichte = gespraeche.pflegen(tag("2026-10-28"), Pflegeanlass::Start);
+
+        assert_eq!(berichte.len(), 2, "{berichte:?}");
+        assert!(matches!(
+            &berichte[0],
+            Pflegebericht::Entfallen { tage, .. } if *tage == vec![tag("2026-10-20"), tag("2026-10-21")]
+        ));
+        assert_eq!(
+            crate::gespraeche::Logablage::tage(ablage.as_ref(), &gespraech).expect("Tage"),
+            vec![tag("2026-10-19"), tag("2026-10-28")]
+        );
+    }
 }

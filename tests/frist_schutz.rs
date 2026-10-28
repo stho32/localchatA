@@ -43,6 +43,19 @@ fn us21_fremde_dateien_bleiben() {
     );
 
     let _instanz = starten_um(ordner, MITTAG);
+    let frist_zeilen: Vec<String> = gemeinsam::protokoll::zeilen(ordner, "2026-10-28")
+        .into_iter()
+        .filter(|zeile| zeile.contains(" frist "))
+        .collect();
+    assert_eq!(
+        frist_zeilen.len(),
+        1,
+        "nur das Entfallen von 2026-10-01: {frist_zeilen:#?}"
+    );
+    assert!(
+        frist_zeilen[0].contains(" INFORMATION frist 1 Tag entfallen (2026-10-01;"),
+        "{frist_zeilen:#?}"
+    );
 
     assert!(!ordner.join("channels/allgemein/2026-10-01.log").exists());
     assert!(
