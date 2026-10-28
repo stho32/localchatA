@@ -1,8 +1,11 @@
-// Oberfläche verdrahten (A00005): beim Laden die Sitzung prüfen, dann Beitreten-Bildschirm oder Kopfzeile.
+// Oberfläche verdrahten (A00005): beim Laden die Sitzung prüfen, dann Beitreten-Bildschirm oder Hauptansicht
+// mit Teilnehmerliste und Live-Strom.
 import { rufen } from './api.js';
 import * as sitzung from './sitzung.js';
 import * as beitretenBildschirm from './beitreten.js';
-import * as kopfzeile from './kopfzeile.js';
+import * as hauptansicht from './hauptansicht.js';
+import * as teilnehmerliste from './teilnehmerliste.js';
+import { halten } from './live.js';
 
 const api = {
   ich: (token) => rufen('/api/ich', { token }),
@@ -10,6 +13,7 @@ const api = {
 };
 const speicher = window.localStorage;
 const wurzel = document.getElementById('app');
+let laufenderStrom = null;
 
 farbschemaFolgen();
 zeigen(await sitzungBeimLaden());
@@ -18,12 +22,50 @@ zeigen(await sitzungBeimLaden());
 // des Formulars auf dem Dokument.
 function zeigen(zustand, nachEingabe = false) {
   if (zustand.art === 'kopfzeile') {
-    kopfzeile.zeichnen(wurzel, zustand.teilnehmer, { kennungFokussieren: nachEingabe });
+    hauptansichtZeigen(zustand.teilnehmer, nachEingabe);
     return;
   }
   beitretenBildschirm.zeichnen(wurzel, zustand, {
     beitreten: async (name) => zeigen(await sitzung.beitreten(name, speicher, api), true),
   });
+}
+
+// Die Liste folgt dem Strom: Stand und Wechsel werden nach `stand` zusammengeführt, geordnet und gezeichnet.
+// Lehnt der Strom das Token ab (Neustart, Gnadenfrist), tritt die Seite still wieder bei wie beim Laden.
+function hauptansichtZeigen(teilnehmer, nachEingabe) {
+  const ansicht = hauptansicht.zeichnen(wurzel, teilnehmer, { kennungFokussieren: nachEingabe });
+  let liste = teilnehmerliste.LEER;
+  stromBeenden();
+  laufenderStrom = halten({
+    token: speicher.getItem(sitzung.SITZUNG),
+    beiEreignis: (ereignis) => {
+      liste = teilnehmerliste.zusammenfuehren(liste, ereignis);
+      teilnehmerliste.zeichnen(ansicht.region, teilnehmerliste.ordnen(liste, teilnehmer.kennung));
+    },
+    beiZustand: (zustand) => {
+      ansicht.verbindungZeigen(zustand);
+      if (zustand === 'abgelehnt') {
+        stillWiederBeitreten();
+      }
+    },
+  });
+}
+
+async function stillWiederBeitreten() {
+  const zustand = await sitzungBeimLaden();
+  if (zustand.art === 'kopfzeile') {
+    laufenderStrom.tokenSetzen(speicher.getItem(sitzung.SITZUNG));
+    return;
+  }
+  stromBeenden();
+  zeigen(zustand);
+}
+
+function stromBeenden() {
+  if (laufenderStrom !== null) {
+    laufenderStrom.beenden();
+    laufenderStrom = null;
+  }
 }
 
 // Laden mehrere Tabs gleichzeitig, tritt nur einer still bei; die anderen warten und lesen dessen Token.

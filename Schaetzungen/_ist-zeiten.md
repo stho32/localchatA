@@ -108,3 +108,4 @@ Nie vom User erfragen.
 | 2026-10-28 | R00004 Teilnehmer mit Online-Status sehen | B0089 Liste ordnen | Standard | 0,4h | 0h | 0,01h | autonom |
 | 2026-10-28 | R00004 Teilnehmer mit Online-Status sehen | B0090 Teilnehmerspalte zeichnen | unklar | 2-4h | 0,01h | 0,02h | autonom |
 | 2026-10-28 | R00004 Teilnehmer mit Online-Status sehen | B0091 Strom im Tab verbinden | unklar | 2-4h | 0,06h | 0,06h | autonom |
+| 2026-10-28 | R00004 Teilnehmer mit Online-Status sehen | B0092 Hauptansicht verdrahten | Standard | 0,4h | 0,08h | 0,08h | autonom |

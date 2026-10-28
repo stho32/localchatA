@@ -42,6 +42,12 @@ body { background: var(--kd-bg); color: var(--kd-ink); font-family: var(--font-s
 .lc-tile.agent { background: var(--kd-agent-hell); color: var(--kd-agent); }
 .lc-tag { font-size: 10px; line-height: 14px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; padding: 0 var(--kd-space-4); background: var(--kd-agent-hell); color: var(--kd-agent); }
 
+/* Hauptansicht (Bildschirm 4.2): Kopfzeile, Mitte, rechts die Teilnehmer; nur die Mitte und die Liste scrollen */
+.lc-app { height: 100%; display: grid; grid-template-rows: var(--kd-header) minmax(0, 1fr); }
+.lc-main { display: grid; grid-template-columns: minmax(0, 1fr) var(--lc-members); min-height: 0; }
+.lc-center { min-width: 0; overflow-y: auto; background: var(--kd-surface); padding: var(--kd-space-12); }
+.lc-center .lc-meldung { margin: 0; }
+
 /* Teilnehmerliste (Baustein Teilnehmerliste, Status nach components/bundle.css) */
 .lc-members { background: var(--kd-surface); border-left: 1px solid var(--kd-line); padding: var(--kd-space-8) 0; overflow-y: auto; min-width: 0; }
 .lc-sect { font-size: 11px; line-height: 16px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--kd-ink-muted); padding: var(--kd-space-8) var(--kd-space-12) var(--kd-space-4); }

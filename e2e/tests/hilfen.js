@@ -2,6 +2,7 @@
 // Startet localchatA in einem Wegwerf-Ordner und liest die Adresse aus der Startzeile; Port 0 oder ein
 // fester freier Port, damit ein Neustart denselben Ursprung behält; Host und weitere Argumente wählbar.
 const { spawn } = require('child_process');
+const http = require('http');
 const dgram = require('dgram');
 const fs = require('fs');
 const net = require('net');
@@ -87,9 +88,9 @@ function beenden(kind) {
   });
 }
 
-/// Antworten, die R00003 selbst vorschreibt: Chromium meldet jede Fetch-Antwort ab 400 als Konsolenzeile
+/// Antworten, die R00003 und R00004 selbst vorschreiben (401 auf den Strom nach einem Neustart): Chromium meldet jede Fetch-Antwort ab 400 als Konsolenzeile
 /// „Failed to load resource“ — sie sind Ablauf, kein Fehler der Seite.
-const VORGESCHRIEBENE_ANTWORTEN = { '/api/ich': [401], '/api/beitreten': [409, 422] };
+const VORGESCHRIEBENE_ANTWORTEN = { '/api/ich': [401], '/api/beitreten': [409, 422], '/api/ereignisse': [401] };
 
 /// Sammelt, was im Browser schiefgeht: Konsolenfehler (auch CSP-Verstöße) und Ausnahmen. Ausgenommen sind
 /// nur die vorgeschriebenen API-Antworten und — wenn der Test den Server selbst beendet — die abgewiesene
@@ -120,4 +121,63 @@ function vorgeschrieben(meldung, serverWegErwartet) {
   return serverWegErwartet && pfad.startsWith('/api/') && text.includes('net::ERR_CONNECTION_REFUSED');
 }
 
-module.exports = { instanzStarten, freierPort, lanAdresse, fehlerSammeln };
+/// Tritt per API bei — von einer wählbaren Absenderadresse (Linux-Loopback 127.0.0.x); liefert Status und JSON.
+function beitretenPerApi(adresse, name, herkunft = '127.0.0.1') {
+  const koerper = JSON.stringify({ name });
+  const ziel = new URL('api/beitreten', adresse);
+  return new Promise((fertig, gescheitert) => {
+    const anfrage = http.request({
+      host: ziel.hostname, port: ziel.port, path: ziel.pathname, method: 'POST', localAddress: herkunft,
+      headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(koerper) },
+    }, (antwort) => {
+      let text = '';
+      antwort.on('data', (teil) => { text += teil; });
+      antwort.on('end', () => fertig({ status: antwort.statusCode, daten: JSON.parse(text) }));
+    });
+    anfrage.once('error', gescheitert);
+    anfrage.end(koerper);
+  });
+}
+
+/// Rahmen und Kontrast des fokussierten Elements gegen die Fläche daneben (WCAG 2.x), im Browser gerechnet.
+function fokusImBrowser() {
+  function anteile(farbe) {
+    return farbe.match(/\d+(\.\d+)?/g).slice(0, 3).map(Number);
+  }
+  function leuchtdichte(farbe) {
+    const [r, g, b] = anteile(farbe).map((wert) => {
+      const kanal = wert / 255;
+      if (kanal <= 0.03928) {
+        return kanal / 12.92;
+      }
+      return ((kanal + 0.055) / 1.055) ** 2.4;
+    });
+    return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+  }
+  function flaecheUnter(element) {
+    for (let knoten = element; knoten !== null; knoten = knoten.parentElement) {
+      const farbe = getComputedStyle(knoten).backgroundColor;
+      if (farbe !== 'rgba(0, 0, 0, 0)' && farbe !== 'transparent') {
+        return farbe;
+      }
+    }
+    return 'rgb(255, 255, 255)';
+  }
+  const fokussiert = document.activeElement;
+  const stil = getComputedStyle(fokussiert);
+  let angrenzend = flaecheUnter(fokussiert);
+  if (parseFloat(stil.outlineOffset) > 0) {
+    angrenzend = flaecheUnter(fokussiert.parentElement);
+  }
+  const hell = Math.max(leuchtdichte(stil.outlineColor), leuchtdichte(angrenzend));
+  const dunkel = Math.min(leuchtdichte(stil.outlineColor), leuchtdichte(angrenzend));
+  return {
+    beschriftung: fokussiert.getAttribute('aria-label') || fokussiert.textContent,
+    fokusSichtbar: fokussiert.matches(':focus-visible'),
+    rahmen: `${stil.outlineStyle} ${stil.outlineWidth}`,
+    kontrast: (hell + 0.05) / (dunkel + 0.05),
+    obenImFenster: fokussiert.getBoundingClientRect().top,
+  };
+}
+
+module.exports = { instanzStarten, freierPort, lanAdresse, fehlerSammeln, beitretenPerApi, fokusImBrowser };
