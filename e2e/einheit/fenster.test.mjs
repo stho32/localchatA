@@ -1,4 +1,5 @@
-// Unit-Tests des Fensters im Verlauf (R00007 F0031 B0162, B0163; ADR-0026 Regeln 1, 2; node --test).
+// Unit-Tests des Fensters im Verlauf (R00007 F0031 B0162, B0163; R00013 B0257 L3b; ADR-0026 Regeln 1, 2 mit
+// Ergänzung Abwurfschutz; node --test).
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { nachladen, einfuegen } from '../../web/fenster.js';
@@ -37,9 +38,11 @@ const fensterAus = (anzahl) => ({
   bloecke: Array.from({ length: anzahl }, (_, index) => [{ zeit: `b${index}` }]), aelter: true, neuer: false,
 });
 const ersteZeiten = (fenster) => fenster.bloecke.map((bloecke) => bloecke[0].zeit);
+// Maße, bei denen das andere Ende weit weg ist — abwerfen erlaubt (wie vor dem Abwurfschutz).
+const WEIT = { abstandOben: 100000, abstandUnten: 100000, hoeheOben: 1000, hoeheUnten: 1000, sicht: SICHT };
 
 test('fünf Blöcke und einer oben: der unterste fällt weg, danach gibt es neuere', () => {
-  const ergebnis = einfuegen(fensterAus(5), block('neu', { aelter: false }), 'aelter');
+  const ergebnis = einfuegen(fensterAus(5), block('neu', { aelter: false }), 'aelter', WEIT);
 
   assert.deepEqual(ersteZeiten(ergebnis.fenster), ['neu', 'b0', 'b1', 'b2', 'b3']);
   assert.deepEqual(ergebnis.abgeworfen, [{ zeit: 'b4' }]);
@@ -50,7 +53,7 @@ test('fünf Blöcke und einer oben: der unterste fällt weg, danach gibt es neue
 test('fünf Blöcke und einer unten: der oberste fällt weg, davor gibt es ältere', () => {
   const fenster = { ...fensterAus(5), aelter: false, neuer: true };
 
-  const ergebnis = einfuegen(fenster, block('neu', { neuer: false }), 'neuer');
+  const ergebnis = einfuegen(fenster, block('neu', { neuer: false }), 'neuer', WEIT);
 
   assert.deepEqual(ersteZeiten(ergebnis.fenster), ['b1', 'b2', 'b3', 'b4', 'neu']);
   assert.deepEqual(ergebnis.abgeworfen, [{ zeit: 'b0' }]);
@@ -59,8 +62,8 @@ test('fünf Blöcke und einer unten: der oberste fällt weg, davor gibt es älte
 });
 
 test('vier Blöcke und einer: nichts fällt weg (Spanne: höchstens fünf)', () => {
-  const oben = einfuegen(fensterAus(4), block('neu', { aelter: false }), 'aelter');
-  const unten = einfuegen({ ...fensterAus(4), neuer: true }, block('neu', { neuer: false }), 'neuer');
+  const oben = einfuegen(fensterAus(4), block('neu', { aelter: false }), 'aelter', WEIT);
+  const unten = einfuegen({ ...fensterAus(4), neuer: true }, block('neu', { neuer: false }), 'neuer', WEIT);
 
   assert.equal(oben.fenster.bloecke.length, 5);
   assert.equal(oben.abgeworfen, null);
@@ -71,9 +74,85 @@ test('vier Blöcke und einer: nichts fällt weg (Spanne: höchstens fünf)', () 
 });
 
 test('ein leerer Block ändert nur die Angaben, keinen Block', () => {
-  const ergebnis = einfuegen(fensterAus(2), { nachrichten: [], aelter: false, neuer: true }, 'aelter');
+  const ergebnis = einfuegen(fensterAus(2), { nachrichten: [], aelter: false, neuer: true }, 'aelter', WEIT);
 
   assert.equal(ergebnis.fenster.bloecke.length, 2);
   assert.equal(ergebnis.fenster.aelter, false);
   assert.equal(ergebnis.abgeworfen, null);
+});
+
+// L3b (R00013 K8): über 5 Blöcken wird am anderen Ende nur abgeworfen, wenn der Blick danach noch mindestens 2
+// Sichthöhen von diesem Ende entfernt ist; sonst wächst das Fenster bis höchstens 8.
+test('L3b: oben einfügen — Abstand nach unten nach dem Abwerfen genau 2 Sichthöhen → abgeworfen, 1 px weniger → behalten', () => {
+  const genau = { ...WEIT, abstandUnten: 2 * SICHT + 700, hoeheUnten: 700 };
+  const knapp = { ...genau, abstandUnten: 2 * SICHT + 700 - 1 };
+
+  const abgeworfen = einfuegen(fensterAus(5), block('neu'), 'aelter', genau);
+  const behalten = einfuegen(fensterAus(5), block('neu'), 'aelter', knapp);
+
+  assert.deepEqual(abgeworfen.abgeworfen, [{ zeit: 'b4' }]);
+  assert.equal(abgeworfen.fenster.bloecke.length, 5);
+  assert.equal(behalten.abgeworfen, null);
+  assert.deepEqual(ersteZeiten(behalten.fenster), ['neu', 'b0', 'b1', 'b2', 'b3', 'b4']);
+  assert.equal(behalten.fenster.neuer, false);
+});
+
+test('L3b: unten einfügen — dieselbe Spanne am oberen Ende', () => {
+  const fenster = { ...fensterAus(5), aelter: false, neuer: true };
+  const genau = { ...WEIT, abstandOben: 2 * SICHT + 500, hoeheOben: 500 };
+  const knapp = { ...genau, abstandOben: 2 * SICHT + 500 - 1 };
+
+  const abgeworfen = einfuegen(fenster, block('neu'), 'neuer', genau);
+  const behalten = einfuegen(fenster, block('neu'), 'neuer', knapp);
+
+  assert.deepEqual(abgeworfen.abgeworfen, [{ zeit: 'b0' }]);
+  assert.equal(abgeworfen.fenster.aelter, true);
+  assert.equal(behalten.abgeworfen, null);
+  assert.equal(behalten.fenster.bloecke.length, 6);
+  assert.equal(behalten.fenster.aelter, false);
+});
+
+test('L3b: bei 8 Blöcken und nicht abwerfbarem anderem Ende lädt das Fenster nicht nach; abwerfbar oder 7 Blöcke schon', () => {
+  const nah = { aelter: true, neuer: true, abstandOben: 100, abstandUnten: 100, hoeheOben: 1000, hoeheUnten: 1000, sicht: SICHT };
+
+  assert.equal(nachladen(lage({ ...nah, bloecke: 8 })), null);
+  assert.equal(nachladen(lage({ ...nah, bloecke: 7 })), 'aelter');
+  assert.equal(nachladen(lage({ ...nah, bloecke: 8, abstandUnten: 2 * SICHT + 1000 })), 'aelter');
+  assert.equal(nachladen(lage({ ...nah, bloecke: 8, aelter: false, abstandOben: 2 * SICHT + 1000 })), 'neuer');
+});
+
+test('L3b Simulation: Sicht 2.160 px, Blöcke zu 1.680 px — 6 Abrufe, danach keiner, 7 Blöcke im Fenster', () => {
+  const sicht = 2160;
+  const hoehe = 1680;
+  let fenster = { bloecke: [[{ zeit: 'start' }]], aelter: true, neuer: true };
+  let hoehen = [hoehe];
+  let abstandOben = -240;
+  let abstandUnten = -240;
+  let abrufe = 0;
+  for (let schritt = 0; schritt < 20; schritt += 1) {
+    const masse = { abstandOben, abstandUnten, hoeheOben: hoehen[0], hoeheUnten: hoehen[hoehen.length - 1], sicht };
+    const richtung = nachladen({ bloecke: fenster.bloecke.length, aelter: fenster.aelter, neuer: fenster.neuer, laeuft: false, ...masse });
+    if (richtung === null) {
+      continue;
+    }
+    abrufe += 1;
+    const ergebnis = einfuegen(fenster, { nachrichten: [{ zeit: `s${schritt}` }], aelter: true, neuer: true }, richtung, masse);
+    if (richtung === 'aelter') {
+      hoehen = [hoehe, ...hoehen];
+      abstandOben += hoehe;
+      if (ergebnis.abgeworfen !== null) {
+        abstandUnten -= hoehen.pop();
+      }
+    } else {
+      hoehen = [...hoehen, hoehe];
+      abstandUnten += hoehe;
+      if (ergebnis.abgeworfen !== null) {
+        abstandOben -= hoehen.shift();
+      }
+    }
+    fenster = ergebnis.fenster;
+  }
+
+  assert.equal(abrufe, 6);
+  assert.equal(fenster.bloecke.length, 7);
 });

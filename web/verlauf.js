@@ -1,10 +1,11 @@
 // Der Verlauf eines Channels in der Mitte (ADR-0026): Öffnen holt die neuesten 100 mit einem Abruf, zeichnet sie
 // älteste oben und steht am Ende; solange der Blick dort steht, hält ein ResizeObserver ihn dort, auch wenn Höhen
 // sich nachträglich ändern (Schrift, Fenster). Beim Scrollen lädt das Fenster an beiden Enden je 100 nach und hält
-// höchstens fünf Blöcke; die oberste sichtbare Nachricht bleibt dabei an ihrer Stelle (Anker von Hand, in einem
-// Zug). Ein Wechsel bricht laufende Abrufe ab, eine Antwort für einen nicht mehr gewählten Channel wird verworfen, Daten des
-// vorigen Channels fallen weg. Der Verlauf ist die einzige scrollende Fläche der Mitte: role="log",
-// aria-live="off", mit der Tastatur fokussierbar; Nachladen wird nie angesagt.
+// fünf Blöcke, bis zu acht, solange das andere Ende nah am Blick ist (Abwurfschutz, fenster.js); die oberste
+// sichtbare Nachricht bleibt dabei an ihrer Stelle (Anker von Hand, in einem Zug). Ein Wechsel bricht laufende
+// Abrufe ab, eine Antwort für einen nicht mehr gewählten Channel wird verworfen, Daten des vorigen Channels fallen
+// weg. Der Verlauf ist die einzige scrollende Fläche der Mitte: role="log", aria-live="off", mit der Tastatur
+// fokussierbar; Nachladen wird nie angesagt.
 import { nachrichtZeichnen, kopfSetzen, trennerZeichnen, langeEinklappen, langeUmschalten } from './nachricht.js';
 import { gliederung, datumBenennen } from './gliederung.js';
 import { nachladen, einfuegen } from './fenster.js';
@@ -130,10 +131,8 @@ export function verlaufAnlegen({ abrufen }) {
       bloecke: fenster.bloecke.length,
       aelter: fenster.aelter,
       neuer: fenster.neuer,
-      abstandOben: log.scrollTop,
-      abstandUnten: abstandUnten(),
-      sicht: log.clientHeight,
       laeuft: log.dataset.laedt !== undefined,
+      ...masse(),
     });
     if (richtung === null) {
       return;
@@ -153,6 +152,17 @@ export function verlaufAnlegen({ abrufen }) {
     pruefen();
   }
 
+  // Abstand des Blicks zu den Rändern und Höhe des obersten und untersten Blocks (fenster.js, Abwurfschutz).
+  function masse() {
+    return {
+      abstandOben: log.scrollTop,
+      abstandUnten: abstandUnten(),
+      hoeheOben: blockHoehe(bloeckeKnoten[0]),
+      hoeheUnten: blockHoehe(bloeckeKnoten[bloeckeKnoten.length - 1]),
+      sicht: log.clientHeight,
+    };
+  }
+
   function ladenBeendet() {
     delete log.dataset.laedt;
     ladezeile.hidden = true;
@@ -162,7 +172,7 @@ export function verlaufAnlegen({ abrufen }) {
   // selben Task vor dem nächsten Bild (ADR-0026 Regel 3).
   function blockEinfuegen(block, richtung) {
     const anker = ankerMerken(log, inhalt);
-    const ergebnis = einfuegen(fenster, block, richtung);
+    const ergebnis = einfuegen(fenster, block, richtung, masse());
     if (block.nachrichten.length > 0) {
       knotenEinfuegen(block.nachrichten, richtung);
     }
@@ -248,6 +258,14 @@ export function verlaufAnlegen({ abrufen }) {
   }
 
   return { element: rahmen, oeffnen, erneutVersuchen, schliessen, heuteSetzen };
+}
+
+// Höhe eines gezeichneten Blocks: von der Oberkante seines ersten bis zur Unterkante seines letzten Knotens.
+function blockHoehe(knoten) {
+  if (knoten === undefined || knoten.length === 0) {
+    return 0;
+  }
+  return knoten[knoten.length - 1].getBoundingClientRect().bottom - knoten[0].getBoundingClientRect().top;
 }
 
 function cursorFuer(fenster, richtung) {

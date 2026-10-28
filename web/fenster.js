@@ -1,49 +1,60 @@
-// Fenster des Verlaufs (ADR-0026 Regeln 1, 2), rein: wann nachgeladen wird und wie ein Block ins Fenster aus
-// höchstens fünf Blöcken kommt.
+// Fenster des Verlaufs (ADR-0026 Regeln 1, 2 mit Ergänzung Abwurfschutz), rein: wann nachgeladen wird und wie ein
+// Block ins Fenster kommt — in der Regel höchstens fünf Blöcke, bis zu acht, wenn das andere Ende noch nah am Blick
+// ist (R00013 K8: Blöcke aus großen Nachrichten sind niedriger als zwei Sichthöhen).
+// masse: { abstandOben, abstandUnten, hoeheOben, hoeheUnten, sicht } — Abstand des Blicks zu den Rändern des Inhalts
+// und Höhe des obersten und untersten Blocks, in Pixeln.
+
+const SCHWELLE_IN_SICHTHOEHEN = 2;
+const REGEL_BLOECKE = 5;
+const HOECHSTENS_BLOECKE = 8;
 
 // Nachladen, sobald der Abstand zu einem Rand unter 2 Sichthöhen fällt und es dort mehr gibt; höchstens ein Abruf
-// zugleich, oben zuerst. lage: { bloecke, aelter, neuer, abstandOben, abstandUnten, sicht, laeuft }
-// → 'aelter' | 'neuer' | null
-export function nachladen({ bloecke, aelter, neuer, abstandOben, abstandUnten, sicht, laeuft }) {
-  const SCHWELLE_IN_SICHTHOEHEN = 2;
+// zugleich, oben zuerst. Bei 8 Blöcken nur, wenn das andere Ende danach abgeworfen werden darf.
+// lage: { bloecke, aelter, neuer, laeuft, ...masse } → 'aelter' | 'neuer' | null
+export function nachladen({ bloecke, aelter, neuer, abstandOben, abstandUnten, hoeheOben, hoeheUnten, sicht, laeuft }) {
   if (laeuft || bloecke === 0) {
     return null;
   }
   const schwelle = SCHWELLE_IN_SICHTHOEHEN * sicht;
+  let richtung = null;
   if (aelter && abstandOben < schwelle) {
-    return 'aelter';
+    richtung = 'aelter';
+  } else if (neuer && abstandUnten < schwelle) {
+    richtung = 'neuer';
   }
-  if (neuer && abstandUnten < schwelle) {
-    return 'neuer';
+  const voll = bloecke >= HOECHSTENS_BLOECKE;
+  const masse = { abstandOben, abstandUnten, hoeheOben, hoeheUnten, sicht };
+  if (richtung !== null && voll && !anderesEndeAbwerfbar(richtung, masse)) {
+    return null;
   }
-  return null;
+  return richtung;
 }
 
 // Ein Block vorn ('aelter') oder hinten ('neuer'); hat das Fenster dann mehr als 5 Blöcke, fällt am anderen Ende
-// einer weg, und dort gibt es danach mehr. fenster: { bloecke: [[nachricht…]…], aelter, neuer };
-// block: { nachrichten, aelter, neuer } aus der API. → { fenster, abgeworfen: [nachricht…] | null }
-export function einfuegen(fenster, block, richtung) {
-  const HOECHSTENS_BLOECKE = 5;
-  const leer = block.nachrichten.length === 0;
-  if (richtung === 'aelter') {
-    let bloecke = [block.nachrichten, ...fenster.bloecke];
-    if (leer) {
-      bloecke = fenster.bloecke;
-    }
-    if (bloecke.length <= HOECHSTENS_BLOECKE) {
-      return { fenster: { bloecke, aelter: block.aelter, neuer: fenster.neuer }, abgeworfen: null };
-    }
-    return {
-      fenster: { bloecke: bloecke.slice(0, -1), aelter: block.aelter, neuer: true },
-      abgeworfen: bloecke[bloecke.length - 1],
-    };
+// einer weg, wenn der Blick danach noch mindestens 2 Sichthöhen von diesem Ende entfernt ist, sonst wächst das
+// Fenster (über 8 fällt immer einer weg); dort gibt es danach mehr. fenster: { bloecke: [[nachricht…]…], aelter,
+// neuer }; block: { nachrichten, aelter, neuer } aus der API. → { fenster, abgeworfen: [nachricht…] | null }
+export function einfuegen(fenster, block, richtung, masse) {
+  const oben = richtung === 'aelter';
+  let bloecke = fenster.bloecke;
+  if (block.nachrichten.length > 0) {
+    bloecke = oben ? [block.nachrichten, ...fenster.bloecke] : [...fenster.bloecke, block.nachrichten];
   }
-  let bloecke = [...fenster.bloecke, block.nachrichten];
-  if (leer) {
-    bloecke = fenster.bloecke;
+  const aelter = oben ? block.aelter : fenster.aelter;
+  const neuer = oben ? fenster.neuer : block.neuer;
+  const ueberRegel = bloecke.length > REGEL_BLOECKE && anderesEndeAbwerfbar(richtung, masse);
+  const abwerfen = bloecke.length > HOECHSTENS_BLOECKE || ueberRegel;
+  if (!abwerfen) {
+    return { fenster: { bloecke, aelter, neuer }, abgeworfen: null };
   }
-  if (bloecke.length <= HOECHSTENS_BLOECKE) {
-    return { fenster: { bloecke, aelter: fenster.aelter, neuer: block.neuer }, abgeworfen: null };
+  if (oben) {
+    return { fenster: { bloecke: bloecke.slice(0, -1), aelter, neuer: true }, abgeworfen: bloecke[bloecke.length - 1] };
   }
-  return { fenster: { bloecke: bloecke.slice(1), aelter: true, neuer: block.neuer }, abgeworfen: bloecke[0] };
+  return { fenster: { bloecke: bloecke.slice(1), aelter: true, neuer }, abgeworfen: bloecke[0] };
+}
+
+// Bleibt der Blick nach dem Abwerfen des Blocks am anderen Ende mindestens 2 Sichthöhen von diesem Ende entfernt?
+function anderesEndeAbwerfbar(richtung, { abstandOben, abstandUnten, hoeheOben, hoeheUnten, sicht }) {
+  const danach = richtung === 'aelter' ? abstandUnten - hoeheUnten : abstandOben - hoeheOben;
+  return danach >= SCHWELLE_IN_SICHTHOEHEN * sicht;
 }
