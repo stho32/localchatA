@@ -184,3 +184,29 @@ test('nach abgelehnt öffnet der Strom mit dem neuen Token sofort, auch nach vie
 
   assert.deepEqual(p.wartezeiten.slice(wartezeitenBisAbgelehnt).filter((ms) => ms > 0), []);
 });
+
+test('dauerhaft 401 bei sofortigem Wiederbeitritt: höchstens 3 Abrufe in 1 s (Nacharbeit 2, Untergrenze)', async () => {
+  let abrufe = 0;
+  let nummer = 0;
+  let halter = null;
+  const holen = async () => {
+    abrufe += 1;
+    return new Response('{"fehler":"x"}', { status: 401 });
+  };
+  halter = halten({
+    token: 't0',
+    holen,
+    beiEreignis: () => {},
+    beiZustand: (zustand) => {
+      if (zustand === 'abgelehnt') {
+        nummer += 1;
+        queueMicrotask(() => halter.tokenSetzen(`t${nummer}`));
+      }
+    },
+  });
+
+  await new Promise((weiter) => setTimeout(weiter, 1000));
+  halter.beenden();
+
+  assert.ok(abrufe <= 3, `${abrufe} Abrufe in 1 s`);
+});

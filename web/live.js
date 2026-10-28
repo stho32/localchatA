@@ -60,29 +60,40 @@ export function halten({
   let laufenderAbruf = null;
   let neuesTokenMelden = () => {};
 
+  // Nach einer Ablehnung kommt das neue Token aus einem frischen Beitritt: einmal je Fenster wird dann sofort
+  // verbunden, sonst liefe die neue Sitzung im Rückzug ohne Halter in die Gnadenfrist (Nacharbeit 1). Jede
+  // weitere Ablehnung zählt als Fehlversuch; zurückgesetzt wird erst nach einem gelesenen Strom — so bleibt es
+  // auch bei dauerhaftem 401 beim Rückzug 1 s, 2 s, 5 s, 10 s (Nacharbeit 2).
   async function laufen() {
     let fehlversuche = 0;
+    let sofortNachAblehnungFrei = true;
+    let sofort = false;
     while (!beendet) {
       if (!aktuellesToken) {
         await aufNeuesTokenWarten();
-        fehlversuche = 0;
         continue;
       }
-      await schlafen(entscheiden({ verbunden: false, letzteAktivitaetMs: 0, jetztMs: 0, fehlversuche }).wartenMs);
+      if (!sofort) {
+        await schlafen(entscheiden({ verbunden: false, letzteAktivitaetMs: 0, jetztMs: 0, fehlversuche }).wartenMs);
+      }
+      sofort = false;
       const ergebnis = await einmalVerbinden(aktuellesToken);
       if (beendet) {
         return;
       }
-      // Das neue Token kommt aus einem frischen Beitritt: dann sofort verbinden, sonst läuft die neue Sitzung
-      // während des Rückzugs ohne Halter in die Gnadenfrist (Nacharbeit 1).
       if (ergebnis === 'abgelehnt') {
         beiZustand('abgelehnt', aktuellesToken);
         aktuellesToken = null;
-        fehlversuche = 0;
+        sofort = sofortNachAblehnungFrei;
+        sofortNachAblehnungFrei = false;
+        if (!sofort) {
+          fehlversuche += 1;
+        }
         continue;
       }
       if (ergebnis === 'gelesen') {
         fehlversuche = 1;
+        sofortNachAblehnungFrei = true;
       } else {
         fehlversuche += 1;
       }
