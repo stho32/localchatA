@@ -71,7 +71,12 @@ body { background: var(--kd-bg); color: var(--kd-ink); font-family: var(--font-s
 .lc-side-plus:hover { background: var(--kd-surface-2); color: var(--kd-ink); }
 .lc-side-leer { margin: 0; padding: var(--kd-space-4) var(--kd-space-12); font-size: 12px; color: var(--kd-ink-muted); }
 .lc-side-liste { list-style: none; margin: 0; padding: 0; }
-.lc-item { height: var(--kd-row); display: flex; align-items: center; gap: var(--kd-space-8); padding: 0 var(--kd-space-8) 0 var(--kd-space-12); color: var(--kd-ink-muted); white-space: nowrap; }
+.lc-item { height: var(--kd-row); }
+.lc-link { height: 100%; display: flex; align-items: center; gap: var(--kd-space-8); padding: 0 var(--kd-space-8) 0 var(--kd-space-12); color: var(--kd-ink-muted); text-decoration: none; white-space: nowrap; }
+.lc-link:hover { background: var(--kd-surface-2); color: var(--kd-ink); }
+.lc-link[aria-current="page"] { background: var(--kd-accent); color: var(--kd-on-accent); }
+/* Auf der Akzentfläche läge kd-focus bei 1,1:1 — der Rahmen nimmt die Schriftfarbe der Fläche */
+.lc-link[aria-current="page"]:focus-visible { outline-color: var(--kd-on-accent); }
 .lc-item .hash { font-family: var(--font-mono); width: 12px; flex: none; text-align: center; }
 .lc-item .n { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 
@@ -121,6 +126,6 @@ body { background: var(--kd-bg); color: var(--kd-ink); font-family: var(--font-s
   .lc-side-kopf { justify-content: center; padding: 0 0 var(--kd-space-4); }
   .lc-item .n { display: none; }
   .lc-side-titel, .lc-side-leer { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
-  .lc-item { justify-content: center; padding: 0; }
+  .lc-link { justify-content: center; padding: 0; }
   .lc-main .lc-members { position: absolute; inset: 0; border-left: 0; z-index: 1; }
 }
