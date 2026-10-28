@@ -11,7 +11,7 @@ datum: 2026-10-28
 Die Aufbewahrungsfrist aus R00008 und ihre Spur im Betriebsprotokoll aus R00017 schließen die Lücken, die die Auto-Reviews zu #12 gefunden haben. Danach gilt:
 
 - **Ein nicht lesbarer Ordner hat seinen eigenen Namen**: lässt sich der Ordner eines Channels nicht auflisten, heißt der Eintrag „Tage nicht ermittelt — Ordner nicht lesbar“ statt „Tag nicht entfallen“ oder „Einstellungen ließen sich nicht schreiben“. Verlängern gelingt trotzdem; Verkürzen antwortet 500 mit einem deutschen Satz und Ausweg und ändert nichts.
-- **Die Spur nennt, wer es war**: auf Debug steht jede abgewiesene Anfrage an die Frist-Route im Bereich `frist` mit `channel`, `kennung` und Regelschlüssel; scheitert nach einem bestätigten Verkürzen das Löschen eines Tages, nennt die Zeile `grund=frist_gesetzt` und die Kennung dessen, der verkürzt hat.
+- **Die Spur nennt, wer es war**: auf Debug steht jede abgewiesene Anfrage an die Frist-Route im Bereich `frist` mit `channel`, `kennung` und Regelschlüssel; scheitert nach einem bestätigten Verkürzen das Löschen eines Tages, nennt die Zeile `grund=frist_gesetzt` und die Kennung dessen, der verkürzt hat. Im Bereich `frist` ist `grund` immer ein festes Wort (der Anlass), ein Plattenfehler steht immer in `ursache`.
 - **Der Channel-Name bleibt lesbar**: `# name ▾` in der Kopfzeile wird erst gekürzt, wenn Beschreibung und Instanzname keinen Platz mehr abgeben.
 - **Meldungen deutsch mit Ausweg**: ein Serverfehler beim Setzen erscheint im Dialog ohne englischen Systemtext und mit einem Ausweg; das Feld ist nur bei Eingabefehlern als ungültig markiert; die 409 an Agenten spricht wie die Oberfläche von „Tagen … bis einschließlich“.
 
@@ -43,7 +43,9 @@ Mit R00019 findet die Betreiberin die Ursache mit `grep 'Tage nicht ermittelt' l
 ### Frist-Spur mit Kennung (F0064; Observability-Review #12 O1, O2)
 
 - **Debug**: jede Antwort 4xx der Route `PUT /api/channels/{name}/frist` ergibt die Debug-Zeile aus R00014/R00018 im Bereich `frist` (statt `channels`) mit `channel=<name>`, `kennung=` (sobald die Sitzung bekannt ist; ohne Sitzung `herkunft=`) und `grund=<Regelschlüssel>` nach R00018 (z. B. `frist`, `bestaetigen`).
+- **Bereich nach Route** (ADR-0042, Ergänzung R00019 Punkt 2): die Debug-Schicht wählt den Bereich aus **Methode und Routenmuster**, nicht aus dem Pfadpräfix — derselbe Bereich, unter dem die Information- und Error-Zeilen der Route stehen. `PUT /api/channels/{name}/frist` → `frist`; `POST /api/channels/{name}/nachrichten` → `senden` (heute `verlauf`); `GET /api/channels/{name}/nachrichten` bleibt `verlauf`; übrige Routen unter `/api/channels` und Pfade ohne Muster (Router-404) bleiben `channels`. `channel=` nimmt die Schicht aus dem Pfadparameter `{name}` der passenden Route (escaped und gekürzt wie jeder Wert) — so trägt auch die 401 aus dem Extraktor ohne Sitzung `channel=`.
 - **Löschfehler mit Anlass**: die Einträge „Tag nicht entfallen“ und „Tage nicht ermittelt“ tragen den Anlass in `grund` (`start` | `tageswechsel` | `frist_gesetzt`) wie die INFORMATION-Zeile derselben Pflege; beim Anlass `frist_gesetzt` steht `kennung=` dabei. Der Text des Plattenfehlers steht in `ursache`.
+- **Eine Zeilenform im Bereich `frist`** (ADR-0040, Ergänzung R00019, Option B): auch „Frist nicht gesetzt — Einstellungen ließen sich nicht schreiben“ trägt den Plattenfehler in `ursache` und hat kein `grund` (kein Anlass): `… | channel=<name> kennung=<kennung> datei=channels/<name>/einstellungen.toml ursache="…"`. Kein Eintrag des Bereichs `frist` trägt Fremdtext in `grund`.
 
 ### Channel-Name auf dem Schalter lesbar (F0065; UX-Review #12 Sollte 2)
 
@@ -80,7 +82,9 @@ Gemeinsam für alle Kriterien, wenn nicht anders genannt: Start und Gegeben wie 
   - `PUT {"tage":0}` → 422; `heute.log` enthält genau eine `DEBUG frist`-Zeile mit `status=422`, `channel=allgemein`, `kennung=beta@127.0.0.1` und `grund=frist`;
   - `PUT {"tage":7}` → 409; genau eine `DEBUG frist`-Zeile mit `status=409`, `channel=allgemein`, `kennung=beta@127.0.0.1`, `grund=bestaetigen`;
   - `PUT {"tage":30}` ohne Sitzung → 401; genau eine `DEBUG frist`-Zeile mit `status=401`, `channel=allgemein`, `herkunft=127.0.0.1` und ohne `kennung=`;
-  - `heute.log` enthält keine `DEBUG channels`-Zeile zur Route `PUT /api/channels/{name}/frist`. Mutante „Bereich nach dem Pfadpräfix `channels`“ wird rot.
+  - `heute.log` enthält keine `DEBUG channels`-Zeile zur Route `PUT /api/channels/{name}/frist`. Mutante „Bereich nach dem Pfadpräfix `channels`“ wird rot. Mutante „`channel=` aus der Erweiterung `Abweisung` statt aus dem Pfadparameter“ → die 401-Zeile ohne `channel=`, wird rot.
+- [ ] **Bereich nach Methode und Routenmuster** (Unit, rein; erster Test aus ADR-0042, Ergänzung R00019): `bereich("PUT", "/api/channels/{name}/frist")` → `Frist`; `bereich("POST", "/api/channels/{name}/nachrichten")` → `Senden`; `bereich("GET", "/api/channels/{name}/nachrichten")` → `Verlauf`; `bereich("POST", "/api/channels")` → `Channels`; Pfad ohne Muster `/api/channels/x/y` (Router-404) → `Channels`. Mutante „Präfix `/api/channels` vor `/frist` geprüft“ wird rot, Mutante „`/nachrichten` ohne Methode → `Verlauf`“ wird rot.
+- [ ] **Schreibfehler mit `ursache`** (Unit, rein, ADR-0040 Ergänzung R00019; der Unit-Test `src/gespraeche/fristeintrag.rs:267` dreht sich): `frist_nicht_gesetzt_eintrag("allgemein", beta, "channels/allgemein/einstellungen.toml", "Permission denied (os error 13)")` → genau `ERROR frist Frist nicht gesetzt — Einstellungen ließen sich nicht schreiben | channel=allgemein kennung=beta@127.0.0.1 datei=channels/allgemein/einstellungen.toml ursache="Permission denied (os error 13)"`, ohne `grund=`. Integration (R00017 „Schreibfehler bleibt laut“ in der neuen Form, `tests/frist_schutz.rs`): die Zeile in `heute.log` und auf stderr beginnt wie dort, enthält ` ursache="` und kein ` grund=`. Mutante „Fremdtext in `grund`“ wird rot.
 - [ ] **Einträge mit Anlass** (Unit, rein): „Tag nicht entfallen“ für die Anlässe Start, Tageswechsel und `FristGesetzt { von: beta@127.0.0.1 }` ergibt `… | channel=allgemein datei=channels/allgemein/2026-10-21.log grund=start ursache="…"`, `… grund=tageswechsel ursache="…"` bzw. `… grund=frist_gesetzt kennung=beta@127.0.0.1 ursache="…"`; dasselbe für „Tage nicht ermittelt“. Der Text enthält nie eine Kennung.
 - [ ] **Löschfehler nach dem Setzen** (Router-Test mit Speicherablage „Entfernen scheitert“ für den 21. und Speicher-Senke; Kriterium nach Nutzen — über die API nicht herstellbar, weil Löschen und Schreiben der Einstellungen dasselbe Schreibrecht brauchen): `allgemein` mit Frist 30 und den Tagen 20., 21., 22., 28.; `PUT {"tage":7,"bestaetigt":true}` als `beta` → 200; die Senke hält genau eine Zeile `ERROR frist Tag nicht entfallen — erneuter Versuch beim nächsten Anlass | channel=allgemein datei=channels/allgemein/2026-10-21.log grund=frist_gesetzt kennung=beta@127.0.0.1 ursache="…"`. Mutante „Kennung fehlt bei frist_gesetzt“ wird rot.
 - [ ] **Nicht löschbar** (Integration, R00017 „Nicht löschbar bleibt laut“ mit der neuen Form): die beiden `ERROR frist Tag nicht entfallen`-Zeilen enden auf `| channel=allgemein datei=channels/allgemein/2026-10-20.log grund=start ursache="…"` bzw. `grund=tageswechsel ursache="…"`; Z3 und Z4 wie dort.
@@ -112,7 +116,7 @@ Gemeinsam für alle Kriterien, wenn nicht anders genannt: Start und Gegeben wie 
 
 1. **Pflege**: Channel → Frist → `ablage.tage()` → Fehler: `TageNichtErmittelt` → Eintrag (ERROR, `grund` = Anlass, `ursache`) \| Tage → teilen → löschen wie in R00008.
 2. **Setzen**: Prüfungen wie R00008 → gleicher Wert → 200 \| neue Frist > geltende → setzen \| Verkürzen ohne Bestätigung → `tage()` → Fehler: 500 „Tage nicht ermittelt“ \| Vorschau → 409 \| sonst setzen → Pflege (`frist_gesetzt`, mit Kennung) → 200.
-3. **Debug-Schicht**: Antwort 4xx → Muster der Route → Bereich (`frist` für `…/frist`) → Zeile mit `channel`, `kennung`/`herkunft`, `grund`.
+3. **Debug-Schicht**: Antwort 4xx → Methode und Muster der Route → Bereich (`frist` für `PUT …/frist`, `senden` für `POST …/nachrichten`, sonst wie bisher) → `channel` aus dem Pfadparameter `{name}` → Zeile mit `channel`, `kennung`/`herkunft`, `grund`.
 4. **Dialog**: Antwort → Eingabefehler? → `aria-invalid` \| sonst nur Fehlerzeile; Text aus `fehler` oder eigener Satz.
 
 ### Grobentwurf (Vorplanung)
@@ -124,21 +128,22 @@ Die Bubbles der WBS sind Vorplanung; welche es am Ende werden, entscheidet der E
 - F0065: B0323 Kopfzeile kürzt zuerst Beschreibung und Instanz
 - F0066: B0324 Serverantworten der Frist deutsch · B0325 Fehlerzeile unterscheidet Eingabe und Server
 
-Elemente: `Pflegebericht::TageNichtErmittelt { channel, ordner, ursache }`; `Fristfehler::TageNichtErmittelt { ordner, ursache }`; die Einträge aus `fristeintrag.rs` bekommen den Anlass (`Pflegeanlass`) als Eingabe; die Erweiterung `Abweisung` aus R00018 (B0303) trägt zusätzlich `channel`.
+Elemente: `Pflegebericht::TageNichtErmittelt { channel, ordner, ursache }`; `Fristfehler::TageNichtErmittelt { ordner, ursache }`; die Einträge aus `fristeintrag.rs` bekommen den Anlass (`Pflegeanlass`) als Eingabe; die Debug-Schicht nimmt `channel` aus dem Pfadparameter, die Erweiterung `Abweisung` aus R00018 (B0303) bleibt `{ regel, kennung }` (ADR-0042, Ergänzung R00019 Punkt 2, Option A).
 
 ### Änderungen an bestehenden Klassen
 
 - `Gespraeche::frist_setzen`: Vorschau und Auflisten nur beim Verkürzen ohne Bestätigung.
 - `fristeintrag::pflege_eintrag`: Kontext `grund=<anlass>`, `kennung=` bei `frist_gesetzt`, Fremdtext in `ursache`.
-- `anfrageprotokoll::bereich`: `…/frist` → `Bereich::Frist`.
+- `fristeintrag::frist_nicht_gesetzt_eintrag`: Fremdtext in `ursache`, kein `grund`.
+- `anfrageprotokoll::bereich(pfad)` → `bereich(methode, muster)`: `PUT …/frist` → `Bereich::Frist`, `POST …/nachrichten` → `Bereich::Senden`, die spezifischste Regel zuerst; `channel` aus dem Pfadparameter der passenden Route.
 
 ## Tests
 
 Nach Skill `test-pyramide`.
 
-- **Unit (rein bzw. Speicherablage)**: Pflege mit scheiterndem Auflisten, Einträge je Anlass, 409-Text 1/1 und 2/5.
+- **Unit (rein bzw. Speicherablage)**: Pflege mit scheiterndem Auflisten, `frist_setzen` mit scheiterndem Auflisten (Verlängern, Verkürzen, bestätigt Verkürzen — erster Test aus ADR-0031, Ergänzung R00019), Einträge je Anlass, Schreibfehler mit `ursache` (`fristeintrag.rs:267` dreht sich), `bereich(methode, muster)`, 409-Text 1/1 und 2/5.
 - **Router-Test (Speicherablage, Speicher-Senke)**: Löschfehler nach dem bestätigten Verkürzen.
-- **Integration (echtes Programm)**: Verlängern, Verkürzen und bestätigt Verkürzen bei nicht lesbarem Ordner, Ruhe am Tageswechsel, Debug-Abweisungen, Nicht löschbar in der neuen Form, 500 ohne Fremdtext.
+- **Integration (echtes Programm)**: Verlängern, Verkürzen und bestätigt Verkürzen bei nicht lesbarem Ordner, Ruhe am Tageswechsel, Debug-Abweisungen, Nicht löschbar und Schreibfehler in der neuen Form (`tests/frist_schutz.rs:118`, `:238`), 500 ohne Fremdtext.
 - **E2E**: Breiten, langer Name, Serverfehler im Dialog mit Gegenprobe.
 - Mutationsproben je Kriterium; das Ergebnis steht im Bericht des Entwicklers.
 
@@ -150,11 +155,10 @@ Nach Skill `test-pyramide`.
 
 ## Offene Fragen
 
-- **An den architekt über den Director, vor dem Bau von F0063 und F0064** (blockiert F0065 und F0066 nicht):
-  1. `grund` der Frist-ERROR-Zeilen trägt den Anlass, der Text des Plattenfehlers steht in `ursache`. Empfehlung: ja — O2 verlangt `grund=frist_gesetzt`, und dieselbe Pflege schreibt ihren Anlass schon in der INFORMATION-Zeile nach `grund`; ADR-0040, Ergänzung „`ursache`“ lässt Plattenfehler heute in `grund` und braucht dafür eine Ergänzung.
-  2. Katalogzeilen „Tage nicht ermittelt — Ordner nicht lesbar“ (Pflege, ERROR) und „Frist nicht gesetzt — Tage nicht ermittelt“ (Setzen, ERROR, 500 mit dem Satz oben) in ADR-0042 und ADR-0031. Empfehlung: wie oben.
-  3. Bereich `frist` für die Debug-Zeilen der Frist-Route. Empfehlung: ja — wer `grep ' frist '` sucht, findet alle Spuren der Frist.
-  Entscheidet der architekt anders, zieht der planer R00019 nach.
+- **Entschieden** (architekt, 2026-10-28, Karte #28; nachgezogen vom planer am selben Tag):
+  1. ~~`grund` der Frist-ERROR-Zeilen trägt den Anlass, Plattenfehler in `ursache`~~ — entschieden weiter als empfohlen: im **ganzen Bereich `frist`** ist `grund` fest, jeder Fremdtext steht in `ursache`, auch in „Frist nicht gesetzt — Einstellungen ließen sich nicht schreiben“ (ADR-0040, Ergänzung R00019, Option B). Nachgezogen in F0064 („Eine Zeilenform im Bereich `frist`“, Kriterium „Schreibfehler mit `ursache`“).
+  2. ~~Katalogzeilen „Tage nicht ermittelt“~~ — wie empfohlen: zwei neue ERROR-Zeilen, zwei präzisierte (ADR-0042, Ergänzung R00019 Punkt 1); Auflisten nur beim Verkürzen ohne Bestätigung, sonst 500 mit dem Satz oben (ADR-0031, Ergänzung R00019, Option A); Abbildungstabelle in ADR-0030 nachgezogen. R00019 F0063 bleibt unverändert.
+  3. ~~Bereich `frist` für die Debug-Zeilen~~ — wie empfohlen, als Regel: Bereich nach Methode und Routenmuster, `channel=` aus dem Pfadparameter, auch für die 401 aus dem Extraktor (ADR-0042, Ergänzung R00019 Punkt 2, Option A). Mitgenommen: `POST /api/channels/{name}/nachrichten` → `senden`. Nachgezogen in F0064 („Bereich nach Route“, Kriterium „Bereich nach Methode und Routenmuster“).
 - Nicht blockierend, an den Director: die Probe des ux-reviewer zu F0065 nennt Breiten, aber Instanzname und Beschreibung stehen nicht auf der Karte (Bilder im Scratchpad des Reviewers); vor dem Bau abgleichen.
 
 ## Manuelle Vorbereitungstätigkeiten
@@ -170,7 +174,7 @@ Nach Skill `test-pyramide`.
 Gezählt aus der WBS (Bubbles). 0,4 h ist die Untergrenze je Bubble nach dem Skill `work-breakdown-structure`; Richtwert, ungemessen für diese Bubble-Typen.
 
 - F0063 Ordner nicht lesbar: 2 Bubbles · 2 klar (0,8 h)
-- F0064 Frist-Spur mit Kennung: 2 Bubbles · 2 klar (0,8 h)
+- F0064 Frist-Spur mit Kennung: 2 Bubbles · 2 klar (0,8 h); seit dem Nachzug vom 2026-10-28 trägt B0321 eine Regel (`senden`) und B0322 eine Funktion (`frist_nicht_gesetzt_eintrag`) mehr — Hypothese: beides passt in die Untergrenze, ungemessen
 - F0065 Channel-Name auf dem Schalter lesbar: 1 Bubble · 1 klar (0,4 h)
 - F0066 Frist-Meldungen deutsch mit Ausweg: 2 Bubbles · 2 klar (0,8 h)
 - Zusammen: 7 Bubbles · 2,8 h klar, keine unklaren; eine Welle nach der Nacharbeit #12 (F0063 und F0064 zusätzlich nach F0059)
@@ -198,8 +202,9 @@ Der Hebel liegt an wenigen Stellen (Auflisten in Pflege und Setzen, Kontext der 
 - **Änderung von Zusagen aus R00008 und R00017** (beide bleiben an diesen Stellen unverändert, R00019 nennt die Änderung):
   - R00008 F0034: der `fehler` der 409 `bestaetigen` heißt „… Tag(e) bis einschließlich …“ statt „… Tagesdatei(en) … bis …“ (Wortlaut aus der Nacharbeit #12).
   - R00008 F0038 „Schreibfehler“: die 500 trägt keinen Fremdtext mehr.
-  - R00017 „Nicht löschbar bleibt laut“: die ERROR-Zeile endet auf `grund=start|tageswechsel ursache="…"` statt `grund="…"`; die Abbildungstabelle in R00017 gilt mit dieser Form.
-  - R00017 und R00014 F0054: die Debug-Zeilen der Frist-Route stehen im Bereich `frist`.
+  - R00017 „Nicht löschbar bleibt laut“: die ERROR-Zeile endet auf `grund=start|tageswechsel ursache="…"` statt `grund="…"`; die Abbildungstabelle in R00017 gilt mit dieser Form (ADR-0030, Ergänzung R00019).
+  - R00017 „Schreibfehler bleibt laut“: die Zeile `ERROR frist Frist nicht gesetzt — Einstellungen ließen sich nicht schreiben | …` enthält `ursache="` statt `grund="` und kein `grund=` (ADR-0040, Ergänzung R00019); Anfang der Zeile, stderr und „keine `INFORMATION frist`-Zeile“ bleiben. Ebenso die Zeile 6 der Abbildungstabelle in R00017.
+  - R00017 und R00014 F0054: die Debug-Zeilen der Frist-Route stehen im Bereich `frist`; die Debug-Zeilen von `POST /api/channels/{name}/nachrichten` (R00014 F0054, R00016) im Bereich `senden` statt `verlauf`.
 - **UX-Optional aus #12** (als Notiz, nicht im Kriterium): das schreibgeschützte Feld im zweiten Schritt sieht noch bearbeitbar aus; geschützte Leerzeichen zwischen Zahl und Einheit und im Datum; Abstand vor ▾.
 - Rechtschreib-Optional aus #12 (Anführungszeichen in 422/409 einheitlich, „3650“/„3.650“, „bis einschließlich“ bei genau einem Tag, Statuszeile „— entfallen: 1 Tag …“) ist nicht aufgenommen.
 
@@ -208,4 +213,6 @@ Der Hebel liegt an wenigen Stellen (Auflisten in Pflege und Setzen, Kontext der 
 - `einstellungen.toml.neu` folgt beim Schreiben einem Symlink (Security-Review #12, Optional) → Karte #18 Härtung.
 - Wechsel-Flut ohne Rate (Security-Review #12, bekannt) → Schreibkonto, Karte #8.
 - Massenlöschung durch jede Sitzung (ADR-0031, hingenommen); `cargo audit` im Gate (Umgebung).
+- Bereinigungszeile des Betriebsprotokolls bei genau einer Datei nur mit Datum (`(2026-10-14; Aufbewahrung 14 Tage; Start)` statt `2026-10-14 bis 2026-10-14`, `src/protokoll/mod.rs:849`; ADR-0041, Nachzug Punkt 3) → Notiz an F0062 (I0021, R00018, Karte #26): gehört zum Bereich `protokoll`, nicht zur Frist, und ändert Zusagen aus R00014 (Zeilen 69 und 207, `tests/protokoll_bereinigung.rs:109`).
+- Fremdtext außerhalb des Bereichs `frist` nach `ursache` (ADR-0040, Ergänzung R00019, Option C, rund 15 Aufrufstellen) → eigene Anforderung, wenn der architekt C entscheidet.
 - Code-Review Optional: Doppelmeldung bei gleichzeitiger Pflege, PUT überschreibt nachträglich defekte Datei (ADR-0031 hingenommen), Kommentar 401/403 in `src/http/frist.rs:2` — Konsolidierung, kein Kriterium.
