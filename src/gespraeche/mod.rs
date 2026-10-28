@@ -14,7 +14,7 @@ mod verzeichnis;
 pub use frist::{FRIST_MAX, FRIST_MIN, Frist, STANDARD_FRIST_TAGE, frist_in_spanne};
 pub use kennung::Kennung;
 pub use logablage::{Angehaengt, Dateiablage, Gespraech, Logablage};
-pub use pflege::{FristGesetzt, Fristfehler};
+pub use pflege::{FristGesetzt, Fristfehler, Pflegeanlass, Pflegebericht};
 pub use speicherablage::Speicherablage;
 pub use verzeichnis::{
     Anlegefehler, Channel, ChannelStand, ChannelVeroeffentlichen, ChannelWechsel, GESAMT, Grenzart,
@@ -268,7 +268,7 @@ impl Gespraeche {
         let name = Channelname::bilden(name).map_err(Anlegefehler::Regel)?;
         let mut verzeichnis = schreibend(&self.verzeichnis);
         if let Some(vorhanden) = verzeichnis.channels.get(&name) {
-            return Err(Anlegefehler::Vorhanden(vorhanden.clone()));
+            return Err(Anlegefehler::Vorhanden(Box::new(vorhanden.clone())));
         }
         verzeichnis::grenze_pruefen(verzeichnis.channels.values(), von.herkunft())
             .map_err(Anlegefehler::Grenze)?;
@@ -901,7 +901,7 @@ mod tests {
 
         let zweiter = gespraeche.channel_anlegen("allgemein", None, &claude());
 
-        assert_eq!(zweiter, Err(Anlegefehler::Vorhanden(erster)));
+        assert_eq!(zweiter, Err(Anlegefehler::Vorhanden(Box::new(erster))));
         assert_eq!(ablage.schreibvorgaenge(), geschrieben);
         assert_eq!(gespraeche.channels().stand, 1);
     }

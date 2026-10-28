@@ -45,7 +45,7 @@ pub type ChannelVeroeffentlichen = Arc<dyn Fn(&ChannelWechsel) + Send + Sync>;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Anlegefehler {
     /// Den Namen gibt es schon — mit dem vorhandenen Channel.
-    Vorhanden(Channel),
+    Vorhanden(Box<Channel>),
     /// `channels/<name>/` liegt im Ordner, ist aber nicht geladen (von Hand angelegt, während das Programm
     /// lief); nichts wird überschrieben (ADR-0021 Regel 1).
     OrdnerVorhanden,
