@@ -305,3 +305,8 @@ Nie vom User erfragen.
 | 2026-10-28 | R00011/R00016 Nachricht senden | B0228 Live-Nachrichten verdrahten | Standard | 2-4h | 0,01h | 0,01h | autonom |
 | 2026-10-28 | R00011/R00016 Nachricht senden | B0229 Ausbruch messen | Standard | 0,4h | 0,01h | 0,01h | autonom |
 | 2026-10-28 | R00011/R00016 Nachricht senden | Mutanten, Zeittests, Gate, Gelerntes, Nachträge | Konsolidierung | — | 0,33h | 0,33h | autonom |
+| 2026-10-28 | R00008 Aufbewahrungsfrist | B0315 Bestätigungssatz nach Zahl gebeugt | Nacharbeit | 0,4h | 0,01h | 0,01h | autonom |
+| 2026-10-28 | R00008 Aufbewahrungsfrist | B0316 409-Text nach Zahl gebeugt | Nacharbeit | 0,4h | 0,04h | 0,04h | autonom |
+| 2026-10-28 | R00008 Aufbewahrungsfrist | B0317 Bestätigung und Sperre für Bildschirmleser | Nacharbeit | 0,4h | 0,03h | 0,03h | autonom |
+| 2026-10-28 | R00008 Aufbewahrungsfrist | B0318 Mitternachtstest wartet auf die Pflegezeile | Nacharbeit | 0,4h | 0,05h | 0,05h | autonom |
+| 2026-10-28 | R00008 Aufbewahrungsfrist | Nacharbeit #12: Mutanten, Gate | Nacharbeit | — | 0,12h | 0,12h | autonom |
