@@ -101,6 +101,7 @@ impl Strom {
                         self.eigenes_weg_gesendet = self.ist_eigenes_weg(&wechsel);
                         Ausgabe::Wechsel(wechsel)
                     }
+                    Empfang::Ereignis(Ereignis::Channel(_)) => continue,
                     Empfang::NeuerStand => {
                         let stand = self.anwesenheit.teilnehmer();
                         self.zuletzt = stand.stand;

@@ -12,7 +12,9 @@ mod verzeichnis;
 pub use kennung::Kennung;
 pub use logablage::{Angehaengt, Dateiablage, Gespraech, Logablage};
 pub use speicherablage::Speicherablage;
-pub use verzeichnis::{Anlegefehler, Channel, ChannelStand};
+pub use verzeichnis::{
+    Anlegefehler, Channel, ChannelStand, ChannelVeroeffentlichen, ChannelWechsel,
+};
 
 use crate::fehler::Fehler;
 use crate::name::Channelname;
@@ -40,6 +42,7 @@ pub struct Gespraeche {
     letzte: Mutex<Option<Zeit>>,
     defekte: Vec<Ladedefekt>,
     ladezeit: Duration,
+    veroeffentlichen: ChannelVeroeffentlichen,
 }
 
 /// Was beim Laden übersprungen wurde: eine defekte Zeile oder eine nicht lesbare Tagesdatei.
@@ -112,6 +115,7 @@ impl Gespraeche {
             letzte: Mutex::new(geladen.juengste),
             defekte: geladen.defekte,
             ladezeit: beginn.elapsed(),
+            veroeffentlichen: Arc::new(|_: &ChannelWechsel| {}),
         })
     }
 
@@ -186,8 +190,16 @@ impl Gespraeche {
 }
 
 impl Gespraeche {
+    /// Hängt die Veröffentlichung der Channel-Wechsel an (im Start: der Bus); ohne sie gehen sie an niemanden.
+    pub fn mit_veroeffentlichen(self, veroeffentlichen: ChannelVeroeffentlichen) -> Gespraeche {
+        Gespraeche {
+            veroeffentlichen,
+            ..self
+        }
+    }
+
     /// Legt einen Channel an, unter der Sperre des Verzeichnisses (ADR-0021 Regel 5): Namensregel → vorhanden →
-    /// Ordner → Einstellungen → eintragen, `stand` + 1.
+    /// Ordner → Einstellungen → eintragen, `stand` + 1 → veröffentlichen, noch unter der Sperre (ADR-0023 Regel 2).
     pub fn channel_anlegen(&self, name: &str, von: &Kennung) -> Result<Channel, Anlegefehler> {
         let name = Channelname::bilden(name).map_err(Anlegefehler::Regel)?;
         let mut verzeichnis = schreibend(&self.verzeichnis);
@@ -208,6 +220,10 @@ impl Gespraeche {
             .channels
             .insert(channel.name.clone(), channel.clone());
         verzeichnis.stand += 1;
+        (self.veroeffentlichen)(&ChannelWechsel {
+            stand: verzeichnis.stand,
+            channel: channel.clone(),
+        });
         Ok(channel)
     }
 
@@ -787,5 +803,60 @@ mod tests {
             }
         );
         assert!(nachher.defekte().is_empty());
+    }
+
+    /// Je Wechsel: Nummer und ob das Verzeichnis beim Veröffentlichen gesperrt war.
+    type Aufzeichnung = Arc<Mutex<Vec<(u64, bool)>>>;
+
+    /// Gespräche, deren Veröffentlichung Nummer und Sperrzustand jedes Wechsels aufzeichnet.
+    fn mit_aufzeichnung() -> (Arc<Gespraeche>, Aufzeichnung) {
+        let selbst: Arc<std::sync::OnceLock<std::sync::Weak<Gespraeche>>> = Arc::default();
+        let aufgezeichnet: Aufzeichnung = Arc::default();
+        let rueckruf: ChannelVeroeffentlichen = {
+            let selbst = Arc::clone(&selbst);
+            let aufgezeichnet = Arc::clone(&aufgezeichnet);
+            Arc::new(move |wechsel: &ChannelWechsel| {
+                let gespraeche = selbst
+                    .get()
+                    .and_then(std::sync::Weak::upgrade)
+                    .expect("Gespräche");
+                let gesperrt = gespraeche.verzeichnis.try_read().is_err();
+                sperren(&aufgezeichnet).push((wechsel.stand, gesperrt));
+            })
+        };
+        let (gespraeche, _) = leer_im_speicher("2026-10-28T10:15:00.123+01:00");
+        let gespraeche = Arc::new(gespraeche.mit_veroeffentlichen(rueckruf));
+        selbst
+            .set(Arc::downgrade(&gespraeche))
+            .expect("einmal gesetzt");
+        (gespraeche, aufgezeichnet)
+    }
+
+    #[test]
+    fn jeder_neue_channel_geht_unter_der_sperre_mit_seinem_stand_an_die_veroeffentlichung() {
+        let (gespraeche, aufgezeichnet) = mit_aufzeichnung();
+
+        for name in ["c", "a", "b"] {
+            gespraeche
+                .channel_anlegen(name, &alpha())
+                .expect("angelegt");
+        }
+        let _ = gespraeche.channel_anlegen("a", &alpha());
+        let _ = gespraeche.channel_anlegen("Ungueltig", &alpha());
+
+        assert_eq!(
+            *sperren(&aufgezeichnet),
+            vec![(1, true), (2, true), (3, true)]
+        );
+        let stand = gespraeche.channels();
+        assert_eq!(stand.stand, 3);
+        assert_eq!(
+            stand
+                .liste
+                .iter()
+                .map(|channel| channel.name.to_string())
+                .collect::<Vec<_>>(),
+            vec!["a", "b", "c"]
+        );
     }
 }

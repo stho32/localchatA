@@ -24,6 +24,17 @@ pub struct ChannelStand {
     pub liste: Vec<Channel>,
 }
 
+/// Ein neuer Channel mit der Nummer, die er im Stand bekam (ADR-0023 Regel 3).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ChannelWechsel {
+    pub stand: u64,
+    pub channel: Channel,
+}
+
+/// Wohin jeder Wechsel geht — aufgerufen unter der Sperre des Verzeichnisses, damit die Reihenfolge der
+/// Veröffentlichung die von `stand` ist (ADR-0023 Regel 2). Gespräche kennen den Bus nicht.
+pub type ChannelVeroeffentlichen = Arc<dyn Fn(&ChannelWechsel) + Send + Sync>;
+
 /// Warum ein Channel nicht angelegt wurde.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Anlegefehler {

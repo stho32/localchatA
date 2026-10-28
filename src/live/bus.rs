@@ -2,11 +2,13 @@
 //! liest, erfährt es als „neuer Stand“ statt einer stillen Lücke (ADR-0016 Regel 5).
 
 use crate::anwesenheit::Wechsel;
+use crate::gespraeche::ChannelWechsel;
 use tokio::sync::broadcast;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Ereignis {
     Anwesenheit(Wechsel),
+    Channel(ChannelWechsel),
 }
 
 /// Was ein Abonnent als Nächstes bekommt.
@@ -62,6 +64,16 @@ pub fn anwesenheit_veroeffentlichen(
     let bus = std::sync::Arc::clone(bus);
     std::sync::Arc::new(move |wechsel: &Wechsel| {
         bus.veroeffentlichen(Ereignis::Anwesenheit(wechsel.clone()));
+    })
+}
+
+/// Die Veröffentlichung für die Channels: jeder Wechsel als Ereignis auf den Bus (ADR-0023 Regel 2).
+pub fn channels_veroeffentlichen(
+    bus: &std::sync::Arc<Bus>,
+) -> crate::gespraeche::ChannelVeroeffentlichen {
+    let bus = std::sync::Arc::clone(bus);
+    std::sync::Arc::new(move |wechsel: &ChannelWechsel| {
+        bus.veroeffentlichen(Ereignis::Channel(wechsel.clone()));
     })
 }
 
@@ -149,5 +161,31 @@ mod tests {
         drop(bus);
 
         assert_eq!(abonnement.naechstes().await, None);
+    }
+
+    #[tokio::test]
+    async fn ein_channel_wechsel_geht_als_ereignis_auf_den_bus() {
+        use crate::gespraeche::Channel;
+        use crate::name::Channelname;
+        let bus = std::sync::Arc::new(Bus::neu(4));
+        let mut abonnement = bus.abonnieren();
+        let wechsel = ChannelWechsel {
+            stand: 7,
+            channel: Channel {
+                name: Channelname::bilden("allgemein").expect("Name"),
+                angelegt: None,
+                angelegt_von: None,
+            },
+        };
+
+        channels_veroeffentlichen(&bus)(&wechsel);
+
+        assert_eq!(
+            tokio::time::timeout(std::time::Duration::from_secs(1), abonnement.naechstes())
+                .await
+                .ok()
+                .flatten(),
+            Some(Empfang::Ereignis(Ereignis::Channel(wechsel)))
+        );
     }
 }

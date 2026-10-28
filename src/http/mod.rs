@@ -90,10 +90,11 @@ pub(crate) mod testserver {
     /// Programm ohne Knopf.
     pub fn zustand(ordner: &Path) -> Zustand {
         let leer = tempfile::tempdir().expect("Wegwerf-Ordner");
+        let bus = Arc::new(crate::live::bus::Bus::neu(crate::live::KAPAZITAET));
         let gespraeche =
             Gespraeche::laden(Arc::new(Dateiablage::neu(leer.path())), Arc::new(Systemuhr))
-                .expect("leerer Ordner geladen");
-        let bus = Arc::new(crate::live::bus::Bus::neu(crate::live::KAPAZITAET));
+                .expect("leerer Ordner geladen")
+                .mit_veroeffentlichen(crate::live::bus::channels_veroeffentlichen(&bus));
         let anwesenheit = Anwesenheit::neu(
             Arc::new(Systemuhr),
             Arc::new(Betriebssystemzufall),

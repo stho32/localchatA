@@ -1,6 +1,6 @@
 //! Start: vom Aufruf bis zum lauschenden Server (A00003).
 //!
-//! Reihenfolge: Aufruf lesen → Uhr → Gnadenfrist → Herzschlag → Ordner vorbereiten → sperren → Verlauf laden → Anwesenheit → Bus → binden → Ende-Signal → Takt → Startzeile → Browser → ausliefern bis zum Signal.
+//! Reihenfolge: Aufruf lesen → Uhr → Gnadenfrist → Herzschlag → Ordner vorbereiten → sperren → Bus → Verlauf laden (Channel-Wechsel an den Bus) → Anwesenheit → binden → Ende-Signal → Takt → Startzeile → Browser → ausliefern bis zum Signal.
 
 pub(crate) mod abrisspflege;
 mod aufruf;
@@ -93,8 +93,9 @@ async fn starten(
     let uhr: Arc<dyn Uhr> = Arc::from(uhr);
     let ordner = ordner::ordner_vorbereiten(&auftrag.ordner)?;
     let _sperre = sperre::ordner_sperren(&ordner)?;
-    let gespraeche = verlauf_laden(&ordner, Arc::clone(&uhr))?;
     let bus = Arc::new(Bus::neu(live::KAPAZITAET));
+    let gespraeche = verlauf_laden(&ordner, Arc::clone(&uhr))?
+        .mit_veroeffentlichen(bus::channels_veroeffentlichen(&bus));
     let anwesenheit = Arc::new(
         Anwesenheit::neu(
             Arc::clone(&uhr),
