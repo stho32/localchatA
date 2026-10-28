@@ -1,11 +1,12 @@
 //! Aufruf lesen: Argumente → Startauftrag, Hilfewunsch oder Aufruffehler. Rein, ohne Platte und Netz.
 
+use crate::protokoll::Stufe;
 use std::fmt;
 use std::path::PathBuf;
 
 /// Aufrufzeile mit allen Optionen, darunter je Option eine Erklärung.
 pub const HILFE: &str = concat!(
-    "Aufruf: localchatA [<ordner>] [--port <n>] [--host <adresse>] [--kein-browser] [--erreichbar-als <name>]… [--hilfe]\n",
+    "Aufruf: localchatA [<ordner>] [--port <n>] [--host <adresse>] [--kein-browser] [--erreichbar-als <name>]… [--protokoll-stufe <stufe>] [--hilfe]\n",
     "\n",
     "  <ordner>          Ordner der Instanz, wird angelegt (Standard: aktuelles Verzeichnis)\n",
     "  --port <n>        Port; ohne Angabe 7430 oder der nächste freie, 0 wählt das System\n",
@@ -14,6 +15,8 @@ pub const HILFE: &str = concat!(
     "  --erreichbar-als <name>\n",
     "                    Host-Name, unter dem die Instanz zusätzlich antwortet (mehrfach erlaubt);\n",
     "                    IP-Adressen, localhost und der Rechnername gelten immer\n",
+    "  --protokoll-stufe <stufe>  Mindeststufe des Betriebsprotokolls unter <ordner>/logs/: debug, information (Standard), warning, error;\n",
+    "                    auch über LOCALCHATA_PROTOKOLL_STUFE\n",
     "  --hilfe           diese Hilfe zeigen\n",
     "\n",
     "Sendefrist: Das System schließt eine Verbindung, die 2 × Herzschlag (Standard: 10 s) lang nichts\n",
@@ -37,6 +40,8 @@ pub struct Startauftrag {
     pub browser_oeffnen: bool,
     /// Weitere Host-Namen, unter denen die Instanz antworten darf (Grenzschutz, ADR-0014).
     pub erreichbar_als: Vec<String>,
+    /// Mindeststufe des Betriebsprotokolls aus `--protokoll-stufe`, falls angegeben (ADR-0043).
+    pub protokoll_stufe: Option<Stufe>,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -51,6 +56,7 @@ pub enum Aufruffehler {
     UeberzaehligesArgument(String),
     WertFehlt(String),
     PortUngueltig(String),
+    StufeUngueltig(String),
 }
 
 impl fmt::Display for Aufruffehler {
@@ -65,6 +71,10 @@ impl fmt::Display for Aufruffehler {
             }
             Aufruffehler::WertFehlt(option) => write!(f, "{option} braucht einen Wert"),
             Aufruffehler::PortUngueltig(wert) => write!(f, "Kein gültiger Port: {wert}"),
+            Aufruffehler::StufeUngueltig(wert) => write!(
+                f,
+                "Keine Protokollstufe: {wert} — erlaubt sind {ERLAUBTE_STUFEN}"
+            ),
         }?;
         write!(f, " — Aufruf siehe localchatA --hilfe")
     }
@@ -79,6 +89,7 @@ impl Startauftrag {
             host: "0.0.0.0".into(),
             browser_oeffnen: true,
             erreichbar_als: Vec::new(),
+            protokoll_stufe: None,
         };
         let mut ordner_gelesen = false;
         let mut args = args.into_iter();
@@ -90,6 +101,11 @@ impl Startauftrag {
                 "--erreichbar-als" => {
                     let name = args.next().ok_or(Aufruffehler::WertFehlt(argument))?;
                     auftrag.erreichbar_als.push(name);
+                }
+                "--protokoll-stufe" => {
+                    let wert = args.next().ok_or(Aufruffehler::WertFehlt(argument))?;
+                    let stufe = stufe_lesen(&wert).ok_or(Aufruffehler::StufeUngueltig(wert))?;
+                    auftrag.protokoll_stufe = Some(stufe);
                 }
                 "--port" => {
                     let wert = args.next().ok_or(Aufruffehler::WertFehlt(argument))?;
@@ -106,6 +122,21 @@ impl Startauftrag {
             }
         }
         Ok(Aufruf::Starten(auftrag))
+    }
+}
+
+/// Die wählbaren Stufen in der Form, in der Meldungen sie nennen.
+pub const ERLAUBTE_STUFEN: &str = "debug, information, warning, error";
+
+/// `debug`, `information`, `warning`, `error` in beliebiger Groß- und Kleinschreibung; `exception` ist nicht
+/// wählbar (ADR-0043 Regel 1).
+pub fn stufe_lesen(wert: &str) -> Option<Stufe> {
+    match wert.to_lowercase().as_str() {
+        "debug" => Some(Stufe::Debug),
+        "information" => Some(Stufe::Information),
+        "warning" => Some(Stufe::Warning),
+        "error" => Some(Stufe::Error),
+        _ => None,
     }
 }
 
@@ -142,6 +173,7 @@ mod tests {
                 host: "0.0.0.0".into(),
                 browser_oeffnen: false,
                 erreichbar_als: vec![],
+                protokoll_stufe: None,
             }
         );
     }
@@ -156,6 +188,7 @@ mod tests {
                 host: "0.0.0.0".into(),
                 browser_oeffnen: true,
                 erreichbar_als: vec![],
+                protokoll_stufe: None,
             }
         );
     }
@@ -259,5 +292,55 @@ mod tests {
             assert!(text.contains("localchatA --hilfe"), "{text}");
             assert!(!text.contains('\n'), "{text}");
         }
+    }
+
+    #[test]
+    fn protokoll_stufe_wird_gelesen_auch_gross_geschrieben() {
+        assert_eq!(
+            auftrag(&["--protokoll-stufe", "debug"]).protokoll_stufe,
+            Some(Stufe::Debug)
+        );
+        assert_eq!(
+            auftrag(&["--protokoll-stufe", "Warning"]).protokoll_stufe,
+            Some(Stufe::Warning)
+        );
+        assert_eq!(auftrag(&["/tmp/x"]).protokoll_stufe, None);
+    }
+
+    #[test]
+    fn eine_falsche_stufe_nennt_die_erlaubten_werte_exception_ist_nicht_waehlbar() {
+        for falsch in ["laut", "exception", ""] {
+            let fehler = lies(&["--protokoll-stufe", falsch]).expect_err(falsch);
+            assert_eq!(fehler, Aufruffehler::StufeUngueltig(falsch.into()));
+            assert!(
+                fehler
+                    .to_string()
+                    .contains("debug, information, warning, error"),
+                "{fehler}"
+            );
+        }
+    }
+
+    #[test]
+    fn protokoll_stufe_ohne_wert_braucht_einen_wert() {
+        let fehler = lies(&["--protokoll-stufe"]).expect_err("ohne Wert");
+        assert_eq!(
+            fehler.to_string(),
+            "--protokoll-stufe braucht einen Wert — Aufruf siehe localchatA --hilfe"
+        );
+    }
+
+    #[test]
+    fn die_hilfe_nennt_die_protokoll_stufe_und_die_umgebung() {
+        assert!(
+            HILFE
+                .lines()
+                .next()
+                .unwrap_or_default()
+                .contains("[--protokoll-stufe <stufe>]"),
+            "{HILFE}"
+        );
+        assert!(HILFE.contains("--protokoll-stufe <stufe>  Mindeststufe des Betriebsprotokolls unter <ordner>/logs/: debug, information (Standard), warning, error;"), "{HILFE}");
+        assert!(HILFE.contains("LOCALCHATA_PROTOKOLL_STUFE"), "{HILFE}");
     }
 }
