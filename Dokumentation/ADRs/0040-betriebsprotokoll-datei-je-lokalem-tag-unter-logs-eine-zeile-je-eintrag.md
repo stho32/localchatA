@@ -97,3 +97,7 @@ Regeln:
 - ADR-0003, ADR-0004, ADR-0005, ADR-0029 (Kalendertage), ADR-0030, ADR-0032; ADR-0041 bis ADR-0043
 - `AI-Team/umgebung.md` „Logging-Konzept“ (Betreiber 2026-10-28); Factory-Rolle `observability-reviewer` (Prüfraster, Einstufung)
 - CWE-117 (Improper Output Neutralization for Logs) — aus dem Gedächtnis, in diesem Auftrag nicht geöffnet; Unicode-Zeilentrenner U+2028/U+2029 und Richtungszeichen (CVE-2021-42574 „Trojan Source“) — aus dem Gedächtnis
+
+## Ergänzungen
+
+- **2026-10-28 (Proben des `observability-reviewer` an #21 Körpergrenze) — Berichtigung und Erlaubnisliste:** (1) Regel 5 nennt den Sitzungskopf falsch: er heißt `X-LocalchatA-Sitzung` (`src/http/teilnehmer.rs:2`). Er steht nie im Protokoll, auch nicht verkürzt oder gehasht. (2) Die Erlaubnisliste aus Regel 3 wächst um `typ` (angekündigter `Content-Type`), `name` (ein abgewiesener, also ungültiger Name), `bytes` (gelesene Körperbytes), `art` (Fehlerart), `verworfen` (Ergebnis des Verwerfens), `operation` (Fachoperation, z. B. `channel_anlegen`). (3) Zitierte Eingaben wie `typ` und `name` fallen ausdrücklich unter Regel 4: Escape und Kürzung auf 256 Zeichen. Die Regel gilt unverändert, die Liste ist nur genauer.

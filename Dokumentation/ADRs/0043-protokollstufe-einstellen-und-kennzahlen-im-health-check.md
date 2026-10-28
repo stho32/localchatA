@@ -92,3 +92,7 @@ Regeln:
 
 - [A00015 Betriebsprotokoll](../Architektur/A00015-betriebsprotokoll.md), [A00003 Start](../Architektur/A00003-start.md), [A00004 HTTP-Schnittstelle](../Architektur/A00004-http-schnittstelle.md); Aspekte [X00001](../Architektur/Aspekte/X00001-logging-und-diagnose.md), [X00006 Konfiguration und Geheimnisse](../Architektur/Aspekte/X00006-konfiguration-und-geheimnisse.md)
 - ADR-0009, ADR-0012, ADR-0014, ADR-0040, ADR-0041, ADR-0042; `gemeinsam/gelerntes.md` der Factory, „Konfiguration über den echten Weg prüfen“
+
+## Ergänzungen
+
+- **2026-10-28 (Proben des `observability-reviewer` an #21 Körpergrenze) — Zähler der Abweisungen:** Regel 5 wächst um das Feld `abgewiesen: {zu_gross, kein_json, kaputt, abgebrochen}`. Es zählt die Körperfehler aller JSON-Routen seit dem Start ([ADR-0042](0042-stufen-ereigniskatalog-episoden-und-tagesgrenze-des-betriebsprotokolls.md), Ergänzung Punkt 2). Gezählt wird beim Entstehen, unabhängig von Stufe, Episode und Budget. Ein Monitoring sieht Fluten daran, dass der Zähler steigt, ohne das Protokoll zu lesen. Das Feld ist ausnahmsweise verschachtelt, weil die vier Zahlen eine Einheit bilden. Monitoring-Empfehlung: Hinweis, wenn `abgewiesen.zu_gross + abgewiesen.kaputt` in 5 Minuten um mehr als 100 steigt.
