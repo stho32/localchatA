@@ -15,6 +15,8 @@ mod ich;
 mod koerper;
 mod nachrichten;
 mod oberflaeche;
+#[allow(dead_code)] // bis B0212 die Route ihn nutzt
+mod senden;
 mod teilnehmer;
 mod teilnehmerliste;
 mod verlassen;
