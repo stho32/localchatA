@@ -16,8 +16,8 @@ pub const HILFE: &str = concat!(
     "                    IP-Adressen, localhost und der Rechnername gelten immer\n",
     "  --hilfe           diese Hilfe zeigen\n",
     "\n",
-    "Sendefrist: eine Verbindung, die 2 × Herzschlag (Standard 10 s) lang nichts abnimmt oder bestätigt,\n",
-    "schließt das System.",
+    "Sendefrist: Das System schließt eine Verbindung, die 2 × Herzschlag (Standard: 10 s) lang nichts\n",
+    "abnimmt oder bestätigt.",
 );
 
 /// Welcher Port verlangt ist: der Standard mit Ausweichen, die Wahl des Systems oder genau einer.

@@ -129,7 +129,7 @@ fn die_hilfe_nennt_die_sendefrist() {
     assert_eq!(ende.exit, Some(0));
     assert!(
         text.contains(
-            "Sendefrist: eine Verbindung, die 2 × Herzschlag (Standard 10 s) lang nichts abnimmt oder bestätigt, schließt das System."
+            "Sendefrist: Das System schließt eine Verbindung, die 2 × Herzschlag (Standard: 10 s) lang nichts abnimmt oder bestätigt."
         ),
         "{}",
         ende.stdout
