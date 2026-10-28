@@ -111,6 +111,7 @@ async fn starten(
         Arc::clone(&uhr),
         Stufe::Information,
     ));
+    crate::protokoll::haken_setzen(Arc::clone(&protokoll));
     let bereinigt_am = uhr.jetzt().date_naive();
     protokoll.bereinigen(bereinigt_am, Anlass::Start);
     let laufen = nach_der_sperre(

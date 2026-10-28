@@ -4,6 +4,7 @@
 pub mod bereinigung;
 pub mod senke;
 pub mod tagestakt;
+pub mod zaehler;
 pub mod zeile;
 
 pub use zeile::{Bereich, Eintrag, Kontext, Schluessel, Stufe};
@@ -16,6 +17,43 @@ use std::io::{self, Write};
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use zaehler::{Zaehler, Zaehlerstand};
+
+/// Eine Panik, wie der Haken sie sieht: Ort (Datei:Zeile), Name des Threads, Text.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Panik {
+    pub ort: Option<String>,
+    pub thread: String,
+    pub text: String,
+}
+
+impl Panik {
+    fn aus(info: &std::panic::PanicHookInfo<'_>) -> Panik {
+        let text = info
+            .payload()
+            .downcast_ref::<&str>()
+            .map(|text| (*text).to_string())
+            .or_else(|| info.payload().downcast_ref::<String>().cloned())
+            .unwrap_or_else(|| "Panik ohne Text".to_string());
+        Panik {
+            ort: info
+                .location()
+                .map(|ort| format!("{}:{}", ort.file(), ort.line())),
+            thread: std::thread::current()
+                .name()
+                .unwrap_or("unbenannt")
+                .to_string(),
+            text,
+        }
+    }
+}
+
+/// Ersetzt den Standard-Haken: jede Panik in jedem Thread wird genau ein EXCEPTION-Eintrag (ADR-0042 Regel 4).
+pub fn haken_setzen(protokoll: Arc<Protokoll>) {
+    std::panic::set_hook(Box::new(move |info| {
+        protokoll.panik_melden(&Panik::aus(info))
+    }));
+}
 
 /// Wohin Zeilen auf stderr gehen — im Programm stderr, im Test eine Aufzeichnung.
 pub type Spiegel = Arc<dyn Fn(&str) + Send + Sync>;
@@ -27,6 +65,7 @@ pub struct Protokoll {
     spiegel: Spiegel,
     inneres: Mutex<Inneres>,
     ok: AtomicBool,
+    zaehler: Zaehler,
     /// Namen beendeter Hintergrundaufgaben (ADR-0042 Regel 4) — für `aufgaben_ausgefallen`.
     ausgefallen: Mutex<Vec<&'static str>>,
 }
@@ -79,6 +118,7 @@ impl Protokoll {
             }),
             ok: AtomicBool::new(true),
             ausgefallen: Mutex::new(Vec::new()),
+            zaehler: Zaehler::default(),
         }
     }
 
@@ -134,13 +174,52 @@ impl Protokoll {
         text: impl Into<String>,
         kontext: Kontext,
     ) {
+        let jetzt = self.uhr.jetzt();
+        self.zaehler.zaehlen(stufe, jetzt);
         if stufe < self.mindeststufe {
             return;
         }
-        let jetzt = self.uhr.jetzt();
         let eintrag = Eintrag::neu(stufe, bereich, text, kontext);
         let mut inneres = self.sperren();
         self.ablegen(&mut inneres, &eintrag, jetzt);
+    }
+
+    /// Eine verletzte Annahme ohne Panik: derselbe Weg wie der Panik-Haken (ADR-0042 Regel 4).
+    pub fn exception(&self, bereich: Bereich, text: impl Into<String>, kontext: Kontext) {
+        self.eintragen(Stufe::Exception, bereich, text, kontext);
+    }
+
+    /// Was der Panik-Haken meldet: genau ein `EXCEPTION programmfehler` mit `ort` und `thread`, der Panik-Text
+    /// als Text. Die Sperre nur mit `try_lock` — belegt oder vergiftet ⇒ die Zeile nur auf stderr; die Zähler
+    /// immer.
+    pub fn panik_melden(&self, panik: &Panik) {
+        let jetzt = self.uhr.jetzt();
+        self.zaehler.zaehlen(Stufe::Exception, jetzt);
+        let mut kontext = Kontext::neu();
+        if let Some(ort) = &panik.ort {
+            kontext = kontext.mit(Schluessel::Ort, ort);
+        }
+        let eintrag = Eintrag::neu(
+            Stufe::Exception,
+            Bereich::Programmfehler,
+            &panik.text,
+            kontext.mit(Schluessel::Thread, &panik.thread),
+        );
+        match self.inneres.try_lock() {
+            Ok(mut inneres) => self.ablegen(&mut inneres, &eintrag, jetzt),
+            Err(_) => (self.spiegel)(&zeile::zeile(&eintrag, jetzt)),
+        }
+    }
+
+    /// Stand der Zähler (Health-Check).
+    pub fn zaehlerstand(&self) -> Zaehlerstand {
+        self.zaehler.stand()
+    }
+
+    /// Hält die Sperre des Protokolls, solange das Ergebnis lebt — nur für Proben des Panik-Hakens.
+    #[doc(hidden)]
+    pub fn sperre_halten(&self) -> impl Drop + '_ {
+        self.sperren()
     }
 
     /// Löscht die Protokolldateien, die älter als 14 Kalendertage sind, und trägt das Ergebnis ein: eine
@@ -222,6 +301,7 @@ impl Protokoll {
     /// Eine Warning je Episode, nur auf stderr; das Protokoll gilt als nicht schreibbar.
     fn rueckfall_beginnen(&self, inneres: &mut Inneres, tag: NaiveDate, fehler: &io::Error) {
         inneres.rueckfall = true;
+        self.zaehler.zaehlen(Stufe::Warning, self.uhr.jetzt());
         self.ok.store(false, Ordering::SeqCst);
         let warnung = Eintrag::neu(
             Stufe::Warning,
@@ -623,5 +703,71 @@ mod tests {
             datei[1].contains("datei=logs/2026-10-14.log grund="),
             "{datei:#?}"
         );
+    }
+
+    #[test]
+    fn eine_panik_ergibt_genau_eine_exception_mit_ort_und_thread_und_zaehlt() {
+        let (protokoll, speicher, _, stderr) =
+            im_speicher("2026-10-28T12:00:00+01:00", Stufe::Information);
+
+        protokoll.panik_melden(&Panik {
+            ort: Some("src/http/nachrichten.rs:42".into()),
+            thread: "tokio-runtime-worker".into(),
+            text: "kaputt\nzweite Zeile".into(),
+        });
+
+        let zeilen = speicher.zeilen();
+        assert_eq!(
+            zeilen,
+            [
+                "2026-10-28T12:00:00.000+01:00 EXCEPTION programmfehler kaputt\\u{a}zweite Zeile | ort=src/http/nachrichten.rs:42 thread=tokio-runtime-worker"
+            ]
+        );
+        assert_eq!(stderr.zeilen(), zeilen);
+        let stand = protokoll.zaehlerstand();
+        assert_eq!(stand.exceptions, 1);
+        assert_eq!(
+            stand.letzte_exception,
+            Some(zeit("2026-10-28T12:00:00+01:00"))
+        );
+    }
+
+    #[test]
+    fn bei_gehaltener_sperre_kehrt_der_haken_ohne_verklemmung_zurueck_und_schreibt_auf_stderr() {
+        let (protokoll, speicher, _, stderr) =
+            im_speicher("2026-10-28T12:00:00+01:00", Stufe::Information);
+        let gehalten = protokoll.sperre_halten();
+        let melder = Arc::clone(&protokoll);
+        let (fertig, empfangen) = std::sync::mpsc::channel();
+
+        std::thread::spawn(move || {
+            melder.panik_melden(&Panik {
+                ort: None,
+                thread: "anderer".into(),
+                text: "Panik bei gehaltener Sperre".into(),
+            });
+            let _ = fertig.send(());
+        });
+        let zurueck = empfangen.recv_timeout(std::time::Duration::from_secs(1));
+        drop(gehalten);
+
+        assert!(zurueck.is_ok(), "Haken verklemmt");
+        assert!(speicher.zeilen().is_empty());
+        assert_eq!(stderr.zeilen().len(), 1);
+        assert!(
+            stderr.zeilen()[0].contains("EXCEPTION programmfehler Panik bei gehaltener Sperre")
+        );
+        assert_eq!(protokoll.zaehlerstand().exceptions, 1);
+    }
+
+    #[test]
+    fn eine_verletzte_annahme_nimmt_denselben_weg() {
+        let (protokoll, speicher, _, _) = im_speicher("2026-10-28T12:00:00+01:00", Stufe::Error);
+
+        protokoll.exception(Bereich::Verlauf, "Unmöglicher Zustand", Kontext::neu());
+
+        assert_eq!(speicher.zeilen().len(), 1);
+        assert!(speicher.zeilen()[0].contains(" EXCEPTION verlauf Unmöglicher Zustand"));
+        assert_eq!(protokoll.zaehlerstand().exceptions, 1);
     }
 }
