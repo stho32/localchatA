@@ -78,3 +78,52 @@ async fn us14_ordner_mit_ungueltigem_namen_werden_beim_start_uebergangen_und_ble
         b"Arbeitsordner"
     );
 }
+
+#[tokio::test]
+async fn us14_eine_defekte_einstellungsdatei_wird_als_unbekannt_gelesen_und_nie_geaendert() {
+    let wurzel = tempfile::tempdir().expect("Wegwerf-Ordner");
+    let ordner = wurzel.path();
+    datei(
+        ordner,
+        "channels/kaputt/einstellungen.toml",
+        b"angelegt = \"",
+    );
+    let instanz = starten_mit(ordner, LOKAL, &[]);
+
+    let namen = liste(&instanz).await;
+
+    assert_eq!(
+        namen,
+        json!([{ "name": "kaputt", "angelegt": null, "angelegt_von": null, "beschreibung": null }])
+    );
+    let zeilen = stderr_zeilen(instanz, "channels/kaputt/einstellungen.toml");
+    assert_eq!(zeilen.len(), 1, "{zeilen:?}");
+    assert!(
+        zeilen[0].starts_with("channels/kaputt/einstellungen.toml:1: "),
+        "{zeilen:?}"
+    );
+    assert_eq!(
+        fs::read(ordner.join("channels/kaputt/einstellungen.toml")).expect("Datei"),
+        b"angelegt = \""
+    );
+}
+
+#[tokio::test]
+async fn us14_ungueltiger_ordner_und_defekte_datei_zaehlen_zusammen_zwei_defekte() {
+    let wurzel = tempfile::tempdir().expect("Wegwerf-Ordner");
+    let ordner = wurzel.path();
+    datei(ordner, "channels/Test/zettel.txt", b"von Hand");
+    datei(ordner, "channels/.neu-x/zettel.txt", b"Arbeitsordner");
+    datei(
+        ordner,
+        "channels/kaputt/einstellungen.toml",
+        b"angelegt = \"",
+    );
+    let instanz = starten_mit(ordner, LOKAL, &[]);
+
+    let namen = liste(&instanz).await;
+
+    assert_eq!(gesundheit(&instanz.adresse).await.1["defekte_zeilen"], 2);
+    assert_eq!(namen.as_array().map(Vec::len), Some(1), "{namen}");
+    assert_eq!(namen[0]["name"], "kaputt");
+}

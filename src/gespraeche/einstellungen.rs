@@ -5,7 +5,8 @@
 use super::Kennung;
 use crate::uhr::Zeit;
 use chrono::SecondsFormat;
-use toml::{Table, Value};
+use serde::Deserialize;
+use toml::{Spanned, Table, Value};
 
 /// Was die Datei über einen Channel sagt; fehlt ein Schlüssel, ist der Wert unbekannt.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -24,20 +25,57 @@ pub struct Defekt {
 const ANGELEGT: &str = "angelegt";
 const ANGELEGT_VON: &str = "angelegt_von";
 
+/// Liest die Datei; jeder Defekt nennt seine Zeile: kein UTF-8, kein TOML (auch doppelter Schlüssel), `angelegt`
+/// keine Zeit nach RFC 3339 als Text, `angelegt_von` keine Kennung. Unbekannte Schlüssel sind kein Defekt.
 pub fn lesen(bytes: &[u8]) -> Result<Einstellungen, Defekt> {
     let text = std::str::from_utf8(bytes).map_err(|fehler| Defekt {
-        zeile: 0,
-        grund: fehler.to_string(),
+        zeile: zeile_bei(bytes, fehler.valid_up_to()),
+        grund: "kein UTF-8".to_string(),
     })?;
-    let tabelle: Table = text.parse().map_err(|fehler: toml::de::Error| Defekt {
-        zeile: 0,
-        grund: fehler.message().to_string(),
+    let roh: Roh = toml::from_str(text).map_err(|fehler| Defekt {
+        zeile: zeile_bei(bytes, fehler.span().map_or(0, |spanne| spanne.start)),
+        grund: fehler.message().trim().to_string(),
     })?;
-    let text_von = |schluessel: &str| tabelle.get(schluessel).and_then(Value::as_str);
     Ok(Einstellungen {
-        angelegt: text_von(ANGELEGT).and_then(|text| Zeit::parse_from_rfc3339(text).ok()),
-        angelegt_von: text_von(ANGELEGT_VON).and_then(|text| Kennung::bilden(text).ok()),
+        angelegt: deuten(bytes, roh.angelegt, ANGELEGT, |text| {
+            Zeit::parse_from_rfc3339(text).ok()
+        })?,
+        angelegt_von: deuten(bytes, roh.angelegt_von, ANGELEGT_VON, |text| {
+            Kennung::bilden(text).ok()
+        })?,
     })
+}
+
+/// Die bekannten Schlüssel mit ihrer Stelle; alle anderen übergeht serde.
+#[derive(Deserialize)]
+struct Roh {
+    angelegt: Option<Spanned<Value>>,
+    angelegt_von: Option<Spanned<Value>>,
+}
+
+/// Ein Text, den `wert_aus` versteht — sonst ein Defekt in der Zeile des Werts.
+fn deuten<T>(
+    bytes: &[u8],
+    roh: Option<Spanned<Value>>,
+    schluessel: &str,
+    wert_aus: impl Fn(&str) -> Option<T>,
+) -> Result<Option<T>, Defekt> {
+    let Some(roh) = roh else {
+        return Ok(None);
+    };
+    match roh.get_ref().as_str().and_then(wert_aus) {
+        Some(wert) => Ok(Some(wert)),
+        None => Err(Defekt {
+            zeile: zeile_bei(bytes, roh.span().start),
+            grund: format!("{schluessel} = {} ist ungültig", roh.get_ref()),
+        }),
+    }
+}
+
+/// Zeile (ab 1) des Bytes an `stelle`.
+fn zeile_bei(bytes: &[u8], stelle: usize) -> usize {
+    let davor = bytes.get(..stelle).unwrap_or(bytes);
+    1 + davor.iter().filter(|&&byte| byte == b'\n').count()
 }
 
 /// Bekannte Schlüssel gesetzt, unbekannte aus `vorher` erhalten (Kommentare nicht, ADR-0022 Regel 4).
@@ -137,5 +175,40 @@ mod tests {
         assert_eq!(tabelle["farbe"].as_str(), Some("rot"));
         assert_eq!(tabelle["beschreibung"].as_str(), Some("Absprachen"));
         assert_eq!(lesen(text.as_bytes()), Ok(alpha()));
+    }
+
+    fn defekt_in_zeile(bytes: &[u8]) -> usize {
+        match lesen(bytes) {
+            Ok(gelesen) => panic!(
+                "{:?} gilt als lesbar: {gelesen:?}",
+                String::from_utf8_lossy(bytes)
+            ),
+            Err(defekt) => {
+                assert!(!defekt.grund.is_empty(), "{defekt:?}");
+                defekt.zeile
+            }
+        }
+    }
+
+    #[test]
+    fn defekte_dateien_nennen_ihre_zeile() {
+        assert_eq!(defekt_in_zeile(b"angelegt = \""), 1);
+        assert_eq!(defekt_in_zeile(b"# Kopf\nangelegt_von = \"Claude@x\"\n"), 2);
+        assert_eq!(defekt_in_zeile(b"angelegt = 5\n"), 1);
+        assert_eq!(
+            defekt_in_zeile(b"farbe = \"rot\"\n\nangelegt = \"gestern\"\n"),
+            3
+        );
+        assert_eq!(
+            defekt_in_zeile(b"angelegt_von = \"a@1\"\nnotiz = \"\xff\"\n"),
+            2
+        );
+        assert_eq!(defekt_in_zeile(b"a = 1\na = 2\n"), 2);
+    }
+
+    #[test]
+    fn ein_unbekannter_schluessel_ist_kein_defekt() {
+        assert_eq!(lesen(b"farbe = \"rot\"\n"), Ok(Einstellungen::default()));
+        assert_eq!(lesen(b""), Ok(Einstellungen::default()));
     }
 }

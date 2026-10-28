@@ -61,6 +61,13 @@ pub enum Defektart {
     Unlesbar(String),
     /// Ein Ordner unter `channels/`, dessen Name kein Channelname ist (ADR-0020 Regel 6).
     KeinChannelname,
+    /// Eine `einstellungen.toml`, die sich nicht deuten lässt (ADR-0022 Regel 3).
+    Einstellungen {
+        zeile: usize,
+        grund: String,
+    },
+    /// Eine `einstellungen.toml`, die das Dateisystem verweigert.
+    EinstellungenUnlesbar(String),
 }
 
 impl fmt::Display for Ladedefekt {
@@ -69,6 +76,16 @@ impl fmt::Display for Ladedefekt {
             Defektart::Zeile(zeile) => {
                 write!(f, "{}:{zeile}: defekte Zeile übersprungen", self.datei)
             }
+            Defektart::Einstellungen { zeile, grund } => write!(
+                f,
+                "{}:{zeile}: Einstellungen nicht lesbar, als unbekannt gelesen ({grund})",
+                self.datei
+            ),
+            Defektart::EinstellungenUnlesbar(grund) => write!(
+                f,
+                "{}: nicht lesbar, als unbekannt gelesen ({grund})",
+                self.datei
+            ),
             Defektart::KeinChannelname => {
                 write!(f, "{}: kein gültiger Channelname, übergangen", self.datei)
             }
@@ -294,7 +311,7 @@ impl Geladen {
     }
 
     /// Ein Ordner unter `channels/` mit gültigem Namen ist ein Channel; `angelegt` und `angelegt_von` kommen aus
-    /// seiner Einstellungsdatei, fehlt sie, sind sie unbekannt (ADR-0022 Regel 3).
+    /// seiner Einstellungsdatei, fehlt sie oder ist sie defekt, sind sie unbekannt (ADR-0022 Regel 3).
     fn channel_aufnehmen(&mut self, ablage: &dyn Logablage, gespraech: &Gespraech) {
         let Gespraech::Channel(ordner) = gespraech else {
             return;
@@ -302,12 +319,7 @@ impl Geladen {
         let Ok(name) = Channelname::bilden(ordner) else {
             return;
         };
-        let gelesen = ablage
-            .einstellungen_lesen(gespraech)
-            .ok()
-            .flatten()
-            .and_then(|bytes| einstellungen::lesen(&bytes).ok())
-            .unwrap_or_default();
+        let gelesen = self.einstellungen_laden(ablage, gespraech);
         self.verzeichnis.channels.insert(
             name.clone(),
             Channel {
@@ -365,6 +377,31 @@ fn schreibend<T>(sperre: &RwLock<T>) -> std::sync::RwLockWriteGuard<'_, T> {
     sperre
         .write()
         .unwrap_or_else(|vergiftet| vergiftet.into_inner())
+}
+
+impl Geladen {
+    /// Die Einstellungen eines Channels; fehlt die Datei, unbekannt; ist sie defekt oder nicht lesbar, unbekannt
+    /// und ein Ladedefekt — die Datei bleibt unangetastet.
+    fn einstellungen_laden(
+        &mut self,
+        ablage: &dyn Logablage,
+        gespraech: &Gespraech,
+    ) -> einstellungen::Einstellungen {
+        let datei = gespraech.einstellungsdatei();
+        let art = match ablage.einstellungen_lesen(gespraech) {
+            Ok(None) => return einstellungen::Einstellungen::default(),
+            Ok(Some(bytes)) => match einstellungen::lesen(&bytes) {
+                Ok(gelesen) => return gelesen,
+                Err(defekt) => Defektart::Einstellungen {
+                    zeile: defekt.zeile,
+                    grund: defekt.grund,
+                },
+            },
+            Err(fehler) => Defektart::EinstellungenUnlesbar(fehler.to_string()),
+        };
+        self.defekte.push(Ladedefekt { datei, art });
+        einstellungen::Einstellungen::default()
+    }
 }
 
 /// Eine vergiftete Sperre heißt nur, dass ein anderer Aufruf abbrach; der Verlauf selbst bleibt gültig,
@@ -1024,5 +1061,73 @@ mod tests {
         assert_eq!(gespraeche.kennzahlen().nachrichten, 2);
         assert!(ordner.join("channels/Test/2026-10-27.log").is_file());
         assert!(ordner.join("channels/.neu-x/zettel.txt").is_file());
+    }
+
+    #[test]
+    fn defekte_einstellungen_ergeben_unbekannte_werte_und_einen_defekt_ohne_zu_schreiben() {
+        let ablage = Arc::new(Speicherablage::neu());
+        ablage.einstellungen_setzen(&Gespraech::channel("kaputt"), b"angelegt = \"");
+        ablage.einstellungen_setzen(&Gespraech::channel("bunt"), b"farbe = \"rot\"\n");
+        let uhr = Arc::new(GestellteUhr::neu(zeit("2026-10-28T10:15:00.123+01:00")));
+
+        let gespraeche = Gespraeche::laden(ablage.clone(), uhr).expect("geladen");
+
+        let liste = gespraeche.channels().liste;
+        assert_eq!(liste.len(), 2);
+        assert!(
+            liste
+                .iter()
+                .all(|channel| channel.angelegt.is_none() && channel.angelegt_von.is_none()),
+            "{liste:?}"
+        );
+        let defekte: Vec<String> = gespraeche
+            .defekte()
+            .iter()
+            .map(ToString::to_string)
+            .collect();
+        assert_eq!(defekte.len(), 1, "{defekte:?}");
+        assert!(
+            defekte[0].starts_with("channels/kaputt/einstellungen.toml:1: Einstellungen nicht lesbar, als unbekannt gelesen ("),
+            "{defekte:?}"
+        );
+        assert_eq!(gespraeche.kennzahlen().defekte_zeilen, 1);
+        assert_eq!(ablage.schreibvorgaenge(), 0);
+        assert_eq!(
+            ablage
+                .einstellungen_lesen(&Gespraech::channel("kaputt"))
+                .expect("lesbar"),
+            Some(b"angelegt = \"".to_vec())
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn eine_verweigerte_einstellungsdatei_ist_ein_defekt_und_der_channel_bleibt() {
+        use std::os::unix::fs::PermissionsExt;
+        let wurzel = tempfile::tempdir().expect("Wegwerf-Ordner");
+        datei(
+            wurzel.path(),
+            "channels/zu/einstellungen.toml",
+            b"angelegt_von = \"a@1\"\n",
+        );
+        let gesperrt = wurzel.path().join("channels/zu/einstellungen.toml");
+        fs::set_permissions(&gesperrt, fs::Permissions::from_mode(0o000)).expect("Rechte");
+
+        let gespraeche = laden_um(wurzel.path(), "2026-10-27T12:00:00+01:00");
+        fs::set_permissions(&gesperrt, fs::Permissions::from_mode(0o644)).expect("Rechte");
+
+        assert_eq!(gespraeche.channels().liste.len(), 1);
+        let defekte: Vec<String> = gespraeche
+            .defekte()
+            .iter()
+            .map(ToString::to_string)
+            .collect();
+        assert_eq!(defekte.len(), 1, "{defekte:?}");
+        assert!(
+            defekte[0].starts_with(
+                "channels/zu/einstellungen.toml: nicht lesbar, als unbekannt gelesen ("
+            ),
+            "{defekte:?}"
+        );
     }
 }
