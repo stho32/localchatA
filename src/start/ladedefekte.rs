@@ -1,5 +1,5 @@
 //! Ladedefekte als Einträge (ADR-0042 Regel 2, `laden`): je Datei höchstens 10 einzeln, dann eine Zeile
-//! „und n weitere“. Rein.
+//! „und 1 weiterer Defekt …“ bzw. „und n weitere Defekte …“. Rein.
 
 use crate::gespraeche::{Defektart, Ladedefekt};
 use crate::protokoll::{Bereich, Eintrag, Kontext, Schluessel, Stufe};
@@ -29,10 +29,7 @@ pub fn eintraege(defekte: &[Ladedefekt]) -> Vec<Eintrag> {
     for (datei, anzahl) in dateien {
         if anzahl > JE_DATEI_EINZELN {
             eintraege.push(warnung(
-                format!(
-                    "und {} weitere Defekte in dieser Datei",
-                    anzahl - JE_DATEI_EINZELN
-                ),
+                restzeile(anzahl - JE_DATEI_EINZELN),
                 Kontext::neu()
                     .mit(Schluessel::Datei, datei)
                     .mit(Schluessel::Anzahl, anzahl - JE_DATEI_EINZELN),
@@ -40,6 +37,15 @@ pub fn eintraege(defekte: &[Ladedefekt]) -> Vec<Eintrag> {
         }
     }
     eintraege
+}
+
+/// „und 1 weiterer Defekt …“ in der Einzahl, ab zwei „und n weitere Defekte …“ (R00014, Rechtschreib-Review #24).
+fn restzeile(weitere: usize) -> String {
+    if weitere == 1 {
+        "und 1 weiterer Defekt in dieser Datei".to_string()
+    } else {
+        format!("und {weitere} weitere Defekte in dieser Datei")
+    }
 }
 
 fn eintrag(defekt: &Ladedefekt) -> Eintrag {
@@ -108,6 +114,22 @@ mod tests {
                 .iter()
                 .all(|e| e.stufe == Stufe::Warning && e.bereich == Bereich::Laden)
         );
+    }
+
+    fn restzeile_bei(anzahl: usize) -> String {
+        let defekte: Vec<Ladedefekt> = (1..=anzahl).map(|n| zeile("channels/a/x.log", n)).collect();
+        eintraege(&defekte).last().expect("Restzeile").text.clone()
+    }
+
+    #[test]
+    fn elf_defekte_ergeben_einen_weiteren_defekt_in_der_einzahl() {
+        assert_eq!(restzeile_bei(11), "und 1 weiterer Defekt in dieser Datei");
+    }
+
+    #[test]
+    fn ab_zwei_weiteren_defekten_steht_die_mehrzahl() {
+        assert_eq!(restzeile_bei(12), "und 2 weitere Defekte in dieser Datei");
+        assert_eq!(restzeile_bei(13), "und 3 weitere Defekte in dieser Datei");
     }
 
     #[test]

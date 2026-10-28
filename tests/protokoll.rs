@@ -123,7 +123,7 @@ async fn ladedefekte_zehn_einzeln_und_der_rest_als_eine_zeile_in_datei_und_auf_s
         );
         assert!(wert(zeile, "zeile").is_some(), "{zeile}");
     }
-    assert!(laden[10].contains("und 3 weitere"), "{}", laden[10]);
+    assert!(laden[10].ends_with("und 3 weitere Defekte in dieser Datei | datei=channels/allgemein/2026-10-28.log anzahl=3"), "{}", laden[10]);
     // stderr nur im Protokollformat ab Warning, wortgleich in der Datei; stdout nur die Startzeile.
     let stderr_zeilen: Vec<String> = stderr.lines().map(str::to_string).collect();
     assert_eq!(stderr_zeilen, laden, "{stderr}");
