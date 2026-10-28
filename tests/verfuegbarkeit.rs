@@ -491,8 +491,19 @@ mod koerperflut {
     /// Ein gültiger Lauf: frische Instanz, 3 s Leerlauf als Kontrolle, dann Flut und Messung. Ist der Leerlauf zu
     /// langsam, wird wiederholt; nach `VERSUCHE` ungültigen Läufen gibt es kein Urteil.
     fn messen(schleifen: usize, koerper: &'static [u8]) -> Messung {
+        messen_mit(schleifen, wegwerf_starten, |instanz, ende| {
+            fluten(instanz, schleifen, koerper, ende)
+        })
+    }
+
+    /// Wie `messen` mit eigenem Start und eigener Flut.
+    fn messen_mit(
+        schleifen: usize,
+        starten: impl Fn() -> Instanz,
+        flut: impl Fn(&Instanz, Instant) -> BTreeMap<String, usize>,
+    ) -> Messung {
         for versuch in 1..=VERSUCHE {
-            let instanz = wegwerf_starten();
+            let instanz = starten();
             let jetzt = Instant::now();
             let mut leerlauf = gesundheit_messen(&instanz.adresse, jetzt, jetzt + LEERLAUF)
                 .join()
@@ -508,7 +519,7 @@ mod koerperflut {
             let start = Instant::now();
             let ende = start + FLUT;
             let beobachter = gesundheit_messen(&instanz.adresse, start + MESSBEGINN, ende);
-            let antworten = fluten(&instanz, schleifen, koerper, ende);
+            let antworten = flut(&instanz, ende);
             let mut sortiert = beobachter.join().expect("Beobachter");
             sortiert.sort();
             let messung = Messung {
@@ -556,5 +567,94 @@ mod koerperflut {
             assert_eq!(nicht_413, 0, "{}", messung.zeile());
             assert!(messung.p90() <= GRENZE_P90, "{}", messung.zeile());
         }
+    }
+
+    /// R00011 M2 (B0236), Messwert im Entwicklertest, kein Gate: 24 Schleifen von 4 Herkünften (je 6 Agenten mit
+    /// Sitzung) senden 10 s lang Körper von genau 131.072 Bytes (`text` aus 16.384 Leerzeichen, mit Leerraum
+    /// aufgefüllt) an `allgemein`; Gesundheit von 127.0.0.5 alle 50 ms. Über p90 0,15 s ist ein Befund an ADR-0036,
+    /// kein roter Test — deshalb nur Ausgabe.
+    /// `cargo test --release --test verfuegbarkeit -- --ignored --nocapture senderflut`.
+    #[test]
+    #[ignore = "Messwert M2 im Release-Build: cargo test --release --test verfuegbarkeit -- --ignored --nocapture senderflut"]
+    fn senderflut_mit_sitzung_messwert_m2() {
+        let mut koerper = format!("{{\"text\":\"{}\"}}", " ".repeat(16_384));
+        koerper.push_str(&" ".repeat(131_072 - koerper.len()));
+        let koerper: &'static [u8] = Box::leak(koerper.into_bytes().into_boxed_slice());
+
+        let messung = messen_mit(24, sender_starten, |instanz, ende| {
+            sender_fluten(instanz, 24, koerper, ende)
+        });
+
+        println!("M2: {}", messung.zeile());
+        println!(
+            "M2 p90 {:?} (Grenze {GRENZE_P90:?}, Messwert)",
+            messung.p90()
+        );
+    }
+
+    fn sender_starten() -> Instanz {
+        super::gemeinsam::wegwerf_starten_mit(|ordner| {
+            std::fs::create_dir_all(ordner.join("channels/allgemein")).expect("Channel");
+        })
+    }
+
+    fn sender_fluten(
+        instanz: &Instanz,
+        schleifen: usize,
+        koerper: &'static [u8],
+        bis: Instant,
+    ) -> BTreeMap<String, usize> {
+        let laufzeit = tokio::runtime::Builder::new_multi_thread()
+            .worker_threads(4)
+            .enable_all()
+            .build()
+            .expect("Laufzeit");
+        let basis = instanz.adresse.clone();
+        laufzeit.block_on(async move {
+            let mut laeufe = Vec::new();
+            for nummer in 0..schleifen {
+                let herkunft = FLUTHERKUENFTE[nummer % FLUTHERKUENFTE.len()];
+                let client = client_von(herkunft);
+                let beitritt: serde_json::Value = client
+                    .post(format!("{basis}api/beitreten"))
+                    .json(&serde_json::json!({ "name": format!("flut{nummer}") }))
+                    .send()
+                    .await
+                    .expect("Beitritt")
+                    .json()
+                    .await
+                    .expect("Token");
+                let token = beitritt["token"].as_str().expect("Token").to_string();
+                let url = format!("{basis}api/channels/allgemein/nachrichten");
+                laeufe.push(tokio::spawn(async move {
+                    let mut antworten = Vec::new();
+                    while Instant::now() < bis {
+                        let ergebnis = client
+                            .post(&url)
+                            .header("Content-Type", "application/json")
+                            .header("X-LocalchatA-Sitzung", &token)
+                            .body(koerper)
+                            .send()
+                            .await;
+                        antworten.push(match ergebnis {
+                            Ok(antwort) => {
+                                let status = antwort.status().as_u16().to_string();
+                                let _ = antwort.bytes().await;
+                                status
+                            }
+                            Err(fehler) => format!("Fehler {fehler}"),
+                        });
+                    }
+                    antworten
+                }));
+            }
+            let mut antworten = BTreeMap::new();
+            for lauf in laeufe {
+                for status in lauf.await.expect("Schleife") {
+                    *antworten.entry(status).or_insert(0) += 1;
+                }
+            }
+            antworten
+        })
     }
 }

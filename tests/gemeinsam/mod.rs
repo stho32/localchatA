@@ -209,6 +209,15 @@ pub fn wegwerf_starten() -> Instanz {
     instanz
 }
 
+/// Wie `wegwerf_starten`; `vorbereiten` legt vor dem Start Dateien in den Ordner.
+pub fn wegwerf_starten_mit(vorbereiten: impl FnOnce(&Path)) -> Instanz {
+    let wurzel = tempfile::tempdir().expect("Wegwerf-Ordner");
+    vorbereiten(wurzel.path());
+    let mut instanz = lokal_starten(wurzel.path());
+    instanz.wegwerf = Some(wurzel);
+    instanz
+}
+
 /// Wie `starten`, auf Port 0, nur 127.0.0.1, ohne Browser.
 pub fn lokal_starten(ordner: &Path) -> Instanz {
     starten(
