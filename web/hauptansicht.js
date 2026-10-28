@@ -105,7 +105,9 @@ function einAusblendenBedienen({ schalter, region, haupt }, signal) {
   document.addEventListener('keydown', (ereignis) => {
     const strgPunkt = (ereignis.ctrlKey || ereignis.metaKey) && ereignis.key === '.';
     const ueberlagerteListeOffen = !region.hidden && window.innerWidth < UEBERLAGERT_UNTER_PX;
-    const schliessen = ereignis.key === 'Escape' && ueberlagerteListeOffen;
+    // Ein offener Dialog liegt über der Liste — sein Esc gehört ihm.
+    const dialogOffen = document.querySelector('dialog[open]') !== null;
+    const schliessen = ereignis.key === 'Escape' && ueberlagerteListeOffen && !dialogOffen;
     if (strgPunkt || schliessen) {
       ereignis.preventDefault();
       umschalten();

@@ -16,6 +16,8 @@ const plus = (page) => page.getByRole('navigation', { name: 'Channels' }).getByR
 const dialog = (page) => page.getByRole('dialog', { name: 'Channel anlegen' });
 const namensfeld = (page) => dialog(page).getByLabel('Name');
 const anlegenSchalter = (page) => dialog(page).getByRole('button', { name: 'Channel anlegen' });
+const teilnehmerSchalter = (page) => page.getByRole('button', { name: /^Teilnehmer/ });
+const liste = (page) => page.getByRole('complementary', { name: 'Teilnehmer' });
 
 async function beitreten(page, name) {
   await page.goto(instanz.adresse);
@@ -87,4 +89,54 @@ for (const [weg, absenden] of absendewege) {
       await kontext.close();
     });
   }
+}
+
+for (const breite of [480, 320]) {
+  test(`(b) ${breite} px, Teilnehmer eingeblendet: Strg Alt N, Esc — der Dialog ist nach dem ersten Esc zu, der Fokus sichtbar in der Liste`, async ({ browser }) => {
+    instanz = await instanzStarten();
+    const kontext = await browser.newContext({ viewport: { width: breite, height: 640 } });
+    const page = await kontext.newPage();
+    const fehler = fehlerSammeln(page);
+    await beitreten(page, 'shoff');
+    await teilnehmerSchalter(page).click();
+    await expect(liste(page)).toBeVisible();
+
+    await page.keyboard.press('Control+Alt+n');
+    await expect(namensfeld(page)).toBeFocused();
+    await page.keyboard.press('Escape');
+
+    await expect(dialog(page)).toHaveCount(0);
+    await expect(liste(page)).toBeVisible();
+    const aktiv = await aktivesElement(page);
+    expect(aktiv.tag).not.toBe('BODY');
+    expect(aktiv).toMatchObject({ id: 'lc-teilnehmer', sichtbar: true });
+
+    await page.keyboard.press('Escape');
+    await expect(liste(page)).toBeHidden();
+    await expect(teilnehmerSchalter(page)).toBeFocused();
+    expect(fehler).toEqual([]);
+    await kontext.close();
+  });
+
+  test(`(b) ${breite} px: wird die Liste hinter dem Dialog ausgeblendet (Strg .), geht der Fokus beim Schließen auf „Teilnehmer“`, async ({ browser }) => {
+    instanz = await instanzStarten();
+    const kontext = await browser.newContext({ viewport: { width: breite, height: 640 } });
+    const page = await kontext.newPage();
+    const fehler = fehlerSammeln(page);
+    await beitreten(page, 'shoff');
+    await teilnehmerSchalter(page).click();
+    await expect(liste(page)).toBeVisible();
+
+    await page.keyboard.press('Control+Alt+n');
+    await expect(namensfeld(page)).toBeFocused();
+    await page.keyboard.press('Control+.');
+    await expect(liste(page)).toBeHidden();
+    await page.keyboard.press('Escape');
+
+    await expect(dialog(page)).toHaveCount(0);
+    await expect(teilnehmerSchalter(page)).toBeFocused();
+    expect(await aktivesElement(page)).toMatchObject({ sichtbar: true });
+    expect(fehler).toEqual([]);
+    await kontext.close();
+  });
 }

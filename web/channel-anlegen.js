@@ -77,14 +77,34 @@ function bedienen(teile, { anlegen, statusZeigen }, signal) {
   }, { signal });
 }
 
-// Der Auslöser bekommt den Fokus zurück; ist er nicht mehr im Dokument oder war es keiner, der Schalter +.
+// Der Auslöser bekommt den Fokus zurück, wenn er sichtbar ist. Liegt er in einem inzwischen verborgenen Bereich,
+// bekommt ihn der Schalter, der diesen Bereich steuert (aria-controls, etwa „Teilnehmer“); sonst der Schalter +.
 function fokusZurueck(ausloeser, plus) {
-  const ausloeserDa = ausloeser !== null && ausloeser !== document.body && ausloeser.isConnected;
-  if (ausloeserDa) {
+  if (sichtbar(ausloeser)) {
     ausloeser.focus();
     return;
   }
+  const steuernderSchalter = schalterDesBereichs(ausloeser);
+  if (sichtbar(steuernderSchalter)) {
+    steuernderSchalter.focus();
+    return;
+  }
   plus.focus();
+}
+
+function sichtbar(element) {
+  return element !== null && element !== document.body && element.isConnected && element.checkVisibility();
+}
+
+function schalterDesBereichs(element) {
+  if (element === null) {
+    return null;
+  }
+  const bereich = element.closest('[id]');
+  if (bereich === null) {
+    return null;
+  }
+  return document.querySelector(`[aria-controls="${CSS.escape(bereich.id)}"]`);
 }
 
 const REGEL = 'Erlaubt sind 1 bis 32 Zeichen aus a–z, 0–9 und -, nicht mit - am Anfang oder Ende.';
