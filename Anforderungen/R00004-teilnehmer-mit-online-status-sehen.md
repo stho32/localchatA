@@ -110,7 +110,7 @@ Playwright mit Chromium gegen das echte Programm auf einem freien, festen Port.
 - [ ] Ohne Maus: die Region „Teilnehmer“ ist per `Tab` erreichbar und zeigt einen sichtbaren Fokusrahmen (≥ 3:1 gegen die Fläche daneben, beide Themen).
 - [ ] Schmal: bei 320, 360 und 375 px Fensterbreite mit einem Agenten, dessen Name 32 Zeichen hat, gilt `scrollWidth <= innerWidth`; die volle Kennung steht im Text der Zeile.
 - [ ] Kennungen in der Liste in Mono (`lc-id`, berechnete Schriftfamilie wie bei der Kennung in der Kopfzeile).
-- [ ] Über die LAN-Adresse (Nicht-Loopback-IPv4 mit Default-Route) laden Beitreten und Liste ohne einen einzigen Konsolenfehler; ebenso in allen Szenarien dieses Abschnitts.
+- [ ] Über die LAN-Adresse (Nicht-Loopback-IPv4 mit Default-Route) laden Beitreten und Liste ohne Konsolenfehler. In allen Szenarien dieses Abschnitts und in F0014 gibt es keine unbehandelte Ausnahme (`pageerror`) und keinen CSP-Verstoß; Konsolenfehler sind dort nur die Meldungen „Failed to load resource“, die der Browser selbst zu Antworten schreibt, die R00003 oder diese Anforderung vorschreiben (401 von `/api/ereignisse` und `/api/ich` nach Neustart oder Gnadenfrist, 409 und 422 von `/api/beitreten`), sowie `net::ERR_CONNECTION_REFUSED` zu `/api/…`, solange die Instanz beendet ist.
 
 ### F0014 Ein Strom je Browser
 
@@ -254,6 +254,7 @@ Auslöser: Nach R00003 kann man beitreten, sieht aber niemanden — weder ob die
 ### Änderungen nach Prüfung
 
 - 2026-10-28 (Karte #4, Entwicklertest): US-4 und das Kriterium „Weg“ unter F0011 — `beta` fragt zusätzlich bei 2 s ab, bei 4 s wird 200 erwartet. Grund: der alte Zeitplan widersprach der eigenen Gnadenfrist; mit dem letzten Abruf bei 1 s war `beta` bei 4 s selbst abgelaufen (401 in 2 von 8 Läufen). Geprüftes Verhalten (`alpha` bei 1 s `offline`, bei 4 s weg, Name frei) unverändert.
+- 2026-10-28 (Karte #4, realist-consultant): letztes Kriterium unter F0013 — Konsole eingegrenzt: das Laden über die LAN-Adresse bleibt ohne Konsolenfehler; in den Szenarien von F0013 und F0014 gilt keine unbehandelte Ausnahme (`pageerror`), kein CSP-Verstoß, und als Konsolenfehler nur „Failed to load resource“ zu vorgeschriebenen Antworten (401 von `/api/ereignisse` und `/api/ich`, 409 und 422 von `/api/beitreten`) sowie `net::ERR_CONNECTION_REFUSED` zu `/api/…` bei beendeter Instanz. Grund: Urteil realist-consultant 2026-10-28: Kriterium widersprach vorgeschriebenen Antworten bzw. nannte den Startpunkt der Uhr nicht; vom Betreiber genehmigte Anpassung. US-19 und US-23 unverändert.
 
 ### Bewusst außerhalb
 
