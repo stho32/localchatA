@@ -6,6 +6,7 @@ import * as beitretenBildschirm from './beitreten.js';
 import * as hauptansicht from './hauptansicht.js';
 import * as teilnehmerliste from './teilnehmerliste.js';
 import { verbinden } from './live.js';
+import { sekundentaktAnlegen } from './sekundentakt.js';
 
 const api = {
   ich: (token) => rufen('/api/ich', { token }),
@@ -14,6 +15,7 @@ const api = {
 const speicher = window.localStorage;
 const wurzel = document.getElementById('app');
 let laufenderStrom = null;
+const takten = sekundentaktAnlegen();
 
 farbschemaFolgen();
 zeigen(await sitzungBeimLaden());
@@ -31,8 +33,8 @@ function zeigen(zustand, nachEingabe = false) {
 }
 
 // Die Liste folgt dem Strom — im SharedWorker für alle Tabs, sonst im Tab: Stand und Wechsel werden nach
-// `stand` zusammengeführt, geordnet und mit dem Versatz zur Serverzeit gezeichnet; der Herzschlag erneuert nur
-// den Versatz. Lehnt der Strom das Token ab (Neustart, Gnadenfrist), tritt der zuständige Tab still wieder bei
+// `stand` zusammengeführt, geordnet und mit dem Versatz zur Serverzeit gezeichnet, Zeilen „gleich weg“ zählt der
+// Sekundentakt herunter; der Herzschlag erneuert nur den Versatz. Lehnt der Strom das Token ab (Neustart, Gnadenfrist), tritt der zuständige Tab still wieder bei
 // wie beim Laden und gibt das neue Token weiter.
 function hauptansichtZeigen(teilnehmer, nachEingabe) {
   const ansicht = hauptansicht.zeichnen(wurzel, teilnehmer, { kennungFokussieren: nachEingabe });
@@ -48,7 +50,13 @@ function hauptansichtZeigen(teilnehmer, nachEingabe) {
         return;
       }
       liste = teilnehmerliste.zusammenfuehren(liste, ereignis);
-      teilnehmerliste.zeichnen(ansicht.region, teilnehmerliste.ordnen(liste, teilnehmer.kennung), { versatz });
+      const gruppen = teilnehmerliste.ordnen(liste, teilnehmer.kennung);
+      teilnehmerliste.zeichnen(ansicht.region, gruppen, { versatz });
+      takten({
+        zeilen: alleZeilen(gruppen),
+        uhr: () => ({ versatz, jetzt: Date.now() }),
+        zeileNeuZeichnen: (zeile) => teilnehmerliste.zeileNeuZeichnen(ansicht.region, zeile, { versatz }),
+      });
       ansicht.anzahlZeigen(liste.eintraege.length);
     },
     beiZustand: (zustand, { beitreten, token }) => {
@@ -79,7 +87,12 @@ async function stillWiederBeitreten(abgelehntesToken) {
   zeigen(zustand);
 }
 
+function alleZeilen(gruppen) {
+  return [...gruppen.menschen, ...gruppen.agenten.flatMap((gruppe) => gruppe.zeilen)];
+}
+
 function stromBeenden() {
+  takten({ zeilen: [], uhr: () => ({ versatz: 0, jetzt: Date.now() }), zeileNeuZeichnen: () => {} });
   if (laufenderStrom !== null) {
     laufenderStrom.beenden();
     laufenderStrom = null;

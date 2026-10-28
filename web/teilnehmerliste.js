@@ -102,6 +102,16 @@ export function zeichnen(region, gruppen, { versatz = 0, jetzt = Date.now() } = 
   region.replaceChildren(...inhalt);
 }
 
+// Zeichnet eine Zeile an ihrem Platz neu (Sekundentakt) — die übrigen Zeilen bleiben unberührt.
+export function zeileNeuZeichnen(region, zeile, { versatz = 0, jetzt = Date.now() } = {}) {
+  const uhr = { versatz, jetzt, standUnbekannt: region.closest('.lc-unbekannt') !== null };
+  const bisher = [...region.querySelectorAll('.lc-person')].find((kandidat) => kandidat.dataset.kennung === zeile.kennung);
+  if (bisher === undefined) {
+    return;
+  }
+  bisher.replaceWith(zeileZeichnen(zeile, uhr));
+}
+
 // Die Form einer Zeile (rein): ● online — bei unbekanntem Stand „zuletzt online“ —, ○ „offline“, oder bis 60 s
 // vor dem Verschwinden gestrichelt mit „weg in m:ss“; der Name „offline, gleich weg“ bleibt statisch, damit
 // nichts sekündlich angesagt wird. Eine Zeile „gleich weg“ zählt auch bei unbekanntem Stand weiter herunter.
