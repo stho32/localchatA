@@ -1,6 +1,7 @@
 //! Betriebsprotokoll (A00015, ADR-0040 bis ADR-0043): eine escapte Zeile je Eintrag in `logs/<lokales Datum>.log`,
 //! ab Warning dieselbe Zeile auf stderr.
 
+pub mod bereinigung;
 pub mod senke;
 pub mod zeile;
 
