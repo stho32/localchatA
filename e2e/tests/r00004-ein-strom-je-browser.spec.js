@@ -134,3 +134,49 @@ test('die Oberfläche legt den Worker unter /web/strom.js?v=<version> aus der Ge
 
   expect(angefragt).toContain(`/web/strom.js?v=${version}`);
 });
+
+// US-24 (ADR-0015 Regel 4): der Worker lässt genau einen Tab still beitreten; mit und ohne Web Locks (über
+// eine LAN-Adresse gibt es keine), damit die Zuständigkeit des Workers und nicht die Sperre den Ausschlag gibt.
+for (const { ohneWebLocks, titel } of [{ ohneWebLocks: false, titel: '' }, { ohneWebLocks: true, titel: ' — ohne Web Locks' }]) {
+  test(`US-24: Neustart mit drei Tabs tritt genau einmal wieder bei${titel}`, async ({ browser, request }) => {
+    instanz = await instanzStarten({ port: await freierPort() });
+    const kontext = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+    if (ohneWebLocks) {
+      await kontext.addInitScript(() => {
+        Object.defineProperty(Navigator.prototype, 'locks', { get: () => undefined });
+      });
+    }
+    const tabs = [];
+    const fehler = [];
+    for (let nummer = 0; nummer < 3; nummer += 1) {
+      const tab = await kontext.newPage();
+      fehler.push(fehlerSammeln(tab, { serverWegErwartet: true }));
+      await tab.goto(instanz.adresse);
+      if (nummer === 0) {
+        await tab.getByLabel('Name').fill('shoff');
+        await tab.getByLabel('Name').press('Enter');
+      }
+      await zeigtSichSelbst(tab);
+      tabs.push(tab);
+    }
+    const beitritte = [];
+    kontext.on('request', (anfrage) => {
+      if (anfrage.method() === 'POST' && anfrage.url().endsWith('/api/beitreten')) {
+        beitritte.push(anfrage.url());
+      }
+    });
+
+    await instanz.beenden();
+    await expect(tabs[0].locator('#lc-verbindung')).toBeVisible();
+    await instanz.starten();
+
+    for (const tab of tabs) {
+      await expect(tab.locator('#lc-verbindung')).toBeHidden({ timeout: 15000 });
+      await zeigtSichSelbst(tab, 'shoff@127.0.0.1', 15000);
+    }
+    await tabs[0].waitForTimeout(1000);
+    expect(beitritte).toHaveLength(1);
+    expect((await request.post(instanz.adresse + 'api/beitreten', { data: { name: 'shoff' } })).status()).toBe(409);
+    ohneFehler(fehler);
+  });
+}
