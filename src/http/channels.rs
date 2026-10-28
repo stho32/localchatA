@@ -7,7 +7,7 @@ use super::Zustand;
 use super::koerper::{Koerperfehler, json_lesen};
 use super::teilnehmer::Teilnehmer;
 use super::teilnehmerliste::zeit_als_text;
-use crate::gespraeche::{Anlegefehler, Channel};
+use crate::gespraeche::{Anlegefehler, Channel, ChannelStand};
 use crate::name::{NAMENSREGEL, Namensfehler, RESERVIERT};
 use axum::Json;
 use axum::body::Body;
@@ -45,6 +45,20 @@ pub async fn anlegen(
         Ok(Err(fehler)) => anlegefehler(fehler),
         Err(abgebrochen) => ablagefehler(&format!("Anlegen abgebrochen: {abgebrochen}")),
     }
+}
+
+pub async fn auflisten(_: Teilnehmer, State(zustand): State<Arc<Zustand>>) -> Response {
+    let gespraeche = Arc::clone(&zustand.gespraeche);
+    match tokio::task::spawn_blocking(move || gespraeche.channels()).await {
+        Ok(stand) => Json(stand_als_json(&stand)).into_response(),
+        Err(abgebrochen) => ablagefehler(&format!("Liste abgebrochen: {abgebrochen}")),
+    }
+}
+
+/// `{stand, liste}` — dieselbe Form in `GET /api/channels` und im Ereignis `channels` (ADR-0023 Regel 3).
+pub fn stand_als_json(stand: &ChannelStand) -> Value {
+    let liste: Vec<Value> = stand.liste.iter().map(channel_als_json).collect();
+    json!({ "stand": stand.stand, "liste": liste })
 }
 
 /// `{name, angelegt, angelegt_von, beschreibung}`; unbekannte Werte `null`, die Beschreibung bis F0026 immer.

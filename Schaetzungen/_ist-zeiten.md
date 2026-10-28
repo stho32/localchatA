@@ -142,3 +142,4 @@ Nie vom User erfragen.
 | 2026-10-28 | R00006 Channel anlegen | B0119 Channel im Verzeichnis anlegen | unklar | 2-4h | 0,2h | 0,2h | autonom |
 | 2026-10-28 | R00006 Channel anlegen | B0120 Channels mit Einstellungen laden | Standard | 0,4h | 0,05h | 0,05h | autonom |
 | 2026-10-28 | R00006 Channel anlegen | B0121 Anlegen beantworten | Standard | 0,4h | 0,2h | 0,2h | autonom |
+| 2026-10-28 | R00006 Channel anlegen | B0122 Channels auflisten beantworten | Standard | 0,4h | 0,05h | 0,05h | autonom |

@@ -4,7 +4,7 @@
 
 mod gemeinsam;
 
-use gemeinsam::{Absender, ApiAntwort, Instanz, api_antwort, lokal_starten};
+use gemeinsam::{Absender, ApiAntwort, Instanz, api_antwort, gesundheit, lokal_starten};
 use serde_json::{Value, json};
 use std::fs;
 use std::path::Path;
@@ -233,4 +233,60 @@ async fn us6_ohne_sitzung_fremder_ursprung_ohne_json_und_zu_gross_legen_nichts_a
         assert!(antwort.json["fehler"].is_string(), "{}", antwort.json);
     }
     assert!(channel_ordner(&instanz.ordner).is_empty());
+}
+
+#[tokio::test]
+async fn us2_die_liste_steht_nach_name_und_uebersteht_einen_neustart() {
+    let wurzel = tempfile::tempdir().expect("Wegwerf-Ordner");
+    let zwei = Absender::von("127.0.0.2");
+    let drei = Absender::von("127.0.0.3");
+    let instanz = lokal_starten(wurzel.path());
+    let alpha = beitreten(&zwei, &instanz, "alpha").await;
+    let mut angelegt = Vec::new();
+    for name in ["security-entwicklung", "allgemein"] {
+        let antwort = anlegen(&zwei, &instanz, &alpha, name).await;
+        assert_eq!(antwort.status, 201, "{}", antwort.json);
+        angelegt.push(antwort.json["channel"].clone());
+    }
+    let beta = beitreten(&drei, &instanz, "beta").await;
+
+    let vorher = drei.channels(&instanz.adresse, Some(&beta)).await;
+    let ohne = drei.channels(&instanz.adresse, None).await;
+
+    assert_eq!(vorher.status, 200, "{}", vorher.json);
+    assert_eq!(vorher.json["stand"], 2);
+    assert_eq!(
+        vorher.json["liste"],
+        json!([angelegt[1].clone(), angelegt[0].clone()])
+    );
+    assert_eq!(ohne.status, 401, "{}", ohne.json);
+    assert!(ohne.json["fehler"].is_string());
+
+    drop(instanz);
+    let instanz = lokal_starten(wurzel.path());
+    let beta = beitreten(&drei, &instanz, "beta").await;
+    let nachher = drei.channels(&instanz.adresse, Some(&beta)).await;
+
+    assert_eq!(nachher.status, 200, "{}", nachher.json);
+    assert_eq!(nachher.json["stand"], 0);
+    assert_eq!(nachher.json["liste"], vorher.json["liste"]);
+}
+
+#[tokio::test]
+async fn ein_ordner_ohne_einstellungsdatei_steht_mit_unbekannten_werten_in_der_liste() {
+    let wurzel = tempfile::tempdir().expect("Wegwerf-Ordner");
+    fs::create_dir_all(wurzel.path().join("channels/notizen")).expect("Ordner von Hand");
+    let instanz = lokal_starten(wurzel.path());
+    let eins = Absender::von("127.0.0.1");
+    let token = beitreten(&eins, &instanz, "shoff").await;
+
+    let liste = eins.channels(&instanz.adresse, Some(&token)).await;
+
+    assert_eq!(
+        liste.json,
+        json!({ "stand": 0, "liste": [
+            { "name": "notizen", "angelegt": null, "angelegt_von": null, "beschreibung": null }
+        ] })
+    );
+    assert_eq!(gesundheit(&instanz.adresse).await.1["defekte_zeilen"], 0);
 }

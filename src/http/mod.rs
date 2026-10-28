@@ -49,7 +49,10 @@ pub fn router(zustand: Zustand) -> Router {
         .route("/web/{datei}", get(oberflaeche::datei))
         .route("/api/gesundheit", get(gesundheit::beantworten))
         .route("/api/beitreten", post(beitreten::beantworten))
-        .route("/api/channels", post(channels::anlegen))
+        .route(
+            "/api/channels",
+            get(channels::auflisten).post(channels::anlegen),
+        )
         .route("/api/ich", get(ich::beantworten))
         .route("/api/teilnehmer", get(teilnehmerliste::beantworten))
         .route("/api/ereignisse", get(ereignisse::beantworten))
