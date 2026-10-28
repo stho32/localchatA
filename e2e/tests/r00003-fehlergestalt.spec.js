@@ -98,6 +98,30 @@ for (const thema of ['light', 'dark']) {
   }
 }
 
+// Nacharbeit 2 (UX-Review Sollte, Rückschritt aus B0066): die Leer-Meldung geht mit dem ersten Zeichen.
+for (const thema of ['light', 'dark']) {
+  test(`Fehlergestalt ${thema}: Leer-Meldung verschwindet beim Tippen, bei „Jörg“ bleibt nur der Regelhinweis`, async ({ page }) => {
+    instanz = await instanzStarten();
+    const fehler = fehlerSammeln(page);
+    await page.emulateMedia({ colorScheme: thema });
+    await page.goto(instanz.adresse);
+    await feld(page).press('Enter');
+    await expect(meldung(page)).toHaveText('⚠ Bitte einen Namen eingeben.');
+
+    await feld(page).pressSequentially('a');
+    await expect(meldung(page)).toBeHidden();
+    await feld(page).pressSequentially('nna');
+    await expect(meldung(page)).toBeHidden();
+    await feld(page).fill('');
+    await feld(page).pressSequentially('Jörg');
+
+    await expect(meldung(page)).toBeHidden();
+    await expect(page.locator('#lc-name-hinweis')).toBeVisible();
+    await expect(page.locator('#lc-name-hinweis')).toContainText('a–z, 0–9 und -');
+    expect(fehler).toEqual([]);
+  });
+}
+
 test('ohne Vorschlag des Servers bleibt der ungültige Name im Feld und aria-invalid', async ({ page }) => {
   instanz = await instanzStarten();
   await page.goto(instanz.adresse);

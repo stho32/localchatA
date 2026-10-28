@@ -4,6 +4,7 @@
 import { pruefen } from './namensregel.js';
 
 const LEER = { art: 'leer' };
+const OHNE_MELDUNG = { art: 'beitreten' };
 
 export function zeichnen(wurzel, zustand, aktionen) {
   const feld = element('input', {
@@ -32,12 +33,14 @@ export function zeichnen(wurzel, zustand, aktionen) {
   ]);
 
   let laeuft = false;
+  let leerGemeldet = false;
   async function beitreten() {
     if (laeuft) {
       return;
     }
     if (feld.value.trim() === '') {
       meldungZeigen(meldung, LEER, beitreten);
+      leerGemeldet = true;
       feld.setAttribute('aria-invalid', 'true');
       feld.focus();
       return;
@@ -51,6 +54,10 @@ export function zeichnen(wurzel, zustand, aktionen) {
   function beimTippen() {
     hinweisZeigen({ hinweis, hinweisRegel, hinweisVorschlag }, feld.value);
     gueltigkeitZeigen(feld);
+    if (leerGemeldet && feld.value.trim() !== '') {
+      meldungZeigen(meldung, OHNE_MELDUNG, beitreten);
+      leerGemeldet = false;
+    }
   }
 
   beimTippen();
