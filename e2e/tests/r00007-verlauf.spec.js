@@ -252,3 +252,26 @@ test('Schmal: bei 320 px mit geöffnetem Verlauf voller langer Nachrichten kein 
   expect(await ganzSichtbar(nachrichten(a.page).last())).toBe(true);
   expect(a.fehler).toEqual([]);
 });
+
+test('Wechsel bricht den laufenden Abruf des vorigen Channels ab (requestfailed, nicht beendet)', async ({ browser }) => {
+  await starten((ordner) => {
+    grossAnlegen(ordner);
+    channelAnlegen(ordner, 'allgemein', US9);
+  });
+  const a = await seiteMitFehlern(browser);
+  await beitreten(a.page);
+  await a.page.route('**/api/channels/gross/nachrichten**', async (route) => {
+    await new Promise((weiter) => setTimeout(weiter, 1000));
+    await route.continue().catch(() => {});
+  });
+  const ausgang = new Promise((fertig) => {
+    a.page.on('requestfinished', (anfrage) => anfrage.url().includes('/gross/') && fertig('beendet'));
+    a.page.on('requestfailed', (anfrage) => anfrage.url().includes('/gross/') && fertig('abgebrochen'));
+  });
+
+  await link(a.page, 'gross').click();
+  await link(a.page, 'allgemein').click();
+
+  expect(await ausgang).toBe('abgebrochen');
+  await expect(nachrichten(a.page)).toHaveCount(3);
+});
