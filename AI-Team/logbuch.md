@@ -110,3 +110,4 @@ Eine Zeile je Auftrag an eine Rolle und je Retrospektive.
 | 2026-10-28 | #21 Befund | Auto-Reviews → Entwicklertest | code-reviewer, security-reviewer | bestanden | 0:25 | alle 5 Teilaufgaben ✓; Lesefrist für Körper → Paket „Grenzen nach Lastprofil“ |
 | 2026-10-28 | #21 Befund | Entwicklertest → Abnahme | entwicklertester | bestanden | 0:15 | US-1–US-6 grün; Demo auf dc65faf |
 | 2026-10-28 | — | Detailplanung Betriebsprotokoll, Grenzen | planer | bestanden | 0:20 | I0021 (R00014, 24 Bubbles), F0056 (R00015), F0057 (R00016); Karten #24, #25 (Vorrang) |
+| 2026-10-28 | #7 | Entwicklertest → Abnahme | entwicklertester | bestanden | 0:45 | US-1–US-24 grün; Anmerkungen → #18 |
