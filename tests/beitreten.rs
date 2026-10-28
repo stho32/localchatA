@@ -457,3 +457,50 @@ async fn a2_kaputtes_json_und_falscher_content_type_ergeben_deutsches_fehler_jso
         "kein abgewiesener Körper belegt einen Namen"
     );
 }
+
+/// Status und Größe der rohen Antwort auf `POST /api/beitreten`.
+async fn beitreten_roh(basis: &str, koerper: &Value) -> (u16, String) {
+    let antwort = Absender::von("127.0.0.1")
+        .anfrage(reqwest::Method::POST, format!("{basis}api/beitreten"))
+        .json(koerper)
+        .send()
+        .await
+        .expect("Antwort");
+    let status = antwort.status().as_u16();
+    (status, antwort.text().await.expect("Inhalt"))
+}
+
+/// B0071 (Entwicklertest A4): eine ungültige Eingabe kommt nie vollständig zurück — 422 bleibt höchstens
+/// 1 KB groß, ein Vorschlag höchstens 32 Zeichen, gleich wie lang Name oder Art sind.
+#[tokio::test]
+async fn b0071_ungueltige_eingaben_jeder_laenge_kommen_nur_gekuerzt_zurueck() {
+    let instanz = wegwerf_starten();
+    let lang = |zeichen: &str, anzahl: usize| zeichen.repeat(anzahl);
+    let faelle = [
+        ("Name 2.000.000 × a", json!({"name": lang("a", 2_000_000)})),
+        ("Name 2.000.000 × _", json!({"name": lang("_", 2_000_000)})),
+        ("Name 2.000.000 × A", json!({"name": lang("A", 2_000_000)})),
+        ("Name 33 × a", json!({"name": lang("a", 33)})),
+        (
+            "Art 1.000.000 × x",
+            json!({"name": "anna", "art": lang("x", 1_000_000)}),
+        ),
+        (
+            "Art als lange Liste",
+            json!({"name": "anna", "art": vec![1; 200_000]}),
+        ),
+    ];
+
+    for (fall, koerper) in faelle {
+        let (status, text) = beitreten_roh(&instanz.adresse, &koerper).await;
+        assert_eq!(status, 422, "{fall}");
+        assert!(text.len() <= 1024, "{fall}: {} Bytes", text.len());
+        let json: Value = serde_json::from_str(&text).expect("JSON");
+        let vorschlag = json["vorschlag"].as_str().unwrap_or_default();
+        assert!(vorschlag.chars().count() <= 32, "{fall}: {vorschlag}");
+        assert!(
+            json["fehler"].as_str().is_some_and(|text| !text.is_empty()),
+            "{fall}: {json}"
+        );
+    }
+}

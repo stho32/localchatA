@@ -43,7 +43,11 @@ impl Beitrittswunsch {
             });
         };
         let name = Name::bilden(text).map_err(|fehler| Abweisung {
-            fehler: format!("Der Name {text:?} ist nicht erlaubt — {}.", fehler.regel),
+            fehler: format!(
+                "Der Name {:?} ist nicht erlaubt — {}.",
+                gekuerzt(text),
+                fehler.regel
+            ),
             regel: fehler.regel,
             vorschlag: fehler.vorschlag,
         })?;
@@ -60,7 +64,10 @@ impl Beitrittswunsch {
             Some(art) if art == "agent" => Art::Agent,
             Some(art) => {
                 return Err(Abweisung {
-                    fehler: format!("Die Art {art} gibt es nicht — mensch oder agent."),
+                    fehler: format!(
+                        "Die Art {} gibt es nicht — mensch oder agent.",
+                        gekuerzt(&art.to_string())
+                    ),
                     regel: REGEL_ART,
                     vorschlag: None,
                 });
@@ -68,6 +75,18 @@ impl Beitrittswunsch {
         };
         Ok(Beitrittswunsch { name, art })
     }
+}
+
+/// Eine abgewiesene Eingabe kommt nur mit ihren ersten 32 Zeichen zurück — sonst spiegelte die Antwort
+/// einen Körper bis zur Größengrenze (Entwicklertest A4).
+fn gekuerzt(text: &str) -> String {
+    const ANGEZEIGT: usize = 32;
+    let mut zeichen = text.chars();
+    let anfang: String = zeichen.by_ref().take(ANGEZEIGT).collect();
+    if zeichen.next().is_none() {
+        return anfang;
+    }
+    format!("{anfang}…")
 }
 
 #[cfg(test)]
@@ -157,5 +176,32 @@ mod tests {
         ] {
             assert_eq!(abweisung(koerper.clone()).regel, REGEL_FORM, "{koerper}");
         }
+    }
+
+    #[test]
+    fn lange_eingaben_stehen_im_fehler_nur_mit_den_ersten_32_zeichen() {
+        let name = abweisung(json!({"name": format!("{}B", "A".repeat(40))}));
+        let art = abweisung(json!({"name": "x1", "art": "x".repeat(100)}));
+        let genau_32 = abweisung(json!({"name": "Ä".repeat(32)}));
+
+        assert!(
+            name.fehler
+                .starts_with(&format!("Der Name \"{}…\" ist", "A".repeat(32))),
+            "{}",
+            name.fehler
+        );
+        assert!(
+            art.fehler
+                .starts_with(&format!("Die Art \"{}…", "x".repeat(31))),
+            "{}",
+            art.fehler
+        );
+        assert!(
+            genau_32
+                .fehler
+                .starts_with(&format!("Der Name \"{}\" ist", "Ä".repeat(32))),
+            "{}",
+            genau_32.fehler
+        );
     }
 }
