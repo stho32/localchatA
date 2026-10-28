@@ -1,6 +1,7 @@
 //! B0017 Verbindungen begrenzen — Angriffsmatrix des Security-Reviews (CWE-400, Slowloris), Zeilen 1–6,
 //! je Zeile ein Test über das echte Programm auf Port 0. G ist die Kopf-Zeitgrenze des Programms;
-//! sie gilt auch als Leerlaufgrenze zwischen zwei Requests derselben Verbindung.
+//! sie gilt auch als Leerlaufgrenze zwischen zwei Requests derselben Verbindung. Dazu die Flutmessung aus
+//! R00010 (Modul `koerperflut`, nur im Release-Build).
 #![cfg(unix)]
 
 mod gemeinsam;
@@ -310,4 +311,250 @@ fn zeile6_zweiter_request_nach_pause_unter_g_auf_derselben_verbindung_bleibt_200
         .expect("zweiter Request");
 
     assert_eq!(antwort_lesen(&mut leser), 200);
+}
+
+/// R00010 B0205 (Befundkarte #21, Abnahme wörtlich): „24 und 48 Schleifen dieses Körpers von 4 Herkünften für
+/// 10 s → Gesundheit von einer fünften Herkunft p90 ≤ 0,15 s.“ Nur im Release-Build:
+/// `cargo test --release --test verfuegbarkeit -- --ignored koerperflut`.
+#[cfg(target_os = "linux")]
+mod koerperflut {
+    use super::gemeinsam::{Instanz, wegwerf_starten};
+    use std::collections::BTreeMap;
+    use std::time::{Duration, Instant, SystemTime};
+
+    /// Grenze aus der Abnahme, nie verschärft.
+    const GRENZE_P90: Duration = Duration::from_millis(150);
+    /// Leerlauf-p90 darüber: der Rechner ist zu ausgelastet, der Lauf ist ungültig (nicht rot).
+    const LEERLAUF_HOECHSTENS: Duration = Duration::from_millis(50);
+    const LEERLAUF: Duration = Duration::from_secs(3);
+    const FLUT: Duration = Duration::from_secs(10);
+    const MESSBEGINN: Duration = Duration::from_secs(1);
+    const TAKT: Duration = Duration::from_millis(50);
+    const VERSUCHE: usize = 3;
+    const FLUTHERKUENFTE: [&str; 4] = ["127.0.0.1", "127.0.0.2", "127.0.0.3", "127.0.0.4"];
+    const BEOBACHTER: &str = "127.0.0.5";
+
+    /// `[0,0,…,0]` mit 1 048 575 Nullen — 2 097 151 Bytes, 1 Byte unter 2 MiB (Körper der Reproduktion).
+    fn flutkoerper() -> &'static [u8] {
+        let mut koerper = String::from("[0");
+        koerper.push_str(&",0".repeat(1_048_574));
+        koerper.push(']');
+        assert_eq!(koerper.len(), 2_097_151);
+        Box::leak(koerper.into_bytes().into_boxed_slice())
+    }
+
+    /// Ohne Verbindungs-Pool: jede Anfrage öffnet ihre eigene Verbindung.
+    fn client_von(herkunft: &str) -> reqwest::Client {
+        reqwest::Client::builder()
+            .local_address(herkunft.parse::<std::net::IpAddr>().expect("Herkunft"))
+            .pool_max_idle_per_host(0)
+            .build()
+            .expect("Client")
+    }
+
+    /// Gesundheit alle 50 ms von der fünften Herkunft, auf eigenem Thread und eigener Laufzeit, damit die
+    /// Flut-Schleifen des Tests die Messung nicht verzögern. Je Anfrage: Öffnen der Verbindung bis letztes Byte.
+    fn gesundheit_messen(
+        adresse: &str,
+        von: Instant,
+        bis: Instant,
+    ) -> std::thread::JoinHandle<Vec<Duration>> {
+        let url = format!("{adresse}api/gesundheit");
+        std::thread::spawn(move || {
+            let laufzeit = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .expect("Laufzeit");
+            laufzeit.block_on(async move {
+                let client = client_von(BEOBACHTER);
+                tokio::time::sleep_until(von.into()).await;
+                let mut takt = tokio::time::interval(TAKT);
+                takt.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+                let mut dauern = Vec::new();
+                loop {
+                    takt.tick().await;
+                    if Instant::now() >= bis {
+                        return dauern;
+                    }
+                    let beginn = Instant::now();
+                    let antwort = client.get(&url).send().await.expect("Gesundheit");
+                    assert_eq!(antwort.status().as_u16(), 200);
+                    antwort.bytes().await.expect("Inhalt der Gesundheit");
+                    dauern.push(beginn.elapsed());
+                }
+            })
+        })
+    }
+
+    async fn schleife(
+        herkunft: &'static str,
+        url: String,
+        koerper: &'static [u8],
+        bis: Instant,
+    ) -> Vec<String> {
+        let client = client_von(herkunft);
+        let mut antworten = Vec::new();
+        while Instant::now() < bis {
+            let ergebnis = client
+                .post(&url)
+                .header("Content-Type", "application/json")
+                .body(koerper)
+                .send()
+                .await;
+            antworten.push(match ergebnis {
+                Ok(antwort) => {
+                    let status = antwort.status().as_u16().to_string();
+                    let _ = antwort.bytes().await;
+                    status
+                }
+                Err(fehler) => format!("Fehler {fehler}"),
+            });
+        }
+        antworten
+    }
+
+    fn fluten(
+        instanz: &Instanz,
+        schleifen: usize,
+        koerper: &'static [u8],
+        bis: Instant,
+    ) -> BTreeMap<String, usize> {
+        let laufzeit = tokio::runtime::Builder::new_multi_thread()
+            .worker_threads(4)
+            .enable_all()
+            .build()
+            .expect("Laufzeit");
+        let url = format!("{}api/beitreten", instanz.adresse);
+        laufzeit.block_on(async move {
+            let laeufe: Vec<_> = (0..schleifen)
+                .map(|nummer| {
+                    let herkunft = FLUTHERKUENFTE[nummer % FLUTHERKUENFTE.len()];
+                    tokio::spawn(schleife(herkunft, url.clone(), koerper, bis))
+                })
+                .collect();
+            let mut antworten = BTreeMap::new();
+            for lauf in laeufe {
+                for status in lauf.await.expect("Schleife") {
+                    *antworten.entry(status).or_insert(0) += 1;
+                }
+            }
+            antworten
+        })
+    }
+
+    /// 90-%-Quantil nach dem Rang (aufgerundet).
+    fn quantil(sortiert: &[Duration], anteil: usize) -> Duration {
+        sortiert[(sortiert.len() * anteil).div_ceil(100) - 1]
+    }
+
+    fn rss_kib(instanz: &Instanz) -> u64 {
+        let status = std::fs::read_to_string(format!("/proc/{}/status", instanz.kind.id()))
+            .expect("/proc/<pid>/status");
+        status
+            .lines()
+            .find_map(|zeile| zeile.strip_prefix("VmRSS:"))
+            .and_then(|wert| wert.trim().trim_end_matches("kB").trim().parse().ok())
+            .expect("VmRSS")
+    }
+
+    struct Messung {
+        schleifen: usize,
+        versuch: usize,
+        leerlauf_p90: Duration,
+        sortiert: Vec<Duration>,
+        antworten: BTreeMap<String, usize>,
+        rss_kib: u64,
+    }
+
+    impl Messung {
+        fn p90(&self) -> Duration {
+            quantil(&self.sortiert, 90)
+        }
+
+        fn zeile(&self) -> String {
+            format!(
+                "{} Schleifen (Versuch {}): Leerlauf p90 {:?} · Gesundheit n {} min {:?} p50 {:?} p90 {:?} max {:?} · Antworten {:?} · RSS {} KiB",
+                self.schleifen,
+                self.versuch,
+                self.leerlauf_p90,
+                self.sortiert.len(),
+                self.sortiert[0],
+                quantil(&self.sortiert, 50),
+                self.p90(),
+                self.sortiert[self.sortiert.len() - 1],
+                self.antworten,
+                self.rss_kib
+            )
+        }
+    }
+
+    /// Ein gültiger Lauf: frische Instanz, 3 s Leerlauf als Kontrolle, dann Flut und Messung. Ist der Leerlauf zu
+    /// langsam, wird wiederholt; nach `VERSUCHE` ungültigen Läufen gibt es kein Urteil.
+    fn messen(schleifen: usize, koerper: &'static [u8]) -> Messung {
+        for versuch in 1..=VERSUCHE {
+            let instanz = wegwerf_starten();
+            let jetzt = Instant::now();
+            let mut leerlauf = gesundheit_messen(&instanz.adresse, jetzt, jetzt + LEERLAUF)
+                .join()
+                .expect("Leerlauf");
+            leerlauf.sort();
+            let leerlauf_p90 = quantil(&leerlauf, 90);
+            if leerlauf_p90 > LEERLAUF_HOECHSTENS {
+                println!(
+                    "{schleifen} Schleifen, Versuch {versuch}: UNGÜLTIG, Leerlauf p90 {leerlauf_p90:?}"
+                );
+                continue;
+            }
+            let start = Instant::now();
+            let ende = start + FLUT;
+            let beobachter = gesundheit_messen(&instanz.adresse, start + MESSBEGINN, ende);
+            let antworten = fluten(&instanz, schleifen, koerper, ende);
+            let mut sortiert = beobachter.join().expect("Beobachter");
+            sortiert.sort();
+            let messung = Messung {
+                schleifen,
+                versuch,
+                leerlauf_p90,
+                sortiert,
+                antworten,
+                rss_kib: rss_kib(&instanz),
+            };
+            println!("{}", messung.zeile());
+            return messung;
+        }
+        panic!(
+            "UNGÜLTIG, kein Urteil: {VERSUCHE} Läufe mit Leerlauf-p90 über {LEERLAUF_HOECHSTENS:?} — Rechner zu ausgelastet"
+        );
+    }
+
+    #[test]
+    #[ignore = "Leistungstest im Release-Build: cargo test --release --test verfuegbarkeit -- --ignored koerperflut"]
+    fn koerperflut_24_und_48_schleifen_lassen_die_gesundheit_im_p90_unter_150_ms() {
+        let koerper = flutkoerper();
+        let mut reihenfolge = [24, 48];
+        let nanos = SystemTime::now()
+            .duration_since(SystemTime::UNIX_EPOCH)
+            .expect("Uhr")
+            .subsec_nanos();
+        if nanos % 2 == 1 {
+            reihenfolge.reverse();
+        }
+        println!("Reihenfolge {reihenfolge:?}");
+
+        let messungen: Vec<Messung> = reihenfolge
+            .iter()
+            .map(|&schleifen| messen(schleifen, koerper))
+            .collect();
+
+        for messung in &messungen {
+            let nicht_413: usize = messung
+                .antworten
+                .iter()
+                .filter(|(status, _)| status.as_str() != "413")
+                .map(|(_, anzahl)| anzahl)
+                .sum();
+            assert_eq!(nicht_413, 0, "{}", messung.zeile());
+            assert!(messung.p90() <= GRENZE_P90, "{}", messung.zeile());
+        }
+    }
 }
