@@ -2,7 +2,8 @@
 //! `{channel, nachricht}`. Prüfreihenfolge (abgewiesen, nie umgeformt): Grenzschutz 403 · Sitzung 401 · Vorab-Buchung
 //! 429 · Körper zu
 //! groß 413 · kein JSON-Typ 415 · kein JSON 400 · Channel 404 · Sendekörper 422 `text`/`feld` · Textregel 422
-//! `leer`/`laenge`/`zeichen` · Restbuchung 429 · Plattenfehler 500. Der Körper wird auf der Werkbank geparst (Grenze über 16 KiB).
+//! `leer`/`laenge`/`zeichen` · Wiederholschlüssel 422 `schluessel` · Restbuchung 429 · Plattenfehler 500. Mit bekanntem
+//! `Idempotency-Key` (R00012 F0046, ADR-0034 Regel 6) → 200 mit der ursprünglichen Nachricht, ohne Satz und Ereignis. Der Körper wird auf der Werkbank geparst (Grenze über 16 KiB).
 
 use super::Zustand;
 use super::abbruch::{Abgebrochen, Grenzort, abbruch_beantworten};
@@ -11,7 +12,7 @@ use super::koerper::{Koerperfehler, Koerperort, ZU_LANGSAM, json_lesen_auf_werkb
 use super::nachrichten::NachrichtAntwort;
 use super::teilnehmer::Teilnehmer;
 use crate::gespraeche::textregel::{TEXT_HOECHSTENS_BYTES, Textfehler, text_pruefen};
-use crate::gespraeche::{Gespraech, Kennung, Nachricht, Sendefehler};
+use crate::gespraeche::{Gesendet, Gespraech, Kennung, Nachricht, Sendefehler};
 use crate::protokoll::episoden::Auftreten;
 use crate::protokoll::{Bereich, Kontext, Schluessel, Stufe};
 use crate::schreibkonto::eimer::kosten_senden;
@@ -70,6 +71,9 @@ pub async fn senden(
     if let Err(fehler) = text_pruefen(&text) {
         return text_abgewiesen(fehler);
     }
+    let Ok(schluessel) = schluessel_lesen(&kopf) else {
+        return schluessel_abgewiesen(SCHLUESSEL_FORMAT);
+    };
     let kosten = kosten_senden(text.len());
     if let Err(gebremst) =
         zustand
@@ -82,13 +86,20 @@ pub async fn senden(
     let gespraech = Gespraech::channel(&name);
     let von = teilnehmer.kennung.clone();
     let art = teilnehmer.art;
-    let ergebnis =
-        tokio::task::spawn_blocking(move || gespraeche.senden(&gespraech, &von, art, &text)).await;
+    let ergebnis = tokio::task::spawn_blocking(move || match schluessel {
+        Some(schluessel) => gespraeche.senden_einmal(&gespraech, &von, art, &text, &schluessel),
+        None => gespraeche
+            .senden(&gespraech, &von, art, &text)
+            .map(Gesendet::Neu),
+    })
+    .await;
     match ergebnis {
-        Ok(Ok(nachricht)) => {
+        Ok(Ok(Gesendet::Neu(nachricht))) => {
             vorlauf_eintragen(&zustand.protokoll, zustand.gespraeche.zeit_vorlauf_ms());
-            gesendet(&name, &nachricht)
+            gesendet(StatusCode::CREATED, &name, &nachricht)
         }
+        Ok(Ok(Gesendet::Wiederholt(nachricht))) => gesendet(StatusCode::OK, &name, &nachricht),
+        Ok(Err(Sendefehler::SchluesselAnders)) => schluessel_abgewiesen(SCHLUESSEL_ANDERS),
         Ok(Err(Sendefehler::Unbekannt)) => unbekannt(&name),
         Ok(Err(Sendefehler::Ablage { datei, grund })) => {
             nicht_gespeichert(&zustand, &name, &wer, &datei, &grund)
@@ -103,9 +114,39 @@ fn unbekannt(name: &str) -> Response {
     (StatusCode::NOT_FOUND, Json(json!({ "fehler": fehler }))).into_response()
 }
 
-fn gesendet(channel: &str, nachricht: &Nachricht) -> Response {
+fn gesendet(status: StatusCode, channel: &str, nachricht: &Nachricht) -> Response {
     let antwort = json!({ "channel": channel, "nachricht": NachrichtAntwort::aus(nachricht) });
-    (StatusCode::CREATED, Json(antwort)).into_response()
+    (status, Json(antwort)).into_response()
+}
+
+const SCHLUESSEL_FORMAT: &str =
+    "Idempotency-Key: 1 bis 64 Zeichen aus A–Z, a–z, 0–9, _ und - — zum Beispiel 7f3a-k1.";
+const SCHLUESSEL_ANDERS: &str = "Dieser Schlüssel gehört zu einer anderen Nachricht.";
+
+fn schluessel_abgewiesen(fehler: &str) -> Response {
+    (
+        StatusCode::UNPROCESSABLE_ENTITY,
+        Json(json!({ "fehler": fehler, "regel": "schluessel" })),
+    )
+        .into_response()
+}
+
+/// Der Kopf `Idempotency-Key` (ADR-0034 Regel 3.7): fehlt er, kein Schlüssel; genau einmal mit 1–64 Zeichen aus
+/// `[A-Za-z0-9_-]` → der Schlüssel; sonst (auch mehrfach) abgewiesen, nie umgeformt.
+fn schluessel_lesen(kopf: &HeaderMap) -> Result<Option<String>, ()> {
+    let mut werte = kopf.get_all("idempotency-key").iter();
+    let Some(wert) = werte.next() else {
+        return Ok(None);
+    };
+    if werte.next().is_some() {
+        return Err(());
+    }
+    let bytes = wert.as_bytes();
+    let erlaubt = |byte: &u8| byte.is_ascii_alphanumeric() || *byte == b'_' || *byte == b'-';
+    if bytes.is_empty() || bytes.len() > 64 || !bytes.iter().all(erlaubt) {
+        return Err(());
+    }
+    Ok(Some(String::from_utf8_lossy(bytes).into_owned()))
 }
 
 /// 500 mit deutschem Satz; der Schreibfehler zählt in eine Episode `ERROR senden` je Datei und Grund (R00016), ab

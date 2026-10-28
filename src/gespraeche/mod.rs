@@ -35,6 +35,7 @@ use std::sync::{Arc, Mutex, RwLock};
 use std::time::{Duration, Instant};
 use verlaufsindex::Verlauf;
 use verzeichnis::Verzeichnis;
+use wiederholung::{Pruefung, Wiederholung};
 
 /// Eine Nachricht, wie sie im Log steht; die Zeit ist zugleich ihre ID (ADR-0005).
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -61,6 +62,16 @@ pub enum Sendefehler {
     Unbekannt,
     /// Die Tagesdatei (relativ zum Ordner) nahm den Satz nicht an; nichts steht im Log oder Index.
     Ablage { datei: String, grund: String },
+    /// Der Wiederholschlüssel gehört zu einem anderen Text oder Gespräch (ADR-0034 Regel 6).
+    SchluesselAnders,
+}
+
+/// Was `senden_einmal` getan hat: neu angehängt, oder dieselbe Nachricht schon gesendet — dann mit ihrer
+/// ursprünglichen Zeit, ohne Satz und ohne Ereignis.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Gesendet {
+    Neu(Nachricht),
+    Wiederholt(Nachricht),
 }
 
 impl fmt::Display for Sendefehler {
@@ -68,6 +79,9 @@ impl fmt::Display for Sendefehler {
         match self {
             Sendefehler::Unbekannt => write!(f, "Gespräch unbekannt"),
             Sendefehler::Ablage { datei, grund } => write!(f, "{datei} nicht geschrieben: {grund}"),
+            Sendefehler::SchluesselAnders => {
+                write!(f, "Schlüssel gehört zu einer anderen Nachricht")
+            }
         }
     }
 }
@@ -81,14 +95,20 @@ pub struct Gespraeche {
     ablage: Arc<dyn Logablage>,
     uhr: Arc<dyn Uhr>,
     verzeichnis: RwLock<Verzeichnis>,
-    /// Schreibsperre über alle Gespräche (ADR-0035 Regel 1); hält die zuletzt vergebene Zeit.
-    schreiben: Mutex<Option<Zeit>>,
+    /// Schreibsperre über alle Gespräche (ADR-0035 Regel 1); hält die zuletzt vergebene Zeit und die
+    /// Wiederholschlüssel (ADR-0034 Regel 6).
+    schreiben: Mutex<Schreibstand>,
     /// Die zuletzt vergebene Zeit in ms seit 1970 — gesetzt unter `schreiben`, gelesen ohne sie (ADR-0035 Regel 4).
     letzte_ms: AtomicI64,
     defekte: Vec<Ladedefekt>,
     ladezeit: Duration,
     veroeffentlichen: ChannelVeroeffentlichen,
     nachricht_veroeffentlichen: NachrichtVeroeffentlichen,
+}
+
+struct Schreibstand {
+    letzte: Option<Zeit>,
+    wiederholung: Wiederholung,
 }
 
 /// Veröffentlicht eine angehängte Nachricht (im Start: auf den Bus, ADR-0028); gerufen unter der Schreibsperre.
@@ -206,7 +226,10 @@ impl Gespraeche {
                     .juengste
                     .map_or(i64::MIN, |zeit| zeit.timestamp_millis()),
             ),
-            schreiben: Mutex::new(geladen.juengste),
+            schreiben: Mutex::new(Schreibstand {
+                letzte: geladen.juengste,
+                wiederholung: Wiederholung::default(),
+            }),
             defekte: geladen.defekte,
             ladezeit: beginn.elapsed(),
             veroeffentlichen: Arc::new(|_: &ChannelWechsel| {}),
@@ -226,25 +249,61 @@ impl Gespraeche {
         art: Art,
         text: &str,
     ) -> Result<Nachricht, Sendefehler> {
+        match self.senden_mit(gespraech, von, art, text, None)? {
+            Gesendet::Neu(nachricht) | Gesendet::Wiederholt(nachricht) => Ok(nachricht),
+        }
+    }
+
+    /// Wie `senden`, mit Wiederholschlüssel (ADR-0034 Regel 6): unter der Schreibsperre geprüft — bekannt mit
+    /// gleichem Text und Gespräch → die ursprüngliche Nachricht, nichts angehängt, nichts veröffentlicht; bekannt mit
+    /// anderem → `SchluesselAnders`; neu → senden und erst nach dem Anhängen merken.
+    pub fn senden_einmal(
+        &self,
+        gespraech: &Gespraech,
+        von: &Kennung,
+        art: Art,
+        text: &str,
+        schluessel: &str,
+    ) -> Result<Gesendet, Sendefehler> {
+        self.senden_mit(gespraech, von, art, text, Some(schluessel))
+    }
+
+    fn senden_mit(
+        &self,
+        gespraech: &Gespraech,
+        von: &Kennung,
+        art: Art,
+        text: &str,
+        schluessel: Option<&str>,
+    ) -> Result<Gesendet, Sendefehler> {
         let verlauf = lesend(&self.verzeichnis)
             .verlaeufe
             .get(gespraech)
             .cloned()
             .ok_or(Sendefehler::Unbekannt)?;
         let mut verlauf = sperren(&verlauf);
-        let mut letzte = sperren(&self.schreiben);
-        let zeit = crate::uhr::naechste_zeit(self.uhr.jetzt(), *letzte);
-        *letzte = Some(zeit);
+        let mut stand = sperren(&self.schreiben);
+        let jetzt = self.uhr.jetzt();
+        let pruefsumme = wiederholung::pruefsumme(text);
+        let pruefung = schluessel.map(|schluessel| {
+            stand
+                .wiederholung
+                .pruefen(von, schluessel, gespraech, pruefsumme, jetzt)
+        });
+        match pruefung {
+            Some(Pruefung::Anders) => return Err(Sendefehler::SchluesselAnders),
+            Some(Pruefung::Wiederholt { zeit }) => {
+                return Ok(Gesendet::Wiederholt(
+                    nachricht_bilden(zeit, von, art, text).0,
+                ));
+            }
+            Some(Pruefung::Neu) | None => {}
+        }
+        let zeit = crate::uhr::naechste_zeit(jetzt, stand.letzte);
+        stand.letzte = Some(zeit);
         self.letzte_ms
             .store(zeit.timestamp_millis(), Ordering::Relaxed);
-        let mut nachricht = Nachricht {
-            zeit,
-            von: von.clone(),
-            art: Some(art),
-            text: text.to_string(),
-        };
-        let satz = logformat::satz(&nachricht);
-        nachricht.text = logformat::text(&satz);
+        let (nachricht, satz) = nachricht_bilden(zeit, von, art, text);
         let tag = nachricht.zeit.date_naive();
         let angehaengt = self
             .ablage
@@ -254,13 +313,18 @@ impl Gespraeche {
                 grund: fehler.to_string(),
             })?;
         verlauf.anhaengen(tag, &satz, angehaengt.zeilenende_ergaenzt);
+        if let Some(schluessel) = schluessel {
+            stand
+                .wiederholung
+                .merken(von, schluessel, gespraech, pruefsumme, zeit, jetzt);
+        }
         (self.nachricht_veroeffentlichen)(gespraech, &nachricht);
-        Ok(nachricht)
+        Ok(Gesendet::Neu(nachricht))
     }
 
     /// Die jüngste Nachrichtenzeit im Ordner (als Zeitpunkt); an ihr setzt die nächste vergebene Zeit an.
     pub fn letzte_zeit(&self) -> Option<Zeit> {
-        *sperren(&self.schreiben)
+        sperren(&self.schreiben).letzte
     }
 
     /// Wie weit die zuletzt vergebene Zeit vor der Uhr liegt, in ms, 0 ohne Vorlauf — ohne die Schreibsperre, damit
@@ -509,6 +573,19 @@ fn lesend<T>(sperre: &RwLock<T>) -> std::sync::RwLockReadGuard<'_, T> {
         .unwrap_or_else(|vergiftet| vergiftet.into_inner())
 }
 
+/// Die Nachricht mit ihrem Satz; der Text so, wie die Verlauf-API ihn später liefert (ADR-0034 Regel 4).
+fn nachricht_bilden(zeit: Zeit, von: &Kennung, art: Art, text: &str) -> (Nachricht, String) {
+    let mut nachricht = Nachricht {
+        zeit,
+        von: von.clone(),
+        art: Some(art),
+        text: text.to_string(),
+    };
+    let satz = logformat::satz(&nachricht);
+    nachricht.text = logformat::text(&satz);
+    (nachricht, satz)
+}
+
 fn schreibend<T>(sperre: &RwLock<T>) -> std::sync::RwLockWriteGuard<'_, T> {
     sperre
         .write()
@@ -611,6 +688,69 @@ mod tests {
 
     fn tag(text: &str) -> NaiveDate {
         NaiveDate::parse_from_str(text, "%Y-%m-%d").expect("Testtag")
+    }
+
+    /// ADR-0034 „Erster Unit-Test“ (R00012 B0238): `k1` zweimal mit gleichem Text → einmal angehängt, die zweite
+    /// `Wiederholt` mit derselben Zeit und dem Text wie im Verlauf, ein Rückruf; `k1` mit anderem Text →
+    /// `SchluesselAnders`; derselbe `k1` von einer anderen Kennung → neu; nach 10 min + 1 ms → neu.
+    #[test]
+    fn ein_wiederholschluessel_haengt_einmal_an_und_veroeffentlicht_einmal() {
+        let (gespraeche, ablage, uhr) = im_speicher("2026-10-27T14:07:12.345+01:00");
+        // 10 min + 1 ms nach dem Merken (14:07:12.345) ist 14:17:12.346.
+        let rueckrufe: Arc<Mutex<Vec<String>>> = Arc::default();
+        let gespraeche = gespraeche.mit_nachricht_veroeffentlichen({
+            let rueckrufe = Arc::clone(&rueckrufe);
+            Arc::new(move |_: &Gespraech, nachricht: &Nachricht| {
+                sperren(&rueckrufe).push(nachricht.text.clone());
+            })
+        });
+        let allgemein = Gespraech::channel("allgemein");
+        let beta = Kennung::bilden("beta@127.0.0.1").expect("Kennung");
+        let senden = |von: &Kennung, text: &str| {
+            gespraeche.senden_einmal(&allgemein, von, Art::Agent, text, "k1")
+        };
+
+        let erste = senden(&beta, "Hallo\r\n\n").expect("erste");
+        uhr.stellen(zeit("2026-10-27T14:07:12.350+01:00"));
+        let zweite = senden(&beta, "Hallo\r\n\n").expect("zweite");
+        let andere = senden(&beta, "Hallo!");
+        let fremd = senden(&claude(), "Hallo\r\n\n").expect("fremd");
+        uhr.stellen(zeit("2026-10-27T14:17:12.346+01:00"));
+        let spaeter = senden(&beta, "Hallo\r\n\n").expect("später");
+
+        let Gesendet::Neu(ursprung) = erste else {
+            panic!("erste nicht neu: {erste:?}")
+        };
+        assert_eq!(ursprung.text, "Hallo");
+        assert_eq!(zweite, Gesendet::Wiederholt(ursprung.clone()));
+        assert_eq!(andere, Err(Sendefehler::SchluesselAnders));
+        assert!(matches!(fremd, Gesendet::Neu(_)), "{fremd:?}");
+        assert!(matches!(spaeter, Gesendet::Neu(_)), "{spaeter:?}");
+        let inhalt = ablage.inhalt(&allgemein, tag("2026-10-27")).expect("Tag");
+        assert_eq!(inhalt.matches("  Hallo\n").count(), 3, "{inhalt}");
+        assert_eq!(sperren(&rueckrufe).len(), 3);
+    }
+
+    /// Scheitert das Anhängen, wird der Schlüssel nicht gemerkt: die Wiederholung ist ein neuer Versuch und hängt an.
+    #[test]
+    fn ein_gescheitertes_anhaengen_merkt_den_schluessel_nicht() {
+        let (gespraeche, ablage, _) = im_speicher("2026-10-27T14:07:12.345+01:00");
+        let allgemein = Gespraech::channel("allgemein");
+        ablage.fehler_nach(3);
+
+        let gescheitert =
+            gespraeche.senden_einmal(&allgemein, &claude(), Art::Agent, "Hallo", "k1");
+        let wiederholt = gespraeche
+            .senden_einmal(&allgemein, &claude(), Art::Agent, "Hallo", "k1")
+            .expect("zweiter Versuch");
+
+        assert!(
+            matches!(gescheitert, Err(Sendefehler::Ablage { .. })),
+            "{gescheitert:?}"
+        );
+        assert!(matches!(wiederholt, Gesendet::Neu(_)), "{wiederholt:?}");
+        let inhalt = ablage.inhalt(&allgemein, tag("2026-10-27")).expect("Tag");
+        assert_eq!(inhalt.matches("  Hallo\n").count(), 1, "{inhalt}");
     }
 
     #[test]
