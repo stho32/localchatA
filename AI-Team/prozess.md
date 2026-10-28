@@ -6,7 +6,7 @@ Je Spalte des Boards: Art (`Team` bearbeitet der Director mit der Rolle, `Manuel
 |---|---|---|---|---|
 | Backlog | Manuell | — | — | Sammlung; der Betreiber gibt frei, indem er Karten nach „Architektur“ legt |
 | Architektur | Team | architekt | — | prüfen, ob die Karte eine Technikfrage aufwirft; wenn ja entscheiden und als ADR festhalten, sonst sofort weiter; die erste Karte bringt die Technikwahl |
-| Bereit | Team | planer | — | Interaction bis Bubble verfeinern, Anforderung schreiben |
+| Detailplanung | Team | planer | — | Interaction bis Bubble verfeinern, Anforderung schreiben |
 | Entwicklung | Team | entwickler | Entwicklung | bauen, Test zuerst, Gate |
 | Code-Review | Team | code-reviewer | — | Korrektheit gegen Kriterien, Tests, Wartbarkeit, Leistung je Nachricht |
 | UX-Review | Team | ux-reviewer | — | gegen Designsystem, Tastatur, Barrierefreiheit im Browser; Karten ohne Oberfläche gehen direkt weiter |
@@ -18,6 +18,6 @@ Je Spalte des Boards: Art (`Team` bearbeitet der Director mit der Rolle, `Manuel
 
 Schleifen an den Menschen: Ohne Mensch nicht lösbar
 
-Fluss (Betreiber 2026-10-28, Trommel-Puffer-Seil): Der entwickler ist der Engpass. In „Entwicklung“ liegt höchstens eine Karte. Architektur und Bereit laufen voraus und halten einen Puffer von 2 Karten, die „Bereit“ bestanden haben. Nachgezogen wird, sobald der entwickler eine Karte aus dem Puffer nimmt. In den Puffer kommen nur Karten, deren `Braucht` mindestens in Entwicklung ist. WBS-Status der Bubbles, Ist-Zeiten und Logbuch schreiben Director bzw. planer, nicht der entwickler.
+Fluss (Betreiber 2026-10-28, Trommel-Puffer-Seil): Der entwickler ist der Engpass. In „Entwicklung“ liegt höchstens eine Karte. Architektur und Detailplanung laufen voraus und halten einen Puffer von 2 Karten, die „Detailplanung“ bestanden haben. Nachgezogen wird, sobald der entwickler eine Karte aus dem Puffer nimmt. In den Puffer kommen nur Karten, deren `Braucht` mindestens in Entwicklung ist. WBS-Status der Bubbles, Ist-Zeiten und Logbuch schreiben Director bzw. planer, nicht der entwickler.
 
 Vorlauf im eigenen Worktree (Betreiber 2026-10-28): architekt und planer arbeiten für Karten im Puffer in eigenen Worktrees (`/home/shoff/Projekte/localchatA-vorlauf` für die erste, `/home/shoff/Projekte/localchatA-vorlauf-<nr>` für weitere Karten im Puffer), je Karte auf einem kurzen Zweig `vorlauf/<nr>` ab dem aktuellen main, mit eigenem `CARGO_TARGET_DIR` für Proben. Nach jeder bestandenen Phase setzt der Director den Zweig per Rebase auf main, übernimmt ihn per Fast-Forward und löscht ihn. Abweichung von „alles direkt auf main“: kurzlebig und nur für Dokumente (ADRs, Architektur, WBS, Anforderungen). Der entwickler arbeitet weiter im Projektordner auf main.
