@@ -200,13 +200,15 @@ impl Gespraeche {
     }
 
     /// Legt einen Channel an, unter der Sperre des Verzeichnisses (ADR-0021 Regel 5): Namensregel → vorhanden →
-    /// Ordner → Einstellungen → eintragen, `stand` + 1 → veröffentlichen, noch unter der Sperre (ADR-0023 Regel 2).
+    /// Grenzen (gesamt, je Herkunft) → Ordner → Einstellungen → eintragen, `stand` + 1 → veröffentlichen, noch unter der Sperre (ADR-0023 Regel 2).
     pub fn channel_anlegen(&self, name: &str, von: &Kennung) -> Result<Channel, Anlegefehler> {
         let name = Channelname::bilden(name).map_err(Anlegefehler::Regel)?;
         let mut verzeichnis = schreibend(&self.verzeichnis);
         if let Some(vorhanden) = verzeichnis.channels.get(&name) {
             return Err(Anlegefehler::Vorhanden(vorhanden.clone()));
         }
+        verzeichnis::grenze_pruefen(verzeichnis.channels.values(), von.herkunft())
+            .map_err(Anlegefehler::Grenze)?;
         let gespraech = Gespraech::channel(name.als_text());
         let channel = Channel {
             name,
@@ -858,6 +860,98 @@ mod tests {
                 .map(|channel| channel.name.to_string())
                 .collect::<Vec<_>>(),
             vec!["a", "b", "c"]
+        );
+    }
+
+    fn von(herkunft: &str) -> Kennung {
+        Kennung::bilden(&format!("a@{herkunft}")).expect("Kennung")
+    }
+
+    /// Legt `anzahl` Channels `<vorsilbe><n>` von `herkunft` an; jeder muss gelingen.
+    fn viele_anlegen(gespraeche: &Gespraeche, herkunft: &str, anzahl: usize, vorsilbe: &str) {
+        for nummer in 0..anzahl {
+            gespraeche
+                .channel_anlegen(&format!("{vorsilbe}{nummer}"), &von(herkunft))
+                .unwrap_or_else(|fehler| panic!("{vorsilbe}{nummer} von {herkunft}: {fehler:?}"));
+        }
+    }
+
+    const HERKUNFT_32: Anlegefehler = Anlegefehler::Grenze(Grenze {
+        art: Grenzart::Herkunft,
+        hoechstens: 32,
+    });
+    const GESAMT_256: Anlegefehler = Anlegefehler::Grenze(Grenze {
+        art: Grenzart::Gesamt,
+        hoechstens: 256,
+    });
+
+    #[test]
+    fn je_herkunft_gehen_32_die_33_nicht_auch_nach_erneutem_laden() {
+        let ablage = Arc::new(Speicherablage::neu());
+        let uhr = Arc::new(GestellteUhr::neu(zeit("2026-10-28T10:15:00.123+01:00")));
+        let gespraeche = Gespraeche::laden(ablage.clone(), uhr.clone()).expect("geladen");
+        viele_anlegen(&gespraeche, "10.0.0.1", 32, "c");
+        let geschrieben = ablage.schreibvorgaenge();
+
+        let dreiunddreissigste = gespraeche.channel_anlegen("c32", &von("10.0.0.1"));
+
+        assert_eq!(dreiunddreissigste, Err(HERKUNFT_32));
+        assert_eq!(ablage.schreibvorgaenge(), geschrieben);
+        assert_eq!(gespraeche.channels().stand, 32);
+        assert!(gespraeche.channel_anlegen("d0", &von("10.0.0.2")).is_ok());
+        let neu_geladen = Gespraeche::laden(ablage, uhr).expect("neu geladen");
+        assert_eq!(
+            neu_geladen.channel_anlegen("c32", &von("10.0.0.1")),
+            Err(HERKUNFT_32)
+        );
+    }
+
+    #[test]
+    fn gesamt_gehen_256_der_257_nicht_ein_vorhandener_name_bleibt_vorhanden() {
+        let (gespraeche, _) = leer_im_speicher("2026-10-28T10:15:00.123+01:00");
+        for nummer in 1..=8 {
+            viele_anlegen(
+                &gespraeche,
+                &format!("10.0.0.{nummer}"),
+                32,
+                &format!("h{nummer}-"),
+            );
+        }
+
+        let zweihundertsiebenundfuenfzigste = gespraeche.channel_anlegen("neu", &von("10.0.0.9"));
+        let vorhanden = gespraeche.channel_anlegen("h1-0", &von("10.0.0.9"));
+
+        assert_eq!(zweihundertsiebenundfuenfzigste, Err(GESAMT_256));
+        assert!(
+            matches!(vorhanden, Err(Anlegefehler::Vorhanden(_))),
+            "{vorhanden:?}"
+        );
+        assert_eq!(gespraeche.channels().liste.len(), 256);
+    }
+
+    #[test]
+    fn channels_ohne_anleger_zaehlen_nur_gesamt() {
+        let ablage = Arc::new(Speicherablage::neu());
+        for nummer in 0..10 {
+            ablage.gespraech_anlegen(&Gespraech::channel(&format!("hand{nummer}")));
+        }
+        let uhr = Arc::new(GestellteUhr::neu(zeit("2026-10-28T10:15:00.123+01:00")));
+        let gespraeche = Gespraeche::laden(ablage, uhr).expect("geladen");
+
+        viele_anlegen(&gespraeche, "10.0.0.1", 32, "c");
+        for nummer in 2..=7 {
+            viele_anlegen(
+                &gespraeche,
+                &format!("10.0.0.{nummer}"),
+                32,
+                &format!("h{nummer}-"),
+            );
+        }
+        viele_anlegen(&gespraeche, "10.0.0.8", 22, "h8-");
+
+        assert_eq!(
+            gespraeche.channel_anlegen("zu-viel", &von("10.0.0.9")),
+            Err(GESAMT_256)
         );
     }
 }

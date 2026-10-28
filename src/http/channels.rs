@@ -1,5 +1,6 @@
 //! Channels beantworten (B0121, B0122; ADR-0021 Regeln 1, 2, 7): `POST /api/channels {name}` mit Sitzung →
-//! 201 `{channel}` | 409 `{fehler, channel}` | 422 `{fehler, regel, vorschlag?}`; `GET /api/channels` → 200
+//! 201 `{channel}` | 409 `{fehler, channel}` | 422 `{fehler, regel, vorschlag?}` | 429 `{fehler, grenze,
+//! hoechstens}`; `GET /api/channels` → 200
 //! `{stand, liste}` nach Name. Ohne Sitzung 401 (Extraktor `Teilnehmer`), fremder `Origin` 403 (Grenzschutz),
 //! ohne JSON 415, kaputtes JSON 400, zu großer Körper 413. Die Arbeit am Verzeichnis läuft über `spawn_blocking`.
 
@@ -7,7 +8,7 @@ use super::Zustand;
 use super::koerper::{Koerperfehler, json_lesen};
 use super::teilnehmer::Teilnehmer;
 use super::teilnehmerliste::zeit_als_text;
-use crate::gespraeche::{Anlegefehler, Channel, ChannelStand};
+use crate::gespraeche::{Anlegefehler, Channel, ChannelStand, Grenzart, Grenze};
 use crate::name::{NAMENSREGEL, Namensfehler, RESERVIERT};
 use axum::Json;
 use axum::body::Body;
@@ -104,8 +105,26 @@ fn anlegefehler(fehler: Anlegefehler) -> Response {
                 .into_response()
         }
         Anlegefehler::Regel(fehler) => regelverstoss(&fehler),
+        Anlegefehler::Grenze(grenze) => grenze_erreicht(grenze),
         Anlegefehler::Ablage(grund) => ablagefehler(&grund),
     }
+}
+
+/// 429 mit Art und Wert der Grenze; ein Ausweg nur von Hand — es gibt kein Löschen (ADR-0021).
+fn grenze_erreicht(grenze: Grenze) -> Response {
+    let (art, wessen) = match grenze.art {
+        Grenzart::Gesamt => ("gesamt", "insgesamt"),
+        Grenzart::Herkunft => ("herkunft", "je Rechner"),
+    };
+    let text = format!(
+        "Zu viele Channels: höchstens {} {wessen} — vorhandene Channels nutzen.",
+        grenze.hoechstens
+    );
+    (
+        StatusCode::TOO_MANY_REQUESTS,
+        Json(json!({ "fehler": text, "grenze": art, "hoechstens": grenze.hoechstens })),
+    )
+        .into_response()
 }
 
 fn regelverstoss(fehler: &Namensfehler) -> Response {

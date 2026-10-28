@@ -147,3 +147,4 @@ Nie vom User erfragen.
 | 2026-10-28 | R00006 Channel anlegen | B0125 Testhilfe Stände je Thema | Standard | 0,4h | 0,05h | 0,05h | autonom |
 | 2026-10-28 | R00006 Channel anlegen | B0124 Channels im Strom senden | unklar | 2-4h | 0,35h | 0,35h | autonom |
 | 2026-10-28 | R00006 Channel anlegen | B0126 Grenzen prüfen | Standard | 0,4h | 0,1h | 0,1h | autonom |
+| 2026-10-28 | R00006 Channel anlegen | B0127 Grenzen im Anlegen und 429 | Standard | 0,4h | 0,2h | 0,2h | autonom |

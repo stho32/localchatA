@@ -43,6 +43,8 @@ pub enum Anlegefehler {
     Vorhanden(Channel),
     /// Der Name verletzt die Namensregel oder ist reserviert.
     Regel(Namensfehler),
+    /// Eine Grenze ist erreicht; nichts wurde angelegt.
+    Grenze(Grenze),
     /// Die Ablage ließ sich nicht schreiben; der Text nennt Ort und Grund.
     Ablage(String),
 }
@@ -66,14 +68,10 @@ pub struct Grenze {
 }
 
 /// Frei oder die erreichte Grenze — zuerst gesamt, dann je Herkunft; Channels ohne bekannten Anleger zählen
-/// nur gesamt (ADR-0021 Regeln 4, 5).
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "Brücke bis B0127: das Anlegen prüft die Grenzen")
-)]
+/// nur gesamt (ADR-0021 Regeln 4, 5); ohne Herkunft (Kennung ohne Adresse) gilt nur die Gesamtgrenze.
 pub(super) fn grenze_pruefen<'a>(
     channels: impl ExactSizeIterator<Item = &'a Channel>,
-    herkunft: IpAddr,
+    herkunft: Option<IpAddr>,
 ) -> Result<(), Grenze> {
     if channels.len() >= GESAMT {
         return Err(Grenze {
@@ -83,7 +81,7 @@ pub(super) fn grenze_pruefen<'a>(
     }
     let von_dieser_herkunft = channels
         .filter_map(|channel| channel.angelegt_von.as_ref())
-        .filter(|anleger| anleger.herkunft() == Some(herkunft))
+        .filter(|anleger| herkunft.is_some() && anleger.herkunft() == herkunft)
         .count();
     if von_dieser_herkunft >= JE_HERKUNFT {
         return Err(Grenze {
@@ -137,7 +135,7 @@ mod tests {
     }
 
     fn pruefen(channels: &[Channel], herkunft: &str) -> Result<(), Grenze> {
-        grenze_pruefen(channels.iter(), herkunft.parse().expect("IP"))
+        grenze_pruefen(channels.iter(), Some(herkunft.parse().expect("IP")))
     }
 
     const HERKUNFT: Grenze = Grenze {
@@ -188,5 +186,6 @@ mod tests {
         channels.extend(von("10.0.0.1", 31, "c"));
 
         assert_eq!(pruefen(&channels, "10.0.0.1"), Ok(()));
+        assert_eq!(grenze_pruefen(channels.iter(), None), Ok(()));
     }
 }
