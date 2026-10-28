@@ -130,3 +130,6 @@ Eine Zeile je Auftrag an eine Rolle und je Retrospektive.
 | 2026-10-28 | #12 | Entwicklung → Auto-Reviews | entwickler | bestanden | 0:47 | I0018 grün (30 Commits), Gate 778/0 und E2E 145/209 nachgefahren; 5 Reviews parallel |
 | 2026-10-28 | #8 | Detailplanung → Entwicklung | entwickler | läuft | — | I0009 Nachricht senden (R00011, R00016), 33 Bubbles |
 | 2026-10-28 | #24 | Auto-Reviews → Entwicklertest | code-, observability-, rechtschreib-reviewer | bestanden | 0:35 | enge Wiederholung: alle Muss geschlossen; A8 (Verdrahtung online/offline) → #26 |
+| 2026-10-28 | #24 | Entwicklertest → Abnahme | entwicklertester | bestanden | 0:06 | US-1–US-17 bestanden; Demo d9c9755 |
+| 2026-10-28 | #24 | Retrospektive | director | — | — | Arbeit gegen Nacharbeit: erste Entwicklung 1,25 h (24 Bubbles), Nacharbeit 0,30 h (8 Bubbles) — Ursache der Nacharbeit: Fertig-Kriterien ohne eigenen Test und ein Test, der am Folgetag statt am selben Tag prüfte (Vorschlag rollen/entwickler/ offen) |
+| 2026-10-28 | #12 | Auto-Reviews | ux-, rechtschreib-reviewer | befund | — | Muss: Bestätigungssatz/Sperrhinweis für Bildschirmleser stumm; Pluralformen „entfallen sofort 1 Tag“, „1 Tagesdateien mit 1 Nachrichten“ (auch R00008); security und observability bestanden |
