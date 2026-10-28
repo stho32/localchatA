@@ -1,7 +1,7 @@
 // Unit-Tests der Namensregel in der Oberfläche (R00003 F0010, node --test) — Spiegel von ADR-0013.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { pruefen } from '../../web/namensregel.js';
+import { AKZENTE, pruefen } from '../../web/namensregel.js';
 
 test('gültige Namen haben keinen Hinweis und keinen Vorschlag', () => {
   for (const name of ['a', 'claude-2', 'a--b', 'x'.repeat(32)]) {
@@ -41,4 +41,47 @@ test('der Hinweis nennt die Regel mit dem Wortlaut des Servers (NAMENSREGEL in s
   const regelDesServers = /pub const NAMENSREGEL: &str =\s*"([^"]+)";/.exec(quelle)[1];
 
   assert.equal(pruefen('Jörg').hinweis, `Erlaubt sind ${regelDesServers}.`);
+});
+
+// R00006 B0138: Akzente im Vorschlag mit derselben Tabelle wie am Server, für Teilnehmer- und Channelnamen.
+test('Akzente werden im Vorschlag zum Grundbuchstaben (Teilnehmer und Channel)', () => {
+  const faelle = [
+    ['Allgemein', 'allgemein'], ['Prüfung', 'pruefung'], ['José', 'jose'], ['Café Crème', 'cafe-creme'],
+    ['Ñandú', 'nandu'], ['Łódź', 'lodz'], ['Ærø', 'aero'], ['Straße', 'strasse'], ['Œuvre', 'oeuvre'],
+    ['İstanbul', 'istanbul'], ['日本', ''],
+  ];
+  for (const art of ['teilnehmer', 'channel']) {
+    for (const [eingabe, vorschlag] of faelle) {
+      assert.equal(pruefen(eingabe, art).vorschlag, vorschlag, `${art}: ${eingabe}`);
+    }
+  }
+});
+
+test('die Akzenttabelle ist dieselbe wie am Server (AKZENTE in src/name.rs)', async () => {
+  const { readFile } = await import('node:fs/promises');
+  const quelle = await readFile(new URL('../../src/name.rs', import.meta.url), 'utf8');
+  const block = /pub const AKZENTE: &\[\(&str, &str\)\] = &\[([\s\S]*?)\];/.exec(quelle)[1];
+  const tabelleDesServers = [...block.matchAll(/\("([^"]+)", "([a-z]+)"\)/g)].map((treffer) => [treffer[1], treffer[2]]);
+
+  assert.ok(tabelleDesServers.length > 20, `${tabelleDesServers.length} Zeilen gelesen`);
+  assert.deepEqual(AKZENTE, tabelleDesServers);
+});
+
+test('Channelnamen: reservierte Gerätenamen ohne Vorschlag, ist die Umformung reserviert, keiner', () => {
+  for (const name of ['con', 'prn', 'aux', 'nul', 'com0', 'com9', 'lpt0', 'lpt9']) {
+    const ergebnis = pruefen(name, 'channel');
+    assert.equal(ergebnis.gueltig, false, name);
+    assert.match(ergebnis.hinweis, /Gerätename/, name);
+    assert.equal(ergebnis.vorschlag, '', name);
+  }
+  assert.equal(pruefen('CON', 'channel').vorschlag, '');
+  assert.equal(pruefen('Com10', 'channel').vorschlag, 'com10');
+  for (const name of ['com10', 'console', 'lpt', 'a-1']) {
+    assert.equal(pruefen(name, 'channel').gueltig, true, name);
+  }
+});
+
+test('für Teilnehmer gilt die Regel ohne Gerätenamen — wie am Server', () => {
+  assert.equal(pruefen('con').gueltig, true);
+  assert.equal(pruefen('con', 'teilnehmer').gueltig, true);
 });
