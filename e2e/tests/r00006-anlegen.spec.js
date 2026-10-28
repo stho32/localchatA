@@ -212,9 +212,10 @@ for (const thema of ['light', 'dark']) {
     await namensfeld(a.page).press('Enter');
     await expect(fehlerzeile(a.page)).toBeVisible();
 
-    await a.page.keyboard.press('Tab');
-    await a.page.keyboard.press('Tab');
-    await a.page.keyboard.press('Tab');
+    // Name → Beschreibung (seit R00007) → „… übernehmen“ → Abbrechen → Channel anlegen
+    for (let schritt = 0; schritt < 4; schritt += 1) {
+      await a.page.keyboard.press('Tab');
+    }
     const fokus = await a.page.evaluate(fokusImBrowser);
     const fehlerKontrast = await fehlerzeile(a.page).locator('span').first().evaluate((element) => {
       const anteile = (farbe) => farbe.match(/\d+(\.\d+)?/g).slice(0, 3).map(Number);

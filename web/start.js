@@ -41,7 +41,9 @@ function zeigen(zustand, nachEingabe = false) {
 function hauptansichtZeigen(teilnehmer, nachEingabe) {
   const ansicht = hauptansicht.zeichnen(wurzel, teilnehmer, {
     kennungFokussieren: nachEingabe,
-    channelAnlegen: (name) => rufen('/api/channels', { koerper: { name }, token: speicher.getItem(sitzung.SITZUNG) }),
+    channelAnlegen: (name, beschreibung) => rufen('/api/channels', {
+      koerper: { name, beschreibung }, token: speicher.getItem(sitzung.SITZUNG),
+    }),
     verlaufAbrufen: (name, cursor, signal) => verlaufAbrufen(name, cursor, { token: speicher.getItem(sitzung.SITZUNG), signal }),
   });
   let liste = teilnehmerliste.LEER;

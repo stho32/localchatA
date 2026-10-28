@@ -3,7 +3,7 @@
 // Teilnehmer (ADR-0024 Regel 1). Der Hinweis auf eine unterbrochene
 // Verbindung steht in Fehlergestalt (⚠ und Wort, kd-danger) unter der Kopfzeile über die ganze Breite. `Strg .` und der Schalter
 // „Teilnehmer“ blenden die Liste ein und aus (1-tastatur.md). `+` und `Strg Alt N` öffnen „Channel anlegen“; die
-// Statuszeile meldet den angelegten Channel (ADR-0024 Regeln 4, 5). optionen.channelAnlegen: async name → Antwort.
+// Statuszeile meldet den angelegten Channel (ADR-0024 Regeln 4, 5). optionen.channelAnlegen: async (name, beschreibung) → Antwort.
 // Die Auswahl folgt allein Adresse und Channel-Liste (ADR-0027): Start, hashchange und jede neue Liste leiten sie
 // neu ab — Seitenleiste, Kopfzeile und Mitte zeigen sie.
 import * as kopfzeile from './kopfzeile.js';

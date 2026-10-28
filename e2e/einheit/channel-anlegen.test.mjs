@@ -70,3 +70,9 @@ test('Server weg → „Nicht angelegt — Verbindung prüfen.“; andere Status
     art: 'fehler', text: 'Nicht angelegt (Status 502).', vorschlag: '',
   });
 });
+
+test('422 mit regel beschreibung betrifft das Feld Beschreibung (R00007 F0026)', () => {
+  const gedeutet = anlegeAntwort({ serverWeg: false, status: 422, daten: { fehler: 'Ein Satz aus 1 bis 200 Zeichen.', regel: 'beschreibung' } });
+
+  assert.deepEqual(gedeutet, { art: 'beschreibung', text: 'Ein Satz aus 1 bis 200 Zeichen.', vorschlag: '' });
+});

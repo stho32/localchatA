@@ -104,6 +104,7 @@ body { background: var(--kd-bg); color: var(--kd-ink); font-family: var(--font-s
 .lc-dialog-formular { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--kd-space-8); }
 .lc-dialog-titel { margin: 0 0 var(--kd-space-8); font-size: 14px; line-height: 20px; font-weight: 600; }
 .lc-dialog .lc-feld { width: 100%; }
+.lc-dialog .lc-feld-text { font-family: var(--font-sans); }
 .lc-dialog .lc-meldung[hidden] { display: none; }
 .lc-dialog .lc-meldung > span:first-child { overflow-wrap: anywhere; }
 .lc-dialog-schalter { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: var(--kd-space-8); margin-top: var(--kd-space-8); }

@@ -1,9 +1,10 @@
 // Channel im Browser anlegen (F0025, ADR-0024 Regeln 4, 5, 7): `+` oder `Strg Alt N` öffnet den modalen Dialog
 // „Channel anlegen“; Enter legt an. 201 → Dialog zu, Statuszeile, Fokus zurück zum Auslöser; jeder Fehler bleibt
-// im offenen Dialog (⚠ in kd-danger, aria-invalid), die Eingabe bleibt stehen, der Fokus im Feld „Name“. Esc und „Abbrechen“ schließen.
+// im offenen Dialog (⚠ in kd-danger, aria-invalid), die Eingaben bleiben stehen, der Fokus im Feld, das der Fehler
+// betrifft (sonst „Name“). Unter „Name“ das optionale Feld „Beschreibung“ (R00007 F0026). Esc und „Abbrechen“ schließen.
 import { pruefen } from './namensregel.js';
 
-// anlegen: async name → { serverWeg, status, daten } (api.js); statusZeigen: text → Statuszeile;
+// anlegen: async (name, beschreibung) → { serverWeg, status, daten } (api.js); statusZeigen: text → Statuszeile;
 // signal: endet mit der Ansicht.
 export function dialogEinrichten({ wurzel, plus, anlegen, statusZeigen, signal }) {
   let offen = null;
@@ -47,7 +48,7 @@ function bedienen(teile, { anlegen, statusZeigen }, signal) {
     }
     laeuft = true;
     teile.anlegenSchalter.disabled = true;
-    const gedeutet = anlegeAntwort(await anlegen(teile.feld.value));
+    const gedeutet = anlegeAntwort(await anlegen(teile.feld.value, teile.beschreibung.value));
     laeuft = false;
     teile.anlegenSchalter.disabled = false;
     if (gedeutet.art === 'angelegt') {
@@ -56,8 +57,8 @@ function bedienen(teile, { anlegen, statusZeigen }, signal) {
       return;
     }
     fehlerZeigen(teile, gedeutet);
-    // Der Schalter war während der Anfrage gesperrt und hat den Fokus verloren — der Fehler betrifft den Namen.
-    teile.feld.focus();
+    // Der Schalter war während der Anfrage gesperrt und hat den Fokus verloren — er geht in das betroffene Feld.
+    betroffenesFeld(teile, gedeutet).focus();
   }
 
   teile.formular.addEventListener('submit', (ereignis) => {
@@ -69,6 +70,7 @@ function bedienen(teile, { anlegen, statusZeigen }, signal) {
     fehlerZeigen(teile, null);
     hinweisZeigen(teile);
   }, { signal });
+  teile.beschreibung.addEventListener('input', () => fehlerZeigen(teile, null), { signal });
   teile.uebernehmen.addEventListener('click', () => {
     teile.feld.value = teile.uebernehmen.dataset.vorschlag;
     fehlerZeigen(teile, null);
@@ -121,6 +123,10 @@ function dialogZeichnen() {
   const uebernehmen = element('button', { type: 'button', className: 'lc-btn', hidden: true });
   const fehler = element('div', { id: 'lc-channel-fehler', className: 'lc-meldung lc-fehler', hidden: true }, [fehlertext, uebernehmen]);
   fehler.setAttribute('role', 'alert');
+  const beschreibung = element('input', {
+    id: 'lc-channel-beschreibung', className: 'lc-feld lc-feld-text', type: 'text', autocomplete: 'off', maxLength: 200,
+  });
+  beschreibung.setAttribute('aria-describedby', 'lc-channel-fehler');
   const abbrechen = element('button', { type: 'button', className: 'lc-btn', textContent: 'Abbrechen' });
   const anlegenSchalter = element('button', { type: 'submit', className: 'lc-btn primary', textContent: 'Channel anlegen' });
   const formular = element('form', { className: 'lc-dialog-formular', noValidate: true }, [
@@ -128,12 +134,14 @@ function dialogZeichnen() {
     element('label', { htmlFor: 'lc-channel-name', className: 'lc-label', textContent: 'Name' }),
     feld,
     hinweis,
+    element('label', { htmlFor: 'lc-channel-beschreibung', className: 'lc-label', textContent: 'Beschreibung' }),
+    beschreibung,
     fehler,
     element('div', { className: 'lc-dialog-schalter' }, [abbrechen, anlegenSchalter]),
   ]);
   const dialog = element('dialog', { className: 'lc-dialog' }, [formular]);
   dialog.setAttribute('aria-labelledby', 'lc-anlegen-titel');
-  return { dialog, formular, feld, hinweis, fehler, fehlertext, uebernehmen, abbrechen, anlegenSchalter };
+  return { dialog, formular, feld, beschreibung, hinweis, fehler, fehlertext, uebernehmen, abbrechen, anlegenSchalter };
 }
 
 // Live-Prüfung wie beim Beitreten: die Regel, bei ungültiger Eingabe mit Vorschlag — nur als Hinweis, der
@@ -152,10 +160,12 @@ function hinweisZeigen({ feld, hinweis }) {
 }
 
 // gedeutet null räumt die Fehlerzeile weg; sonst ⚠ und Text, bei einem Vorschlag der Schalter „<vorschlag> übernehmen“.
-function fehlerZeigen({ feld, fehler, fehlertext, uebernehmen }, gedeutet) {
+function fehlerZeigen(teile, gedeutet) {
+  const { feld, beschreibung, fehler, fehlertext, uebernehmen } = teile;
+  feld.removeAttribute('aria-invalid');
+  beschreibung.removeAttribute('aria-invalid');
   if (gedeutet === null) {
     fehler.hidden = true;
-    feld.removeAttribute('aria-invalid');
     return;
   }
   fehlertext.textContent = `⚠ ${gedeutet.text}`;
@@ -163,7 +173,14 @@ function fehlerZeigen({ feld, fehler, fehlertext, uebernehmen }, gedeutet) {
   uebernehmen.textContent = `${gedeutet.vorschlag} übernehmen`;
   uebernehmen.dataset.vorschlag = gedeutet.vorschlag;
   fehler.hidden = false;
-  feld.setAttribute('aria-invalid', 'true');
+  betroffenesFeld(teile, gedeutet).setAttribute('aria-invalid', 'true');
+}
+
+function betroffenesFeld({ feld, beschreibung }, gedeutet) {
+  if (gedeutet.art === 'beschreibung') {
+    return beschreibung;
+  }
+  return feld;
 }
 
 function element(tag, eigenschaften = {}, kinder = []) {
@@ -194,6 +211,9 @@ export function anlegeAntwort({ serverWeg, status, daten }) {
   }
   if (status === 409) {
     return gedeutet('vorhanden', daten.fehler);
+  }
+  if (status === 422 && daten.regel === 'beschreibung') {
+    return gedeutet('beschreibung', daten.fehler);
   }
   if (status === 422) {
     return gedeutet('ungueltig', daten.fehler, daten.vorschlag || '');
