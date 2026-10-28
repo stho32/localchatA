@@ -8,7 +8,7 @@ Je Spalte des Boards: Art (`Team` bearbeitet der Director mit der Rolle, `Manuel
 | Architektur | Team | architekt | — | prüfen, ob die Karte eine Technikfrage aufwirft; wenn ja entscheiden und als ADR festhalten, sonst sofort weiter; die erste Karte bringt die Technikwahl |
 | Detailplanung | Team | planer | — | Interaction bis Bubble verfeinern, Anforderung schreiben |
 | Entwicklung | Team | entwickler | Entwicklung | bauen, Test zuerst, Gate |
-| Auto-Reviews | Team | code-reviewer, ux-reviewer, security-reviewer, rechtschreib-reviewer | — | alle Reviews parallel am selben Stand; je Rolle eine Teilaufgabe, abgehakt, wenn sie bestanden hat (UX und Rechtschreibung entfallen bei Karten ohne sichtbaren Text); Zug erst, wenn alle abgehakt sind |
+| Auto-Reviews | Team | code-reviewer, ux-reviewer, security-reviewer, rechtschreib-reviewer, observability-reviewer | — | alle Reviews parallel am selben Stand; je Rolle eine Teilaufgabe, abgehakt, wenn sie bestanden hat (UX und Rechtschreibung entfallen bei Karten ohne sichtbaren Text); Zug erst, wenn alle abgehakt sind |
 | Entwicklertest | Team | entwicklertester | Entwicklertest | User Story im echten Programm, am reviewten Stand |
 | Abnahme | Manuell | — | Abnahme | der Betreiber nimmt gegen die Akzeptanzkriterien ab |
 | Erledigt | Manuell | — | — | abgenommen |
