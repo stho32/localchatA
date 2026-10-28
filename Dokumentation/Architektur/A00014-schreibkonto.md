@@ -38,7 +38,8 @@ Uhr-Provider ([Zeit](Aspekte/X00007-zeit.md)); Kennung aus [Gespräche](A00006-g
 
 ## Offene Fragen
 
-- Bucht auch `PUT /api/channels/{name}/frist` (Empfehlung: pauschal 10 Einheiten)? Richtungsfrage aus I0018 an den Betreiber (WBS, Offene Fragen M3); ADR-0036, Folgeentscheidungen.
+- ~~Bucht auch `PUT /api/channels/{name}/frist`?~~ Entschieden 2026-10-28 (Karte #31): ja, pauschal 10 Einheiten am selben Konto — [ADR-0036](../ADRs/0036-schreibkonto-token-eimer-je-kennung-und-je-herkunft.md), Ergänzung Karte #31 (b).
+- Plattenquote (Deckel für die Gesprächslogs): Frage an den Betreiber aus Karte #31; die Bremse verlangsamt nur (≤ 5,7 GB/Tag je Herkunft, ADR-0036 Ergänzung Karte #31 (a)).
 
 ## Notizen / Quellen
 
@@ -46,3 +47,4 @@ Uhr-Provider ([Zeit](Aspekte/X00007-zeit.md)); Kennung aus [Gespräche](A00006-g
 - Erster Test (Unit, rein, gestellte Uhr): siehe ADR-0036, „Folgeentscheidungen“ — 30/31 je Kennung, 120/121 je Herkunft, Nachschub als Spanne (999 ms gebremst, 1.000 ms frei), alles oder nichts, Uhr zurück ohne Nachschub. Ersetzt: Uhr.
 - Betrieb: kein Start-Schritt, keine Konfiguration (Konstanten im Code); Gesundheit über `gebremst`; Fehlerpfad 429 mit `Retry-After` und eine stderr-Zeile je gebremster Kennung und Episode.
 - Entworfen am 2026-10-28 (Karte #8, I0009) als eigener Baustein statt als Teil der Anwesenheit: das Konto gilt je Kennung über Sitzungen hinweg (Regel 5 — `verlassen` setzt es nicht zurück) und für Routen, die nichts mit Anwesenheit zu tun haben.
+- **Ergänzung 2026-10-28 (Karte #31):** (1) Plattenrechnung berichtigt — die Einrückung des Logformats (A00007) macht aus einem Text bis zu doppelt so viele Bytes in der Datei; Kosten bleiben nach Textbytes, der Höchstwert je Herkunft liest sich ≈ 5,7 GB/Tag. (2) `PUT …/frist` bucht 1 vorab + 9 nach den Prüfungen; `vorab` nennt die vollen Kosten für `wieder_in` (Senden 1, Frist 10); 429-Text „Zu viele Änderungen …“; Episode „Frist gebremst: zu viele Änderungen“. (3) Die Episode der Bremse zählt je Grenze (`art`), kein `gebremst_herkunft` im Health-Check. Quelle: [ADR-0036](../ADRs/0036-schreibkonto-token-eimer-je-kennung-und-je-herkunft.md), [ADR-0042](../ADRs/0042-stufen-ereigniskatalog-episoden-und-tagesgrenze-des-betriebsprotokolls.md), [ADR-0043](../ADRs/0043-protokollstufe-einstellen-und-kennzahlen-im-health-check.md), je Ergänzung Karte #31.
