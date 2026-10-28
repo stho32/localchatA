@@ -243,7 +243,7 @@ for (const { tabs: anzahl, ohneWebLocks } of [
 
 // Nacharbeit 3, Code-Review A1: der Worker meldet das abgelehnte Token mit — ein Tab, dessen eigenes Token
 // veraltet ist, erkennt so das Token aus dem Speicher als abgelehnt und tritt sofort bei.
-test('A1: Neustart, Tab a tritt bei und geht, zweiter Neustart — Tab b ist in < 2 s zurück', async ({ browser }) => {
+test('A1: Neustart, Tab a tritt bei und geht, zweiter Neustart — Tab b ist in < 4,5 s zurück', async ({ browser }) => {
   instanz = await instanzStarten({ port: await freierPort() });
   const kontext = await browser.newContext({ viewport: { width: 1280, height: 800 } });
   const a = await kontext.newPage();
@@ -270,5 +270,6 @@ test('A1: Neustart, Tab a tritt bei und geht, zweiter Neustart — Tab b ist in 
 
   await expect(b.locator('#lc-verbindung')).toBeHidden();
   await zeigtSichSelbst(b);
-  expect(zurueckNach).toBeLessThan(2000);
+  // Rückzug 0/1/2 s plus Start; der Fehler aus 9d16f07 lag bei 5,9 s (Übernahme nach 5 s).
+  expect(zurueckNach).toBeLessThan(4500);
 });
