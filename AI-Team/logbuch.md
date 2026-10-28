@@ -122,3 +122,4 @@ Eine Zeile je Auftrag an eine Rolle und je Retrospektive.
 | 2026-10-28 | #24 | Auto-Reviews | code-, observability-, rechtschreib-reviewer | befund | — | Muss: gelöschte Tagesdatei bleibt offen, 8 Einträge ohne Test, 2 Pluralfehler; security bestanden; architekt entscheidet M1 im Vorlauf |
 | 2026-10-28 | #24 | Auto-Reviews | architekt, planer | bestanden | 0:18 | 13 Entscheidungen (ADR-0039–0043, 2c7c80e); Nacharbeit B0292–B0299 und R00014 nachgezogen; Härtung R00018 F0059–F0062 als Karte #26 in Detailplanung |
 | 2026-10-28 | #24 | Auto-Reviews | Director | — | — | Betreiber: zweiter entwickler (entw2) für Nacharbeit im Worktree localchatA-entw2, Zweig nacharbeit/24 ab c2c50bc |
+| 2026-10-28 | #24 | Auto-Reviews → Nacharbeit | entw2 | läuft | — | Betreiber: neue Spalte „Nacharbeit“ (entw2, WIP 1) zwischen Entwicklung und Auto-Reviews |

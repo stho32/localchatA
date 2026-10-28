@@ -8,6 +8,7 @@ Je Spalte des Boards: Art (`Team` bearbeitet der Director mit der Rolle, `Manuel
 | Architektur | Team | architekt | — | prüfen, ob die Karte eine Technikfrage aufwirft; wenn ja entscheiden und als ADR festhalten, sonst sofort weiter; die erste Karte bringt die Technikwahl |
 | Detailplanung | Team | planer | — | Interaction bis Bubble verfeinern, Anforderung schreiben |
 | Entwicklung | Team | entwickler | Entwicklung | bauen, Test zuerst, Gate |
+| Nacharbeit | Team | entwickler | — | Muss-Befunde aus Auto-Reviews und Entwicklertest beheben: der zweite entwickler (`entw2`) im Worktree `localchatA-entw2` auf Zweig `nacharbeit/<nr>`, WIP 1; danach führt der Director per Rebase, Gate und Fast-Forward zusammen und zieht die Karte zurück in die Auto-Reviews (nur Rollen mit Befund wiederholen) |
 | Auto-Reviews | Team | code-reviewer, ux-reviewer, security-reviewer, rechtschreib-reviewer, observability-reviewer | — | alle Reviews parallel am selben Stand; je Rolle eine Teilaufgabe, abgehakt, wenn sie bestanden hat (UX und Rechtschreibung entfallen bei Karten ohne sichtbaren Text); Zug erst, wenn alle abgehakt sind |
 | Entwicklertest | Team | entwicklertester | Entwicklertest | User Story im echten Programm, am reviewten Stand |
 | Abnahme | Manuell | — | Abnahme | der Betreiber nimmt gegen die Akzeptanzkriterien ab |
