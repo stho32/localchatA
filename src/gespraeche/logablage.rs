@@ -75,6 +75,10 @@ pub trait Logablage: Send + Sync {
 
     /// Entfernt den Ordner des Gesprächs samt Inhalt — nur für den Rückbau eines eben angelegten.
     fn ordner_entfernen(&self, gespraech: &Gespraech) -> io::Result<()>;
+
+    /// Entfernt die Tagesdatei des Tages; der Pfad entsteht aus Gespräch und Datum (ADR-0032 Regel 3). Fehlt sie
+    /// schon, gilt sie als entfernt.
+    fn tag_entfernen(&self, gespraech: &Gespraech, tag: NaiveDate) -> io::Result<()>;
 }
 
 const EINSTELLUNGEN: &str = "einstellungen.toml";
@@ -205,6 +209,13 @@ impl Logablage for Dateiablage {
 
     fn ordner_entfernen(&self, gespraech: &Gespraech) -> io::Result<()> {
         std::fs::remove_dir_all(self.ordner.join(gespraech.pfad()))
+    }
+
+    fn tag_entfernen(&self, gespraech: &Gespraech, tag: NaiveDate) -> io::Result<()> {
+        match std::fs::remove_file(self.ordner.join(gespraech.tagesdatei(tag))) {
+            Err(fehler) if fehler.kind() == io::ErrorKind::NotFound => Ok(()),
+            entfernt => entfernt,
+        }
     }
 }
 
@@ -558,5 +569,41 @@ mod tests {
 
         assert!(!wurzel.path().join("channels/allgemein").exists());
         assert!(wurzel.path().join("channels").is_dir());
+    }
+
+    /// R00008 B0181: nur die Tagesdatei des Tages geht, Nachbarn und fremde Dateien bleiben; fehlt sie, gilt sie
+    /// als entfernt.
+    #[test]
+    fn tag_entfernen_nimmt_genau_die_tagesdatei_und_fehlend_gilt_als_entfernt() {
+        let wurzel = tempfile::tempdir().expect("Wegwerf-Ordner");
+        let ordner = wurzel.path();
+        datei(ordner, "channels/allgemein/2026-10-20.log", "alt\n");
+        datei(ordner, "channels/allgemein/2026-10-21.log", "neu\n");
+        datei(
+            ordner,
+            "channels/allgemein/2026-10-20.log.bak",
+            "Sicherung\n",
+        );
+        let ablage = Dateiablage::neu(ordner);
+        let allgemein = Gespraech::channel("allgemein");
+
+        ablage
+            .tag_entfernen(&allgemein, tag("2026-10-20"))
+            .expect("entfernt");
+
+        assert!(!ordner.join("channels/allgemein/2026-10-20.log").exists());
+        assert!(ordner.join("channels/allgemein/2026-10-21.log").is_file());
+        assert!(
+            ordner
+                .join("channels/allgemein/2026-10-20.log.bak")
+                .is_file()
+        );
+        assert_eq!(
+            ablage.tage(&allgemein).expect("Tage"),
+            vec![tag("2026-10-21")]
+        );
+        ablage
+            .tag_entfernen(&allgemein, tag("2026-10-20"))
+            .expect("fehlt schon — gilt als entfernt");
     }
 }

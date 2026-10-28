@@ -19,6 +19,7 @@ struct Innen {
     fehler_nach: Option<usize>,
     einstellungen: BTreeMap<Gespraech, Vec<u8>>,
     einstellungen_scheitert: bool,
+    entfernen_scheitert: std::collections::BTreeSet<(Gespraech, NaiveDate)>,
     schreibvorgaenge: usize,
 }
 
@@ -52,6 +53,13 @@ impl Speicherablage {
     /// Das nächste `einstellungen_schreiben` scheitert, ohne etwas abzulegen.
     pub fn einstellungen_scheitern(&self) {
         self.innen().einstellungen_scheitert = true;
+    }
+
+    /// Jedes `tag_entfernen` dieses Tages scheitert, ohne etwas zu entfernen (wie eine schreibgeschützte Datei).
+    pub fn entfernen_scheitern(&self, gespraech: &Gespraech, tag: NaiveDate) {
+        self.innen()
+            .entfernen_scheitert
+            .insert((gespraech.clone(), tag));
     }
 
     /// Legt Einstellungsbytes ab, als läge die Datei schon da.
@@ -168,6 +176,23 @@ impl Logablage for Speicherablage {
             .remove(gespraech)
             .map(|_| ())
             .ok_or_else(unbekannt)
+    }
+
+    fn tag_entfernen(&self, gespraech: &Gespraech, tag: NaiveDate) -> io::Result<()> {
+        let mut innen = self.innen();
+        if innen
+            .entfernen_scheitert
+            .contains(&(gespraech.clone(), tag))
+        {
+            return Err(io::Error::new(
+                io::ErrorKind::PermissionDenied,
+                "Entfernen scheitert (Speicher-Logablage)",
+            ));
+        }
+        if let Some(tage) = innen.gespraeche.get_mut(gespraech) {
+            tage.remove(&tag);
+        }
+        Ok(())
     }
 }
 
@@ -338,5 +363,28 @@ mod tests {
         ablage
             .einstellungen_schreiben(&allgemein, b"a = 1\n")
             .expect("das nächste gelingt");
+    }
+
+    #[test]
+    fn tag_entfernen_nimmt_den_tag_und_kann_je_tag_scheitern() {
+        let (ablage, allgemein) = mit_allgemein();
+        ablage.tag_setzen(&allgemein, tag("2026-10-20"), "@ alt\n\n");
+        ablage.tag_setzen(&allgemein, tag("2026-10-21"), "@ fest\n\n");
+        ablage.tag_setzen(&allgemein, tag("2026-10-22"), "@ neu\n\n");
+        ablage.entfernen_scheitern(&allgemein, tag("2026-10-21"));
+
+        ablage
+            .tag_entfernen(&allgemein, tag("2026-10-20"))
+            .expect("entfernt");
+        let gescheitert = ablage.tag_entfernen(&allgemein, tag("2026-10-21"));
+        ablage
+            .tag_entfernen(&allgemein, tag("2026-10-19"))
+            .expect("fehlt — gilt als entfernt");
+
+        assert!(gescheitert.is_err());
+        assert_eq!(
+            ablage.tage(&allgemein).expect("Tage"),
+            vec![tag("2026-10-21"), tag("2026-10-22")]
+        );
     }
 }
