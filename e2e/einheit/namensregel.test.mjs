@@ -27,6 +27,13 @@ test('die Umformung folgt der Regel des Servers', () => {
   }
 });
 
+// Wie am Server (GELESEN_HOECHSTENS in src/name.rs): umgeformt werden höchstens die ersten 4 × 32 Zeichen.
+test('lange Eingaben: der Vorschlag kommt aus den ersten 128 Zeichen, wie am Server', () => {
+  assert.equal(pruefen('a'.repeat(40) + 'ÿ'.repeat(100000)).vorschlag, 'a'.repeat(32));
+  assert.equal(pruefen('_'.repeat(125) + 'abc').vorschlag, 'abc');
+  assert.equal(pruefen('_'.repeat(128) + 'abc').vorschlag, '');
+});
+
 test('ohne verwertbares Zeichen gibt es keinen Vorschlag', () => {
   for (const eingabe of ['', '___', '-', '​']) {
     const ergebnis = pruefen(eingabe);

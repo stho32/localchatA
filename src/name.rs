@@ -2,6 +2,7 @@
 //! Abweisen statt umformen — die Umformung gibt es nur als Vorschlag.
 
 use std::fmt;
+use std::sync::LazyLock;
 
 /// Die Regel in Worten, für Abweisungen und Hinweise.
 pub const NAMENSREGEL: &str =
@@ -49,9 +50,17 @@ fn regel_erfuellt(text: &str) -> bool {
 
 /// Klein, Umlaute zu `ae/oe/ue/ss`, Akzente zum Grundbuchstaben (`AKZENTE`), sonst nicht Erlaubtes zu `-`,
 /// Mehrfach-`-` zusammengefasst, Ränder entfernt, auf 32 gekürzt; bleibt nichts übrig, gibt es keinen Vorschlag.
+/// Gelesen werden höchstens `GELESEN_HOECHSTENS` Zeichen: der Text kommt ungeprüft (bis 2 MB) aus dem Netz.
 fn umformen(text: &str) -> Option<Name> {
+    umformen_aus(text.chars())
+}
+
+/// Viermal die Länge eines Namens — genug für Ränder, Akzente und Trennzeichen vor 32 verwertbaren Zeichen.
+const GELESEN_HOECHSTENS: usize = 4 * LAENGE;
+
+fn umformen_aus(zeichen: impl Iterator<Item = char>) -> Option<Name> {
     let mut umgeformt = String::new();
-    for zeichen in text.chars().flat_map(klein) {
+    for zeichen in zeichen.take(GELESEN_HOECHSTENS).flat_map(klein) {
         match zeichen {
             'ä' => umgeformt.push_str("ae"),
             'ö' => umgeformt.push_str("oe"),
@@ -82,12 +91,24 @@ fn klein(zeichen: char) -> Vec<char> {
     zeichen.to_lowercase().collect()
 }
 
+/// Nachschlagen in O(1): ein Feld über U+00C0–U+017F, einmal aus `AKZENTE` gebaut.
 fn grundbuchstabe(zeichen: char) -> Option<&'static str> {
-    AKZENTE
-        .iter()
-        .find(|(buchstaben, _)| buchstaben.contains(zeichen))
-        .map(|(_, grund)| *grund)
+    let stelle = (zeichen as usize).checked_sub(AKZENT_ANFANG as usize)?;
+    GRUNDBUCHSTABEN.get(stelle).copied().flatten()
 }
+
+const AKZENT_ANFANG: char = '\u{C0}';
+const AKZENT_ENDE: char = '\u{17F}';
+
+static GRUNDBUCHSTABEN: LazyLock<Vec<Option<&'static str>>> = LazyLock::new(|| {
+    let mut feld = vec![None; AKZENT_ENDE as usize - AKZENT_ANFANG as usize + 1];
+    for (buchstaben, grund) in AKZENTE {
+        for zeichen in buchstaben.chars() {
+            feld[zeichen as usize - AKZENT_ANFANG as usize] = Some(*grund);
+        }
+    }
+    feld
+});
 
 /// Regel eines Channelnamens, der unter Windows ein Gerätename ist (ADR-0020 Regel 2).
 pub const RESERVIERT: &str = "reserviert";
@@ -288,6 +309,49 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn langer_text_vorschlag_aus_den_ersten_zeichen() {
+        let text = format!("{}{}", "a".repeat(40), "ÿ".repeat(1_000_000));
+        assert_eq!(vorschlag(&text), Some("a".repeat(32)));
+        assert_eq!(vorschlag(&"ÿ".repeat(995_000)), Some("y".repeat(32)));
+        assert_eq!(vorschlag(&"日".repeat(663_000)), None);
+        assert_eq!(vorschlag(&"a".repeat(1_990_000)), Some("a".repeat(32)));
+    }
+
+    #[test]
+    fn umformen_liest_hoechstens_die_feste_zahl_zeichen() {
+        let text = format!("{}{}", "a".repeat(40), "ÿ".repeat(1_000_000));
+        let gelesen = std::cell::Cell::new(0_usize);
+        let umgeformt = umformen_aus(text.chars().inspect(|_| gelesen.set(gelesen.get() + 1)));
+        assert_eq!(umgeformt.map(|name| name.0), Some("a".repeat(32)));
+        assert_eq!(GELESEN_HOECHSTENS, 4 * LAENGE);
+        assert!(
+            gelesen.get() <= GELESEN_HOECHSTENS,
+            "gelesen: {} Zeichen",
+            gelesen.get()
+        );
+    }
+
+    #[test]
+    fn hinter_der_festen_zahl_zeichen_zaehlt_nichts_mehr() {
+        let vor_der_grenze = format!("{}abc", "_".repeat(GELESEN_HOECHSTENS - 3));
+        assert_eq!(vorschlag(&vor_der_grenze).as_deref(), Some("abc"));
+        let hinter_der_grenze = format!("{}abc", "_".repeat(GELESEN_HOECHSTENS));
+        assert_eq!(vorschlag(&hinter_der_grenze), None);
+    }
+
+    #[test]
+    fn grundbuchstabe_folgt_der_akzenttabelle_fuer_jedes_zeichen_bis_u017f() {
+        for zeichen in '\u{0}'..='\u{17F}' {
+            let aus_der_tabelle = AKZENTE
+                .iter()
+                .find(|(buchstaben, _)| buchstaben.contains(zeichen))
+                .map(|(_, grund)| *grund);
+            assert_eq!(grundbuchstabe(zeichen), aus_der_tabelle, "{zeichen:?}");
+        }
+        assert_eq!(grundbuchstabe('日'), None);
     }
 
     fn channelfehler(text: &str) -> Namensfehler {

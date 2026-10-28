@@ -54,10 +54,11 @@ function geraetename(name) {
   return /^(con|prn|aux|nul|com[0-9]|lpt[0-9])$/.test(name);
 }
 
+// Wie am Server werden höchstens die ersten 4 × 32 Zeichen umgeformt (GELESEN_HOECHSTENS in src/name.rs).
 function umformen(text) {
   const ersatz = { 'ä': 'ae', 'ö': 'oe', 'ü': 'ue', 'ß': 'ss' };
   let umgeformt = '';
-  for (const zeichen of [...text].flatMap(klein)) {
+  for (const zeichen of ersteZeichen(text, 4 * LAENGE).flatMap(klein)) {
     const grund = grundbuchstabe(zeichen);
     if (ersatz[zeichen] !== undefined) {
       umgeformt += ersatz[zeichen];
@@ -71,6 +72,17 @@ function umformen(text) {
   }
   const ohneRaender = umgeformt.replace(/^-+|-+$/g, '');
   return ohneRaender.slice(0, LAENGE).replace(/-+$/, '');
+}
+
+function ersteZeichen(text, hoechstens) {
+  const zeichen = [];
+  for (const einzeln of text) {
+    if (zeichen.length === hoechstens) {
+      break;
+    }
+    zeichen.push(einzeln);
+  }
+  return zeichen;
 }
 
 // Ein Zeichen der Akzenttabelle bleibt, wie es ist (İ würde sonst zu i mit kombinierendem Punkt).
