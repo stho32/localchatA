@@ -94,3 +94,6 @@ Eine Zeile je Auftrag an eine Rolle und je Retrospektive.
 | 2026-10-28 | #7 I0008 | Reviews | code-, ux-, security-reviewer | befund | 0:30 | Code B1 L3-Test-Timeout; UX S4 (Neuwahl nach Fehler) Muss; Security bestanden, A1 → Befundkarte #23; Nacharbeit nach #20 |
 | 2026-10-28 | #20 Befund | Entwicklung | entwickler | bestanden | 0:20 | R00009 Kopfzeile umbrechen (9d7d4bb…f867195); jetzt Nacharbeit #7 |
 | 2026-10-28 | — | Prozess | Betreiber | — | — | Spalten Code-, UX-, Security-Review → eine Spalte „Auto-Reviews“ mit Teilaufgabe je Rolle; Entwicklertest bleibt eigene Spalte; neue Rolle rechtschreib-reviewer (rsr) besetzt |
+| 2026-10-28 | #7 I0008 | Nacharbeit 1 | entwickler | bestanden | 0:15 | L3 per Sprung, Neuwahl nach Fehler (d2d084c…baaf284); in Auto-Reviews |
+| 2026-10-28 | #20 Befund | Auto-Reviews | code-, ux-reviewer | bestanden | 0:10 | Sollte → #18; weiter Entwicklertest |
+| 2026-10-28 | #23 Befund | Architektur | architekt | bestanden | 0:16 | ADR-0039 Byte-Budget, Werkbank, Abrissgrenze als Sendefrist (4c61389) |
