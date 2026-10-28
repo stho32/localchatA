@@ -155,9 +155,22 @@ async fn us9_das_token_zaehlt_nur_im_header() {
     let alpha = beitreten(&zwei, &instanz, "alpha").await;
     let url = format!("{}api/ereignisse", instanz.adresse);
 
-    let ohne = gemeinsam::api_antwort(zwei.anfrage(reqwest::Method::GET, url.clone())).await;
+    let kurz = Duration::from_secs(2);
+    let ohne = gemeinsam::api_antwort(
+        zwei.anfrage(reqwest::Method::GET, url.clone())
+            .timeout(kurz),
+    )
+    .await;
     let mit_query = gemeinsam::api_antwort(
-        zwei.anfrage(reqwest::Method::GET, format!("{url}?sitzung={alpha}")),
+        zwei.anfrage(reqwest::Method::GET, format!("{url}?sitzung={alpha}"))
+            .timeout(kurz),
+    )
+    .await;
+    let fremde_herkunft = gemeinsam::api_antwort(
+        Absender::von("127.0.0.3")
+            .anfrage(reqwest::Method::GET, url.clone())
+            .header("X-LocalchatA-Sitzung", &alpha)
+            .timeout(kurz),
     )
     .await;
     let mit_header = zwei
@@ -167,7 +180,7 @@ async fn us9_das_token_zaehlt_nur_im_header() {
         .await
         .expect("Strom");
 
-    for antwort in [ohne, mit_query] {
+    for antwort in [ohne, mit_query, fremde_herkunft] {
         assert_eq!(antwort.status, 401, "{}", antwort.json);
         assert!(antwort.json["fehler"].is_string(), "{}", antwort.json);
     }
