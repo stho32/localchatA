@@ -1,6 +1,7 @@
-//! Leistungsziel aus ADR-0006 als Früh-Indikator: 100.000 Nachrichten (≈ 53 MB) in der Frist,
-//! Laden beim Start unter einer Sekunde, gemessen über `ladezeit_ms` des echten Programms (auch im
-//! Debug-Build: gemessen ≈ 0,3 s für ≈ 59 MB; der Test läuft im Gate, Wegwerf-Ordner ≈ 59 MB).
+//! Leistungsziel aus R00002 (Z. 39, ADR-0006) als Früh-Indikator: 100.000 Nachrichten (≈ 53 MB) in der
+//! Frist, Laden beim Start unter 2 s, gemessen über `ladezeit_ms` des echten Programms (auch im
+//! Debug-Build: ruhig ≈ 0,3 s für ≈ 59 MB, unter Kompilierlast bis ≈ 1,4 s; der Test läuft im Gate,
+//! Wegwerf-Ordner ≈ 59 MB).
 
 mod gemeinsam;
 
@@ -58,7 +59,7 @@ fn bestand_erzeugen(ordner: &Path) -> (usize, u64) {
 }
 
 #[tokio::test]
-async fn leistung_100000_nachrichten_laden_unter_einer_sekunde() {
+async fn leistung_100000_nachrichten_laden_unter_zwei_sekunden() {
     let wurzel = tempfile::tempdir().expect("Wegwerf-Ordner");
     let (saetze, bytes) = bestand_erzeugen(wurzel.path());
 
@@ -84,7 +85,7 @@ async fn leistung_100000_nachrichten_laden_unter_einer_sekunde() {
     assert_eq!(inhalt["defekte_zeilen"], 0);
     assert!(saetze >= 100_000);
     assert!(
-        inhalt["ladezeit_ms"].as_u64().expect("Zahl") < 1000,
-        "{inhalt}"
+        inhalt["ladezeit_ms"].as_u64().expect("Zahl") < 2000,
+        "R00002: Laden von 100.000 Nachrichten unter 2 s — {inhalt}"
     );
 }
