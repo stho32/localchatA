@@ -63,3 +63,4 @@ Eine Zeile je Auftrag an eine Rolle und je Retrospektive.
 | 2026-10-28 | #5 I0006 | Entscheidung | Betreiber | — | — | „Verlassen“ im Browser erst auf Nachfrage der Abnahme; stiller Abriss ≈ 14 s, höchstens 22 s angenommen |
 | 2026-10-28 | #19 I0019 | Backlog → Architektur | director | — | — | neue Interaction „Claude Code einbinden“ (82284c2), vom Betreiber freigegeben |
 | 2026-10-28 | #5 I0006 | Entwicklung | entwickler | blockiert | 0:45 | 17 Bubbles gebaut; Statusspalte vs. R00004-Test → Betreiber: Liste 264 px |
+| 2026-10-28 | — | Demo | director | — | — | Demo für den Betreiber: cargo install, Port 7431, Ordner localchatA-demo, Aktualisierung nach jedem Zug in die Abnahme |
