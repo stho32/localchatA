@@ -59,8 +59,10 @@ async function stillBeitreten(name, speicher, api, geschwister) {
   return { art: 'kopfzeile', teilnehmer: ich.daten };
 }
 
+// Mit dem gemerkten Token: lebt die Sitzung noch (nach einem Fehler oder Server weg beim Laden), ist der
+// Beitritt eine Wiederkehr statt eines 409 auf den eigenen Namen.
 export async function beitreten(name, speicher, api) {
-  const antwort = await api.beitreten(name);
+  const antwort = await api.beitreten(name, speicher.getItem(SITZUNG));
   if (antwort.serverWeg) {
     return { art: 'serverWeg', name };
   }

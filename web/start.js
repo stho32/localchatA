@@ -6,7 +6,7 @@ import * as kopfzeile from './kopfzeile.js';
 
 const api = {
   ich: (token) => rufen('/api/ich', { token }),
-  beitreten: (name) => rufen('/api/beitreten', { koerper: { name, art: 'mensch' } }),
+  beitreten: (name, token) => rufen('/api/beitreten', { koerper: { name, art: 'mensch' }, token }),
 };
 const speicher = window.localStorage;
 const wurzel = document.getElementById('app');

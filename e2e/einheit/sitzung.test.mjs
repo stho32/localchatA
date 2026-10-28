@@ -245,3 +245,18 @@ test('A6: lässt sich die Sitzung nicht merken (setItem wirft), zeigt der Tab tr
   assert.equal(warnungen.length, 1);
   assert.match(warnungen[0], /nicht gemerkt/);
 });
+
+test('A2: Beitreten schickt das gemerkte Token mit — eine noch lebende Sitzung kehrt wieder statt 409', async () => {
+  const aufrufe = [];
+  const api = {
+    ich: async () => assert.fail('ich wird beim Beitreten nicht gefragt'),
+    beitreten: async (name, token) => { aufrufe.push([name, token]); return angenommen(200); },
+  };
+
+  const mitToken = await beitreten('shoff', speicherMit({ [SITZUNG]: 'lebt', [NAME]: 'shoff' }), api);
+  const ohneToken = await beitreten('anna', speicherMit(), api);
+
+  assert.equal(mitToken.art, 'kopfzeile');
+  assert.equal(ohneToken.art, 'kopfzeile');
+  assert.deepEqual(aufrufe, [['shoff', 'lebt'], ['anna', null]]);
+});
