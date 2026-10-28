@@ -133,6 +133,7 @@ async fn us9_ein_ausgefallener_takt_wird_sichtbar() {
         tokio::time::sleep(Duration::from_millis(100)).await;
     }
     let dauer = startzeile.elapsed();
+    eprintln!("messung us9_wache_ms={}", dauer.as_millis());
     let (status, inhalt) = gesundheit(&instanz.adresse).await;
 
     assert!(dauer <= Duration::from_secs(2), "{dauer:?}");

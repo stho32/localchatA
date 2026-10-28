@@ -92,6 +92,7 @@ async fn us7_um_mitternacht_entfaellt_der_naechste_tag_ohne_neustart() {
         tokio::time::sleep(Duration::from_millis(100)).await;
     }
     let dauer = startzeile.elapsed();
+    eprintln!("messung us7_tageswechsel_ms={}", dauer.as_millis());
 
     assert!(
         !logs.join("2026-10-15.log").exists(),
