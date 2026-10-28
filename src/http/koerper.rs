@@ -4,6 +4,8 @@
 //! er antwortet — schlösse er mit ungelesenen Bytes, setzte das Betriebssystem die Verbindung zurück, und der
 //! Client sähe einen Abbruch statt der 413. Die Obergrenzen halten Großlast und Tröpfeln aus (ADR-0010).
 
+use super::Werkbank;
+use super::abbruch::Abgebrochen;
 use crate::protokoll::episoden::Auftreten;
 use crate::protokoll::zaehler::Abweisungsart;
 use crate::protokoll::{Bereich, Kontext, Protokoll, Schluessel, Stufe};
@@ -80,11 +82,11 @@ pub async fn json_lesen(
     gelesen.ergebnis
 }
 
-fn abweisung_eintragen(
+fn abweisung_eintragen<T>(
     kopf: &HeaderMap,
     ort: &Koerperort<'_>,
     fehler: Koerperfehler,
-    gelesen: &Gelesen,
+    gelesen: &Gelesen<T>,
 ) {
     let (art, status, abweisungsart) = match fehler {
         Koerperfehler::ZuGross => ("zu_gross", Some(413), Abweisungsart::ZuGross),
@@ -142,10 +144,51 @@ fn abweisung_eintragen(
 }
 
 /// Ergebnis und Umstände des Lesens: gelesene Bytes (mit dem Verworfenen) und wie verworfen wurde.
-struct Gelesen {
-    ergebnis: Result<Value, Koerperfehler>,
+struct Gelesen<T> {
+    ergebnis: Result<T, Koerperfehler>,
     bytes: usize,
     verworfen: Option<Verworfen>,
+}
+
+impl Gelesen<Vec<u8>> {
+    /// Der gelesene Körper als JSON, geparst an Ort und Stelle (nur für kleine Grenzen, ADR-0010 Ergänzung Regel 2).
+    fn parsen(self) -> Gelesen<Value> {
+        Gelesen {
+            ergebnis: self.ergebnis.and_then(|roh| json_parsen(&roh)),
+            bytes: self.bytes,
+            verworfen: self.verworfen,
+        }
+    }
+}
+
+fn json_parsen(roh: &[u8]) -> Result<Value, Koerperfehler> {
+    serde_json::from_slice(roh).map_err(|_| Koerperfehler::Kaputt)
+}
+
+/// Wie `json_lesen` für Routen mit einer Grenze über 16 KiB (ADR-0010 Ergänzung Regel 2): gelesen wird auf dem
+/// Worker, geparst auf der Werkbank. `Err(Abgebrochen)`, wenn die Werkbank die Arbeit nicht zu Ende bringt.
+#[allow(dead_code)] // bis B0212 die Senderoute ihn nutzt
+pub async fn json_lesen_auf_werkbank(
+    kopf: &HeaderMap,
+    koerper: Body,
+    grenze: usize,
+    ort: &Koerperort<'_>,
+    werkbank: &Werkbank,
+) -> Result<Result<Value, Koerperfehler>, Abgebrochen> {
+    let roh = roh_lesen(kopf, koerper, grenze, KOERPER_LESEFRIST).await;
+    let ergebnis = match roh.ergebnis {
+        Ok(bytes) => werkbank.ausfuehren(move || json_parsen(&bytes)).await?,
+        Err(fehler) => Err(fehler),
+    };
+    let gelesen = Gelesen {
+        ergebnis,
+        bytes: roh.bytes,
+        verworfen: roh.verworfen,
+    };
+    if let Err(fehler) = gelesen.ergebnis {
+        abweisung_eintragen(kopf, ort, fehler, &gelesen);
+    }
+    Ok(gelesen.ergebnis)
 }
 
 /// Erst den Körper lesen (höchstens `grenze` Bytes), dann Typ und Inhalt prüfen — so ist er in jedem Fall
@@ -157,13 +200,24 @@ async fn lesen(kopf: &HeaderMap, koerper: Body, grenze: usize) -> Result<Value, 
         .ergebnis
 }
 
-/// Liest höchstens `grenze` Bytes, insgesamt höchstens `frist` lang; die Frist setzt der Aufrufer.
+/// Liest höchstens `grenze` Bytes, insgesamt höchstens `frist` lang, und parst an Ort und Stelle.
 async fn lesen_mit_umstaenden(
     kopf: &HeaderMap,
     koerper: Body,
     grenze: usize,
     frist: Duration,
-) -> Gelesen {
+) -> Gelesen<Value> {
+    roh_lesen(kopf, koerper, grenze, frist).await.parsen()
+}
+
+/// Liest höchstens `grenze` Bytes, insgesamt höchstens `frist` lang; die Frist setzt der Aufrufer. Ohne
+/// JSON-Typ `KeinJson` — geprüft erst nach dem Lesen, damit die Größe vor dem Typ entscheidet.
+async fn roh_lesen(
+    kopf: &HeaderMap,
+    koerper: Body,
+    grenze: usize,
+    frist: Duration,
+) -> Gelesen<Vec<u8>> {
     let ende = tokio::time::Instant::now() + frist;
     let mut strom = koerper.into_data_stream();
     let mut gelesen = Vec::new();
@@ -202,14 +256,15 @@ async fn lesen_mit_umstaenden(
         }
         gelesen.extend_from_slice(&stueck);
     }
+    let bytes = gelesen.len();
     let ergebnis = if json_angekuendigt(kopf) {
-        serde_json::from_slice(&gelesen).map_err(|_| Koerperfehler::Kaputt)
+        Ok(gelesen)
     } else {
         Err(Koerperfehler::KeinJson)
     };
     Gelesen {
         ergebnis,
-        bytes: gelesen.len(),
+        bytes,
         verworfen: None,
     }
 }
@@ -404,6 +459,78 @@ mod tests {
             lesen(&kopf, Body::from(kaputt(4096)), 4096).await,
             Err(Koerperfehler::Kaputt)
         );
+    }
+
+    /// B0211 (ADR-0010 Ergänzung Regel 2): ein großer Körper wird erst geparst, wenn die Werkbank eine Erlaubnis
+    /// gibt — solange der Test die einzige hält, kommt keine Entscheidung; danach der Wert.
+    #[tokio::test]
+    async fn ein_grosser_koerper_wird_auf_der_werkbank_geparst() {
+        use super::super::Werkbank;
+        let protokoll = Protokoll::ohne_ablage();
+        let werkbank = Werkbank::mit(1);
+        let gehalten = werkbank.erwerben().await.expect("Erlaubnis");
+        let kopf = mit_typ("application/json");
+        let ort = Koerperort {
+            protokoll: &protokoll,
+            route: "POST /api/channels/{name}/nachrichten",
+            herkunft: "127.0.0.1".parse().expect("IP"),
+            kennung: Some("beta@127.0.0.1"),
+        };
+        let koerper = Body::from(aufgefuellt("{\"text\":\"a\"}", 131_072));
+        let lesen = json_lesen_auf_werkbank(&kopf, koerper, 131_072, &ort, &werkbank);
+        let mut lesen = std::pin::pin!(lesen);
+
+        let solange_gehalten = tokio::time::timeout(Duration::from_millis(300), &mut lesen).await;
+        assert!(
+            solange_gehalten.is_err(),
+            "geparst trotz gehaltener Erlaubnis"
+        );
+        drop(gehalten);
+        let gelesen = tokio::time::timeout(Duration::from_secs(10), lesen)
+            .await
+            .expect("Entscheidung nach der Freigabe");
+
+        assert_eq!(gelesen.ok(), Some(Ok(serde_json::json!({"text": "a"}))));
+    }
+
+    /// Spanne an der Grenze der Senderoute: 131 072 gültig angenommen, 131 073 ungültiges JSON → `ZuGross`, nicht
+    /// `Kaputt`; dasselbe ohne JSON-Typ → `ZuGross` (Größe vor Typ).
+    #[tokio::test]
+    async fn auf_der_werkbank_gilt_die_grenze_vor_typ_und_parse() {
+        use super::super::Werkbank;
+        let protokoll = Protokoll::ohne_ablage();
+        let werkbank = Werkbank::mit(2);
+        let ort = Koerperort {
+            protokoll: &protokoll,
+            route: "POST /api/channels/{name}/nachrichten",
+            herkunft: "127.0.0.1".parse().expect("IP"),
+            kennung: Some("beta@127.0.0.1"),
+        };
+        let gueltig = aufgefuellt(&format!("{{\"text\":\"{}\"}}", "a".repeat(16_384)), 131_072);
+        let kaputt = format!("{{{}", "a".repeat(131_072));
+        let lesen = |kopf: HeaderMap, koerper: String| {
+            let ort = &ort;
+            let werkbank = &werkbank;
+            async move {
+                json_lesen_auf_werkbank(&kopf, Body::from(koerper), 131_072, ort, werkbank).await
+            }
+        };
+
+        let angenommen = lesen(mit_typ("application/json"), gueltig).await;
+        let zu_gross = lesen(mit_typ("application/json"), kaputt.clone()).await;
+        let zu_gross_ohne_json = lesen(mit_typ("text/plain"), kaputt).await;
+
+        assert_eq!(
+            angenommen.expect("nicht abgebrochen").expect("gelesen")["text"],
+            serde_json::json!("a".repeat(16_384))
+        );
+        assert_eq!(zu_gross.ok(), Some(Err(Koerperfehler::ZuGross)));
+        assert_eq!(zu_gross_ohne_json.ok(), Some(Err(Koerperfehler::ZuGross)));
+    }
+
+    /// `json` mit Leerzeichen auf genau `laenge` Bytes aufgefüllt.
+    fn aufgefuellt(json: &str, laenge: usize) -> String {
+        format!("{json}{}", " ".repeat(laenge - json.len()))
     }
 
     fn abgebrochener_koerper() -> Body {
