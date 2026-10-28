@@ -207,3 +207,65 @@ async fn ein_zweites_verlassen_ist_204_ohne_weiteren_wechsel() {
     let neu: Vec<u64> = strom_beta.staende()[staende_davor.len()..].to_vec();
     assert_eq!(neu, Vec::<u64>::new(), "kein weiterer Wechsel");
 }
+
+/// US-15 (Kriterium „Verlassen“, eigener Strom): `alpha`s Strom liefert `weg` für `alpha` und endet spätestens
+/// 1 s nach der 204; ab seinem Ende liest `beta` für `alpha` 2 s lang keinen weiteren Wechsel (ein
+/// fälschliches `offline` käme nach Nachlauf 1 s + Takt 0,25 s).
+#[tokio::test]
+async fn us15_der_eigene_strom_liefert_weg_und_endet() {
+    let instanz = wegwerf_starten();
+    let (zwei, drei) = (Absender::von("127.0.0.2"), Absender::von("127.0.0.3"));
+    let beta = token(&drei, &instanz, "beta").await;
+    let mut strom_beta = Strom::oeffnen(&drei, &instanz.adresse, &beta).await;
+    let alpha = token(&zwei, &instanz, "alpha").await;
+    let mut strom_alpha = Strom::oeffnen(&zwei, &instanz.adresse, &alpha).await;
+    strom_beta
+        .bis(
+            Duration::from_secs(5),
+            ist_wechsel("alpha@127.0.0.2", "online"),
+        )
+        .await
+        .expect("beta hat alpha online gelesen");
+
+    let antwort = verlassen(&zwei, &instanz, Some(&alpha), &[]).await;
+    let erhalten = Instant::now();
+    let endete = strom_alpha.mitlesen(Duration::from_secs(5)).await;
+    let ende = Instant::now();
+    strom_beta.mitlesen(Duration::from_secs(2)).await;
+
+    assert_eq!(antwort.status, 204);
+    assert!(endete, "alphas Strom endet");
+    let bis_zum_ende = ende.saturating_duration_since(erhalten);
+    eprintln!(
+        "messung us15_eigener_strom_endet_ms={}",
+        bis_zum_ende.as_millis()
+    );
+    assert!(bis_zum_ende <= Duration::from_secs(1), "{bis_zum_ende:?}");
+    let eigene: Vec<String> = strom_alpha
+        .wechsel_von("alpha@127.0.0.2")
+        .iter()
+        .map(|e| {
+            e.data["teilnehmer"]["status"]
+                .as_str()
+                .unwrap_or_default()
+                .to_string()
+        })
+        .collect();
+    assert_eq!(
+        eigene.last().map(String::as_str),
+        Some("weg"),
+        "{:?}",
+        strom_alpha.ereignisse
+    );
+    let bei_beta: Vec<String> = strom_beta
+        .wechsel_von("alpha@127.0.0.2")
+        .iter()
+        .map(|e| {
+            e.data["teilnehmer"]["status"]
+                .as_str()
+                .unwrap_or_default()
+                .to_string()
+        })
+        .collect();
+    assert_eq!(bei_beta, ["online", "weg"], "nichts nach weg");
+}

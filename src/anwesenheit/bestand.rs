@@ -333,11 +333,13 @@ impl Anwesenheit {
         let eintrag = self.lebender_eintrag(&mut bestand, token, herkunft, jetzt)?;
         eintrag.sitzung.letztes_lebenszeichen = jetzt;
         eintrag.haltung.halter_beginnt(jetzt);
+        let eintrag_kennung = eintrag.sitzung.kennung.clone();
         let wechsel = bestand.status_melden(jetzt, self.gnadenfrist);
         self.melden_unter_der_sperre(&bestand, &wechsel);
         let halter = Halter {
             anwesenheit: Arc::clone(self),
             token: token.clone(),
+            kennung: eintrag_kennung,
         };
         Some((halter, wechsel))
     }
@@ -465,6 +467,14 @@ impl Anwesenheit {
 pub struct Halter {
     anwesenheit: Arc<Anwesenheit>,
     token: Token,
+    kennung: Kennung,
+}
+
+impl Halter {
+    /// Die Kennung der gehaltenen Sitzung — daran erkennt ein Strom sein eigenes `weg` (ADR-0018 Regel 4).
+    pub fn kennung(&self) -> &Kennung {
+        &self.kennung
+    }
 }
 
 impl Drop for Halter {

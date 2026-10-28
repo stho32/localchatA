@@ -1,11 +1,13 @@
 //! Ereignisse beantworten (B0084, ADR-0015 Regel 1, ADR-0016 Regel 5 und 8): `GET /api/ereignisse` mit der
 //! Sitzung im Header → `text/event-stream`. Der offene Strom ist ein Halter seiner Sitzung; er beginnt mit
 //! dem Stand der Teilnehmerliste, danach je Wechsel ein Ereignis und alle `herzschlag` ein Lebenszeichen,
-//! bis der Client schließt oder das Programm endet. Ein Token im Query zählt nicht.
+//! bis der Client schließt, das Programm endet oder die eigene Sitzung `weg` ist (verlassen, B0115: das `weg`
+//! geht noch hinaus, dann endet der Strom). Ein Token im Query zählt nicht.
 
 use super::Zustand;
 use super::teilnehmer::{gemeldetes_token, nicht_erkannt};
 use super::teilnehmerliste::{stand_als_json, zeile_als_json, zeit_als_text};
+use crate::anwesenheit::status::Status;
 use crate::anwesenheit::{Anwesenheit, Halter, Stand, Wechsel};
 use crate::live::bus::{Abonnement, Empfang, Ereignis};
 use crate::start::ende::Ende;
@@ -39,7 +41,8 @@ pub async fn beantworten(
         herzschlag: tokio::time::interval_at(tokio::time::Instant::now() + herzschlag, herzschlag),
         zuletzt: stand.stand,
         erstes: Some(stand),
-        _halter: halter,
+        eigenes_weg_gesendet: false,
+        halter,
     };
     Sse::new(stream::unfold(strom, Strom::naechstes)).into_response()
 }
@@ -53,7 +56,9 @@ struct Strom {
     /// Nummer des zuletzt gesendeten Stands oder Wechsels; ältere oder gleiche gehen schon im Stand auf.
     zuletzt: u64,
     erstes: Option<Stand>,
-    _halter: Halter,
+    /// Das `weg` der eigenen Sitzung ist hinaus — danach endet der Strom (ADR-0018 Regel 4).
+    eigenes_weg_gesendet: bool,
+    halter: Halter,
 }
 
 /// Was der Strom als Nächstes sendet.
@@ -66,6 +71,9 @@ enum Ausgabe {
 
 impl Strom {
     async fn naechstes(mut self) -> Option<(Result<Event, Infallible>, Strom)> {
+        if self.eigenes_weg_gesendet {
+            return None;
+        }
         let ereignis = match self.naechste_ausgabe().await? {
             Ausgabe::Stand(stand) => stand_ereignis(&stand),
             Ausgabe::Wechsel(wechsel) => wechsel_ereignis(&wechsel),
@@ -90,6 +98,7 @@ impl Strom {
                             continue;
                         }
                         self.zuletzt = wechsel.stand;
+                        self.eigenes_weg_gesendet = self.ist_eigenes_weg(&wechsel);
                         Ausgabe::Wechsel(wechsel)
                     }
                     Empfang::NeuerStand => {
@@ -107,6 +116,13 @@ impl Strom {
 fn herzschlag_ereignis(anwesenheit: &Anwesenheit) -> Event {
     let jetzt = json!({ "jetzt": zeit_als_text(&anwesenheit.jetzt()) });
     Event::default().event("herzschlag").data(jetzt.to_string())
+}
+
+impl Strom {
+    fn ist_eigenes_weg(&self, wechsel: &Wechsel) -> bool {
+        wechsel.teilnehmer.status == Status::Weg
+            && &wechsel.teilnehmer.kennung == self.halter.kennung()
+    }
 }
 
 fn stand_ereignis(stand: &Stand) -> Event {
@@ -171,7 +187,8 @@ mod tests {
             ),
             zuletzt: stand.stand,
             erstes: Some(stand),
-            _halter: halter,
+            eigenes_weg_gesendet: false,
+            halter,
         };
         for nummer in 0..5 {
             beitreten(&anwesenheit, &format!("w{nummer}"));
@@ -215,5 +232,52 @@ mod tests {
             staende.windows(2).all(|paar| paar[0] < paar[1]),
             "{staende:?}"
         );
+    }
+
+    /// B0115 (ADR-0018 Regel 4): der Strom sendet das `weg` seiner eigenen Sitzung noch und endet dann; ein
+    /// fremdes `weg` beendet ihn nicht.
+    #[tokio::test]
+    async fn nach_dem_eigenen_weg_endet_der_strom_ein_fremdes_laesst_ihn_laufen() {
+        let bus = Arc::new(Bus::neu(16));
+        let anwesenheit = Arc::new(
+            Anwesenheit::neu(
+                Arc::new(Systemuhr),
+                Arc::new(Betriebssystemzufall),
+                Duration::from_secs(60),
+            )
+            .mit_veroeffentlichen(anwesenheit_veroeffentlichen(&bus)),
+        );
+        let herkunft: std::net::IpAddr = "127.0.0.2".parse().expect("IP");
+        let eigenes = beitreten(&anwesenheit, "leser");
+        let fremdes = beitreten(&anwesenheit, "anderer");
+        let (halter, _) = anwesenheit.verbunden(&eigenes, herkunft).expect("Halter");
+        let (stand, abonnement) = anwesenheit.stand_mit(|| bus.abonnieren());
+        let strom = Strom {
+            anwesenheit: Arc::clone(&anwesenheit),
+            abonnement,
+            ende: Ende::nie(),
+            herzschlag: tokio::time::interval_at(
+                tokio::time::Instant::now() + Duration::from_secs(3600),
+                Duration::from_secs(3600),
+            ),
+            zuletzt: stand.stand,
+            erstes: Some(stand),
+            eigenes_weg_gesendet: false,
+            halter,
+        };
+        anwesenheit.verlassen(&fremdes, herkunft);
+        anwesenheit.verlassen(&eigenes, herkunft);
+
+        let mut strom = Some(strom);
+        let mut gesendet = 0;
+        while let Some(laufend) = strom.take() {
+            let naechstes = tokio::time::timeout(Duration::from_secs(1), laufend.naechstes())
+                .await
+                .expect("Strom endet, statt zu warten");
+            strom = naechstes.map(|(_, weiter)| weiter);
+            gesendet += usize::from(strom.is_some());
+        }
+
+        assert_eq!(gesendet, 3, "Stand, weg anderer, weg leser — dann Ende");
     }
 }
