@@ -37,6 +37,14 @@ body { background: var(--kd-bg); color: var(--kd-ink); font-family: var(--font-s
 .lc-head-bed { white-space: nowrap; display: flex; align-items: center; gap: var(--kd-space-8); }
 .lc-me { font-family: var(--font-mono); font-size: 12px; color: var(--kd-header-ink); }
 .lc-me i { font-style: normal; color: var(--kd-header-muted); }
+/* Unter 480 px hat die Kopfzeile keinen Platz für alles: die Navigation entfällt, der Instanzname kürzt sich
+   mit Auslassung — die eigene Kennung und der Schalter „Teilnehmer“ bleiben ganz (Baustein Kopfzeile, schmal) */
+@media (max-width: 479px) {
+  .lc-head { grid-template-columns: minmax(0, 1fr) auto; gap: var(--kd-space-8); }
+  .lc-head-nav { display: none; }
+}
+.lc-hbtn { height: 28px; padding: 0 var(--kd-space-8); background: transparent; border: 0; color: var(--kd-header-ink); cursor: pointer; font-weight: 600; }
+.lc-hbtn:hover, .lc-hbtn[aria-expanded="true"] { background: var(--kd-header-surface); }
 .lc-tile { width: var(--lc-tile); height: var(--lc-tile); flex: none; display: inline-grid; place-items: center; font-family: var(--font-mono); font-size: 10px; font-weight: 600; text-transform: uppercase; }
 .lc-tile.mensch { background: var(--kd-mensch-hell); color: var(--kd-mensch); }
 .lc-tile.agent { background: var(--kd-agent-hell); color: var(--kd-agent); }
@@ -45,6 +53,7 @@ body { background: var(--kd-bg); color: var(--kd-ink); font-family: var(--font-s
 /* Hauptansicht (Bildschirm 4.2): Kopfzeile, Mitte, rechts die Teilnehmer; nur die Mitte und die Liste scrollen */
 .lc-app { height: 100%; display: grid; grid-template-rows: var(--kd-header) minmax(0, 1fr); }
 .lc-main { display: grid; grid-template-columns: minmax(0, 1fr) var(--lc-members); min-height: 0; }
+.lc-main.ohne-teilnehmer { grid-template-columns: minmax(0, 1fr); }
 .lc-center { min-width: 0; overflow-y: auto; background: var(--kd-surface); padding: var(--kd-space-12); }
 .lc-center .lc-meldung { margin: 0; }
 

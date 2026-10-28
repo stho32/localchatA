@@ -1,7 +1,8 @@
 // Eigene Kennung in der Kopfzeile (Designsystem: Bausteine Kopfzeile und Kennung): dunkle 40-px-Leiste,
-// rechts Kürzel-Kachel und `name@herkunft`, Herkunft gedämpft, Farbe und Marke nach Art.
+// rechts Kürzel-Kachel und `name@herkunft`, Herkunft gedämpft, Farbe und Marke nach Art, danach die Schalter
+// der Bedienung (z. B. „Teilnehmer“).
 
-export function zeichnen(wurzel, teilnehmer, { kennungFokussieren = false } = {}) {
+export function zeichnen(wurzel, teilnehmer, { kennungFokussieren = false, schalter = [] } = {}) {
   const art = artDes(teilnehmer);
   const kachel = element('span', { className: `lc-tile ${art}`, textContent: kuerzel(teilnehmer.name) });
   kachel.setAttribute('aria-hidden', 'true');
@@ -14,6 +15,7 @@ export function zeichnen(wurzel, teilnehmer, { kennungFokussieren = false } = {}
   if (art === 'agent') {
     bedienung.append(element('span', { className: 'lc-tag', textContent: 'Agent' }));
   }
+  bedienung.append(...schalter);
   const kopf = element('header', { className: 'lc-head' }, [
     element('div', { className: 'lc-head-ort' }, [element('span', { className: 'lc-head-inst', textContent: 'localchatA' })]),
     element('div', { className: 'lc-head-nav' }),
