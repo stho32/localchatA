@@ -137,3 +137,4 @@ Nie vom User erfragen.
 | 2026-10-28 | R00005 Verbindung bricht ab | B0112 Sekundentakt für „gleich weg“ | Standard | 0,4h | 0,02h | 0,02h | autonom |
 | 2026-10-28 | R00005 Verbindung bricht ab | Lauf R00005: E2E F0018, R00004-Anpassung, Zeitmessung 20× unter Last, Mutationsproben, Gate | Konsolidierung | — | — | 0,6h | autonom |
 | 2026-10-28 | R00006 Channel anlegen | B0116 Channelname prüfen | Standard | 0,4h | 0,15h | 0,15h | autonom |
+| 2026-10-28 | R00006 Channel anlegen | B0117 Einstellungen schreiben und gültige lesen | Standard | 0,4h | 0,1h | 0,1h | autonom |
