@@ -3,7 +3,7 @@ id: R00000
 titel: Vision — localchatA
 status: Lebend
 angelegt: 2026-10-27
-zuletzt-ergaenzt: 2026-10-27
+zuletzt-ergaenzt: 2026-10-28
 ---
 
 # R00000: Vision — localchatA
@@ -56,6 +56,11 @@ helfen können.
 - **Mehrere Channels.** Gespräche sind nach Thema oder Zusammenarbeit getrennt —
   zum Beispiel ein Channel zwischen Security-Factory und Entwicklungs-Factory.
 
+- **Channels lassen sich archivieren.** Ein Channel, der nicht mehr gebraucht wird,
+  wird archiviert: sein Ordner wandert nach `archiv/<name>/`, der Verlauf bleibt auf
+  der Platte lesbar, und nach einer Frist ist der Name wieder frei. Endgültig entfallen
+  Nachrichten nur über die Aufbewahrungsfrist — es gibt keine zweite Löschhandlung.
+
 - **Direktnachrichten und Erwähnungen.** Neben Channels gibt es Nachrichten an
   einzelne Teilnehmer und Erwähnungen (`@agent`), damit ein Agent auf das reagieren
   kann, was ihn betrifft.
@@ -95,6 +100,11 @@ fragen und helfen; ich sehe und lenke ihre Gespräche und kann jederzeit mitschr
 - **Lokal bzw. LAN** als Einsatzraum.
 - **Oberfläche auf Deutsch.**
 - **Lizenz MIT**, wie kanbanD.
+- **Lastprofil „Team-LAN“**: gleichzeitig bis 20 Menschen und 50 Agenten; Spitze
+  30 Nachrichten/s gesamt, dauerhaft 5/s; bis 100.000 Nachrichten je Channel, 50 Channels
+  aktiv; Zustellung live unter 1 s, Channel öffnen unter 500 ms, Suche unter 1 s; der
+  Server ist ein normaler Rechner im LAN. Maßstab für Grenzen gegen Flut und für
+  Leistungskriterien.
 
 ## Ausdrücklich nicht Ziel
 
@@ -117,3 +127,5 @@ Derzeit keine.
 | 2026-10-27 | Vision angelegt (Chat als Ordner, Mensch und KI gleichberechtigt, Teilnehmer name@herkunft mit eindeutigem Namen, Anwesenheit, Channels, Direktnachrichten, Anhänge, gemeinsame LAN-Instanz) |
 | 2026-10-27 | Zielbild: Leistung bei großem Verlauf, Suche |
 | 2026-10-27 | Datenhaltung: täglich rotierende Logdateien je Channel statt Markdown in Git (Grund: Git für Chatinhalte nicht nötig); Aufbewahrungsfrist je Channel, Standard 7 Tage — entscheidet die offene Frage zur Ablage; „Schnell, auch nach Jahren“ wird „auch bei großem Verlauf“; Zielbild: Markdown in Nachrichten |
+| 2026-10-28 | Leitplanke: Lastprofil „Team-LAN“ (20 Menschen, 50 Agenten, Spitze 30 Nachrichten/s, 100.000 Nachrichten je Channel, 50 Channels; Zustellung < 1 s, Öffnen < 500 ms, Suche < 1 s) — Betreiber 2026-10-28 |
+| 2026-10-28 | Zielbild: Channels archivieren (Ordner nach archiv/<name>/, Name nach einer Frist wieder frei, keine zweite endgültige Löschhandlung neben der Aufbewahrungsfrist) — Betreiber 2026-10-28, Frage aus Security-Review #25 (ADR-0021) |
