@@ -79,11 +79,16 @@ pub struct Gespraeche {
     ablage: Arc<dyn Logablage>,
     uhr: Arc<dyn Uhr>,
     verzeichnis: RwLock<Verzeichnis>,
-    letzte: Mutex<Option<Zeit>>,
+    /// Schreibsperre über alle Gespräche (ADR-0035 Regel 1); hält die zuletzt vergebene Zeit.
+    schreiben: Mutex<Option<Zeit>>,
     defekte: Vec<Ladedefekt>,
     ladezeit: Duration,
     veroeffentlichen: ChannelVeroeffentlichen,
+    nachricht_veroeffentlichen: NachrichtVeroeffentlichen,
 }
+
+/// Veröffentlicht eine angehängte Nachricht (im Start: auf den Bus, ADR-0028); gerufen unter der Schreibsperre.
+pub type NachrichtVeroeffentlichen = Arc<dyn Fn(&Gespraech, &Nachricht) + Send + Sync>;
 
 /// Was beim Laden übersprungen wurde: eine defekte Zeile, eine nicht lesbare Tagesdatei oder ein Ordner, der
 /// kein Channel ist.
@@ -192,16 +197,19 @@ impl Gespraeche {
             ablage,
             uhr,
             verzeichnis: RwLock::new(geladen.verzeichnis),
-            letzte: Mutex::new(geladen.juengste),
+            schreiben: Mutex::new(geladen.juengste),
             defekte: geladen.defekte,
             ladezeit: beginn.elapsed(),
             veroeffentlichen: Arc::new(|_: &ChannelWechsel| {}),
+            nachricht_veroeffentlichen: Arc::new(|_: &Gespraech, _: &Nachricht| {}),
         })
     }
 
-    /// Hängt eine Nachricht an die Tagesdatei des lokalen Datums ihrer Zeit, unter der Sperre des Gesprächs:
-    /// Zeit vergeben → Satz → anhängen → erst dann Index (ADR-0005, ADR-0011). Scheitert das Anhängen,
-    /// bleibt der Index unverändert und die vergebene Zeit verfällt. Angelegt wird nichts.
+    /// Hängt eine Nachricht an die Tagesdatei des lokalen Datums ihrer Zeit. Sperrordnung Gespräch → Schreibsperre
+    /// (ADR-0035 Regel 1): Zeit `max(jetzt, letzte + 1 ms)` → Satz → anhängen → Index → veröffentlichen, alles unter
+    /// beiden Sperren — so sind die Zeiten über alle Gespräche streng steigend in der Folge, in der Log, Index und
+    /// Bus sie sehen. Scheitert das Anhängen, bleibt der Index unverändert, nichts wird veröffentlicht und die
+    /// vergebene Zeit verfällt (streng steigend, nicht lückenlos). Angelegt wird nichts.
     pub fn senden(
         &self,
         gespraech: &Gespraech,
@@ -215,8 +223,11 @@ impl Gespraeche {
             .cloned()
             .ok_or(Sendefehler::Unbekannt)?;
         let mut verlauf = sperren(&verlauf);
+        let mut letzte = sperren(&self.schreiben);
+        let zeit = crate::uhr::naechste_zeit(self.uhr.jetzt(), *letzte);
+        *letzte = Some(zeit);
         let mut nachricht = Nachricht {
-            zeit: self.zeit_vergeben(),
+            zeit,
             von: von.clone(),
             art: Some(art),
             text: text.to_string(),
@@ -232,21 +243,13 @@ impl Gespraeche {
                 grund: fehler.to_string(),
             })?;
         verlauf.anhaengen(tag, &satz, angehaengt.zeilenende_ergaenzt);
+        (self.nachricht_veroeffentlichen)(gespraech, &nachricht);
         Ok(nachricht)
-    }
-
-    /// `max(jetzt, letzte + 1 ms)`, global über alle Gespräche; die Zeit gilt als vergeben, auch wenn das
-    /// Anhängen danach scheitert (Zeiten sind streng steigend, nicht lückenlos).
-    fn zeit_vergeben(&self) -> Zeit {
-        let mut letzte = sperren(&self.letzte);
-        let zeit = crate::uhr::naechste_zeit(self.uhr.jetzt(), *letzte);
-        *letzte = Some(zeit);
-        zeit
     }
 
     /// Die jüngste Nachrichtenzeit im Ordner (als Zeitpunkt); an ihr setzt die nächste vergebene Zeit an.
     pub fn letzte_zeit(&self) -> Option<Zeit> {
-        *sperren(&self.letzte)
+        *sperren(&self.schreiben)
     }
 
     pub fn defekte(&self) -> &[Ladedefekt] {
@@ -277,6 +280,17 @@ impl Gespraeche {
     pub fn mit_veroeffentlichen(self, veroeffentlichen: ChannelVeroeffentlichen) -> Gespraeche {
         Gespraeche {
             veroeffentlichen,
+            ..self
+        }
+    }
+
+    /// Hängt die Veröffentlichung der Nachrichten an (im Start: der Bus); ohne sie gehen sie an niemanden.
+    pub fn mit_nachricht_veroeffentlichen(
+        self,
+        nachricht_veroeffentlichen: NachrichtVeroeffentlichen,
+    ) -> Gespraeche {
+        Gespraeche {
+            nachricht_veroeffentlichen,
             ..self
         }
     }
@@ -1463,5 +1477,167 @@ mod tests {
             }
         );
         assert_eq!(frist_von(&gespraeche, "ohne"), Frist::Tage(7));
+    }
+
+    /// Logablage, die das Anhängen an `allgemein` an einer Schranke festhält, bis der Test sie freigibt.
+    struct Schranke {
+        innen: Arc<Speicherablage>,
+        angekommen: Mutex<std::sync::mpsc::Sender<()>>,
+        frei: Mutex<std::sync::mpsc::Receiver<()>>,
+    }
+
+    impl Logablage for Schranke {
+        fn gespraeche(&self) -> std::io::Result<Vec<Gespraech>> {
+            self.innen.gespraeche()
+        }
+        fn tage(&self, gespraech: &Gespraech) -> std::io::Result<Vec<NaiveDate>> {
+            self.innen.tage(gespraech)
+        }
+        fn lesen(&self, gespraech: &Gespraech, tag: NaiveDate) -> std::io::Result<Vec<u8>> {
+            self.innen.lesen(gespraech, tag)
+        }
+        fn anhaengen(
+            &self,
+            gespraech: &Gespraech,
+            tag: NaiveDate,
+            satz: &str,
+        ) -> std::io::Result<Angehaengt> {
+            if *gespraech == Gespraech::channel("allgemein") {
+                sperren(&self.angekommen).send(()).expect("Test wartet");
+                sperren(&self.frei).recv().expect("Freigabe");
+            }
+            self.innen.anhaengen(gespraech, tag, satz)
+        }
+        fn channel_ordner_anlegen(&self, gespraech: &Gespraech) -> std::io::Result<()> {
+            self.innen.channel_ordner_anlegen(gespraech)
+        }
+        fn einstellungen_schreiben(
+            &self,
+            gespraech: &Gespraech,
+            bytes: &[u8],
+        ) -> std::io::Result<()> {
+            self.innen.einstellungen_schreiben(gespraech, bytes)
+        }
+        fn einstellungen_lesen(&self, gespraech: &Gespraech) -> std::io::Result<Option<Vec<u8>>> {
+            self.innen.einstellungen_lesen(gespraech)
+        }
+        fn ordner_entfernen(&self, gespraech: &Gespraech) -> std::io::Result<()> {
+            self.innen.ordner_entfernen(gespraech)
+        }
+        fn tag_entfernen(&self, gespraech: &Gespraech, tag: NaiveDate) -> std::io::Result<()> {
+            self.innen.tag_entfernen(gespraech, tag)
+        }
+    }
+
+    /// R00011 F0042 „Schranke über zwei Channels“ (B0213): Thread 1 sendet in `allgemein` und hängt an der
+    /// Schranke; Thread 2 sendet in `technik`. Nach der Freigabe sieht der Rückruf `allgemein` vor `technik`, und
+    /// `zeit(allgemein) < zeit(technik)` — mit einer Sperre je Gespräch käme `technik` zuerst (ADR-0035).
+    #[test]
+    fn die_veroeffentlichung_folgt_den_zeiten_ueber_zwei_channels() {
+        let innen = Arc::new(Speicherablage::neu());
+        innen.gespraech_anlegen(&Gespraech::channel("allgemein"));
+        innen.gespraech_anlegen(&Gespraech::channel("technik"));
+        let (angekommen_senden, angekommen) = std::sync::mpsc::channel();
+        let (frei, frei_empfangen) = std::sync::mpsc::channel();
+        let schranke = Schranke {
+            innen,
+            angekommen: Mutex::new(angekommen_senden),
+            frei: Mutex::new(frei_empfangen),
+        };
+        let gesehen: Arc<Mutex<Vec<(Gespraech, Zeit)>>> = Arc::default();
+        let uhr = Arc::new(GestellteUhr::neu(zeit("2026-10-28T12:00:00.000+01:00")));
+        let gespraeche = Arc::new(
+            Gespraeche::laden(Arc::new(schranke), uhr)
+                .expect("geladen")
+                .mit_nachricht_veroeffentlichen({
+                    let gesehen = Arc::clone(&gesehen);
+                    Arc::new(move |gespraech: &Gespraech, nachricht: &Nachricht| {
+                        sperren(&gesehen).push((gespraech.clone(), nachricht.zeit));
+                    })
+                }),
+        );
+
+        let eins = {
+            let gespraeche = Arc::clone(&gespraeche);
+            std::thread::spawn(move || {
+                gespraeche.senden(
+                    &Gespraech::channel("allgemein"),
+                    &claude(),
+                    Art::Agent,
+                    "eins",
+                )
+            })
+        };
+        angekommen
+            .recv_timeout(Duration::from_secs(10))
+            .expect("Thread 1 an der Schranke");
+        let zwei = {
+            let gespraeche = Arc::clone(&gespraeche);
+            std::thread::spawn(move || {
+                gespraeche.senden(
+                    &Gespraech::channel("technik"),
+                    &claude(),
+                    Art::Agent,
+                    "zwei",
+                )
+            })
+        };
+        std::thread::sleep(Duration::from_millis(200));
+        frei.send(()).expect("Freigabe");
+        let eins = eins.join().expect("Thread 1").expect("gesendet");
+        let zwei = zwei.join().expect("Thread 2").expect("gesendet");
+
+        assert!(eins.zeit < zwei.zeit, "{} < {}", eins.zeit, zwei.zeit);
+        assert_eq!(
+            *sperren(&gesehen),
+            vec![
+                (Gespraech::channel("allgemein"), eins.zeit),
+                (Gespraech::channel("technik"), zwei.zeit),
+            ]
+        );
+    }
+
+    /// R00011 F0042 „Sperrordnung“: Pflege der Frist und Senden je 200-mal gleichzeitig über denselben Channel
+    /// enden beide, innerhalb von 10 s (kein Hängen).
+    #[test]
+    fn pflege_und_senden_gleichzeitig_haengen_nicht() {
+        let (gespraeche, _, _) = im_speicher("2026-10-28T12:00:00.000+01:00");
+        let gespraeche = Arc::new(gespraeche);
+        let heute = tag("2026-10-28");
+        let (fertig, fertige) = std::sync::mpsc::channel();
+        let pflege = {
+            let gespraeche = Arc::clone(&gespraeche);
+            let fertig = fertig.clone();
+            std::thread::spawn(move || {
+                for _ in 0..200 {
+                    gespraeche.pflegen(heute, Pflegeanlass::Tageswechsel);
+                }
+                fertig.send("pflege").expect("Test wartet");
+            })
+        };
+        let senden = {
+            let gespraeche = Arc::clone(&gespraeche);
+            std::thread::spawn(move || {
+                for nummer in 0..200 {
+                    gespraeche
+                        .senden(
+                            &Gespraech::channel("allgemein"),
+                            &claude(),
+                            Art::Agent,
+                            &format!("n{nummer}"),
+                        )
+                        .expect("gesendet");
+                }
+                fertig.send("senden").expect("Test wartet");
+            })
+        };
+
+        let erstes = fertige.recv_timeout(Duration::from_secs(10));
+        let zweites = fertige.recv_timeout(Duration::from_secs(10));
+
+        assert!(erstes.is_ok() && zweites.is_ok(), "{erstes:?} {zweites:?}");
+        pflege.join().expect("Pflege");
+        senden.join().expect("Senden");
+        assert_eq!(gespraeche.kennzahlen().nachrichten, 200);
     }
 }
