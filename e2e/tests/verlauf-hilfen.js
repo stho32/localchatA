@@ -135,4 +135,51 @@ async function ruhig(page) {
   await page.evaluate(() => new Promise((weiter) => requestAnimationFrame(() => requestAnimationFrame(weiter))));
 }
 
-module.exports = { juengsteZeit, neuesteSichtbarNachKlick, bloeckeRueckwaerts, ankerBeobachten, ruhig };
+/// Messwert M1 (B0167): Mausrad nach oben über `anzahl` Nachrichten (1.000 px je 16 ms wie die Probe der ADR-0026);
+/// gemessen werden die Abstände der requestAnimationFrame-Takte und die langen Aufgaben (longtask).
+/// Braucht ankerBeobachten (zählt die gesehenen Nachrichten). → { frames, ueber50, anteilUeber50, laengsteAufgabe }
+async function framesBeimScrollen(page, anzahl) {
+  await page.evaluate(() => {
+    window.lcFrames = [];
+    window.lcAufgaben = [];
+    window.lcMessen = true;
+    new PerformanceObserver((liste) => {
+      for (const eintrag of liste.getEntries()) {
+        window.lcAufgaben.push(eintrag.duration);
+      }
+    }).observe({ type: 'longtask' });
+    let vorher = performance.now();
+    const takt = (jetzt) => {
+      window.lcFrames.push(jetzt - vorher);
+      vorher = jetzt;
+      if (window.lcMessen) {
+        requestAnimationFrame(takt);
+      }
+    };
+    requestAnimationFrame(takt);
+  });
+  const ziel = await page.evaluate(() => window.lcGesehen.size);
+  const log = await page.getByRole('log').boundingBox();
+  await page.mouse.move(log.x + log.width / 2, log.y + log.height / 2);
+  for (let runde = 0; runde < 20000; runde += 1) {
+    if (await page.evaluate((grenze) => window.lcGesehen.size >= grenze, ziel + anzahl)) {
+      break;
+    }
+    await page.mouse.wheel(0, -1000);
+    await page.waitForTimeout(16);
+  }
+  return page.evaluate(() => {
+    window.lcMessen = false;
+    const frames = window.lcFrames.slice(1);
+    const ueber50 = frames.filter((dauer) => dauer > 50).length;
+    return {
+      frames: frames.length,
+      ueber50,
+      anteilUeber50: ueber50 / frames.length,
+      laengsteAufgabe: Math.max(0, ...window.lcAufgaben),
+      aufgaben: window.lcAufgaben.length,
+    };
+  });
+}
+
+module.exports = { juengsteZeit, neuesteSichtbarNachKlick, bloeckeRueckwaerts, ankerBeobachten, ruhig, framesBeimScrollen };
