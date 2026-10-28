@@ -161,3 +161,35 @@ async fn die_seite_laedt_genau_ein_modul_skript_und_die_module_kommen_als_javasc
         assert_eq!(antwort.typ, "text/javascript; charset=utf-8", "{modul}");
     }
 }
+
+/// R00004 F0014, B0093 (ADR-0015 Regel 3, Pre-Mortem 1): die ausgelieferte Seite nennt die Programmversion,
+/// die Oberfläche legt den Worker unter `/web/strom.js?v=<version>` an, `<version>` gleich `version` aus
+/// `/api/gesundheit`; die Worker-Datei kommt unabhängig vom Query.
+#[tokio::test]
+async fn die_worker_adresse_traegt_die_programmversion_aus_der_gesundheit() {
+    let instanz = wegwerf_starten();
+
+    let (_, gesundheit) = gemeinsam::gesundheit(&instanz.adresse).await;
+    let version = gesundheit["version"].as_str().expect("version").to_string();
+    let seite = holen(instanz.adresse.clone()).await;
+    let live = holen(format!("{}web/live.js", instanz.adresse)).await;
+    let worker = holen(format!("{}web/strom.js?v={version}", instanz.adresse)).await;
+    let ohne_query = holen(format!("{}web/strom.js", instanz.adresse)).await;
+
+    assert_eq!(version, env!("CARGO_PKG_VERSION"));
+    assert!(
+        seite
+            .inhalt
+            .contains(&format!("<meta name=\"lc-version\" content=\"{version}\">")),
+        "{}",
+        seite.inhalt
+    );
+    assert!(
+        live.inhalt.contains("`/web/strom.js?v=${version}`"),
+        "{}",
+        live.inhalt
+    );
+    assert_eq!(worker.status, 200);
+    assert!(worker.typ.starts_with("text/javascript"), "{}", worker.typ);
+    assert_eq!(worker.inhalt, ohne_query.inhalt);
+}

@@ -9,6 +9,7 @@ use std::sync::Arc;
 #[derive(Debug, Serialize)]
 pub struct Gesundheit {
     status: &'static str,
+    version: &'static str,
     ordner: String,
     nachrichten: u64,
     log_bytes: u64,
@@ -20,12 +21,14 @@ pub struct Gesundheit {
 
 /// Antwortet der Port, ist die Instanz bereit: geladen wird vor dem Binden (A00003).
 /// Die Kennzahlen kommen aus Laden und Verlaufsindex (R00002) und der Anwesenheit: lebende Sitzungen und
-/// offene Ströme (R00004) — Zahlen ohne Namen, ohne Sitzung lesbar.
+/// offene Ströme (R00004) — Zahlen ohne Namen, ohne Sitzung lesbar; dazu die Programmversion, mit der die
+/// Oberfläche ihren Worker anlegt (ADR-0015 Regel 3).
 pub async fn beantworten(State(zustand): State<Arc<Zustand>>) -> Json<Gesundheit> {
     let kennzahlen = zustand.gespraeche.kennzahlen();
     let betrieb = zustand.anwesenheit.betrieb();
     Json(Gesundheit {
         status: "bereit",
+        version: env!("CARGO_PKG_VERSION"),
         ordner: zustand.ordner.display().to_string(),
         nachrichten: kennzahlen.nachrichten,
         log_bytes: kennzahlen.log_bytes,
@@ -65,6 +68,7 @@ mod tests {
             inhalt,
             json!({
                 "status": "bereit",
+                "version": env!("CARGO_PKG_VERSION"),
                 "ordner": "/tmp/lc-r1",
                 "nachrichten": 0,
                 "log_bytes": 0,

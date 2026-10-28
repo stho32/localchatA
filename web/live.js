@@ -8,6 +8,11 @@ import { entscheiden } from './verbindung.js';
 
 const NICHT_AUTORISIERT = 401;
 
+// Die Programmversion in der Adresse des Workers: nach einem Update läuft kein alter Worker weiter (ADR-0015).
+export function workerAdresse(version) {
+  return `/web/strom.js?v=${version}`;
+}
+
 // Zustände an beiZustand: 'verbunden' | 'unterbrochen' | 'abgelehnt' (mit dem abgelehnten Token).
 export function halten({
   token,
