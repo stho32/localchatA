@@ -9,7 +9,7 @@
 import { nachrichtZeichnen, kopfSetzen, trennerZeichnen, langeEinklappen, langeUmschalten } from './nachricht.js';
 import { gliederung, datumBenennen } from './gliederung.js';
 import { nachladen, einfuegen } from './fenster.js';
-import { einordnen, buendlerAnlegen, folgenOderZaehlen, pillenText } from './live-verlauf.js';
+import { einordnen, buendlerAnlegen, folgenOderZaehlen, pillenText, auslaufNach } from './live-verlauf.js';
 
 // abrufen: async (name, cursor, signal) → { art: 'block' | 'fehler' | 'abgebrochen', … } (api.js verlaufAbrufen).
 // Live (ADR-0037 Regeln 1, 6): nachrichtAnnehmen(nachricht, eigen) ordnet über die Zeit ein und fügt je Frame ein —
@@ -56,11 +56,11 @@ export function verlaufAnlegen({ abrufen, schalter = () => {} }) {
   }
 
   function lageMerken() {
+    auslaufAbbauen(auslaufSichtbar(), 0);
     amEnde = abstandUnten() <= 1 && fenster !== null && !fenster.neuer;
     if (amEnde) {
       neueGezaehlt = 0;
       ersteNeue = null;
-      auslauf.style.height = '';
     }
     const weitOben = abstandUnten() > log.clientHeight;
     pille.hidden = fenster === null || !(weitOben || fenster.neuer || neueGezaehlt > 0);
@@ -113,11 +113,30 @@ export function verlaufAnlegen({ abrufen, schalter = () => {} }) {
   }
 
   // Reicht der Inhalt unter der ersten neuen nicht für eine Sichthöhe, entsteht darunter so viel Raum, dass sie oben
-  // stehen kann — eine Zeile mehr, damit der Blick dabei nicht schon am Ende gilt; am Ende fällt der Raum weg.
+  // stehen kann — mehr als eine Zeile mehr, damit der Blick dabei nicht am Ende gilt und weitere Nachrichten gezählt
+  // statt verfolgt werden; der Raum baut sich ab, wie neuer Inhalt ihn einnimmt oder er aus dem Fenster gerät
+  // (auslaufNach).
   function auslaufFuer(ziel) {
+    const UEBER_DIE_ZEILE_PX = 2;
     const fehlt = ziel - (log.scrollHeight - log.clientHeight);
     if (fehlt > 0) {
-      auslauf.style.height = `${fehlt + zeilenhoehe()}px`;
+      auslauf.style.height = `${fehlt + zeilenhoehe() + UEBER_DIE_ZEILE_PX}px`;
+    }
+  }
+
+  function auslaufSichtbar() {
+    return log.getBoundingClientRect().bottom - auslauf.getBoundingClientRect().top;
+  }
+
+  function auslaufAbbauen(sichtbar, angefuegt) {
+    const hoehe = auslauf.getBoundingClientRect().height;
+    if (hoehe === 0) {
+      return;
+    }
+    const danach = auslaufNach({ hoehe, sichtbar, angefuegt });
+    auslauf.style.height = `${danach}px`;
+    if (danach === 0) {
+      auslauf.style.height = '';
     }
   }
 
@@ -222,15 +241,22 @@ export function verlaufAnlegen({ abrufen, schalter = () => {} }) {
   // Einmal je Frame (ADR-0037 Regel 6): neue Nachrichten einordnen, folgen oder zählen, dann die vorläufigen neu —
   // eine Anker-Korrektur, ein Abgleich des Fensters.
   function jeFrameEinfuegen(gesammelt) {
+    const sichtbar = auslaufSichtbar();
+    const inhaltVorher = inhaltsHoehe();
     const offene = gesammelt.filter((eintrag) => eintrag.channel === offenerName && eintrag.nachricht !== null);
     if (offene.length > 0 && !gescheitert) {
       nachrichtenEinfuegen(offene);
     }
     ausstehendZeichnen();
+    auslaufAbbauen(sichtbar, inhaltsHoehe() - inhaltVorher);
     if (amEnde) {
       ansEnde();
     }
     lageMerken();
+  }
+
+  function inhaltsHoehe() {
+    return inhalt.getBoundingClientRect().height + ausstehend.getBoundingClientRect().height;
   }
 
   function nachrichtenEinfuegen(eintraege) {

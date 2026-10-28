@@ -2,7 +2,7 @@
 // node --test).
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { einordnen, buendlerAnlegen, folgenOderZaehlen, pillenText } from '../../web/live-verlauf.js';
+import { einordnen, buendlerAnlegen, folgenOderZaehlen, pillenText, auslaufNach } from '../../web/live-verlauf.js';
 
 const t = (sekunde) => `2026-10-28T12:00:${String(sekunde).padStart(2, '0')}.000+01:00`;
 const n = (sekunde) => ({ zeit: t(sekunde), von: 'beta@127.0.0.1', art: 'agent', text: `n${sekunde}` });
@@ -90,4 +90,20 @@ test('am Ende (höchstens eine Zeile Abstand) folgen, sonst anfügen und zählen
 test('die Pille nennt die Zahl in Einzahl und Mehrzahl', () => {
   assert.equal(pillenText(1), '1 neue Nachricht');
   assert.equal(pillenText(3), '3 neue Nachrichten');
+});
+
+// B0329 „Auslauf baut sich mit dem Lesen ab“ (Nacharbeit #8): neuer Inhalt nimmt den Auslauf ein, ein sichtbarer
+// Auslauf fällt nie auf einmal weg, einer ganz unter dem Fenster schon.
+test('angefügter Inhalt nimmt den Auslauf ein, bis er aufgebraucht ist', () => {
+  assert.equal(auslaufNach({ hoehe: 500, sichtbar: 480, angefuegt: 60 }), 440);
+  assert.equal(auslaufNach({ hoehe: 500, sichtbar: 480, angefuegt: 500 }), 0);
+  assert.equal(auslaufNach({ hoehe: 500, sichtbar: 480, angefuegt: 700 }), 0);
+  assert.equal(auslaufNach({ hoehe: 500, sichtbar: 480, angefuegt: -30 }), 500);
+});
+
+test('ein sichtbarer Auslauf bleibt, ein ganz unsichtbarer fällt weg', () => {
+  assert.equal(auslaufNach({ hoehe: 500, sichtbar: 480, angefuegt: 0 }), 500);
+  assert.equal(auslaufNach({ hoehe: 500, sichtbar: 1, angefuegt: 0 }), 500);
+  assert.equal(auslaufNach({ hoehe: 500, sichtbar: 0, angefuegt: 0 }), 0);
+  assert.equal(auslaufNach({ hoehe: 0, sichtbar: 0, angefuegt: 0 }), 0);
 });

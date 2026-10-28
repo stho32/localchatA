@@ -52,3 +52,14 @@ export function pillenText(anzahl) {
   }
   return `${anzahl} neue Nachrichten`;
 }
+
+// Wie hoch der Auslauf unter dem Verlauf danach ist (Nacharbeit #8): angefügter Inhalt nimmt ihn ein; steht er ganz
+// unter dem Fenster, fällt er weg; solange ein Teil sichtbar ist, verschwindet er nie auf einmal — sonst rutscht die
+// Lesestelle nach unten. hoehe, sichtbar, angefuegt in px → neue Höhe in px
+export function auslaufNach({ hoehe, sichtbar, angefuegt }) {
+  if (sichtbar <= 0) {
+    return 0;
+  }
+  const genommen = Math.max(0, angefuegt);
+  return Math.max(0, hoehe - genommen);
+}
