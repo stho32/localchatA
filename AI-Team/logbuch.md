@@ -87,3 +87,4 @@ Eine Zeile je Auftrag an eine Rolle und je Retrospektive.
 | 2026-10-28 | #6 I0007 | Wiederholung + Entwicklertest | ux-, security-reviewer, entwicklertester | bestanden | 0:40 | alle Phasen bestanden; Variante 2b und Anmerkungen → #18; Befundkarten #20 (Kopfzeile 320 px), #21 (JSON 2 MiB) |
 | 2026-10-28 | #6 I0007 | Abnahme | director | Zug | — | Demo aus Commit 0957bca (Skript baut jetzt aus Git-Commits) |
 | 2026-10-28 | #6 I0007 | Retrospektive | director | — | — | etwa 3 h, eine Nacharbeit (Muss aus Security und UX), parallel zum Vorlauf von #7/#12. Puffer hat getragen: der Engpass wartete nach der Nacharbeit nicht. Neu: zweiter Vorfall „Scratchpad geleert“ (Vorschlag); Befunde aus älteren Karten als eigene Befundkarten statt Nacharbeit |
+| 2026-10-28 | #20, #21 | Detailplanung | planer | bestanden | 0:30 | R00009 (Kopfzeile 320 px), R00010 (Körpergrenze 4 KiB), F0039/F0040 (aus vorlauf/20 übernommen); kommen mit Vorrang nach #7 |
