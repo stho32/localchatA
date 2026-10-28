@@ -1756,22 +1756,33 @@ mod tests {
         );
     }
 
-    /// R00011 F0042 „Sperrordnung“: Pflege der Frist und Senden je 200-mal gleichzeitig über denselben Channel
-    /// enden beide, innerhalb von 10 s (kein Hängen).
+    /// R00011 F0042 „Sperrordnung“: Pflege der Frist und Senden je 200-mal gleichzeitig über denselben Channel;
+    /// je Runde liegt ein Tag jenseits der Frist in der Ablage, den die Pflege unter der Gesprächssperre entfernt
+    /// → beide enden innerhalb von 10 s (kein Hängen), 200 Nachrichten, 200 Tage entfallen, nur heute bleibt.
     #[test]
     fn pflege_und_senden_gleichzeitig_haengen_nicht() {
-        let (gespraeche, _, _) = im_speicher("2026-10-28T12:00:00.000+01:00");
+        let (gespraeche, ablage, _) = im_speicher("2026-10-28T12:00:00.000+01:00");
         let gespraeche = Arc::new(gespraeche);
+        let allgemein = Gespraech::channel("allgemein");
         let heute = tag("2026-10-28");
+        let erster_alter_tag = tag("2026-01-01");
         let (fertig, fertige) = std::sync::mpsc::channel();
         let pflege = {
             let gespraeche = Arc::clone(&gespraeche);
             let fertig = fertig.clone();
             std::thread::spawn(move || {
-                for _ in 0..200 {
-                    gespraeche.pflegen(heute, Pflegeanlass::Tageswechsel);
+                let mut entfallene_tage = 0;
+                for runde in 0..200 {
+                    let alter_tag = erster_alter_tag + chrono::Days::new(runde);
+                    ablage.tag_setzen(&allgemein, alter_tag, "@ alt\n\n");
+                    for bericht in gespraeche.pflegen(heute, Pflegeanlass::Tageswechsel) {
+                        if let Pflegebericht::Entfallen { tage, .. } = bericht {
+                            entfallene_tage += tage.len();
+                        }
+                    }
                 }
                 fertig.send("pflege").expect("Test wartet");
+                (entfallene_tage, ablage)
             })
         };
         let senden = {
@@ -1791,12 +1802,18 @@ mod tests {
             })
         };
 
-        let erstes = fertige.recv_timeout(Duration::from_secs(10));
-        let zweites = fertige.recv_timeout(Duration::from_secs(10));
+        let frist = Instant::now() + Duration::from_secs(10);
+        let erstes = fertige.recv_timeout(frist.saturating_duration_since(Instant::now()));
+        let zweites = fertige.recv_timeout(frist.saturating_duration_since(Instant::now()));
 
         assert!(erstes.is_ok() && zweites.is_ok(), "{erstes:?} {zweites:?}");
-        pflege.join().expect("Pflege");
+        let (entfallene_tage, ablage) = pflege.join().expect("Pflege");
         senden.join().expect("Senden");
         assert_eq!(gespraeche.kennzahlen().nachrichten, 200);
+        assert_eq!(entfallene_tage, 200);
+        assert_eq!(
+            Logablage::tage(ablage.as_ref(), &Gespraech::channel("allgemein")).expect("Tage"),
+            vec![heute]
+        );
     }
 }
