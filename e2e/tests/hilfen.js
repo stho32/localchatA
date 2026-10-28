@@ -12,9 +12,12 @@ const path = require('path');
 const PROGRAMM = path.resolve(__dirname, '../../target/debug/localchatA');
 process.env.TZ = 'Europe/Berlin';
 
-async function instanzStarten({ port = 0, host = '127.0.0.1', argumente = [], umgebung = {} } = {}) {
+/// `vorbereiten(ordner)` legt vor dem Start Dateien in den Ordner (Channels, Tagesdateien).
+async function instanzStarten({ port = 0, host = '127.0.0.1', argumente = [], umgebung = {}, vorbereiten = () => {} } = {}) {
   const wurzel = fs.mkdtempSync(path.join(os.tmpdir(), 'localchata-e2e-'));
   const ordner = path.join(wurzel, 'chat');
+  fs.mkdirSync(ordner);
+  await vorbereiten(ordner);
   let kind = null;
   const instanz = {
     ordner,

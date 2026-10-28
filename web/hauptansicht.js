@@ -4,7 +4,10 @@
 // Verbindung steht in Fehlergestalt (⚠ und Wort, kd-danger) unter der Kopfzeile über die ganze Breite. `Strg .` und der Schalter
 // „Teilnehmer“ blenden die Liste ein und aus (1-tastatur.md). `+` und `Strg Alt N` öffnen „Channel anlegen“; die
 // Statuszeile meldet den angelegten Channel (ADR-0024 Regeln 4, 5). optionen.channelAnlegen: async name → Antwort.
+// Die Auswahl folgt allein Adresse und Channel-Liste (ADR-0027): Start, hashchange und jede neue Liste leiten sie
+// neu ab — Seitenleiste, Kopfzeile und Mitte zeigen sie.
 import * as kopfzeile from './kopfzeile.js';
+import { auswahl, auswahlMerken, startadresse, MERKER } from './auswahl.js';
 import * as seitenleiste from './seitenleiste.js';
 import { dialogEinrichten } from './channel-anlegen.js';
 import { onlineBenennen } from './teilnehmerliste.js';
@@ -19,7 +22,7 @@ export function zeichnen(wurzel, teilnehmer, optionen) {
   const anzahl = element('span', { className: 'lc-count', textContent: '0' });
   const schalter = element('button', { type: 'button', className: 'lc-hbtn' }, ['Teilnehmer ', anzahl]);
   schalter.setAttribute('aria-controls', 'lc-teilnehmer');
-  kopfzeile.zeichnen(wurzel, teilnehmer, { ...optionen, schalter: [schalter] });
+  const kopf = kopfzeile.zeichnen(wurzel, teilnehmer, { ...optionen, schalter: [schalter] });
   const hinweis = element('p', { id: 'lc-verbindung', className: 'lc-meldung lc-fehler lc-verbindung', hidden: true });
   hinweis.setAttribute('role', 'alert');
   const standUnbekannt = element('p', { className: 'lc-stand', hidden: true });
@@ -43,9 +46,10 @@ export function zeichnen(wurzel, teilnehmer, optionen) {
   einAusblendenBedienen({ schalter, region, haupt }, vorigeAnsichtAbmelden.signal);
   let letzterZustand = 'verbunden';
   channels.channelsZeigen([]);
+  const auswahlFolgen = auswahlEinrichten({ seitenleiste: channels, kopf, mitte }, vorigeAnsichtAbmelden.signal);
   return {
     region: zeilen,
-    channelsZeigen: channels.channelsZeigen,
+    channelsZeigen: auswahlFolgen,
     anzahlZeigen: (wieViele) => {
       anzahl.textContent = String(wieViele);
     },
@@ -53,6 +57,47 @@ export function zeichnen(wurzel, teilnehmer, optionen) {
       letzterZustand = verbindungZeigen({ hinweis, region, standUnbekannt }, letzterZustand, zustand);
     },
   };
+}
+
+// Liefert channelsZeigen(liste): die Liste ist erst mit dem ersten Stand bekannt — bis dahin bleibt ein
+// gewählter Name ohne Urteil, damit „gibt es nicht“ nie vor dem Stand erscheint.
+function auswahlEinrichten({ seitenleiste, kopf, mitte }, signal) {
+  const adresse = startadresse(window.location.hash, window.sessionStorage.getItem(MERKER));
+  if (adresse !== null) {
+    window.history.replaceState(null, '', adresse);
+  }
+  let liste = null;
+  function folgen() {
+    const namen = (liste || []).map((channel) => channel.name);
+    const gewaehlt = auswahl(window.location.hash, namen);
+    auswahlMerken(window.sessionStorage, gewaehlt);
+    let bekannt = null;
+    if (gewaehlt !== null && gewaehlt.bekannt) {
+      bekannt = liste.find((channel) => channel.name === gewaehlt.name);
+    }
+    seitenleiste.auswahlZeigen(bekannt && bekannt.name);
+    kopf.ortZeigen(bekannt);
+    mitteZeigen(mitte, gewaehlt, liste !== null);
+  }
+  window.addEventListener('hashchange', folgen, { signal });
+  folgen();
+  return (neueListe) => {
+    liste = neueListe;
+    seitenleiste.channelsZeigen(neueListe);
+    folgen();
+  };
+}
+
+function mitteZeigen(mitte, gewaehlt, listeBekannt) {
+  if (gewaehlt === null) {
+    mitte.replaceChildren(element('p', { className: 'lc-mitte-hinweis', textContent: 'Links einen Channel wählen.' }));
+    return;
+  }
+  if (!listeBekannt || gewaehlt.bekannt) {
+    mitte.replaceChildren();
+    return;
+  }
+  mitte.replaceChildren(element('p', { className: 'lc-mitte-hinweis', textContent: `# ${gewaehlt.name} gibt es nicht.` }));
 }
 
 // Die Meldung steht einige Sekunden und geht dann von selbst; eine neue ersetzt sie.

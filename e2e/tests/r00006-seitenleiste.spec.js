@@ -59,7 +59,8 @@ test('US-15: ohne Channels zeigt die Seitenleiste „Channels“, den Schalter �
   await expect(plus).toHaveAttribute('aria-keyshortcuts', 'Control+Alt+N');
   await expect(seitenleiste(a.page)).toContainText('Noch keine Channels.');
   await expect(eintraege(a.page)).toHaveCount(0);
-  await expect(a.page.locator('.lc-center')).toBeEmpty();
+  // Bis I0008 blieb die Mitte leer (ADR-0024); seit R00007 sagt sie ohne Auswahl, was zu tun ist (ADR-0027 Regel 3).
+  await expect(a.page.locator('.lc-center')).toHaveText('Links einen Channel wählen.');
   expect(a.fehler).toEqual([]);
 });
 
