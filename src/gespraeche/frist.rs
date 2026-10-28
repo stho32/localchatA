@@ -10,6 +10,29 @@ pub const FRIST_MIN: u32 = 1;
 /// Längste Frist, etwa zehn Jahre — „praktisch unbegrenzt“ (ADR-0029 Regel 1).
 pub const FRIST_MAX: u32 = 3650;
 
+/// Die Frist eines Channels: Tage in der Spanne, oder gesperrt, weil seine Einstellungsdatei defekt oder nicht
+/// lesbar ist — dann entfällt nichts (ADR-0032 Regel 5), geladen wird mit dem Standard.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Frist {
+    Tage(u32),
+    Gesperrt {
+        /// Einstellungsdatei relativ zum Ordner.
+        datei: String,
+        /// Zeile des Defekts; fehlt, wenn das Dateisystem die Datei verweigert.
+        zeile: Option<usize>,
+    },
+}
+
+impl Frist {
+    /// Mit wie vielen Tagen geladen wird: gesperrt mit dem Standard.
+    pub fn zum_laden(&self) -> u32 {
+        match self {
+            Frist::Tage(tage) => *tage,
+            Frist::Gesperrt { .. } => STANDARD_FRIST_TAGE,
+        }
+    }
+}
+
 /// Eine ganze Zahl als Frist in Tagen, wenn sie in der Spanne liegt — dieselbe Prüfung für API und Datei.
 pub fn frist_in_spanne(zahl: i64) -> Option<u32> {
     u32::try_from(zahl)

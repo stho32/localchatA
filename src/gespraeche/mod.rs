@@ -10,7 +10,7 @@ mod speicherablage;
 mod verlaufsindex;
 mod verzeichnis;
 
-pub use frist::{FRIST_MAX, FRIST_MIN, STANDARD_FRIST_TAGE, frist_in_spanne};
+pub use frist::{FRIST_MAX, FRIST_MIN, Frist, STANDARD_FRIST_TAGE, frist_in_spanne};
 pub use kennung::Kennung;
 pub use logablage::{Angehaengt, Dateiablage, Gespraech, Logablage};
 pub use speicherablage::Speicherablage;
@@ -138,15 +138,26 @@ impl Gespraeche {
             if !geladen.ist_gespraech(&gespraech) {
                 continue;
             }
+            let channel = geladen.channel_lesen(ablage.as_ref(), &gespraech);
+            let frist_tage = channel
+                .as_ref()
+                .map_or(frist::STANDARD_FRIST_TAGE, |channel| {
+                    channel.frist.zum_laden()
+                });
             let tage = ablage.tage(&gespraech).map_err(|fehler| {
                 Fehler::Ablage(format!("Tage von {gespraech} nicht lesbar: {fehler}"))
             })?;
             let mut verlauf = Verlauf::default();
-            let (behalten, _) = frist::teilen(&tage, heute, frist::STANDARD_FRIST_TAGE);
+            let (behalten, _) = frist::teilen(&tage, heute, frist_tage);
             for tag in behalten {
                 geladen.tag_laden(ablage.as_ref(), &gespraech, tag, &mut verlauf);
             }
-            geladen.channel_aufnehmen(ablage.as_ref(), &gespraech);
+            if let Some(channel) = channel {
+                geladen
+                    .verzeichnis
+                    .channels
+                    .insert(channel.name.clone(), channel);
+            }
             geladen
                 .verzeichnis
                 .verlaeufe
@@ -265,6 +276,7 @@ impl Gespraeche {
             angelegt: Some(crate::uhr::auf_millisekunden(self.uhr.jetzt())),
             angelegt_von: Some(von.clone()),
             beschreibung,
+            frist: Frist::Tage(STANDARD_FRIST_TAGE),
         };
         self.ablegen(&gespraech, &channel)?;
         verzeichnis
@@ -371,25 +383,22 @@ impl Geladen {
         false
     }
 
-    /// Ein Ordner unter `channels/` mit gültigem Namen ist ein Channel; `angelegt` und `angelegt_von` kommen aus
-    /// seiner Einstellungsdatei, fehlt sie oder ist sie defekt, sind sie unbekannt (ADR-0022 Regel 3).
-    fn channel_aufnehmen(&mut self, ablage: &dyn Logablage, gespraech: &Gespraech) {
+    /// Ein Ordner unter `channels/` mit gültigem Namen ist ein Channel; `angelegt`, `angelegt_von`, Beschreibung und
+    /// Frist kommen aus seiner Einstellungsdatei, fehlt sie, sind sie unbekannt bzw. 7 Tage; ist sie defekt, ist die
+    /// Frist gesperrt (ADR-0022 Regel 3, ADR-0032 Regel 5). Ein Direktgespräch ist kein Channel.
+    fn channel_lesen(&mut self, ablage: &dyn Logablage, gespraech: &Gespraech) -> Option<Channel> {
         let Gespraech::Channel(ordner) = gespraech else {
-            return;
+            return None;
         };
-        let Ok(name) = Channelname::bilden(ordner) else {
-            return;
-        };
-        let gelesen = self.einstellungen_laden(ablage, gespraech);
-        self.verzeichnis.channels.insert(
-            name.clone(),
-            Channel {
-                name,
-                angelegt: gelesen.angelegt,
-                angelegt_von: gelesen.angelegt_von,
-                beschreibung: gelesen.beschreibung,
-            },
-        );
+        let name = Channelname::bilden(ordner).ok()?;
+        let (gelesen, frist) = self.einstellungen_laden(ablage, gespraech);
+        Some(Channel {
+            name,
+            angelegt: gelesen.angelegt,
+            angelegt_von: gelesen.angelegt_von,
+            beschreibung: gelesen.beschreibung,
+            frist,
+        })
     }
 
     /// Liest einen Tag, nimmt seine gültigen Sätze in den Verlauf und merkt Defekte und jüngste Zeit.
@@ -442,27 +451,44 @@ fn schreibend<T>(sperre: &RwLock<T>) -> std::sync::RwLockWriteGuard<'_, T> {
 }
 
 impl Geladen {
-    /// Die Einstellungen eines Channels; fehlt die Datei, unbekannt; ist sie defekt oder nicht lesbar, unbekannt
-    /// und ein Ladedefekt — die Datei bleibt unangetastet.
+    /// Die Einstellungen eines Channels und seine Frist; fehlt die Datei, unbekannt und 7 Tage; ist sie defekt oder
+    /// nicht lesbar, unbekannt, die Frist gesperrt und ein Ladedefekt — die Datei bleibt unangetastet.
     fn einstellungen_laden(
         &mut self,
         ablage: &dyn Logablage,
         gespraech: &Gespraech,
-    ) -> einstellungen::Einstellungen {
+    ) -> (einstellungen::Einstellungen, Frist) {
         let datei = gespraech.einstellungsdatei();
-        let art = match ablage.einstellungen_lesen(gespraech) {
-            Ok(None) => return einstellungen::Einstellungen::default(),
+        let (art, zeile) = match ablage.einstellungen_lesen(gespraech) {
+            Ok(None) => {
+                return (
+                    einstellungen::Einstellungen::default(),
+                    Frist::Tage(STANDARD_FRIST_TAGE),
+                );
+            }
             Ok(Some(bytes)) => match einstellungen::lesen(&bytes) {
-                Ok(gelesen) => return gelesen,
-                Err(defekt) => Defektart::Einstellungen {
-                    zeile: defekt.zeile,
-                    grund: defekt.grund,
-                },
+                Ok(gelesen) => {
+                    let frist = Frist::Tage(gelesen.frist_tage.unwrap_or(STANDARD_FRIST_TAGE));
+                    return (gelesen, frist);
+                }
+                Err(defekt) => (
+                    Defektart::Einstellungen {
+                        zeile: defekt.zeile,
+                        grund: defekt.grund,
+                    },
+                    Some(defekt.zeile),
+                ),
             },
-            Err(fehler) => Defektart::EinstellungenUnlesbar(fehler.to_string()),
+            Err(fehler) => (Defektart::EinstellungenUnlesbar(fehler.to_string()), None),
         };
-        self.defekte.push(Ladedefekt { datei, art });
-        einstellungen::Einstellungen::default()
+        self.defekte.push(Ladedefekt {
+            datei: datei.clone(),
+            art,
+        });
+        (
+            einstellungen::Einstellungen::default(),
+            Frist::Gesperrt { datei, zeile },
+        )
     }
 }
 
@@ -934,6 +960,7 @@ mod tests {
                         angelegt: None,
                         angelegt_von: None,
                         beschreibung: None,
+                        frist: Frist::Tage(STANDARD_FRIST_TAGE),
                     },
                 ],
             }
@@ -1320,5 +1347,52 @@ mod tests {
                 "{name}"
             );
         }
+    }
+
+    /// `anzahl` Sätze am Tag `tag` (09:00 im Minutentakt, Versatz +02:00 wie im Oktober), Text „n<nummer>“.
+    fn saetze(tag: &str, anzahl: usize) -> String {
+        (0..anzahl)
+            .map(|nummer| format!("@ {tag}T09:{nummer:02}:00.000+02:00 a@127.0.0.9\n  n{nummer}\n\n"))
+            .collect()
+    }
+
+    fn frist_von(gespraeche: &Gespraeche, name: &str) -> Frist {
+        gespraeche
+            .channels()
+            .liste
+            .into_iter()
+            .find(|channel| channel.name.als_text() == name)
+            .map(|channel| channel.frist)
+            .expect("Channel")
+    }
+
+    /// R00008 F0033 „Laden mit der Frist des Channels“: 28.10. − 29 Tage = 29.09.; defekt lädt mit 7.
+    #[test]
+    fn laden_nimmt_die_tage_in_der_frist_des_channels_und_defekt_laedt_mit_sieben() {
+        let ablage = Arc::new(Speicherablage::neu());
+        let allgemein = Gespraech::channel("allgemein");
+        ablage.einstellungen_setzen(&allgemein, b"farbe = \"blau\"\nfrist_tage = 30\n");
+        ablage.tag_setzen(&allgemein, tag("2026-09-28"), &saetze("2026-09-28", 3));
+        ablage.tag_setzen(&allgemein, tag("2026-09-29"), &saetze("2026-09-29", 2));
+        ablage.tag_setzen(&allgemein, tag("2026-10-28"), &saetze("2026-10-28", 1));
+        let kaputt = Gespraech::channel("kaputt");
+        ablage.einstellungen_setzen(&kaputt, b"frist_tage = \"sieben\"\n");
+        ablage.tag_setzen(&kaputt, tag("2026-10-21"), &saetze("2026-10-21", 4));
+        ablage.tag_setzen(&kaputt, tag("2026-10-22"), &saetze("2026-10-22", 1));
+        ablage.tag_setzen(&Gespraech::channel("ohne"), tag("2026-10-28"), "");
+        let uhr = Arc::new(GestellteUhr::neu(zeit("2026-10-28T12:00:00.000+01:00")));
+
+        let gespraeche = Gespraeche::laden(ablage, uhr).expect("geladen");
+
+        assert_eq!(gespraeche.kennzahlen().nachrichten, 3 + 1);
+        assert_eq!(frist_von(&gespraeche, "allgemein"), Frist::Tage(30));
+        assert_eq!(
+            frist_von(&gespraeche, "kaputt"),
+            Frist::Gesperrt {
+                datei: "channels/kaputt/einstellungen.toml".into(),
+                zeile: Some(1),
+            }
+        );
+        assert_eq!(frist_von(&gespraeche, "ohne"), Frist::Tage(7));
     }
 }

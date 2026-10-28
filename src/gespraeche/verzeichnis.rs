@@ -3,6 +3,7 @@
 
 use super::Kennung;
 use super::einstellungen::Beschreibung;
+use super::frist::Frist;
 use super::logablage::Gespraech;
 use super::verlaufsindex::Verlauf;
 use crate::name::{Channelname, Namensfehler};
@@ -18,6 +19,8 @@ pub struct Channel {
     pub angelegt: Option<Zeit>,
     pub angelegt_von: Option<Kennung>,
     pub beschreibung: Option<Beschreibung>,
+    /// Aufbewahrungsfrist (ADR-0031 Regel 3: in Liste, Stand und Ereignis).
+    pub frist: Frist,
 }
 
 /// Alle Channels nach Name mit der Nummer des letzten Wechsels.
@@ -128,6 +131,7 @@ mod tests {
             angelegt: None,
             angelegt_von: anleger.map(|text| Kennung::bilden(text).expect("Kennung")),
             beschreibung: None,
+            frist: Frist::Tage(7),
         }
     }
 

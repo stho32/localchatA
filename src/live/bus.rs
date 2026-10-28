@@ -176,6 +176,7 @@ mod tests {
                 angelegt: None,
                 angelegt_von: None,
                 beschreibung: None,
+                frist: crate::gespraeche::Frist::Tage(7),
             },
         };
 
