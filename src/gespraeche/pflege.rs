@@ -5,7 +5,7 @@ use super::einstellungen::{self, Einstellungen};
 use super::frist::{self, Frist};
 use super::logablage::Gespraech;
 use super::verlaufsindex::Verlauf;
-use super::verzeichnis::Channel;
+use super::verzeichnis::{Channel, ChannelWechsel};
 use super::{Gespraeche, Kennung, lesend, schreibend, sperren};
 use crate::name::Channelname;
 use chrono::NaiveDate;
@@ -223,8 +223,9 @@ impl Gespraeche {
     }
 
     /// Unter der Schreibsperre des Verzeichnisses (ADR-0031 Regeln 2.4–2.7): defekt → derselbe Wert (nichts
-    /// geschrieben, `None`) → Vorschau, ohne Bestätigung abgewiesen → Datei schreiben → Frist setzen. Gepflegt wird
-    /// danach ohne diese Sperre (Regel 2.8).
+    /// geschrieben, `None`) → Vorschau, ohne Bestätigung abgewiesen → Datei schreiben → Frist setzen, `stand` + 1,
+    /// Wechsel veröffentlichen, noch unter der Sperre (Regel 4, ADR-0023 Regel 2). Gepflegt wird danach ohne diese
+    /// Sperre (Regel 2.8).
     fn frist_eintragen(
         &self,
         name: &Channelname,
@@ -268,7 +269,13 @@ impl Gespraeche {
         }
         self.einstellungen_ablegen(channel, tage)?;
         channel.frist = Frist::Tage(tage);
-        Ok((channel.clone(), Some(vorher)))
+        let channel = channel.clone();
+        verzeichnis.stand += 1;
+        (self.veroeffentlichen)(&ChannelWechsel {
+            stand: verzeichnis.stand,
+            channel: channel.clone(),
+        });
+        Ok((channel, Some(vorher)))
     }
 
     /// Schreibt `einstellungen.toml` mit der neuen Frist; die bekannten Schlüssel aus dem Channel, die übrigen aus
@@ -649,5 +656,68 @@ mod tests {
         assert!(verkuerzt.berichte.is_empty());
         assert_eq!(verlaengert.channel.frist, Frist::Tage(3650));
         assert_eq!(gespraeche.kennzahlen().nachrichten, 7);
+    }
+
+    /// Je veröffentlichtem Wechsel: Nummer, Frist des Channels und ob das Verzeichnis dabei gesperrt war.
+    type Aufzeichnung = Arc<std::sync::Mutex<Vec<(u64, Frist, bool)>>>;
+
+    fn mit_aufzeichnung(ablage: &Arc<Speicherablage>) -> (Arc<Gespraeche>, Aufzeichnung) {
+        let selbst: Arc<std::sync::OnceLock<std::sync::Weak<Gespraeche>>> = Arc::default();
+        let aufgezeichnet: Aufzeichnung = Arc::default();
+        let rueckruf: crate::gespraeche::ChannelVeroeffentlichen = {
+            let selbst = Arc::clone(&selbst);
+            let aufgezeichnet = Arc::clone(&aufgezeichnet);
+            Arc::new(move |wechsel: &crate::gespraeche::ChannelWechsel| {
+                let gespraeche = selbst
+                    .get()
+                    .and_then(std::sync::Weak::upgrade)
+                    .expect("Gespräche");
+                let gesperrt = gespraeche.verzeichnis.try_read().is_err();
+                sperren(&aufgezeichnet).push((
+                    wechsel.stand,
+                    wechsel.channel.frist.clone(),
+                    gesperrt,
+                ));
+            })
+        };
+        let gespraeche = Arc::new(geladen(ablage).mit_veroeffentlichen(rueckruf));
+        selbst
+            .set(Arc::downgrade(&gespraeche))
+            .expect("einmal gesetzt");
+        (gespraeche, aufgezeichnet)
+    }
+
+    /// R00008 F0036 (B0191): eine wirksame Änderung zählt `stand` hoch und geht unter der Sperre hinaus; derselbe
+    /// Wert, unbekannt, defekt und die Rückfrage nicht.
+    #[test]
+    fn nur_eine_wirksame_aenderung_wird_als_wechsel_veroeffentlicht() {
+        let ablage = Arc::new(Speicherablage::neu());
+        ablage.einstellungen_setzen(&Gespraech::channel("allgemein"), b"frist_tage = 30\n");
+        ablage.tag_setzen(
+            &Gespraech::channel("allgemein"),
+            tag("2026-10-20"),
+            &satz("2026-10-20"),
+        );
+        ablage.einstellungen_setzen(&Gespraech::channel("kaputt"), b"frist_tage = 0\n");
+        let (gespraeche, aufgezeichnet) = mit_aufzeichnung(&ablage);
+
+        gespraeche
+            .frist_setzen("allgemein", 31, false, &beta())
+            .expect("gesetzt");
+        gespraeche
+            .frist_setzen("allgemein", 31, false, &beta())
+            .expect("derselbe Wert");
+        let _ = gespraeche.frist_setzen("fehlt", 31, false, &beta());
+        let _ = gespraeche.frist_setzen("kaputt", 31, false, &beta());
+        let _ = gespraeche.frist_setzen("allgemein", 7, false, &beta());
+        gespraeche
+            .frist_setzen("allgemein", 8, true, &beta())
+            .expect("bestätigt");
+
+        assert_eq!(
+            *sperren(&aufgezeichnet),
+            vec![(1, Frist::Tage(31), true), (2, Frist::Tage(8), true)]
+        );
+        assert_eq!(gespraeche.channels().stand, 2);
     }
 }
