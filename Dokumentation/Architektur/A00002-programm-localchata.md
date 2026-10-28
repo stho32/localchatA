@@ -43,6 +43,7 @@ Kinder:
 - [Anwesenheit](A00010-anwesenheit.md) (geplant)
 - [Live-Kanal](A00011-live-kanal.md) (geplant)
 - [Schreibkonto](A00014-schreibkonto.md) (geplant, I0009)
+- [Betriebsprotokoll](A00015-betriebsprotokoll.md) (geplant, Vorlauf „Betriebsprotokoll“)
 
 Crates (ADR-0001): `axum` 0.8 (mit `multipart`), `tokio`, `tokio-stream`, `futures-util`, `serde`, `serde_json`, `chrono` (Lokalzeit mit Versatz), `toml` (Einstellungen je Gespräch), `utoipa`/`utoipa-axum` (API-Beschreibung für Agenten); Test: `tempfile`, `reqwest`.
 
@@ -52,6 +53,9 @@ Crates (ADR-0001): `axum` 0.8 (mit `multipart`), `tokio`, `tokio-stream`, `futur
 - [ADR-0009: Teststrategie, Gate und Health-Check](../ADRs/0009-teststrategie-gate-und-health-check.md) — Akzeptiert, 2026-10-27
 - [ADR-0010: Eigene Annahmeschleife mit hyper http1 statt `axum::serve`](../ADRs/0010-eigene-annahmeschleife-hyper-http1.md) — Akzeptiert, 2026-10-27
 - [ADR-0036: Schreibkonto gegen Flut — Token-Eimer je Kennung und je Herkunft](../ADRs/0036-schreibkonto-token-eimer-je-kennung-und-je-herkunft.md) — Akzeptiert, 2026-10-28
+- [ADR-0040: Betriebsprotokoll — eine Datei je lokalem Tag unter `logs/`, eine Zeile je Eintrag; stderr spiegelt ab Warning](../ADRs/0040-betriebsprotokoll-datei-je-lokalem-tag-unter-logs-eine-zeile-je-eintrag.md) — Akzeptiert, 2026-10-28
+- [ADR-0041: Betriebsprotokoll als eigenes Modul ohne neue Crate — Rotation beim Schreiben, Bereinigung nach 14 Kalendertagen beim Start und beim Tageswechsel](../ADRs/0041-betriebsprotokoll-als-eigenes-modul-rotation-beim-schreiben-bereinigung-14-tage.md) — Akzeptiert, 2026-10-28
+- [ADR-0043: Protokollstufe über `--protokoll-stufe` und `LOCALCHATA_PROTOKOLL_STUFE`, Kennzahlen im Health-Check](../ADRs/0043-protokollstufe-einstellen-und-kennzahlen-im-health-check.md) — Akzeptiert, 2026-10-28
 
 ## Offene Fragen
 
@@ -63,3 +67,5 @@ Crates (ADR-0001): `axum` 0.8 (mit `multipart`), `tokio`, `tokio-stream`, `futur
 - `ausgenommen`: `src/lib.rs` (nur Moduldeklarationen), `src/fehler.rs` (Aspekt [Fehlerbehandlung](Aspekte/X00004-fehlerbehandlung.md)), `src/uhr.rs` (Aspekt [Zeit](Aspekte/X00007-zeit.md)) — querschnittlich, kein eigener Baustein.
 - Vorbild kanbanD (Q04): `src/main.rs` (Start, geordnetes Beenden), `src/start/` (Aufruf, freier Port), `src/web/mod.rs` (Router, `spawn_blocking`-Muster `blockierend`).
 - **Stand 2026-10-27 (Ist nach I0001, Karte #2 Nachzug):** gebaut sind Start und HTTP-Schnittstelle mit `/`, `/web/{datei}`, `/api/gesundheit`; Auslieferung über eine eigene Annahmeschleife statt `axum::serve` ([ADR-0010](../ADRs/0010-eigene-annahmeschleife-hyper-http1.md)): Kopf-/Leerlaufgrenze 10 s, höchstens 64 Verbindungen je Gegenstelle, gesamt `min(512, weiche Deskriptorgrenze / 2)`, beim Ende Frist 5 s, nur HTTP/1.1 ohne Upgrades. Direkte Abhängigkeiten heute: `axum`, `tokio`, `serde`, `serde_json`, `hyper`, `hyper-util`, unter Unix `rustix`; die übrigen Crates der Liste oben kommen mit ihrer Interaction (Nachtrag in [ADR-0001](../ADRs/0001-ein-programm-rust-axum-tokio.md)). `src/fehler.rs` und `src/uhr.rs` (unter `ausgenommen`) existieren noch nicht — sie entstehen mit I0002. Gespräche, Anwesenheit und Live-Kanal sind geplant.
+
+- **Ergänzung 2026-10-28 (Vorlauf „Betriebsprotokoll“):** Neue Option `--protokoll-stufe <debug|information|warning|error>` (auch `LOCALCHATA_PROTOKOLL_STUFE`, falscher Wert → Exit 2) und neues Verzeichnis `<ordner>/logs/` mit dem Betriebsprotokoll ([A00015](A00015-betriebsprotokoll.md), ADR-0040, ADR-0043); keine neue Crate (ADR-0041 — `tracing-appender` geprobt und verworfen).

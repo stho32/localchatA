@@ -10,7 +10,7 @@ herkunft: dialog
 quellen:
   - src/main.rs
   - src/start/
-verwandt: [A00006]
+verwandt: [A00006, A00015]
 domaene: []
 blackbox: kleine Integration ohne eigenes Risiko; folgt dem Vorbild kanbanD src/start/
 ---
@@ -39,6 +39,10 @@ Bringt das Programm vom Aufruf bis zum lauschenden Server in einen bereiten Zust
 - [ADR-0017: Stiller Abriss — der Kernel erkennt tote Verbindungen (Abrissgrenze und Keepalive je Verbindung), Herzschlag 5 s](../ADRs/0017-stiller-abriss-kernel-erkennt-tote-verbindungen.md) — Vorgeschlagen, 2026-10-28
 - [ADR-0030: Entfallen beim Start, beim Tageswechsel im Sekundentakt und beim Verkürzen — Löschen der Tagesdatei unter der Gesprächssperre, dann Index](../ADRs/0030-entfallen-beim-start-beim-tageswechsel-und-beim-verkuerzen-loeschen-unter-der-gespraechssperre.md) — Akzeptiert, 2026-10-28
 - [ADR-0039: Große Antworten — Byte-Budget je Block, schwere Arbeit nur auf der Werkbank, die Abrissgrenze ist die Sendefrist](../ADRs/0039-grosse-antworten-byte-budget-je-block-werkbank-und-abrissgrenze-als-sendefrist.md) — Akzeptiert, 2026-10-28
+- [ADR-0040: Betriebsprotokoll — eine Datei je lokalem Tag unter `logs/`, eine Zeile je Eintrag; stderr spiegelt ab Warning](../ADRs/0040-betriebsprotokoll-datei-je-lokalem-tag-unter-logs-eine-zeile-je-eintrag.md) — Akzeptiert, 2026-10-28
+- [ADR-0041: Betriebsprotokoll als eigenes Modul ohne neue Crate — Rotation beim Schreiben, Bereinigung nach 14 Kalendertagen beim Start und beim Tageswechsel](../ADRs/0041-betriebsprotokoll-als-eigenes-modul-rotation-beim-schreiben-bereinigung-14-tage.md) — Akzeptiert, 2026-10-28
+- [ADR-0042: Stufen und Ereigniskatalog des Betriebsprotokolls — Error gegen Exception, 4xx nur als Debug oder Episode, Tagesbudget je Stufenklasse](../ADRs/0042-stufen-ereigniskatalog-episoden-und-tagesgrenze-des-betriebsprotokolls.md) — Akzeptiert, 2026-10-28
+- [ADR-0043: Protokollstufe über `--protokoll-stufe` und `LOCALCHATA_PROTOKOLL_STUFE`, Kennzahlen im Health-Check](../ADRs/0043-protokollstufe-einstellen-und-kennzahlen-im-health-check.md) — Akzeptiert, 2026-10-28
 
 ## Offene Fragen
 
@@ -56,3 +60,4 @@ Bringt das Programm vom Aufruf bis zum lauschenden Server in einen bereiten Zust
   - **Erster Test (Unit):** `pflege_aus(5 s)` → `{10 000 ms, 5 s, 5 s, 2}`; Kernel-Pflege auf einem angenommenen Loopback-Socket → `getsockopt` liest die Werte zurück; `ausliefern` mit aufzeichnender Pflege → je zugelassener Verbindung genau ein Aufruf, abgewiesene keiner. Ersetzt: die Pflege (Naht). Mutationsprobe: Aufruf in `ausliefern` entfernen → rot.
   - Betrieb: `/api/gesundheit` nennt `herzschlag_ms` und `abrissgrenze_ms`.
 - **Ergänzung 2026-10-28 (Karte #12, I0018):** (1) Nach `laden` und **vor** der Startzeile ruft der Start einmal `pflegen(heute, Start)` ([ADR-0030](../ADRs/0030-entfallen-beim-start-beim-tageswechsel-und-beim-verkuerzen-loeschen-unter-der-gespraechssperre.md)) — wer die Startzeile liest, findet keine Tage außerhalb der Frist mehr. (2) Ein zweiter Takt-Task `fristpflege::takten(gespraeche, uhr, ende, 1 s)` neben dem der Anwesenheit, gestartet vor der Startzeile, beendet mit dem Ende-Signal; er ruft `pflegen` über `spawn_blocking` nur, wenn sich das lokale Datum geändert hat. Kein neuer Testknopf: `LOCALCHATA_JETZT=…T23:59:58` lässt den Tageswechsel zwei Sekunden nach dem Start kommen. Erster Test: ADR-0030, „Folgeentscheidungen“ (Takt-Unit mit `tokio::time::pause` und gestellter Uhr; Integration über Mitternacht).
+- **Ergänzung 2026-10-28 (Vorlauf „Betriebsprotokoll“):** Reihenfolge erweitert: Aufruf lesen (mit `--protokoll-stufe`/`LOCALCHATA_PROTOKOLL_STUFE`) → Uhr → … → Ordner vorbereiten → sperren → **Protokoll öffnen, Panik-Haken setzen, Protokoll bereinigen** → Bus → Verlauf laden (Ladedefekte als `WARNING laden`) → … → **Tagestakt** (Bereinigung, Episoden; später Fristpflege I0018) → Startzeile → `INFORMATION start` → … → beim Ende `INFORMATION ende`. Vor der Sperre bleiben Fehler auf stderr mit den bisherigen Exit-Codes — ein gesperrter Ordner gehört einer anderen Instanz ([ADR-0040](../ADRs/0040-betriebsprotokoll-datei-je-lokalem-tag-unter-logs-eine-zeile-je-eintrag.md) Regel 1). Hintergrundaufgaben (Takt, Tagestakt) laufen über `bewacht(…)` ([ADR-0042](../ADRs/0042-stufen-ereigniskatalog-episoden-und-tagesgrenze-des-betriebsprotokolls.md) Regel 4); die Verbindungsabweisung der Annahmeschleife wird eine Warning-Episode je Herkunft (heute still).
