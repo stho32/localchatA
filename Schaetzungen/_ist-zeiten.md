@@ -204,3 +204,29 @@ Nie vom User erfragen.
 | 2026-10-28 | R00013 Langsame Leser | B0258 Langsame Leser messen | Standard | 2-4h | 0,1h | 0,1h | autonom |
 | 2026-10-28 | R00013 Langsame Leser | B0257 Abwurfschutz im Fenster | Standard | 2-4h | 0,05h | 0,05h | autonom |
 | 2026-10-28 | R00013 Langsame Leser | Mutationen, Wiederholungen, Gate | Konsolidierung | — | 0,3h | 0,3h | autonom |
+| 2026-10-28 | R00014 Betriebsprotokoll | B0259 Wert neutralisieren | Standard | 0,4h | 0,04h | 0,04h | autonom |
+| 2026-10-28 | R00014 Betriebsprotokoll | B0260 Zeile bilden | Standard | 0,4h | 0,02h | 0,02h | autonom |
+| 2026-10-28 | R00014 Betriebsprotokoll | B0261 In die Tagesdatei eintragen | Standard | 0,4h | 0,03h | 0,03h | autonom |
+| 2026-10-28 | R00014 Betriebsprotokoll | B0262 Rückfall auf stderr | Standard | 0,4h | 0,02h | 0,02h | autonom |
+| 2026-10-28 | R00014 Betriebsprotokoll | B0263 Protokoll im Start | Standard | 2-4h | 0,05h | 0,05h | autonom |
+| 2026-10-28 | R00014 Betriebsprotokoll | B0264 Meldungen umstellen | Standard | 2-4h | 0,11h | 0,11h | autonom |
+| 2026-10-28 | R00014 Betriebsprotokoll | B0265 Betriebsereignisse eintragen | Standard | 0,4h | 0,05h | 0,05h | autonom |
+| 2026-10-28 | R00014 Betriebsprotokoll | B0266 Entfällt-Regel | Standard | 0,4h | 0,01h | 0,01h | autonom |
+| 2026-10-28 | R00014 Betriebsprotokoll | B0267 Bereinigen | Standard | 0,4h | 0,02h | 0,02h | autonom |
+| 2026-10-28 | R00014 Betriebsprotokoll | B0268 Tagestakt | Standard | 0,4h | 0,03h | 0,03h | autonom |
+| 2026-10-28 | R00014 Betriebsprotokoll | B0269 Bereinigung verdrahten | Standard | 0,4h | 0,04h | 0,04h | autonom |
+| 2026-10-28 | R00014 Betriebsprotokoll | B0270 Panik-Haken | Standard | 2-4h | 0,05h | 0,05h | autonom |
+| 2026-10-28 | R00014 Betriebsprotokoll | B0271 Abbruch an der Grenze | Standard | 0,4h | 0,05h | 0,05h | autonom |
+| 2026-10-28 | R00014 Betriebsprotokoll | B0272 Hintergrundaufgaben bewachen | Standard | 0,4h | 0,04h | 0,04h | autonom |
+| 2026-10-28 | R00014 Betriebsprotokoll | B0273 Testknopf Panik | Standard | 0,4h | 0,06h | 0,06h | autonom |
+| 2026-10-28 | R00014 Betriebsprotokoll | B0274 Stufe lesen | Standard | 0,4h | 0,02h | 0,02h | autonom |
+| 2026-10-28 | R00014 Betriebsprotokoll | B0275 Stufe wirksam | Standard | 0,4h | 0,04h | 0,04h | autonom |
+| 2026-10-28 | R00014 Betriebsprotokoll | B0276 Kennzahlen im Health-Check | Standard | 0,4h | 0,04h | 0,04h | autonom |
+| 2026-10-28 | R00014 Betriebsprotokoll | B0277 Körperfehler unterscheiden und zählen | Standard | 0,4h | 0,07h | 0,07h | autonom |
+| 2026-10-28 | R00014 Betriebsprotokoll | B0278 Debug je Anfrage | Standard | 2-4h | 0,07h | 0,07h | autonom |
+| 2026-10-28 | R00014 Betriebsprotokoll | B0279 Episode führen | Standard | 2-4h | 0,03h | 0,03h | autonom |
+| 2026-10-28 | R00014 Betriebsprotokoll | B0280 Episoden im Sekundentakt schließen | Standard | 0,4h | 0,04h | 0,04h | autonom |
+| 2026-10-28 | R00014 Betriebsprotokoll | B0281 Abweisungen als Episode | Standard | 2-4h | 0,12h | 0,12h | autonom |
+| 2026-10-28 | R00014 Betriebsprotokoll | B0282 Tagesbudget | Standard | 0,4h | 0,05h | 0,05h | autonom |
+| 2026-10-28 | R00014 Betriebsprotokoll | Mutanten, Gelerntes, Zeittests, Gate | Konsolidierung | — | 0,23h | 0,23h | autonom |
+| 2026-10-28 | R00013 Langsame Leser | Nacharbeit 1: Gegenstelle IP+Port, Hilfetext Sendefrist | Nacharbeit | — | 0,12h | 0,12h | autonom |
