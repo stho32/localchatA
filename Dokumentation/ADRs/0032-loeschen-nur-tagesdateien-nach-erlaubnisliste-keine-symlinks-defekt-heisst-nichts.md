@@ -75,3 +75,7 @@ Regeln:
 - [A00008 Logablage](../Architektur/A00008-logablage.md), [A00006 Gespräche](../Architektur/A00006-gespraeche.md), [A00013 Einstellungsformat](../Architektur/A00013-einstellungsformat.md); Aspekte [X00001 Logging und Diagnose](../Architektur/Aspekte/X00001-logging-und-diagnose.md), [X00004 Fehlerbehandlung](../Architektur/Aspekte/X00004-fehlerbehandlung.md)
 - ADR-0003, ADR-0020, ADR-0022, ADR-0029, ADR-0030, ADR-0031; `src/gespraeche/logablage.rs` (`tage`, `unterordner`, `tag_aus_dateiname`)
 - Rust std: `DirEntry::file_type` folgt keinen Symlinks; `remove_dir_all` folgt seit Rust 1.58.1 keinen Symlinks (CVE-2022-21658) — beides oben geprobt
+
+## Ergänzungen
+
+- **2026-10-28 (Vorlauf „Betriebsprotokoll“) — stderr wird Betriebsprotokoll:** Regeln 6 und 8 „Zeile auf stderr“: `ERROR frist` je Datei bzw. `INFORMATION frist` je Pflege ([ADR-0042](0042-stufen-ereigniskatalog-episoden-und-tagesgrenze-des-betriebsprotokolls.md) Regeln 2 und 3; Format [ADR-0040](0040-betriebsprotokoll-datei-je-lokalem-tag-unter-logs-eine-zeile-je-eintrag.md), stderr spiegelt ab Warning). Die übrigen Regeln dieser ADR gelten unverändert.

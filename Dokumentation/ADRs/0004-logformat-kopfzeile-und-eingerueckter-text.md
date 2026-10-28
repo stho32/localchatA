@@ -68,3 +68,7 @@ In Kauf genommen: eine eigene Grammatik — dafür ist [A00007 Logformat](../Arc
 
 - [A00007 Logformat](../Architektur/A00007-logformat.md), [A00006 Gespräche](../Architektur/A00006-gespraeche.md); ADR-0003, ADR-0005, ADR-0006
 - Vision, Zielbild „Das Log ist das Gedächtnis“, „Markdown in Nachrichten“; Designsystem README „Leistung als Gestaltung“ (Bildmaße aus Metadaten)
+
+## Ergänzungen
+
+- **2026-10-28 (Vorlauf „Betriebsprotokoll“) — stderr wird Betriebsprotokoll:** Regel „defekte Zeile … gemeldet (stderr, Health-Check)“: `WARNING laden` je Zeile mit `datei` und `zeile`, je Datei höchstens 10 einzeln, dann eine Sammelzeile ([ADR-0042](0042-stufen-ereigniskatalog-episoden-und-tagesgrenze-des-betriebsprotokolls.md) Regeln 2 und 3; Format [ADR-0040](0040-betriebsprotokoll-datei-je-lokalem-tag-unter-logs-eine-zeile-je-eintrag.md), stderr spiegelt ab Warning). Die übrigen Regeln dieser ADR gelten unverändert.

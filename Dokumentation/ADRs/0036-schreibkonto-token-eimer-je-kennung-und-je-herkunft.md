@@ -103,3 +103,7 @@ Rechenbeispiele (für Abnahme und Anleitung I0019): S2 — 20 kleine Nachrichten
 - [A00014 Schreibkonto](../Architektur/A00014-schreibkonto.md), [A00004 HTTP-Schnittstelle](../Architektur/A00004-http-schnittstelle.md), [A00010 Anwesenheit](../Architektur/A00010-anwesenheit.md); Aspekte [X00007 Zeit](../Architektur/Aspekte/X00007-zeit.md), [X00004 Fehlerbehandlung](../Architektur/Aspekte/X00004-fehlerbehandlung.md), [X00002 Benutzerrechte](../Architektur/Aspekte/X00002-benutzerrechte.md)
 - ADR-0010, ADR-0012, ADR-0018 (Ergänzung 2a), ADR-0021, ADR-0028, ADR-0031, ADR-0034; WBS I0018 Offene Fragen (M3)
 - Token-Eimer als Verfahren: RFC 2697 (Single Rate Three Color Marker) beschreibt Eimer mit Rate und Höchstfüllung — aus dem Gedächtnis, in diesem Auftrag nicht geöffnet; `Retry-After`: RFC 9110 Abschnitt 10.2.3, 429: RFC 6585 Abschnitt 4 — aus dem Gedächtnis; CWE-770
+
+## Ergänzungen
+
+- **2026-10-28 (Vorlauf „Betriebsprotokoll“) — stderr wird Betriebsprotokoll:** Regel 7 „eine stderr-Zeile je Episode“: `WARNING schreibkonto`-Episode je Kennung über die Episoden-Mechanik des Protokolls; `gebremst` im Health-Check bleibt, dazu zählt `warnings` ([ADR-0042](0042-stufen-ereigniskatalog-episoden-und-tagesgrenze-des-betriebsprotokolls.md) Regeln 2 und 3; Format [ADR-0040](0040-betriebsprotokoll-datei-je-lokalem-tag-unter-logs-eine-zeile-je-eintrag.md), stderr spiegelt ab Warning). Die übrigen Regeln dieser ADR gelten unverändert.

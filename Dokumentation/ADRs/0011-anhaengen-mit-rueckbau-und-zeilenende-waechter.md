@@ -58,3 +58,7 @@ In Kauf genommen: ein Rest nach doppeltem Fehler (Schreiben **und** Rückbau sch
 - [A00008 Logablage](../Architektur/A00008-logablage.md) (primär), [A00006 Gespräche](../Architektur/A00006-gespraeche.md), [A00007 Logformat](../Architektur/A00007-logformat.md); Aspekt [X00004 Fehlerbehandlung](../Architektur/Aspekte/X00004-fehlerbehandlung.md)
 - ADR-0004 (Absturz-Fall, Defekt-Regel), ADR-0005 (Reihenfolge Log → Index → Live), ADR-0006 (Index als `push_str` auf den Rohtext)
 - Vision, Zielbild „Das Log ist das Gedächtnis“; WBS I0002
+
+## Ergänzungen
+
+- **2026-10-28 (Vorlauf „Betriebsprotokoll“) — stderr wird Betriebsprotokoll:** „Scheitert der Rückbau … auf stderr gemeldet“: `ERROR senden` mit `datei`, `grund` und Länge ([ADR-0042](0042-stufen-ereigniskatalog-episoden-und-tagesgrenze-des-betriebsprotokolls.md) Regeln 2 und 3; Format [ADR-0040](0040-betriebsprotokoll-datei-je-lokalem-tag-unter-logs-eine-zeile-je-eintrag.md), stderr spiegelt ab Warning). Die übrigen Regeln dieser ADR gelten unverändert.

@@ -87,3 +87,7 @@ Regeln:
 - [A00006 Gespräche](../Architektur/A00006-gespraeche.md), [A00008 Logablage](../Architektur/A00008-logablage.md), [A00009 Verlaufsindex](../Architektur/A00009-verlaufsindex.md), [A00003 Start](../Architektur/A00003-start.md); Aspekte [X00007 Zeit](../Architektur/Aspekte/X00007-zeit.md), [X00001 Logging und Diagnose](../Architektur/Aspekte/X00001-logging-und-diagnose.md)
 - ADR-0003, ADR-0005, ADR-0006, ADR-0011, ADR-0016 (Takt-Form), ADR-0025, ADR-0026, ADR-0029; `src/live/takt.rs`, `src/uhr.rs`
 - Vision R00000, Zielbild „Das Log ist das Gedächtnis“; WBS I0018
+
+## Ergänzungen
+
+- **2026-10-28 (Vorlauf „Betriebsprotokoll“) — stderr wird Betriebsprotokoll:** Regel 6 „Protokoll auf stderr“: `INFORMATION frist` je Channel und Pflege, `ERROR frist` je nicht entfallenem Tag; Regel 2 „Tageswechsel“: der Takt ist der gemeinsame Tagestakt aus ADR-0041 Regel 6 (Fristpflege meldet sich dort als Tagesaufgabe an), die Regel selbst bleibt ([ADR-0042](0042-stufen-ereigniskatalog-episoden-und-tagesgrenze-des-betriebsprotokolls.md) Regeln 2 und 3; Format [ADR-0040](0040-betriebsprotokoll-datei-je-lokalem-tag-unter-logs-eine-zeile-je-eintrag.md), stderr spiegelt ab Warning). Die übrigen Regeln dieser ADR gelten unverändert.

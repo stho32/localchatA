@@ -77,3 +77,7 @@ Regeln (gebaut mit I0009):
 - [A00006 Gespräche](../Architektur/A00006-gespraeche.md), [A00011 Live-Kanal](../Architektur/A00011-live-kanal.md), [A00008 Logablage](../Architektur/A00008-logablage.md); Aspekte [X00007 Zeit](../Architektur/Aspekte/X00007-zeit.md), [X00008 Transaktionen und Nebenläufigkeit](../Architektur/Aspekte/X00008-transaktionen-und-nebenlaeufigkeit.md)
 - ADR-0005, ADR-0006, ADR-0011, ADR-0025, ADR-0028, ADR-0029, ADR-0030, ADR-0034, ADR-0036; `src/gespraeche/mod.rs`, `src/uhr.rs` (`naechste_zeit`)
 - Vision R00000 „Agenten können warten und reagieren“; WBS I0009, I0016
+
+## Ergänzungen
+
+- **2026-10-28 (Vorlauf „Betriebsprotokoll“) — stderr wird Betriebsprotokoll:** Regel 4 „einmal je Vorlauf-Episode eine Zeile auf stderr“: `WARNING zeit` über die Episoden-Mechanik des Protokolls (Ende nach dem Einholen der Uhr wie hier festgelegt) ([ADR-0042](0042-stufen-ereigniskatalog-episoden-und-tagesgrenze-des-betriebsprotokolls.md) Regeln 2 und 3; Format [ADR-0040](0040-betriebsprotokoll-datei-je-lokalem-tag-unter-logs-eine-zeile-je-eintrag.md), stderr spiegelt ab Warning). Die übrigen Regeln dieser ADR gelten unverändert.
