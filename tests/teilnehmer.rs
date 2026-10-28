@@ -127,8 +127,9 @@ async fn us2_wer_keinen_strom_offen_hat_steht_nach_einer_sekunde_als_offline() {
     assert!(spaet.json["stand"].as_u64() > frueh.json["stand"].as_u64());
 }
 
-/// US-4 mit `LOCALCHATA_GNADENFRIST_MS=3000`: bei 1 s steht alpha offline, bei 4 s fehlt alpha
-/// (4 s > 3 s), und der Name ist frei.
+/// US-4 mit `LOCALCHATA_GNADENFRIST_MS=3000`: „bei 1 s“ steht alpha offline, bei 4 s fehlt alpha
+/// (4 s > 3 s), und der Name ist frei. Vor 1 s ist alpha im Anlauf online, gemeldet wird offline mit dem
+/// nächsten Takt (≤ 1,25 s) — gefragt wird deshalb bei 1,5 s.
 #[tokio::test]
 async fn us4_wer_sich_nicht_mehr_meldet_verschwindet_aus_der_liste() {
     let wurzel = tempfile::tempdir().expect("Wegwerf-Ordner");
@@ -147,7 +148,7 @@ async fn us4_wer_sich_nicht_mehr_meldet_verschwindet_aus_der_liste() {
             .await,
     );
 
-    tokio::time::sleep_until(start + std::time::Duration::from_millis(1200)).await;
+    tokio::time::sleep_until(start + std::time::Duration::from_millis(1500)).await;
     let bei_1 = liste(&drei, &instanz.adresse, Some(&beta)).await;
     tokio::time::sleep_until(start + std::time::Duration::from_secs(4)).await;
     let bei_4 = liste(&drei, &instanz.adresse, Some(&beta)).await;
