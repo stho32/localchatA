@@ -46,10 +46,12 @@ Bis R00007 wächst jeder Channel ohne Ende auf der Platte: der Start lädt zwar 
 - Entfallen erzeugt kein Ereignis und ändert `stand` nicht.
 - **Protokoll** auf stderr, eine Zeile je Channel und Pflege, nur wenn etwas entfallen ist oder scheiterte: `channels/allgemein: 2 Tage entfallen (2026-10-20 bis 2026-10-21; Frist 7 Tage; Start)`; beim Verkürzen endet die Klammer mit `Frist gesetzt von <kennung>`.
 
-### Tageswechsel (F0035; ADR-0030 Regel 2)
+### Tageswechsel (F0035; ADR-0030 Regel 2 mit Ergänzung „Fristpflege als Tagesaufgabe“, ADR-0041 Ergänzung „Vertrag des Tagestakts“)
 
-- Ein Takt prüft jede Sekunde das lokale Datum der Uhr; nur wenn es sich seit der letzten Pflege geändert hat (vorwärts oder rückwärts), pflegt er alle Channels. Am selben Tag pflegt er nie ein zweites Mal.
-- Der Takt beginnt vor der Startzeile und endet mit dem Ende-Signal; die Protokollzeile endet mit `Tageswechsel`.
+- Den Takt stellt der Tagestakt aus R00014 (F0052). Die Fristpflege ist dort die zweite Tagesaufgabe `fristpflege`, nach der Bereinigung des Betriebsprotokolls; einen eigenen Takt der Fristpflege gibt es nicht.
+- Der Tagestakt prüft jede Sekunde das lokale Datum der Uhr. Nur wenn es vom Datum der letzten Pflege abweicht (vorwärts oder rückwärts), pflegt er alle Channels; am selben Tag pflegt er nie ein zweites Mal. Das Datum der letzten Pflege ist anfangs das Datum der Pflege beim Start und wird vor jedem Aufruf gesetzt.
+- Der Tagestakt beginnt vor der Startzeile und endet mit dem Ende-Signal; die Protokollzeile endet mit `Tageswechsel`.
+- Gerät die Pflege in Panik, läuft der Tagestakt weiter, mit der Zeile `ERROR programmfehler Tagesaufgabe fristpflege gescheitert — Tage jenseits der Frist bleiben bis dahin liegen; erneuter Versuch beim nächsten Tageswechsel` (R00014); erneut gepflegt wird beim nächsten Tageswechsel.
 
 ### Frist live im Strom (F0036; ADR-0031 Regel 4, ADR-0023)
 
@@ -89,7 +91,7 @@ Bis R00007 wächst jeder Channel ohne Ende auf der Platte: der Start lädt zwar 
   Reserve: Z1 und Z2 > 20 × über dem erwarteten Wert, Z3 33 % über dem größten erwarteten Wert (3 s); Z4 ist eine Zählung über ein Fenster von drei Takten. Über der Grenze von M3 ist ein Befund an ADR-0031 (Pre-Mortem 2), kein roter Test — ob dann eine Rate je Herkunft kommt, entscheidet der Betreiber (Offene Fragen).
 - **Sicherheit**: Setzen nur mit Sitzung, unter Grenzschutz (Host, Origin, Content-Type, Körpergröße); Werte werden abgewiesen, nie umgeformt; Löschen nur nach Erlaubnisliste, Pfad aus Typen, keine Symlinks; kaputte Einstellungen sperren das Löschen; jede wirksame Änderung und jedes Löschen steht mit Kennung auf stderr.
 - **Benutzerfreundlichkeit**: Verkürzen nennt vorher Zahl der Tage, Zahl der Nachrichten und das Datum; der sichere Schalter hat den Fokus; Fehler nie nur über Farbe (⚠ und Wort); bei 320 px kein Querscrollen; Fokus kehrt nach dem Dialog zum Auslöser zurück.
-- **Testbarkeit**: „heute“ über die gestellte Uhr (`LOCALCHATA_JETZT`, `TZ=Europe/Berlin`); der Tageswechsel ohne echte Mitternacht über eine Startzeit 2 s davor; der Takt als Unit mit `tokio::time::pause` und gestellter Uhr.
+- **Testbarkeit**: „heute“ über die gestellte Uhr (`LOCALCHATA_JETZT`, `TZ=Europe/Berlin`); der Tageswechsel ohne echte Mitternacht über eine Startzeit 2 s davor; die Regel des Takts im Tagestakt-Test aus R00014 (Unit mit `tokio::time::pause` und gestellter Uhr).
 
 ## Akzeptanzkriterien
 
@@ -121,7 +123,7 @@ Gemeinsam für alle Kriterien, wenn nicht anders genannt: Start mit `TZ=Europe/B
 
 ### F0035 Tageswechsel
 
-- [ ] Takt (Unit, `tokio::time::pause`, gestellte Uhr, aufzeichnender Rückruf statt `pflegen`): zuletzt gepflegt 2026-10-28; Uhr 2026-10-28T23:59:59.500 und ein Takt → kein Aufruf; Uhr 2026-10-29T00:00:00.000 und ein Takt → genau ein Aufruf mit 2026-10-29; zehn weitere Takte am 29. → kein Aufruf; Uhr zurück auf 2026-10-28T23:00 und ein Takt → genau ein Aufruf mit 2026-10-28. Die Mutante „pflegt in jedem Takt“ und die Mutante „vergleicht die Uhrzeit statt des Datums“ werden je rot.
+- [ ] Takt: geprüft durch das Kriterium „Tagestakt“ aus R00014 F0052 (Teile Grenze, Rückwärts — der Fall „Uhr zurückgestellt“ —, Startwert und Panik, mit den Mutanten dort); F0035 baut keinen eigenen Takt-Test.
 - [ ] Mitternacht im echten Programm (Integration): `allgemein` ohne Einstellungen mit `20.(1)`, `21.(1)`, `22.(1)`, `28.(1)`; Start mit `LOCALCHATA_JETZT=2026-10-28T23:59:58+01:00` → sobald die Startzeile gelesen ist, fehlen der 20. und 21., der 22. und 28. liegen da; danach fehlt `2026-10-22.log` innerhalb der Grenze **Z3** nach der Startzeile, `2026-10-28.log` liegt weiter da; auf stderr steht eine zweite Pflegezeile für `channels/allgemein`, die die Zahl 1, `2026-10-22` und `Tageswechsel` nennt. Rechnung: am 29.10. ist der älteste behaltene Tag 23.10.
 
 ### F0036 Frist live im Strom
@@ -157,7 +159,7 @@ Gemeinsam für alle Kriterien, wenn nicht anders genannt: Start mit `TZ=Europe/B
 ## Betroffene Verzeichnisstruktur
 
 - Frist und Pflege: `src/gespraeche/frist.rs` (`Frist`, `teilen` ersetzt `tage_in_frist`), `src/gespraeche/einstellungen.rs` (`frist_tage`), `src/gespraeche/mod.rs` (`laden` mit der Frist des Channels, `frist_setzen`, `pflegen`, `Pflegebericht`), `src/gespraeche/verzeichnis.rs` (Channel mit `frist`, Wechsel), `src/gespraeche/verlaufsindex.rs` (`tag_entfernen`, `saetze_vor`), `src/gespraeche/logablage.rs` und `speicherablage.rs` (`tag_entfernen`).
-- Takt: neu neben `src/start/abrisspflege.rs` (z. B. `src/start/fristpflege.rs`); `src/start/mod.rs` (Pflege und Takt vor der Startzeile).
+- Tageswechsel: kein eigenes Modul; `src/start/mod.rs` (Pflege beim Start, Anmeldung der Tagesaufgabe `fristpflege` am Tagestakt aus R00014 vor der Startzeile).
 - HTTP: neu `src/http/frist.rs`, `src/http/mod.rs` (Route), `src/http/channels.rs` (`frist_tage` in `channel_als_json`).
 - Oberfläche: neu `web/frist.js` (rein), `web/channel-einstellungen.js` (Dialog); geändert `web/kopfzeile.js`, `web/api.js`, `web/hauptansicht.js`, `web/lc-seite.css`.
 - Tests: Unit im jeweiligen Modul; Integration neu `tests/frist.rs`, `tests/frist_entfallen.rs`, `tests/frist_tageswechsel.rs`, `tests/frist_schutz.rs`; Oberfläche rein `e2e/einheit/frist.test.mjs`; Abläufe `e2e/tests/r00008-*.spec.js`.
@@ -167,12 +169,12 @@ Gemeinsam für alle Kriterien, wenn nicht anders genannt: Start mit `TZ=Europe/B
 ### Ablauf
 
 1. **Laden** (Start): Einstellungen je Channel → `Frist::Tage(n)` | `Gesperrt { datei }` → `teilen(tage, heute, n)` → behaltene Tage in den Index.
-2. **Pflege beim Start**: `pflegen(heute, Start)` → Zeilen auf stderr → Takt starten → Startzeile.
+2. **Pflege beim Start**: `pflegen(heute, Start)` → Zeilen auf stderr → Binden → Tagestakt (R00014) mit der Tagesaufgabe `fristpflege` starten, `zuletzt` = das `heute` dieser Pflege → Startzeile.
 3. **Pflegen** (`heute`, Anlass):
    - 3.1 je Channel mit lesbaren Einstellungen (Verzeichnis lesend): Tage der Platte → `teilen` → entfallende Tage;
    - 3.2 je Tag unter der Gesprächssperre: Datei entfernen (Wächter `symlink_metadata`) → bei Erfolg Tag aus dem Index;
    - 3.3 Bericht → Zeilen auf stderr.
-4. **Takt**: jede Sekunde `uhr.jetzt()` → Datum geändert? → `pflegen(heute, Tageswechsel)` über `spawn_blocking`.
+4. **Tagestakt** (R00014 F0052): jede Sekunde `uhr.jetzt()` → Datum ≠ `zuletzt` der Tagesaufgabe `fristpflege`? → `zuletzt = heute` → `pflegen(heute, Tageswechsel)` über `spawn_blocking`.
 5. **Setzen** `PUT …/frist`:
    - 5.1 Grenzschutz, Sitzung, Körper → 404 → 422 `frist`/`bestaetigt` → 409 `einstellungen-defekt`;
    - 5.2 gleicher Wert → 200 ohne Schreiben;
@@ -187,7 +189,7 @@ Die Bubbles aus der WBS als Datenfluss — **Vorplanung**: welche es am Ende wer
 
 - F0033: B0175 Frist prüfen (rein) · B0176 Frist in den Einstellungen (rein) · B0177 Tage nach der Frist teilen (rein) · B0178 Laden mit der Frist des Channels · B0179 Frist im Verzeichnis setzen · B0180 Frist beantworten
 - F0034: B0181 Tagesdatei entfernen · B0182 Tag aus dem Index nehmen (rein) · B0183 Pflegen (unklar) · B0184 Pflegebericht als Zeilen (rein) · B0185 Pflege beim Start · B0186 Vorschau des Entfallens · B0187 Verkürzen bestätigen
-- F0035: B0188 Datum gewechselt (rein) · B0189 Fristpflege takten · B0190 Takt beim Start verdrahten
+- F0035: B0291 Fristpflege als Tagesaufgabe anmelden (B0188 ist in B0268 „Tagestakt“ aus R00014 aufgegangen, B0189 und B0190 in B0291)
 - F0036: B0191 Friständerung veröffentlichen · B0192 Wechsel-Flut messen (Testhilfe M3)
 - F0037: B0193 Frist-Eingabe prüfen (rein) · B0194 Frist-Texte formen (rein) · B0195 Frist setzen abrufen · B0196 Kopfzeile mit Schalter und Frist · B0197 Dialog Channel-Einstellungen (unklar) · B0198 Verkürzen bestätigen im Dialog (unklar)
 - F0038: B0199 Nur reguläre Dateien entfernen · B0200 Löschfehler je Datei · B0201 Schreibfehler beim Setzen
@@ -200,7 +202,7 @@ Die Bubbles aus der WBS als Datenfluss — **Vorplanung**: welche es am Ende wer
 - `Gespraeche` — zusätzlich `fn frist_setzen(&self, name: &str, tage: u32, bestaetigt: bool, von: &Kennung) -> Result<FristGesetzt, Fristfehler>` mit `FristGesetzt { channel, entfallen: Entfallen }` und `Fristfehler = Unbekannt | EinstellungenDefekt { datei } | Bestaetigen { tage, nachrichten, bis } | Ablage(String)`; `fn pflegen(&self, heute: NaiveDate, anlass: Anlass) -> Vec<Pflegebericht>` mit `Anlass = Start | Tageswechsel | FristGesetzt { von }`.
 - `Logablage` — zusätzlich `fn tag_entfernen(&self, gespraech: &Gespraech, tag: NaiveDate) -> io::Result<()>`.
 - `Verlauf` (A00009) — zusätzlich `fn tag_entfernen(&mut self, tag: NaiveDate) -> Option<(usize, u64)>`, `fn saetze_vor(&self, tag: NaiveDate) -> usize`.
-- Takt: `async fn takten(gespraeche, uhr, ende, periode)`; rein `fn datum_gewechselt(zuletzt: NaiveDate, jetzt: Zeit) -> Option<NaiveDate>`.
+- Tageswechsel: keine eigenen Elemente — die Tagesaufgabe `fristpflege` (Folge-Text „Tage jenseits der Frist bleiben bis dahin liegen“, `zuletzt`, `ausfuehren(heute)` → `pflegen(heute, Tageswechsel)`) am `tagestakt::takten` aus R00014; `datum_gewechselt` gehört dorthin.
 - Oberfläche (rein, `web/frist.js`): `fristPruefen(text)`, `fristText(tage)`, `bestaetigungText(tage, entfaellt)`, `statusText(name, tage, entfallen)`; am Port (`web/api.js`): `fristSetzen(name, tage, bestaetigt)`.
 
 Wireframe: die WBS führt `wireframes: Dokumentation/Wireframes/`, ein Artboard `D0003.dc.html` fehlt (Hinweis `/wireframe verfeinern D0003`); ADR-0033 Regel 7 verzichtet bewusst darauf. Gestaltungsquelle: Designsystem `components/ChannelEinstellungen/README.md` (Dialog, beide Schritte, Gesperrt, Rückmeldung) und `components/Kopfzeile/README.md` (Schalter, Frist-Text) — Vorgabe für die Gestaltung, nicht Akzeptanzkriterium.
@@ -212,16 +214,16 @@ Wireframe: die WBS führt `wireframes: Dokumentation/Wireframes/`, ein Artboard 
 - `gespraeche::einstellungen`: `frist_tage` lesen, prüfen, schreiben.
 - `gespraeche::verzeichnis::Channel`: Feld `frist`; Wechsel bei Friständerung.
 - `http::channels::channel_als_json`: `frist_tage`.
-- `start`: Pflege und Takt vor der Startzeile.
+- `start`: Pflege beim Start und Anmeldung der Tagesaufgabe `fristpflege` am Tagestakt, beides vor der Startzeile.
 - `web/kopfzeile.js` (Schalter, Frist-Text), `web/hauptansicht.js` (Dialog verdrahten, Neu-Öffnen nach dem Verkürzen), `web/api.js`.
 
 ## Tests
 
 Nach Skill `test-pyramide` und ADR-0009; die Szenarien der User Story werden Tests. Tests sind nie schärfer als diese Anforderung: sie übernehmen Z1–Z4 wörtlich; M3 ist ein Messwert, kein Test im Gate.
 
-**Unit (rein, gestellte Uhr):** `teilen` (Beispiele aus ADR-0029, Mutanten), Frist-Spanne (1/3650, Mutanten 0/2 und 3649/3651), Einstellungsformat mit `frist_tage`, `pflegen` mit Speicherablage (Start, Tageswechsel, Löschfehler), Takt mit `tokio::time::pause`, Wächter vor dem Löschen (`tempfile`).
+**Unit (rein, gestellte Uhr):** `teilen` (Beispiele aus ADR-0029, Mutanten), Frist-Spanne (1/3650, Mutanten 0/2 und 3649/3651), Einstellungsformat mit `frist_tage`, `pflegen` mit Speicherablage (Start, Tageswechsel, Löschfehler), Wächter vor dem Löschen (`tempfile`); die Takt-Regel prüft der Tagestakt-Test aus R00014.
 
-**Integration (`tests/`, echtes Programm):** Setzen, Neustart, Spanne, Grenzschutz, Defekt, Laden mit Frist; Start löscht, Verkürzen mit und ohne Bestätigung, Vorschau, Defekt heißt nichts; Mitternacht über `LOCALCHATA_JETZT`; Ereignis und `stand`; Erlaubnisliste, nicht löschbare Datei, Schreibfehler. Mutationsproben: Grenzen der Frist, Mutanten von `teilen` und Laden, Takt, die vier Wächter.
+**Integration (`tests/`, echtes Programm):** Setzen, Neustart, Spanne, Grenzschutz, Defekt, Laden mit Frist; Start löscht, Verkürzen mit und ohne Bestätigung, Vorschau, Defekt heißt nichts; Mitternacht über `LOCALCHATA_JETZT`; Ereignis und `stand`; Erlaubnisliste, nicht löschbare Datei, Schreibfehler. Mutationsproben: Grenzen der Frist, Mutanten von `teilen` und Laden, die vier Wächter (die Mutanten des Takts im Tagestakt-Test aus R00014).
 
 **Oberfläche rein (`e2e/einheit/`):** `fristPruefen` (Spanne, Mutanten), Texte mit Singular und deutschen Zahlen.
 
@@ -231,8 +233,8 @@ Nach Skill `test-pyramide` und ADR-0009; die Szenarien der User Story werden Tes
 
 ## Abhängigkeiten
 
-- Abhängig von: I0002 Nachricht landet im Log (R00002, grün) — Logablage, Index, Grenze „heute zählt mit“; I0007 Channel anlegen (R00006, grün) — Channelverzeichnis, `einstellungen.toml`, Channel-Wechsel im Strom, Dialog-Muster; I0008 Channel wechseln und Verlauf lesen (R00007, rot) — F0037 braucht F0028 (Kopfzeile mit `# name`) und F0029 (Channel öffnen); die übrigen Slices hängen nicht an I0008.
-- Innerhalb (WBS `Braucht`): F0033 Welle 1; F0034 und F0036 brauchen F0033 — Welle 2 (parallel); F0035 braucht F0034 — Welle 3; F0037 braucht F0034, F0036, F0028, F0029 — Welle 3; F0038 braucht F0034 und F0035 — Welle 4.
+- Abhängig von: I0002 Nachricht landet im Log (R00002, grün) — Logablage, Index, Grenze „heute zählt mit“; I0007 Channel anlegen (R00006, grün) — Channelverzeichnis, `einstellungen.toml`, Channel-Wechsel im Strom, Dialog-Muster; I0008 Channel wechseln und Verlauf lesen (R00007, rot) — F0037 braucht F0028 (Kopfzeile mit `# name`) und F0029 (Channel öffnen); die übrigen Slices hängen nicht an I0008. I0021 Betriebsprotokoll (R00014, rot) — F0035 braucht F0052 (Tagestakt).
+- Innerhalb (WBS `Braucht`): F0033 Welle 1; F0034 und F0036 brauchen F0033 — Welle 2 (parallel); F0035 braucht F0034 und F0052 (R00014) — Welle 3; F0037 braucht F0034, F0036, F0028, F0029 — Welle 3; F0038 braucht F0034 und F0035 — Welle 4.
 - Blockiert: I0010 Anhänge (löscht `anhaenge/<tag>/` mit, ADR-0030 Regel 8), I0012 Direktnachricht (Frist der Direktgespräche), I0019 Claude Code einbinden (Anleitung nennt die Frist-Regel und „nie `bestaetigt` ohne vorherige 409“).
 
 ## Offene Fragen
@@ -243,6 +245,7 @@ Entschieden vom planer für R00008 (Rückfragen mit Empfehlung beantwortet):
 
 - **Anzeige „Frist gesperrt“ in F0037**, nicht im Ausnahme-Slice: sie ist Teil von Kopfzeile und Dialog; F0038 bleibt serverseitig und hängt nicht an der Oberfläche.
 - **F0038 braucht F0035**: „erneut versucht wird nie in jedem Takt“ ist ohne Takt nicht prüfbar.
+- **Geklärt 2026-10-28 — Takt der Fristpflege** (ADR-0041, Ergänzung „Vertrag des Tagestakts“): kein eigener Takt; die Fristpflege ist die zweite Tagesaufgabe des Tagestakts aus R00014 F0052, mit dem Datum der Pflege beim Start als Startwert, Vergleich auf Ungleichheit und Weiterlaufen nach einer Panik. F0035 braucht deshalb F0052.
 - **F0034 ohne Verlauf-API prüfbar**: über die Dateien im Ordner und `nachrichten` in `/api/gesundheit`; „der Verlauf beginnt am 22.“ prüft der Browser in F0037. So hängen nur F0037 an I0008.
 - **Protokollzeile für einen Tag**: die Kriterien prüfen Zahl, Datum und Anlass, nicht die Pluralform — die Zeile ist Diagnose für den Betreiber, keine Oberfläche.
 - **Kein Ereignis beim 409, 422, 500 und bei gleichem Wert** wird exakt über `stand` geprüft statt über ein Wartefenster.
@@ -263,11 +266,11 @@ Aus der WBS gezählt (`/planung zaehlen I0018`); Standard-Bubbles mit der Unterg
 
 - F0033 Frist über die API setzen und lesen = 6 Bubbles: 6 Standard (0,4h). Rest: 2,4h klar · 6 von 6 Werten belegt.
 - F0034 Entfallen beim Start und beim Verkürzen = 7 Bubbles: 6 Standard (0,4h), 1 unklar (2–4h). Rest: 2,4h klar + 2–4h unklar · 6 von 7 Werten belegt, Rest Richtwert (ungemessen).
-- F0035 Tageswechsel = 3 Bubbles: 3 Standard (0,4h). Rest: 1,2h klar · 3 von 3 Werten belegt.
+- F0035 Tageswechsel = 1 Bubble: 1 Standard (0,4h). Rest: 0,4h klar · 1 von 1 Wert belegt (nachgezogen 2026-10-28: vorher 3 Bubbles, B0188–B0190 verworfen, B0291 neu).
 - F0036 Frist live im Strom = 2 Bubbles: 2 Standard (0,4h). Rest: 0,8h klar · 2 von 2 Werten belegt.
 - F0037 Channel-Einstellungen im Browser = 6 Bubbles: 4 Standard (0,4h), 2 unklar (2–4h). Rest: 1,6h klar + 4–8h unklar · 4 von 6 Werten belegt, Rest Richtwerte (ungemessen).
 - F0038 Löschschutz und Fehlerwege = 3 Bubbles: 3 Standard (0,4h). Rest: 1,2h klar · 3 von 3 Werten belegt.
-- I0018 gesamt = 27 Bubbles. Rest: 9,6h klar + 6–12h unklar · 24 von 27 Werten belegt, Rest Richtwerte (ungemessen).
+- I0018 gesamt = 25 Bubbles (ohne F0058 aus R00017). Rest: 8,8h klar + 6–12h unklar · 22 von 25 Werten belegt, Rest Richtwerte (ungemessen).
 - Nicht enthalten: Frist der Direktgespräche (I0012), Anhänge löschen (I0010), Feld `beginn` in der Verlauf-Antwort, Rate je Herkunft (offene Frage).
 
 ## Warum löst diese Anforderung das Problem? (Pflicht)
