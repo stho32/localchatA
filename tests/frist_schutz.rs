@@ -172,3 +172,75 @@ fn us22_eine_nicht_loeschbare_datei_meldet_sich_einmal_je_anlass() {
     assert_eq!(auf_stderr(&stderr).len(), 2, "{:#?}", auf_stderr(&stderr));
     assert!(tag_da(ordner, "allgemein", "2026-10-20"));
 }
+
+const NICHT_GESETZT: &str = "ERROR frist Frist nicht gesetzt — Einstellungen ließen sich nicht schreiben | channel=allgemein kennung=beta@127.0.0.1 datei=channels/allgemein/einstellungen.toml";
+
+/// US-23, Kriterien „Schreibfehler“ (R00008) und „Schreibfehler bleibt laut“ (R00017): 500, nichts geändert, kein
+/// Ereignis; je eine ERROR-Zeile in Datei und auf stderr, keine INFORMATION.
+#[tokio::test]
+async fn us23_schreiben_scheitert_nichts_aendert_sich() {
+    use gemeinsam::Absender;
+    use gemeinsam::frist::{beitreten, channel_in_liste, frist_setzen};
+    use gemeinsam::protokoll::zeilen;
+    use gemeinsam::strom::Strom;
+    use serde_json::json;
+    use std::time::Duration;
+    let wurzel = tempfile::tempdir().expect("Wegwerf-Ordner");
+    let ordner = wurzel.path();
+    fs::create_dir_all(ordner.join("channels/allgemein")).expect("Ordner");
+    let schutz = Schreibschutz::setzen(&ordner.join("channels/allgemein"));
+    let mut instanz = starten_um(ordner, MITTAG);
+    let zwei = Absender::von("127.0.0.2");
+    let eins = Absender::von("127.0.0.1");
+    let alpha = beitreten(&zwei, &instanz, "alpha").await;
+    let beta = beitreten(&eins, &instanz, "beta").await;
+    let mut strom = Strom::oeffnen(&zwei, &instanz.adresse, &alpha).await;
+    let stand = strom
+        .bis(Duration::from_secs(5), |e| e.data["art"] == "channels")
+        .await
+        .expect("Stand");
+    let s = stand.data["stand"].as_u64().expect("stand");
+
+    let gescheitert =
+        frist_setzen(&eins, &instanz, &beta, "allgemein", json!({ "tage": 30 })).await;
+
+    assert_eq!(gescheitert.status, 500, "{}", gescheitert.json);
+    assert!(gescheitert.json["fehler"].is_string());
+    let (channel, stand_danach) = channel_in_liste(&eins, &instanz, &beta, "allgemein").await;
+    assert_eq!(channel["frist_tage"], 7);
+    assert_eq!(stand_danach, s);
+    assert!(
+        !ordner
+            .join("channels/allgemein/einstellungen.toml")
+            .exists()
+    );
+    assert!(
+        !ordner
+            .join("channels/allgemein/einstellungen.toml.neu")
+            .exists()
+    );
+    let heute = frist_zeilen(&zeilen(ordner, "2026-10-28"));
+    assert_eq!(heute.len(), 1, "{heute:#?}");
+    assert!(
+        heute[0].starts_with(NICHT_GESETZT) && heute[0].contains(" grund=\""),
+        "{heute:#?}"
+    );
+    drop(schutz);
+    let danach = frist_setzen(&eins, &instanz, &beta, "allgemein", json!({ "tage": 31 })).await;
+    assert_eq!(danach.status, 200, "{}", danach.json);
+    let ereignis = strom
+        .bis(Duration::from_secs(5), |e| e.data["art"] == "channel")
+        .await
+        .expect("Ereignis channel");
+    assert_eq!(ereignis.data["stand"], s + 1);
+    assert_eq!(ereignis.data["channel"]["frist_tage"], 31);
+    instanz.signal_und_warten("TERM");
+    let stderr: Vec<String> = instanz
+        .stderr_bis_zum_ende()
+        .lines()
+        .map(str::to_string)
+        .collect();
+    let auf_stderr = frist_zeilen(&stderr);
+    assert_eq!(auf_stderr.len(), 1, "{auf_stderr:#?}");
+    assert!(auf_stderr[0].starts_with(NICHT_GESETZT), "{auf_stderr:#?}");
+}

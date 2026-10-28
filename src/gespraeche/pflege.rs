@@ -767,4 +767,27 @@ mod tests {
         );
         assert_eq!(gespraeche.kennzahlen().nachrichten, 3 + 1 + 1);
     }
+
+    /// R00008 F0038 „Schreibfehler“ (ADR-0031 Regel 2.7): Frist, Datei und `stand` bleiben, kein Wechsel.
+    #[test]
+    fn scheitert_das_schreiben_aendert_sich_nichts_und_nichts_wird_veroeffentlicht() {
+        let ablage = Arc::new(Speicherablage::neu());
+        ablage.gespraech_anlegen(&Gespraech::channel("allgemein"));
+        let (gespraeche, aufgezeichnet) = mit_aufzeichnung(&ablage);
+        ablage.einstellungen_scheitern();
+
+        let gescheitert = gespraeche.frist_setzen("allgemein", 30, false, &beta());
+
+        assert_eq!(
+            gescheitert,
+            Err(Fristfehler::Ablage {
+                datei: "channels/allgemein/einstellungen.toml".into(),
+                grund: "Einstellungen schreiben scheitert (Speicher-Logablage)".into(),
+            })
+        );
+        assert_eq!(gespraeche.channels().liste[0].frist, Frist::Tage(7));
+        assert_eq!(gespraeche.channels().stand, 0);
+        assert!(sperren(&aufgezeichnet).is_empty());
+        assert_eq!(einstellungen_von(&ablage, "allgemein"), None);
+    }
 }

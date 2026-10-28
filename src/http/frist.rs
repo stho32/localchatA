@@ -9,7 +9,9 @@ use super::anfrageprotokoll::Eingetragen;
 use super::channels::channel_als_json;
 use super::koerper::{Koerperfehler, Koerperort, ZU_LANGSAM, json_lesen};
 use super::teilnehmer::Teilnehmer;
-use crate::gespraeche::fristeintrag::{frist_gesetzt_eintrag, pflege_eintrag};
+use crate::gespraeche::fristeintrag::{
+    frist_gesetzt_eintrag, frist_nicht_gesetzt_eintrag, pflege_eintrag,
+};
 use crate::gespraeche::{
     Entfaellt, Frist, FristGesetzt, Fristfehler, Gespraeche, Kennung, frist_in_spanne,
 };
@@ -61,6 +63,13 @@ pub async fn setzen(
         Ok(Ok(gesetzt)) => {
             gesetzt_eintragen(&zustand.protokoll, &gesetzt, &teilnehmer.kennung);
             gesetzt_beantworten(&gesetzt)
+        }
+        Ok(Err(Abweisung::Frist(Fristfehler::Ablage { datei, grund }))) => {
+            eintragen(
+                &zustand.protokoll,
+                frist_nicht_gesetzt_eintrag(&name, &teilnehmer.kennung, &datei, &grund),
+            );
+            Abweisung::Frist(Fristfehler::Ablage { datei, grund }).beantworten(&name)
         }
         Ok(Err(abweisung)) => abweisung.beantworten(&name),
         Err(abgebrochen) => abbruch_beantworten(
