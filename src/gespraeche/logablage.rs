@@ -211,8 +211,21 @@ impl Logablage for Dateiablage {
         std::fs::remove_dir_all(self.ordner.join(gespraech.pfad()))
     }
 
+    /// Unmittelbar vor dem Löschen: liegt dort eine reguläre Datei? Ein Symlink oder Ordner bleibt und ist ein
+    /// Fehler; nichts zählt als entfernt (ADR-0032 Regel 3).
     fn tag_entfernen(&self, gespraech: &Gespraech, tag: NaiveDate) -> io::Result<()> {
-        match std::fs::remove_file(self.ordner.join(gespraech.tagesdatei(tag))) {
+        let pfad = self.ordner.join(gespraech.tagesdatei(tag));
+        let art = match std::fs::symlink_metadata(&pfad) {
+            Ok(metadaten) => metadaten.file_type(),
+            Err(fehler) if fehler.kind() == io::ErrorKind::NotFound => return Ok(()),
+            Err(fehler) => return Err(fehler),
+        };
+        if !art.is_file() {
+            return Err(io::Error::other(
+                "keine reguläre Datei (Symlink oder Ordner) — nicht gelöscht",
+            ));
+        }
+        match std::fs::remove_file(&pfad) {
             Err(fehler) if fehler.kind() == io::ErrorKind::NotFound => Ok(()),
             entfernt => entfernt,
         }
@@ -605,5 +618,48 @@ mod tests {
         ablage
             .tag_entfernen(&allgemein, tag("2026-10-20"))
             .expect("fehlt schon — gilt als entfernt");
+    }
+
+    /// R00008 F0038 „Wächter vor dem Löschen“ (ADR-0032 Regel 3): liegt an der Stelle der Tagesdatei inzwischen
+    /// ein Symlink oder ein Ordner, wird nichts gelöscht und der Fehler genannt; das Ziel bleibt.
+    #[cfg(unix)]
+    #[test]
+    fn tag_entfernen_loescht_nie_einen_symlink_oder_ordner_an_der_stelle_der_tagesdatei() {
+        let wurzel = tempfile::tempdir().expect("Wegwerf-Ordner");
+        let ordner = wurzel.path();
+        datei(ordner, "aussen/ziel.log", "Archiv\n");
+        datei(
+            ordner,
+            "channels/allgemein/2026-10-03.log/darin",
+            "Ordner\n",
+        );
+        std::os::unix::fs::symlink(
+            ordner.join("aussen/ziel.log"),
+            ordner.join("channels/allgemein/2026-10-01.log"),
+        )
+        .expect("Symlink");
+        let ablage = Dateiablage::neu(ordner);
+        let allgemein = Gespraech::channel("allgemein");
+
+        let symlink = ablage.tag_entfernen(&allgemein, tag("2026-10-01"));
+        let unterordner = ablage.tag_entfernen(&allgemein, tag("2026-10-03"));
+
+        assert!(symlink.is_err(), "{symlink:?}");
+        assert!(unterordner.is_err(), "{unterordner:?}");
+        assert!(
+            fs::symlink_metadata(ordner.join("channels/allgemein/2026-10-01.log"))
+                .expect("Symlink bleibt")
+                .file_type()
+                .is_symlink()
+        );
+        assert_eq!(
+            fs::read_to_string(ordner.join("aussen/ziel.log")).expect("Ziel bleibt"),
+            "Archiv\n"
+        );
+        assert!(
+            ordner
+                .join("channels/allgemein/2026-10-03.log/darin")
+                .is_file()
+        );
     }
 }
