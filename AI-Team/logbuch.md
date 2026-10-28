@@ -92,3 +92,4 @@ Eine Zeile je Auftrag an eine Rolle und je Retrospektive.
 | 2026-10-28 | #8 I0009 | Detailplanung | planer | bestanden | 0:40 | R00011 (31 Bubbles); geteilt: I0020 mit R00012 als neue Karte, fertig geplant im Puffer |
 | 2026-10-28 | #7 I0008 | Entwicklung | entwickler | bestanden | 1:26 | R00007 B0141–B0174 (388cbf6…0c1ff83); L1–L5 grün, M1 0,17 %, M2 47 ms; Puffer-Zug: #20 in Entwicklung |
 | 2026-10-28 | #7 I0008 | Reviews | code-, ux-, security-reviewer | befund | 0:30 | Code B1 L3-Test-Timeout; UX S4 (Neuwahl nach Fehler) Muss; Security bestanden, A1 → Befundkarte #23; Nacharbeit nach #20 |
+| 2026-10-28 | #20 Befund | Entwicklung | entwickler | bestanden | 0:20 | R00009 Kopfzeile umbrechen (9d7d4bb…f867195); jetzt Nacharbeit #7 |
