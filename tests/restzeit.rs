@@ -123,10 +123,13 @@ async fn us6_der_wechsel_im_strom_traegt_jetzt_und_die_restzeit() {
         "{}",
         offline.data
     );
+    // Serverzeit tragen Stand und Wechsel der Teilnehmer (B0106); das Thema Channels (R00006, ADR-0023
+    // Regel 3) hat seine eigene Form ohne `jetzt`.
     let gelesen: Vec<&Empfangen> = strom_beta
         .ereignisse
         .iter()
         .filter(|e| e.event.is_empty())
+        .filter(|e| e.data["art"] == "teilnehmer" || e.data["art"] == "anwesenheit")
         .collect();
     assert_eq!(gelesen[0].data["art"], "teilnehmer");
     for ereignis in gelesen {
