@@ -15,8 +15,11 @@ use std::net::IpAddr;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::Duration;
 
-/// Lebende Sitzungen je Herkunft und gesamt — gleich den Verbindungsgrenzen (ADR-0012).
-pub const JE_HERKUNFT: usize = 64;
+/// Lebende Sitzungen je Herkunft — R00015, Lastprofil „Team-LAN“ (2026-10-28, A00001, ADR-0012 Ergänzung
+/// R00015): 50 Agenten und ein Mensch auf einem Rechner = 51; startet jeder Agent einmal mit neuem Namen neu,
+/// zählt die verlassene Sitzung bis zum Ende der Gnadenfrist (60 s) mit → bis 101; 128 mit Reserve. Nicht mehr
+/// gleich der Verbindungsgrenze (160). Gesamt bleibt 512 (4 Herkünfte × 128).
+pub const JE_HERKUNFT: usize = 128;
 pub const GESAMT: usize = 512;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -621,34 +624,36 @@ mod tests {
         );
     }
 
+    /// R00015 G2: 128 Beitritte einer Herkunft gehen, der 129. ist `ZuVieleSitzungen`, eine andere Herkunft
+    /// tritt bei; 4 Herkünfte × 128 = 512 gehen, die 513. von einer fünften ist `ZuVieleSitzungen` gesamt.
     #[test]
-    fn hoechstens_64_sitzungen_je_herkunft_und_512_gesamt() {
+    fn hoechstens_128_sitzungen_je_herkunft_und_512_gesamt() {
         let anwesenheit = anwesenheit(FesteFolge::neu(1..=600));
-        for nummer in 1..=JE_HERKUNFT {
+        for nummer in 1..=128 {
             anwesenheit
                 .beitreten(&wunsch(&format!("n{nummer}"), Art::Agent), ip("127.0.0.1"))
                 .expect("innerhalb der Grenze");
         }
 
-        let zu_viel = anwesenheit.beitreten(&wunsch("n65", Art::Agent), ip("127.0.0.1"));
-        let andere_herkunft = anwesenheit.beitreten(&wunsch("n65", Art::Agent), ip("127.0.0.2"));
+        let zu_viel = anwesenheit.beitreten(&wunsch("n129", Art::Agent), ip("127.0.0.1"));
+        let andere_herkunft = anwesenheit.beitreten(&wunsch("n129", Art::Agent), ip("127.0.0.2"));
 
         assert_eq!(zu_viel, Err(Beitrittsfehler::ZuVieleSitzungen));
-        assert!(andere_herkunft.is_ok());
+        assert!(andere_herkunft.is_ok(), "{andere_herkunft:?}");
 
         let mut nummer = 0;
-        for letzte_stelle in 2..=8u8 {
+        for letzte_stelle in 2..=4u8 {
             let herkunft = IpAddr::V4(Ipv4Addr::new(127, 0, 0, letzte_stelle));
             let schon_da = usize::from(letzte_stelle == 2);
-            for _ in schon_da..JE_HERKUNFT {
+            for _ in schon_da..128 {
                 nummer += 1;
                 anwesenheit
                     .beitreten(&wunsch(&format!("m{nummer}"), Art::Agent), herkunft)
                     .expect("innerhalb der Gesamtgrenze");
             }
         }
-        assert_eq!(anwesenheit.bestand().eintraege.len(), GESAMT);
-        let ueber_gesamt = anwesenheit.beitreten(&wunsch("neu", Art::Agent), ip("127.0.0.9"));
+        assert_eq!(anwesenheit.bestand().eintraege.len(), 512);
+        let ueber_gesamt = anwesenheit.beitreten(&wunsch("neu", Art::Agent), ip("127.0.0.5"));
         assert_eq!(ueber_gesamt, Err(Beitrittsfehler::ZuVieleSitzungen));
     }
 
@@ -718,7 +723,7 @@ mod tests {
         let uhr = Arc::new(GestellteUhr::neu(zeit(T0)));
         let anwesenheit = Anwesenheit::neu(
             Arc::clone(&uhr) as Arc<dyn Uhr>,
-            Arc::new(FesteFolge::neu(1..=100)),
+            Arc::new(FesteFolge::neu(1..=300)),
             Duration::from_secs(60),
         );
         for nummer in 1..=JE_HERKUNFT {
@@ -728,7 +733,7 @@ mod tests {
         }
 
         uhr.stellen(zeit("2026-10-27T09:16:00.000+01:00"));
-        let danach = anwesenheit.beitreten(&wunsch("n65", Art::Agent), ip("127.0.0.1"));
+        let danach = anwesenheit.beitreten(&wunsch("danach", Art::Agent), ip("127.0.0.1"));
 
         assert!(danach.is_ok(), "{danach:?}");
     }
@@ -1473,15 +1478,15 @@ mod tests {
             anwesenheit.verlassen(&token, ip("127.0.0.2"));
         }
 
-        let vierundsechzigster = anwesenheit.beitreten(&wunsch("f64", Art::Agent), ip("127.0.0.2"));
-        let fuenfundsechzigster =
-            anwesenheit.beitreten(&wunsch("f65", Art::Agent), ip("127.0.0.2"));
+        let letzter = anwesenheit.beitreten(&wunsch("letzter", Art::Agent), ip("127.0.0.2"));
+        let ueber = anwesenheit.beitreten(&wunsch("ueber", Art::Agent), ip("127.0.0.2"));
 
         assert!(
-            vierundsechzigster.is_ok(),
-            "63 Plätze reserviert, nicht 126: {vierundsechzigster:?}"
+            letzter.is_ok(),
+            "{} Plätze reserviert, nicht doppelt: {letzter:?}",
+            JE_HERKUNFT - 1
         );
-        assert_eq!(fuenfundsechzigster, Err(Beitrittsfehler::ZuVieleSitzungen));
+        assert_eq!(ueber, Err(Beitrittsfehler::ZuVieleSitzungen));
     }
 
     #[test]
@@ -1492,7 +1497,8 @@ mod tests {
             ..anwesenheit
         };
         let mut nummer = 0;
-        for letzte_stelle in 2..=9u8 {
+        let herkuenfte = u8::try_from(GESAMT / JE_HERKUNFT).expect("wenige Herkünfte");
+        for letzte_stelle in 2..2 + herkuenfte {
             let herkunft = IpAddr::V4(Ipv4Addr::new(127, 0, 0, letzte_stelle));
             for _ in 0..JE_HERKUNFT {
                 nummer += 1;
@@ -1505,7 +1511,7 @@ mod tests {
             }
         }
 
-        let ueber_gesamt = anwesenheit.beitreten(&wunsch("neu", Art::Agent), ip("127.0.0.10"));
+        let ueber_gesamt = anwesenheit.beitreten(&wunsch("neu", Art::Agent), ip("127.0.0.100"));
 
         assert_eq!(ueber_gesamt, Err(Beitrittsfehler::ZuVieleSitzungen));
     }

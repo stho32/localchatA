@@ -7,8 +7,11 @@ use std::collections::HashMap;
 use std::net::IpAddr;
 use std::sync::{Arc, Mutex, PoisonError};
 
-/// Offene Verbindungen je Gegenstelle (IP-Adresse): genug für Browser-Tabs, Live-Kanal und Agenten.
-pub const JE_GEGENSTELLE: usize = 64;
+/// Offene Verbindungen je Gegenstelle (IP-Adresse) — R00015, Lastprofil „Team-LAN“ (2026-10-28, A00001,
+/// ADR-0010 Ergänzung R00015): im ungünstigen Fall laufen 50 Agenten und ein Mensch auf einem Rechner —
+/// 50 wartende Long-Polls + 50 kurze Sendeverbindungen in der Spitze + Browser (1 Strom, bis 6 Abrufe) ≈ 107;
+/// 160 ≈ 1,5 × Spitze. Je Gegenstelle gilt höchstens die Gesamtgrenze.
+pub const JE_GEGENSTELLE: usize = 160;
 /// Offene Verbindungen gesamt, solange das Deskriptor-Limit nicht weniger erlaubt.
 const GESAMT: usize = 512;
 
@@ -174,35 +177,39 @@ mod tests {
         assert_eq!(belegung.zaehlung().gesamt, 1);
     }
 
+    /// R00015 G1: je Gegenstelle 160 bei ausreichenden Deskriptoren, sonst `min(160, gesamt)`.
     #[test]
     fn die_gesamtgrenze_ist_hoechstens_die_haelfte_der_weichen_deskriptorgrenze() {
+        let grenzen = |je_gegenstelle, gesamt| Verbindungsgrenzen {
+            je_gegenstelle,
+            gesamt,
+        };
         assert_eq!(
             Verbindungsgrenzen::fuer_deskriptoren(Some(1024)),
-            Verbindungsgrenzen {
-                je_gegenstelle: 64,
-                gesamt: 512
-            }
+            grenzen(160, 512)
         );
         assert_eq!(
-            Verbindungsgrenzen::fuer_deskriptoren(Some(256)),
-            Verbindungsgrenzen {
-                je_gegenstelle: 64,
-                gesamt: 128
-            }
+            Verbindungsgrenzen::fuer_deskriptoren(Some(322)),
+            grenzen(160, 161)
+        );
+        assert_eq!(
+            Verbindungsgrenzen::fuer_deskriptoren(Some(318)),
+            grenzen(159, 159)
+        );
+        assert_eq!(
+            Verbindungsgrenzen::fuer_deskriptoren(Some(200)),
+            grenzen(100, 100)
         );
         assert_eq!(
             Verbindungsgrenzen::fuer_deskriptoren(Some(64)),
-            Verbindungsgrenzen {
-                je_gegenstelle: 32,
-                gesamt: 32
-            }
+            grenzen(32, 32)
         );
     }
 
     #[test]
     fn ohne_oder_mit_grosser_deskriptorgrenze_gelten_die_festen_grenzen() {
         let fest = Verbindungsgrenzen {
-            je_gegenstelle: 64,
+            je_gegenstelle: 160,
             gesamt: 512,
         };
         assert_eq!(Verbindungsgrenzen::fuer_deskriptoren(None), fest);

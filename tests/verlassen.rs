@@ -338,7 +338,7 @@ fn basis_fuer(absender: &str, port: u16) -> String {
 
 /// Abnahme-Probe Nacharbeit 1 (Security, CWE-770, ADR-0018 Regel 2a): `beta` (127.0.0.3) liest den Strom; von
 /// `absender` laufen 200 Zyklen `beitreten` → `verlassen` über `verbindungen` Verbindungen → innerhalb der
-/// Gnadenfrist höchstens 64 × 201, der Rest 429 mit `{fehler}`; `beta` liest höchstens 2 × 64 Wechsel mit
+/// Gnadenfrist höchstens 128 × 201 (R00015, vorher 64), der Rest 429 mit `{fehler}`; `beta` liest höchstens 2 × 128 Wechsel mit
 /// Herkunft 127.0.0.2. Kontrollpaar danach: 127.0.0.4 tritt mit 201 bei; `alpha` von 127.0.0.5 → verlassen →
 /// `alpha` von 127.0.0.6 sofort 201.
 async fn schleife_ist_begrenzt(host: &str, absender: &[&str], verbindungen: usize) {
@@ -390,7 +390,7 @@ async fn schleife_ist_begrenzt(host: &str, absender: &[&str], verbindungen: usiz
         dauer < KURZE_GNADENFRIST,
         "Schleife innerhalb der Gnadenfrist: {dauer:?}"
     );
-    assert!(ergebnis.erfolge <= 64, "{ergebnis:?}");
+    assert!(ergebnis.erfolge <= 128, "{ergebnis:?}");
     assert_eq!(ergebnis.erfolge + ergebnis.abgewiesen, 200, "{ergebnis:?}");
     let von_zwei = strom_beta
         .ereignisse
@@ -399,7 +399,7 @@ async fn schleife_ist_begrenzt(host: &str, absender: &[&str], verbindungen: usiz
             e.data["art"] == "anwesenheit" && e.data["teilnehmer"]["herkunft"] == "127.0.0.2"
         })
         .count();
-    assert!(von_zwei <= 2 * 64, "{von_zwei} Wechsel von 127.0.0.2");
+    assert!(von_zwei <= 2 * 128, "{von_zwei} Wechsel von 127.0.0.2");
     assert!(ergebnis.erfolge >= 1, "{ergebnis:?}");
     assert_eq!(
         von_zwei,
@@ -426,7 +426,7 @@ async fn nacharbeit1_beitreten_und_verlassen_in_schleife_ueber_vier_verbindungen
     schleife_ist_begrenzt("127.0.0.1", &["127.0.0.2"], 4).await;
 }
 
-/// (b) `::ffff:127.0.0.2` zählt zur selben Herkunft wie 127.0.0.2: reihum von beiden, zusammen höchstens 64.
+/// (b) `::ffff:127.0.0.2` zählt zur selben Herkunft wie 127.0.0.2: reihum von beiden, zusammen höchstens 128.
 #[tokio::test]
 async fn nacharbeit1_die_gemappte_ipv6_form_zaehlt_zur_selben_herkunft() {
     schleife_ist_begrenzt("::", &["127.0.0.2", "::ffff:127.0.0.2"], 4).await;

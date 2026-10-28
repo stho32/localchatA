@@ -220,10 +220,12 @@ async fn herkunft_ist_kanonisch_ipv4_ueber_127_0_0_1_und_ipv6_ueber_doppelpunkt_
 }
 
 #[tokio::test]
-async fn us9_hoechstens_64_sitzungen_je_herkunft() {
+/// R00015 G2 (ändert R00003 US-9 von 64 auf 128): 128 Beitritte einer Herkunft 201, der 129. 429, eine andere
+/// Herkunft 201.
+async fn us9_hoechstens_128_sitzungen_je_herkunft() {
     let instanz = wegwerf_starten();
     let (eins, zwei) = (Absender::von("127.0.0.1"), Absender::von("127.0.0.2"));
-    for nummer in 1..=64 {
+    for nummer in 1..=128 {
         let antwort = eins
             .beitreten(
                 &instanz.adresse,
@@ -235,10 +237,10 @@ async fn us9_hoechstens_64_sitzungen_je_herkunft() {
     }
 
     let zu_viel = eins
-        .beitreten(&instanz.adresse, json!({"name": "n65"}), None)
+        .beitreten(&instanz.adresse, json!({"name": "n129"}), None)
         .await;
     let anderswo = zwei
-        .beitreten(&instanz.adresse, json!({"name": "n65"}), None)
+        .beitreten(&instanz.adresse, json!({"name": "n129"}), None)
         .await;
 
     assert_eq!(zu_viel.status, 429);
@@ -246,12 +248,13 @@ async fn us9_hoechstens_64_sitzungen_je_herkunft() {
     assert_eq!(anderswo.status, 201);
 }
 
+/// R00015 G2: 4 Herkünfte × 128 = 512, die 513. von einer fünften Herkunft 429.
 #[tokio::test]
 async fn hoechstens_512_sitzungen_insgesamt() {
     let instanz = wegwerf_starten();
-    for letzte_stelle in 1..=8 {
+    for letzte_stelle in 1..=4 {
         let absender = Absender::von(&format!("127.0.0.{letzte_stelle}"));
-        for nummer in 1..=64 {
+        for nummer in 1..=128 {
             let name = format!("h{letzte_stelle}-{nummer}");
             let antwort = absender
                 .beitreten(&instanz.adresse, json!({ "name": name }), None)
@@ -260,8 +263,8 @@ async fn hoechstens_512_sitzungen_insgesamt() {
         }
     }
 
-    let ueber = Absender::von("127.0.0.9")
-        .beitreten(&instanz.adresse, json!({"name": "neun"}), None)
+    let ueber = Absender::von("127.0.0.5")
+        .beitreten(&instanz.adresse, json!({"name": "fuenf"}), None)
         .await;
 
     assert_eq!(ueber.status, 429);

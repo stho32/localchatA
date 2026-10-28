@@ -1005,28 +1005,29 @@ mod tests {
         }
     }
 
-    const HERKUNFT_32: Anlegefehler = Anlegefehler::Grenze(Grenze {
+    const HERKUNFT_128: Anlegefehler = Anlegefehler::Grenze(Grenze {
         art: Grenzart::Herkunft,
-        hoechstens: 32,
+        hoechstens: 128,
     });
     const GESAMT_256: Anlegefehler = Anlegefehler::Grenze(Grenze {
         art: Grenzart::Gesamt,
         hoechstens: 256,
     });
 
+    /// R00015 G3 (ändert R00006 von 32 auf 128).
     #[test]
-    fn je_herkunft_gehen_32_die_33_nicht_auch_nach_erneutem_laden() {
+    fn je_herkunft_gehen_128_die_129_nicht_auch_nach_erneutem_laden() {
         let ablage = Arc::new(Speicherablage::neu());
         let uhr = Arc::new(GestellteUhr::neu(zeit("2026-10-28T10:15:00.123+01:00")));
         let gespraeche = Gespraeche::laden(ablage.clone(), uhr.clone()).expect("geladen");
-        viele_anlegen(&gespraeche, "10.0.0.1", 32, "c");
+        viele_anlegen(&gespraeche, "10.0.0.1", 128, "c");
         let geschrieben = ablage.schreibvorgaenge();
 
-        let dreiunddreissigste = gespraeche.channel_anlegen("c32", None, &von("10.0.0.1"));
+        let hundertneunundzwanzigste = gespraeche.channel_anlegen("c128", None, &von("10.0.0.1"));
 
-        assert_eq!(dreiunddreissigste, Err(HERKUNFT_32));
+        assert_eq!(hundertneunundzwanzigste, Err(HERKUNFT_128));
         assert_eq!(ablage.schreibvorgaenge(), geschrieben);
-        assert_eq!(gespraeche.channels().stand, 32);
+        assert_eq!(gespraeche.channels().stand, 128);
         assert!(
             gespraeche
                 .channel_anlegen("d0", None, &von("10.0.0.2"))
@@ -1034,19 +1035,20 @@ mod tests {
         );
         let neu_geladen = Gespraeche::laden(ablage, uhr).expect("neu geladen");
         assert_eq!(
-            neu_geladen.channel_anlegen("c32", None, &von("10.0.0.1")),
-            Err(HERKUNFT_32)
+            neu_geladen.channel_anlegen("c128", None, &von("10.0.0.1")),
+            Err(HERKUNFT_128)
         );
     }
 
+    /// R00015 G3: 2 Herkünfte × 128 = 256.
     #[test]
     fn gesamt_gehen_256_der_257_nicht_ein_vorhandener_name_bleibt_vorhanden() {
         let (gespraeche, _) = leer_im_speicher("2026-10-28T10:15:00.123+01:00");
-        for nummer in 1..=8 {
+        for nummer in 1..=2 {
             viele_anlegen(
                 &gespraeche,
                 &format!("10.0.0.{nummer}"),
-                32,
+                128,
                 &format!("h{nummer}-"),
             );
         }
@@ -1072,16 +1074,8 @@ mod tests {
         let uhr = Arc::new(GestellteUhr::neu(zeit("2026-10-28T10:15:00.123+01:00")));
         let gespraeche = Gespraeche::laden(ablage, uhr).expect("geladen");
 
-        viele_anlegen(&gespraeche, "10.0.0.1", 32, "c");
-        for nummer in 2..=7 {
-            viele_anlegen(
-                &gespraeche,
-                &format!("10.0.0.{nummer}"),
-                32,
-                &format!("h{nummer}-"),
-            );
-        }
-        viele_anlegen(&gespraeche, "10.0.0.8", 22, "h8-");
+        viele_anlegen(&gespraeche, "10.0.0.1", 128, "c");
+        viele_anlegen(&gespraeche, "10.0.0.2", 118, "h2-");
 
         assert_eq!(
             gespraeche.channel_anlegen("zu-viel", None, &von("10.0.0.9")),

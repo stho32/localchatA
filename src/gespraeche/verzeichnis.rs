@@ -57,7 +57,10 @@ pub enum Anlegefehler {
 /// Höchstens so viele Channels insgesamt, einschließlich der beim Start geladenen (ADR-0021 Regel 3).
 pub const GESAMT: usize = 256;
 /// Höchstens so viele Channels, deren `angelegt_von` eine Herkunft trägt — über Neustarts (ADR-0021 Regel 4).
-pub const JE_HERKUNFT: usize = 32;
+/// R00015, Lastprofil „Team-LAN“ (2026-10-28, A00001, ADR-0021 Ergänzung R00015): 50 aktive Channels, im
+/// ungünstigen Fall alle von den Agenten eines Rechners angelegt; 128 mit Reserve, gesamt bleibt 256
+/// (2 Herkünfte × 128).
+pub const JE_HERKUNFT: usize = 128;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Grenzart {
@@ -146,41 +149,41 @@ mod tests {
 
     const HERKUNFT: Grenze = Grenze {
         art: Grenzart::Herkunft,
-        hoechstens: 32,
+        hoechstens: 128,
     };
     const INSGESAMT: Grenze = Grenze {
         art: Grenzart::Gesamt,
         hoechstens: 256,
     };
 
+    /// R00015 G3: der 128. einer Herkunft ist frei, ab 128 vorhandenen gilt die Grenze.
     #[test]
-    fn je_herkunft_ist_der_32_frei_und_ab_32_vorhandenen_die_grenze() {
-        assert_eq!(pruefen(&von("10.0.0.1", 31, "c"), "10.0.0.1"), Ok(()));
+    fn je_herkunft_ist_der_128_frei_und_ab_128_vorhandenen_die_grenze() {
+        assert_eq!(pruefen(&von("10.0.0.1", 127, "c"), "10.0.0.1"), Ok(()));
         assert_eq!(
-            pruefen(&von("10.0.0.1", 32, "c"), "10.0.0.1"),
+            pruefen(&von("10.0.0.1", 128, "c"), "10.0.0.1"),
             Err(HERKUNFT)
         );
-        assert_eq!(pruefen(&von("10.0.0.1", 32, "c"), "10.0.0.2"), Ok(()));
+        assert_eq!(pruefen(&von("10.0.0.1", 128, "c"), "10.0.0.2"), Ok(()));
         assert_eq!(
-            pruefen(&von("::ffff:10.0.0.1", 32, "c"), "10.0.0.1"),
+            pruefen(&von("::ffff:10.0.0.1", 128, "c"), "10.0.0.1"),
             Err(HERKUNFT)
         );
     }
 
+    /// R00015 G3: 2 Herkünfte × 128 = 256 erreichen die Gesamtgrenze.
     #[test]
     fn gesamt_ist_der_256_frei_und_ab_256_vorhandenen_die_grenze_vor_der_herkunft() {
-        let mut channels = Vec::new();
-        for nummer in 1..=7 {
-            channels.extend(von(&format!("10.0.0.{nummer}"), 32, &format!("h{nummer}-")));
-        }
-        channels.extend(von("10.0.0.8", 31, "h8-"));
+        let mut channels = von("10.0.0.1", 128, "h1-");
+        channels.extend(von("10.0.0.2", 127, "h2-"));
         assert_eq!(channels.len(), 255);
         assert_eq!(pruefen(&channels, "10.0.0.9"), Ok(()));
+        assert_eq!(pruefen(&channels, "10.0.0.2"), Ok(()));
 
-        channels.push(channel("h8-31", Some("a@10.0.0.8")));
+        channels.push(channel("h2-127", Some("a@10.0.0.2")));
 
         assert_eq!(pruefen(&channels, "10.0.0.9"), Err(INSGESAMT));
-        assert_eq!(pruefen(&channels, "10.0.0.8"), Err(INSGESAMT));
+        assert_eq!(pruefen(&channels, "10.0.0.2"), Err(INSGESAMT));
     }
 
     #[test]
@@ -189,7 +192,7 @@ mod tests {
             .map(|nummer| channel(&format!("hand{nummer}"), None))
             .collect();
         channels.push(channel("zahl", Some("a@1")));
-        channels.extend(von("10.0.0.1", 31, "c"));
+        channels.extend(von("10.0.0.1", 127, "c"));
 
         assert_eq!(pruefen(&channels, "10.0.0.1"), Ok(()));
         assert_eq!(grenze_pruefen(channels.iter(), None), Ok(()));
