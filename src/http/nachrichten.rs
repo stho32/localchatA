@@ -5,6 +5,7 @@
 use super::Zustand;
 use super::teilnehmer::Teilnehmer;
 use super::teilnehmerliste::zeit_als_text;
+use super::werkbank::Abgebrochen;
 use crate::gespraeche::abfrage::{Abfrage, Abschnitt, Blockgroesse};
 use crate::gespraeche::{Nachricht, Nachrichtenblock, Unbekannt};
 use crate::name::Channelname;
@@ -12,8 +13,10 @@ use crate::uhr::Zeit;
 use axum::Json;
 use axum::extract::{Path, RawQuery, State};
 use axum::http::StatusCode;
+use axum::http::header::CONTENT_TYPE;
 use axum::response::{IntoResponse, Response};
-use serde_json::{Value, json};
+use serde::Serialize;
+use serde_json::json;
 use std::sync::Arc;
 
 /// Höchstens so viele Satzbytes je Verlaufsblock (ADR-0039 Regel 1, R00013) — 256 KiB. Herleitung:
@@ -37,40 +40,68 @@ pub async fn beantworten(
     };
     let gespraeche = Arc::clone(&zustand.gespraeche);
     let gefragt = name.clone();
-    let ergebnis = tokio::task::spawn_blocking(move || {
-        gespraeche
-            .verlauf(&gefragt, &abfrage, VERLAUF_BUDGET)
-            .map(|block| block_als_json(&gefragt, &block))
-    })
-    .await;
+    let ergebnis = zustand
+        .werkbank
+        .ausfuehren(move || {
+            gespraeche
+                .verlauf(&gefragt, &abfrage, VERLAUF_BUDGET)
+                .map(|block| block_als_bytes(&gefragt, &block))
+        })
+        .await;
     match ergebnis {
-        Ok(Ok(antwort)) => Json(antwort).into_response(),
+        Ok(Ok(Ok(bytes))) => ([(CONTENT_TYPE, "application/json")], bytes).into_response(),
         Ok(Err(Unbekannt)) => unbekannt(&name),
-        Err(abgebrochen) => (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({ "fehler": format!("Verlauf nicht gelesen — {abgebrochen}") })),
-        )
-            .into_response(),
+        Ok(Ok(Err(fehler))) => nicht_gelesen(&fehler.to_string()),
+        Err(Abgebrochen(grund)) => nicht_gelesen(&grund),
     }
 }
 
+fn nicht_gelesen(grund: &str) -> Response {
+    (
+        StatusCode::INTERNAL_SERVER_ERROR,
+        Json(json!({ "fehler": format!("Verlauf nicht gelesen — {grund}") })),
+    )
+        .into_response()
+}
+
 /// `{channel, nachrichten, aelter, neuer}`, Nachrichten älteste zuerst (ADR-0025 Regel 3).
-fn block_als_json(channel: &str, block: &Nachrichtenblock) -> Value {
-    let nachrichten: Vec<Value> = block.nachrichten.iter().map(nachricht_als_json).collect();
-    json!({
-        "channel": channel,
-        "nachrichten": nachrichten,
-        "aelter": block.aelter,
-        "neuer": block.neuer,
-    })
+#[derive(Serialize)]
+struct BlockAntwort<'a> {
+    channel: &'a str,
+    nachrichten: Vec<NachrichtAntwort<'a>>,
+    aelter: bool,
+    neuer: bool,
 }
 
 /// `{zeit, von, text}` — die eine Form einer Nachricht an der Grenze (ab I0009 auch im Strom).
-pub fn nachricht_als_json(nachricht: &Nachricht) -> Value {
-    json!({
-        "zeit": zeit_als_text(&nachricht.zeit),
-        "von": nachricht.von.als_text(),
-        "text": nachricht.text,
+#[derive(Serialize)]
+struct NachrichtAntwort<'a> {
+    zeit: String,
+    von: &'a str,
+    text: &'a str,
+}
+
+impl<'a> NachrichtAntwort<'a> {
+    fn aus(nachricht: &'a Nachricht) -> NachrichtAntwort<'a> {
+        NachrichtAntwort {
+            zeit: zeit_als_text(&nachricht.zeit),
+            von: nachricht.von.als_text(),
+            text: &nachricht.text,
+        }
+    }
+}
+
+/// Die fertigen JSON-Bytes eines Blocks — im Blocking-Teil, ohne `Value`-Baum (ADR-0039 Regel 4).
+fn block_als_bytes(channel: &str, block: &Nachrichtenblock) -> serde_json::Result<Vec<u8>> {
+    serde_json::to_vec(&BlockAntwort {
+        channel,
+        nachrichten: block
+            .nachrichten
+            .iter()
+            .map(NachrichtAntwort::aus)
+            .collect(),
+        aelter: block.aelter,
+        neuer: block.neuer,
     })
 }
 
@@ -196,6 +227,57 @@ mod tests {
 
     fn gelesen(query: &str) -> Result<(Abschnitt, usize), Abfragefehler> {
         abfrage_lesen(Some(query)).map(|abfrage| (abfrage.abschnitt, abfrage.n.wert()))
+    }
+
+    /// K7 (ADR-0039 Regel 4): eine Werkbank mit genau 1 Erlaubnis, die der Test hält — der Verlauf antwortet
+    /// nicht innerhalb 1 s; nach der Freigabe kommt 200 innerhalb 1 s (Startpunkt: Freigabe).
+    #[tokio::test]
+    async fn k7_der_verlauf_wartet_auf_eine_erlaubnis_der_werkbank() {
+        use super::super::Werkbank;
+        use super::super::testserver;
+        use crate::anwesenheit::Beitrittswunsch;
+        use crate::gespraeche::Kennung;
+        use std::path::Path;
+        use std::time::{Duration, Instant};
+        let mut zustand = testserver::zustand(Path::new("/tmp/lc-werkbank"));
+        zustand.werkbank = Werkbank::mit(1);
+        let wunsch = Beitrittswunsch::pruefen(&json!({"name": "claude"})).expect("Wunsch");
+        let token = zustand
+            .anwesenheit
+            .beitreten(&wunsch, "127.0.0.1".parse().expect("IP"))
+            .expect("beigetreten")
+            .sitzung
+            .token
+            .als_text()
+            .to_string();
+        let von = Kennung::bilden("claude@127.0.0.1").expect("Kennung");
+        zustand
+            .gespraeche
+            .channel_anlegen("allgemein", None, &von)
+            .expect("angelegt");
+        let gehalten = zustand.werkbank.erwerben().await.expect("Erlaubnis");
+        let basis = testserver::app_starten(super::super::router(zustand)).await;
+        let anfrage = reqwest::Client::new()
+            .get(format!("{basis}api/channels/allgemein/nachrichten"))
+            .header("X-LocalchatA-Sitzung", token)
+            .send();
+        let mut anfrage = std::pin::pin!(anfrage);
+
+        let solange_gehalten = tokio::time::timeout(Duration::from_secs(1), &mut anfrage).await;
+        assert!(
+            solange_gehalten.is_err(),
+            "Antwort trotz gehaltener Erlaubnis"
+        );
+        drop(gehalten);
+        let freigabe = Instant::now();
+        let antwort = tokio::time::timeout(Duration::from_secs(10), anfrage)
+            .await
+            .expect("Antwort nach der Freigabe")
+            .expect("Antwort");
+        let dauer = freigabe.elapsed();
+
+        assert_eq!(antwort.status(), 200);
+        assert!(dauer <= Duration::from_secs(1), "{dauer:?}");
     }
 
     #[test]

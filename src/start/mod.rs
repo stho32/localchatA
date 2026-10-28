@@ -129,6 +129,7 @@ async fn starten(
         herzschlag,
         ende: ende.clone(),
         grenzschutz: Grenzschutz::neu(rechnername::lesen(), auftrag.erreichbar_als),
+        werkbank: http::Werkbank::aus_kernen(),
     });
     ausliefern::ausliefern(
         listener,

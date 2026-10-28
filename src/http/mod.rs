@@ -13,8 +13,10 @@ mod oberflaeche;
 mod teilnehmer;
 mod teilnehmerliste;
 mod verlassen;
+mod werkbank;
 
 pub use grenzschutz::Grenzschutz;
+pub use werkbank::Werkbank;
 
 use crate::anwesenheit::Anwesenheit;
 use crate::gespraeche::Gespraeche;
@@ -40,6 +42,8 @@ pub struct Zustand {
     /// Ende des Programms — jeder Strom hört es und endet selbst.
     pub ende: Ende,
     pub grenzschutz: Grenzschutz,
+    /// Plätze für schwere Arbeit (ADR-0039 Regel 4).
+    pub werkbank: Werkbank,
 }
 
 /// Alle Routen unter der Schicht `grenzschutz` (ADR-0014) — sie ist die äußerste, auch für 404 und 405.
@@ -71,7 +75,7 @@ pub fn router(zustand: Zustand) -> Router {
 
 #[cfg(test)]
 pub(crate) mod testserver {
-    use super::{Grenzschutz, Zustand, router};
+    use super::{Grenzschutz, Werkbank, Zustand, router};
     use crate::anwesenheit::Anwesenheit;
     use crate::gespraeche::{Dateiablage, Gespraeche};
     use crate::start::abrisspflege::{Pflege, pflege_aus};
@@ -114,6 +118,7 @@ pub(crate) mod testserver {
             herzschlag: Duration::from_secs(5),
             ende: Ende::nie(),
             grenzschutz: Grenzschutz::neu(None, Vec::new()),
+            werkbank: Werkbank::aus_kernen(),
         }
     }
 
