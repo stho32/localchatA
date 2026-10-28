@@ -12,7 +12,7 @@ Die Instanz schreibt ihr Betriebsprotokoll als Textdatei je lokalem Tag unter `<
 
 Zahlt ein auf: [Vision](R00000-vision.md) — „Ein Chat, der ein Ordner ist“ (auch das Protokoll ist eine lesbare Datei im Ordner, ohne Werkzeug mit `less` und `grep` lesbar) und „eine gemeinsame LAN-Instanz“ (der Betreiber erfährt, was im Betrieb schiefging). Die Vision nennt das Betriebsprotokoll nicht. Es ist eine Vorgabe des Betreibers (`AI-Team/umgebung.md`, „Logging-Konzept“, 2026-10-28) und widerspricht der Vision nicht.
 
-Entschieden vom architekt: [ADR-0040](../Dokumentation/ADRs/0040-betriebsprotokoll-datei-je-lokalem-tag-unter-logs-eine-zeile-je-eintrag.md) (Ort, Zeile, Escape, Rückfall), [ADR-0041](../Dokumentation/ADRs/0041-betriebsprotokoll-als-eigenes-modul-rotation-beim-schreiben-bereinigung-14-tage.md) (eigenes Modul, Rotation, Bereinigung, Tagestakt), [ADR-0042](../Dokumentation/ADRs/0042-stufen-ereigniskatalog-episoden-und-tagesgrenze-des-betriebsprotokolls.md) (Stufen, Ereigniskatalog, Episoden, Tagesbudget) und [ADR-0043](../Dokumentation/ADRs/0043-protokollstufe-einstellen-und-kennzahlen-im-health-check.md) (Stufe, Kennzahlen). Hinzu kommen die Ergänzungen dieser ADRs aus den Proben des `observability-reviewer` an #21: Körperfehler zentral eingetragen, Art `Abgebrochen`, Episode je Herkunft und Route, `JoinError` ohne Panik, Zähler `abgewiesen`, Testknopf `LOCALCHATA_EPISODE_RUHE_MS`. Baustein ist [A00015](../Dokumentation/Architektur/A00015-betriebsprotokoll.md), das Qualitätsziel Q9 Nachvollziehbarkeit (A00001).
+Entschieden vom architekt: [ADR-0040](../Dokumentation/ADRs/0040-betriebsprotokoll-datei-je-lokalem-tag-unter-logs-eine-zeile-je-eintrag.md) (Ort, Zeile, Escape, Rückfall), [ADR-0041](../Dokumentation/ADRs/0041-betriebsprotokoll-als-eigenes-modul-rotation-beim-schreiben-bereinigung-14-tage.md) (eigenes Modul, Rotation, Bereinigung, Tagestakt), [ADR-0042](../Dokumentation/ADRs/0042-stufen-ereigniskatalog-episoden-und-tagesgrenze-des-betriebsprotokolls.md) (Stufen, Ereigniskatalog, Episoden, Tagesbudget) und [ADR-0043](../Dokumentation/ADRs/0043-protokollstufe-einstellen-und-kennzahlen-im-health-check.md) (Stufe, Kennzahlen). Hinzu kommen die Ergänzungen dieser ADRs aus den Proben des `observability-reviewer` an #21: Körperfehler zentral eingetragen, Art `Abgebrochen`, Episode je Herkunft und Route, `JoinError` ohne Panik, Zähler `abgewiesen`, Testknopf `LOCALCHATA_EPISODE_RUHE_MS`. Den Tagestakt regelt ADR-0041, Ergänzung „Vertrag des Tagestakts“ (mit ADR-0042, Ergänzung „gescheiterte Tages- und Sekundenaufgaben“). Baustein ist [A00015](../Dokumentation/Architektur/A00015-betriebsprotokoll.md), das Qualitätsziel Q9 Nachvollziehbarkeit (A00001).
 
 Slices (WBS `Dokumentation/Planung/localchata.md`, alle unter I0021 Betriebsprotokoll): F0051 Protokoll schreibt, F0052 Bereinigung nach 14 Tagen, F0053 Programmfehler, F0054 Stufe und Kennzahlen, F0055 Grenzen, Episoden und Tagesbudget.
 
@@ -56,7 +56,14 @@ Heute gehen Fehler auf stderr. Dort sind sie verloren, sobald niemand das Termin
 
 - Eine Datei vom Datum D entfällt genau dann, wenn D < heute − 13 ist (heute zählt mit). Am 2026-10-28 bleiben also `2026-10-15.log` bis `2026-10-28.log`.
 - Gelöscht werden nur reguläre Dateien direkt in `logs/`, deren Name genau `JJJJ-MM-TT.log` mit gültigem Datum ist. Die Prüfung läuft mit `symlink_metadata`, der Pfad entsteht aus dem Datum. Unterordner, Symlinks und fremde Dateien bleiben.
-- Anlässe sind der Start (synchron direkt nach dem Öffnen des Protokolls) und jeder Wechsel des lokalen Datums. Den Wechsel erkennt ein Tagestakt, der jede Sekunde nachsieht und den I0018 für die Fristpflege mitnutzt.
+- Anlässe sind der Start (synchron direkt nach dem Öffnen des Protokolls) und jeder Wechsel des lokalen Datums. Den Wechsel erkennt ein Tagestakt, der jede Sekunde nachsieht. I0018 meldet daran die Fristpflege als zweite Tagesaufgabe an, nach der Bereinigung.
+- **Vertrag des Tagestakts** (ADR-0041, Ergänzung):
+  - Er startet **vor** der Startzeile, nach allen Start-Läufen, und endet mit dem Ende-Signal.
+  - Je Tagesaufgabe führt er ein eigenes `zuletzt`. Vorbelegt ist es mit dem Datum, das ihr Start-Lauf bekam (Bereinigung: das Datum der Bereinigung beim Start).
+  - Fällig ist eine Tagesaufgabe, sobald das lokale Datum von ihrem `zuletzt` **abweicht**, also auch, wenn die Uhr zurückgestellt wird. Verglichen wird das Datum, nicht die Uhrzeit.
+  - Je Takt laufen zuerst die Sekundenaufgaben, dann die fälligen Tagesaufgaben in Anmeldereihenfolge, jede für sich über `spawn_blocking` und abgewartet. `zuletzt` wird **vor** dem Aufruf gesetzt.
+  - Gerät eine Tagesaufgabe in Panik, läuft der Takt weiter, und die übrigen Aufgaben dieses Takts laufen auch. Der Takt schreibt `ERROR programmfehler Tagesaufgabe <name> gescheitert — <folge>; erneuter Versuch beim nächsten Tageswechsel | operation=<name> grund=panik`; bei einem Abbruch ohne Panik steht dieselbe Zeile als `EXCEPTION` mit `grund=abgebrochen`. Erneut versucht wird erst beim nächsten Datumswechsel. Folge-Text der Bereinigung: „alte Protokolldateien bleiben bis dahin liegen“.
+  - Gerät eine Sekundenaufgabe in Panik, wird nur sie abgemeldet: `ERROR programmfehler Hintergrundaufgabe <name> beendet — <folge>`, danach wird sie nie wieder aufgerufen. Die Tagesaufgaben laufen weiter.
 - Die Bereinigung schreibt `INFORMATION protokoll <n> Protokolldateien entfallen (<älteste> bis <jüngste>; Aufbewahrung 14 Tage; Start|Tageswechsel)`, aber nur, wenn etwas entfiel. Je gescheiterter Datei kommt `ERROR protokoll Protokolldatei nicht entfallen | datei=… grund=…`. Der nächste Versuch folgt erst beim nächsten Anlass.
 
 ### Programmfehler (F0053; ADR-0042 Regel 4 und Ergänzung 6)
@@ -67,6 +74,7 @@ Heute gehen Fehler auf stderr. Dort sind sie verloren, sobald niemand das Termin
   - Ein `JoinError` ohne Panik (abgebrochen) ergibt 500 und `EXCEPTION programmfehler` mit `grund=abgebrochen`.
   - Die Antwort ist ein deutscher Satz ohne Fremdtext, beim Verlauf „Interner Fehler — Verlauf nicht gelesen; bitte erneut versuchen“. Der englische Text des `JoinError` steht nur im Protokoll (`grund`).
 - **Hintergrundaufgaben** (Anwesenheits-Takt, Tagestakt, Pflege) laufen bewacht. Endet eine vor dem Ende-Signal, kommt `ERROR programmfehler Hintergrundaufgabe <name> beendet — <folge>`, und ihr Name steht in `aufgaben_ausgefallen`.
+- **Tagesaufgaben sind keine beendeten Hintergrundaufgaben** (ADR-0042, Ergänzung „gescheiterte Tages- und Sekundenaufgaben“): eine gescheiterte Tagesaufgabe beendet den Tagestakt nicht und steht nie in `aufgaben_ausgefallen`; sie zählt in `errors` bzw. `exceptions`. `aufgaben_ausgefallen` kann `takt` (Anwesenheit), `tagestakt` (der Takt selbst) und `episoden` (die abgemeldete Sekundenaufgabe aus F0055) enthalten.
 - **Verletzte Annahme ohne Panik**: `exception(bereich, text, kontext)` nimmt denselben Weg.
 - **Testknopf** `LOCALCHATA_TESTPANIK=verlauf|takt` wirkt nur im Debug-Build. Bei `verlauf` gerät der nächste Verlaufsblock einmal in Panik, bei `takt` der Anwesenheits-Takt. Ein anderer Wert ergibt Exit 2. Im Release-Build ist der Knopf wirkungslos.
 
@@ -159,10 +167,12 @@ Gemeinsam für alle Integrationskriterien: Start mit `localchatA <ordner> --port
   - `bereinigen(2026-10-28)` entfernt genau `-13` und `-14`. `-15` (Grenze: 15 ≥ 28 − 13), `-28`, `notizen.txt`, `.gz`, der Symlink, sein Ziel und der Ordner bleiben.
   - Mutanten, die rot werden müssen: Aufbewahrung 13 (`-15` fehlt), Aufbewahrung 15 (`-14` bleibt), `metadata` statt `symlink_metadata` (Symlink oder Ziel fehlt), Pfad aus dem gelesenen Namen statt aus dem Datum.
 - [ ] **Bericht** (Unit): die Bereinigung oben schreibt genau eine Zeile `INFORMATION protokoll 2 Protokolldateien entfallen (2026-10-13 bis 2026-10-14; Aufbewahrung 14 Tage; Start)`. Ohne Entfallendes kommt keine Zeile. Ist eine Datei nicht löschbar (`logs/` ohne Schreibrecht), kommt je Datei eine `ERROR protokoll Protokolldatei nicht entfallen`-Zeile mit `datei=` und `grund=`.
-- [ ] **Tagestakt** (Unit, `tokio::time::pause`, gestellte Uhr):
-  - Um 23:59:59.500 läuft keine Tagesaufgabe; um 00:00:00.000 des Folgetags läuft nach einem Takt genau eine mit dem neuen Datum.
-  - Weitere Takte am selben Tag rufen keine mehr auf.
-  - Zwei angemeldete Aufgaben laufen beide, in Anmeldereihenfolge.
+- [ ] **Tagestakt** (Unit, `tokio::time::pause`, gestellte Uhr, aufzeichnende Aufgaben A und B, Protokoll in eine Speicher-Senke; ADR-0041, Ergänzung, „Erste Tests“). Fünf Teile:
+  - **Grenze**: `zuletzt` beider Aufgaben 2026-10-28. Uhr 2026-10-28T23:59:59.999 und ein Takt → kein Aufruf. Uhr 2026-10-29T00:00:00.000 und ein Takt → je Aufgabe genau ein Aufruf mit 2026-10-29, erst A, dann B. Zehn weitere Takte am 29. → kein Aufruf. Mutanten, die rot werden müssen: „läuft in jedem Takt“, „vergleicht die Uhrzeit statt des Datums“.
+  - **Rückwärts**: danach Uhr 2026-10-28T23:00 und ein Takt → je Aufgabe genau ein Aufruf mit 2026-10-28; weitere Takte → keiner; wieder 2026-10-29T00:00:00.000 → je Aufgabe einer mit 2026-10-29. Mutante „`>` statt `≠`“ → rot.
+  - **Startwert**: A mit `zuletzt` 2026-10-28, B mit `zuletzt` 2026-10-29 (Mitternacht fiel zwischen die Start-Läufe). Uhr 2026-10-29T00:00:00.500 und ein Takt → nur A läuft, mit 2026-10-29. Mutanten „ein gemeinsames `zuletzt` aus der ersten Aufgabe“ (B läuft) und „`zuletzt` = Datum beim Start des Takts“ (A läuft nicht) → je rot.
+  - **Panik**: A gerät bei jedem Aufruf in Panik, B zeichnet auf. Wechsel auf den 29. → B läuft mit 2026-10-29; die Senke enthält genau eine `ERROR programmfehler Tagesaufgabe A gescheitert …`-Zeile mit `operation=A grund=panik`. Zehn weitere Takte am 29. → kein neuer Aufruf von A, keine weitere Zeile. Wechsel auf den 30. → A und B laufen wieder. Mutanten „Takt endet bei Panik“ (der 30. fehlt), „`zuletzt` erst nach Erfolg“ (A je Takt, eine Zeile je Sekunde) und „alle Aufgaben in einem `spawn_blocking`“ (B fehlt am 29.) → je rot.
+  - **Sekundenaufgabe**: eine aufzeichnende Sekundenaufgabe läuft je Takt einmal; sie gerät beim dritten Takt in Panik → genau eine `ERROR programmfehler Hintergrundaufgabe <name> beendet`-Zeile, danach kein Aufruf mehr; ein folgender Tageswechsel ruft A und B weiter. Mutante „Sekundenaufgabe bleibt angemeldet“ (eine Zeile je Sekunde) → rot.
 - [ ] **Tageswechsel im echten Programm** (Integration).
   - **Zweck**: der Tagestakt ist im laufenden Programm verdrahtet, Bereinigung und Rotation greifen ohne Neustart.
   - **Gegeben**: vor dem Start liegen `logs/2026-10-14.log` und `logs/2026-10-15.log`; Start mit `LOCALCHATA_JETZT=2026-10-28T23:59:58+01:00`.
@@ -187,6 +197,7 @@ Gemeinsam für alle Integrationskriterien: Start mit `localchatA <ordner> --port
   - genau eine `EXCEPTION programmfehler`-Zeile und genau eine `ERROR programmfehler Hintergrundaufgabe takt beendet — …`-Zeile;
   - `/api/gesundheit` ergibt 200 mit `aufgaben_ausgefallen: ["takt"]`.
   - Geprüft wird durch Abfrage alle 100 ms. Erwartet sind ≤ 1 s nach der Startzeile (ein Takt), die Grenze ist 2 s.
+- [ ] **Ausgefallene Aufgaben** (Unit am Tagestakt aus F0052, Speicher-Senke wie dort; gebaut mit dem späteren der beiden Slices F0052 und F0053): nach dem Teil „Panik“ steht A **nicht** in der Liste der ausgefallenen Aufgaben; nach dem Teil „Sekundenaufgabe“ steht deren Name genau einmal darin. Mutante „Tagesaufgabe als ausgefallen melden“ → rot. (Ab F0055 heißt die Sekundenaufgabe `episoden`.)
 - [ ] **Abgebrochen ohne Panik** (Unit der Hilfsfunktion): ein abgebrochener `JoinHandle` (Task mit `abort()`), Route `GET /api/channels` und Operation `channels` ergeben:
   - 500 mit einem deutschen `fehler` ohne Fremdtext;
   - genau eine `EXCEPTION programmfehler`-Zeile mit `grund=abgebrochen`, `route=`, `operation=channels`; der englische Text steht nur in einem weiteren Wert, nie in der Antwort;
@@ -266,7 +277,7 @@ Gemeinsam für alle Integrationskriterien: Start mit `localchatA <ordner> --port
 
 ### Ablauf
 
-1. **Start**: Aufruf lesen (inkl. Stufe) → Ordner → Sperre → `Protokoll::oeffnen` (Rückfall möglich) → Panik-Haken setzen → `bereinigen(heute, Start)` → Laden (Defekte als Einträge) → Binden → Startzeile → `INFORMATION start` → Tagestakt (bewacht) mit `bereinigen` und Sekundenaufgabe `episoden_schliessen`.
+1. **Start**: Aufruf lesen (inkl. Stufe) → Ordner → Sperre → `Protokoll::oeffnen` (Rückfall möglich) → Panik-Haken setzen → `bereinigen(heute, Start)` (Datum b) → Laden (Defekte als Einträge) → (I0018: Fristpflege beim Start, Datum p) → Binden → Ende-Signal → Anwesenheits-Takt und Tagestakt (beide bewacht; Tagesaufgaben `bereinigen` mit `zuletzt = b`, ab I0018 `fristpflege` mit `zuletzt = p`; Sekundenaufgabe `episoden_schliessen`) → Startzeile → `INFORMATION start`. Der Tagestakt startet vor der Startzeile (ADR-0041, Ergänzung (b)); fällt ein Tageswechsel in die Millisekunden davor, stehen seine Einträge vor `INFORMATION start`.
 2. **Eintrag**: Stufe < Mindeststufe → nur zählen; sonst Budget prüfen → Zeile bilden (Escape) → Datei des lokalen Datums → `write_all` → ab Warning stderr; Fehler → Rückfall.
 3. **Abweisung**: Grenze trifft → `episode(art, quelle, …)` → beginnt/zählt; Debug-Zeile je Einzelfall.
 4. **Ende**: Signal → `INFORMATION ende` → Ende-Frist → `INFORMATION ende` „beendet“.
@@ -294,7 +305,7 @@ Elemente nach A00015 (Signaturen dort): `Protokoll` (Integration über Datei und
 
 Nach Skill `test-pyramide`.
 
-- **Unit (rein)**: Formatierer und Escape, Tagesdatei mit gestellter Uhr, Entfällt-Regel, Bereinigung im Wegwerf-Ordner, Tagestakt mit `tokio::time::pause`, Episoden, Budget, Aufruf der Stufe, Hilfsfunktion `JoinError`, Panik bei gehaltener Sperre.
+- **Unit (rein)**: Formatierer und Escape, Tagesdatei mit gestellter Uhr, Entfällt-Regel, Bereinigung im Wegwerf-Ordner, Tagestakt mit `tokio::time::pause` (Grenze, Rückwärts, Startwert, Panik, Sekundenaufgabe, ausgefallene Aufgaben), Episoden, Budget, Aufruf der Stufe, Hilfsfunktion `JoinError`, Panik bei gehaltener Sperre.
 - **Integration (echtes Programm)**: Start, Ende, Ladedefekte, stderr-Form, keine Tokens, Rückfall, Tageswechsel, Exception und Wache über `LOCALCHATA_TESTPANIK`, Stufe über Option und Umgebung, Health-Check, abgewiesene Körper, Gegenprobe 200 × 5 KB, Verbindungsgrenze, Grenzschutz.
 - **E2E**: keine (keine Oberfläche). Die bestehenden Playwright-Tests bleiben grün; sie dürfen keine neue Konsolenzeile zeigen.
 - Mutationsproben je Kriterium oben; das Ergebnis steht im Bericht des Entwicklers (Lehre „Mutationsprobe für Wächter“).
@@ -313,6 +324,7 @@ Nach Skill `test-pyramide`.
   - (3) Die Dauer einer Episode reicht vom ersten bis zum letzten Auftreten, auf ganze Sekunden aufgerundet.
   - (4) Im Rückfall legt der nächste Eintrag `logs/` neu an.
 - An den Director, nicht blockierend: R00008 (I0018) sagt INFORMATION-Zeilen auf stderr zu, etwa „Frist 7 → 30 Tage, gesetzt von …“. Das widerspricht ADR-0040 Regel 6; Empfehlung ist ein Anbindungs-Feature in I0018 wie F0057, vor dem Bau von I0018.
+- Geklärt 2026-10-28 (ADR-0041, Ergänzung „Vertrag des Tagestakts“): der Tagestakt startet vor der Startzeile, führt `zuletzt` je Tagesaufgabe, vergleicht auf Ungleichheit und läuft nach der Panik einer Tagesaufgabe weiter; die Fristpflege aus I0018 ist seine zweite Tagesaufgabe, kein eigener Takt (WBS, „Offene Fragen“, Punkt geschlossen).
 - Nicht blockierend: die Budgets (64/32/32 MiB) sind gerechnet, nicht gemessen. Der Messwert unter Last nach Profil (ADR-0042, Aufgaben) ist kein Teil dieser Anforderung.
 
 ## Manuelle Vorbereitungstätigkeiten
