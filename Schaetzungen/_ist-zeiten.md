@@ -271,3 +271,37 @@ Nie vom User erfragen.
 | 2026-10-28 | R00008/R00017 Aufbewahrungsfrist | B0198 Verkürzen bestätigen im Dialog | Standard | 2-4h | 0,01h | 0,01h | autonom |
 | 2026-10-28 | R00008/R00017 Aufbewahrungsfrist | B0192 Wechsel-Flut messen | Standard | 0,4h | 0,02h | 0,02h | autonom |
 | 2026-10-28 | R00008/R00017 Aufbewahrungsfrist | Mutanten, Zeittests, Gate, Messung M3, Gelerntes | Konsolidierung | — | 0,20h | 0,20h | autonom |
+| 2026-10-28 | R00011/R00016 Nachricht senden | B0206 Textregel prüfen | Standard | 0,4h | 0,28h | 0,28h | autonom |
+| 2026-10-28 | R00011/R00016 Nachricht senden | B0207 Sendekörper lesen | Standard | 0,4h | 0,01h | 0,01h | autonom |
+| 2026-10-28 | R00011/R00016 Nachricht senden | B0208 Art als Metazeile | Standard | 0,4h | 0,02h | 0,02h | autonom |
+| 2026-10-28 | R00011/R00016 Nachricht senden | B0209 Nachricht mit Art senden und lesen | Standard | 0,4h | 0,02h | 0,02h | autonom |
+| 2026-10-28 | R00011/R00016 Nachricht senden | B0210 Nachricht als JSON mit Art | Standard | 0,4h | 0,08h | 0,08h | autonom |
+| 2026-10-28 | R00011/R00016 Nachricht senden | B0211 Großen Körper außerhalb des Workers lesen | Standard | 2-4h | 0,03h | 0,03h | autonom |
+| 2026-10-28 | R00011/R00016 Nachricht senden | B0212 Senden beantworten | Standard | 0,4h | 0,00h | 0,00h | autonom |
+| 2026-10-28 | R00011/R00016 Nachricht senden | B0213 Eine Schreibsperre über alle Gespräche | Standard | 2-4h | 0,02h | 0,02h | autonom |
+| 2026-10-28 | R00011/R00016 Nachricht senden | B0214 Nachricht veröffentlichen | Standard | 0,4h | 0,03h | 0,03h | autonom |
+| 2026-10-28 | R00011/R00016 Nachricht senden | B0215 Vorlauf bestimmen | Standard | 0,4h | 0,01h | 0,01h | autonom |
+| 2026-10-28 | R00011/R00016 Nachricht senden | B0216 Vorlauf melden | Standard | 0,4h | 0,06h | 0,06h | autonom |
+| 2026-10-28 | R00011/R00016 Nachricht senden | B0230 Eimer und Kosten | Standard | 0,4h | 0,02h | 0,02h | autonom |
+| 2026-10-28 | R00011/R00016 Nachricht senden | B0231 Abbuchen über beide Eimer | Standard | 0,4h | 0,02h | 0,02h | autonom |
+| 2026-10-28 | R00011/R00016 Nachricht senden | B0232 Volle Eimer entfernen | Standard | 0,4h | 0,01h | 0,01h | autonom |
+| 2026-10-28 | R00011/R00016 Nachricht senden | B0234 Gebremst beantworten | Standard | 0,4h | 0,01h | 0,01h | autonom |
+| 2026-10-28 | R00011/R00016 Nachricht senden | B0233 Senden bucht in zwei Schritten | Standard | 0,4h | 0,03h | 0,03h | autonom |
+| 2026-10-28 | R00011/R00016 Nachricht senden | B0235 Bremsen sichtbar | Standard | 0,4h | 0,03h | 0,03h | autonom |
+| 2026-10-28 | R00011/R00016 Nachricht senden | B0286 Senden-Meldungen als Episode | Standard | 0,4h | 0,01h | 0,01h | autonom |
+| 2026-10-28 | R00011/R00016 Nachricht senden | B0287 Bremse im Betrieb messen | Standard | 0,4h | 0,01h | 0,01h | autonom |
+| 2026-10-28 | R00011/R00016 Nachricht senden | B0236 Flut mit Sitzung messen | Standard | 0,4h | 0,01h | 0,01h | autonom |
+| 2026-10-28 | R00011/R00016 Nachricht senden | B0217 Taste auswerten | Standard | 0,4h | 0,03h | 0,03h | autonom |
+| 2026-10-28 | R00011/R00016 Nachricht senden | B0218 Zustellung im Tab | Standard | 2-4h | 0,02h | 0,02h | autonom |
+| 2026-10-28 | R00011/R00016 Nachricht senden | B0219 Nachricht senden abrufen | Standard | 0,4h | 0,01h | 0,01h | autonom |
+| 2026-10-28 | R00011/R00016 Nachricht senden | B0223 Einordnen über die Zeit | Standard | 0,4h | 0,01h | 0,01h | autonom |
+| 2026-10-28 | R00011/R00016 Nachricht senden | B0224 Je Frame bündeln | Standard | 0,4h | 0,01h | 0,01h | autonom |
+| 2026-10-28 | R00011/R00016 Nachricht senden | B0225 Folgen oder zählen | Standard | 0,4h | 0,00h | 0,00h | autonom |
+| 2026-10-28 | R00011/R00016 Nachricht senden | B0227 Absender-Art zeichnen | Standard | 0,4h | 0,12h | 0,12h | autonom |
+| 2026-10-28 | R00011/R00016 Nachricht senden | B0220 Eingabe zeichnen | Standard | 2-4h | 0,01h | 0,01h | autonom |
+| 2026-10-28 | R00011/R00016 Nachricht senden | B0221 Vorläufige und fehlgeschlagene zeichnen | Standard | 0,4h | 0,01h | 0,01h | autonom |
+| 2026-10-28 | R00011/R00016 Nachricht senden | B0222 Senden verdrahten | Standard | 2-4h | 0,01h | 0,01h | autonom |
+| 2026-10-28 | R00011/R00016 Nachricht senden | B0226 Pille „n neue Nachrichten“ | Standard | 2-4h | 0,01h | 0,01h | autonom |
+| 2026-10-28 | R00011/R00016 Nachricht senden | B0228 Live-Nachrichten verdrahten | Standard | 2-4h | 0,01h | 0,01h | autonom |
+| 2026-10-28 | R00011/R00016 Nachricht senden | B0229 Ausbruch messen | Standard | 0,4h | 0,01h | 0,01h | autonom |
+| 2026-10-28 | R00011/R00016 Nachricht senden | Mutanten, Zeittests, Gate, Gelerntes, Nachträge | Konsolidierung | — | 0,33h | 0,33h | autonom |
