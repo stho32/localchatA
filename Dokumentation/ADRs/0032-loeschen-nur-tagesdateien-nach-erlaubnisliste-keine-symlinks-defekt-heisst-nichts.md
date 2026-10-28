@@ -79,3 +79,4 @@ Regeln:
 ## Ergänzungen
 
 - **2026-10-28 (Vorlauf „Betriebsprotokoll“) — stderr wird Betriebsprotokoll:** Regeln 6 und 8 „Zeile auf stderr“: `ERROR frist` je Datei bzw. `INFORMATION frist` je Pflege ([ADR-0042](0042-stufen-ereigniskatalog-episoden-und-tagesgrenze-des-betriebsprotokolls.md) Regeln 2 und 3; Format [ADR-0040](0040-betriebsprotokoll-datei-je-lokalem-tag-unter-logs-eine-zeile-je-eintrag.md), stderr spiegelt ab Warning). Die übrigen Regeln dieser ADR gelten unverändert.
+- **2026-10-28 (I0018 im Betriebsprotokoll):** Die Meldung aus Regel 5 („nichts entfällt — Einstellungen defekt“) ist `WARNING frist` mit `channel`, `datei`, `zeile` und erscheint damit auch auf stderr; Regel 8 folgt der Abbildung in [ADR-0030](0030-entfallen-beim-start-beim-tageswechsel-und-beim-verkuerzen-loeschen-unter-der-gespraechssperre.md), Ergänzung „wie I0018 an das Betriebsprotokoll anbindet“ (gelingendes Entfallen nur in der Datei).
