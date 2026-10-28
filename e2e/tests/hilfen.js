@@ -97,10 +97,12 @@ const VORGESCHRIEBENE_ANTWORTEN = { '/api/ich': [401], '/api/beitreten': [409, 4
 /// Verbindung zur API.
 /// Mit `streng` gilt keine Ausnahme: jede Konsolenzeile auf Stufe error zählt (AK F0013 „ohne einen einzigen
 /// Konsolenfehler“, auch nach einem Neustart).
-function fehlerSammeln(page, { serverWegErwartet = false, streng = false } = {}) {
+/// `zusaetzlich` nimmt für einen Test weitere vorgeschriebene Antworten auf, etwa `{ '/api/channels': [409, 422] }`
+/// (R00006: nur in den Szenarien, deren Kriterium sie nennt).
+function fehlerSammeln(page, { serverWegErwartet = false, streng = false, zusaetzlich = {} } = {}) {
   const fehler = [];
   page.on('console', (meldung) => {
-    if (meldung.type() !== 'error' || (!streng && vorgeschrieben(meldung, serverWegErwartet))) {
+    if (meldung.type() !== 'error' || (!streng && vorgeschrieben(meldung, serverWegErwartet, zusaetzlich))) {
       return;
     }
     fehler.push('Konsole: ' + meldung.text() + ' (' + meldung.location().url + ')');
@@ -109,7 +111,7 @@ function fehlerSammeln(page, { serverWegErwartet = false, streng = false } = {})
   return fehler;
 }
 
-function vorgeschrieben(meldung, serverWegErwartet) {
+function vorgeschrieben(meldung, serverWegErwartet, zusaetzlich) {
   const text = meldung.text();
   if (!text.startsWith('Failed to load resource: ')) {
     return false;
@@ -117,7 +119,7 @@ function vorgeschrieben(meldung, serverWegErwartet) {
   const pfad = new URL(meldung.location().url).pathname;
   const status = /status of (\d{3})/.exec(text);
   if (status !== null) {
-    const erlaubt = VORGESCHRIEBENE_ANTWORTEN[pfad] || [];
+    const erlaubt = [...(VORGESCHRIEBENE_ANTWORTEN[pfad] || []), ...(zusaetzlich[pfad] || [])];
     return erlaubt.includes(Number(status[1]));
   }
   return serverWegErwartet && pfad.startsWith('/api/') && text.includes('net::ERR_CONNECTION_REFUSED');
@@ -135,6 +137,27 @@ function beitretenPerApi(adresse, name, herkunft = '127.0.0.1') {
       let text = '';
       antwort.on('data', (teil) => { text += teil; });
       antwort.on('end', () => fertig({ status: antwort.statusCode, daten: JSON.parse(text) }));
+    });
+    anfrage.once('error', gescheitert);
+    anfrage.end(koerper);
+  });
+}
+
+/// Legt per API einen Channel an — von einer wählbaren Absenderadresse; liefert Status, JSON und `empfangen`, den
+/// Augenblick, in dem die Antwort im Testprozess vollständig angekommen ist (Start der Zeitgrenzen in R00006).
+function channelAnlegenPerApi(adresse, token, name, herkunft = '127.0.0.1') {
+  const koerper = JSON.stringify({ name });
+  const ziel = new URL('api/channels', adresse);
+  return new Promise((fertig, gescheitert) => {
+    const anfrage = http.request({
+      host: ziel.hostname, port: ziel.port, path: ziel.pathname, method: 'POST', localAddress: herkunft,
+      headers: {
+        'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(koerper), 'X-LocalchatA-Sitzung': token,
+      },
+    }, (antwort) => {
+      let text = '';
+      antwort.on('data', (teil) => { text += teil; });
+      antwort.on('end', () => fertig({ status: antwort.statusCode, daten: JSON.parse(text), empfangen: Date.now() }));
     });
     anfrage.once('error', gescheitert);
     anfrage.end(koerper);
@@ -230,6 +253,6 @@ function zeigtNichtMehrOnline({ kennung }) {
 }
 
 module.exports = {
-  instanzStarten, freierPort, lanAdresse, fehlerSammeln, beitretenPerApi, fokusImBrowser, stromOeffnen, sichtbarNach,
+  instanzStarten, freierPort, lanAdresse, fehlerSammeln, beitretenPerApi, channelAnlegenPerApi, fokusImBrowser, stromOeffnen, sichtbarNach,
   sichtbarMitWertNach, zeigtNichtMehrOnline, NICHT_MEHR_ONLINE,
 };

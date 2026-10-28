@@ -1,8 +1,10 @@
-// Hauptansicht (Designsystem: Bildschirm 4.2, Baustein Hauptansicht): Kopfzeile, Mitte und rechts die Region
-// „Teilnehmer“. Tab-Reihenfolge: Kopfzeile → Mitte → Teilnehmer. Der Hinweis auf eine unterbrochene
+// Hauptansicht (Designsystem: Bildschirm 4.2, Baustein Hauptansicht): Kopfzeile, links die Seitenleiste
+// „Channels“, Mitte und rechts die Region „Teilnehmer“. Tab-Reihenfolge: Kopfzeile → Seitenleiste → Mitte →
+// Teilnehmer (ADR-0024 Regel 1). Der Hinweis auf eine unterbrochene
 // Verbindung steht in Fehlergestalt (⚠ und Wort, kd-danger) unter der Kopfzeile über die ganze Breite. `Strg .` und der Schalter
 // „Teilnehmer“ blenden die Liste ein und aus (1-tastatur.md).
 import * as kopfzeile from './kopfzeile.js';
+import * as seitenleiste from './seitenleiste.js';
 import { onlineBenennen } from './teilnehmerliste.js';
 
 const UNTERBROCHEN = '⚠ Verbindung unterbrochen — localchatA verbindet neu.';
@@ -22,14 +24,18 @@ export function zeichnen(wurzel, teilnehmer, optionen) {
   const zeilen = element('div', { className: 'lc-members-zeilen' });
   const region = element('aside', { id: 'lc-teilnehmer', className: 'lc-members', tabIndex: 0 }, [standUnbekannt, zeilen]);
   region.setAttribute('aria-label', 'Teilnehmer');
+  const channels = seitenleiste.anlegen();
   const mitte = element('main', { className: 'lc-center' });
-  const haupt = element('div', { className: 'lc-main' }, [mitte, region]);
+  const haupt = element('div', { className: 'lc-main' }, [channels.nav, mitte, region]);
   wurzel.classList.add('lc-app');
   wurzel.append(hinweis, haupt);
   einAusblendenBedienen({ schalter, region, haupt }, vorigeAnsichtAbmelden.signal);
   let letzterZustand = 'verbunden';
+  channels.channelsZeigen([]);
   return {
     region: zeilen,
+    channelsZeigen: channels.channelsZeigen,
+    channelAnlegenSchalter: channels.plus,
     anzahlZeigen: (wieViele) => {
       anzahl.textContent = String(wieViele);
     },

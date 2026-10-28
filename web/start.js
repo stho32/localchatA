@@ -5,6 +5,7 @@ import * as sitzung from './sitzung.js';
 import * as beitretenBildschirm from './beitreten.js';
 import * as hauptansicht from './hauptansicht.js';
 import * as teilnehmerliste from './teilnehmerliste.js';
+import { LEER as KEINE_CHANNELS, channelsZusammenfuehren } from './channels.js';
 import { verbinden } from './live.js';
 import { sekundentaktAnlegen } from './sekundentakt.js';
 
@@ -32,6 +33,7 @@ function zeigen(zustand, nachEingabe = false) {
   });
 }
 
+// Die Channels der Seitenleiste folgen demselben Strom (Stand und Wechsel nach `stand`, ADR-0023 Regel 6).
 // Die Liste folgt dem Strom — im SharedWorker für alle Tabs, sonst im Tab: Stand und Wechsel werden nach
 // `stand` zusammengeführt, geordnet und mit dem Versatz zur Serverzeit gezeichnet, Zeilen „gleich weg“ zählt der
 // Sekundentakt herunter; der Herzschlag erneuert nur den Versatz. Lehnt der Strom das Token ab (Neustart, Gnadenfrist), tritt der zuständige Tab still wieder bei
@@ -39,6 +41,7 @@ function zeigen(zustand, nachEingabe = false) {
 function hauptansichtZeigen(teilnehmer, nachEingabe) {
   const ansicht = hauptansicht.zeichnen(wurzel, teilnehmer, { kennungFokussieren: nachEingabe });
   let liste = teilnehmerliste.LEER;
+  let channels = KEINE_CHANNELS;
   let versatz = 0;
   stromBeenden();
   laufenderStrom = verbinden({
@@ -47,6 +50,11 @@ function hauptansichtZeigen(teilnehmer, nachEingabe) {
     beiEreignis: (ereignis, neuerVersatz) => {
       versatz = neuerVersatz;
       if (ereignis.art === 'herzschlag') {
+        return;
+      }
+      if (ereignis.art === 'channels' || ereignis.art === 'channel') {
+        channels = channelsZusammenfuehren(channels, ereignis);
+        ansicht.channelsZeigen(channels.channels);
         return;
       }
       liste = teilnehmerliste.zusammenfuehren(liste, ereignis);
