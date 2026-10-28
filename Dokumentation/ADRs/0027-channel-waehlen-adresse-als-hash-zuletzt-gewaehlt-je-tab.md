@@ -76,3 +76,7 @@ Regeln:
 - ADR-0015, ADR-0020, ADR-0022 (Regel 5), ADR-0023, ADR-0024 (Regeln 1, 2, 8), ADR-0026
 - Designsystem `components/Seitenleiste/README.md`, `components/Kopfzeile/README.md` (und `preview.html`, `lc-head-desc`), `components/Hauptansicht/README.md`, `1-tastatur.md`, `3-offene-fragen.md` (Frage 10)
 - kanbanD `web/app.js` (Hash-Adressen, `sessionStorage`), Quelle Q04, gelesen 2026-10-28
+
+## Ergänzungen
+
+- **2026-10-28 (Karte #8 I0009):** Regel 7 wird um die Eingabe ergänzt: Kopfzeile → Seitenleiste → Verlauf → **Eingabe** → Teilnehmerliste ([ADR-0038](0038-eingabe-mehrzeilig-enter-sendet-entwurf-je-channel-gebuendelte-ansage.md) Regel 8, Designsystem `Hauptansicht`). Regel 4 (Fokus bleibt beim Wechsel) gilt auch im Feld: es zeigt dann den Entwurf des neuen Channels.

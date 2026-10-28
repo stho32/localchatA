@@ -5,7 +5,7 @@ art: Aspekt
 geltung: Makro
 befund: Ungeklaert
 hausantwort:
-betrifft: [A00004, A00006, A00007]
+betrifft: [A00004, A00006, A00007, A00005, A00014]
 herkunft: dialog
 quellen:
   - src/fehler.rs
@@ -30,3 +30,4 @@ Geplant: Fachbausteine liefern `Result<_, Fehler>`; ein `enum Fehler` (ungültig
 Entworfen am 2026-10-27.
 
 - **Ergänzung 2026-10-27 (Karte #2, I0002):** Schreibfehler beim Anhängen: zusätzlich zu „Index und Live unberührt“ wird die Datei auf die Länge vor dem Schreiben zurückgebaut; scheitert der Rückbau, steht eine Zeile auf stderr, und der nächste Satz beginnt nach einem `\n` ([ADR-0011](../../ADRs/0011-anhaengen-mit-rueckbau-und-zeilenende-waechter.md)).
+- **Ergänzung 2026-10-28 (Karte #8, I0009):** (1) 429 mit `Retry-After` und `{fehler, grenze, wieder_in_ms}` ist die Antwort auf „gerade zu viel“ — nicht verarbeitet, später erneut erlaubt ([ADR-0036](../../ADRs/0036-schreibkonto-token-eimer-je-kennung-und-je-herkunft.md)). (2) Wiederholung mit demselben `Idempotency-Key` ist gefahrlos: 200 mit der ursprünglichen Nachricht ([ADR-0034](../../ADRs/0034-nachricht-senden-post-nachrichten-text-hoechstens-16-kib-steuerzeichen-abweisen-wiederholschluessel.md)). (3) Im Browser steht ein Fehlschlag an der Nachricht (⚠, Grund, „Erneut senden“, „Verwerfen“), nie als Dialog; bei getrenntem Strom wird gepuffert statt gemeldet ([ADR-0037](../../ADRs/0037-zustellung-im-tab-vorlaeufig-bestaetigt-zeichnen-je-frame.md)).
