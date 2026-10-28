@@ -103,3 +103,4 @@ Eine Zeile je Auftrag an eine Rolle und je Retrospektive.
 | 2026-10-28 | — | Lastprofil | Betreiber | — | — | „Team-LAN“: 20 Menschen + 50 Agenten, Spitze 30 Nachrichten/s, dauerhaft 5/s, 100.000 je Channel, 50 Channels; Zustellung < 1 s, Öffnen < 500 ms, Suche < 1 s |
 | 2026-10-28 | #21 Befund | Entwicklung → Auto-Reviews | entwickler | bestanden | 0:30 | B0204, B0205 grün; Reviews code, security, rechtschreib, observability (erster Einsatz) parallel; UX entfällt |
 | 2026-10-28 | #7 | Nacharbeit 2 | entwickler | läuft | — | nur Muss „1 Zeile“ aus dem Rechtschreib-Review |
+| 2026-10-28 | — | Architektur Betriebsprotokoll | architekt | bestanden | 0:15 | ADR-0040–0043, A00015, eigenes Modul (tracing-appender per Probe verworfen), Abgleich Lastprofil: 3 Grenzen zu niedrig; Detailplanung läuft |
