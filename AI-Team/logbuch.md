@@ -72,3 +72,4 @@ Eine Zeile je Auftrag an eine Rolle und je Retrospektive.
 | 2026-10-28 | #5 I0006 | Code-Review (Nacharbeit 2) | code-reviewer | bestanden | 0:10 | B1′ geschlossen (2022cc0) |
 | 2026-10-28 | #5 I0006 | Abnahme | director | Zug | — | kein Remote; Demo aktualisiert; wartet auf Betreiber (Messwert US-3/US-4) |
 | 2026-10-28 | #5 I0006 | Retrospektive | director | — | — | etwa 4 h, zwei kleine Nacharbeiten statt dreier großer: Regel „nur Muss“ und Zeitregeln aus #4 trugen (keine wackligen Zeittests). Neue Klasse: Tests, die nur eine Grenze prüfen (Obergrenze ohne Untergrenze) → Lehre: Wertprüfungen gegen eine Konfiguration immer als Spanne, mit Mutanten „zu groß“ und „zu klein“ |
+| 2026-10-28 | #6 I0007 | Architektur | architekt | bestanden | 0:35 | ADR-0020–0024, A00012/A00013 (b4926fd) |
