@@ -32,7 +32,7 @@ test('bestaetigungText: Zahlen deutsch, Datum ausgeschrieben, Singular bei 1', (
   );
   assert.equal(
     bestaetigungText(1, { tage: 1, nachrichten: 1, bis: '2026-10-27' }),
-    'Bei 1 Tag entfallen sofort 1 Tag bis einschließlich 27. Oktober 2026 mit 1 Nachricht. Das lässt sich nicht rückgängig machen.',
+    'Bei 1 Tag entfällt sofort 1 Tag bis einschließlich 27. Oktober 2026 mit 1 Nachricht. Das lässt sich nicht rückgängig machen.',
   );
   assert.equal(
     bestaetigungText(7, { tage: 2, nachrichten: 5, bis: '2026-10-21' }),
@@ -41,6 +41,26 @@ test('bestaetigungText: Zahlen deutsch, Datum ausgeschrieben, Singular bei 1', (
   assert.equal(
     bestaetigungText(30, { tage: 2, nachrichten: 0, bis: '2026-01-05' }),
     'Bei 30 Tagen entfallen sofort 2 Tage bis einschließlich 5. Januar 2026 mit 0 Nachrichten. Das lässt sich nicht rückgängig machen.',
+  );
+});
+
+// Abnahme-Probe Rechtschreib-Review #12, Muss 1 (wörtlich): das Verb folgt der Zahl der entfallenden Tage, nie der Frist.
+test('bestaetigungText: „entfällt“ bei genau 1 entfallenden Tag, „entfallen“ ab 2 — gleich, wie lang die Frist ist', () => {
+  assert.equal(
+    bestaetigungText(7, { tage: 1, nachrichten: 1, bis: '2026-10-21' }),
+    'Bei 7 Tagen entfällt sofort 1 Tag bis einschließlich 21. Oktober 2026 mit 1 Nachricht. Das lässt sich nicht rückgängig machen.',
+  );
+  assert.equal(
+    bestaetigungText(1, { tage: 1, nachrichten: 3, bis: '2026-10-27' }),
+    'Bei 1 Tag entfällt sofort 1 Tag bis einschließlich 27. Oktober 2026 mit 3 Nachrichten. Das lässt sich nicht rückgängig machen.',
+  );
+  assert.equal(
+    bestaetigungText(1, { tage: 2, nachrichten: 1, bis: '2026-10-27' }),
+    'Bei 1 Tag entfallen sofort 2 Tage bis einschließlich 27. Oktober 2026 mit 1 Nachricht. Das lässt sich nicht rückgängig machen.',
+  );
+  assert.equal(
+    bestaetigungText(7, { tage: 2, nachrichten: 4, bis: '2026-10-21' }),
+    'Bei 7 Tagen entfallen sofort 2 Tage bis einschließlich 21. Oktober 2026 mit 4 Nachrichten. Das lässt sich nicht rückgängig machen.',
   );
 });
 

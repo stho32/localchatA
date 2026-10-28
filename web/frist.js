@@ -27,8 +27,16 @@ export function bestaetigungText(tage, entfaellt) {
   if (tage === 1) {
     beiFrist = '1 Tag';
   }
-  return `Bei ${beiFrist} entfallen sofort ${tageText(entfaellt.tage)} bis einschließlich ${datumAusgeschrieben(entfaellt.bis)} `
+  return `Bei ${beiFrist} ${entfallenGebeugt(entfaellt.tage)} sofort ${tageText(entfaellt.tage)} bis einschließlich ${datumAusgeschrieben(entfaellt.bis)} `
     + `mit ${nachrichtenText(entfaellt.nachrichten)}. Das lässt sich nicht rückgängig machen.`;
+}
+
+// Das Verb richtet sich nach der Zahl der entfallenden Tage, nie nach der Frist.
+function entfallenGebeugt(anzahl) {
+  if (anzahl === 1) {
+    return 'entfällt';
+  }
+  return 'entfallen';
 }
 
 // Statuszeile nach dem Speichern; entfallen { tage, nachrichten } aus der 200.
