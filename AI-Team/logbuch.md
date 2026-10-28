@@ -97,3 +97,4 @@ Eine Zeile je Auftrag an eine Rolle und je Retrospektive.
 | 2026-10-28 | #7 I0008 | Nacharbeit 1 | entwickler | bestanden | 0:15 | L3 per Sprung, Neuwahl nach Fehler (d2d084c…baaf284); in Auto-Reviews |
 | 2026-10-28 | #20 Befund | Auto-Reviews | code-, ux-reviewer | bestanden | 0:10 | Sollte → #18; weiter Entwicklertest |
 | 2026-10-28 | #23 Befund | Architektur | architekt | bestanden | 0:16 | ADR-0039 Byte-Budget, Werkbank, Abrissgrenze als Sendefrist (4c61389) |
+| 2026-10-28 | #20 Befund | Entwicklertest + Abnahme | entwicklertester, director | bestanden / Zug | 0:20 | 22 Fälle grün, Demo auf f867195 |
