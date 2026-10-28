@@ -52,3 +52,4 @@ Eine Zeile je Auftrag an eine Rolle und je Retrospektive.
 | 2026-10-28 | #4 I0005 | Reviews + Entwicklertest | code-, ux-, security-reviewer, entwicklertester | befund | 0:30 | Reviews bestanden (Sollte N1–N3, Sperr-Tests); Entwicklertest US-4 Befund, Konsolen-401 nach Neustart → Nacharbeit 2 |
 | 2026-10-28 | #4 I0005 | Entwicklung (Nacharbeit 2) | entwickler | bestanden | 0:45 | US-4 Pflege beim Abruf, Wiederbeitritt ohne Konsolenfehler, N1–N3, Untergrenze, Sperr-Tests (bab9647…3b5375b) |
 | 2026-10-28 | #4 I0005 | Reviews + Entwicklertest (Nacharbeit 2) | alle vier | befund | 0:25 | UX, Security, Entwicklertest bestanden; Code-Review B1 Uhr vor Sperre, B2 Rückfall ohne Locks → Nacharbeit code-review-2 (Signal: Nacharbeitszeit ≥ Entwicklung, Timebox 1 h) |
+| 2026-10-28 | — | Auftrag | director | — | — | Betreiber genehmigt realist-consultant mit `realist: anpassen` (Einengungen über den planer, gesammelt für die Abnahme) |

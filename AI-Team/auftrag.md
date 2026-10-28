@@ -7,6 +7,7 @@ empfaenger: betreiber
 betreiber: sh
 director: dir
 anwendung: lc
+realist: anpassen
 angelegt: 2026-10-27
 ---
 
