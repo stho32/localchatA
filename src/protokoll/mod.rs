@@ -4,6 +4,7 @@
 pub mod bereinigung;
 pub mod senke;
 pub mod tagestakt;
+pub mod wache;
 pub mod zaehler;
 pub mod zeile;
 

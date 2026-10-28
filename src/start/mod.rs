@@ -29,6 +29,7 @@ use crate::live::bus::{self, Bus};
 use crate::live::{self, herzschlag, takt};
 use crate::protokoll::bereinigung::Anlass;
 use crate::protokoll::tagestakt::{self, Tagestakt};
+use crate::protokoll::wache::bewacht;
 use crate::protokoll::{Bereich, Kontext, Protokoll, Schluessel, Stufe};
 use crate::uhr::{self, Uhr};
 use crate::zufall::Betriebssystemzufall;
@@ -193,16 +194,26 @@ async fn nach_der_sperre(
         grund: fehler.to_string(),
     })?;
     let (ende, signal) = ende_einrichten(Arc::clone(&protokoll), beginn);
-    tokio::spawn(
+    bewacht(
+        Arc::clone(&protokoll),
+        "tagestakt",
+        "alte Protokolldateien bleiben liegen und Episoden enden nicht mehr",
+        ende.clone(),
         tagestakt(&uhr, &protokoll, bereinigt_am).takten(ende.clone(), tagestakt::PERIODE),
     );
-    tokio::spawn(takt::takten(
-        Arc::clone(&anwesenheit),
-        uhr,
+    bewacht(
         Arc::clone(&protokoll),
+        "takt",
+        "Anwesenheit wird nicht mehr gepflegt",
         ende.clone(),
-        takt::PERIODE,
-    ));
+        takt::takten(
+            Arc::clone(&anwesenheit),
+            uhr,
+            Arc::clone(&protokoll),
+            ende.clone(),
+            takt::PERIODE,
+        ),
+    );
     let kennzahlen = gespraeche.kennzahlen();
     protokoll.eintragen(
         Stufe::Information,

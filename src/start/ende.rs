@@ -25,6 +25,11 @@ impl Ende {
         ende
     }
 
+    /// Ist das Ende schon gemeldet?
+    pub fn gemeldet(&self) -> bool {
+        *self.0.borrow()
+    }
+
     /// Kehrt zurück, sobald das Ende gemeldet ist. Ist der Melder fort, ohne gemeldet zu haben, kommt das
     /// Ende nie — dann wartet es für immer statt still „beendet“ zu melden.
     pub async fn abwarten(&mut self) {
