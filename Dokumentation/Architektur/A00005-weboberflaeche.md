@@ -47,6 +47,7 @@ Zeigt dem Menschen im Browser Verlauf, Eingabe und Teilnehmer nach dem Designsys
 - [ADR-0033: Frist in der Oberfläche — `# name` in der Kopfzeile öffnet „Channel-Einstellungen“, Verkürzen als zweiter Schritt mit Zahlen](../ADRs/0033-frist-in-der-kopfzeile-dialog-mit-bestaetigung-beim-verkuerzen.md) — Akzeptiert, 2026-10-28
 - [ADR-0037: Zustellung im Tab — vorläufig, bestätigt, je Frame gebündelt](../ADRs/0037-zustellung-im-tab-vorlaeufig-bestaetigt-zeichnen-je-frame.md) — Akzeptiert, 2026-10-28
 - [ADR-0038: Eingabe — mehrzeilig, `Enter` sendet, Entwurf je Channel, gebündelte Ansage](../ADRs/0038-eingabe-mehrzeilig-enter-sendet-entwurf-je-channel-gebuendelte-ansage.md) — Akzeptiert, 2026-10-28
+- [ADR-0039: Große Antworten — Byte-Budget je Block, schwere Arbeit nur auf der Werkbank, die Abrissgrenze ist die Sendefrist](../ADRs/0039-grosse-antworten-byte-budget-je-block-werkbank-und-abrissgrenze-als-sendefrist.md) — Akzeptiert, 2026-10-28
 
 ## Offene Fragen
 

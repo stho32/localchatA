@@ -57,6 +57,7 @@ blackbox: dünne Integration an der Systemgrenze; verfeinert wird, wenn die API 
 - [ADR-0031: Frist setzen über `PUT /api/channels/{name}/frist` — jeder mit Sitzung, Verkürzen nur mit Bestätigung, verteilt als Channel-Wechsel](../ADRs/0031-frist-setzen-put-api-channels-name-frist-jeder-mit-sitzung-bestaetigung-beim-verkuerzen.md) — Akzeptiert, 2026-10-28
 - [ADR-0034: Nachricht senden — `POST /api/channels/{name}/nachrichten` mit `{text}` für Mensch und Agent, höchstens 16 KiB, Steuerzeichen abweisen, Wiederholschlüssel](../ADRs/0034-nachricht-senden-post-nachrichten-text-hoechstens-16-kib-steuerzeichen-abweisen-wiederholschluessel.md) — Akzeptiert, 2026-10-28
 - [ADR-0036: Schreibkonto gegen Flut — Token-Eimer je Kennung und je Herkunft](../ADRs/0036-schreibkonto-token-eimer-je-kennung-und-je-herkunft.md) — Akzeptiert, 2026-10-28
+- [ADR-0039: Große Antworten — Byte-Budget je Block, schwere Arbeit nur auf der Werkbank, die Abrissgrenze ist die Sendefrist](../ADRs/0039-grosse-antworten-byte-budget-je-block-werkbank-und-abrissgrenze-als-sendefrist.md) — Akzeptiert, 2026-10-28
 
 ## Offene Fragen
 

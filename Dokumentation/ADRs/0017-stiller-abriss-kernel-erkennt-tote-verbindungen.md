@@ -105,3 +105,7 @@ Grenze für den Messwert: **22 s** (≥ 30 % über 16,25 s). „Weg“ folgt 60 
 - ADR-0007, ADR-0010, ADR-0015, ADR-0016
 - Linux `tcp(7)` (Abschnitte `TCP_USER_TIMEOUT`, `TCP_KEEPIDLE`, `TCP_KEEPINTVL`, `TCP_KEEPCNT`): unbestätigte Daten länger als die Grenze → Verbindung wird geschlossen, die Anwendung erhält `ETIMEDOUT`; RFC 5482 (TCP User Timeout Option); `/proc/sys/net/ipv4/tcp_retries2`
 - `AI-Team/planer.md`, `AI-Team/entwickler.md` (Gelerntes #4, Zeitkriterien); `AI-Team/logbuch.md` (#4 Retrospektive)
+
+## Ergänzungen
+
+- **2026-10-28 (Befundkarte #23) — die Abrissgrenze ist auch die Sendefrist ([ADR-0039](0039-grosse-antworten-byte-budget-je-block-werkbank-und-abrissgrenze-als-sendefrist.md)):** Probe (Loopback, Kernel 6.14): ein Server-Socket mit `TCP_USER_TIMEOUT`, dessen Gegenstelle nie liest (Nullfenster, Timer `persist`), meldet `ETIMEDOUT` nach Grenze + ≈ 0,3 s (2 s → 2,29–2,32 s; 10 s → 10,27–10,30 s); gegen das echte Programm (Release, 9d7d4bb) schließen 64 nicht lesende Verbindungen server-seitig nach 10–12 s. Damit deckt Option A neben dem stillen Abriss auch langsame Leser ab, ohne weitere Mechanik (ADR-0039 Regel 6). Der Status bleibt `Vorgeschlagen`: der Messwert „echter stiller Abriss“ fehlt weiter; der Nullfenster-Fall ist geprobt und bekommt ein eigenes Gate (ADR-0039, K5 mit `LOCALCHATA_HERZSCHLAG_MS=2000`, Spanne 3,6–5,6 s).

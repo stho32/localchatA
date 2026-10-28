@@ -37,6 +37,7 @@ Beantwortet Blockabrufe und Suchanfragen über alle Nachrichten in der Frist aus
 - [ADR-0025: Verlauf über die API — `GET /api/channels/<name>/nachrichten` in Blöcken, Nachrichtenzeit als Cursor in beide Richtungen](../ADRs/0025-verlauf-ueber-die-api-bloecke-mit-zeit-als-cursor.md) — Akzeptiert, 2026-10-28
 - [ADR-0026: Verlauf im Browser als Fenster aus höchstens fünf Blöcken — Nachladen an beiden Enden, Anker von Hand; was „sofort“ und „flüssig“ messbar heißt](../ADRs/0026-verlauf-im-browser-als-fenster-aus-hoechstens-fuenf-bloecken.md) — Akzeptiert, 2026-10-28
 - [ADR-0030: Entfallen beim Start, beim Tageswechsel im Sekundentakt und beim Verkürzen — Löschen der Tagesdatei unter der Gesprächssperre, dann Index](../ADRs/0030-entfallen-beim-start-beim-tageswechsel-und-beim-verkuerzen-loeschen-unter-der-gespraechssperre.md) — Akzeptiert, 2026-10-28
+- [ADR-0039: Große Antworten — Byte-Budget je Block, schwere Arbeit nur auf der Werkbank, die Abrissgrenze ist die Sendefrist](../ADRs/0039-grosse-antworten-byte-budget-je-block-werkbank-und-abrissgrenze-als-sendefrist.md) — Akzeptiert, 2026-10-28
 
 ## Offene Fragen
 
