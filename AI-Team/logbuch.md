@@ -44,3 +44,4 @@ Eine Zeile je Auftrag an eine Rolle und je Retrospektive.
 | 2026-10-28 | #3 I0004 | Reviews | code-, ux-, security-reviewer | bestanden | 0:15 | Nacharbeit 2 geprüft |
 | 2026-10-28 | #3 I0004 | Abnahme | director | Zug | — | kein Remote; wartet auf Betreiber |
 | 2026-10-28 | #3 I0004 | Retrospektive | director | — | — | zwei Nacharbeiten durch parallele Reviews früh sichtbar; UX-Review fand Muss, den Tests nicht sahen; Lehre: erste Oberfläche braucht UX-Maßstab im Entwicklerauftrag (Fokus auf Akzentflächen, 320 px, Fehlergestalt) |
+| 2026-10-28 | #4 I0005 | Architektur | architekt | bestanden | 0:20 | ADR-0015/0016, Nachzug ADR-0013/0014 (986fdd0, 92dcd8a) |
