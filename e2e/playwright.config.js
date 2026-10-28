@@ -7,5 +7,5 @@ module.exports = defineConfig({
   globalSetup: require.resolve('./bauen.js'),
   timeout: 30000,
   reporter: [['list']],
-  use: { headless: true, locale: 'de-DE', timezoneId: 'Europe/Berlin' },
+  use: { headless: true, locale: 'de-DE', timezoneId: 'Europe/Berlin', trace: 'retain-on-failure' },
 });
