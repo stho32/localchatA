@@ -54,6 +54,10 @@ pub fn router(zustand: Zustand) -> Router {
             "/api/channels",
             get(channels::auflisten).post(channels::anlegen),
         )
+        .route(
+            "/api/channels/{name}/nachrichten",
+            get(nachrichten::beantworten),
+        )
         .route("/api/ich", get(ich::beantworten))
         .route("/api/teilnehmer", get(teilnehmerliste::beantworten))
         .route("/api/ereignisse", get(ereignisse::beantworten))

@@ -2,8 +2,97 @@
 //! [&n=1..200]` mit Sitzung → 200 `{channel, nachrichten, aelter, neuer}` | 401 | 404 `{fehler}` | 422 `{fehler,
 //! regel}`. Die Abfrage wird vor jeder Arbeit begrenzt und geprüft, abgewiesen statt umgeformt.
 
+use super::Zustand;
+use super::teilnehmer::Teilnehmer;
+use super::teilnehmerliste::zeit_als_text;
 use crate::gespraeche::abfrage::{Abfrage, Abschnitt, Blockgroesse};
+use crate::gespraeche::{Nachricht, Nachrichtenblock, Unbekannt};
+use crate::name::Channelname;
 use crate::uhr::Zeit;
+use axum::Json;
+use axum::extract::{Path, RawQuery, State};
+use axum::http::StatusCode;
+use axum::response::{IntoResponse, Response};
+use serde_json::{Value, json};
+use std::sync::Arc;
+
+pub async fn beantworten(
+    _: Teilnehmer,
+    State(zustand): State<Arc<Zustand>>,
+    Path(name): Path<String>,
+    RawQuery(query): RawQuery,
+) -> Response {
+    let abfrage = match abfrage_lesen(query.as_deref()) {
+        Ok(abfrage) => abfrage,
+        Err(fehler) => return abgewiesen(fehler),
+    };
+    let gespraeche = Arc::clone(&zustand.gespraeche);
+    let gefragt = name.clone();
+    let ergebnis = tokio::task::spawn_blocking(move || {
+        gespraeche
+            .verlauf(&gefragt, &abfrage)
+            .map(|block| block_als_json(&gefragt, &block))
+    })
+    .await;
+    match ergebnis {
+        Ok(Ok(antwort)) => Json(antwort).into_response(),
+        Ok(Err(Unbekannt)) => unbekannt(&name),
+        Err(abgebrochen) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({ "fehler": format!("Verlauf nicht gelesen — {abgebrochen}") })),
+        )
+            .into_response(),
+    }
+}
+
+/// `{channel, nachrichten, aelter, neuer}`, Nachrichten älteste zuerst (ADR-0025 Regel 3).
+fn block_als_json(channel: &str, block: &Nachrichtenblock) -> Value {
+    let nachrichten: Vec<Value> = block.nachrichten.iter().map(nachricht_als_json).collect();
+    json!({
+        "channel": channel,
+        "nachrichten": nachrichten,
+        "aelter": block.aelter,
+        "neuer": block.neuer,
+    })
+}
+
+/// `{zeit, von, text}` — die eine Form einer Nachricht an der Grenze (ab I0009 auch im Strom).
+pub fn nachricht_als_json(nachricht: &Nachricht) -> Value {
+    json!({
+        "zeit": zeit_als_text(&nachricht.zeit),
+        "von": nachricht.von.als_text(),
+        "text": nachricht.text,
+    })
+}
+
+/// 404 — den Namen nennt die Antwort nur, wenn er ein gültiger Channelname ist.
+fn unbekannt(name: &str) -> Response {
+    let fehler = match Channelname::bilden(name) {
+        Ok(gueltig) => format!("# {} gibt es nicht.", gueltig.als_text()),
+        Err(_) => {
+            "Diesen Channel gibt es nicht — ein Channelname hat nur a–z, 0–9 und -.".to_string()
+        }
+    };
+    (StatusCode::NOT_FOUND, Json(json!({ "fehler": fehler }))).into_response()
+}
+
+fn abgewiesen(fehler: Abfragefehler) -> Response {
+    let (regel, text) = match fehler {
+        Abfragefehler::Cursor => (
+            "cursor",
+            "Höchstens einer von vor und nach, als Zeit nach RFC 3339 mit Versatz; + als %2B kodieren — zum Beispiel vor=2026-10-28T14:00:00.000%2B01:00.",
+        ),
+        Abfragefehler::N => (
+            "n",
+            "n ist eine ganze Zahl von 1 bis 200 — zum Beispiel n=100.",
+        ),
+    };
+    (
+        StatusCode::UNPROCESSABLE_ENTITY,
+        Json(json!({ "fehler": text, "regel": regel })),
+    )
+        .into_response()
+}
 
 /// Welche Regel eine Abfrage verletzt.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
