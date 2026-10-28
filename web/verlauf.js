@@ -9,16 +9,23 @@
 import { nachrichtZeichnen, kopfSetzen, trennerZeichnen, langeEinklappen, langeUmschalten } from './nachricht.js';
 import { gliederung, datumBenennen } from './gliederung.js';
 import { nachladen, einfuegen } from './fenster.js';
+import { einordnen, buendlerAnlegen, folgenOderZaehlen, pillenText } from './live-verlauf.js';
 
 // abrufen: async (name, cursor, signal) → { art: 'block' | 'fehler' | 'abgebrochen', … } (api.js verlaufAbrufen).
+// Live (ADR-0037 Regeln 1, 6): nachrichtAnnehmen(nachricht, eigen) ordnet über die Zeit ein und fügt je Frame ein —
+// am Ende folgt der Blick, sonst zählt die Pille „n neue Nachrichten“; vorlaeufigeZeigen(liste) zeichnet eigene
+// Nachrichten unterwegs oder fehlgeschlagen unter allen bestätigten.
 export function verlaufAnlegen({ abrufen }) {
   const inhalt = element('div', { className: 'lc-log-inhalt' });
-  const log = element('div', { className: 'lc-log', tabIndex: 0 }, [inhalt]);
+  const ausstehend = element('div', { className: 'lc-ausstehend' });
+  const auslauf = element('div', { className: 'lc-auslauf' });
+  const log = element('div', { className: 'lc-log', tabIndex: 0 }, [inhalt, ausstehend, auslauf]);
   log.setAttribute('role', 'log');
   log.setAttribute('aria-live', 'off');
   const ladezeile = element('div', { className: 'lc-loadmore', textContent: 'Ältere Nachrichten werden geladen …', hidden: true });
+  const pillenBeschriftung = element('span', { textContent: '↓ Zum Neuesten' });
   const pille = element('button', { type: 'button', className: 'lc-pill', hidden: true }, [
-    '↓ Zum Neuesten ', element('kbd', { textContent: 'Ende' }),
+    pillenBeschriftung, element('kbd', { textContent: 'Ende' }),
   ]);
   pille.setAttribute('aria-keyshortcuts', 'End');
   const rahmen = element('div', { className: 'lc-verlauf' }, [ladezeile, log, element('div', { className: 'lc-pillen' }, [pille])]);
@@ -29,6 +36,13 @@ export function verlaufAnlegen({ abrufen }) {
   let fenster = null;
   let bloeckeKnoten = [];
   let gescheitert = false;
+  let geladen = false;
+  let puffer = [];
+  let juengste = null;
+  let neueGezaehlt = 0;
+  let ersteNeue = null;
+  let vorlaeufige = [];
+  const buendler = buendlerAnlegen({ einfuegen: jeFrameEinfuegen });
 
   function abstandUnten() {
     return log.scrollHeight - log.scrollTop - log.clientHeight;
@@ -41,8 +55,17 @@ export function verlaufAnlegen({ abrufen }) {
 
   function lageMerken() {
     amEnde = abstandUnten() <= 1 && fenster !== null && !fenster.neuer;
+    if (amEnde) {
+      neueGezaehlt = 0;
+      ersteNeue = null;
+      auslauf.style.height = '';
+    }
     const weitOben = abstandUnten() > log.clientHeight;
-    pille.hidden = fenster === null || !(weitOben || fenster.neuer);
+    pille.hidden = fenster === null || !(weitOben || fenster.neuer || neueGezaehlt > 0);
+    pillenBeschriftung.textContent = '↓ Zum Neuesten';
+    if (neueGezaehlt > 0) {
+      pillenBeschriftung.textContent = pillenText(neueGezaehlt);
+    }
   }
 
   log.addEventListener('scroll', () => {
@@ -56,6 +79,7 @@ export function verlaufAnlegen({ abrufen }) {
     lageMerken();
   });
   hoehen.observe(inhalt);
+  hoehen.observe(ausstehend);
   hoehen.observe(log);
 
   // Aufklappen erweitert an Ort und Stelle; der Kopf der Nachricht bleibt an seiner Bildschirmstelle.
@@ -71,9 +95,40 @@ export function verlaufAnlegen({ abrufen }) {
   });
 
   // „Zum Neuesten“: Klick oder Ende im Verlauf öffnet den Channel neu wie beim Wählen; der Fokus geht in den Verlauf.
+  // Mit gezählten neuen Nachrichten: steht die erste im Fenster, kommt sie an den oberen Rand, eine Zeile Kontext
+  // darüber (ADR-0037 Regel 6); sonst neu öffnen.
   function zumNeuesten() {
     log.focus();
-    oeffnen(offenerName);
+    const erste = ersteNeueImFenster();
+    if (erste === null) {
+      oeffnen(offenerName);
+      return;
+    }
+    const ziel = log.scrollTop + erste.getBoundingClientRect().top - log.getBoundingClientRect().top - zeilenhoehe();
+    auslaufFuer(ziel);
+    log.scrollTop = ziel;
+    lageMerken();
+  }
+
+  // Reicht der Inhalt unter der ersten neuen nicht für eine Sichthöhe, entsteht darunter so viel Raum, dass sie oben
+  // stehen kann — eine Zeile mehr, damit der Blick dabei nicht schon am Ende gilt; am Ende fällt der Raum weg.
+  function auslaufFuer(ziel) {
+    const fehlt = ziel - (log.scrollHeight - log.clientHeight);
+    if (fehlt > 0) {
+      auslauf.style.height = `${fehlt + zeilenhoehe()}px`;
+    }
+  }
+
+  function ersteNeueImFenster() {
+    if (neueGezaehlt === 0 || ersteNeue === null) {
+      return null;
+    }
+    return inhalt.querySelector(`.lc-msg[data-zeit="${ersteNeue}"]`);
+  }
+
+  // Die Zeilenhöhe des Verlaufs steht im CSS (J06).
+  function zeilenhoehe() {
+    return parseFloat(getComputedStyle(log).lineHeight);
   }
   pille.addEventListener('click', zumNeuesten);
   log.addEventListener('keydown', (ereignis) => {
@@ -92,6 +147,12 @@ export function verlaufAnlegen({ abrufen }) {
     fenster = null;
     bloeckeKnoten = [];
     gescheitert = false;
+    geladen = false;
+    puffer = [];
+    juengste = null;
+    neueGezaehlt = 0;
+    ersteNeue = null;
+    auslauf.style.height = '';
     ladenBeendet();
     log.setAttribute('aria-label', `Verlauf # ${name}`);
     inhalt.replaceChildren();
@@ -107,18 +168,121 @@ export function verlaufAnlegen({ abrufen }) {
       gescheitert = true;
       return;
     }
+    geladen = true;
     if (ergebnis.block.nachrichten.length === 0) {
-      inhalt.replaceChildren(hinweis(`Noch keine Nachrichten in # ${name}.`, 'lc-mitte-hinweis'));
+      inhalt.replaceChildren(...leerHinweis(name));
+      gepuffertesAnnehmen();
       return;
     }
     fenster = { bloecke: [ergebnis.block.nachrichten], aelter: ergebnis.block.aelter, neuer: false };
+    juengste = ergebnis.block.nachrichten[ergebnis.block.nachrichten.length - 1].zeit;
     const knoten = gegliedertZeichnen(ergebnis.block.nachrichten, null, heute);
     bloeckeKnoten = [knoten];
     inhalt.replaceChildren(...knoten);
     langeEinklappen(nurNachrichten(knoten));
     ansEnde();
     lageMerken();
+    gepuffertesAnnehmen();
     pruefen();
+  }
+
+  // Was vor dem Block ankam, geht jetzt den Weg jeder neuen Nachricht (ADR-0028 Regel 5).
+  function gepuffertesAnnehmen() {
+    const gepuffert = puffer;
+    puffer = [];
+    gepuffert.forEach(({ nachricht, eigen }) => nachrichtAnnehmen(nachricht, eigen));
+  }
+
+  // Eine Nachricht des offenen Channels, fremd oder eigen bestätigt; vor dem ersten Block gepuffert.
+  function nachrichtAnnehmen(nachricht, eigen) {
+    if (offenerName === null) {
+      return;
+    }
+    if (!geladen) {
+      puffer.push({ nachricht, eigen });
+      return;
+    }
+    buendler.annehmen({ channel: offenerName, nachricht, eigen });
+  }
+
+  function vorlaeufigeZeigen(liste) {
+    vorlaeufige = liste;
+    buendler.annehmen({ channel: offenerName, nachricht: null, eigen: true });
+  }
+
+  // Einmal je Frame (ADR-0037 Regel 6): neue Nachrichten einordnen, folgen oder zählen, dann die vorläufigen neu —
+  // eine Anker-Korrektur, ein Abgleich des Fensters.
+  function jeFrameEinfuegen(gesammelt) {
+    const offene = gesammelt.filter((eintrag) => eintrag.channel === offenerName && eintrag.nachricht !== null);
+    if (offene.length > 0 && !gescheitert) {
+      nachrichtenEinfuegen(offene);
+    }
+    ausstehendZeichnen();
+    if (amEnde) {
+      ansEnde();
+    }
+    lageMerken();
+  }
+
+  function nachrichtenEinfuegen(eintraege) {
+    const fremde = eintraege.filter((eintrag) => !eintrag.eigen).length;
+    const neuesterImFenster = fenster === null || !fenster.neuer;
+    const lage = folgenOderZaehlen(abstandUnten(), zeilenhoehe(), neuesterImFenster);
+    if (lage === 'nurZaehlen') {
+      neueGezaehlt += fremde;
+      return;
+    }
+    const { neue, juengste: neueJuengste } = einordnen(juengste, eintraege.map((eintrag) => eintrag.nachricht));
+    juengste = neueJuengste;
+    if (neue.length === 0) {
+      return;
+    }
+    const anker = ankerMerken(log, inhalt);
+    anfuegen(neue);
+    ankerHalten(log, anker);
+    if (lage === 'folgen') {
+      amEnde = true;
+      return;
+    }
+    const neueFremde = neue.filter((nachricht) => eintraege.some((eintrag) => eintrag.nachricht === nachricht && !eintrag.eigen));
+    if (neueFremde.length > 0 && ersteNeue === null) {
+      ersteNeue = neueFremde[0].zeit;
+    }
+    neueGezaehlt += neueFremde.length;
+  }
+
+  // Neue Nachrichten ans Ende des jüngsten Blocks; im leeren Channel entsteht der erste Block.
+  function anfuegen(neue) {
+    if (fenster === null) {
+      fenster = { bloecke: [neue], aelter: false, neuer: false };
+      const knoten = gegliedertZeichnen(neue, null, heute);
+      bloeckeKnoten = [knoten];
+      inhalt.replaceChildren(...knoten);
+      langeEinklappen(nurNachrichten(knoten));
+      return;
+    }
+    const letzter = fenster.bloecke[fenster.bloecke.length - 1];
+    const knoten = gegliedertZeichnen(neue, letzter[letzter.length - 1], heute);
+    letzter.push(...neue);
+    bloeckeKnoten[bloeckeKnoten.length - 1].push(...knoten);
+    inhalt.append(...knoten);
+    langeEinklappen(nurNachrichten(knoten));
+  }
+
+  function ausstehendZeichnen() {
+    const eigene = vorlaeufige.filter((vorlaeufig) => vorlaeufig.channel === offenerName);
+    ausstehend.replaceChildren(...eigene.map((vorlaeufig) => vorlaeufigZeichnen(vorlaeufig, eigeneKennung)));
+  }
+
+  // Senden holt ans Ende (ADR-0037 Regel 1): steht der neueste Block nicht im Fenster, öffnet der Tab neu; der Fokus
+  // bleibt, wo er ist.
+  function zumEndeFuerSenden() {
+    if (fenster !== null && fenster.neuer) {
+      oeffnen(offenerName);
+      return;
+    }
+    amEnde = true;
+    ansEnde();
   }
 
   // Höchstens ein Abruf zugleich; danach wird erneut geprüft — so holt auch ein Sprung an den Rand des Scrollbalkens
@@ -249,6 +413,8 @@ export function verlaufAnlegen({ abrufen }) {
   function schliessen() {
     laufend.abort();
     offenerName = null;
+    geladen = false;
+    puffer = [];
     fenster = null;
     bloeckeKnoten = [];
     gescheitert = false;
@@ -257,7 +423,43 @@ export function verlaufAnlegen({ abrufen }) {
     lageMerken();
   }
 
-  return { element: rahmen, oeffnen, erneutVersuchen, schliessen, heuteSetzen };
+  let eigeneKennung = '';
+  return {
+    element: rahmen,
+    oeffnen,
+    erneutVersuchen,
+    schliessen,
+    heuteSetzen,
+    nachrichtAnnehmen,
+    vorlaeufigeZeigen,
+    zumEndeFuerSenden,
+    kennungSetzen: (kennung) => { eigeneKennung = kennung; },
+  };
+}
+
+// „Noch keine Nachrichten in # name.“ und darunter, wie Agenten hier schreiben (ADR-0038 Regel 9).
+function leerHinweis(name) {
+  const api = element('p', { className: 'lc-mitte-hinweis lc-leer-api' }, [
+    'Agenten schreiben hier mit ', element('code', { textContent: `POST /api/channels/${name}/nachrichten` }), '.',
+  ]);
+  return [hinweis(`Noch keine Nachrichten in # ${name}.`, 'lc-mitte-hinweis'), api];
+}
+
+// Eine eigene Nachricht unterwegs („wird gesendet …“ mit ◌) oder fehlgeschlagen (⚠ und Grund in kd-danger), mit dem
+// Kopf der eigenen Kennung, ohne Zeit (Baustein Nachricht).
+function vorlaeufigZeichnen(vorlaeufig, kennung) {
+  const artikel = nachrichtZeichnen({ von: kennung, art: 'mensch', text: vorlaeufig.text });
+  artikel.classList.add('lc-vorlaeufig');
+  const zeile = element('div', { className: 'lc-send' });
+  if (vorlaeufig.zustand === 'fehlgeschlagen') {
+    artikel.classList.add('lc-fehlgeschlagen');
+    zeile.classList.add('lc-fehlgeschlagen');
+    zeile.textContent = `⚠ ${vorlaeufig.grund}`;
+  } else {
+    zeile.append(element('span', { textContent: '◌', ariaHidden: 'true' }), ' wird gesendet …');
+  }
+  artikel.querySelector('.lc-msg-inhalt').append(zeile);
+  return artikel;
 }
 
 // Höhe eines gezeichneten Blocks: von der Oberkante seines ersten bis zur Unterkante seines letzten Knotens.

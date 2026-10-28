@@ -3,7 +3,7 @@
 // 1280 × 800, Uhr ab 2026-10-28 15:00 (+01:00). Browser A ist `shoff` (Mensch).
 const { test, expect } = require('@playwright/test');
 const {
-  sendenStarten, beitreten, verlaufLesen, kontextOeffnen, imBrowserBeitreten, eingabe, nachrichten,
+  sendenStarten, beitreten, verlaufLesen, kontextOeffnen, imBrowserBeitreten, eingabe, nachrichten, mitText,
 } = require('./senden-hilfen');
 
 const ROUTE = '**/api/channels/*/nachrichten';
@@ -59,7 +59,8 @@ test('US-11: schreiben und senden', async ({ browser }) => {
 });
 
 // „Vorläufig“ (US-12, Z3): die Antwort um 2 s verzögert → „wird gesendet …“ mit `eins`, solange sie aussteht; danach
-// `eins` genau einmal und keine vorläufige mehr.
+// `eins` genau einmal und keine vorläufige mehr. Verzögert wird vor dem Weiterleiten: würde erst die Antwort
+// zurückgehalten, bestätigte das Ereignis im Strom die Nachricht nach Millisekunden (erste Quelle gewinnt, Z4).
 test('US-12 (Z3): sofort sichtbar, auch wenn der Server langsam antwortet', async ({ browser }) => {
   const { page, fehler } = await mitA(browser);
   let beantwortet = false;
@@ -68,10 +69,9 @@ test('US-12 (Z3): sofort sichtbar, auch wenn der Server langsam antwortet', asyn
       await route.continue();
       return;
     }
-    const antwort = await route.fetch();
     await new Promise((weiter) => setTimeout(weiter, 2000));
     beantwortet = true;
-    await route.fulfill({ response: antwort });
+    await route.continue();
   });
 
   await eingabe(page).fill('eins');
@@ -153,7 +153,7 @@ test('US-14: Senden holt mich ans Ende', async ({ browser }) => {
   await eingabe(page).fill('hier');
   await eingabe(page).press('Enter');
 
-  const hier = nachrichten(page).filter({ hasText: /^hier$/ });
+  const hier = mitText(page, /^hier$/);
   await expect(hier).toHaveCount(1, { timeout: 10000 });
   await expect(hier).toBeInViewport();
   await expect.poll(() => log.evaluate((element) => element.scrollHeight - element.scrollTop - element.clientHeight)).toBeLessThanOrEqual(1);

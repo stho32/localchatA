@@ -15,6 +15,8 @@ import * as seitenleiste from './seitenleiste.js';
 import { dialogEinrichten } from './channel-anlegen.js';
 import { einstellungenEinrichten } from './channel-einstellungen.js';
 import { onlineBenennen } from './teilnehmerliste.js';
+import { eingabeAnlegen } from './eingabe.js';
+import { sendenEinrichten } from './senden.js';
 
 const UNTERBROCHEN = '⚠ Verbindung unterbrochen — localchatA verbindet neu.';
 const STAND_UNBEKANNT = 'Stand unbekannt — zuletzt bekannte Liste.';
@@ -62,18 +64,28 @@ export function zeichnen(wurzel, teilnehmer, optionen) {
   let letzterZustand = 'verbunden';
   channels.channelsZeigen([]);
   const verlauf = verlaufAnlegen({ abrufen: optionen.verlaufAbrufen });
+  verlauf.kennungSetzen(teilnehmer.kennung);
+  const senden = sendenEinrichten({ verlauf, kennung: teilnehmer.kennung, abschicken: optionen.nachrichtSenden });
+  const eingabe = eingabeAnlegen({ senden: senden.senden });
   const beiAuswahl = (channel) => {
     gewaehlterChannel = channel;
     if (channel !== null) {
       einstellungen.channelGeaendert(channel);
     }
   };
-  const auswahlFolgen = auswahlEinrichten({ seitenleiste: channels, kopf, mitte, verlauf, beiAuswahl }, vorigeAnsichtAbmelden.signal);
+  const beiOeffnen = (name) => {
+    eingabe.channelSetzen(name);
+    senden.channelGeoeffnet(name);
+  };
+  const auswahlFolgen = auswahlEinrichten({
+    seitenleiste: channels, kopf, mitte, verlauf, eingabe, beiAuswahl, beiOeffnen,
+  }, vorigeAnsichtAbmelden.signal);
   return {
     region: zeilen,
     channelsZeigen: auswahlFolgen,
     // Serverzeit aus einem Ereignis (RFC 3339 mit Versatz): ihr Datum ist das heutige des Servers.
     serverzeitZeigen: (jetzt) => verlauf.heuteSetzen(jetzt.slice(0, 10)),
+    nachrichtEmpfangen: (ereignis) => senden.empfangen(ereignis),
     anzahlZeigen: (wieViele) => {
       anzahl.textContent = String(wieViele);
     },
@@ -85,7 +97,7 @@ export function zeichnen(wurzel, teilnehmer, optionen) {
 
 // Liefert channelsZeigen(liste): die Liste ist erst mit dem ersten Stand bekannt — bis dahin bleibt ein
 // gewählter Name ohne Urteil, damit „gibt es nicht“ nie vor dem Stand erscheint.
-function auswahlEinrichten({ seitenleiste, kopf, mitte, verlauf, beiAuswahl }, signal) {
+function auswahlEinrichten({ seitenleiste, kopf, mitte, verlauf, eingabe, beiAuswahl, beiOeffnen }, signal) {
   const adresse = startadresse(window.location.hash, window.sessionStorage.getItem(MERKER));
   if (adresse !== null) {
     window.history.replaceState(null, '', adresse);
@@ -105,15 +117,16 @@ function auswahlEinrichten({ seitenleiste, kopf, mitte, verlauf, beiAuswahl }, s
     beiAuswahl(bekannt);
     if (bekannt === null) {
       offen = null;
-      verlaufSchliessen(verlauf, seitenleiste);
+      verlaufSchliessen(verlauf, eingabe, seitenleiste);
       mitteZeigen(mitte, gewaehlt, liste !== null);
       return;
     }
     if (offen !== bekannt.name) {
       offen = bekannt.name;
       if (verlauf.element.parentNode !== mitte) {
-        mitte.replaceChildren(verlauf.element);
+        mitte.replaceChildren(verlauf.element, eingabe.element);
       }
+      beiOeffnen(bekannt.name);
       verlauf.oeffnen(bekannt.name);
     }
   }
@@ -147,11 +160,13 @@ function auswahlEinrichten({ seitenleiste, kopf, mitte, verlauf, beiAuswahl }, s
   };
 }
 
-// Liegt der Fokus im Verlauf, der jetzt geht, kommt er auf den Schalter „Channel anlegen“ — nie ins Nichts.
-function verlaufSchliessen(verlauf, seitenleiste) {
-  const fokusImVerlauf = verlauf.element.contains(document.activeElement);
+// Liegt der Fokus im Verlauf oder in der Eingabe, die jetzt gehen, kommt er auf den Schalter „Channel anlegen“ —
+// nie ins Nichts.
+function verlaufSchliessen(verlauf, eingabe, seitenleiste) {
+  const fokusImVerlauf = verlauf.element.contains(document.activeElement) || eingabe.element.contains(document.activeElement);
   verlauf.schliessen();
   verlauf.element.remove();
+  eingabe.element.remove();
   if (fokusImVerlauf) {
     seitenleiste.plus.focus();
   }

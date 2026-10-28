@@ -90,7 +90,9 @@ async function imBrowserBeitreten(page, adresse, name, channel = 'allgemein') {
 
 const eingabe = (page) => page.getByRole('textbox', { name: /^Nachricht an # / });
 const nachrichten = (page) => page.getByRole('log').locator('.lc-msg');
+/// Nachrichten, deren Text (ohne Kopf) `muster` trifft.
+const mitText = (page, muster) => nachrichten(page).filter({ has: page.locator('.lc-body', { hasText: muster }) });
 
 module.exports = {
-  JETZT, sendenStarten, beitreten, senden, verlaufLesen, kontextOeffnen, imBrowserBeitreten, eingabe, nachrichten,
+  JETZT, sendenStarten, beitreten, senden, verlaufLesen, kontextOeffnen, imBrowserBeitreten, eingabe, nachrichten, mitText,
 };

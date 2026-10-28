@@ -6,15 +6,17 @@
 import { kuerzel } from './kopfzeile.js';
 import { uhrzeit, zeitTitel, datumBenennen } from './gliederung.js';
 
-// nachricht: { zeit, von, art, text } aus der API.
+// nachricht: { zeit, von, art, text } aus der API; ohne Zeit (eigene, noch unterwegs) ohne Uhrzeit im Kopf.
 export function nachrichtZeichnen(nachricht) {
   const artikel = element('article', { className: 'lc-msg' });
-  artikel.dataset.zeit = nachricht.zeit;
   artikel.dataset.von = nachricht.von;
   artikel.dataset.art = darstellungsart(nachricht.art);
-  const inhalt = element('div', { className: 'lc-msg-inhalt' }, [
-    element('div', { className: 'lc-body lc-fold', id: `lc-text-${nachricht.zeit}`, textContent: nachricht.text }),
-  ]);
+  const text = element('div', { className: 'lc-body lc-fold', textContent: nachricht.text });
+  if (nachricht.zeit !== undefined) {
+    artikel.dataset.zeit = nachricht.zeit;
+    text.id = `lc-text-${nachricht.zeit}`;
+  }
+  const inhalt = element('div', { className: 'lc-msg-inhalt' }, [text]);
   artikel.append(element('div', { className: 'g' }), inhalt);
   kopfSetzen(artikel, true);
   return artikel;

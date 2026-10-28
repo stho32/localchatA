@@ -5,7 +5,7 @@
 const { test, expect } = require('@playwright/test');
 const { satz } = require('./hilfen');
 const {
-  sendenStarten, beitreten, senden, verlaufLesen, kontextOeffnen, imBrowserBeitreten, nachrichten,
+  sendenStarten, beitreten, senden, verlaufLesen, kontextOeffnen, imBrowserBeitreten, nachrichten, mitText,
 } = require('./senden-hilfen');
 
 /// Z1 aus R00011: Grenze der Zustellung an eine zweite Sicht.
@@ -122,8 +122,9 @@ test('US-19 (Z5): wer oben liest, bleibt oben', async ({ browser }) => {
   await imBrowserBeitreten(b.page, instanz.adresse, 'anna');
   const log = b.page.getByRole('log');
   await expect(nachrichten(b.page)).not.toHaveCount(0);
+  const sicht = await log.evaluate((element) => element.clientHeight);
   await log.evaluate((element) => { element.scrollTop = element.scrollHeight - element.clientHeight * 3; });
-  await expect.poll(() => abstandZumEnde(b.page)).toBeGreaterThan(1500);
+  await expect.poll(() => abstandZumEnde(b.page)).toBeGreaterThanOrEqual(2 * sicht - 1);
   const vorher = await log.evaluate((element) => element.scrollTop);
   const beta = await beitreten(instanz.adresse, 'beta');
 
@@ -135,7 +136,7 @@ test('US-19 (Z5): wer oben liest, bleibt oben', async ({ browser }) => {
   const nachher = await log.evaluate((element) => element.scrollTop);
   expect(Math.abs(nachher - vorher)).toBeLessThanOrEqual(1);
   await pille(b.page).click();
-  const erste = nachrichten(b.page).filter({ hasText: /^neu 1$/ });
+  const erste = mitText(b.page, /^neu 1$/);
   await expect(erste).toBeInViewport();
   const lage = await erste.evaluate((nachricht) => {
     const rand = nachricht.closest('[role="log"]').getBoundingClientRect().top;
@@ -166,10 +167,10 @@ test('US-20: ganz weit oben wird nur gezählt', async ({ browser }) => {
   await senden(instanz.adresse, beta, 'allgemein', 'weit weg 2');
 
   await expect(pille(b.page)).toHaveText(/^2 neue Nachrichten/);
-  await expect(nachrichten(b.page).filter({ hasText: /^weit weg/ })).toHaveCount(0);
+  await expect(mitText(b.page, /^weit weg/)).toHaveCount(0);
   await log.focus();
   await b.page.keyboard.press('End');
-  await expect(nachrichten(b.page).filter({ hasText: /^weit weg/ })).toHaveCount(2);
+  await expect(mitText(b.page, /^weit weg/)).toHaveCount(2);
   await expect.poll(() => abstandZumEnde(b.page)).toBeLessThanOrEqual(1);
   expect(b.fehler).toEqual([]);
 });
