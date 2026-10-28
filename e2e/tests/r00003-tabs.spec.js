@@ -35,6 +35,16 @@ async function tabsMitShoff(context, anzahl) {
   return { tabs, fehler };
 }
 
+function beitritteZaehlen(context) {
+  const beitritte = [];
+  context.on('request', (anfrage) => {
+    if (anfrage.url().endsWith('/api/beitreten')) {
+      beitritte.push(anfrage.url());
+    }
+  });
+  return beitritte;
+}
+
 async function gleichzeitigNeuLaden(tabs) {
   await Promise.all(tabs.map((tab) => tab.reload()));
 }
@@ -69,7 +79,24 @@ const VARIANTEN = [
   { name: '(b) Gnadenfrist 1000 ms abgelaufen, zwei Tabs', tabs: 2, umgebung: { LOCALCHATA_GNADENFRIST_MS: '1000' }, wegnehmen: GNADENFRIST },
   { name: '(c) Neustart, drei Tabs', tabs: 3, umgebung: {}, wegnehmen: NEUSTART },
   { name: '(d) Neustart, zwei Tabs, Browser ohne Web Locks', tabs: 2, umgebung: {}, wegnehmen: NEUSTART, ohneWebLocks: true },
+  { name: '(e) Neustart, zwei Tabs, 201 kommt verzögert an', tabs: 2, umgebung: {}, wegnehmen: NEUSTART, beitrittVerzoegert: true },
+  {
+    name: '(f) Neustart, zwei Tabs, ohne Web Locks, 201 kommt verzögert an',
+    tabs: 2, umgebung: {}, wegnehmen: NEUSTART, ohneWebLocks: true, beitrittVerzoegert: true,
+  },
 ];
+
+// Der gewonnene Beitritt erreicht seinen Tab erst, nachdem der andere Tab sein 409 hat — so liegt das Fenster
+// zwischen 409 und dem Speichern des Tokens fest offen, statt vom Zufall der Reihenfolge abzuhängen.
+async function gewonnenenBeitrittVerzoegern(context) {
+  await context.route('**/api/beitreten', async (route) => {
+    const antwort = await route.fetch();
+    if (antwort.status() === 201) {
+      await new Promise((weiter) => setTimeout(weiter, 500));
+    }
+    await route.fulfill({ response: antwort });
+  });
+}
 
 for (const variante of VARIANTEN) {
   test(`B1 ${variante.name}: gleichzeitiges Neuladen zeigt in jedem Tab die Kopfzeile mit einer Sitzung`, async ({ context, request }) => {
@@ -82,8 +109,15 @@ for (const variante of VARIANTEN) {
     const { tabs, fehler } = await tabsMitShoff(context, variante.tabs);
 
     await variante.wegnehmen(tabs);
+    if (variante.beitrittVerzoegert) {
+      await gewonnenenBeitrittVerzoegern(context);
+    }
+    const stilleBeitritte = beitritteZaehlen(context);
     await gleichzeitigNeuLaden(tabs);
 
     await alleTeilenEineSitzung(tabs, fehler, request);
+    if (!variante.ohneWebLocks) {
+      expect(stilleBeitritte, 'mit Web Locks tritt genau ein Tab still bei').toHaveLength(1);
+    }
   });
 }
