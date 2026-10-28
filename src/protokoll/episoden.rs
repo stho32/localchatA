@@ -86,6 +86,18 @@ impl Episoden {
         vec![beginn]
     }
 
+    /// Zählt ein Auftreten nur, wenn seine Episode schon offen ist (`Abgebrochen` in der Körper-Episode).
+    pub fn falls_offen_zaehlen(&mut self, auftreten: &Auftreten, jetzt: Zeit) {
+        let schluessel = Schluessel3 {
+            bereich: auftreten.bereich,
+            text: auftreten.text,
+            quelle: Some(auftreten.quelle.clone()),
+        };
+        if let Some(episode) = self.offen.get_mut(&schluessel) {
+            episode.zaehlen(auftreten, jetzt);
+        }
+    }
+
     /// Schließt jede Episode, deren letztes Auftreten mindestens die Ruhe zurückliegt; liefert die Zeilen.
     pub fn schliessen(&mut self, jetzt: Zeit) -> Vec<Eintrag> {
         let ruhe = chrono::Duration::from_std(self.ruhe).unwrap_or(chrono::Duration::MAX);

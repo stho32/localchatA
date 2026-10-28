@@ -10,7 +10,8 @@ use super::teilnehmer::gemeldete_sitzung;
 use crate::anwesenheit::{
     Abweisung, Beitrittsfehler, Beitrittswunsch, GESAMT, JE_HERKUNFT, Sitzung,
 };
-use crate::protokoll::{Bereich, Kontext, Schluessel, Stufe};
+use crate::protokoll::episoden::Auftreten;
+use crate::protokoll::{Bereich, Kontext, Protokoll, Schluessel, Stufe};
 use axum::Json;
 use axum::body::Body;
 use axum::extract::{ConnectInfo, State};
@@ -61,7 +62,18 @@ pub async fn beantworten(
             )
                 .into_response()
         }
-        Err(fehler) => beitrittsfehler(fehler, &wunsch, gegenstelle),
+        Err(fehler) => {
+            if matches!(fehler, Beitrittsfehler::ZuVieleSitzungen) {
+                grenze_eintragen(
+                    &zustand.protokoll,
+                    Bereich::Sitzung,
+                    "Beitritt an der Sitzungsgrenze abgewiesen",
+                    gegenstelle.ip(),
+                    format!("{JE_HERKUNFT} je Herkunft, {GESAMT} gesamt"),
+                );
+            }
+            beitrittsfehler(fehler, &wunsch, gegenstelle)
+        }
     }
 }
 
@@ -136,6 +148,28 @@ fn regelverstoss(abweisung: Abweisung) -> Response {
         antwort["vorschlag"] = json!(vorschlag.als_text());
     }
     (StatusCode::UNPROCESSABLE_ENTITY, Json(antwort)).into_response()
+}
+
+/// Episode je Herkunft an einer Grenze mit 429 (ADR-0042 Regel 2: Sitzungs- und Channel-Grenze).
+pub(super) fn grenze_eintragen(
+    protokoll: &Protokoll,
+    bereich: Bereich,
+    text: &'static str,
+    herkunft: std::net::IpAddr,
+    grenze: String,
+) {
+    protokoll.episode(Auftreten {
+        stufe: Stufe::Warning,
+        bereich,
+        text,
+        quelle: herkunft.to_string(),
+        kontext: Kontext::neu()
+            .mit(Schluessel::Herkunft, herkunft)
+            .mit(Schluessel::Grenze, grenze),
+        art: None,
+        verworfen: None,
+        bytes: None,
+    });
 }
 
 fn beitrittsfehler(

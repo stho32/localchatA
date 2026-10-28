@@ -8,7 +8,7 @@ use std::net::IpAddr;
 use std::sync::{Arc, Mutex, PoisonError};
 
 /// Offene Verbindungen je Gegenstelle (IP-Adresse): genug für Browser-Tabs, Live-Kanal und Agenten.
-const JE_GEGENSTELLE: usize = 64;
+pub const JE_GEGENSTELLE: usize = 64;
 /// Offene Verbindungen gesamt, solange das Deskriptor-Limit nicht weniger erlaubt.
 const GESAMT: usize = 512;
 
@@ -104,6 +104,16 @@ impl Belegung {
             belegung: self.clone(),
             gegenstelle,
         })
+    }
+
+    /// Die Grenze, die eine Gegenstelle gerade abweist: gesamt, wenn sie voll ist, sonst die je Gegenstelle.
+    pub fn erreichte_grenze(&self) -> usize {
+        let zaehlung = self.zaehlung();
+        if zaehlung.gesamt >= zaehlung.grenzen.gesamt {
+            zaehlung.grenzen.gesamt
+        } else {
+            zaehlung.grenzen.je_gegenstelle
+        }
     }
 
     fn zaehlung(&self) -> std::sync::MutexGuard<'_, Zaehlung> {

@@ -263,6 +263,15 @@ impl Protokoll {
         self.ohne_zaehlen_schreiben(zeilen, jetzt);
     }
 
+    /// Zählt ein Auftreten in seine Episode, nur wenn sie schon offen ist; schreibt nichts.
+    pub fn episode_falls_offen(&self, auftreten: &Auftreten) {
+        let jetzt = self.uhr.jetzt();
+        self.episoden
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .falls_offen_zaehlen(auftreten, jetzt);
+    }
+
     /// Schließt ruhende Episoden (Sekundenaufgabe des Tagestakts).
     pub fn episoden_schliessen(&self) {
         let jetzt = self.uhr.jetzt();

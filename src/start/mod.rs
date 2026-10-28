@@ -15,7 +15,7 @@ mod protokollstufe;
 mod rechnername;
 mod sperre;
 mod startfehler;
-pub(crate) mod verbindungen;
+pub mod verbindungen;
 
 use abrisspflege::{Pflege, pflege_aus};
 use aufruf::{Aufruf, Portwunsch, Startauftrag};

@@ -56,7 +56,10 @@ pub struct Zustand {
 
 /// Alle Routen unter der Schicht `grenzschutz` (ADR-0014) — sie ist die äußerste, auch für 404 und 405.
 pub fn router(zustand: Zustand) -> Router {
-    let grenzschutz = Arc::new(zustand.grenzschutz.clone());
+    let grenzschutz = (
+        Arc::new(zustand.grenzschutz.clone()),
+        Arc::clone(&zustand.protokoll),
+    );
     let protokoll = Arc::clone(&zustand.protokoll);
     Router::new()
         .route("/", get(oberflaeche::wurzel))

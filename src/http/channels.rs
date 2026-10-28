@@ -45,6 +45,7 @@ pub async fn anlegen(
         Err(abweisung) => return unverarbeitbar(abweisung),
     };
     let gespraeche = Arc::clone(&zustand.gespraeche);
+    let herkunft = teilnehmer.herkunft;
     let kennung = teilnehmer.kennung;
     let wer = kennung.als_text().to_string();
     let gewuenscht = name.clone();
@@ -79,6 +80,20 @@ pub async fn anlegen(
                     .mit(Schluessel::Grund, &grund),
             );
             ablagefehler(&grund)
+        }
+        Ok(Err(Anlegefehler::Grenze(grenze))) => {
+            let art = match grenze.art {
+                Grenzart::Gesamt => "gesamt",
+                Grenzart::Herkunft => "herkunft",
+            };
+            super::beitreten::grenze_eintragen(
+                &zustand.protokoll,
+                Bereich::Channels,
+                "Anlegen an der Channel-Grenze abgewiesen",
+                herkunft,
+                format!("{} {art}", grenze.hoechstens),
+            );
+            grenze_erreicht(grenze)
         }
         Ok(Err(fehler)) => anlegefehler(fehler, &name),
         Err(abgebrochen) => abbruch_beantworten(

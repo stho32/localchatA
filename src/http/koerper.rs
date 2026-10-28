@@ -4,6 +4,7 @@
 //! er antwortet — schlösse er mit ungelesenen Bytes, setzte das Betriebssystem die Verbindung zurück, und der
 //! Client sähe einen Abbruch statt der 413. Die Obergrenzen halten Großlast und Tröpfeln aus (ADR-0010).
 
+use crate::protokoll::episoden::Auftreten;
 use crate::protokoll::zaehler::Abweisungsart;
 use crate::protokoll::{Bereich, Kontext, Protokoll, Schluessel, Stufe};
 use axum::body::Body;
@@ -110,6 +111,23 @@ fn abweisung_eintragen(
     }
     ort.protokoll
         .eintragen(Stufe::Debug, Bereich::Koerper, "Körper abgewiesen", kontext);
+    let auftreten = Auftreten {
+        stufe: Stufe::Warning,
+        bereich: Bereich::Koerper,
+        text: "Körper abgewiesen",
+        quelle: format!("{} {}", ort.herkunft, ort.route),
+        kontext: Kontext::neu()
+            .mit(Schluessel::Herkunft, ort.herkunft)
+            .mit(Schluessel::Route, ort.route),
+        art: Some(art),
+        verworfen: gelesen.verworfen.map(Verworfen::als_text),
+        bytes: Some(gelesen.bytes as u64),
+    };
+    match fehler {
+        Koerperfehler::ZuGross | Koerperfehler::Kaputt => ort.protokoll.episode(auftreten),
+        Koerperfehler::Abgebrochen => ort.protokoll.episode_falls_offen(&auftreten),
+        Koerperfehler::KeinJson => {}
+    }
 }
 
 /// Ergebnis und Umstände des Lesens: gelesene Bytes (mit dem Verworfenen) und wie verworfen wurde.

@@ -1,8 +1,10 @@
 //! Grenzschutz (ADR-0014): welche Host-Namen die Instanz anspricht (gegen DNS-Rebinding) und von welchem
 //! Ursprung sie Wirkung annimmt (gegen CSRF).
 
+use crate::protokoll::episoden::Auftreten;
+use crate::protokoll::{Bereich, Kontext, Protokoll, Schluessel, Stufe};
 use axum::Json;
-use axum::extract::{Request, State};
+use axum::extract::{ConnectInfo, Request, State};
 use axum::http::header::{
     CACHE_CONTROL, CONTENT_SECURITY_POLICY, CONTENT_TYPE, HOST, HeaderName, HeaderValue, ORIGIN,
     REFERRER_POLICY, X_CONTENT_TYPE_OPTIONS, X_FRAME_OPTIONS,
@@ -12,31 +14,79 @@ use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
 use serde_json::json;
 use std::fmt;
-use std::net::{Ipv4Addr, Ipv6Addr};
+use std::net::{Ipv4Addr, Ipv6Addr, SocketAddr};
 use std::sync::Arc;
 
 /// Die äußerste Schicht vor jeder Route (auch 404 und 405): Host prüfen (403 mit Ausweg als Text),
 /// Ursprung prüfen (403 `{fehler}`), dann die Route; auf jede Antwort kommt der Header-Satz.
 pub async fn schicht(
-    State(schutz): State<Arc<Grenzschutz>>,
+    State((schutz, protokoll)): State<(Arc<Grenzschutz>, Arc<Protokoll>)>,
     anfrage: Request,
     weiter: Next,
 ) -> Response {
     let pfad = anfrage.uri().path().to_string();
     let host = einziger_wert(anfrage.headers(), &HOST).map(str::to_string);
     let mut antwort = match abweisung(&schutz, anfrage.method(), anfrage.headers()) {
-        Some(abweisung) => abweisung,
+        Some((abweisung, ereignis, kopf)) => {
+            abweisung_eintragen(&protokoll, &anfrage, ereignis, &kopf);
+            abweisung
+        }
         None => weiter.run(anfrage).await,
     };
     sicherheitsheader_setzen(antwort.headers_mut(), &pfad, host.as_deref());
     antwort
 }
 
-fn abweisung(schutz: &Grenzschutz, methode: &Method, kopf: &HeaderMap) -> Option<Response> {
+/// Episode `grenzschutz` je Herkunft (ADR-0042 Regel 2): `grund` ist der abgewiesene Kopf mit seinem Wert, so
+/// wie er kam (escaped und gekürzt erst in der Zeile).
+fn abweisung_eintragen(
+    protokoll: &Protokoll,
+    anfrage: &Request,
+    ereignis: &'static str,
+    kopf: &HeaderName,
+) {
+    let wert = anfrage
+        .headers()
+        .get_all(kopf)
+        .iter()
+        .map(|wert| String::from_utf8_lossy(wert.as_bytes()).into_owned())
+        .collect::<Vec<_>>()
+        .join(", ");
+    let herkunft = anfrage
+        .extensions()
+        .get::<ConnectInfo<SocketAddr>>()
+        .map_or_else(
+            || "unbekannt".to_string(),
+            |ConnectInfo(gegenstelle)| gegenstelle.ip().to_string(),
+        );
+    protokoll.episode(Auftreten {
+        stufe: Stufe::Warning,
+        bereich: Bereich::Grenzschutz,
+        text: ereignis,
+        quelle: herkunft.clone(),
+        kontext: Kontext::neu()
+            .mit(Schluessel::Herkunft, herkunft)
+            .mit(Schluessel::Grund, format!("{kopf}: {wert}")),
+        art: None,
+        verworfen: None,
+        bytes: None,
+    });
+}
+
+/// Die Antwort auf eine Abweisung, dazu Ereignis und Kopf, an dem sie hing.
+fn abweisung(
+    schutz: &Grenzschutz,
+    methode: &Method,
+    kopf: &HeaderMap,
+) -> Option<(Response, &'static str, HeaderName)> {
     let host = einziger_wert(kopf, &HOST);
     if let Err(abgewiesen) = schutz.host_erlaubt(host) {
         let text = [(CONTENT_TYPE, "text/plain; charset=utf-8")];
-        return Some((StatusCode::FORBIDDEN, text, abgewiesen.to_string()).into_response());
+        return Some((
+            (StatusCode::FORBIDDEN, text, abgewiesen.to_string()).into_response(),
+            "Anfrage mit fremdem Host abgewiesen",
+            HOST,
+        ));
     }
     let sec_fetch_site = HeaderName::from_static("sec-fetch-site");
     let ursprung = ursprung_erlaubt(
@@ -49,7 +99,11 @@ fn abweisung(schutz: &Grenzschutz, methode: &Method, kopf: &HeaderMap) -> Option
         Ok(()) => None,
         Err(abgewiesen) => {
             let fehler = Json(json!({ "fehler": abgewiesen.to_string() }));
-            Some((StatusCode::FORBIDDEN, fehler).into_response())
+            Some((
+                (StatusCode::FORBIDDEN, fehler).into_response(),
+                "Anfrage mit fremdem Ursprung abgewiesen",
+                ORIGIN,
+            ))
         }
     }
 }

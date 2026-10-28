@@ -5,6 +5,7 @@
 use super::abrisspflege::Pflege;
 use super::ende::Ende;
 use super::verbindungen::{Belegung, Platz, Verbindungsgrenzen};
+use crate::protokoll::episoden::Auftreten;
 use crate::protokoll::{Bereich, Kontext, Protokoll, Schluessel, Stufe};
 use axum::extract::ConnectInfo;
 use axum::{Extension, Router};
@@ -48,7 +49,11 @@ pub async fn ausliefern(
                 Ok((strom, gegenstelle)) => {
                     let gegenstelle = kanonisch(gegenstelle);
                     // Ohne Platz fällt der Strom hier und die Verbindung ist sofort geschlossen.
-                    if let Some(platz) = belegung.zulassen(gegenstelle.ip()) {
+                    let platz = belegung.zulassen(gegenstelle.ip());
+                    if platz.is_none() {
+                        abweisung_eintragen(&protokoll, gegenstelle.ip(), belegung.erreichte_grenze());
+                    }
+                    if let Some(platz) = platz {
                         pflege.anwenden(&strom);
                         let app = app.clone().layer(Extension(ConnectInfo(gegenstelle)));
                         let verbindung = Verbindungsprotokoll::angenommen(&protokoll, gegenstelle);
@@ -71,6 +76,22 @@ pub async fn ausliefern(
     {
         verbindungen.shutdown().await;
     }
+}
+
+/// Episode `verbindung` je Herkunft an der Platzgrenze (ADR-0042 Regel 2) — heute nicht mehr still.
+fn abweisung_eintragen(protokoll: &Protokoll, herkunft: IpAddr, grenze: usize) {
+    protokoll.episode(Auftreten {
+        stufe: Stufe::Warning,
+        bereich: Bereich::Verbindung,
+        text: "Verbindung an der Platzgrenze abgewiesen",
+        quelle: herkunft.to_string(),
+        kontext: Kontext::neu()
+            .mit(Schluessel::Herkunft, herkunft)
+            .mit(Schluessel::Grenze, grenze),
+        art: None,
+        verworfen: None,
+        bytes: None,
+    });
 }
 
 /// DEBUG `verbindung` je zugelassener Verbindung: angenommen, und beendet mit der Dauer (ADR-0042 Regel 2).
