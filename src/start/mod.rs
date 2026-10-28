@@ -14,6 +14,7 @@ mod sperre;
 mod startfehler;
 pub(crate) mod verbindungen;
 
+use abrisspflege::{Pflege, pflege_aus};
 use aufruf::{Aufruf, Portwunsch, Startauftrag};
 use ende::Ende;
 use startfehler::Startfehler;
@@ -133,6 +134,7 @@ async fn starten(
         app,
         ende,
         Verbindungsgrenzen::fuer_diesen_prozess(),
+        Pflege::kernel(pflege_aus(herzschlag)),
     )
     .await;
     Ok(())

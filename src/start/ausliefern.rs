@@ -2,6 +2,7 @@
 //! Kopf-Zeitgrenze, keine Verbindungsgrenze und kein Ende nach Frist kennt (Security-Review, CWE-400).
 //! Sie setzt je Verbindung die kanonische Gegenstelle als `ConnectInfo` — die Herkunft (ADR-0012).
 
+use super::abrisspflege::Pflege;
 use super::ende::Ende;
 use super::verbindungen::{Belegung, Platz, Verbindungsgrenzen};
 use axum::extract::ConnectInfo;
@@ -25,11 +26,13 @@ const ANNAHMEPAUSE: Duration = Duration::from_millis(50);
 
 /// Nimmt Verbindungen an und bedient sie, bis das Ende gemeldet ist; danach endet jede offene Verbindung
 /// geordnet oder spätestens nach `ENDE_FRIST`. Handler, die selbst auf das Ende hören (Ströme), enden sofort.
+/// Jede zugelassene Verbindung wird vor dem Bedienen einmal gepflegt (ADR-0017), abgewiesene nicht.
 pub async fn ausliefern(
     listener: TcpListener,
     app: Router,
     ende: Ende,
     grenzen: Verbindungsgrenzen,
+    pflege: Pflege,
 ) {
     let belegung = Belegung::neu(grenzen);
     let mut verbindungen = JoinSet::new();
@@ -43,6 +46,7 @@ pub async fn ausliefern(
                     let gegenstelle = kanonisch(gegenstelle);
                     // Ohne Platz fällt der Strom hier und die Verbindung ist sofort geschlossen.
                     if let Some(platz) = belegung.zulassen(gegenstelle.ip()) {
+                        pflege.anwenden(&strom);
                         let app = app.clone().layer(Extension(ConnectInfo(gegenstelle)));
                         verbindungen.spawn(bedienen(strom, app, platz, ende.clone()));
                     }
@@ -87,8 +91,16 @@ async fn bedienen(strom: TcpStream, app: Router, _platz: Platz, mut ende: Ende) 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::start::abrisspflege::{Pflegefehler, pflege_aus};
     use axum::routing::get;
     use std::net::IpAddr;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::{Arc, Mutex};
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    fn programmpflege() -> Pflege {
+        Pflege::kernel(pflege_aus(Duration::from_secs(5)))
+    }
 
     /// Startet die Annahmeschleife mit einer Route, die die Herkunft der Anfrage nennt.
     async fn herkunft_zeigen(host: &str) -> u16 {
@@ -103,7 +115,13 @@ mod tests {
         let listener = TcpListener::bind((host, 0)).await.expect("gebunden");
         let port = listener.local_addr().expect("Adresse").port();
         let grenzen = Verbindungsgrenzen::fuer_deskriptoren(None);
-        tokio::spawn(ausliefern(listener, app, Ende::nie(), grenzen));
+        tokio::spawn(ausliefern(
+            listener,
+            app,
+            Ende::nie(),
+            grenzen,
+            programmpflege(),
+        ));
         port
     }
 
@@ -158,7 +176,7 @@ mod tests {
         let listener = TcpListener::bind(("127.0.0.1", 0)).await.expect("gebunden");
         let adresse = listener.local_addr().expect("Adresse");
         let grenzen = Verbindungsgrenzen::fuer_deskriptoren(None);
-        let schleife = tokio::spawn(ausliefern(listener, app, ende, grenzen));
+        let schleife = tokio::spawn(ausliefern(listener, app, ende, grenzen, programmpflege()));
         let anfrage = tokio::spawn(reqwest::get(format!("http://{adresse}/warten")));
         tokio::time::sleep(Duration::from_millis(200)).await;
 
@@ -177,5 +195,140 @@ mod tests {
 
         assert_eq!(text, "beendet");
         assert!(gesendet.elapsed() < Duration::from_secs(1));
+    }
+
+    /// Eine Pflege, die zählt, wie oft sie gerufen wird, `ergebnis` liefert und jede Meldung aufschreibt.
+    struct Aufzeichnung {
+        aufrufe: Arc<AtomicUsize>,
+        meldungen: Arc<Mutex<Vec<String>>>,
+    }
+
+    fn aufzeichnend(scheitert: bool) -> (Pflege, Aufzeichnung) {
+        let aufrufe = Arc::new(AtomicUsize::new(0));
+        let meldungen = Arc::new(Mutex::new(Vec::new()));
+        let (gezaehlt, notiert) = (Arc::clone(&aufrufe), Arc::clone(&meldungen));
+        let pflege = Pflege::neu(
+            move |_: &TcpStream| {
+                gezaehlt.fetch_add(1, Ordering::SeqCst);
+                if scheitert {
+                    return Err(Pflegefehler {
+                        option: "TCP_USER_TIMEOUT",
+                        fehler: std::io::Error::from_raw_os_error(92),
+                    });
+                }
+                Ok(())
+            },
+            move |fehler: &Pflegefehler| notiert.lock().expect("Liste").push(fehler.to_string()),
+        );
+        (pflege, Aufzeichnung { aufrufe, meldungen })
+    }
+
+    async fn mit_pflege(pflege: Pflege, grenzen: Verbindungsgrenzen) -> SocketAddr {
+        let app = Router::new().route("/", get(|| async { "da" }));
+        let listener = TcpListener::bind(("127.0.0.1", 0)).await.expect("gebunden");
+        let adresse = listener.local_addr().expect("Adresse");
+        tokio::spawn(ausliefern(listener, app, Ende::nie(), grenzen, pflege));
+        adresse
+    }
+
+    /// Schickt `anzahl` Anfragen über eine Verbindung (die letzte schließt) und liefert die Statuszeilen.
+    async fn anfragen(adresse: SocketAddr, anzahl: usize) -> Vec<String> {
+        let mut verbindung = TcpStream::connect(adresse).await.expect("verbunden");
+        let mut statuszeilen = Vec::new();
+        for nummer in 1..=anzahl {
+            let schluss = if nummer == anzahl {
+                "Connection: close\r\n"
+            } else {
+                ""
+            };
+            let anfrage = format!("GET / HTTP/1.1\r\nHost: 127.0.0.1\r\n{schluss}\r\n");
+            verbindung
+                .write_all(anfrage.as_bytes())
+                .await
+                .expect("gesendet");
+            let mut puffer = vec![0u8; 4096];
+            let gelesen = verbindung.read(&mut puffer).await.expect("gelesen");
+            let antwort = String::from_utf8_lossy(&puffer[..gelesen]).into_owned();
+            statuszeilen.push(antwort.lines().next().unwrap_or_default().to_string());
+        }
+        statuszeilen
+    }
+
+    fn reichlich() -> Verbindungsgrenzen {
+        Verbindungsgrenzen::fuer_deskriptoren(None)
+    }
+
+    #[tokio::test]
+    async fn zwei_verbindungen_mit_je_einer_anfrage_werden_je_einmal_gepflegt() {
+        let (pflege, aufzeichnung) = aufzeichnend(false);
+        let adresse = mit_pflege(pflege, reichlich()).await;
+
+        let erste = anfragen(adresse, 1).await;
+        let zweite = anfragen(adresse, 1).await;
+
+        assert_eq!(
+            [erste, zweite].concat(),
+            ["HTTP/1.1 200 OK", "HTTP/1.1 200 OK"]
+        );
+        assert_eq!(aufzeichnung.aufrufe.load(Ordering::SeqCst), 2);
+    }
+
+    #[tokio::test]
+    async fn zwei_anfragen_auf_derselben_verbindung_werden_einmal_gepflegt() {
+        let (pflege, aufzeichnung) = aufzeichnend(false);
+        let adresse = mit_pflege(pflege, reichlich()).await;
+
+        let statuszeilen = anfragen(adresse, 2).await;
+
+        assert_eq!(statuszeilen, ["HTTP/1.1 200 OK", "HTTP/1.1 200 OK"]);
+        assert_eq!(aufzeichnung.aufrufe.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn eine_ueber_der_verbindungsgrenze_abgewiesene_verbindung_wird_nicht_gepflegt() {
+        let (pflege, aufzeichnung) = aufzeichnend(false);
+        let grenzen = Verbindungsgrenzen {
+            je_gegenstelle: 1,
+            gesamt: 1,
+        };
+        let adresse = mit_pflege(pflege, grenzen).await;
+        let mut gehalten = TcpStream::connect(adresse).await.expect("erste");
+        gehalten
+            .write_all(b"GET / HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n")
+            .await
+            .expect("gesendet");
+        let mut puffer = vec![0u8; 4096];
+        let gelesen = gehalten.read(&mut puffer).await.expect("Antwort");
+        assert!(String::from_utf8_lossy(&puffer[..gelesen]).starts_with("HTTP/1.1 200"));
+
+        let mut abgewiesen = TcpStream::connect(adresse).await.expect("zweite");
+        let beim_lesen = tokio::time::timeout(Duration::from_secs(2), abgewiesen.read(&mut puffer))
+            .await
+            .expect("abgewiesen binnen 2 s");
+
+        assert!(
+            matches!(beim_lesen, Ok(0) | Err(_)),
+            "die zweite Verbindung ist geschlossen: {beim_lesen:?}"
+        );
+        assert_eq!(aufzeichnung.aufrufe.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn scheitert_die_pflege_wird_trotzdem_bedient_und_nur_der_erste_fehler_gemeldet() {
+        let (pflege, aufzeichnung) = aufzeichnend(true);
+        let adresse = mit_pflege(pflege, reichlich()).await;
+
+        let erste = anfragen(adresse, 1).await;
+        let zweite = anfragen(adresse, 1).await;
+
+        assert_eq!(
+            [erste, zweite].concat(),
+            ["HTTP/1.1 200 OK", "HTTP/1.1 200 OK"]
+        );
+        assert_eq!(aufzeichnung.aufrufe.load(Ordering::SeqCst), 2);
+        let meldungen = aufzeichnung.meldungen.lock().expect("Liste").clone();
+        assert_eq!(meldungen.len(), 1, "{meldungen:?}");
+        assert!(meldungen[0].contains("TCP_USER_TIMEOUT"), "{meldungen:?}");
+        assert!(meldungen[0].contains("os error 92"), "{meldungen:?}");
     }
 }

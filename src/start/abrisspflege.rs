@@ -4,7 +4,10 @@
 
 use std::fmt;
 use std::io;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
+use tokio::net::TcpStream;
 
 /// Proben ohne Antwort, nach denen Keepalive die Verbindung aufgibt.
 const KEEPALIVE_PROBEN: u32 = 2;
@@ -95,6 +98,50 @@ pub fn kernel_pflegen<S>(_socket: S, _pflege: &Verbindungspflege) -> Result<(), 
         option: "SO_KEEPALIVE",
         fehler: io::Error::from(io::ErrorKind::Unsupported),
     })
+}
+
+type Pflegen = dyn Fn(&TcpStream) -> Result<(), Pflegefehler> + Send + Sync;
+type Melden = dyn Fn(&Pflegefehler) + Send + Sync;
+
+/// Die Naht für die Annahmeschleife (B0101, ADR-0017 Regel 3 und 4): pflegt eine zugelassene Verbindung;
+/// scheitert es, meldet sie nur den ersten Fehler — nie einen je Verbindung (stderr-Flut, ADR-0010).
+#[derive(Clone)]
+pub struct Pflege {
+    pflegen: Arc<Pflegen>,
+    melden: Arc<Melden>,
+    gemeldet: Arc<AtomicBool>,
+}
+
+impl Pflege {
+    /// Die Fassung des Programms: Kernel-Pflege, der erste Fehler eine Zeile auf stderr.
+    pub fn kernel(pflege: Verbindungspflege) -> Pflege {
+        Pflege::neu(
+            move |strom: &TcpStream| kernel_pflegen(strom, &pflege),
+            |fehler: &Pflegefehler| eprintln!("{fehler}"),
+        )
+    }
+
+    pub fn neu(
+        pflegen: impl Fn(&TcpStream) -> Result<(), Pflegefehler> + Send + Sync + 'static,
+        melden: impl Fn(&Pflegefehler) + Send + Sync + 'static,
+    ) -> Pflege {
+        Pflege {
+            pflegen: Arc::new(pflegen),
+            melden: Arc::new(melden),
+            gemeldet: Arc::new(AtomicBool::new(false)),
+        }
+    }
+
+    /// Pflegt die Verbindung; ein Fehler hält sie nicht auf — sie wird ohne Pflege bedient wie zuvor.
+    pub fn anwenden(&self, strom: &TcpStream) {
+        let Err(fehler) = (self.pflegen)(strom) else {
+            return;
+        };
+        let zuerst = !self.gemeldet.swap(true, Ordering::SeqCst);
+        if zuerst {
+            (self.melden)(&fehler);
+        }
+    }
 }
 
 #[cfg(test)]

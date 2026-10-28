@@ -62,6 +62,7 @@ pub(crate) mod testserver {
     use super::{Grenzschutz, Zustand, router};
     use crate::anwesenheit::Anwesenheit;
     use crate::gespraeche::{Dateiablage, Gespraeche};
+    use crate::start::abrisspflege::{Pflege, pflege_aus};
     use crate::start::ausliefern::ausliefern;
     use crate::start::ende::Ende;
     use crate::start::verbindungen::Verbindungsgrenzen;
@@ -110,7 +111,8 @@ pub(crate) mod testserver {
             .expect("Testport gebunden");
         let adresse = listener.local_addr().expect("Adresse");
         let grenzen = Verbindungsgrenzen::fuer_deskriptoren(None);
-        tokio::spawn(ausliefern(listener, app, Ende::nie(), grenzen));
+        let pflege = Pflege::kernel(pflege_aus(Duration::from_secs(15)));
+        tokio::spawn(ausliefern(listener, app, Ende::nie(), grenzen, pflege));
         format!("http://{adresse}/")
     }
 
