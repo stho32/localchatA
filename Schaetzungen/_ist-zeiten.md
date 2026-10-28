@@ -118,3 +118,21 @@ Nie vom User erfragen.
 | 2026-10-28 | R00004 Teilnehmer mit Online-Status sehen | Lauf R00004 | Nacharbeit | — | — | 1,68h | autonom |
 | 2026-10-28 | R00004 Teilnehmer mit Online-Status sehen | Lauf R00004 | Konsolidierung | — | — | 0h | autonom |
 | 2026-10-28 | R00004 Teilnehmer mit Online-Status sehen | Nacharbeit 3 Teststabilität (ereignisgenaues Warten, A1, Leistung) | Nacharbeit | — | — | 0,6h | autonom |
+| 2026-10-28 | R00005 Verbindung bricht ab | B0099 Abrisspflege aus dem Herzschlag | Standard | 0,4h | 0,02h | 0,02h | autonom |
+| 2026-10-28 | R00005 Verbindung bricht ab | B0100 Kernel-Pflege am Socket | unklar | 2-4h | 0,02h | 0,02h | autonom |
+| 2026-10-28 | R00005 Verbindung bricht ab | B0101 Pflege in der Annahmeschleife | Standard | 0,4h | 0,03h | 0,03h | autonom |
+| 2026-10-28 | R00005 Verbindung bricht ab | B0102 Herzschlag 5 s und Pflege im Start verdrahten | Standard | 0,4h | 0,03h | 0,03h | autonom |
+| 2026-10-28 | R00005 Verbindung bricht ab | B0103 Gesundheit nennt Herzschlag und Abrissgrenze | Standard | 0,4h | 0,01h | 0,01h | autonom |
+| 2026-10-28 | R00005 Verbindung bricht ab | B0104 Wächter 15 s | Standard | 0,4h | 0,04h | 0,04h | autonom |
+| 2026-10-28 | R00005 Verbindung bricht ab | B0105 Wann weg je Sitzung | Standard | 0,4h | 0,02h | 0,02h | autonom |
+| 2026-10-28 | R00005 Verbindung bricht ab | B0106 Serverzeit in Stand, Wechsel und Liste | Standard | 0,4h | 0,03h | 0,03h | autonom |
+| 2026-10-28 | R00005 Verbindung bricht ab | B0107 Herzschlag mit Serverzeit | Standard | 0,4h | 0,01h | 0,01h | autonom |
+| 2026-10-28 | R00005 Verbindung bricht ab | B0108 Verschobenes `weg_um` melden | Standard | 0,4h | 0,02h | 0,02h | autonom |
+| 2026-10-28 | R00005 Verbindung bricht ab | B0113 Verlassen in der Anwesenheit | Standard | 0,4h | 0,01h | 0,01h | autonom |
+| 2026-10-28 | R00005 Verbindung bricht ab | B0114 Verlassen beantworten | Standard | 0,4h | 0,02h | 0,02h | autonom |
+| 2026-10-28 | R00005 Verbindung bricht ab | B0115 Eigener Strom endet nach eigenem `weg` | Standard | 0,4h | 0,02h | 0,02h | autonom |
+| 2026-10-28 | R00005 Verbindung bricht ab | B0109 Restzeit rechnen | Standard | 0,4h | 0,03h | 0,03h | autonom |
+| 2026-10-28 | R00005 Verbindung bricht ab | B0110 Versatz mitführen | Standard | 0,4h | 0,03h | 0,03h | autonom |
+| 2026-10-28 | R00005 Verbindung bricht ab | B0111 Statusformen zeichnen | unklar | 2-4h | 0,02h | 0,02h | autonom |
+| 2026-10-28 | R00005 Verbindung bricht ab | B0112 Sekundentakt für „gleich weg“ | Standard | 0,4h | 0,02h | 0,02h | autonom |
+| 2026-10-28 | R00005 Verbindung bricht ab | Lauf R00005: E2E F0018, R00004-Anpassung, Zeitmessung 20× unter Last, Mutationsproben, Gate | Konsolidierung | — | — | 0,6h | autonom |
