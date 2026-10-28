@@ -52,6 +52,7 @@ pub(crate) mod testserver {
     use crate::anwesenheit::Anwesenheit;
     use crate::gespraeche::{Dateiablage, Gespraeche};
     use crate::start::ausliefern::ausliefern;
+    use crate::start::ende::Ende;
     use crate::start::verbindungen::Verbindungsgrenzen;
     use crate::uhr::Systemuhr;
     use crate::zufall::Betriebssystemzufall;
@@ -92,7 +93,7 @@ pub(crate) mod testserver {
             .expect("Testport gebunden");
         let adresse = listener.local_addr().expect("Adresse");
         let grenzen = Verbindungsgrenzen::fuer_deskriptoren(None);
-        tokio::spawn(ausliefern(listener, app, std::future::pending(), grenzen));
+        tokio::spawn(ausliefern(listener, app, Ende::nie(), grenzen));
         format!("http://{adresse}/")
     }
 

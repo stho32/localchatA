@@ -2,6 +2,7 @@
 //! Kopf-Zeitgrenze, keine Verbindungsgrenze und kein Ende nach Frist kennt (Security-Review, CWE-400).
 //! Sie setzt je Verbindung die kanonische Gegenstelle als `ConnectInfo` — die Herkunft (ADR-0012).
 
+use super::ende::Ende;
 use super::verbindungen::{Belegung, Platz, Verbindungsgrenzen};
 use axum::extract::ConnectInfo;
 use axum::{Extension, Router};
@@ -11,7 +12,6 @@ use hyper_util::service::TowerToHyperService;
 use std::net::SocketAddr;
 use std::time::Duration;
 use tokio::net::{TcpListener, TcpStream};
-use tokio::sync::watch;
 use tokio::task::JoinSet;
 
 /// So lange darf ein Request-Kopf vom ersten Byte bis zur Leerzeile brauchen (gesamt, nicht je Lesevorgang).
@@ -23,21 +23,20 @@ pub const ENDE_FRIST: Duration = Duration::from_secs(5);
 /// Pause nach einem Fehler der Annahme, damit ein dauerhafter Fehler die Schleife nicht heiß laufen lässt.
 const ANNAHMEPAUSE: Duration = Duration::from_millis(50);
 
-/// Nimmt Verbindungen an und bedient sie, bis `beenden` endet; danach endet jede offene Verbindung
-/// geordnet oder spätestens nach `ENDE_FRIST`.
+/// Nimmt Verbindungen an und bedient sie, bis das Ende gemeldet ist; danach endet jede offene Verbindung
+/// geordnet oder spätestens nach `ENDE_FRIST`. Handler, die selbst auf das Ende hören (Ströme), enden sofort.
 pub async fn ausliefern(
     listener: TcpListener,
     app: Router,
-    beenden: impl Future<Output = ()>,
+    ende: Ende,
     grenzen: Verbindungsgrenzen,
 ) {
     let belegung = Belegung::neu(grenzen);
-    let (ende_melden, ende) = watch::channel(false);
     let mut verbindungen = JoinSet::new();
-    tokio::pin!(beenden);
+    let mut beenden = ende.clone();
     loop {
         tokio::select! {
-            () = &mut beenden => break,
+            () = beenden.abwarten() => break,
             Some(_) = verbindungen.join_next(), if !verbindungen.is_empty() => {}
             angenommen = listener.accept() => match angenommen {
                 Ok((strom, gegenstelle)) => {
@@ -53,7 +52,6 @@ pub async fn ausliefern(
         }
     }
     drop(listener);
-    let _ = ende_melden.send(true);
     let alle_beendet = async { while verbindungen.join_next().await.is_some() {} };
     if tokio::time::timeout(ENDE_FRIST, alle_beendet)
         .await
@@ -72,7 +70,7 @@ fn kanonisch(gegenstelle: SocketAddr) -> SocketAddr {
 /// Bedient eine Verbindung mit HTTP/1.1; nach dem Ende-Signal keine neuen Requests mehr.
 /// Das Ergebnis der Verbindung (abgelaufene Kopf-Zeitgrenze, Abbruch der Gegenstelle) betrifft nur sie
 /// selbst und wird bewusst nicht gemeldet — eine Zeile je Fremdverbindung würde stderr fluten.
-async fn bedienen(strom: TcpStream, app: Router, _platz: Platz, mut ende: watch::Receiver<bool>) {
+async fn bedienen(strom: TcpStream, app: Router, _platz: Platz, mut ende: Ende) {
     let verbindung = http1::Builder::new()
         .timer(TokioTimer::new())
         .header_read_timeout(KOPF_ZEITGRENZE)
@@ -80,7 +78,7 @@ async fn bedienen(strom: TcpStream, app: Router, _platz: Platz, mut ende: watch:
     tokio::pin!(verbindung);
     tokio::select! {
         _ = verbindung.as_mut() => return,
-        _ = ende.wait_for(|beendet| *beendet) => {}
+        () = ende.abwarten() => {}
     }
     verbindung.as_mut().graceful_shutdown();
     let _ = verbindung.await;
@@ -105,7 +103,7 @@ mod tests {
         let listener = TcpListener::bind((host, 0)).await.expect("gebunden");
         let port = listener.local_addr().expect("Adresse").port();
         let grenzen = Verbindungsgrenzen::fuer_deskriptoren(None);
-        tokio::spawn(ausliefern(listener, app, std::future::pending(), grenzen));
+        tokio::spawn(ausliefern(listener, app, Ende::nie(), grenzen));
         port
     }
 
@@ -139,5 +137,45 @@ mod tests {
         let gesehen = herkunft(&format!("http://127.0.0.1:{port}/"), Some(zweiter)).await;
 
         assert_eq!(gesehen, "127.0.0.2");
+    }
+
+    /// Ende-Signal für alle (B0078): ein Handler, der wie ein Strom auf das Ende hört, antwortet beim Signal
+    /// selbst — die Schleife ist danach fertig, ohne die Frist von 5 s abzuwarten.
+    #[tokio::test]
+    async fn ein_handler_der_das_ende_hoert_endet_mit_dem_signal_ohne_die_frist() {
+        let (melden, ende) = Ende::neu();
+        let fuer_den_handler = ende.clone();
+        let app = Router::new().route(
+            "/warten",
+            get(move || {
+                let mut ende = fuer_den_handler.clone();
+                async move {
+                    ende.abwarten().await;
+                    "beendet"
+                }
+            }),
+        );
+        let listener = TcpListener::bind(("127.0.0.1", 0)).await.expect("gebunden");
+        let adresse = listener.local_addr().expect("Adresse");
+        let grenzen = Verbindungsgrenzen::fuer_deskriptoren(None);
+        let schleife = tokio::spawn(ausliefern(listener, app, ende, grenzen));
+        let anfrage = tokio::spawn(reqwest::get(format!("http://{adresse}/warten")));
+        tokio::time::sleep(Duration::from_millis(200)).await;
+
+        let gesendet = tokio::time::Instant::now();
+        melden.melden();
+        let antwort = tokio::time::timeout(Duration::from_secs(1), anfrage)
+            .await
+            .expect("Antwort in unter 1 s nach dem Signal")
+            .expect("Aufgabe")
+            .expect("Antwort");
+        let text = antwort.text().await.expect("Text");
+        tokio::time::timeout(Duration::from_secs(1), schleife)
+            .await
+            .expect("Schleife endet in unter 1 s")
+            .expect("Aufgabe");
+
+        assert_eq!(text, "beendet");
+        assert!(gesendet.elapsed() < Duration::from_secs(1));
     }
 }

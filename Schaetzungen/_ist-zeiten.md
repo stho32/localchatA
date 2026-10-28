@@ -94,3 +94,4 @@ Nie vom User erfragen.
 | 2026-10-28 | R00004 Teilnehmer mit Online-Status sehen | B0075 Status je Sitzung | Standard | 0,4h | 0,01h | 0,09h | autonom |
 | 2026-10-28 | R00004 Teilnehmer mit Online-Status sehen | B0076 Teilnehmerstand bilden | Standard | 0,4h | 0,03h | 0,03h | autonom |
 | 2026-10-28 | R00004 Teilnehmer mit Online-Status sehen | B0077 Teilnehmer beantworten | Standard | 0,4h | 0,01h | 0,01h | autonom |
+| 2026-10-28 | R00004 Teilnehmer mit Online-Status sehen | B0078 Ende-Signal für alle | Standard | 0,4h | 0,05h | 0,06h | autonom |

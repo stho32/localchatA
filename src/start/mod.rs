@@ -5,6 +5,7 @@
 mod aufruf;
 pub(crate) mod ausliefern;
 mod browser;
+pub(crate) mod ende;
 mod ordner;
 mod port;
 mod rechnername;
@@ -13,6 +14,7 @@ mod startfehler;
 pub(crate) mod verbindungen;
 
 use aufruf::{Aufruf, Portwunsch, Startauftrag};
+use ende::Ende;
 use startfehler::Startfehler;
 use verbindungen::Verbindungsgrenzen;
 
@@ -85,7 +87,7 @@ async fn starten(
         port: 0,
         grund: fehler.to_string(),
     })?;
-    let beenden = beenden_einrichten();
+    let ende = ende_einrichten();
     startzeile_schreiben(&ordner, adresse);
     if auftrag.browser_oeffnen {
         browser::oeffnen(adresse);
@@ -99,7 +101,7 @@ async fn starten(
     ausliefern::ausliefern(
         listener,
         app,
-        beenden,
+        ende,
         Verbindungsgrenzen::fuer_diesen_prozess(),
     )
     .await;
@@ -128,6 +130,17 @@ fn startzeile_schreiben(ordner: &Path, adresse: SocketAddr) {
         "localchatA läuft für {} unter http://{adresse}/",
         ordner.display()
     );
+}
+
+/// Das Ende-Signal für alle: trifft Strg+C oder SIGTERM ein, wird das Ende gemeldet.
+fn ende_einrichten() -> Ende {
+    let (melden, ende) = Ende::neu();
+    let beenden = beenden_einrichten();
+    tokio::spawn(async move {
+        beenden.await;
+        melden.melden();
+    });
+    ende
 }
 
 /// Richtet den Empfang von Strg+C und SIGTERM sofort ein — vor der Startzeile, denn ab ihr gilt die Instanz
