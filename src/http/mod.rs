@@ -79,7 +79,8 @@ pub(crate) mod testserver {
     }
 
     /// Ein Zustand wie im Programm: Gespräche aus einem leeren Wegwerf-Ordner (`ordner` steht nur in den
-    /// Antworten), Anwesenheit mit Systemuhr, Betriebssystem-Zufall und 60 s Gnadenfrist.
+    /// Antworten), Anwesenheit mit Systemuhr, Betriebssystem-Zufall und 60 s Gnadenfrist, Herzschlag 5 s wie das
+    /// Programm ohne Knopf.
     pub fn zustand(ordner: &Path) -> Zustand {
         let leer = tempfile::tempdir().expect("Wegwerf-Ordner");
         let gespraeche =
@@ -97,7 +98,7 @@ pub(crate) mod testserver {
             gespraeche: Arc::new(gespraeche),
             anwesenheit: Arc::new(anwesenheit),
             bus,
-            herzschlag: Duration::from_secs(15),
+            herzschlag: Duration::from_secs(5),
             ende: Ende::nie(),
             grenzschutz: Grenzschutz::neu(None, Vec::new()),
         }
@@ -111,7 +112,7 @@ pub(crate) mod testserver {
             .expect("Testport gebunden");
         let adresse = listener.local_addr().expect("Adresse");
         let grenzen = Verbindungsgrenzen::fuer_deskriptoren(None);
-        let pflege = Pflege::kernel(pflege_aus(Duration::from_secs(15)));
+        let pflege = Pflege::kernel(pflege_aus(Duration::from_secs(5)));
         tokio::spawn(ausliefern(listener, app, Ende::nie(), grenzen, pflege));
         format!("http://{adresse}/")
     }

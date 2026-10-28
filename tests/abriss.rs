@@ -96,3 +96,30 @@ async fn herzschlag_ohne_knopf_kommt_spaetestens_7_s_nach_dem_stand() {
     eprintln!("messung herzschlag_ms={}", dauer.as_millis());
     assert!(dauer <= Duration::from_secs(7), "{dauer:?}");
 }
+
+/// US-1 (Kriterium „Gesundheit“): der Betrieb sieht die wirksamen Werte — ohne Knopf 5000 / 10 000, mit
+/// `LOCALCHATA_HERZSCHLAG_MS=500` 500 / 1000.
+#[tokio::test]
+async fn us1_gesundheit_nennt_herzschlag_und_abrissgrenze() {
+    let ohne_knopf = wegwerf_starten();
+    let wurzel = tempfile::tempdir().expect("Wegwerf-Ordner");
+    let mit_knopf = gemeinsam::starten_mit(
+        wurzel.path(),
+        &["--port", "0", "--host", "127.0.0.1", "--kein-browser"],
+        &[("LOCALCHATA_HERZSCHLAG_MS", "500")],
+    );
+
+    let (_, standard) = gemeinsam::gesundheit(&ohne_knopf.adresse).await;
+    let (_, gestellt) = gemeinsam::gesundheit(&mit_knopf.adresse).await;
+
+    assert_eq!(
+        (&standard["herzschlag_ms"], &standard["abrissgrenze_ms"]),
+        (&json!(5000), &json!(10_000)),
+        "{standard}"
+    );
+    assert_eq!(
+        (&gestellt["herzschlag_ms"], &gestellt["abrissgrenze_ms"]),
+        (&json!(500), &json!(1000)),
+        "{gestellt}"
+    );
+}

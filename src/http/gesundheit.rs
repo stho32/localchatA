@@ -1,6 +1,7 @@
 //! Health-Check: `GET /api/gesundheit` meldet Bereitschaft und Kennzahlen des Ordners (ADR-0009).
 
 use super::Zustand;
+use crate::start::abrisspflege::pflege_aus;
 use axum::Json;
 use axum::extract::State;
 use serde::Serialize;
@@ -17,12 +18,15 @@ pub struct Gesundheit {
     defekte_zeilen: u64,
     sitzungen: usize,
     halter: usize,
+    herzschlag_ms: u128,
+    abrissgrenze_ms: u128,
 }
 
 /// Antwortet der Port, ist die Instanz bereit: geladen wird vor dem Binden (A00003).
 /// Die Kennzahlen kommen aus Laden und Verlaufsindex (R00002) und der Anwesenheit: lebende Sitzungen und
 /// offene Ströme (R00004) — Zahlen ohne Namen, ohne Sitzung lesbar; dazu die Programmversion, mit der die
-/// Oberfläche ihren Worker anlegt (ADR-0015 Regel 3).
+/// Oberfläche ihren Worker anlegt (ADR-0015 Regel 3), und die wirksamen Werte von Herzschlag und Abrissgrenze
+/// (ADR-0017, B0103).
 pub async fn beantworten(State(zustand): State<Arc<Zustand>>) -> Json<Gesundheit> {
     let kennzahlen = zustand.gespraeche.kennzahlen();
     let betrieb = zustand.anwesenheit.betrieb();
@@ -36,6 +40,8 @@ pub async fn beantworten(State(zustand): State<Arc<Zustand>>) -> Json<Gesundheit
         defekte_zeilen: kennzahlen.defekte_zeilen,
         sitzungen: betrieb.sitzungen,
         halter: betrieb.halter,
+        herzschlag_ms: zustand.herzschlag.as_millis(),
+        abrissgrenze_ms: pflege_aus(zustand.herzschlag).user_timeout.as_millis(),
     })
 }
 
@@ -85,7 +91,9 @@ mod tests {
                 "ladezeit_ms": null,
                 "defekte_zeilen": 0,
                 "sitzungen": 0,
-                "halter": 0
+                "halter": 0,
+                "herzschlag_ms": 5000,
+                "abrissgrenze_ms": 10_000
             })
         );
     }
