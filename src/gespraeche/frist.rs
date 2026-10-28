@@ -43,9 +43,14 @@ pub fn frist_in_spanne(zahl: i64) -> Option<u32> {
 /// Teilt die Tage in (behalten, entfallen): behalten ab `heute − (n − 1)`, einschließlich heute und späterer Tage;
 /// jeder Tag liegt in genau einer Menge, beide in der Reihenfolge der Eingabe.
 pub fn teilen(tage: &[NaiveDate], heute: NaiveDate, n: u32) -> (Vec<NaiveDate>, Vec<NaiveDate>) {
+    let grenze = aeltester_behaltener(heute, n);
+    tage.iter().partition(|tag| **tag >= grenze)
+}
+
+/// `heute − (n − 1)` (ADR-0029 Regel 2); vor dem kleinsten Datum das kleinste.
+pub fn aeltester_behaltener(heute: NaiveDate, n: u32) -> NaiveDate {
     let zurueck = chrono::Days::new(u64::from(n.saturating_sub(1)));
-    let aeltester_behaltener = heute.checked_sub_days(zurueck).unwrap_or(NaiveDate::MIN);
-    tage.iter().partition(|tag| **tag >= aeltester_behaltener)
+    heute.checked_sub_days(zurueck).unwrap_or(NaiveDate::MIN)
 }
 
 #[cfg(test)]

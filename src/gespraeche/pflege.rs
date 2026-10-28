@@ -4,6 +4,7 @@
 use super::einstellungen::{self, Einstellungen};
 use super::frist::{self, Frist};
 use super::logablage::Gespraech;
+use super::verlaufsindex::Verlauf;
 use super::verzeichnis::Channel;
 use super::{Gespraeche, Kennung, lesend, schreibend, sperren};
 use crate::name::Channelname;
@@ -40,6 +41,31 @@ pub enum Pflegebericht {
         datei: String,
         zeile: Option<usize>,
     },
+}
+
+/// Was mit einer neuen Frist sofort entfiele (ADR-0031 Regel 2.6): Zahl der Tagesdateien, ihre Sätze im Index und
+/// der jüngste entfallende Tag.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Entfaellt {
+    pub tage: usize,
+    pub nachrichten: usize,
+    pub bis: NaiveDate,
+}
+
+/// Die Vorschau des Entfallens aus den Tagen der Platte und dem Index; entfiele nichts, nichts.
+fn vorschau(
+    auf_der_platte: &[NaiveDate],
+    verlauf: &Verlauf,
+    heute: NaiveDate,
+    n: u32,
+) -> Option<Entfaellt> {
+    let (_, entfallend) = frist::teilen(auf_der_platte, heute, n);
+    let bis = entfallend.iter().max().copied()?;
+    Some(Entfaellt {
+        tage: entfallend.len(),
+        nachrichten: verlauf.saetze_vor(frist::aeltester_behaltener(heute, n)),
+        bis,
+    })
 }
 
 impl Gespraeche {
@@ -408,5 +434,53 @@ mod tests {
             crate::gespraeche::Logablage::tage(ablage.as_ref(), &kaputt).expect("Tage"),
             vec![tag("2026-01-01")]
         );
+    }
+
+    /// R00008 F0034 „Verkürzen braucht Bestätigung“ und „Grenze der Vorschau“: 20.(2), 21.(3), 22.(1), 28.(1).
+    #[test]
+    fn vorschau_nennt_tage_saetze_im_index_und_den_juengsten_entfallenden_tag() {
+        let tage: Vec<NaiveDate> = ["2026-10-20", "2026-10-21", "2026-10-22", "2026-10-28"]
+            .iter()
+            .map(|text| tag(text))
+            .collect();
+        let mut verlauf = Verlauf::default();
+        for (tag_text, anzahl) in [
+            ("2026-10-20", 2),
+            ("2026-10-21", 3),
+            ("2026-10-22", 1),
+            ("2026-10-28", 1),
+        ] {
+            for _ in 0..anzahl {
+                verlauf.anhaengen(tag(tag_text), &satz(tag_text), false);
+            }
+        }
+        let heute = tag("2026-10-28");
+
+        assert_eq!(
+            vorschau(&tage, &verlauf, heute, 7),
+            Some(Entfaellt {
+                tage: 2,
+                nachrichten: 5,
+                bis: tag("2026-10-21")
+            })
+        );
+        assert_eq!(
+            vorschau(&tage, &verlauf, heute, 8),
+            Some(Entfaellt {
+                tage: 1,
+                nachrichten: 2,
+                bis: tag("2026-10-20")
+            })
+        );
+        assert_eq!(
+            vorschau(&tage, &verlauf, heute, 1),
+            Some(Entfaellt {
+                tage: 3,
+                nachrichten: 6,
+                bis: tag("2026-10-22")
+            })
+        );
+        assert_eq!(vorschau(&tage, &verlauf, heute, 9), None);
+        assert_eq!(vorschau(&tage, &verlauf, heute, 30), None);
     }
 }
