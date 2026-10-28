@@ -63,13 +63,13 @@ export function halten({
   let laufenderAbruf = null;
   let neuesTokenMelden = () => {};
 
-  // Nach einer Ablehnung kommt das neue Token aus einem frischen Beitritt: einmal je Fenster wird dann sofort
-  // verbunden, sonst liefe die neue Sitzung im Rückzug ohne Halter in die Gnadenfrist (Nacharbeit 1). Jede
-  // weitere Ablehnung zählt als Fehlversuch; zurückgesetzt wird erst nach einem gelesenen Strom — so bleibt es
-  // auch bei dauerhaftem 401 beim Rückzug 1 s, 2 s, 5 s, 10 s (Nacharbeit 2).
+  // Nach einer Ablehnung kommt das neue Token aus einem frischen Beitritt: mit ihm wird immer sofort verbunden,
+  // sonst liefe die neue Sitzung ohne Halter in die Gnadenfrist (Nacharbeit 1, 3). Die Untergrenze gegen
+  // dauerhaftes 401 liegt deshalb vor der Meldung „abgelehnt“, also vor dem Wiederbeitritt: die erste
+  // Ablehnung sofort, jede weitere nach 1 s, 2 s, 5 s, 10 s; zurückgesetzt erst nach einem gelesenen Strom.
   async function laufen() {
     let fehlversuche = 0;
-    let sofortNachAblehnungFrei = true;
+    let ablehnungen = 0;
     let sofort = false;
     while (!beendet) {
       if (!aktuellesToken) {
@@ -77,7 +77,7 @@ export function halten({
         continue;
       }
       if (!sofort) {
-        await schlafen(entscheiden({ verbunden: false, letzteAktivitaetMs: 0, jetztMs: 0, fehlversuche }).wartenMs);
+        await schlafen(rueckzugInMs(fehlversuche));
       }
       sofort = false;
       const ergebnis = await einmalVerbinden(aktuellesToken);
@@ -85,23 +85,28 @@ export function halten({
         return;
       }
       if (ergebnis === 'abgelehnt') {
+        await schlafen(rueckzugInMs(ablehnungen));
+        ablehnungen += 1;
+        if (beendet) {
+          return;
+        }
         beiZustand('abgelehnt', aktuellesToken);
         aktuellesToken = null;
-        sofort = sofortNachAblehnungFrei;
-        sofortNachAblehnungFrei = false;
-        if (!sofort) {
-          fehlversuche += 1;
-        }
+        sofort = true;
         continue;
       }
       if (ergebnis === 'gelesen') {
         fehlversuche = 1;
-        sofortNachAblehnungFrei = true;
+        ablehnungen = 0;
       } else {
         fehlversuche += 1;
       }
       beiZustand('unterbrochen');
     }
+  }
+
+  function rueckzugInMs(versuche) {
+    return entscheiden({ verbunden: false, letzteAktivitaetMs: 0, jetztMs: 0, fehlversuche: versuche }).wartenMs;
   }
 
   // 'abgelehnt' (401), 'gescheitert' (kein Strom zustande gekommen) oder 'gelesen' (Strom lief und endete).

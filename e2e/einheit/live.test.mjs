@@ -215,3 +215,46 @@ test('dauerhaft 401 bei sofortigem Wiederbeitritt: höchstens 3 Abrufe in 1 s (N
 
   assert.ok(abrufe <= 3, `${abrufe} Abrufe in 1 s`);
 });
+
+test('nach erfolgreichem Wiederbeitritt verbindet der Halter sofort — auch beim zweiten 401 im Fenster (Nacharbeit 3, A2)', async () => {
+  const strom = offenerStrom();
+  const verlauf = [];
+  let versuche = 0;
+  const holen = async (pfad, optionen) => {
+    versuche += 1;
+    const token = optionen.headers['X-LocalchatA-Sitzung'];
+    verlauf.push(`holen ${token}`);
+    if (versuche <= 3) {
+      throw new TypeError('Failed to fetch');
+    }
+    if (token !== 'neu') {
+      return new Response('{"fehler":"x"}', { status: 401 });
+    }
+    return strom.antwortFuer(optionen);
+  };
+  let halter = null;
+  const ersatzToken = { alt: 'mittel', mittel: 'neu' };
+  halter = halten({
+    token: 'alt',
+    holen,
+    beiEreignis: () => {},
+    schlafen: async (ms) => { verlauf.push(`warten ${ms}`); },
+    beiZustand: (zustand, abgelehnt) => {
+      if (zustand === 'abgelehnt') {
+        queueMicrotask(() => {
+          verlauf.push(`neues Token ${ersatzToken[abgelehnt]}`);
+          halter.tokenSetzen(ersatzToken[abgelehnt]);
+        });
+      }
+    },
+  });
+
+  await bis(() => verlauf.includes('holen neu'));
+  halter.beenden();
+
+  const ab = (eintrag) => verlauf.indexOf(eintrag);
+  const zwischen = verlauf.slice(ab('neues Token neu') + 1, ab('holen neu'));
+  assert.deepEqual(zwischen.filter((eintrag) => eintrag.startsWith('warten') && eintrag !== 'warten 0'), [], verlauf.join(' | '));
+  const zwischenMittel = verlauf.slice(ab('neues Token mittel') + 1, ab('holen mittel'));
+  assert.deepEqual(zwischenMittel.filter((eintrag) => eintrag.startsWith('warten') && eintrag !== 'warten 0'), [], verlauf.join(' | '));
+});
