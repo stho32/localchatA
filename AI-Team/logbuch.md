@@ -66,3 +66,4 @@ Eine Zeile je Auftrag an eine Rolle und je Retrospektive.
 | 2026-10-28 | — | Demo | director | — | — | Demo für den Betreiber: cargo install, Port 7431, Ordner localchatA-demo, Aktualisierung nach jedem Zug in die Abnahme |
 | 2026-10-28 | #5 I0006 | Entwicklung | entwickler | bestanden | 0:55 | R00005 B0099–B0115, Liste 264 px (e9a4de3…2f4318f) |
 | 2026-10-28 | #5 I0006 | Reviews | code-, ux-, security-reviewer | befund | 0:35 | UX bestanden; Code B1 Pflege im Start ungetestet; Security verlassen hebt Platzgrenze auf → Nacharbeit 1 (nur Muss), Sollte nach #18 |
+| 2026-10-28 | #5 I0006 | Entwicklung (Nacharbeit 1) | entwickler, architekt | bestanden | 0:25 | verlassen reserviert Platz bis Gnadenfrist (ADR-0018 2a), Start-Pflege getestet (34a97a5, 56bd997…0df1232) |
