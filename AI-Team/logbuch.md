@@ -138,3 +138,4 @@ Eine Zeile je Auftrag an eine Rolle und je Retrospektive.
 | 2026-10-28 | #8 | Entwicklung → Auto-Reviews | entwickler | bestanden | 1:10 | I0009 grün (33 Bubbles), Gate gemeinsam mit Nacharbeit #12 nachgefahren; 5 Reviews parallel |
 | 2026-10-28 | #22 | Detailplanung → Entwicklung | entwickler | läuft | — | I0020 Senden bei Störungen und mit Komfort (R00012) |
 | 2026-10-28 | — | Vision | director | — | — | Betreiber: Archivieren ja; Vision fortgeschrieben (Leitplanke Team-LAN, Zielbild Archivieren, 5f046b4); I0022 als #29 in Architektur, sieben Fachfragen offen |
+| 2026-10-28 | #12 | Auto-Reviews → Entwicklertest | ux-, rechtschreib-, code-reviewer | bestanden | 0:20 | enge Wiederholung: alle Muss geschlossen |
