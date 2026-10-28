@@ -39,7 +39,7 @@ async function listeZeigen(page) {
   await expect(region(page)).toBeVisible();
 }
 
-// S1 nach Nacharbeit 2 (N3, Spalte wieder 240 px): eine Zeile, die in die Spalte passt, ist 28 px hoch;
+// S1 nach Nacharbeit 2 (N3, Spalte so breit wie --lc-members): eine Zeile, die in die Spalte passt, ist 28 px hoch;
 // „Agent“ und „(du)“ stehen im selben Textblock hinter der Kennung und brechen nur bei Platzmangel um.
 test('S1: passende Zeilen sind 28 px hoch, „Agent“ und „(du)“ stehen hinter der Kennung', async ({ page, browser }) => {
   instanz = await instanzStarten();
@@ -57,14 +57,20 @@ test('S1: passende Zeilen sind 28 px hoch, „Agent“ und „(du)“ stehen hin
   await expect(zeileVon(page, 'claude@127.0.0.1').locator('.lc-person-text .lc-tag')).toHaveText('Agent');
 });
 
-test('N3: die Teilnehmerspalte ist bei 1280 px wieder 240 px breit (Token lc-members)', async ({ page }) => {
+// R00005: die Breite steht an einer Stelle (--lc-members), 264 px nach Entscheidung des Betreibers 2026-10-28
+// (ADR-0019 Regel 7, statt 240 px aus dem Designsystem).
+test('N3: die Teilnehmerspalte ist bei 1280 px so breit wie --lc-members, 264 px', async ({ page }) => {
   instanz = await instanzStarten();
   await page.setViewportSize({ width: 1280, height: 800 });
   await beitreten(page);
 
-  const spalten = await page.locator('.lc-main').evaluate((element) => getComputedStyle(element).gridTemplateColumns);
+  const breiten = await page.locator('.lc-main').evaluate((element) => ({
+    spalten: getComputedStyle(element).gridTemplateColumns,
+    token: getComputedStyle(document.documentElement).getPropertyValue('--lc-members').trim(),
+  }));
 
-  expect(spalten).toMatch(/ 240px$/);
+  expect(breiten.token).toBe('264px');
+  expect(breiten.spalten).toMatch(new RegExp(` ${breiten.token}$`));
 });
 
 for (const thema of ['light', 'dark']) {
