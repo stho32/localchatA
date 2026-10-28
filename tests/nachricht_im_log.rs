@@ -9,7 +9,7 @@ use chrono::{DateTime, NaiveDate};
 use gemeinsam::{gesundheit, starten_mit};
 use localchata::fehler::Fehler;
 use localchata::gespraeche::logformat::saetze;
-use localchata::gespraeche::{Dateiablage, Gespraech, Gespraeche, Kennung, Speicherablage};
+use localchata::gespraeche::{Art, Dateiablage, Gespraech, Gespraeche, Kennung, Speicherablage};
 use localchata::uhr::{GestellteUhr, Zeit};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -81,13 +81,14 @@ async fn us4_lesbarer_satz_der_den_neustart_ueberlebt() {
         .senden(
             &allgemein(),
             &claude(),
+            Art::Agent,
             "# Titel\n\n@ kein Kopf\n\tTab\r\nEnde\n\n",
         )
         .expect("gesendet");
 
     assert_eq!(
         fs::read(tagesdatei(wurzel.path(), "2026-10-27")).expect("Tagesdatei"),
-        b"@ 2026-10-27T14:07:12.345+01:00 claude@10.0.0.5\n  # Titel\n\n  @ kein Kopf\n  \tTab\n  Ende\n\n"
+        b"@ 2026-10-27T14:07:12.345+01:00 claude@10.0.0.5\n+ art: agent\n  # Titel\n\n  @ kein Kopf\n  \tTab\n  Ende\n\n"
     );
     let inhalt = neustart_kennzahlen(wurzel.path(), "2026-10-27T15:00:00+01:00").await;
     assert_eq!(inhalt["nachrichten"], 1);
@@ -101,7 +102,7 @@ async fn rundweg_drei_nachrichten_nach_dem_neustart_ohne_defekte() {
 
     for text in ["eins", "@ kein Kopf\nzwei", "drei\n\n"] {
         gespraeche
-            .senden(&allgemein(), &claude(), text)
+            .senden(&allgemein(), &claude(), Art::Agent, text)
             .expect("gesendet");
     }
 
@@ -115,14 +116,14 @@ fn us5_rotation_ueber_mitternacht() {
     let wurzel = ordner_mit_allgemein();
     let (gespraeche, uhr) = laden(wurzel.path(), "2026-10-27T23:59:59.999+01:00");
     gespraeche
-        .senden(&allgemein(), &claude(), "spät")
+        .senden(&allgemein(), &claude(), Art::Agent, "spät")
         .expect("erste");
     let vorher = fs::read(tagesdatei(wurzel.path(), "2026-10-27")).expect("alter Tag");
     assert!(!tagesdatei(wurzel.path(), "2026-10-28").exists());
 
     uhr.stellen(zeit("2026-10-28T00:00:00.000+01:00"));
     gespraeche
-        .senden(&allgemein(), &claude(), "früh")
+        .senden(&allgemein(), &claude(), Art::Agent, "früh")
         .expect("zweite");
 
     assert_eq!(
@@ -145,18 +146,18 @@ fn us6_zwei_nachrichten_in_derselben_millisekunde() {
     let (gespraeche, _) = laden(wurzel.path(), "2026-10-27T14:07:12.345+01:00");
 
     gespraeche
-        .senden(&allgemein(), &claude(), "a")
+        .senden(&allgemein(), &claude(), Art::Agent, "a")
         .expect("erste");
     gespraeche
-        .senden(&allgemein(), &claude(), "b")
+        .senden(&allgemein(), &claude(), Art::Agent, "b")
         .expect("zweite");
 
     let rohtext = fs::read_to_string(tagesdatei(wurzel.path(), "2026-10-27")).expect("Datei");
     let erste = rohtext
-        .find("@ 2026-10-27T14:07:12.345+01:00 claude@10.0.0.5\n  a\n")
+        .find("@ 2026-10-27T14:07:12.345+01:00 claude@10.0.0.5\n+ art: agent\n  a\n")
         .expect("erste Zeit");
     let zweite = rohtext
-        .find("@ 2026-10-27T14:07:12.346+01:00 claude@10.0.0.5\n  b\n")
+        .find("@ 2026-10-27T14:07:12.346+01:00 claude@10.0.0.5\n+ art: agent\n  b\n")
         .expect("zweite Zeit");
     assert!(erste < zweite);
 }
@@ -166,12 +167,12 @@ fn zurueckgestellte_uhr_ergibt_eine_millisekunde_nach_der_letzten() {
     let wurzel = ordner_mit_allgemein();
     let (gespraeche, uhr) = laden(wurzel.path(), "2026-10-27T14:07:12.345+01:00");
     gespraeche
-        .senden(&allgemein(), &claude(), "a")
+        .senden(&allgemein(), &claude(), Art::Agent, "a")
         .expect("erste");
 
     uhr.stellen(zeit("2026-10-27T14:00:00.000+01:00"));
     let zweite = gespraeche
-        .senden(&allgemein(), &claude(), "b")
+        .senden(&allgemein(), &claude(), Art::Agent, "b")
         .expect("zweite");
 
     assert_eq!(zweite.zeit.to_rfc3339(), "2026-10-27T14:07:12.346+01:00");
@@ -187,21 +188,21 @@ fn us7_zeitumstellung_im_oktober() {
     let wurzel = ordner_mit_allgemein();
     let (gespraeche, uhr) = laden(wurzel.path(), "2026-10-25T02:59:59.999+02:00");
     gespraeche
-        .senden(&allgemein(), &claude(), "Sommerzeit")
+        .senden(&allgemein(), &claude(), Art::Agent, "Sommerzeit")
         .expect("erste");
 
     uhr.stellen(zeit("2026-10-25T02:00:00.000+01:00"));
     let zweite = gespraeche
-        .senden(&allgemein(), &claude(), "Winterzeit")
+        .senden(&allgemein(), &claude(), Art::Agent, "Winterzeit")
         .expect("zweite");
 
     assert_eq!(zweite.zeit.to_rfc3339(), "2026-10-25T02:00:00+01:00");
     let rohtext = fs::read_to_string(tagesdatei(wurzel.path(), "2026-10-25")).expect("Datei");
     let sommer = rohtext
-        .find("@ 2026-10-25T02:59:59.999+02:00 claude@10.0.0.5\n  Sommerzeit\n")
+        .find("@ 2026-10-25T02:59:59.999+02:00 claude@10.0.0.5\n+ art: agent\n  Sommerzeit\n")
         .expect("erste");
     let winter = rohtext
-        .find("@ 2026-10-25T02:00:00.000+01:00 claude@10.0.0.5\n  Winterzeit\n")
+        .find("@ 2026-10-25T02:00:00.000+01:00 claude@10.0.0.5\n+ art: agent\n  Winterzeit\n")
         .expect("zweite");
     assert!(sommer < winter);
     assert_eq!(
@@ -218,12 +219,17 @@ fn zeitumstellung_spaeter_in_der_wiederholten_stunde_behaelt_ihre_uhrzeit() {
     let wurzel = ordner_mit_allgemein();
     let (gespraeche, uhr) = laden(wurzel.path(), "2026-10-25T02:59:59.999+02:00");
     gespraeche
-        .senden(&allgemein(), &claude(), "Sommerzeit")
+        .senden(&allgemein(), &claude(), Art::Agent, "Sommerzeit")
         .expect("erste");
 
     uhr.stellen(zeit("2026-10-25T02:30:00.000+01:00"));
     let zweite = gespraeche
-        .senden(&allgemein(), &claude(), "eine halbe Stunde später")
+        .senden(
+            &allgemein(),
+            &claude(),
+            Art::Agent,
+            "eine halbe Stunde später",
+        )
         .expect("zweite");
 
     assert_eq!(zweite.zeit.to_rfc3339(), "2026-10-25T02:30:00+01:00");
@@ -245,7 +251,7 @@ fn us8_schreibfehler_hinterlaesst_nichts() {
     let gespraeche = Gespraeche::laden(ablage.clone(), uhr).expect("geladen");
     ablage.fehler_nach(20);
 
-    let gescheitert = gespraeche.senden(&allgemein(), &claude(), "verloren");
+    let gescheitert = gespraeche.senden(&allgemein(), &claude(), Art::Agent, "verloren");
 
     assert!(
         matches!(gescheitert, Err(Fehler::Ablage(_))),
@@ -256,13 +262,18 @@ fn us8_schreibfehler_hinterlaesst_nichts() {
     assert_eq!(gespraeche.kennzahlen().nachrichten, 1);
 
     let zweite = gespraeche
-        .senden(&allgemein(), &claude(), "heil")
+        .senden(&allgemein(), &claude(), Art::Agent, "heil")
         .expect("zweite");
 
     assert!(zweite.zeit > zeit("2026-10-27T14:07:12.345+01:00"));
     assert_eq!(
         ablage.inhalt(&allgemein(), tag("2026-10-27")).as_deref(),
-        Some(format!("{satz}@ 2026-10-27T14:07:12.346+01:00 claude@10.0.0.5\n  heil\n\n").as_str())
+        Some(
+            format!(
+                "{satz}@ 2026-10-27T14:07:12.346+01:00 claude@10.0.0.5\n+ art: agent\n  heil\n\n"
+            )
+            .as_str()
+        )
     );
     assert_eq!(gespraeche.kennzahlen().nachrichten, 2);
 }
@@ -280,7 +291,7 @@ fn fortsetzung_beim_start_am_juengsten_satz_im_ganzen_ordner() {
     let (gespraeche, _) = laden(wurzel.path(), "2026-10-27T13:00:00.000+01:00");
 
     let erste = gespraeche
-        .senden(&Gespraech::channel("a"), &claude(), "x")
+        .senden(&Gespraech::channel("a"), &claude(), Art::Agent, "x")
         .expect("gesendet");
 
     assert_eq!(erste.zeit.to_rfc3339(), "2026-10-27T14:00:00.001+01:00");
@@ -291,7 +302,12 @@ fn unbekanntes_gespraech_legt_weder_ordner_noch_datei_an() {
     let wurzel = ordner_mit_allgemein();
     let (gespraeche, _) = laden(wurzel.path(), "2026-10-27T14:07:12.345+01:00");
 
-    let ergebnis = gespraeche.senden(&Gespraech::channel("gibtsnicht"), &claude(), "x");
+    let ergebnis = gespraeche.senden(
+        &Gespraech::channel("gibtsnicht"),
+        &claude(),
+        Art::Agent,
+        "x",
+    );
 
     assert!(
         matches!(ergebnis, Err(Fehler::Unbekannt(_))),
@@ -318,12 +334,12 @@ async fn zeilenende_waechter_neuer_satz_in_neuer_zeile_und_neustart_ohne_defekte
     let (gespraeche, _) = laden(wurzel.path(), "2026-10-27T14:07:12.345+01:00");
 
     gespraeche
-        .senden(&allgemein(), &claude(), "neu")
+        .senden(&allgemein(), &claude(), Art::Agent, "neu")
         .expect("gesendet");
 
     assert_eq!(
         fs::read_to_string(&datei).expect("Datei"),
-        "@ 2026-10-27T14:00:00.000+01:00 shoff@127.0.0.1\n  Rest\n@ 2026-10-27T14:07:12.345+01:00 claude@10.0.0.5\n  neu\n\n"
+        "@ 2026-10-27T14:00:00.000+01:00 shoff@127.0.0.1\n  Rest\n@ 2026-10-27T14:07:12.345+01:00 claude@10.0.0.5\n+ art: agent\n  neu\n\n"
     );
     assert_eq!(
         gespraeche.kennzahlen().log_bytes,
@@ -346,7 +362,12 @@ async fn reihenfolge_unter_last_zwanzig_mal_fuenfzig_streng_steigend_ohne_doppel
             std::thread::spawn(move || {
                 for nummer in 0..50 {
                     gespraeche
-                        .senden(&allgemein(), &claude(), &format!("{faden}-{nummer}"))
+                        .senden(
+                            &allgemein(),
+                            &claude(),
+                            Art::Agent,
+                            &format!("{faden}-{nummer}"),
+                        )
                         .expect("gesendet");
                 }
             })
@@ -384,6 +405,7 @@ fn b1c_senden_in_einen_abgeschnittenen_tag_bleibt_byte_gleich_und_ueberlebt_das_
         .senden(
             &allgemein(),
             &Kennung::bilden("a@b").expect("Kennung"),
+            Art::Agent,
             "neu",
         )
         .expect("gesendet");
@@ -404,7 +426,7 @@ fn b1_die_zeit_setzt_nach_den_saetzen_eines_abgeschnittenen_tages_fort() {
     let (gespraeche, _) = laden(wurzel.path(), "2026-10-27T09:00:00+01:00");
 
     let gesendet = gespraeche
-        .senden(&allgemein(), &claude(), "danach")
+        .senden(&allgemein(), &claude(), Art::Agent, "danach")
         .expect("gesendet");
 
     assert_eq!(gesendet.zeit, zeit("2026-10-27T10:00:06.001+01:00"));

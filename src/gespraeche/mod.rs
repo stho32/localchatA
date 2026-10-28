@@ -188,6 +188,7 @@ impl Gespraeche {
         &self,
         gespraech: &Gespraech,
         von: &Kennung,
+        art: Art,
         text: &str,
     ) -> Result<Nachricht, Fehler> {
         let verlauf = lesend(&self.verzeichnis)
@@ -196,13 +197,14 @@ impl Gespraeche {
             .cloned()
             .ok_or_else(|| Fehler::Unbekannt(format!("Gespräch {gespraech} unbekannt")))?;
         let mut verlauf = sperren(&verlauf);
-        let nachricht = Nachricht {
+        let mut nachricht = Nachricht {
             zeit: self.zeit_vergeben(),
             von: von.clone(),
-            art: None,
+            art: Some(art),
             text: text.to_string(),
         };
         let satz = logformat::satz(&nachricht);
+        nachricht.text = logformat::text(&satz);
         let tag = nachricht.zeit.date_naive();
         let angehaengt = self
             .ablage
@@ -568,13 +570,14 @@ mod tests {
         let allgemein = Gespraech::channel("allgemein");
 
         let nachricht = gespraeche
-            .senden(&allgemein, &claude(), "Hallo")
+            .senden(&allgemein, &claude(), Art::Agent, "Hallo")
             .expect("gesendet");
 
         assert_eq!(nachricht.zeit, zeit("2026-10-27T14:07:12.345+01:00"));
         assert_eq!(nachricht.von, claude());
+        assert_eq!(nachricht.art, Some(Art::Agent));
         assert_eq!(nachricht.text, "Hallo");
-        let erwartet = "@ 2026-10-27T14:07:12.345+01:00 claude@10.0.0.5\n  Hallo\n\n";
+        let erwartet = "@ 2026-10-27T14:07:12.345+01:00 claude@10.0.0.5\n+ art: agent\n  Hallo\n\n";
         assert_eq!(
             ablage.inhalt(&allgemein, tag("2026-10-27")).as_deref(),
             Some(erwartet)
@@ -585,16 +588,38 @@ mod tests {
         assert_eq!(gespraeche.letzte_zeit(), Some(nachricht.zeit));
     }
 
+    /// B0209: die Nachricht trägt die Art; ihr Text ist der Text, wie ihn der Verlauf liefert (ADR-0034 Regel 4).
+    #[test]
+    fn gesendet_wird_mit_art_und_der_verlauf_liefert_dieselbe_nachricht() {
+        let (gespraeche, _, _) = im_speicher("2026-10-28T12:00:00.000+01:00");
+        let allgemein = Gespraech::channel("allgemein");
+
+        let mensch = gespraeche
+            .senden(&allgemein, &claude(), Art::Mensch, "Hallo\r\nWelt\n\n")
+            .expect("gesendet");
+
+        assert_eq!(mensch.art, Some(Art::Mensch));
+        assert_eq!(mensch.text, "Hallo\nWelt");
+        let block = gespraeche
+            .verlauf(
+                "allgemein",
+                &abfrage(abfrage::Abschnitt::Neueste, 100),
+                usize::MAX,
+            )
+            .expect("bekannt");
+        assert_eq!(block.nachrichten, vec![mensch]);
+    }
+
     #[test]
     fn zwei_nachrichten_in_derselben_millisekunde_folgen_mit_einer_millisekunde_abstand() {
         let (gespraeche, _, _) = im_speicher("2026-10-27T14:07:12.345+01:00");
         let allgemein = Gespraech::channel("allgemein");
 
         let erste = gespraeche
-            .senden(&allgemein, &claude(), "a")
+            .senden(&allgemein, &claude(), Art::Agent, "a")
             .expect("erste");
         let zweite = gespraeche
-            .senden(&allgemein, &claude(), "b")
+            .senden(&allgemein, &claude(), Art::Agent, "b")
             .expect("zweite");
 
         assert_eq!(zweite.zeit - erste.zeit, chrono::Duration::milliseconds(1));
@@ -604,7 +629,12 @@ mod tests {
     fn unbekanntes_gespraech_ist_ein_fehler_und_legt_nichts_an() {
         let (gespraeche, ablage, _) = im_speicher("2026-10-27T14:07:12.345+01:00");
 
-        let ergebnis = gespraeche.senden(&Gespraech::channel("gibtsnicht"), &claude(), "x");
+        let ergebnis = gespraeche.senden(
+            &Gespraech::channel("gibtsnicht"),
+            &claude(),
+            Art::Agent,
+            "x",
+        );
 
         assert!(
             matches!(ergebnis, Err(Fehler::Unbekannt(ref text)) if text.contains("gibtsnicht")),
@@ -623,12 +653,12 @@ mod tests {
         let (gespraeche, ablage, _) = im_speicher("2026-10-27T14:07:12.345+01:00");
         let allgemein = Gespraech::channel("allgemein");
         gespraeche
-            .senden(&allgemein, &claude(), "eins")
+            .senden(&allgemein, &claude(), Art::Agent, "eins")
             .expect("erste");
         let vorher = ablage.inhalt(&allgemein, tag("2026-10-27")).expect("Tag");
         ablage.fehler_nach(20);
 
-        let gescheitert = gespraeche.senden(&allgemein, &claude(), "zwei");
+        let gescheitert = gespraeche.senden(&allgemein, &claude(), Art::Agent, "zwei");
 
         assert!(
             matches!(gescheitert, Err(Fehler::Ablage(_))),
@@ -641,7 +671,7 @@ mod tests {
         assert_eq!(gespraeche.kennzahlen().nachrichten, 1);
         assert_eq!(gespraeche.kennzahlen().log_bytes, vorher.len() as u64);
         let dritte = gespraeche
-            .senden(&allgemein, &claude(), "drei")
+            .senden(&allgemein, &claude(), Art::Agent, "drei")
             .expect("dritte");
         assert_eq!(dritte.zeit, zeit("2026-10-27T14:07:12.347+01:00"));
     }
@@ -659,7 +689,9 @@ mod tests {
         let uhr = Arc::new(GestellteUhr::neu(zeit("2026-10-27T13:00:00.000+01:00")));
         let gespraeche = Gespraeche::laden(ablage, uhr).expect("geladen");
 
-        let erste = gespraeche.senden(&a, &claude(), "x").expect("gesendet");
+        let erste = gespraeche
+            .senden(&a, &claude(), Art::Agent, "x")
+            .expect("gesendet");
 
         assert_eq!(erste.zeit.to_rfc3339(), "2026-10-27T14:00:00.001+01:00");
     }
@@ -669,12 +701,12 @@ mod tests {
         let (gespraeche, ablage, uhr) = im_speicher("2026-10-27T23:59:59.999+01:00");
         let allgemein = Gespraech::channel("allgemein");
         gespraeche
-            .senden(&allgemein, &claude(), "spät")
+            .senden(&allgemein, &claude(), Art::Agent, "spät")
             .expect("erste");
         uhr.stellen(zeit("2026-10-28T00:00:00.000+01:00"));
 
         gespraeche
-            .senden(&allgemein, &claude(), "früh")
+            .senden(&allgemein, &claude(), Art::Agent, "früh")
             .expect("zweite");
 
         assert_eq!(
@@ -893,7 +925,7 @@ mod tests {
             })
         );
         gespraeche
-            .senden(&allgemein, &claude(), "erste Nachricht")
+            .senden(&allgemein, &claude(), Art::Agent, "erste Nachricht")
             .expect("im neuen Channel gesendet");
     }
 
@@ -1300,7 +1332,12 @@ mod tests {
             );
             gesendet.push(
                 gespraeche
-                    .senden(&allgemein, &claude(), &format!("n{nummer}\nzweite Zeile"))
+                    .senden(
+                        &allgemein,
+                        &claude(),
+                        Art::Agent,
+                        &format!("n{nummer}\nzweite Zeile"),
+                    )
                     .expect("gesendet"),
             );
         }
