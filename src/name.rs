@@ -47,19 +47,22 @@ fn regel_erfuellt(text: &str) -> bool {
         && !text.ends_with('-')
 }
 
-/// Klein, Umlaute zu `ae/oe/ue/ss`, sonst nicht Erlaubtes zu `-`, Mehrfach-`-` zusammengefasst, Ränder
-/// entfernt, auf 32 gekürzt; bleibt nichts übrig, gibt es keinen Vorschlag.
+/// Klein, Umlaute zu `ae/oe/ue/ss`, Akzente zum Grundbuchstaben (`AKZENTE`), sonst nicht Erlaubtes zu `-`,
+/// Mehrfach-`-` zusammengefasst, Ränder entfernt, auf 32 gekürzt; bleibt nichts übrig, gibt es keinen Vorschlag.
 fn umformen(text: &str) -> Option<Name> {
     let mut umgeformt = String::new();
-    for zeichen in text.to_lowercase().chars() {
+    for zeichen in text.chars().flat_map(klein) {
         match zeichen {
             'ä' => umgeformt.push_str("ae"),
             'ö' => umgeformt.push_str("oe"),
             'ü' => umgeformt.push_str("ue"),
             'ß' => umgeformt.push_str("ss"),
             'a'..='z' | '0'..='9' => umgeformt.push(zeichen),
-            _ if umgeformt.ends_with('-') => {}
-            _ => umgeformt.push('-'),
+            _ => match grundbuchstabe(zeichen) {
+                Some(grund) => umgeformt.push_str(grund),
+                None if umgeformt.ends_with('-') => {}
+                None => umgeformt.push('-'),
+            },
         }
     }
     let gekuerzt: String = umgeformt.trim_matches('-').chars().take(LAENGE).collect();
@@ -68,6 +71,105 @@ fn umformen(text: &str) -> Option<Name> {
         return None;
     }
     Some(Name(vorschlag.to_string()))
+}
+
+/// Kleinschreibung je Zeichen; ein Zeichen der Akzenttabelle bleibt, wie es ist (`İ` würde sonst zu `i` mit
+/// kombinierendem Punkt).
+fn klein(zeichen: char) -> Vec<char> {
+    if grundbuchstabe(zeichen).is_some() {
+        return vec![zeichen];
+    }
+    zeichen.to_lowercase().collect()
+}
+
+fn grundbuchstabe(zeichen: char) -> Option<&'static str> {
+    AKZENTE
+        .iter()
+        .find(|(buchstaben, _)| buchstaben.contains(zeichen))
+        .map(|(_, grund)| *grund)
+}
+
+/// Regel eines Channelnamens, der unter Windows ein Gerätename ist (ADR-0020 Regel 2).
+pub const RESERVIERT: &str = "reserviert";
+
+/// Buchstaben mit Akzent aus U+00C0–U+017F und ihr Grundbuchstabe (R00006); dieselbe Tabelle steht in
+/// `web/namensregel.js`. `ä`, `ö`, `ü`, `ß` gehen eigene Wege (`ae`, `oe`, `ue`, `ss`).
+pub const AKZENTE: &[(&str, &str)] = &[
+    ("àáâãåāăą", "a"),
+    ("æ", "ae"),
+    ("çćĉċč", "c"),
+    ("ðďđ", "d"),
+    ("èéêëēĕėęě", "e"),
+    ("ĝğġģ", "g"),
+    ("ĥħ", "h"),
+    ("ìíîïĩīĭįıİ", "i"),
+    ("ĳ", "ij"),
+    ("ĵ", "j"),
+    ("ķĸ", "k"),
+    ("ĺļľŀł", "l"),
+    ("ñńņňŉŋ", "n"),
+    ("òóôõøōŏő", "o"),
+    ("œ", "oe"),
+    ("ŕŗř", "r"),
+    ("śŝşšſ", "s"),
+    ("ţťŧ", "t"),
+    ("þ", "th"),
+    ("ùúûũūŭůűų", "u"),
+    ("ŵ", "w"),
+    ("ýÿŷ", "y"),
+    ("źżž", "z"),
+];
+
+/// Ein geprüfter Channelname = Ordnername (ADR-0020): Namensregel plus reservierte Gerätenamen.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct Channelname(String);
+
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "Brücke bis B0119: das Verzeichnis nutzt den Channelnamen"
+    )
+)]
+impl Channelname {
+    pub fn bilden(text: &str) -> Result<Channelname, Namensfehler> {
+        match Name::bilden(text) {
+            Ok(name) if reserviert(name.als_text()) => Err(Namensfehler {
+                regel: RESERVIERT,
+                vorschlag: None,
+            }),
+            Ok(name) => Ok(Channelname(name.0)),
+            Err(fehler) => Err(Namensfehler {
+                regel: fehler.regel,
+                vorschlag: fehler
+                    .vorschlag
+                    .filter(|vorschlag| !reserviert(vorschlag.als_text())),
+            }),
+        }
+    }
+
+    pub fn als_text(&self) -> &str {
+        &self.0
+    }
+}
+
+/// `con`, `prn`, `aux`, `nul`, `com0`–`com9`, `lpt0`–`lpt9` — Gerätenamen, die Windows nicht als Ordner zulässt.
+fn reserviert(name: &str) -> bool {
+    if matches!(name, "con" | "prn" | "aux" | "nul") {
+        return true;
+    }
+    let geraet_mit_ziffer = |vorsilbe: &str| {
+        name.strip_prefix(vorsilbe).is_some_and(|rest| {
+            rest.len() == 1 && rest.chars().all(|zeichen| zeichen.is_ascii_digit())
+        })
+    };
+    geraet_mit_ziffer("com") || geraet_mit_ziffer("lpt")
+}
+
+impl fmt::Display for Channelname {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(&self.0)
+    }
 }
 
 impl fmt::Display for Name {
@@ -157,5 +259,103 @@ mod tests {
                 "{text:?} → {vorgeschlagen:?}"
             );
         }
+    }
+
+    #[test]
+    fn akzente_werden_im_vorschlag_zum_grundbuchstaben() {
+        let fall = |text: &str, erwartet: &str| {
+            assert_eq!(vorschlag(text).as_deref(), Some(erwartet), "{text:?}");
+        };
+        fall("Allgemein", "allgemein");
+        fall("Prüfung", "pruefung");
+        fall("José", "jose");
+        fall("Café Crème", "cafe-creme");
+        fall("Ñandú", "nandu");
+        fall("Łódź", "lodz");
+        fall("Ærø", "aero");
+        fall("Straße", "strasse");
+        fall("Œuvre", "oeuvre");
+        fall("İstanbul", "istanbul");
+        assert_eq!(vorschlag("日本"), None);
+    }
+
+    #[test]
+    fn jeder_buchstabe_der_akzenttabelle_liegt_in_u00c0_bis_u017f_und_wird_zu_a_bis_z() {
+        for (buchstaben, grund) in AKZENTE {
+            assert!(
+                grund.chars().all(|zeichen| zeichen.is_ascii_lowercase()),
+                "{grund}"
+            );
+            for zeichen in buchstaben.chars() {
+                assert!(('\u{C0}'..='\u{17F}').contains(&zeichen), "{zeichen:?}");
+                assert_eq!(
+                    vorschlag(&zeichen.to_string()).as_deref(),
+                    Some(*grund),
+                    "{zeichen:?}"
+                );
+            }
+        }
+    }
+
+    fn channelfehler(text: &str) -> Namensfehler {
+        match Channelname::bilden(text) {
+            Ok(name) => panic!("{text:?} ist als Channelname gültig: {name}"),
+            Err(fehler) => fehler,
+        }
+    }
+
+    #[test]
+    fn channelname_gilt_als_spanne_bis_32_zeichen() {
+        assert_eq!(
+            Channelname::bilden(&"a".repeat(32)).map(|name| name.als_text().to_string()),
+            Ok("a".repeat(32))
+        );
+        let zu_lang = channelfehler(&"a".repeat(33));
+        assert_eq!(zu_lang.regel, NAMENSREGEL);
+    }
+
+    #[test]
+    fn channelname_folgt_der_namensregel() {
+        for text in ["a", "a-1", "com10", "console", "lpt", "com", "allgemein"] {
+            assert_eq!(
+                Channelname::bilden(text).map(|name| name.to_string()),
+                Ok(text.to_string()),
+                "{text:?}"
+            );
+        }
+        for text in ["-a", "a-", "a_b", "a b", "..", "a/b", "a\\b", ""] {
+            assert_eq!(channelfehler(text).regel, NAMENSREGEL, "{text:?}");
+        }
+        assert_eq!(
+            channelfehler("Allgemein")
+                .vorschlag
+                .map(|name| name.to_string()),
+            Some("allgemein".to_string())
+        );
+    }
+
+    #[test]
+    fn reservierte_geraetenamen_sind_ohne_vorschlag_abgewiesen() {
+        for text in [
+            "con", "prn", "aux", "nul", "com0", "com1", "com9", "lpt0", "lpt1", "lpt9",
+        ] {
+            let fehler = channelfehler(text);
+            assert_eq!(fehler.regel, RESERVIERT, "{text:?}");
+            assert_eq!(fehler.vorschlag, None, "{text:?}");
+        }
+    }
+
+    #[test]
+    fn ist_die_umformung_reserviert_gibt_es_keinen_vorschlag() {
+        let fehler = channelfehler("CON");
+        assert_eq!(fehler.regel, NAMENSREGEL);
+        assert_eq!(fehler.vorschlag, None);
+        assert_eq!(channelfehler("Com1").vorschlag, None);
+        assert_eq!(
+            channelfehler("Com10")
+                .vorschlag
+                .map(|name| name.to_string()),
+            Some("com10".to_string())
+        );
     }
 }

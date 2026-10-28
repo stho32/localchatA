@@ -137,6 +137,7 @@ async fn us8_namensregel_ueber_die_route_gueltig_mit_vorschlag_und_ohne() {
     let mit_vorschlag = [
         ("Jörg".to_string(), "joerg".to_string()),
         ("Claude".into(), "claude".into()),
+        ("José".into(), "jose".into()),
         ("a_b".into(), "a-b".into()),
         ("a.b".into(), "a-b".into()),
         ("a b".into(), "a-b".into()),
