@@ -55,6 +55,21 @@ pub fn text(satz: &str) -> String {
     zeilen.join("\n").trim_end_matches('\n').to_string()
 }
 
+/// Ein kopierter Satz als Nachricht (ADR-0025 Regel 3): nur der Satz am Anfang, Text ohne Einrückung,
+/// ungültiges UTF-8 ersetzt; ohne gültigen Kopf am Anfang keine.
+pub fn satz_als_nachricht(satz: &[u8]) -> Option<Nachricht> {
+    let bereich = saetze(satz)
+        .into_iter()
+        .find_map(Result::ok)
+        .filter(|bereich| bereich.anfang == 0)?;
+    let roh = String::from_utf8_lossy(&satz[..bereich.ende]);
+    Some(Nachricht {
+        zeit: bereich.zeit,
+        von: bereich.von,
+        text: text(&roh),
+    })
+}
+
 /// Die Zeit aus der Kopfzeile am Anfang von `satz` — nur die erste Zeile wird gelesen.
 pub fn kopfzeit(satz: &[u8]) -> Option<Zeit> {
     let kopf = satz.strip_prefix(b"@ ")?;
@@ -356,5 +371,45 @@ mod tests {
 
         assert_eq!(gueltige_roh(rohtext).len(), 1);
         assert_eq!(defekte_roh(rohtext), vec![1, 4]);
+    }
+    #[test]
+    fn ein_kopierter_satz_wird_zur_nachricht_ohne_einrueckung() {
+        let gelesen = satz_als_nachricht(
+            b"@ 2026-10-28T14:01:00.000+01:00 alpha@127.0.0.2\n  zwei\n  drei\n\n",
+        );
+
+        assert_eq!(
+            gelesen,
+            Some(Nachricht {
+                zeit: DateTime::parse_from_rfc3339("2026-10-28T14:01:00+01:00").expect("Zeit"),
+                von: Kennung::bilden("alpha@127.0.0.2").expect("Kennung"),
+                text: "zwei\ndrei".to_string(),
+            })
+        );
+    }
+
+    #[test]
+    fn ein_defekter_satz_dahinter_gehoert_nicht_zum_text() {
+        let gelesen = satz_als_nachricht(
+            b"@ 2026-10-28T14:00:00.000+01:00 a@b\n  eins\n\n@ 2026-10-28T14:0 kaputt\n  fremd\n\nkaputt\n",
+        )
+        .expect("Nachricht");
+
+        assert_eq!(gelesen.text, "eins");
+    }
+
+    #[test]
+    fn ungueltiges_utf8_im_text_wird_ersetzt() {
+        let gelesen = satz_als_nachricht(b"@ 2026-10-28T14:00:00.000+01:00 a@b\n  Gr\xf6\xdfe\n\n")
+            .expect("Nachricht");
+
+        assert_eq!(gelesen.text, "Gr\u{fffd}\u{fffd}e");
+    }
+
+    #[test]
+    fn ohne_gueltigen_kopf_am_anfang_keine_nachricht() {
+        assert_eq!(satz_als_nachricht(b"  eins\n\n"), None);
+        assert_eq!(satz_als_nachricht(b"@ gestern a@b\n  eins\n\n"), None);
+        assert_eq!(satz_als_nachricht(b""), None);
     }
 }
