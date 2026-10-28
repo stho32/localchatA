@@ -59,9 +59,21 @@ body { background: var(--kd-bg); color: var(--kd-ink); font-family: var(--font-s
 .lc-app { height: 100%; display: grid; grid-template-rows: var(--kd-header) auto minmax(0, 1fr); }
 .lc-verbindung[hidden] { display: none; }
 .lc-verbindung { grid-row: 2; margin: 0; padding: var(--kd-space-8) var(--kd-space-12); background: var(--kd-surface); border-bottom: 1px solid var(--kd-line); }
-.lc-main { grid-row: 3; display: grid; grid-template-columns: minmax(0, 1fr) var(--lc-members); min-height: 0; }
-.lc-main.ohne-teilnehmer { grid-template-columns: minmax(0, 1fr); }
+.lc-main { grid-row: 3; display: grid; grid-template-columns: var(--lc-sidebar) minmax(0, 1fr) var(--lc-members); min-height: 0; }
+.lc-main.ohne-teilnehmer { grid-template-columns: var(--lc-sidebar) minmax(0, 1fr); }
 .lc-center { min-width: 0; overflow-y: auto; background: var(--kd-surface); padding: var(--kd-space-12); }
+
+/* Seitenleiste (Baustein Seitenleiste, ADR-0024 Regeln 1–3): Kopf in lc-label mit „+“, Einträge in 28-px-Zeilen */
+.lc-side { background: var(--kd-bg); border-right: 1px solid var(--kd-line); padding: var(--kd-space-8) 0; overflow-y: auto; min-width: 0; }
+.lc-side-kopf { display: flex; align-items: center; justify-content: space-between; gap: var(--kd-space-4); padding: 0 var(--kd-space-8) var(--kd-space-4) var(--kd-space-12); }
+.lc-side-titel { margin: 0; line-height: 28px; }
+.lc-side-plus { width: 28px; height: 28px; flex: none; border: 0; background: transparent; color: var(--kd-ink-muted); cursor: pointer; font-size: 16px; line-height: 28px; padding: 0; }
+.lc-side-plus:hover { background: var(--kd-surface-2); color: var(--kd-ink); }
+.lc-side-leer { margin: 0; padding: var(--kd-space-4) var(--kd-space-12); font-size: 12px; color: var(--kd-ink-muted); }
+.lc-side-liste { list-style: none; margin: 0; padding: 0; }
+.lc-item { height: var(--kd-row); display: flex; align-items: center; gap: var(--kd-space-8); padding: 0 var(--kd-space-8) 0 var(--kd-space-12); color: var(--kd-ink-muted); white-space: nowrap; }
+.lc-item .hash { font-family: var(--font-mono); width: 12px; flex: none; text-align: center; }
+.lc-item .n { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 
 /* Teilnehmerliste (Baustein Teilnehmerliste, Status nach components/bundle.css) */
 .lc-members { background: var(--kd-surface); border-left: 1px solid var(--kd-line); padding: var(--kd-space-8) 0; overflow-y: auto; min-width: 0; }
@@ -88,8 +100,13 @@ body { background: var(--kd-bg); color: var(--kd-ink); font-family: var(--font-s
 .lc-status, .lc-du { font-size: 12px; color: var(--kd-ink-muted); white-space: nowrap; }
 .lc-status { font-variant-numeric: tabular-nums; }
 
-/* Unter 720 px legt sich die eingeblendete Liste als Fläche über die Mitte */
+/* Unter 720 px legt sich die eingeblendete Liste als Fläche über die Mitte; die Seitenleiste wird 48 px schmal und
+   zeigt je Eintrag nur „#“ (Name als Tooltip und zugänglicher Name), Kopf nur „+“ */
 @media (max-width: 719px) {
-  .lc-main { position: relative; grid-template-columns: minmax(0, 1fr); }
+  .lc-main, .lc-main.ohne-teilnehmer { position: relative; grid-template-columns: 48px minmax(0, 1fr); }
+  .lc-side-kopf { justify-content: center; padding: 0 0 var(--kd-space-4); }
+  .lc-item .n { display: none; }
+  .lc-side-titel, .lc-side-leer { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+  .lc-item { justify-content: center; padding: 0; }
   .lc-main .lc-members { position: absolute; inset: 0; border-left: 0; z-index: 1; }
 }
