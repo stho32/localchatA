@@ -258,7 +258,8 @@ async fn nach_der_sperre(
     let bus = Arc::new(Bus::neu(live::KAPAZITAET));
     let gespraeche = Arc::new(
         verlauf_laden(&ordner, Arc::clone(&uhr), &protokoll)?
-            .mit_veroeffentlichen(bus::channels_veroeffentlichen(&bus)),
+            .mit_veroeffentlichen(bus::channels_veroeffentlichen(&bus))
+            .mit_nachricht_veroeffentlichen(bus::nachrichten_veroeffentlichen(&bus)),
     );
     let gepflegt_am = uhr.jetzt().date_naive();
     frist_pflegen(&gespraeche, gepflegt_am, Pflegeanlass::Start, &protokoll);

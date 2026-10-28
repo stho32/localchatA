@@ -6,11 +6,12 @@
 
 use super::Zustand;
 use super::channels::{channel_als_json, stand_als_json as channels_als_json};
+use super::nachrichten::NachrichtAntwort;
 use super::teilnehmer::{gemeldetes_token, nicht_erkannt};
 use super::teilnehmerliste::{stand_als_json, zeile_als_json, zeit_als_text};
 use crate::anwesenheit::status::Status;
 use crate::anwesenheit::{Anwesenheit, Halter, Stand, Wechsel};
-use crate::gespraeche::{ChannelStand, ChannelWechsel, Gespraeche};
+use crate::gespraeche::{ChannelStand, ChannelWechsel, Gespraeche, Nachricht};
 use crate::live::bus::{Abonnement, Empfang, Ereignis};
 use crate::start::ende::Ende;
 use axum::Json;
@@ -93,6 +94,10 @@ enum Ausgabe {
     Wechsel(Wechsel),
     Channels(ChannelStand),
     Channel(ChannelWechsel),
+    Nachricht {
+        channel: String,
+        nachricht: Nachricht,
+    },
     Herzschlag,
 }
 
@@ -106,6 +111,7 @@ impl Strom {
             Ausgabe::Wechsel(wechsel) => wechsel_ereignis(&wechsel),
             Ausgabe::Channels(stand) => channels_ereignis(&stand),
             Ausgabe::Channel(wechsel) => channel_ereignis(&wechsel),
+            Ausgabe::Nachricht { channel, nachricht } => nachricht_ereignis(&channel, &nachricht),
             Ausgabe::Herzschlag => herzschlag_ereignis(&self.anwesenheit),
         };
         Some((Ok(ereignis), self))
@@ -137,6 +143,9 @@ impl Strom {
                         }
                         self.zuletzt_channels = wechsel.stand;
                         Ausgabe::Channel(wechsel)
+                    }
+                    Empfang::Ereignis(Ereignis::Nachricht { channel, nachricht }) => {
+                        Ausgabe::Nachricht { channel, nachricht }
                     }
                     Empfang::NeuerStand => {
                         let stand = self.anwesenheit.teilnehmer();
@@ -182,6 +191,16 @@ fn channel_ereignis(wechsel: &ChannelWechsel) -> Event {
         "art": "channel",
         "stand": wechsel.stand,
         "channel": channel_als_json(&wechsel.channel),
+    });
+    Event::default().data(ereignis.to_string())
+}
+
+/// `{"art":"nachricht","channel":…,"nachricht":{zeit, von, art, text}}` — dieselbe Form wie Verlauf und 201.
+fn nachricht_ereignis(channel: &str, nachricht: &Nachricht) -> Event {
+    let ereignis = json!({
+        "art": "nachricht",
+        "channel": channel,
+        "nachricht": NachrichtAntwort::aus(nachricht),
     });
     Event::default().data(ereignis.to_string())
 }
@@ -288,7 +307,10 @@ mod tests {
                     staende.push(stand.stand);
                 }
                 Ausgabe::Wechsel(wechsel) => staende.push(wechsel.stand),
-                Ausgabe::Channels(_) | Ausgabe::Channel(_) | Ausgabe::Herzschlag => {}
+                Ausgabe::Channels(_)
+                | Ausgabe::Channel(_)
+                | Ausgabe::Nachricht { .. }
+                | Ausgabe::Herzschlag => {}
             }
             if neuer_stand.is_some() {
                 break;

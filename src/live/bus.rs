@@ -2,13 +2,18 @@
 //! liest, erfährt es als „neuer Stand“ statt einer stillen Lücke (ADR-0016 Regel 5).
 
 use crate::anwesenheit::Wechsel;
-use crate::gespraeche::ChannelWechsel;
+use crate::gespraeche::{ChannelWechsel, Gespraech, Nachricht};
 use tokio::sync::broadcast;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Ereignis {
     Anwesenheit(Wechsel),
     Channel(ChannelWechsel),
+    /// Eine angehängte Nachricht eines Channels (ADR-0028, ab I0009); ohne Stand, ohne Zähler.
+    Nachricht {
+        channel: String,
+        nachricht: Nachricht,
+    },
 }
 
 /// Was ein Abonnent als Nächstes bekommt.
@@ -74,6 +79,22 @@ pub fn channels_veroeffentlichen(
     let bus = std::sync::Arc::clone(bus);
     std::sync::Arc::new(move |wechsel: &ChannelWechsel| {
         bus.veroeffentlichen(Ereignis::Channel(wechsel.clone()));
+    })
+}
+
+/// Die Veröffentlichung für Nachrichten: jede Nachricht eines Channels als Ereignis auf den Bus (B0214);
+/// Direktgespräche haben ihren eigenen Weg (I0012).
+pub fn nachrichten_veroeffentlichen(
+    bus: &std::sync::Arc<Bus>,
+) -> crate::gespraeche::NachrichtVeroeffentlichen {
+    let bus = std::sync::Arc::clone(bus);
+    std::sync::Arc::new(move |gespraech: &Gespraech, nachricht: &Nachricht| {
+        if let Gespraech::Channel(channel) = gespraech {
+            bus.veroeffentlichen(Ereignis::Nachricht {
+                channel: channel.clone(),
+                nachricht: nachricht.clone(),
+            });
+        }
     })
 }
 

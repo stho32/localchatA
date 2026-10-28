@@ -124,7 +124,10 @@ pub(crate) mod testserver {
         let gespraeche =
             Gespraeche::laden(Arc::new(Dateiablage::neu(leer.path())), Arc::new(Systemuhr))
                 .expect("leerer Ordner geladen")
-                .mit_veroeffentlichen(crate::live::bus::channels_veroeffentlichen(&bus));
+                .mit_veroeffentlichen(crate::live::bus::channels_veroeffentlichen(&bus))
+                .mit_nachricht_veroeffentlichen(crate::live::bus::nachrichten_veroeffentlichen(
+                    &bus,
+                ));
         let anwesenheit = Anwesenheit::neu(
             Arc::new(Systemuhr),
             Arc::new(Betriebssystemzufall),
