@@ -62,7 +62,12 @@ pub struct Anwesenheit {
     zufall: Arc<dyn Zufall>,
     gnadenfrist: Duration,
     bestand: Mutex<Bestand>,
+    veroeffentlichen: Veroeffentlichen,
 }
+
+/// Wohin jeder Wechsel geht — aufgerufen unter der Sperre, damit die Reihenfolge der Veröffentlichung die
+/// Reihenfolge von `stand` ist (Nacharbeit 1, B1). Die Anwesenheit kennt den Bus nicht (ADR-0016 Regel 3).
+pub type Veroeffentlichen = Arc<dyn Fn(&Wechsel) + Send + Sync>;
 
 /// Was unter der Sperre steht: die Sitzungen mit ihrer Haltung und dem zuletzt gemeldeten Status, und die
 /// laufende Nummer des letzten Wechsels.
@@ -175,6 +180,22 @@ impl Anwesenheit {
             zufall,
             gnadenfrist,
             bestand: Mutex::new(Bestand::default()),
+            veroeffentlichen: Arc::new(|_: &Wechsel| {}),
+        }
+    }
+
+    /// Jeder Wechsel geht unter der Sperre an `veroeffentlichen` (synchron, z. B. `broadcast::send`).
+    pub fn mit_veroeffentlichen(self, veroeffentlichen: Veroeffentlichen) -> Anwesenheit {
+        Anwesenheit {
+            veroeffentlichen,
+            ..self
+        }
+    }
+
+    /// Unter der Sperre: Wechsel veröffentlichen, solange niemand einen weiteren melden kann.
+    fn melden_unter_der_sperre(&self, _sperre: &MutexGuard<'_, Bestand>, wechsel: &[Wechsel]) {
+        for einzeln in wechsel {
+            (self.veroeffentlichen)(einzeln);
         }
     }
 
@@ -217,6 +238,7 @@ impl Anwesenheit {
         let mut wechsel = bestand.abgelaufene_melden(jetzt, self.gnadenfrist);
         bestand.eintraege.insert(token.clone(), eintrag);
         wechsel.extend(bestand.melden(&token, Status::Online, jetzt));
+        self.melden_unter_der_sperre(&bestand, &wechsel);
         Ok(Beitritt { sitzung, wechsel })
     }
 
@@ -275,6 +297,7 @@ impl Anwesenheit {
         eintrag.sitzung.letztes_lebenszeichen = jetzt;
         eintrag.haltung.halter_beginnt(jetzt);
         let wechsel = bestand.status_melden(jetzt);
+        self.melden_unter_der_sperre(&bestand, &wechsel);
         let halter = Halter {
             anwesenheit: Arc::clone(self),
             token: token.clone(),
@@ -288,14 +311,22 @@ impl Anwesenheit {
         let mut bestand = self.bestand();
         let mut wechsel = bestand.abgelaufene_melden(jetzt, self.gnadenfrist);
         wechsel.extend(bestand.status_melden(jetzt));
+        self.melden_unter_der_sperre(&bestand, &wechsel);
         wechsel
     }
 
     /// Alle lebenden Sitzungen mit ihrem zuletzt gemeldeten Status, nach Kennung sortiert, und der Stand des
     /// letzten Wechsels — die Liste passt zu den Wechseln, die bis zu diesem Stand veröffentlicht wurden.
     pub fn teilnehmer(&self) -> Stand {
+        self.stand_mit(|| ()).0
+    }
+
+    /// Der Stand und, unter derselben Sperre, `unter_der_sperre` — etwa das Abonnieren des Busses: zwischen
+    /// Abonnieren und Stand kann so kein Wechsel liegen (ADR-0016 Regel 5).
+    pub fn stand_mit<T>(&self, unter_der_sperre: impl FnOnce() -> T) -> (Stand, T) {
         let jetzt = self.uhr.jetzt();
         let bestand = self.bestand();
+        let ergebnis = unter_der_sperre();
         let mut liste: Vec<Teilnehmerzeile> = bestand
             .eintraege
             .values()
@@ -303,10 +334,11 @@ impl Anwesenheit {
             .map(Eintrag::zeile)
             .collect();
         liste.sort_by(|links, rechts| links.kennung.als_text().cmp(rechts.kennung.als_text()));
-        Stand {
+        let stand = Stand {
             stand: bestand.stand,
             liste,
-        }
+        };
+        (stand, ergebnis)
     }
 
     /// Für den Betrieb: wie viele Sitzungen leben und wie viele Halter (offene Ströme) sie zusammen haben.

@@ -430,3 +430,119 @@ async fn us12_gesundheit_zaehlt_sitzungen_und_offene_stroeme() {
     assert_eq!(geschlossen["halter"], 0, "{geschlossen}");
     assert_eq!(geschlossen["sitzungen"], 2, "{geschlossen}");
 }
+
+/// Je Strom: (a) `stand` streng steigend; (b) nach dem ersten Stand S kommt jede Nummer S+1 … höchste genau
+/// einmal (keine Lücke, kein Doppel). Leer, wenn alles stimmt, sonst die Abweichung.
+fn reihenfolge_pruefen(name: &str, strom: &Strom) -> Option<String> {
+    let staende = strom.staende();
+    let Some((&erster, wechsel)) = staende.split_first() else {
+        return Some(format!("{name}: kein Ereignis"));
+    };
+    if strom.ereignisse.first().map(|e| e.data["art"].clone()) != Some(json!("teilnehmer")) {
+        return Some(format!("{name}: erstes Ereignis ist kein Stand"));
+    }
+    if !streng_steigend(&staende) {
+        return Some(format!("{name}: (a) nicht streng steigend {staende:?}"));
+    }
+    let erwartet: Vec<u64> = (erster + 1..=erster + wechsel.len() as u64).collect();
+    if wechsel != erwartet.as_slice() {
+        return Some(format!(
+            "{name}: (b) Lücke oder Doppel nach Stand {erster}: {wechsel:?}"
+        ));
+    }
+    None
+}
+
+async fn lesen_und_pruefen(
+    herkunft: String,
+    basis: String,
+    token: String,
+    dauer: Duration,
+) -> Option<String> {
+    let absender = Absender::von(&herkunft);
+    let mut strom = Strom::oeffnen(&absender, &basis, &token).await;
+    strom.mitlesen(dauer).await;
+    reihenfolge_pruefen(&herkunft, &strom)
+}
+
+const ZUSAETZLICHE_STROEME: usize = 400;
+const ABSTAND_MS: u64 = 3;
+
+/// Nacharbeit 1, Code-Review B1/B2 (ADR-0016 Regel 5): unter Gleichzeitigkeit — Beitritte mit kurzen eigenen
+/// Strömen auf acht Herkünften, dazu 40 Ströme, die im Abstand von 10 ms öffnen — sieht jeder Strom den Stand
+/// und danach jeden Wechsel genau einmal, in steigender Folge.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn unter_last_sieht_jeder_strom_jeden_wechsel_genau_einmal_in_folge() {
+    let instanz = wegwerf_starten();
+    let basis = instanz.adresse.clone();
+    let mut beobachter = Vec::new();
+    for stelle in 2..=9 {
+        let herkunft = format!("127.0.0.{stelle}");
+        let token = beitreten(&Absender::von(&herkunft), &instanz, &format!("b{stelle}")).await;
+        beobachter.push((herkunft, token));
+    }
+    let mut aufgaben = tokio::task::JoinSet::new();
+    for (herkunft, token) in &beobachter {
+        for _ in 0..3 {
+            aufgaben.spawn(lesen_und_pruefen(
+                herkunft.clone(),
+                basis.clone(),
+                token.clone(),
+                Duration::from_secs(4),
+            ));
+        }
+    }
+    for (nummer, (herkunft, _)) in beobachter.iter().enumerate() {
+        let (herkunft_der_folge, basis_der_folge) = (herkunft.clone(), basis.clone());
+        aufgaben.spawn(async move {
+            let (herkunft, basis) = (herkunft_der_folge, basis_der_folge);
+            tokio::time::sleep(Duration::from_millis(200)).await;
+            let absender = Absender::von(&herkunft);
+            for folge in 0..7 {
+                let antwort = absender
+                    .beitreten(
+                        &basis,
+                        json!({ "name": format!("j{nummer}-{folge}") }),
+                        None,
+                    )
+                    .await;
+                let strom = Strom::oeffnen(&absender, &basis, &token_aus(&antwort)).await;
+                tokio::time::sleep(Duration::from_millis(30)).await;
+                drop(strom);
+            }
+            None
+        });
+        for gruppe in 0..8 {
+            let (herkunft, basis) = (herkunft.clone(), basis.clone());
+            aufgaben.spawn(async move {
+                tokio::time::sleep(Duration::from_millis(250)).await;
+                let absender = Absender::von(&herkunft);
+                for folge in 0..6 {
+                    let name = format!("k{nummer}-{gruppe}-{folge}");
+                    absender
+                        .beitreten(&basis, json!({ "name": name }), None)
+                        .await;
+                }
+                None
+            });
+        }
+    }
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    for nummer in 0..ZUSAETZLICHE_STROEME {
+        let (herkunft, token) = beobachter[nummer % beobachter.len()].clone();
+        let dauer = if nummer < 40 { 2000 } else { 600 };
+        aufgaben.spawn(lesen_und_pruefen(
+            herkunft,
+            basis.clone(),
+            token,
+            Duration::from_millis(dauer),
+        ));
+        tokio::time::sleep(Duration::from_millis(ABSTAND_MS)).await;
+    }
+
+    let mut abweichungen = Vec::new();
+    while let Some(ergebnis) = aufgaben.join_next().await {
+        abweichungen.extend(ergebnis.expect("Aufgabe"));
+    }
+    assert!(abweichungen.is_empty(), "{}", abweichungen.join("\n"));
+}

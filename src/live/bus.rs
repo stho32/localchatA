@@ -55,6 +55,16 @@ impl Abonnement {
     }
 }
 
+/// Die Veröffentlichung für die Anwesenheit: jeder Wechsel als Ereignis auf den Bus.
+pub fn anwesenheit_veroeffentlichen(
+    bus: &std::sync::Arc<Bus>,
+) -> crate::anwesenheit::Veroeffentlichen {
+    let bus = std::sync::Arc::clone(bus);
+    std::sync::Arc::new(move |wechsel: &Wechsel| {
+        bus.veroeffentlichen(Ereignis::Anwesenheit(wechsel.clone()));
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

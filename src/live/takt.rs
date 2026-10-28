@@ -1,7 +1,6 @@
-//! Takt (B0083, ADR-0016 Regel 4): alle 250 ms `pflegen(jetzt)` und die Wechsel veröffentlichen — nach dem
-//! Freigeben der Sperre; endet mit dem Ende-Signal.
+//! Takt (B0083, ADR-0016 Regel 4): alle 250 ms `pflegen(jetzt)`; die Wechsel veröffentlicht die Anwesenheit
+//! unter ihrer Sperre (Nacharbeit 1, B1). Endet mit dem Ende-Signal.
 
-use super::bus::{Bus, Ereignis};
 use crate::anwesenheit::Anwesenheit;
 use crate::start::ende::Ende;
 use crate::uhr::Uhr;
@@ -14,7 +13,6 @@ pub const PERIODE: Duration = Duration::from_millis(250);
 pub async fn takten(
     anwesenheit: Arc<Anwesenheit>,
     uhr: Arc<dyn Uhr>,
-    bus: Arc<Bus>,
     mut ende: Ende,
     periode: Duration,
 ) {
@@ -24,9 +22,7 @@ pub async fn takten(
         tokio::select! {
             () = ende.abwarten() => return,
             _ = takt.tick() => {
-                for wechsel in anwesenheit.pflegen(uhr.jetzt()) {
-                    bus.veroeffentlichen(Ereignis::Anwesenheit(wechsel));
-                }
+                anwesenheit.pflegen(uhr.jetzt());
             }
         }
     }
@@ -37,7 +33,7 @@ mod tests {
     use super::*;
     use crate::anwesenheit::Beitrittswunsch;
     use crate::anwesenheit::status::Status;
-    use crate::live::bus::Empfang;
+    use crate::live::bus::{Bus, Empfang, Ereignis};
     use crate::uhr::{GestellteUhr, Zeit};
     use crate::zufall::FesteFolge;
     use serde_json::json;
@@ -46,22 +42,27 @@ mod tests {
     async fn der_takt_veroeffentlicht_offline_nach_dem_nachlauf_und_endet_mit_dem_ende() {
         let t0 = Zeit::parse_from_rfc3339("2026-10-28T09:00:00+01:00").expect("Zeit");
         let uhr = Arc::new(GestellteUhr::neu(t0));
-        let anwesenheit = Arc::new(Anwesenheit::neu(
-            Arc::clone(&uhr) as Arc<dyn Uhr>,
-            Arc::new(FesteFolge::neu([1])),
-            Duration::from_secs(60),
-        ));
         let bus = Arc::new(Bus::neu(16));
-        let mut abonnement = bus.abonnieren();
+        let an_den_bus = Arc::clone(&bus);
+        let anwesenheit = Arc::new(
+            Anwesenheit::neu(
+                Arc::clone(&uhr) as Arc<dyn Uhr>,
+                Arc::new(FesteFolge::neu([1])),
+                Duration::from_secs(60),
+            )
+            .mit_veroeffentlichen(Arc::new(move |wechsel| {
+                an_den_bus.veroeffentlichen(Ereignis::Anwesenheit(wechsel.clone()));
+            })),
+        );
         let wunsch = Beitrittswunsch::pruefen(&json!({"name": "alpha"})).expect("Wunsch");
         anwesenheit
             .beitreten(&wunsch, "127.0.0.2".parse().expect("IP"))
             .expect("beigetreten");
+        let mut abonnement = bus.abonnieren();
         let (melden, ende) = Ende::neu();
         let aufgabe = tokio::spawn(takten(
             Arc::clone(&anwesenheit),
             Arc::clone(&uhr) as Arc<dyn Uhr>,
-            Arc::clone(&bus),
             ende,
             Duration::from_millis(10),
         ));

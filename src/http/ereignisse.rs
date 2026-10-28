@@ -6,7 +6,7 @@
 use super::Zustand;
 use super::teilnehmer::{gemeldetes_token, nicht_erkannt};
 use super::teilnehmerliste::{stand_als_json, zeile_als_json};
-use crate::anwesenheit::{Anwesenheit, Halter, Wechsel};
+use crate::anwesenheit::{Anwesenheit, Halter, Stand, Wechsel};
 use crate::live::bus::{Abonnement, Empfang, Ereignis};
 use crate::start::ende::Ende;
 use axum::extract::{ConnectInfo, State};
@@ -27,21 +27,18 @@ pub async fn beantworten(
 ) -> Response {
     let verbunden = gemeldetes_token(&kopf)
         .and_then(|token| zustand.anwesenheit.verbunden(&token, gegenstelle.ip()));
-    let Some((halter, wechsel)) = verbunden else {
+    let Some((halter, _veroeffentlicht)) = verbunden else {
         return nicht_erkannt();
     };
-    for wechsel in wechsel {
-        zustand.bus.veroeffentlichen(Ereignis::Anwesenheit(wechsel));
-    }
-    let abonnement = zustand.bus.abonnieren();
-    let erstes = stand_ereignis(&zustand.anwesenheit);
+    let (stand, abonnement) = zustand.anwesenheit.stand_mit(|| zustand.bus.abonnieren());
     let herzschlag = zustand.herzschlag;
     let strom = Strom {
         anwesenheit: Arc::clone(&zustand.anwesenheit),
         abonnement,
         ende: zustand.ende.clone(),
         herzschlag: tokio::time::interval_at(tokio::time::Instant::now() + herzschlag, herzschlag),
-        erstes: Some(erstes),
+        zuletzt: stand.stand,
+        erstes: Some(stand_ereignis(&stand)),
         _halter: halter,
     };
     Sse::new(stream::unfold(strom, Strom::naechstes)).into_response()
@@ -53,6 +50,8 @@ struct Strom {
     abonnement: Abonnement,
     ende: Ende,
     herzschlag: Interval,
+    /// Nummer des zuletzt gesendeten Stands oder Wechsels; ältere oder gleiche gehen schon im Stand auf.
+    zuletzt: u64,
     erstes: Option<Event>,
     _halter: Halter,
 }
@@ -62,20 +61,32 @@ impl Strom {
         if let Some(erstes) = self.erstes.take() {
             return Some((Ok(erstes), self));
         }
-        let ereignis = tokio::select! {
-            () = self.ende.abwarten() => return None,
-            _ = self.herzschlag.tick() => Event::default().event("herzschlag").data("{}"),
-            empfang = self.abonnement.naechstes() => match empfang? {
-                Empfang::Ereignis(Ereignis::Anwesenheit(wechsel)) => wechsel_ereignis(&wechsel),
-                Empfang::NeuerStand => stand_ereignis(&self.anwesenheit),
-            },
-        };
-        Some((Ok(ereignis), self))
+        loop {
+            let ereignis = tokio::select! {
+                () = self.ende.abwarten() => return None,
+                _ = self.herzschlag.tick() => Event::default().event("herzschlag").data("{}"),
+                empfang = self.abonnement.naechstes() => match empfang? {
+                    Empfang::Ereignis(Ereignis::Anwesenheit(wechsel)) => {
+                        if wechsel.stand <= self.zuletzt {
+                            continue;
+                        }
+                        self.zuletzt = wechsel.stand;
+                        wechsel_ereignis(&wechsel)
+                    }
+                    Empfang::NeuerStand => {
+                        let stand = self.anwesenheit.teilnehmer();
+                        self.zuletzt = stand.stand;
+                        stand_ereignis(&stand)
+                    }
+                },
+            };
+            return Some((Ok(ereignis), self));
+        }
     }
 }
 
-fn stand_ereignis(anwesenheit: &Anwesenheit) -> Event {
-    let mut stand = stand_als_json(&anwesenheit.teilnehmer());
+fn stand_ereignis(stand: &Stand) -> Event {
+    let mut stand = stand_als_json(stand);
     stand["art"] = json!("teilnehmer");
     Event::default().data(stand.to_string())
 }

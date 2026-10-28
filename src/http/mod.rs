@@ -84,15 +84,18 @@ pub(crate) mod testserver {
         let gespraeche =
             Gespraeche::laden(Arc::new(Dateiablage::neu(leer.path())), Arc::new(Systemuhr))
                 .expect("leerer Ordner geladen");
+        let bus = Arc::new(crate::live::bus::Bus::neu(crate::live::KAPAZITAET));
+        let anwesenheit = Anwesenheit::neu(
+            Arc::new(Systemuhr),
+            Arc::new(Betriebssystemzufall),
+            Duration::from_secs(60),
+        )
+        .mit_veroeffentlichen(crate::live::bus::anwesenheit_veroeffentlichen(&bus));
         Zustand {
             ordner: ordner.to_path_buf(),
             gespraeche: Arc::new(gespraeche),
-            anwesenheit: Arc::new(Anwesenheit::neu(
-                Arc::new(Systemuhr),
-                Arc::new(Betriebssystemzufall),
-                Duration::from_secs(60),
-            )),
-            bus: Arc::new(crate::live::bus::Bus::neu(crate::live::KAPAZITAET)),
+            anwesenheit: Arc::new(anwesenheit),
+            bus,
             herzschlag: Duration::from_secs(15),
             ende: Ende::nie(),
             grenzschutz: Grenzschutz::neu(None, Vec::new()),

@@ -7,6 +7,8 @@ pub(crate) mod status;
 mod vorschlag;
 mod wunsch;
 
-pub use bestand::{Anwesenheit, Beitrittsfehler, GESAMT, Halter, JE_HERKUNFT, Sitzung};
+pub use bestand::{
+    Anwesenheit, Beitrittsfehler, GESAMT, Halter, JE_HERKUNFT, Sitzung, Veroeffentlichen,
+};
 pub use stand::{Stand, Teilnehmerzeile, Wechsel};
 pub use wunsch::{Abweisung, Art, Beitrittswunsch};

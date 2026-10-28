@@ -21,7 +21,7 @@ use verbindungen::Verbindungsgrenzen;
 use crate::anwesenheit::{Anwesenheit, gnadenfrist};
 use crate::gespraeche::{Dateiablage, Gespraeche};
 use crate::http::{self, Grenzschutz, Zustand};
-use crate::live::bus::Bus;
+use crate::live::bus::{self, Bus};
 use crate::live::{self, herzschlag, takt};
 use crate::uhr::{self, Uhr};
 use crate::zufall::Betriebssystemzufall;
@@ -92,12 +92,15 @@ async fn starten(
     let ordner = ordner::ordner_vorbereiten(&auftrag.ordner)?;
     let _sperre = sperre::ordner_sperren(&ordner)?;
     let gespraeche = verlauf_laden(&ordner, Arc::clone(&uhr))?;
-    let anwesenheit = Arc::new(Anwesenheit::neu(
-        Arc::clone(&uhr),
-        Arc::new(Betriebssystemzufall),
-        gnadenfrist,
-    ));
     let bus = Arc::new(Bus::neu(live::KAPAZITAET));
+    let anwesenheit = Arc::new(
+        Anwesenheit::neu(
+            Arc::clone(&uhr),
+            Arc::new(Betriebssystemzufall),
+            gnadenfrist,
+        )
+        .mit_veroeffentlichen(bus::anwesenheit_veroeffentlichen(&bus)),
+    );
     let listener = port::listener_binden(&auftrag.host, auftrag.port).await?;
     let adresse = listener.local_addr().map_err(|fehler| Startfehler::Port {
         host: auftrag.host.clone(),
@@ -108,7 +111,6 @@ async fn starten(
     tokio::spawn(takt::takten(
         Arc::clone(&anwesenheit),
         uhr,
-        Arc::clone(&bus),
         ende.clone(),
         takt::PERIODE,
     ));
