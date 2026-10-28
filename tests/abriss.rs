@@ -125,13 +125,15 @@ async fn us1_gesundheit_nennt_herzschlag_und_abrissgrenze() {
 }
 
 /// Der Kernel-Timer einer angenommenen Verbindung, wie `/proc/net/tcp` ihn zeigt: (`timer_active`, `when` in
-/// Ticks zu 1/100 s) der Zeile mit lokalem Port `instanzport` und Gegenport `clientport`.
+/// Ticks zu 1/100 s) der Zeile im Zustand ESTABLISHED (`01`) mit lokalem Port `instanzport` und Gegenport
+/// `clientport`.
 fn kernel_timer(instanzport: u16, clientport: u16) -> Option<(u32, u64)> {
     let tabelle = std::fs::read_to_string("/proc/net/tcp").expect("/proc/net/tcp");
     tabelle.lines().skip(1).find_map(|zeile| {
         let felder: Vec<&str> = zeile.split_whitespace().collect();
         let port = |adresse: &str| u16::from_str_radix(adresse.rsplit(':').next()?, 16).ok();
-        let passt = port(felder[1])? == instanzport && port(felder[2])? == clientport;
+        let verbunden = felder[3] == "01";
+        let passt = verbunden && port(felder[1])? == instanzport && port(felder[2])? == clientport;
         if !passt {
             return None;
         }
@@ -176,7 +178,8 @@ async fn timer_nach_einer_anfrage(instanz: &Instanz) -> (u32, u64) {
 }
 
 /// Nacharbeit 1, Code-Review B1: der Start setzt die Kernel-Pflege mit dem Herzschlag ein —
-/// `LOCALCHATA_HERZSCHLAG_MS=2000` → Keepalive-Timer aktiv, `when` ≤ 200 Ticks (Keepidle 2 s).
+/// `LOCALCHATA_HERZSCHLAG_MS=2000` → Keepalive-Timer aktiv, 100 < `when` ≤ 200 Ticks (Keepidle 2 s; die
+/// Untergrenze fängt eine Pflege mit falschem Wert, Nacharbeit 2).
 #[tokio::test]
 async fn nacharbeit1_b1_der_start_pflegt_mit_dem_herzschlag_aus_dem_knopf() {
     let wurzel = tempfile::tempdir().expect("Wegwerf-Ordner");
@@ -190,10 +193,13 @@ async fn nacharbeit1_b1_der_start_pflegt_mit_dem_herzschlag_aus_dem_knopf() {
 
     eprintln!("messung b1_when_2000_ticks={wann}");
     assert_eq!(aktiv, 2, "Keepalive-Timer, when {wann}");
-    assert!(wann <= 200, "when {wann} Ticks");
+    assert!(
+        (101..=200).contains(&wann),
+        "when {wann} Ticks, erwartet 100 < when ≤ 200 (Keepidle 2 s)"
+    );
 }
 
-/// Variante ohne Knopf: Herzschlag 5 s → Keepalive-Timer aktiv, `when` ≤ 500 Ticks.
+/// Variante ohne Knopf: Herzschlag 5 s → Keepalive-Timer aktiv, 400 < `when` ≤ 500 Ticks.
 #[tokio::test]
 async fn nacharbeit1_b1_ohne_knopf_pflegt_der_start_mit_5_s() {
     let instanz = wegwerf_starten();
@@ -202,5 +208,8 @@ async fn nacharbeit1_b1_ohne_knopf_pflegt_der_start_mit_5_s() {
 
     eprintln!("messung b1_when_standard_ticks={wann}");
     assert_eq!(aktiv, 2, "Keepalive-Timer, when {wann}");
-    assert!(wann <= 500, "when {wann} Ticks");
+    assert!(
+        (401..=500).contains(&wann),
+        "when {wann} Ticks, erwartet 400 < when ≤ 500 (Keepidle 5 s)"
+    );
 }
