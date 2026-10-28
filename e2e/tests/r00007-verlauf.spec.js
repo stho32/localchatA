@@ -90,7 +90,8 @@ test('Leer (US-10): ein Channel ohne Tagesdatei sagt „Noch keine Nachrichten i
 
   await link(a.page, 'leer').click();
 
-  await expect(verlauf(a.page)).toHaveText('Noch keine Nachrichten in # leer.');
+  await expect(verlauf(a.page).locator('p').first()).toHaveText('Noch keine Nachrichten in # leer.');
+  await expect(verlauf(a.page)).toHaveText('Noch keine Nachrichten in # leer.Agenten schreiben hier mit POST /api/channels/leer/nachrichten.');
   await expect(nachrichten(a.page)).toHaveCount(0);
   expect(a.fehler).toEqual([]);
 });
@@ -283,7 +284,8 @@ test('Fokus: Tab von der Seitenleiste erreicht den Verlauf (role=log, aria-live=
   expect(a.fehler).toEqual([]);
 });
 
-test('Tab-Reihenfolge: Kopfzeile → Seitenleiste → Verlauf → Teilnehmerliste', async ({ browser }) => {
+// R00011 (ADR-0038 Regel 8) setzt die Eingabe zwischen Verlauf und Teilnehmerliste.
+test('Tab-Reihenfolge: Kopfzeile → Seitenleiste → Verlauf → Eingabe → Teilnehmerliste', async ({ browser }) => {
   await starten((ordner) => channelAnlegen(ordner, 'allgemein', US9));
   const a = await seiteMitFehlern(browser);
   await beitreten(a.page);
@@ -292,12 +294,12 @@ test('Tab-Reihenfolge: Kopfzeile → Seitenleiste → Verlauf → Teilnehmerlist
   await a.page.getByRole('button', { name: /^Teilnehmer/ }).focus();
 
   const folge = [];
-  for (let schritt = 0; schritt < 4; schritt += 1) {
+  for (let schritt = 0; schritt < 5; schritt += 1) {
     await a.page.keyboard.press('Tab');
     folge.push(await a.page.evaluate(() => document.activeElement.getAttribute('aria-label') || document.activeElement.tagName));
   }
 
-  expect(folge).toEqual(['Channel anlegen', 'allgemein', 'Verlauf # allgemein', 'Teilnehmer']);
+  expect(folge).toEqual(['Channel anlegen', 'allgemein', 'Verlauf # allgemein', 'Nachricht an # allgemein', 'Teilnehmer']);
   expect(a.fehler).toEqual([]);
 });
 
