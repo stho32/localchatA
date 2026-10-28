@@ -34,3 +34,11 @@ test('ohne verwertbares Zeichen gibt es keinen Vorschlag', () => {
     assert.equal(ergebnis.vorschlag, '', JSON.stringify(eingabe));
   }
 });
+
+test('der Hinweis nennt die Regel mit dem Wortlaut des Servers (NAMENSREGEL in src/name.rs)', async () => {
+  const { readFile } = await import('node:fs/promises');
+  const quelle = await readFile(new URL('../../src/name.rs', import.meta.url), 'utf8');
+  const regelDesServers = /pub const NAMENSREGEL: &str =\s*"([^"]+)";/.exec(quelle)[1];
+
+  assert.equal(pruefen('Jörg').hinweis, `Erlaubt sind ${regelDesServers}.`);
+});

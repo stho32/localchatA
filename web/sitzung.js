@@ -2,7 +2,7 @@
 // Token und zuletzt gewählter Name im localStorage des Ursprungs, alle Tabs teilen sie.
 //
 // Zustände: kopfzeile {teilnehmer} · beitreten {name} · vergeben {name, belegtVon, seit, vorschlag}
-// · ungueltig {name, fehler, vorschlag} · serverWeg {name} · fehler {name, fehler}
+// · ungueltig {name, fehler, regel, vorschlag} · serverWeg {name} · fehler {name, fehler}
 
 export const SITZUNG = 'localchatA.sitzung';
 export const NAME = 'localchatA.name';
@@ -73,7 +73,7 @@ export async function beitreten(name, speicher, api) {
     case 409:
       return { art: 'vergeben', name, belegtVon: daten.belegt_von, seit: daten.seit, vorschlag: daten.vorschlag };
     case 422:
-      return { art: 'ungueltig', name, fehler: daten.fehler, vorschlag: daten.vorschlag || '' };
+      return { art: 'ungueltig', name, fehler: daten.fehler, regel: daten.regel, vorschlag: daten.vorschlag || '' };
     default:
       return { art: 'fehler', name, fehler: fehlertext(antwort) };
   }

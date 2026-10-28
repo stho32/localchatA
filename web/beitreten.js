@@ -1,7 +1,9 @@
 // Beitreten-Bildschirm (Designsystem 4.1): Namensfeld mit Fokus, „Beitreten“, Hinweis beim Tippen,
-// Zustände „Name vergeben“ (Vorschlag vorausgefüllt) und „Server nicht erreichbar“ mit „Erneut versuchen“.
-// Text vom Server nur über textContent, nie als HTML.
+// Zustände „Name vergeben“ und „ungültig“ (Vorschlag vorausgefüllt), „Server nicht erreichbar“ mit
+// „Erneut versuchen“. Fehler in kd-danger mit ⚠ und Wort. Text vom Server nur über textContent, nie als HTML.
 import { pruefen } from './namensregel.js';
+
+const LEER = { art: 'leer' };
 
 export function zeichnen(wurzel, zustand, aktionen) {
   const feld = element('input', {
@@ -28,15 +30,26 @@ export function zeichnen(wurzel, zustand, aktionen) {
     if (laeuft) {
       return;
     }
+    if (feld.value.trim() === '') {
+      meldungZeigen(meldung, LEER, beitreten);
+      feld.setAttribute('aria-invalid', 'true');
+      feld.focus();
+      return;
+    }
     laeuft = true;
     schalter.disabled = true;
     formular.setAttribute('aria-busy', 'true');
     await aktionen.beitreten(feld.value);
   }
 
-  hinweisZeigen(hinweis, hinweisZumZustand(zustand, feld.value));
+  function beimTippen() {
+    hinweisZeigen(hinweis, feld.value);
+    gueltigkeitZeigen(feld);
+  }
+
+  beimTippen();
   meldungZeigen(meldung, zustand, beitreten);
-  feld.addEventListener('input', () => hinweisZeigen(hinweis, hinweisFuer(feld.value)));
+  feld.addEventListener('input', beimTippen);
   formular.addEventListener('submit', (ereignis) => {
     ereignis.preventDefault();
     beitreten();
@@ -46,62 +59,93 @@ export function zeichnen(wurzel, zustand, aktionen) {
   feld.focus();
 }
 
-export function meldungFuer(zustand) {
+// Teile der Meldung: Text oder { kennung } für Namen, Kennungen und Vorschläge (Mono, bidi-isoliert).
+export function meldungsteile(zustand) {
   switch (zustand.art) {
     case 'vergeben':
-      return `Der Name ${zustand.name} ist vergeben — ${zustand.belegtVon} ist seit ${uhrzeit(zustand.seit)} dabei. Wie wäre ${zustand.vorschlag}?`;
+      return [
+        'Der Name ', { kennung: zustand.name }, ' ist vergeben — ', { kennung: zustand.belegtVon },
+        ` ist seit ${uhrzeit(zustand.seit)} dabei.`, ...vorschlagsteile(zustand.vorschlag),
+      ];
+    case 'ungueltig':
+      return [
+        '⚠ Der Name ', { kennung: zustand.name }, ` ist nicht erlaubt — ${zustand.regel}.`,
+        ...vorschlagsteile(zustand.vorschlag),
+      ];
+    case 'leer':
+      return ['⚠ Bitte einen Namen eingeben.'];
     case 'serverWeg':
-      return '⚠ Server nicht erreichbar.';
+      return ['⚠ Server nicht erreichbar.'];
     case 'fehler':
-      return `⚠ ${zustand.fehler}`;
+      return [`⚠ ${zustand.fehler}`];
     default:
-      return '';
+      return [];
   }
 }
 
-export function hinweisFuer(text) {
+function istFehler(zustand) {
+  return ['ungueltig', 'leer', 'serverWeg', 'fehler'].includes(zustand.art);
+}
+
+export function hinweisteile(text) {
   const ergebnis = pruefen(text);
-  if (text === '' || ergebnis.gueltig) {
-    return '';
+  if (text.trim() === '' || ergebnis.gueltig) {
+    return [];
   }
-  return mitVorschlag(ergebnis.hinweis, ergebnis.vorschlag);
+  return [ergebnis.hinweis, ...vorschlagsteile(ergebnis.vorschlag)];
 }
 
-function hinweisZumZustand(zustand, text) {
-  if (zustand.art === 'ungueltig') {
-    return mitVorschlag(zustand.fehler, zustand.vorschlag);
+function vorschlagsteile(vorschlag) {
+  if (!vorschlag) {
+    return [];
   }
-  return hinweisFuer(text);
-}
-
-function mitVorschlag(text, vorschlag) {
-  if (vorschlag === '') {
-    return text;
-  }
-  return `${text} Vorschlag: ${vorschlag}`;
+  return [' Wie wäre ', { kennung: vorschlag }, '?'];
 }
 
 function feldinhalt(zustand) {
   if (zustand.art === 'vergeben') {
     return zustand.vorschlag;
   }
+  if (zustand.art === 'ungueltig' && zustand.vorschlag) {
+    return zustand.vorschlag;
+  }
   return zustand.name;
 }
 
+function gueltigkeitZeigen(feld) {
+  const text = feld.value;
+  const ungueltig = text.trim() !== '' && !pruefen(text).gueltig;
+  if (ungueltig) {
+    feld.setAttribute('aria-invalid', 'true');
+  } else {
+    feld.removeAttribute('aria-invalid');
+  }
+}
+
 function hinweisZeigen(hinweis, text) {
-  hinweis.textContent = text;
-  hinweis.hidden = text === '';
+  const teile = hinweisteile(text);
+  hinweis.replaceChildren(...teile.map(alsKnoten));
+  hinweis.hidden = teile.length === 0;
 }
 
 function meldungZeigen(meldung, zustand, erneutVersuchen) {
-  const text = meldungFuer(zustand);
-  meldung.replaceChildren(element('span', { textContent: text }));
-  meldung.hidden = text === '';
+  const teile = meldungsteile(zustand);
+  const text = element('span', {}, teile.map(alsKnoten));
+  text.classList.toggle('lc-fehler', istFehler(zustand));
+  meldung.replaceChildren(text);
+  meldung.hidden = teile.length === 0;
   if (zustand.art === 'serverWeg') {
     const schalter = element('button', { type: 'button', className: 'lc-btn', textContent: 'Erneut versuchen' });
     schalter.addEventListener('click', erneutVersuchen);
     meldung.append(' ', schalter);
   }
+}
+
+function alsKnoten(teil) {
+  if (typeof teil === 'string') {
+    return teil;
+  }
+  return element('span', { className: 'lc-id', textContent: teil.kennung });
 }
 
 function uhrzeit(zeitpunkt) {

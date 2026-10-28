@@ -53,7 +53,8 @@ test('US-15: erster Beitritt — Fokus im Feld, shoff und Enter, Kopfzeile shoff
   expect(fehler).toEqual([]);
 });
 
-test('US-16: Jörg zeigt vor dem Senden den Hinweis mit joerg, Enter tritt nicht bei', async ({ page, request }) => {
+// Entscheidung Director (UX-Review): nach dem 422 steht der Vorschlag im Feld wie bei „vergeben“.
+test('US-16: Jörg zeigt vor dem Senden den Hinweis mit joerg, Enter tritt nicht bei und schlägt joerg vor', async ({ page, request }) => {
   instanz = await instanzStarten();
   const fehler = fehlerSammeln(page);
   await page.goto(instanz.adresse);
@@ -67,9 +68,10 @@ test('US-16: Jörg zeigt vor dem Senden den Hinweis mit joerg, Enter tritt nicht
   await feld.press('Enter');
   expect((await antwort).status()).toBe(422);
 
-  await expect(hinweis).toContainText('joerg');
-  await expect(feld).toHaveValue('Jörg');
+  await expect(page.locator('#lc-meldung')).toContainText('joerg');
+  await expect(feld).toHaveValue('joerg');
   await expect(feld).toBeFocused();
+  expect((await beitretenPerApi(request, 'Jörg')).status()).toBe(422);
   expect((await beitretenPerApi(request, 'joerg')).status()).toBe(201);
   expect(fehler).toEqual([]);
 });

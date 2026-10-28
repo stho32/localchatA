@@ -108,7 +108,7 @@ test('Beitreten mit Regelverstoß (422): Hinweis und Vorschlag des Servers, nich
 
   const zustand = await beitreten('Jörg', speicher, apiMit({ beitreten: { serverWeg: false, status: 422, daten: abweisung } }));
 
-  assert.deepEqual(zustand, { art: 'ungueltig', name: 'Jörg', fehler: abweisung.fehler, vorschlag: 'joerg' });
+  assert.deepEqual(zustand, { art: 'ungueltig', name: 'Jörg', fehler: abweisung.fehler, regel: 'r', vorschlag: 'joerg' });
   assert.deepEqual(speicher.alles(), {});
 });
 

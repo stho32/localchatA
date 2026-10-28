@@ -23,6 +23,7 @@ body { background: var(--kd-bg); color: var(--kd-ink); font-family: var(--font-s
 .lc-hinweis { margin: 0; font-size: 12px; color: var(--kd-ink-muted); }
 .lc-meldung { display: flex; flex-wrap: wrap; align-items: center; gap: var(--kd-space-8); }
 .lc-meldung > span:first-child { flex: 1 1 100%; }
+.lc-fehler { color: var(--kd-danger); }
 
 /* Kopfzeile und Kennung (Bausteine Kopfzeile, Kennung) */
 #app { min-height: 100%; }
