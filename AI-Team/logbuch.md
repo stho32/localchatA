@@ -83,3 +83,4 @@ Eine Zeile je Auftrag an eine Rolle und je Retrospektive.
 | 2026-10-28 | — | Prozess | Betreiber | — | — | Spalte „Bereit“ heißt jetzt „Detailplanung“ (Board und prozess.md; Karten #7, #12 mitgezogen) |
 | 2026-10-28 | #12 I0018 | Detailplanung | planer | bestanden | 0:20 | R00008, 27 Bubbles (aus vorlauf/12b übernommen); Puffer voll: #7, #12 |
 | 2026-10-28 | #6 I0007 | Nacharbeit 1 | entwickler | bestanden | 0:25 | umformen höchstens 4×32 Zeichen, Akzente O(1); Fokus nach Fehlerantwort und Esc unter 720 px (d09e76d…0957bca) |
+| 2026-10-28 | #7 I0008 | Entwicklung (Start) | entwickler | — | — | aus dem Puffer gezogen; Nachzug: #8 I0009 Architektur in vorlauf/8; #6 in Wiederholung (Security, UX) und Entwicklertest |
