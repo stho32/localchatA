@@ -214,6 +214,28 @@ async fn ohne_angabe_kein_debug_mit_debug_eine_verlaufszeile() {
             assert_eq!(wert(&verlauf[0], "channel").as_deref(), Some("allgemein"));
             assert_eq!(wert(&verlauf[0], "anzahl").as_deref(), Some("0"));
             assert!(wert(&verlauf[0], "dauer_ms").is_some(), "{}", verlauf[0]);
+            // Abnahme-Probe 4 des code-reviewer (#24): je angenommener Verbindung, wenn sie endet, genau eine
+            // „beendet“-Zeile mit Herkunft und Dauer — nach dem Ende des Programms sind alle beendet.
+            let verbindung = mit(&datei, "DEBUG", "verbindung");
+            let angenommen: Vec<&String> = verbindung
+                .iter()
+                .filter(|z| z.contains(" Verbindung angenommen | "))
+                .collect();
+            let beendet: Vec<&String> = verbindung
+                .iter()
+                .filter(|z| z.contains(" Verbindung beendet | "))
+                .collect();
+            assert!(!angenommen.is_empty(), "{datei:#?}");
+            assert_eq!(beendet.len(), angenommen.len(), "{datei:#?}");
+            for zeile in beendet {
+                assert_eq!(
+                    wert(zeile, "herkunft").as_deref(),
+                    Some("127.0.0.1"),
+                    "{zeile}"
+                );
+                let dauer = wert(zeile, "dauer_ms").expect("dauer_ms");
+                assert!(dauer.parse::<u64>().is_ok(), "{zeile}");
+            }
         } else {
             assert!(datei.iter().all(|z| !z.contains(" DEBUG ")), "{datei:#?}");
         }

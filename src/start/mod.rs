@@ -532,3 +532,48 @@ fn beenden_einrichten(
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::anwesenheit::{Art, Teilnehmerzeile, Wechsel};
+    use crate::gespraeche::Kennung;
+    use crate::name::Name;
+    use crate::protokoll::testhilfe::{im_speicher, zeit};
+
+    fn wechsel(stand: u64, status: Status) -> Wechsel {
+        Wechsel {
+            stand,
+            jetzt: zeit("2026-10-28T12:00:00+01:00"),
+            teilnehmer: Teilnehmerzeile {
+                kennung: Kennung::bilden("alpha@127.0.0.2").expect("Kennung"),
+                name: Name::bilden("alpha").expect("Name"),
+                herkunft: "127.0.0.2".parse().expect("IP"),
+                art: Art::Agent,
+                status,
+                seit: zeit("2026-10-28T12:00:00+01:00"),
+                weg_um: None,
+            },
+        }
+    }
+
+    /// Code-Review #24 B1, Abnahme-Probe 4 (Teil Anwesenheit): auf Stufe debug je Wechsel nach online bzw.
+    /// offline genau eine DEBUG-Zeile mit der Kennung; ein Wechsel nach `weg` schreibt hier keine.
+    #[test]
+    fn online_und_offline_sind_je_genau_eine_debug_zeile_mit_kennung_weg_keine() {
+        let (protokoll, speicher, _, _) = im_speicher("2026-10-28T12:00:00+01:00", Stufe::Debug);
+        let veroeffentlichen = anwesenheit_veroeffentlichen(&Arc::new(Bus::neu(16)), &protokoll);
+
+        veroeffentlichen(&wechsel(1, Status::Online));
+        veroeffentlichen(&wechsel(2, Status::Offline));
+        veroeffentlichen(&wechsel(3, Status::Weg));
+
+        assert_eq!(
+            speicher.zeilen(),
+            [
+                "2026-10-28T12:00:00.000+01:00 DEBUG sitzung Sitzung online | kennung=alpha@127.0.0.2",
+                "2026-10-28T12:00:00.000+01:00 DEBUG sitzung Sitzung offline | kennung=alpha@127.0.0.2",
+            ]
+        );
+    }
+}

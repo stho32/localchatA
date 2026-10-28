@@ -412,4 +412,54 @@ mod tests {
         assert!(meldungen[0].contains("TCP_USER_TIMEOUT"), "{meldungen:?}");
         assert!(meldungen[0].contains("os error 92"), "{meldungen:?}");
     }
+
+    /// Code-Review #24 B1, Abnahme-Probe 4 (Teil Verbindung): auf Stufe debug je zugelassener Verbindung genau
+    /// eine Zeile „angenommen“ und, wenn sie endet, genau eine „beendet“ mit Herkunft und Dauer.
+    #[tokio::test]
+    async fn eine_beendete_verbindung_ist_genau_eine_debug_zeile_mit_herkunft_und_dauer() {
+        use crate::protokoll::testhilfe::im_speicher;
+        let (protokoll, speicher, _, _) = im_speicher("2026-10-28T12:00:00+01:00", Stufe::Debug);
+        let app = Router::new().route("/", get(|| async { "da" }));
+        let listener = TcpListener::bind(("127.0.0.1", 0)).await.expect("gebunden");
+        let adresse = listener.local_addr().expect("Adresse");
+        tokio::spawn(ausliefern(
+            listener,
+            app,
+            Ende::nie(),
+            reichlich(),
+            programmpflege(),
+            protokoll,
+        ));
+
+        assert_eq!(anfragen(adresse, 1).await, ["HTTP/1.1 200 OK"]);
+        let beendet = |zeilen: &[String]| {
+            zeilen
+                .iter()
+                .filter(|zeile| zeile.contains(" DEBUG verbindung Verbindung beendet | "))
+                .cloned()
+                .collect::<Vec<_>>()
+        };
+        let frist = tokio::time::Instant::now() + Duration::from_secs(5);
+        while beendet(&speicher.zeilen()).is_empty() && tokio::time::Instant::now() < frist {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+
+        let zeilen = speicher.zeilen();
+        let angenommen: Vec<&String> = zeilen
+            .iter()
+            .filter(|zeile| zeile.contains(" DEBUG verbindung Verbindung angenommen | "))
+            .collect();
+        assert_eq!(angenommen.len(), 1, "{zeilen:#?}");
+        assert!(
+            angenommen[0].ends_with(" | herkunft=127.0.0.1"),
+            "{zeilen:#?}"
+        );
+        let beendet = beendet(&zeilen);
+        assert_eq!(beendet.len(), 1, "{zeilen:#?}");
+        let (_, kontext) = beendet[0].split_once(" | ").expect("Kontext");
+        let dauer = kontext
+            .strip_prefix("herkunft=127.0.0.1 dauer_ms=")
+            .expect("herkunft und dauer_ms");
+        assert!(dauer.parse::<u64>().is_ok(), "{kontext}");
+    }
 }
