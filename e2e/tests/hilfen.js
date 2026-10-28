@@ -1,7 +1,8 @@
 'use strict';
 // Startet localchatA in einem Wegwerf-Ordner und liest die Adresse aus der Startzeile; Port 0 oder ein
-// fester freier Port, damit ein Neustart denselben Ursprung behält.
+// fester freier Port, damit ein Neustart denselben Ursprung behält; Host und weitere Argumente wählbar.
 const { spawn } = require('child_process');
+const dgram = require('dgram');
 const fs = require('fs');
 const net = require('net');
 const os = require('os');
@@ -10,7 +11,7 @@ const path = require('path');
 const PROGRAMM = path.resolve(__dirname, '../../target/debug/localchatA');
 process.env.TZ = 'Europe/Berlin';
 
-async function instanzStarten({ port = 0, umgebung = {} } = {}) {
+async function instanzStarten({ port = 0, host = '127.0.0.1', argumente = [], umgebung = {} } = {}) {
   const wurzel = fs.mkdtempSync(path.join(os.tmpdir(), 'localchata-e2e-'));
   const ordner = path.join(wurzel, 'chat');
   let kind = null;
@@ -18,7 +19,7 @@ async function instanzStarten({ port = 0, umgebung = {} } = {}) {
     ordner,
     adresse: '',
     starten: async () => {
-      kind = spawn(PROGRAMM, [ordner, '--port', String(port), '--host', '127.0.0.1', '--kein-browser'], {
+      kind = spawn(PROGRAMM, [ordner, '--port', String(port), '--host', host, '--kein-browser', ...argumente], {
         stdio: ['ignore', 'pipe', 'inherit'],
         env: { ...process.env, ...umgebung },
       });
@@ -44,6 +45,19 @@ function freierPort() {
     server.listen(0, '127.0.0.1', () => {
       const { port } = server.address();
       server.close(() => gefunden(port));
+    });
+  });
+}
+
+/// Die Adresse, über die dieser Rechner im LAN erreichbar ist (UDP-connect sendet nichts).
+function lanAdresse() {
+  return new Promise((gefunden, gescheitert) => {
+    const sonde = dgram.createSocket('udp4');
+    sonde.once('error', gescheitert);
+    sonde.connect(9, '192.0.2.1', () => {
+      const { address } = sonde.address();
+      sonde.close();
+      gefunden(address);
     });
   });
 }
@@ -106,4 +120,4 @@ function vorgeschrieben(meldung, serverWegErwartet) {
   return serverWegErwartet && pfad.startsWith('/api/') && text.includes('net::ERR_CONNECTION_REFUSED');
 }
 
-module.exports = { instanzStarten, freierPort, fehlerSammeln };
+module.exports = { instanzStarten, freierPort, lanAdresse, fehlerSammeln };

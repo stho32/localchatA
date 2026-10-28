@@ -36,16 +36,22 @@ fn rechnername() -> String {
         .to_string()
 }
 
-/// Alle sechs Sicherheitsheader mit genau diesen Werten; `no-store` nur, wenn verlangt.
-fn header_satz(antwort: &RohAntwort, mit_no_store: bool) {
+/// Unter welchem Host die Anfrage kam: COOP gibt es nur unter Loopback (B0070) — sonst ignoriert ihn der
+/// Browser mit einem Konsolenfehler.
+#[derive(Clone, Copy, PartialEq)]
+enum Ursprung {
+    Loopback,
+    Fremd,
+}
+
+/// Alle Sicherheitsheader mit genau diesen Werten, COOP nur unter Loopback; `no-store` nur, wenn verlangt.
+fn header_satz(antwort: &RohAntwort, ursprung: Ursprung, mit_no_store: bool) {
     assert_eq!(antwort.header("x-content-type-options"), Some("nosniff"));
     assert_eq!(antwort.header("content-security-policy"), Some(CSP));
     assert_eq!(antwort.header("x-frame-options"), Some("DENY"));
     assert_eq!(antwort.header("referrer-policy"), Some("no-referrer"));
-    assert_eq!(
-        antwort.header("cross-origin-opener-policy"),
-        Some("same-origin")
-    );
+    let opener = (ursprung == Ursprung::Loopback).then_some("same-origin");
+    assert_eq!(antwort.header("cross-origin-opener-policy"), opener);
     assert_eq!(
         antwort.header("cross-origin-resource-policy"),
         Some("same-origin")
@@ -85,7 +91,7 @@ fn g1_fremder_host_auf_der_wurzel_ergibt_403_mit_ausweg_und_header_satz() {
         "{}",
         antwort.inhalt
     );
-    header_satz(&antwort, false);
+    header_satz(&antwort, Ursprung::Fremd, false);
 }
 
 #[test]
@@ -106,7 +112,7 @@ fn g3_fremder_host_unter_api_ergibt_403_mit_header_satz_und_no_store() {
 
     assert_eq!(antwort.status, 403);
     assert!(!antwort.inhalt.contains("bereit"), "{}", antwort.inhalt);
-    header_satz(&antwort, true);
+    header_satz(&antwort, Ursprung::Fremd, true);
 }
 
 #[test]
@@ -325,10 +331,10 @@ fn g20_200_404_und_403_tragen_je_den_header_satz_die_wurzel_ohne_no_store() {
     let fremd = anfragen(&instanz, "GET /", &["Host: evil.example"]);
 
     assert_eq!((wurzel.status, fehlt.status, fremd.status), (200, 404, 403));
-    header_satz(&wurzel, false);
+    header_satz(&wurzel, Ursprung::Loopback, false);
     assert_eq!(wurzel.header("cache-control"), Some("no-cache"));
-    header_satz(&fehlt, false);
-    header_satz(&fremd, false);
+    header_satz(&fehlt, Ursprung::Loopback, false);
+    header_satz(&fremd, Ursprung::Fremd, false);
 }
 
 /// Eigene Variante: auch 405 unter `/api/` trägt den Satz mit `no-store`.
@@ -339,7 +345,7 @@ fn variante_405_unter_api_traegt_den_header_satz_mit_no_store() {
     let antwort = post_gesundheit(&instanz, &[]);
 
     assert_eq!(antwort.status, 405);
-    header_satz(&antwort, true);
+    header_satz(&antwort, Ursprung::Loopback, true);
 }
 
 /// Eigene Variante: doppelte Kopfzeilen gelten nicht als „der eine Wert“ — ein zweiter Host, Origin
@@ -384,6 +390,38 @@ fn variante_beitreten_unter_fremdem_host_ergibt_403_und_belegt_nichts() {
     let eigen = senden(&eigener_host(&instanz));
 
     assert_eq!(fremd.status, 403);
-    header_satz(&fremd, true);
+    header_satz(&fremd, Ursprung::Fremd, true);
     assert_eq!(eigen.status, 201, "{}", eigen.inhalt);
+}
+
+/// B0070 über das echte Programm: unter der LAN-Adresse (IP-Literal, erlaubt) und einem freigegebenen
+/// Namen trägt die Antwort den Satz ohne COOP, unter 127.0.0.1 und localhost mit.
+#[test]
+fn b0070_coop_nur_unter_loopback_der_uebrige_satz_ueberall() {
+    let wurzel = tempfile::tempdir().expect("Wegwerf-Ordner");
+    let instanz = starten(
+        wurzel.path(),
+        &[
+            "--port",
+            "0",
+            "--host",
+            "127.0.0.1",
+            "--kein-browser",
+            "--erreichbar-als",
+            "chat.lan",
+        ],
+    );
+    let port = instanz.port();
+    let unter = |host: &str| anfragen(&instanz, "GET /", &[&format!("Host: {host}:{port}")]);
+
+    for (host, ursprung) in [
+        ("127.0.0.1", Ursprung::Loopback),
+        ("localhost", Ursprung::Loopback),
+        ("192.168.178.65", Ursprung::Fremd),
+        ("chat.lan", Ursprung::Fremd),
+    ] {
+        let antwort = unter(host);
+        assert_eq!(antwort.status, 200, "{host}");
+        header_satz(&antwort, ursprung, false);
+    }
 }

@@ -23,11 +23,12 @@ pub async fn schicht(
     weiter: Next,
 ) -> Response {
     let pfad = anfrage.uri().path().to_string();
+    let host = einziger_wert(anfrage.headers(), &HOST).map(str::to_string);
     let mut antwort = match abweisung(&schutz, anfrage.method(), anfrage.headers()) {
         Some(abweisung) => abweisung,
         None => weiter.run(anfrage).await,
     };
-    sicherheitsheader_setzen(antwort.headers_mut(), &pfad);
+    sicherheitsheader_setzen(antwort.headers_mut(), &pfad, host.as_deref());
     antwort
 }
 
@@ -165,7 +166,10 @@ impl fmt::Display for UrsprungAbgewiesen {
 
 /// Setzt den Header-Satz aus ADR-0014 Regel 5 auf eine Antwort (vorhandene Werte werden ersetzt), unter
 /// `/api/` zusätzlich `Cache-Control: no-store`, und entfernt jede CORS-Freigabe (Regel 4).
-pub fn sicherheitsheader_setzen(kopf: &mut HeaderMap, pfad: &str) {
+/// `Cross-Origin-Opener-Policy` nur unter einem vertrauenswürdigen Ursprung: sonst ignoriert der Browser
+/// den Header (HTML, „obtain an opener policy“, Schritt 2) und Chromium meldet das bei jedem Laden als
+/// Konsolenfehler — über die LAN-Adresse, auf die die Vision zielt, wäre er nur Lärm.
+pub fn sicherheitsheader_setzen(kopf: &mut HeaderMap, pfad: &str, host: Option<&str>) {
     let cors_freigaben: Vec<HeaderName> = kopf
         .keys()
         .filter(|name| name.as_str().starts_with("access-control-allow-"))
@@ -177,12 +181,18 @@ pub fn sicherheitsheader_setzen(kopf: &mut HeaderMap, pfad: &str) {
     for (name, wert) in HEADER_SATZ {
         kopf.insert(name, HeaderValue::from_static(wert));
     }
+    let opener = HeaderName::from_static("cross-origin-opener-policy");
+    if ursprung_vertrauenswuerdig(host) {
+        kopf.insert(opener, HeaderValue::from_static("same-origin"));
+    } else {
+        kopf.remove(opener);
+    }
     if pfad.starts_with("/api/") {
         kopf.insert(CACHE_CONTROL, HeaderValue::from_static("no-store"));
     }
 }
 
-const HEADER_SATZ: [(HeaderName, &str); 6] = [
+const HEADER_SATZ: [(HeaderName, &str); 5] = [
     (X_CONTENT_TYPE_OPTIONS, "nosniff"),
     (
         CONTENT_SECURITY_POLICY,
@@ -191,14 +201,30 @@ const HEADER_SATZ: [(HeaderName, &str); 6] = [
     (X_FRAME_OPTIONS, "DENY"),
     (REFERRER_POLICY, "no-referrer"),
     (
-        HeaderName::from_static("cross-origin-opener-policy"),
-        "same-origin",
-    ),
-    (
         HeaderName::from_static("cross-origin-resource-policy"),
         "same-origin",
     ),
 ];
+
+/// Ein `http`-Ursprung ist nur auf Loopback vertrauenswürdig (Secure Contexts, „potentially trustworthy
+/// origin“): `127.0.0.0/8`, `[::1]`, `localhost` und `*.localhost`.
+fn ursprung_vertrauenswuerdig(host: Option<&str>) -> bool {
+    let Some(wert) = host else {
+        return false;
+    };
+    if let Some(rest) = wert.strip_prefix('[') {
+        let adresse = rest.split_once(']').map(|(adresse, _)| adresse);
+        return adresse
+            .and_then(|adresse| adresse.parse::<Ipv6Addr>().ok())
+            .is_some_and(|ip| ip.is_loopback());
+    }
+    let name = wert.split(':').next().unwrap_or_default();
+    if let Ok(ip) = name.parse::<Ipv4Addr>() {
+        return ip.is_loopback();
+    }
+    let klein = name.to_ascii_lowercase();
+    klein == "localhost" || klein.ends_with(".localhost")
+}
 
 enum Hostanteil<'a> {
     IpLiteral,
@@ -476,12 +502,70 @@ mod tests {
     const CSP: &str = "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'";
 
     fn kopf_nach(pfad: &str, vorher: &[(&'static str, &'static str)]) -> HeaderMap {
+        kopf_unter(Some("127.0.0.1:7430"), pfad, vorher)
+    }
+
+    fn kopf_unter(
+        host: Option<&str>,
+        pfad: &str,
+        vorher: &[(&'static str, &'static str)],
+    ) -> HeaderMap {
         let mut kopf = HeaderMap::new();
         for (name, wert) in vorher {
             kopf.insert(*name, wert.parse().expect("Wert"));
         }
-        sicherheitsheader_setzen(&mut kopf, pfad);
+        sicherheitsheader_setzen(&mut kopf, pfad, host);
         kopf
+    }
+
+    #[test]
+    fn coop_nur_unter_vertrauenswuerdigen_ursprungen() {
+        let vertrauenswuerdig = [
+            "127.0.0.1:7430",
+            "127.8.9.1",
+            "localhost:7430",
+            "LocalHost",
+            "app.localhost:7430",
+            "[::1]:7430",
+        ];
+        for host in vertrauenswuerdig {
+            let kopf = kopf_unter(Some(host), "/", &[]);
+            assert_eq!(
+                wert(&kopf, "cross-origin-opener-policy"),
+                Some("same-origin"),
+                "{host}"
+            );
+        }
+        let nicht_vertrauenswuerdig = [
+            Some("192.168.178.65:7430"),
+            Some("10.0.0.1"),
+            Some("[fe80::1]:7430"),
+            Some("chat.lan:7430"),
+            Some("nuc5"),
+            Some("evil.example"),
+            Some("127.0.0.1.evil.example"),
+            Some("localhost.evil.example"),
+            Some("[::1"),
+            None,
+        ];
+        for host in nicht_vertrauenswuerdig {
+            let kopf = kopf_unter(
+                host,
+                "/api/x",
+                &[("cross-origin-opener-policy", "same-origin")],
+            );
+            assert_eq!(wert(&kopf, "cross-origin-opener-policy"), None, "{host:?}");
+            assert_eq!(wert(&kopf, "x-content-type-options"), Some("nosniff"));
+            assert_eq!(wert(&kopf, "content-security-policy"), Some(CSP));
+            assert_eq!(wert(&kopf, "x-frame-options"), Some("DENY"));
+            assert_eq!(wert(&kopf, "referrer-policy"), Some("no-referrer"));
+            assert_eq!(
+                wert(&kopf, "cross-origin-resource-policy"),
+                Some("same-origin")
+            );
+            assert_eq!(wert(&kopf, "cache-control"), Some("no-store"));
+            assert_eq!(kopf.len(), 6, "{host:?}");
+        }
     }
 
     fn wert<'a>(kopf: &'a HeaderMap, name: &str) -> Option<&'a str> {
