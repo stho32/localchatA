@@ -405,4 +405,78 @@ mod tests {
             Err(Koerperfehler::Kaputt)
         );
     }
+
+    fn abgebrochener_koerper() -> Body {
+        Body::from_stream(stream::iter(vec![Err::<Bytes, std::io::Error>(
+            std::io::Error::other("Gegenstelle weg"),
+        )]))
+    }
+
+    /// Ein Ort wie beim Beitritt, mit einem Protokoll in der Speicher-Senke (Stufe information, Uhr steht).
+    async fn abweisen(protokoll: &Protokoll, koerper: Body) -> Result<Value, Koerperfehler> {
+        let ort = Koerperort {
+            protokoll,
+            route: "POST /api/beitreten",
+            herkunft: "127.0.0.2".parse().expect("IP"),
+            kennung: None,
+        };
+        json_lesen(&mit_typ("application/json"), koerper, 4096, &ort).await
+    }
+
+    fn koerper_warnungen(zeilen: &[String]) -> Vec<String> {
+        zeilen
+            .iter()
+            .filter(|zeile| zeile.contains(" WARNING körper "))
+            .cloned()
+            .collect()
+    }
+
+    /// Code-Review #24 B1, Abnahme-Probe 3; ADR-0043, Ergänzung #24 Punkt 1: ein `ZuGross`, dann ein
+    /// `Abgebrochen` derselben Quelle — die Zusammenfassung nennt 2, je Art 1; `warnings` zählt nur das eine
+    /// Auftreten in der Stufe der Episode, `abgewiesen.abgebrochen` das andere.
+    #[tokio::test]
+    async fn ein_abbruch_zaehlt_in_die_offene_koerper_episode_derselben_quelle() {
+        use crate::protokoll::testhilfe::{im_speicher, zeit};
+        let (protokoll, speicher, uhr, _) =
+            im_speicher("2026-10-28T12:00:00+01:00", Stufe::Information);
+
+        let zu_gross = abweisen(&protokoll, Body::from(vec![b'x'; 5000])).await;
+        let abgebrochen = abweisen(&protokoll, abgebrochener_koerper()).await;
+        uhr.stellen(zeit("2026-10-28T12:01:01+01:00"));
+        protokoll.episoden_schliessen();
+
+        assert_eq!(zu_gross, Err(Koerperfehler::ZuGross));
+        assert_eq!(abgebrochen, Err(Koerperfehler::Abgebrochen));
+        let warnungen = koerper_warnungen(&speicher.zeilen());
+        assert_eq!(warnungen.len(), 2, "{warnungen:#?}");
+        assert!(
+            warnungen[0].contains(" Körper abgewiesen — Episode beginnt | "),
+            "{warnungen:#?}"
+        );
+        assert!(
+            warnungen[1].contains(
+                " Körper abgewiesen — Episode endet: 2 in 0 s (abgebrochen 1; zu_gross 1; "
+            ),
+            "{warnungen:#?}"
+        );
+        assert_eq!(protokoll.zaehlerstand().warnings, 1);
+        assert_eq!(protokoll.kennzahlen().abgewiesen.abgebrochen, 1);
+    }
+
+    /// Ohne offene Episode beginnt ein Abbruch keine: keine WARNING-Zeile, nur gezählt.
+    #[tokio::test]
+    async fn ein_abbruch_ohne_offene_episode_schreibt_keine_warning_und_wird_gezaehlt() {
+        use crate::protokoll::testhilfe::{im_speicher, zeit};
+        let (protokoll, speicher, uhr, _) =
+            im_speicher("2026-10-28T12:00:00+01:00", Stufe::Information);
+
+        let abgebrochen = abweisen(&protokoll, abgebrochener_koerper()).await;
+        uhr.stellen(zeit("2026-10-28T12:01:01+01:00"));
+        protokoll.episoden_schliessen();
+
+        assert_eq!(abgebrochen, Err(Koerperfehler::Abgebrochen));
+        assert_eq!(koerper_warnungen(&speicher.zeilen()), Vec::<String>::new());
+        assert_eq!(protokoll.zaehlerstand().warnings, 0);
+        assert_eq!(protokoll.kennzahlen().abgewiesen.abgebrochen, 1);
+    }
 }

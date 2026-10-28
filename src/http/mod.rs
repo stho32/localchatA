@@ -8,6 +8,8 @@ mod eingebettet;
 mod ereignisse;
 mod frist;
 mod gesundheit;
+#[cfg(test)]
+mod grenzepisoden;
 mod grenzschutz;
 mod ich;
 mod koerper;
