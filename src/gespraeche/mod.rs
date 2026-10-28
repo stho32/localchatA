@@ -13,7 +13,8 @@ pub use kennung::Kennung;
 pub use logablage::{Angehaengt, Dateiablage, Gespraech, Logablage};
 pub use speicherablage::Speicherablage;
 pub use verzeichnis::{
-    Anlegefehler, Channel, ChannelStand, ChannelVeroeffentlichen, ChannelWechsel,
+    Anlegefehler, Channel, ChannelStand, ChannelVeroeffentlichen, ChannelWechsel, GESAMT, Grenzart,
+    Grenze, JE_HERKUNFT,
 };
 
 use crate::fehler::Fehler;

@@ -34,6 +34,13 @@ impl Kennung {
     pub fn als_text(&self) -> &str {
         &self.0
     }
+
+    /// Die Herkunft als Adresse, IPv4-gemappte Formen als IPv4 (wie an der Grenze, ADR-0012); eine Herkunft,
+    /// die keine Adresse ist (von Hand geschrieben, etwa `x`), hat keine.
+    pub fn herkunft(&self) -> Option<IpAddr> {
+        let (_, herkunft) = self.0.split_once('@')?;
+        herkunft.parse::<IpAddr>().ok().map(|ip| ip.to_canonical())
+    }
 }
 
 fn herkunft_gueltig(herkunft: &str) -> bool {
@@ -155,5 +162,14 @@ mod tests {
                 anderes => panic!("{text:?} ergab {anderes:?}"),
             }
         }
+    }
+
+    #[test]
+    fn die_herkunft_ist_die_adresse_hinter_dem_at_gemappt_als_ipv4() {
+        let herkunft = |text: &str| Kennung::bilden(text).expect(text).herkunft();
+        assert_eq!(herkunft("alpha@127.0.0.2"), "127.0.0.2".parse().ok());
+        assert_eq!(herkunft("alpha@::ffff:10.0.0.1"), "10.0.0.1".parse().ok());
+        assert_eq!(herkunft("alpha@fe80::1"), "fe80::1".parse().ok());
+        assert_eq!(herkunft("alpha@1"), None);
     }
 }
