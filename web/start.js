@@ -44,9 +44,13 @@ function hauptansichtZeigen(teilnehmer, nachEingabe) {
     channelAnlegen: (name, beschreibung) => rufen('/api/channels', {
       koerper: { name, beschreibung }, token: speicher.getItem(sitzung.SITZUNG),
     }),
-    verlaufAbrufen: (name, cursor, signal) => verlaufAbrufen(name, cursor, { token: speicher.getItem(sitzung.SITZUNG), signal }),
+    verlaufAbrufen: (name, cursor, signal, n) => verlaufAbrufen(name, cursor, { token: speicher.getItem(sitzung.SITZUNG), signal, n }),
     fristSetzen: (name, tage, bestaetigt) => fristSetzen(name, tage, bestaetigt, { token: speicher.getItem(sitzung.SITZUNG) }),
-    nachrichtSenden: (channel, text, schluessel) => nachrichtSenden(channel, text, schluessel, { token: speicher.getItem(sitzung.SITZUNG) }),
+    nachrichtSenden: async (channel, text, schluessel) => {
+      const token = speicher.getItem(sitzung.SITZUNG);
+      return { ...await nachrichtSenden(channel, text, schluessel, { token }), token };
+    },
+    wiederBeitreten: nachSendeAblehnungBeitreten,
   });
   let liste = teilnehmerliste.LEER;
   let channels = KEINE_CHANNELS;
@@ -66,6 +70,9 @@ function hauptansichtZeigen(teilnehmer, nachEingabe) {
       if (ereignis.art === 'nachricht') {
         ansicht.nachrichtEmpfangen(ereignis);
         return;
+      }
+      if (ereignis.art === 'teilnehmer') {
+        ansicht.standEmpfangen();
       }
       if (ereignis.art === 'channels' || ereignis.art === 'channel') {
         channels = channelsZusammenfuehren(channels, ereignis);
@@ -108,6 +115,27 @@ async function stillWiederBeitreten(abgelehntesToken) {
   }
   stromBeenden();
   zeigen(zustand);
+}
+
+// Eine 401 auf das Senden (Neustart, Gnadenfrist; ADR-0012, ADR-0037 Regel 4): hat ein anderer Weg schon ein neues
+// Token gemerkt, gilt es; sonst mit dem gemerkten Namen und dem alten Token beitreten — lebt die Sitzung noch, ist das
+// eine Wiederkehr (200), sonst ein neuer Beitritt. Der Strom bekommt das neue Token.
+async function nachSendeAblehnungBeitreten(abgelehntesToken) {
+  const beitreten = async () => {
+    const token = speicher.getItem(sitzung.SITZUNG);
+    if (token && token !== abgelehntesToken) {
+      return;
+    }
+    await sitzung.beitreten(speicher.getItem(sitzung.NAME) || '', speicher, api);
+  };
+  if (navigator.locks === undefined) {
+    await beitreten();
+  } else {
+    await navigator.locks.request(sitzung.SITZUNG, beitreten);
+  }
+  if (laufenderStrom !== null) {
+    laufenderStrom.tokenSetzen(speicher.getItem(sitzung.SITZUNG));
+  }
 }
 
 function alleZeilen(gruppen) {

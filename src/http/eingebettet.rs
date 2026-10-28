@@ -42,6 +42,14 @@ pub fn nachschlagen(name: &str) -> Option<EingebetteteDatei> {
         "zustellung.js" => (include_bytes!("../../web/zustellung.js"), JS),
         "senden.js" => (include_bytes!("../../web/senden.js"), JS),
         "live-verlauf.js" => (include_bytes!("../../web/live-verlauf.js"), JS),
+        "nachholen.js" => (include_bytes!("../../web/nachholen.js"), JS),
+        "verbindungsleiste.js" => (include_bytes!("../../web/verbindungsleiste.js"), JS),
+        "textregel.js" => (include_bytes!("../../web/textregel.js"), JS),
+        "hinweis.js" => (include_bytes!("../../web/hinweis.js"), JS),
+        "fokus.js" => (include_bytes!("../../web/fokus.js"), JS),
+        "ansage.js" => (include_bytes!("../../web/ansage.js"), JS),
+        "entwurf.js" => (include_bytes!("../../web/entwurf.js"), JS),
+        "wiederverbinden.js" => (include_bytes!("../../web/wiederverbinden.js"), JS),
         _ => return None,
     };
     Some(EingebetteteDatei { inhalt, typ })

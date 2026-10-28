@@ -17,6 +17,9 @@ import { einstellungenEinrichten } from './channel-einstellungen.js';
 import { onlineBenennen } from './teilnehmerliste.js';
 import { eingabeAnlegen } from './eingabe.js';
 import { sendenEinrichten } from './senden.js';
+import { VERBINDUNG_ANFANG, verbindung } from './wiederverbinden.js';
+import { nachholen } from './nachholen.js';
+import { wiederVerbundenText, leisteInhalt } from './verbindungsleiste.js';
 
 const UNTERBROCHEN = '⚠ Verbindung unterbrochen — localchatA verbindet neu.';
 const STAND_UNBEKANNT = 'Stand unbekannt — zuletzt bekannte Liste.';
@@ -63,10 +66,24 @@ export function zeichnen(wurzel, teilnehmer, optionen) {
   einAusblendenBedienen({ schalter, region, haupt }, vorigeAnsichtAbmelden.signal);
   let letzterZustand = 'verbunden';
   channels.channelsZeigen([]);
-  const verlauf = verlaufAnlegen({ abrufen: optionen.verlaufAbrufen });
+  const verlauf = verlaufAnlegen({
+    abrufen: optionen.verlaufAbrufen,
+    schalter: (aktion, schluessel) => {
+      senden.schalter(aktion, schluessel);
+      eingabe.fokussieren();
+    },
+  });
   verlauf.kennungSetzen(teilnehmer.kennung);
-  const senden = sendenEinrichten({ verlauf, kennung: teilnehmer.kennung, abschicken: optionen.nachrichtSenden });
+  const senden = sendenEinrichten({
+    verlauf,
+    kennung: teilnehmer.kennung,
+    abschicken: optionen.nachrichtSenden,
+    wiederBeitreten: optionen.wiederBeitreten,
+    netzAus: () => navigator.onLine === false,
+    ansagen: () => {},
+  });
   const eingabe = eingabeAnlegen({ senden: senden.senden });
+  const wieder = wiederverbindenEinrichten({ verlauf, senden, abrufen: optionen.verlaufAbrufen }, vorigeAnsichtAbmelden.signal);
   const beiAuswahl = (channel) => {
     gewaehlterChannel = channel;
     if (channel !== null) {
@@ -91,9 +108,99 @@ export function zeichnen(wurzel, teilnehmer, optionen) {
     },
     verbindungZeigen: (zustand) => {
       letzterZustand = verbindungZeigen({ hinweis, region, standUnbekannt }, letzterZustand, zustand);
+      wieder.melden({ art: 'strom', zustand });
     },
+    // Ein vollständiger Stand der Teilnehmer: am Anfang jedes Stroms und nach NeuerStand (ADR-0028 Regel 6).
+    standEmpfangen: () => wieder.melden({ art: 'stand' }),
   };
 }
+
+// Getrennt heißt Strom unterbrochen oder Netz des Tabs aus (wiederverbinden.js): die Leiste oben im Verlauf sagt es,
+// die Warteschlange ruht. Wieder verbunden → für den offenen Channel nachholen, 4 s melden, dann weitersenden —
+// so stehen fremde Nachrichten aus der Trennung vor den eigenen gepufferten (ADR-0037 Regel 7).
+function wiederverbindenEinrichten({ verlauf, senden, abrufen }, signal) {
+  const leiste = element('div', { className: 'lc-leiste', hidden: true });
+  verlauf.element.prepend(leiste);
+  let zustand = VERBINDUNG_ANFANG;
+  let anzeige = { getrennt: false, meldung: null, meldungSeitMs: 0 };
+  let ausblenden = null;
+
+  function leisteZeigen() {
+    const inhalt = leisteInhalt(anzeige, Date.now());
+    leiste.hidden = inhalt === null;
+    leiste.textContent = '';
+    if (inhalt !== null) {
+      leiste.textContent = inhalt.text;
+      leiste.classList.toggle('lc-leiste-fehler', inhalt.fehler);
+    }
+  }
+
+  function meldungSetzen(text) {
+    const STEHT_MS = 4000;
+    anzeige = { getrennt: false, meldung: text, meldungSeitMs: Date.now() };
+    leisteZeigen();
+    clearTimeout(ausblenden);
+    ausblenden = setTimeout(leisteZeigen, STEHT_MS);
+  }
+
+  async function nachholenUndWeiter(mitMeldung) {
+    const vorher = verlauf.stand();
+    const nachholbar = vorher.channel !== null && vorher.geladen && vorher.neuesterImFenster;
+    let ergebnis = { art: 'nachgeholt', nachrichten: [] };
+    if (nachholbar) {
+      ergebnis = await nachholen(vorher.juengste, (cursor, n) => abrufen(vorher.channel, cursor, undefined, n));
+    }
+    const nochDerselbe = verlauf.stand().channel === vorher.channel;
+    if (nochDerselbe && ergebnis.art === 'nachgeholt') {
+      ergebnis.nachrichten.forEach((nachricht) => verlauf.nachrichtAnnehmen(nachricht, false));
+    }
+    if (nochDerselbe && ergebnis.art === 'neu') {
+      verlauf.oeffnen(vorher.channel);
+    }
+    if (!mitMeldung || istGetrennt()) {
+      return;
+    }
+    meldungSetzen(wiederVerbundenText(meldungAus(ergebnis)));
+    senden.verbunden();
+  }
+
+  function istGetrennt() {
+    return anzeige.getrennt;
+  }
+
+  function melden(ereignis) {
+    const ergebnis = verbindung(zustand, ereignis);
+    zustand = ergebnis.zustand;
+    if (ergebnis.aktion === 'trennen') {
+      anzeige = { ...anzeige, getrennt: true };
+      leisteZeigen();
+      senden.getrennt();
+    }
+    if (ergebnis.aktion === 'wiederverbinden') {
+      anzeige = { ...anzeige, getrennt: false, meldung: null };
+      nachholenUndWeiter(true);
+    }
+    if (ergebnis.aktion === 'nachholen') {
+      nachholenUndWeiter(false);
+    }
+  }
+
+  window.addEventListener('offline', () => melden({ art: 'netz', online: false }), { signal });
+  window.addEventListener('online', () => melden({ art: 'netz', online: true }), { signal });
+  return { melden };
+}
+
+function meldungAus(ergebnis) {
+  if (ergebnis.art === 'neu') {
+    return { art: 'neu' };
+  }
+  if (ergebnis.art === 'nachgeholt') {
+    return { art: 'nachgeholt', zahl: ergebnis.nachrichten.length };
+  }
+  return { art: 'nachgeholt', zahl: 0 };
+}
+
+
 
 // Liefert channelsZeigen(liste): die Liste ist erst mit dem ersten Stand bekannt — bis dahin bleibt ein
 // gewählter Name ohne Urteil, damit „gibt es nicht“ nie vor dem Stand erscheint.

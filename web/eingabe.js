@@ -48,6 +48,7 @@ export function eingabeAnlegen({ senden }) {
       feld.setAttribute('aria-label', beschriftung);
       feld.placeholder = beschriftung;
     },
+    fokussieren: () => feld.focus(),
   };
 }
 

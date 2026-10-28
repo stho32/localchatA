@@ -14,8 +14,9 @@ import { einordnen, buendlerAnlegen, folgenOderZaehlen, pillenText } from './liv
 // abrufen: async (name, cursor, signal) → { art: 'block' | 'fehler' | 'abgebrochen', … } (api.js verlaufAbrufen).
 // Live (ADR-0037 Regeln 1, 6): nachrichtAnnehmen(nachricht, eigen) ordnet über die Zeit ein und fügt je Frame ein —
 // am Ende folgt der Blick, sonst zählt die Pille „n neue Nachrichten“; vorlaeufigeZeigen(liste) zeichnet eigene
-// Nachrichten unterwegs oder fehlgeschlagen unter allen bestätigten.
-export function verlaufAnlegen({ abrufen }) {
+// Nachrichten unterwegs oder fehlgeschlagen unter allen bestätigten; an fehlgeschlagenen rufen „Erneut senden“ und
+// „Verwerfen“ schalter('erneut' | 'verwerfen', schluessel) (ADR-0038 Regel 5).
+export function verlaufAnlegen({ abrufen, schalter = () => {} }) {
   const inhalt = element('div', { className: 'lc-log-inhalt' });
   const ausstehend = element('div', { className: 'lc-ausstehend' });
   const auslauf = element('div', { className: 'lc-auslauf' });
@@ -131,6 +132,12 @@ export function verlaufAnlegen({ abrufen }) {
     return parseFloat(getComputedStyle(log).lineHeight);
   }
   pille.addEventListener('click', zumNeuesten);
+  ausstehend.addEventListener('click', (ereignis) => {
+    const geklickt = ereignis.target.closest('button[data-aktion]');
+    if (geklickt !== null) {
+      schalter(geklickt.dataset.aktion, geklickt.closest('.lc-msg').dataset.schluessel);
+    }
+  });
   log.addEventListener('keydown', (ereignis) => {
     const nurEnde = ereignis.key === 'End' && !ereignis.altKey && !ereignis.ctrlKey && !ereignis.metaKey && !ereignis.shiftKey;
     if (nurEnde && offenerName !== null) {
@@ -434,6 +441,9 @@ export function verlaufAnlegen({ abrufen }) {
     vorlaeufigeZeigen,
     zumEndeFuerSenden,
     kennungSetzen: (kennung) => { eigeneKennung = kennung; },
+    // Woran das Nachholen ansetzt (ADR-0037 Regel 7): der offene Channel, ob sein Verlauf steht, die jüngste
+    // bekannte Zeit und ob der neueste Block im Fenster ist.
+    stand: () => ({ channel: offenerName, geladen, juengste, neuesterImFenster: fenster === null || !fenster.neuer }),
   };
 }
 
@@ -451,15 +461,27 @@ function vorlaeufigZeichnen(vorlaeufig, kennung) {
   const artikel = nachrichtZeichnen({ von: kennung, art: 'mensch', text: vorlaeufig.text });
   artikel.classList.add('lc-vorlaeufig');
   const zeile = element('div', { className: 'lc-send' });
-  if (vorlaeufig.zustand === 'fehlgeschlagen') {
-    artikel.classList.add('lc-fehlgeschlagen');
-    zeile.classList.add('lc-fehlgeschlagen');
-    zeile.textContent = `⚠ ${vorlaeufig.grund}`;
-  } else {
+  const inhalt = artikel.querySelector('.lc-msg-inhalt');
+  if (vorlaeufig.zustand !== 'fehlgeschlagen') {
     zeile.append(element('span', { textContent: '◌', ariaHidden: 'true' }), ' wird gesendet …');
+    inhalt.append(zeile);
+    return artikel;
   }
-  artikel.querySelector('.lc-msg-inhalt').append(zeile);
+  artikel.classList.add('lc-fehlgeschlagen');
+  artikel.dataset.schluessel = vorlaeufig.schluessel;
+  zeile.classList.add('lc-fehlgeschlagen');
+  zeile.textContent = `⚠ ${vorlaeufig.grund}`;
+  inhalt.append(zeile, element('div', { className: 'lc-send-schalter' }, [
+    schalterZeichnen('Erneut senden', 'erneut'),
+    schalterZeichnen('Verwerfen', 'verwerfen'),
+  ]));
   return artikel;
+}
+
+function schalterZeichnen(beschriftung, aktion) {
+  const schalter = element('button', { type: 'button', textContent: beschriftung });
+  schalter.dataset.aktion = aktion;
+  return schalter;
 }
 
 // Höhe eines gezeichneten Blocks: von der Oberkante seines ersten bis zur Unterkante seines letzten Knotens.

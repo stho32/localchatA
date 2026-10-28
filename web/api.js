@@ -45,11 +45,10 @@ function alsJson(text) {
 }
 
 // Ein Block des Verlaufs (ADR-0025): cursor { vor } | { nach } | {} — kodiert mit encodeURIComponent, damit das
-// + im Versatz ankommt. → { art: 'block', block } | { art: 'fehler', status } (0: Server weg) | { art: 'abgebrochen' }
-export async function verlaufAbrufen(name, cursor, { token, signal }, holen = holenImBrowser) {
-  const BLOCKGROESSE = 100;
+// + im Versatz ankommt; n Nachrichten je Block (Standard 100, Nachholen 200). → { art: 'block', block } | { art: 'fehler', status } (0: Server weg) | { art: 'abgebrochen' }
+export async function verlaufAbrufen(name, cursor, { token, signal, n = 100 }, holen = holenImBrowser) {
   const abfrage = Object.entries(cursor).map(([schluessel, zeit]) => `${schluessel}=${encodeURIComponent(zeit)}&`).join('');
-  const pfad = `/api/channels/${encodeURIComponent(name)}/nachrichten?${abfrage}n=${BLOCKGROESSE}`;
+  const pfad = `/api/channels/${encodeURIComponent(name)}/nachrichten?${abfrage}n=${n}`;
   try {
     const antwort = await holen(pfad, { method: 'GET', headers: { [SITZUNGS_HEADER]: token }, signal });
     if (!antwort.ok) {

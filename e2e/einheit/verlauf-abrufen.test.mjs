@@ -57,3 +57,16 @@ test('ein abgebrochener Abruf ist abgebrochen, kein Fehler', async () => {
 
   assert.deepEqual(await laufend, { art: 'abgebrochen' });
 });
+
+// R00012 B0245: das Nachholen fragt Blöcke zu 200 (ADR-0037 Regel 7).
+test('verlaufAbrufen mit n fragt so viele Nachrichten je Block', async () => {
+  const aufrufe = [];
+  const holen = async (pfad) => {
+    aufrufe.push(pfad);
+    return { ok: true, json: async () => ({ nachrichten: [], aelter: false, neuer: false }) };
+  };
+
+  await verlaufAbrufen('allgemein', { nach: '2026-10-28T14:00:00.000+01:00' }, { token: 't', n: 200 }, holen);
+
+  assert.equal(aufrufe[0], '/api/channels/allgemein/nachrichten?nach=2026-10-28T14%3A00%3A00.000%2B01%3A00&n=200');
+});
