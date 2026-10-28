@@ -5,6 +5,7 @@
 
 mod gemeinsam;
 
+use gemeinsam::langsam::{RIESIG, riesig_anlegen};
 use gemeinsam::{Absender, Instanz, starten_mit};
 use serde_json::{Value, json};
 use std::fs;
@@ -13,25 +14,6 @@ use std::path::Path;
 const JETZT: &str = "2026-10-28T15:00:00.000+01:00";
 /// Budget aus R00013 (K1, ADR-0039 Regel 1): 256 KiB Satzbytes je Block.
 const BUDGET: u64 = 262_144;
-const RIESIG: &str = "channels/riesig/2026-10-28.log";
-
-/// `riesig` wie in R00013: 200 Sätze von `alpha@127.0.0.2` im Sekundentakt ab 08:00, je 16 384 Bytes `x` in
-/// einer Zeile.
-fn riesig_anlegen(ordner: &Path) {
-    let text = "x".repeat(16_384);
-    let mut inhalt = String::new();
-    for index in 0..200 {
-        inhalt.push_str(&format!(
-            "@ 2026-10-28T08:{:02}:{:02}.000+01:00 alpha@127.0.0.2\n  {text}\n\n",
-            index / 60,
-            index % 60
-        ));
-    }
-    let ziel = ordner.join(RIESIG);
-    fs::create_dir_all(ziel.parent().expect("Elternordner")).expect("Ordner");
-    fs::write(ziel, inhalt).expect("Datei");
-}
-
 /// Die Satzlänge `s` aus der Datei gelesen: alle Sätze sind gleich lang, also Dateilänge / 200.
 fn satzlaenge(ordner: &Path) -> u64 {
     let laenge = fs::metadata(ordner.join(RIESIG)).expect("Datei").len();

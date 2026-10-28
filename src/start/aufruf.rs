@@ -14,7 +14,10 @@ pub const HILFE: &str = concat!(
     "  --erreichbar-als <name>\n",
     "                    Host-Name, unter dem die Instanz zusätzlich antwortet (mehrfach erlaubt);\n",
     "                    IP-Adressen, localhost und der Rechnername gelten immer\n",
-    "  --hilfe           diese Hilfe zeigen",
+    "  --hilfe           diese Hilfe zeigen\n",
+    "\n",
+    "Sendefrist: eine Verbindung, die 2 × Herzschlag (Standard 10 s) lang nichts abnimmt oder bestätigt,\n",
+    "schließt das System.",
 );
 
 /// Welcher Port verlangt ist: der Standard mit Ausweichen, die Wahl des Systems oder genau einer.
