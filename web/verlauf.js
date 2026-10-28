@@ -42,6 +42,7 @@ export function verlaufAnlegen({ abrufen, schalter = () => {} }) {
   let juengste = null;
   let neueGezaehlt = 0;
   let ersteNeue = null;
+  let nurGezaehlte = [];
   let vorlaeufige = [];
   const buendler = buendlerAnlegen({ einfuegen: jeFrameEinfuegen });
 
@@ -159,6 +160,7 @@ export function verlaufAnlegen({ abrufen, schalter = () => {} }) {
     juengste = null;
     neueGezaehlt = 0;
     ersteNeue = null;
+    nurGezaehlte = [];
     auslauf.style.height = '';
     ladenBeendet();
     log.setAttribute('aria-label', `Verlauf # ${name}`);
@@ -237,6 +239,7 @@ export function verlaufAnlegen({ abrufen, schalter = () => {} }) {
     const lage = folgenOderZaehlen(abstandUnten(), zeilenhoehe(), neuesterImFenster);
     if (lage === 'nurZaehlen') {
       neueGezaehlt += fremde;
+      nurGezaehlte.push(...eintraege.map((eintrag) => eintrag.nachricht));
       return;
     }
     const { neue, juengste: neueJuengste } = einordnen(juengste, eintraege.map((eintrag) => eintrag.nachricht));
@@ -351,8 +354,25 @@ export function verlaufAnlegen({ abrufen, schalter = () => {} }) {
       knotenAbwerfen(richtung);
     }
     fenster = ergebnis.fenster;
+    if (richtung === 'neuer') {
+      juengste = einordnen(juengste, block.nachrichten).juengste;
+    }
+    if (richtung === 'neuer' && !fenster.neuer) {
+      nurGezaehlteAnfuegen();
+    }
     ankerHalten(log, anker);
     lageMerken();
+  }
+
+  // Nachrichten, die nur gezählt wurden, weil der neueste Block nicht im Fenster stand, kommen hinter ihn, sobald er
+  // wieder da ist — was schon im Block steht, verwirft das Einordnen (ADR-0028 Regel 5); die Pille zählt weiter.
+  function nurGezaehlteAnfuegen() {
+    const { neue, juengste: neueJuengste } = einordnen(juengste, nurGezaehlte);
+    nurGezaehlte = [];
+    juengste = neueJuengste;
+    if (neue.length > 0) {
+      anfuegen(neue);
+    }
   }
 
   function knotenEinfuegen(nachrichten, richtung) {
@@ -422,6 +442,7 @@ export function verlaufAnlegen({ abrufen, schalter = () => {} }) {
     offenerName = null;
     geladen = false;
     puffer = [];
+    nurGezaehlte = [];
     fenster = null;
     bloeckeKnoten = [];
     gescheitert = false;
