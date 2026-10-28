@@ -38,7 +38,7 @@ pub async fn beantworten(
         ende: zustand.ende.clone(),
         herzschlag: tokio::time::interval_at(tokio::time::Instant::now() + herzschlag, herzschlag),
         zuletzt: stand.stand,
-        erstes: Some(stand_ereignis(&stand)),
+        erstes: Some(stand),
         _halter: halter,
     };
     Sse::new(stream::unfold(strom, Strom::naechstes)).into_response()
@@ -52,35 +52,53 @@ struct Strom {
     herzschlag: Interval,
     /// Nummer des zuletzt gesendeten Stands oder Wechsels; ältere oder gleiche gehen schon im Stand auf.
     zuletzt: u64,
-    erstes: Option<Event>,
+    erstes: Option<Stand>,
     _halter: Halter,
+}
+
+/// Was der Strom als Nächstes sendet.
+#[derive(Debug)]
+enum Ausgabe {
+    Stand(Stand),
+    Wechsel(Wechsel),
+    Herzschlag,
 }
 
 impl Strom {
     async fn naechstes(mut self) -> Option<(Result<Event, Infallible>, Strom)> {
+        let ereignis = match self.naechste_ausgabe().await? {
+            Ausgabe::Stand(stand) => stand_ereignis(&stand),
+            Ausgabe::Wechsel(wechsel) => wechsel_ereignis(&wechsel),
+            Ausgabe::Herzschlag => Event::default().event("herzschlag").data("{}"),
+        };
+        Some((Ok(ereignis), self))
+    }
+
+    /// Zuerst der Stand, danach Wechsel mit größerem `stand` als dem zuletzt gesendeten (kleinere oder
+    /// gleiche stecken schon im Stand — nach `Lagged` bringt der Bus sie noch), Herzschläge; `None` am Ende.
+    async fn naechste_ausgabe(&mut self) -> Option<Ausgabe> {
         if let Some(erstes) = self.erstes.take() {
-            return Some((Ok(erstes), self));
+            return Some(Ausgabe::Stand(erstes));
         }
         loop {
-            let ereignis = tokio::select! {
+            return Some(tokio::select! {
                 () = self.ende.abwarten() => return None,
-                _ = self.herzschlag.tick() => Event::default().event("herzschlag").data("{}"),
+                _ = self.herzschlag.tick() => Ausgabe::Herzschlag,
                 empfang = self.abonnement.naechstes() => match empfang? {
                     Empfang::Ereignis(Ereignis::Anwesenheit(wechsel)) => {
                         if wechsel.stand <= self.zuletzt {
                             continue;
                         }
                         self.zuletzt = wechsel.stand;
-                        wechsel_ereignis(&wechsel)
+                        Ausgabe::Wechsel(wechsel)
                     }
                     Empfang::NeuerStand => {
                         let stand = self.anwesenheit.teilnehmer();
                         self.zuletzt = stand.stand;
-                        stand_ereignis(&stand)
+                        Ausgabe::Stand(stand)
                     }
                 },
-            };
-            return Some((Ok(ereignis), self));
+            });
         }
     }
 }
@@ -98,4 +116,97 @@ fn wechsel_ereignis(wechsel: &Wechsel) -> Event {
         "teilnehmer": zeile_als_json(&wechsel.teilnehmer),
     });
     Event::default().data(ereignis.to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::anwesenheit::Beitrittswunsch;
+    use crate::live::bus::{Bus, anwesenheit_veroeffentlichen};
+    use crate::uhr::Systemuhr;
+    use crate::zufall::Betriebssystemzufall;
+    use std::time::Duration;
+
+    fn beitreten(anwesenheit: &Anwesenheit, name: &str) -> crate::zufall::Token {
+        let wunsch = Beitrittswunsch::pruefen(&json!({ "name": name })).expect("Wunsch");
+        anwesenheit
+            .beitreten(&wunsch, "127.0.0.2".parse().expect("IP"))
+            .expect("beigetreten")
+            .sitzung
+            .token
+    }
+
+    /// Nacharbeit 2 (Code-Review): wer zu langsam liest, bekommt einen neuen Stand S' — und danach nur Wechsel
+    /// über S', streng steigend, obwohl der Bus die älteren noch liefert.
+    #[tokio::test]
+    async fn nach_einem_neuen_stand_kommen_nur_juengere_wechsel() {
+        let bus = Arc::new(Bus::neu(2));
+        let anwesenheit = Arc::new(
+            Anwesenheit::neu(
+                Arc::new(Systemuhr),
+                Arc::new(Betriebssystemzufall),
+                Duration::from_secs(60),
+            )
+            .mit_veroeffentlichen(anwesenheit_veroeffentlichen(&bus)),
+        );
+        let token = beitreten(&anwesenheit, "leser");
+        let (halter, _) = anwesenheit
+            .verbunden(&token, "127.0.0.2".parse().expect("IP"))
+            .expect("Halter");
+        let (stand, abonnement) = anwesenheit.stand_mit(|| bus.abonnieren());
+        let mut strom = Strom {
+            anwesenheit: Arc::clone(&anwesenheit),
+            abonnement,
+            ende: Ende::nie(),
+            herzschlag: tokio::time::interval_at(
+                tokio::time::Instant::now() + Duration::from_secs(3600),
+                Duration::from_secs(3600),
+            ),
+            zuletzt: stand.stand,
+            erstes: Some(stand),
+            _halter: halter,
+        };
+        for nummer in 0..5 {
+            beitreten(&anwesenheit, &format!("w{nummer}"));
+        }
+
+        let mut staende = Vec::new();
+        let mut neuer_stand = None;
+        for _ in 0..3 {
+            match strom.naechste_ausgabe().await.expect("Ausgabe") {
+                Ausgabe::Stand(stand) if staende.is_empty() => staende.push(stand.stand),
+                Ausgabe::Stand(stand) => {
+                    neuer_stand = Some(stand.stand);
+                    staende.push(stand.stand);
+                }
+                Ausgabe::Wechsel(wechsel) => staende.push(wechsel.stand),
+                Ausgabe::Herzschlag => {}
+            }
+            if neuer_stand.is_some() {
+                break;
+            }
+        }
+        let gepuffert =
+            tokio::time::timeout(Duration::from_millis(100), strom.naechste_ausgabe()).await;
+        beitreten(&anwesenheit, "danach");
+        let danach = tokio::time::timeout(Duration::from_secs(1), strom.naechste_ausgabe())
+            .await
+            .expect("Ausgabe binnen 1 s");
+
+        let neuer_stand = neuer_stand.expect("neuer Stand nach Lagged");
+        assert!(
+            gepuffert.is_err(),
+            "nach S' = {neuer_stand} kam noch {gepuffert:?} (Folge {staende:?})"
+        );
+        let Some(Ausgabe::Wechsel(wechsel)) = danach else {
+            panic!(
+                "erwartet ein Wechsel über S' = {neuer_stand}, kam {danach:?} (Folge {staende:?})"
+            );
+        };
+        assert_eq!(wechsel.stand, neuer_stand + 1, "Folge {staende:?}");
+        assert!(
+            staende.windows(2).all(|paar| paar[0] < paar[1]),
+            "{staende:?}"
+        );
+    }
 }

@@ -1024,6 +1024,64 @@ mod tests {
     }
 
     #[test]
+    fn stand_mit_ruft_unter_der_sperre() {
+        let (_, anwesenheit) = mit_gestellter_uhr();
+
+        let (_, gesperrt) = anwesenheit.stand_mit(|| anwesenheit.bestand.try_lock().is_err());
+
+        assert!(
+            gesperrt,
+            "abonnieren muss unter der Sperre geschehen (ADR-0016 Regel 5)"
+        );
+    }
+
+    /// Nacharbeit 2 (Code-Review): jeder Wechsel geht unter der Sperre an die Veröffentlichung — für
+    /// beitreten, pflegen und verbunden, deterministisch statt über Last.
+    #[test]
+    fn beitreten_pflegen_und_verbunden_veroeffentlichen_unter_der_sperre() {
+        let uhr = Arc::new(GestellteUhr::neu(zeit(T0)));
+        let selbst: Arc<std::sync::OnceLock<std::sync::Weak<Anwesenheit>>> = Arc::default();
+        let gesperrt: Arc<Mutex<Vec<(u64, bool)>>> = Arc::default();
+        let (selbst_im_aufruf, gesperrt_im_aufruf) = (Arc::clone(&selbst), Arc::clone(&gesperrt));
+        let anwesenheit = Arc::new(
+            Anwesenheit::neu(
+                Arc::clone(&uhr) as Arc<dyn Uhr>,
+                Arc::new(FesteFolge::neu(1..=10)),
+                Duration::from_secs(60),
+            )
+            .mit_veroeffentlichen(Arc::new(move |wechsel: &Wechsel| {
+                let anwesenheit = selbst_im_aufruf.get().and_then(std::sync::Weak::upgrade);
+                let unter_sperre =
+                    anwesenheit.is_some_and(|anwesenheit| anwesenheit.bestand.try_lock().is_err());
+                gesperrt_im_aufruf
+                    .lock()
+                    .expect("Liste")
+                    .push((wechsel.stand, unter_sperre));
+            })),
+        );
+        selbst
+            .set(Arc::downgrade(&anwesenheit))
+            .expect("einmal gesetzt");
+
+        let token = anwesenheit
+            .beitreten(&wunsch("claude", Art::Agent), ip("10.0.0.5"))
+            .expect("beigetreten")
+            .sitzung
+            .token;
+        anwesenheit.pflegen(nach_ms(1000));
+        uhr.stellen(nach_ms(2000));
+        let (_halter, _) = anwesenheit
+            .verbunden(&token, ip("10.0.0.5"))
+            .expect("Halter");
+
+        assert_eq!(
+            *gesperrt.lock().expect("Liste"),
+            vec![(1, true), (2, true), (3, true)],
+            "beitreten (online), pflegen (offline), verbunden (online)"
+        );
+    }
+
+    #[test]
     fn gleichzeitige_beitritte_mit_demselben_namen_ergeben_genau_einen_erfolg() {
         let anwesenheit = Arc::new(anwesenheit(FesteFolge::neu(1..=20)));
         let faeden: Vec<_> = (0..20u8)
