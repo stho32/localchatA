@@ -47,3 +47,4 @@ Eine Zeile je Auftrag an eine Rolle und je Retrospektive.
 | 2026-10-28 | #4 I0005 | Architektur | architekt | bestanden | 0:20 | ADR-0015/0016, Nachzug ADR-0013/0014 (986fdd0, 92dcd8a) |
 | 2026-10-28 | #4 I0005 | Bereit | planer | bestanden | 0:10 | R00004, 24 Bubbles in 5 Slices (a6bb8d0) |
 | 2026-10-28 | #4 I0005 | Entwicklung | entwickler | bestanden | 1:15 | R00004 B0075–B0098 (4b6b4fc…920ab49); Nacharbeit Gate-Stabilität 413-Abbruch (240dc98) |
+| 2026-10-28 | #4 I0005 | Reviews | code-, ux-, security-reviewer | befund | 0:20 | Code: B1 stand nicht monoton, B2 Reihenfolge ohne Test; UX bestanden mit S1–S6 und Wiederverbindungsfehler; Security bestanden → Nacharbeit 1 |
