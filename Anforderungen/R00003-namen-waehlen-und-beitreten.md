@@ -156,7 +156,7 @@ Playwright mit Chromium gegen das echte Programm; Start auf einem freien, festen
 - [ ] Gnadenfrist ohne Halter (`LOCALCHATA_GNADENFRIST_MS=2000`): Kontext A beigetreten, danach keine Seite der Instanz offen, bis `/api/gesundheit` `"halter":0` meldet, dann 3 s ohne Anfrage, `/` wieder öffnen → Kopfzeile `shoff@127.0.0.1` ohne Beitreten-Bildschirm; hat in der Zwischenzeit Kontext B `shoff` genommen, zeigt A beim Öffnen den Zustand „Name vergeben“ mit Vorschlag `shoff-2`.
 - [ ] Server weg: Programm beenden, in einem leeren Kontext (Seite vorher geladen) `shoff` tippen, `Enter` → ⚠ „Server nicht erreichbar“ mit Schalter „Erneut versuchen“; Programm auf demselben Port neu starten, „Erneut versuchen“ → Kopfzeile `shoff@127.0.0.1`.
 - [ ] Ohne Maus: alle Szenarien dieses Abschnitts gehen mit Tastatur (`Tab`, `Enter`); der fokussierte Schalter oder das Feld ist sichtbar umrandet.
-- [ ] In keinem der Szenarien dieses Abschnitts erscheint ein Konsolenfehler.
+- [ ] In keinem der Szenarien dieses Abschnitts erscheint eine unbehandelte Ausnahme oder ein CSP-Verstoß; Konsolenfehler gibt es nur als „Failed to load resource“ zu Antworten, die diese Anforderung vorschreibt (401 von `/api/ich`, 409 und 422 von `/api/beitreten`), und zu `/api/…` mit `net::ERR_CONNECTION_REFUSED`, solange die Instanz beendet ist (US-20).
 
 ## Betroffene Verzeichnisstruktur
 
@@ -283,6 +283,7 @@ Auslöser: Nach I0002 kann die Instanz Nachrichten ins Log schreiben, aber niema
 ### Änderungen nach Prüfung
 
 - 2026-10-28 (Karte #4, R00004): US-19 und das Kriterium „Gnadenfrist ohne Halter“ unter F0010 — „untätig“ heißt jetzt: keine Seite der Instanz offen, die Sitzung hat keinen Halter (`"halter":0` in `/api/gesundheit`); erst danach zählt die Wartezeit, dann wird `/` wieder geöffnet. Grund: seit R00004 hält der Ereignisstrom einer offenen Seite die Sitzung am Leben (ADR-0012, ADR-0016), „3 s nichts tun und neu laden“ mit offener Seite ist nicht mehr herstellbar. Geprüftes Ergebnis (stiller Wiederbeitritt bzw. „Name vergeben“ mit `shoff-2`) unverändert; Tests schon so gebaut (74082bc, 3b5375b, `e2e/tests/r00003-beitreten.spec.js`).
+- 2026-10-28 (Karte #4, realist-consultant): US-21 und das letzte Kriterium unter F0010 — Konsole eingegrenzt: keine unbehandelte Ausnahme, kein CSP-Verstoß; erlaubt sind nur die Meldungen „Failed to load resource“ des Browsers zu vorgeschriebenen Antworten (401 von `/api/ich`, 409 und 422 von `/api/beitreten`) und `net::ERR_CONNECTION_REFUSED` zu `/api/…`, solange die Instanz beendet ist. Grund: Urteil realist-consultant 2026-10-28: Kriterium widersprach vorgeschriebenen Antworten bzw. nannte den Startpunkt der Uhr nicht; vom Betreiber genehmigte Anpassung. Das Kriterium „ohne einen einzigen Konsolenfehler“ beim Laden (Z. 112) bleibt unverändert.
 
 ### Bewusst außerhalb
 
