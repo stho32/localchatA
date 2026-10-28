@@ -50,3 +50,4 @@ Eine Zeile je Auftrag an eine Rolle und je Retrospektive.
 | 2026-10-28 | #4 I0005 | Reviews | code-, ux-, security-reviewer | befund | 0:20 | Code: B1 stand nicht monoton, B2 Reihenfolge ohne Test; UX bestanden mit S1–S6 und Wiederverbindungsfehler; Security bestanden → Nacharbeit 1 |
 | 2026-10-28 | #4 I0005 | Entwicklung (Nacharbeit 1) | entwickler | bestanden | 1:05 | B1/B2 Veröffentlichung unter Sperre, Wiederverbindung, S1–S6, A1/A3/A7/A8 (b3645cf…a58f711) |
 | 2026-10-28 | #4 I0005 | Reviews + Entwicklertest | code-, ux-, security-reviewer, entwicklertester | befund | 0:30 | Reviews bestanden (Sollte N1–N3, Sperr-Tests); Entwicklertest US-4 Befund, Konsolen-401 nach Neustart → Nacharbeit 2 |
+| 2026-10-28 | #4 I0005 | Entwicklung (Nacharbeit 2) | entwickler | bestanden | 0:45 | US-4 Pflege beim Abruf, Wiederbeitritt ohne Konsolenfehler, N1–N3, Untergrenze, Sperr-Tests (bab9647…3b5375b) |
