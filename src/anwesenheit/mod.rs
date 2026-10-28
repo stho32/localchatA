@@ -3,10 +3,10 @@
 mod bestand;
 pub mod gnadenfrist;
 mod stand;
-mod status;
+pub(crate) mod status;
 mod vorschlag;
 mod wunsch;
 
 pub use bestand::{Anwesenheit, Beitrittsfehler, GESAMT, JE_HERKUNFT, Sitzung};
-pub use stand::{Stand, Teilnehmerzeile};
+pub use stand::{Stand, Teilnehmerzeile, Wechsel};
 pub use wunsch::{Abweisung, Art, Beitrittswunsch};
