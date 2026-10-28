@@ -25,8 +25,9 @@ Facette des Aggregats [Gespräche](A00006-gespraeche.md); von außen nur über d
 
 - `channel_anlegen(name, beschreibung, von: Kennung) -> Result<Channel, Anlegefehler>` — Prüfreihenfolge und Grenzen nach [ADR-0021](../ADRs/0021-channel-anlegen-jeder-mit-sitzung-grenzen-je-herkunft-und-gesamt.md) Regel 5; `Anlegefehler` = `Vorhanden(Channel)` | `OrdnerVorhanden` | `Regel(Namensfehler | Beschreibungsfehler)` | `Grenze{art, hoechstens}` | `Ablage(String)`.
 - `channels() -> ChannelStand { stand, liste }` — nach Name sortiert.
+- `frist_setzen(…)` (ab I0018) — Prüfreihenfolge nach [ADR-0031](../ADRs/0031-frist-setzen-put-api-channels-name-frist-jeder-mit-sitzung-bestaetigung-beim-verkuerzen.md) Regel 2.
 - `mit_veroeffentlichen(Rückruf)` — jeder `ChannelWechsel { stand, channel }` geht **unter der Sperre** an den Rückruf ([ADR-0023](../ADRs/0023-channels-als-zweites-thema-im-ereignisstrom.md) Regel 2); ohne Rückruf geht er an niemanden.
-- `Channel { name: Channelname, angelegt: Option<Zeit>, angelegt_von: Option<Kennung>, beschreibung: Option<String> }`; ab I0018 zusätzlich `frist_tage`.
+- `Channel { name: Channelname, angelegt: Option<Zeit>, angelegt_von: Option<Kennung>, beschreibung: Option<String> }`; ab I0018 zusätzlich `frist: Frist` (Ergänzung unten).
 
 ## Abhaengigkeiten
 
@@ -38,6 +39,8 @@ Facette des Aggregats [Gespräche](A00006-gespraeche.md); von außen nur über d
 - [ADR-0021: Channel anlegen — `POST /api/channels` für jeden mit Sitzung, höchstens 32 je Herkunft und 256 gesamt](../ADRs/0021-channel-anlegen-jeder-mit-sitzung-grenzen-je-herkunft-und-gesamt.md) — Akzeptiert, 2026-10-28
 - [ADR-0022: Channel-Einstellungen als `einstellungen.toml` im Ordner des Channels](../ADRs/0022-channel-einstellungen-je-channel-als-toml.md) — Akzeptiert, 2026-10-28
 - [ADR-0023: Channels als zweites Thema im vorhandenen Ereignisstrom](../ADRs/0023-channels-als-zweites-thema-im-ereignisstrom.md) — Akzeptiert, 2026-10-28
+- [ADR-0029: Frist in ganzen Kalendertagen nach lokalem Datum, heute zählt mit, 1 bis 3650, Standard 7](../ADRs/0029-frist-in-kalendertagen-heute-zaehlt-mit-1-bis-3650.md) — Akzeptiert, 2026-10-28
+- [ADR-0031: Frist setzen über `PUT /api/channels/{name}/frist` — jeder mit Sitzung, Verkürzen nur mit Bestätigung, verteilt als Channel-Wechsel](../ADRs/0031-frist-setzen-put-api-channels-name-frist-jeder-mit-sitzung-bestaetigung-beim-verkuerzen.md) — Akzeptiert, 2026-10-28
 
 ## Offene Fragen
 
@@ -51,3 +54,4 @@ Facette des Aggregats [Gespräche](A00006-gespraeche.md); von außen nur über d
 - **Zählung je Herkunft** aus `angelegt_von.herkunft` aller Channels im Verzeichnis — ohne eigenen Zähler, damit Neustart und Laden sie nicht verfälschen können (ADR-0021 Regel 4). Bei ≤ 256 Channels ist das Zählen beim Anlegen ein Durchlauf über die Liste — hingenommen.
 - **Erster Test** (Unit, ohne Platte): Verzeichnis über `Speicherablage`, gestellte Uhr, aufzeichnender Rückruf; `channel_anlegen("allgemein", None, shoff@127.0.0.1)` → `Channel{angelegt: Uhr, angelegt_von: shoff@127.0.0.1}`, Rückruf erhält `stand` 1 unter der Sperre, die Speicherablage enthält den Ordner und eine Einstellungsdatei, `channels()` liefert `stand` 1 mit einem Eintrag; zweites Anlegen desselben Namens → `Vorhanden` ohne Rückruf und ohne Schreibvorgang. Ersetzt: Logablage (Speicher), Uhr, Rückruf (Vektor).
 - **Fehlerpfad**: die Speicherablage kann „Einstellungen schreiben scheitert“ simulieren → `Ablage`-Fehler, der Ordner ist zurückgebaut, `stand` unverändert, kein Rückruf.
+- **Ergänzung 2026-10-28 (Karte #12, I0018):** `Channel` wächst um `frist: Frist` mit `Frist = Tage(1..=3650) | Gesperrt { datei }` — `Gesperrt`, wenn die Einstellungsdatei beim Start defekt oder nicht lesbar war; an der Grenze `frist_tage` als Zahl bzw. `null` ([ADR-0029](../ADRs/0029-frist-in-kalendertagen-heute-zaehlt-mit-1-bis-3650.md), [ADR-0031](../ADRs/0031-frist-setzen-put-api-channels-name-frist-jeder-mit-sitzung-bestaetigung-beim-verkuerzen.md)). Eine Änderung der Frist zählt `stand` hoch und geht unter der Sperre an `mit_veroeffentlichen` wie das Anlegen (ADR-0023 Regel 1). Erster Test: ADR-0031, „Folgeentscheidungen“ (Unit mit Speicherablage, gestellter Uhr, aufzeichnendem Rückruf).
