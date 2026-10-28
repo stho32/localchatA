@@ -77,3 +77,8 @@ Regeln:
 - [A00005 Weboberfläche](../Architektur/A00005-weboberflaeche.md), [A00004 HTTP-Schnittstelle](../Architektur/A00004-http-schnittstelle.md)
 - Designsystem `components/Seitenleiste/README.md`, `components/Hauptansicht/README.md`, `1-tastatur.md`, `README.md`, `3-offene-fragen.md` (Frage 10); `design-prompt.md` 4.2, 4.3
 - ADR-0014 (CSP), ADR-0020, ADR-0021, ADR-0022, ADR-0023; `AI-Team/entwickler.md` Gelerntes #3; `AI-Team/planer.md` Gelerntes #4
+
+## Ergänzungen
+
+- **2026-10-28 (Karte #7, Nachzug aus #6) — Beschreibung erst mit F0026 (Regeln 4 und 8):** Das Feld „Beschreibung“ im Dialog (Regel 4) und der `title` des Eintrags (Regel 8) kommen erst mit F0026; bis dahin hat der Dialog nur das Feld „Name“, und die API weist eine gesetzte Beschreibung mit 422 `regel: "beschreibung"` ab ([ADR-0021](0021-channel-anlegen-jeder-mit-sitzung-grenzen-je-herkunft-und-gesamt.md), Ergänzung). Der „Kopf des Channels“ aus Regel 8 ist die Zone „Ort“ der Kopfzeile nach dem Designsystem (`components/Kopfzeile`: `# name`, dann die Beschreibung abgeschnitten, unter 720 px ohne) — festgelegt in [ADR-0027](0027-channel-waehlen-adresse-als-hash-zuletzt-gewaehlt-je-tab.md) Regel 5.
+- **2026-10-28 (Karte #7, I0008):** Regel 1 („kein `aria-current`, kein Link“) und Regel 9 (Mitte leer) gelten bis I0008; danach sind die Einträge Links `#/c/<name>` mit `aria-current="page"` ([ADR-0027](0027-channel-waehlen-adresse-als-hash-zuletzt-gewaehlt-je-tab.md)), und die Mitte zeigt den Verlauf ([ADR-0026](0026-verlauf-im-browser-als-fenster-aus-hoechstens-fuenf-bloecken.md)).

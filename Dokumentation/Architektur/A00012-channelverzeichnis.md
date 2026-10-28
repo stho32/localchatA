@@ -41,8 +41,8 @@ Facette des Aggregats [Gespräche](A00006-gespraeche.md); von außen nur über d
 
 ## Offene Fragen
 
-- Sehen alle Teilnehmer alle Channels? Empfehlung: ja — die Vision kennt keine Rechte; ein Ausblenden je Browser wäre eine eigene Interaction (Designsystem, `3-offene-fragen.md` Frage 10). Fachlich, für den `planer`.
-- Legt ein frischer Ordner einen ersten Channel (`allgemein`) selbst an? Empfehlung: nein — Laden legt nichts an (A00008), die leere Seitenleiste zeigt den Weg (ADR-0024 Regel 2). Fachlich, für den `planer`.
+- ~~Sehen alle Teilnehmer alle Channels?~~ **Entschieden 2026-10-28** (Director nach Empfehlung, R00006): ja, alle sehen alle; kein Ausblenden geplant (Designsystem `3-offene-fragen.md` Frage 10 beantwortet).
+- ~~Legt ein frischer Ordner einen ersten Channel (`allgemein`) selbst an?~~ **Entschieden 2026-10-28** (Director nach Empfehlung, R00006): nein — Laden legt nichts an, die leere Seitenleiste zeigt den Weg (ADR-0024 Regel 2).
 
 ## Notizen / Quellen
 

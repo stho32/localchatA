@@ -12,3 +12,4 @@ Nicht entschieden, nicht geraten — bitte beantworten.
 8. **Name zurückgewinnen.** Ein zurückkehrender Tab findet seinen Namen wieder — was, wenn ihn in der Minute dazwischen jemand anderes genommen hat?
 9. **Dateigröße.** Die 25 MB im Entwurf sind ein Platzhalter; welche Grenze gilt?
 10. **Wer sieht welche Channels?** Alle sehen alle, oder gibt es Beitritt/Verlassen? Ohne Rechte vermutlich alle — dann braucht die Seitenleiste ein Ausblenden.
+    **Antwort (2026-10-28, Director nach Empfehlung, R00006):** Alle sehen alle Channels; es gibt kein Beitreten oder Verlassen eines Channels. Ein Ausblenden je Browser ist nicht geplant — käme es, wäre es eine eigene Interaction (ADR-0021, ADR-0027 Regel 8).

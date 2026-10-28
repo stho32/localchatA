@@ -76,3 +76,7 @@ Regeln:
 - [A00012 Channelverzeichnis](../Architektur/A00012-channelverzeichnis.md), [A00004 HTTP-Schnittstelle](../Architektur/A00004-http-schnittstelle.md), [A00006 Gespräche](../Architektur/A00006-gespraeche.md)
 - ADR-0012 (Sitzung, Grenzen 64/512), ADR-0014 (Grenzschutz), ADR-0018 Ergänzung 2a (CWE-770), ADR-0020, ADR-0022, ADR-0023
 - Vision R00000 (gleichberechtigt, keine Rechte); Logbuch #5 Retrospektive; `AI-Team/gelerntes.md` (LAN-Angriffsfläche)
+
+## Ergänzungen
+
+- **2026-10-28 (Karte #7, Nachzug aus #6) — Beschreibung erst mit F0026:** Regel 1 nennt `{name, beschreibung?}` und `beschreibung` in jeder Antwort. Gebaut ist in I0007 (R00006) nur der Name: eine gesetzte Beschreibung (nicht `null`, nicht `""`) ergibt bis F0026 422 `{fehler, regel: "beschreibung"}`, und `beschreibung` ist in Antwort, Liste und Ereignis immer `null` (`src/http/channels.rs`). Mit F0026 gilt Regel 1 wie geschrieben, die Prüfung nach [ADR-0022](0022-channel-einstellungen-je-channel-als-toml.md) Regel 5. Der sichtbare Ort ist die Kopfzeile ([ADR-0027](0027-channel-waehlen-adresse-als-hash-zuletzt-gewaehlt-je-tab.md) Regel 5).
