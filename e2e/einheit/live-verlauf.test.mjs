@@ -2,7 +2,7 @@
 // node --test).
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { einordnen } from '../../web/live-verlauf.js';
+import { einordnen, buendlerAnlegen } from '../../web/live-verlauf.js';
 
 const t = (sekunde) => `2026-10-28T12:00:${String(sekunde).padStart(2, '0')}.000+01:00`;
 const n = (sekunde) => ({ zeit: t(sekunde), von: 'beta@127.0.0.1', art: 'agent', text: `n${sekunde}` });
@@ -31,4 +31,49 @@ test('verglichen wird der Zeitpunkt, nicht der Text: 02:00+01:00 ist jünger als
   const winter = { ...n(0), zeit: '2026-10-25T02:00:00.000+01:00' };
 
   assert.deepEqual(zeiten(einordnen(sommer, [winter]).neue), [winter.zeit]);
+});
+
+// Ein gestellter requestAnimationFrame: Rückrufe warten, bis der Test einen Frame auslöst.
+function gestellterFrame() {
+  let wartend = [];
+  return {
+    naechsterFrame: (rueckruf) => { wartend.push(rueckruf); },
+    frame: () => {
+      const jetzt = wartend;
+      wartend = [];
+      jetzt.forEach((rueckruf) => rueckruf());
+    },
+  };
+}
+
+// B0224 „Bündeln“: 120 Ereignisse in einem Task → genau ein Einfügen mit 120 beim nächsten Frame; ein Frame ohne
+// Ereignisse → kein Einfügen.
+test('je Frame wird einmal eingefügt, ohne Ereignisse gar nicht', () => {
+  const { naechsterFrame, frame } = gestellterFrame();
+  const eingefuegt = [];
+  const buendler = buendlerAnlegen({ einfuegen: (liste) => eingefuegt.push(liste), naechsterFrame });
+
+  for (let nummer = 0; nummer < 120; nummer += 1) {
+    buendler.annehmen(n(nummer % 60));
+  }
+  assert.equal(eingefuegt.length, 0, 'nicht im selben Task');
+  frame();
+  frame();
+
+  assert.equal(eingefuegt.length, 1);
+  assert.equal(eingefuegt[0].length, 120);
+});
+
+test('nach einem Frame sammelt der nächste von vorn', () => {
+  const { naechsterFrame, frame } = gestellterFrame();
+  const eingefuegt = [];
+  const buendler = buendlerAnlegen({ einfuegen: (liste) => eingefuegt.push(liste), naechsterFrame });
+
+  buendler.annehmen(n(1));
+  frame();
+  buendler.annehmen(n(2));
+  buendler.annehmen(n(3));
+  frame();
+
+  assert.deepEqual(eingefuegt.map(zeiten), [[t(1)], [t(2), t(3)]]);
 });

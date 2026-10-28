@@ -14,3 +14,21 @@ export function einordnen(juengste, nachrichten) {
   }
   return { neue, juengste: bisher };
 }
+
+// Sammelt angenommene Nachrichten und fügt sie einmal je Frame ein (ADR-0037 Regel 6).
+export function buendlerAnlegen({ einfuegen, naechsterFrame = (rueckruf) => globalThis.requestAnimationFrame(rueckruf) }) {
+  let gesammelt = [];
+  function frame() {
+    const jetzt = gesammelt;
+    gesammelt = [];
+    einfuegen(jetzt);
+  }
+  return {
+    annehmen: (nachricht) => {
+      if (gesammelt.length === 0) {
+        naechsterFrame(frame);
+      }
+      gesammelt.push(nachricht);
+    },
+  };
+}
