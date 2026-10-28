@@ -29,6 +29,7 @@ function minutentakt(datum, anzahl, versatz) {
 
 const verlauf = (page) => page.getByRole('log');
 const nachrichten = (page) => verlauf(page).locator('.lc-msg');
+const pille = (page) => page.getByRole('button', { name: /Zum Neuesten/ });
 
 async function geoeffnet(page, channel) {
   instanz = await instanzStarten({
@@ -87,6 +88,7 @@ test('L3 (US-16): nach zehnmal Nachladen nach oben stehen genau 500 Nachrichten 
   expect(abrufe.vor).toBe(10);
   await expect(nachrichten(page)).toHaveCount(500);
   expect(await zeitenImDom(page)).toEqual(erwartet.slice(6, 11).reverse().flat());
+  await expect(pille(page)).toBeVisible();
   expect(fehler).toEqual([]);
 });
 
@@ -180,6 +182,47 @@ test('Ladezeile (US-16): solange der Abruf nach oben läuft, steht oben „Älte
 
   await expect(ladezeile).toBeHidden({ timeout: 5000 });
   await expect(nachrichten(page)).toHaveCount(200);
+  expect(fehler).toEqual([]);
+});
+
+test('Zum Neuesten (US-17): Pille erst über 1 Bildschirmhöhe, Klick und Ende öffnen neu, der Fokus liegt im Verlauf', async ({ page }) => {
+  const fehler = fehlerSammeln(page);
+  await geoeffnet(page, 'gross');
+  const juengste = await juengsteZeit(instanz.adresse, 'gross');
+  const ueberDemEnde = (abstand) => verlauf(page).evaluate((log, mehr) => {
+    log.scrollTop = log.scrollHeight - log.clientHeight - log.clientHeight - mehr;
+  }, abstand);
+
+  await ueberDemEnde(-10);
+  await ruhig(page);
+  await expect(pille(page)).toBeHidden();
+  await ueberDemEnde(10);
+  await ruhig(page);
+  await expect(pille(page)).toBeVisible();
+  await expect(pille(page)).toContainText('Zum Neuesten');
+
+  await pille(page).click();
+  await expect(nachrichten(page).last()).toHaveAttribute('data-zeit', juengste);
+  await ruhig(page);
+  await expect(verlauf(page)).toBeFocused();
+  const ganz = () => nachrichten(page).last().evaluate((element) => {
+    const log = element.closest('[role="log"]').getBoundingClientRect();
+    const lage = element.getBoundingClientRect();
+    return lage.top >= log.top - 1 && lage.bottom <= log.bottom + 1;
+  });
+  expect(await ganz()).toBe(true);
+  await expect(pille(page)).toBeHidden();
+
+  await verlauf(page).evaluate((log) => { log.scrollTop = 0; });
+  await ruhig(page);
+  await expect(pille(page)).toBeVisible();
+  await verlauf(page).focus();
+  await page.keyboard.press('End');
+  await expect(nachrichten(page)).toHaveCount(100);
+  await ruhig(page);
+  expect(await ganz()).toBe(true);
+  await expect(nachrichten(page).last()).toHaveAttribute('data-zeit', juengste);
+  await expect(verlauf(page)).toBeFocused();
   expect(fehler).toEqual([]);
 });
 

@@ -72,7 +72,11 @@ body { background: var(--kd-bg); color: var(--kd-ink); font-family: var(--font-s
 .lc-verlauf { position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column; }
 /* Ladezeile und Pille liegen über dem Verlauf, nicht in ihm — Ein- und Ausblenden verschiebt nichts */
 .lc-loadmore { position: absolute; top: 0; left: 0; right: 0; z-index: 2; height: var(--kd-row); display: flex; align-items: center; justify-content: center; font-size: 12px; color: var(--kd-ink-muted); background: var(--kd-surface); border-bottom: 1px solid var(--kd-line); }
-.lc-loadmore[hidden] { display: none; }
+.lc-loadmore[hidden], .lc-pill[hidden] { display: none; }
+.lc-pillen { position: absolute; left: 0; right: 0; bottom: var(--kd-space-12); z-index: 2; display: flex; justify-content: center; pointer-events: none; }
+.lc-pill { pointer-events: auto; display: inline-flex; align-items: center; gap: var(--kd-space-8); height: var(--kd-row); padding: 0 var(--kd-space-12); background: var(--kd-header-bg); color: var(--kd-header-ink); border: 0; font-weight: 600; cursor: pointer; }
+.lc .lc-pill:focus-visible { outline: 2px solid var(--lc-focus-header); outline-offset: 2px; }
+.lc-pill kbd { font-family: var(--font-mono); font-size: 11px; line-height: 16px; padding: 0 var(--kd-space-4); border: 1px solid currentColor; color: var(--kd-header-muted); }
 .lc-log { flex: 1; min-height: 0; overflow-y: auto; overflow-anchor: none; }
 .lc-log-inhalt { padding: var(--kd-space-12) 0; }
 .lc-msg { display: grid; grid-template-columns: var(--lc-gutter) minmax(0, var(--lc-measure)); padding: var(--kd-space-2) var(--kd-space-12) var(--kd-space-2) 0; }

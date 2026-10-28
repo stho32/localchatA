@@ -16,7 +16,11 @@ export function verlaufAnlegen({ abrufen }) {
   log.setAttribute('role', 'log');
   log.setAttribute('aria-live', 'off');
   const ladezeile = element('div', { className: 'lc-loadmore', textContent: 'Ältere Nachrichten werden geladen …', hidden: true });
-  const rahmen = element('div', { className: 'lc-verlauf' }, [ladezeile, log]);
+  const pille = element('button', { type: 'button', className: 'lc-pill', hidden: true }, [
+    '↓ Zum Neuesten ', element('kbd', { textContent: 'Ende' }),
+  ]);
+  pille.setAttribute('aria-keyshortcuts', 'End');
+  const rahmen = element('div', { className: 'lc-verlauf' }, [ladezeile, log, element('div', { className: 'lc-pillen' }, [pille])]);
   let laufend = new AbortController();
   let offenerName = null;
   let amEnde = true;
@@ -35,6 +39,8 @@ export function verlaufAnlegen({ abrufen }) {
 
   function lageMerken() {
     amEnde = abstandUnten() <= 1 && fenster !== null && !fenster.neuer;
+    const weitOben = abstandUnten() > log.clientHeight;
+    pille.hidden = fenster === null || !(weitOben || fenster.neuer);
   }
 
   log.addEventListener('scroll', () => {
@@ -60,6 +66,20 @@ export function verlaufAnlegen({ abrufen }) {
     langeUmschalten(schalter);
     ankerHalten(log, anker);
     lageMerken();
+  });
+
+  // „Zum Neuesten“: Klick oder Ende im Verlauf öffnet den Channel neu wie beim Wählen; der Fokus geht in den Verlauf.
+  function zumNeuesten() {
+    log.focus();
+    oeffnen(offenerName);
+  }
+  pille.addEventListener('click', zumNeuesten);
+  log.addEventListener('keydown', (ereignis) => {
+    const nurEnde = ereignis.key === 'End' && !ereignis.altKey && !ereignis.ctrlKey && !ereignis.metaKey && !ereignis.shiftKey;
+    if (nurEnde && offenerName !== null) {
+      ereignis.preventDefault();
+      zumNeuesten();
+    }
   });
 
   async function oeffnen(name) {
