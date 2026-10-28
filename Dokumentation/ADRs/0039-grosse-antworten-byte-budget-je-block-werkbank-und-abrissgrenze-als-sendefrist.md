@@ -176,3 +176,7 @@ Regeln:
 - `src/http/nachrichten.rs`, `src/start/ausliefern.rs`, `src/start/abrisspflege.rs`, `src/main.rs`, `src/gespraeche/logformat.rs`, `examples/verlauf-erzeugen.rs`, `web/fenster.js`, `web/verlauf.js`
 - Linux `tcp(7)` (`TCP_USER_TIMEOUT`); Kernel-Änderung „tcp: fix TCP_USER_TIMEOUT with zero window“ (Linux 5.11) — aus dem Gedächtnis, hier durch Probe (2) auf 6.14 belegt; tokio `runtime::Builder::max_blocking_threads` (Standard 512)
 - Security-Review #7 (Befund Karte #23)
+
+## Ergänzungen
+
+- **2026-10-28 (R00015, F0056; Lastprofil „Team-LAN“) — Rechnung Q8 mit 160 Plätzen je Herkunft:** Die Grenze je Gegenstelle steigt auf 160 ([ADR-0010](0010-eigene-annahmeschleife-hyper-http1.md), Ergänzung R00015). Die Rechnung Q8 bleibt dieselbe, nur die Zahl der Plätze wächst: je Verbindung ≤ 2 × 256 KiB ≈ 0,5 MiB → **1 Herkunft: 160 × 0,5 MiB = 80 MiB ≈ 83,9 MB + 50 MB ≈ 134 MB** (statt 84 MB); **2 Herkünfte: 320 × 0,5 MiB = 160 MiB ≈ 167,8 MB + 50 MB ≈ 218 MB** (statt 117 MB). Erwartet linear zur Probe `n=15`: ≈ + 80 MB bzw. + 160 MB. Unverändert: Threads ≤ Basis + 64 (`max_blocking_threads(64)`, Regel 5), Sendefrist = Abrissgrenze, Rückgabe nach dem Schließen ≤ Start + 50 MB. Gate K4 wird mit 160 nicht lesenden Abrufen je Herkunft wiederholt (R00015 G5); ein Wert über der Grenze ist ein Befund an diese ADR bzw. an die Anhebung, kein Grund, die Grenze zu ändern. Die Grenzen in der Tabelle der Gates (K4) lesen sich ab R00015 „≤ + 134 MB (1 Herkunft), ≤ + 218 MB (2)“.
