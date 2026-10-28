@@ -44,7 +44,7 @@ pub async fn senden(
         .schreibkonto
         .vorab(&teilnehmer.kennung, teilnehmer.herkunft)
     {
-        return gebremst_beantworten(gebremst, &teilnehmer.kennung, teilnehmer.herkunft);
+        return gebremst_melden(&zustand, gebremst, &teilnehmer);
     }
     let wer = teilnehmer.kennung.als_text().to_string();
     let ort = Koerperort {
@@ -76,7 +76,7 @@ pub async fn senden(
             .schreibkonto
             .rest(&teilnehmer.kennung, teilnehmer.herkunft, kosten)
     {
-        return gebremst_beantworten(gebremst, &teilnehmer.kennung, teilnehmer.herkunft);
+        return gebremst_melden(&zustand, gebremst, &teilnehmer);
     }
     let gespraeche = Arc::clone(&zustand.gespraeche);
     let gespraech = Gespraech::channel(&name);
@@ -108,7 +108,8 @@ fn gesendet(channel: &str, nachricht: &Nachricht) -> Response {
     (StatusCode::CREATED, Json(antwort)).into_response()
 }
 
-/// 500 mit deutschem Satz; Datei und Grund stehen im Betriebsprotokoll (ab ERROR auch auf stderr), nie der Text.
+/// 500 mit deutschem Satz; der Schreibfehler zählt in eine Episode `ERROR senden` je Datei und Grund (R00016), ab
+/// ERROR auch auf stderr — nie der Nachrichtentext.
 fn nicht_gespeichert(
     zustand: &Zustand,
     channel: &str,
@@ -116,22 +117,50 @@ fn nicht_gespeichert(
     datei: &str,
     grund: &str,
 ) -> Response {
-    zustand.protokoll.eintragen(
-        Stufe::Error,
-        Bereich::Senden,
-        "Nachricht nicht gespeichert",
-        Kontext::neu()
+    zustand.protokoll.episode(Auftreten {
+        stufe: Stufe::Error,
+        bereich: Bereich::Senden,
+        text: "Nachricht nicht gespeichert",
+        quelle: format!("{datei} {grund}"),
+        kontext: Kontext::neu()
             .mit(Schluessel::Channel, channel)
             .mit(Schluessel::Kennung, wer)
             .mit(Schluessel::Datei, datei)
             .mit(Schluessel::Grund, grund),
-    );
+        art: None,
+        verworfen: None,
+        bytes: None,
+        anzeige: None,
+    });
     let fehler = "Nicht gespeichert — der Server konnte nicht schreiben.";
     (
         StatusCode::INTERNAL_SERVER_ERROR,
         Json(json!({ "fehler": fehler })),
     )
         .into_response()
+}
+
+/// Jede 429 der Bremse zählt in eine Episode `WARNING schreibkonto` je Kennung (R00016, ADR-0036 Ergänzung).
+fn gebremst_melden(zustand: &Zustand, gebremst: Gebremst, teilnehmer: &Teilnehmer) -> Response {
+    let grenze = match gebremst.grenze {
+        Grenze::Kennung => "kennung",
+        Grenze::Herkunft => "herkunft",
+    };
+    let wer = teilnehmer.kennung.als_text();
+    zustand.protokoll.episode(Auftreten {
+        stufe: Stufe::Warning,
+        bereich: Bereich::Schreibkonto,
+        text: "Zu viele Nachrichten — gebremst",
+        quelle: wer.to_string(),
+        kontext: Kontext::neu()
+            .mit(Schluessel::Kennung, wer)
+            .mit(Schluessel::Grenze, grenze),
+        art: None,
+        verworfen: None,
+        bytes: None,
+        anzeige: None,
+    });
+    gebremst_beantworten(gebremst, &teilnehmer.kennung, teilnehmer.herkunft)
 }
 
 fn abgebrochen(zustand: &Zustand, abbruch: &Abgebrochen, wer: &str, channel: &str) -> Response {

@@ -260,6 +260,14 @@ async fn us10_eine_falsch_gestellte_uhr_wird_sichtbar() {
         "{zeilen:#?}"
     );
 
+    let protokoll = gemeinsam::protokoll::mit(
+        &gemeinsam::protokoll::zeilen(wurzel.path(), "2026-10-28"),
+        "WARNING",
+        "zeit",
+    );
+    assert_eq!(protokoll.len(), 1, "R00016 „Vorlauf“: {protokoll:#?}");
+    assert!(protokoll[0].contains("2 h 03 min voraus") && protokoll[0].contains("dauer_ms="));
+
     let ohne = ordner();
     let ohne_instanz = starten(ohne.path(), &[]);
     let (_, ohne_gesundheit) = gemeinsam::gesundheit(&ohne_instanz.adresse).await;
