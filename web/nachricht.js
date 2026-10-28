@@ -1,15 +1,17 @@
 // Eine Nachricht im Verlauf zeichnen (Designsystem components/Nachricht, ADR-0026): Raster mit linker Spalte
 // lc-gutter (Kachel bzw. Uhrzeit) und Inhalt; Kopf mit Kennung name@herkunft in lc-id und Uhrzeit HH:MM in lc-time,
 // Datum mit Sekunden im title. Der Text steht nur als Text (textContent), Zeilenumbrüche bleiben (CSS pre-wrap);
-// Markdown kommt mit I0017, die Art des Absenders mit I0009 — bis dahin trägt die Kachel nur das Kürzel.
+// Markdown kommt mit I0017. Die Art des Absenders (Baustein Kennung): Kachel und Name in kd-agent mit der Marke
+// „Agent“ für Agenten, in kd-mensch ohne Marke für Menschen und Sätze ohne Art.
 import { kuerzel } from './kopfzeile.js';
 import { uhrzeit, zeitTitel, datumBenennen } from './gliederung.js';
 
-// nachricht: { zeit, von, text } aus der API.
+// nachricht: { zeit, von, art, text } aus der API.
 export function nachrichtZeichnen(nachricht) {
   const artikel = element('article', { className: 'lc-msg' });
   artikel.dataset.zeit = nachricht.zeit;
   artikel.dataset.von = nachricht.von;
+  artikel.dataset.art = darstellungsart(nachricht.art);
   const inhalt = element('div', { className: 'lc-msg-inhalt' }, [
     element('div', { className: 'lc-body lc-fold', id: `lc-text-${nachricht.zeit}`, textContent: nachricht.text }),
   ]);
@@ -34,11 +36,27 @@ export function kopfSetzen(artikel, mitKopf) {
     return;
   }
   const [name, herkunft] = von.split('@');
-  const kachel = element('span', { className: 'lc-tile', textContent: kuerzel(name) });
+  const art = artikel.dataset.art;
+  const kachel = element('span', { className: `lc-tile ${art}`, textContent: kuerzel(name) });
   kachel.setAttribute('aria-hidden', 'true');
   gutter.replaceChildren(kachel);
-  const kennung = element('span', { className: 'lc-id' }, [name, element('i', { textContent: `@${herkunft}` })]);
-  inhalt.prepend(element('div', { className: 'lc-meta' }, [kennung, zeitElement(zeit)]));
+  const kennung = element('span', { className: `lc-id ${art}` }, [name, element('i', { textContent: `@${herkunft}` })]);
+  const kopf = [kennung];
+  if (art === 'agent') {
+    kopf.push(element('span', { className: 'lc-tag', textContent: 'Agent' }));
+  }
+  if (zeit !== undefined) {
+    kopf.push(zeitElement(zeit));
+  }
+  inhalt.prepend(element('div', { className: 'lc-meta' }, kopf));
+}
+
+// Ein Satz ohne Art (von Hand, ältere Sätze) wird wie ein Mensch gezeigt.
+function darstellungsart(art) {
+  if (art === 'agent') {
+    return 'agent';
+  }
+  return 'mensch';
 }
 
 // Lange Nachricht (Designsystem LangeNachricht): jeder Inhalt ist per CSS auf lc-collapse begrenzt; läuft er über,

@@ -99,6 +99,10 @@ body { background: var(--kd-bg); color: var(--kd-ink); font-family: var(--font-s
 .lc-day::before, .lc-day::after { content: ""; flex: 1; height: 1px; background: var(--kd-line); }
 .lc-meta { display: flex; align-items: baseline; gap: var(--kd-space-8); flex-wrap: wrap; }
 .lc-meta .lc-id i { font-style: normal; color: var(--kd-ink-muted); }
+/* Art des Absenders (Baustein Kennung): Name in kd-mensch bzw. kd-agent, Agenten mit der Marke „Agent“ */
+.lc-meta .lc-id.mensch { color: var(--kd-mensch); }
+.lc-meta .lc-id.agent { color: var(--kd-agent); }
+.lc-meta .lc-tag { align-self: center; }
 .lc-time { font-family: var(--font-mono); font-size: 11px; line-height: 20px; color: var(--kd-ink-muted); font-variant-numeric: tabular-nums; }
 .lc-body { white-space: pre-wrap; overflow-wrap: anywhere; }
 /* Lange Nachricht (Baustein LangeNachricht): harter Schnitt bei lc-collapse, aufgeklappt ganz */
