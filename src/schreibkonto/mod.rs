@@ -75,19 +75,64 @@ impl Schreibkonto {
         let mut tabellen = self.tabellen.lock().unwrap_or_else(PoisonError::into_inner);
         let je_kennung = nachgefuellt(&tabellen.kennungen, kennung, JE_KENNUNG, jetzt);
         let je_herkunft = nachgefuellt(&tabellen.herkuenfte, &herkunft, JE_HERKUNFT, jetzt);
-        if !(je_kennung.reicht(einheiten) && je_herkunft.reicht(einheiten)) {
-            tabellen.kennungen.insert(kennung.clone(), je_kennung);
-            tabellen.herkuenfte.insert(herkunft, je_herkunft);
+        let reichen = je_kennung.reicht(einheiten) && je_herkunft.reicht(einheiten);
+        let (nach_kennung, nach_herkunft) = if reichen {
+            (
+                je_kennung.abgebucht(einheiten),
+                je_herkunft.abgebucht(einheiten),
+            )
+        } else {
+            (je_kennung, je_herkunft)
+        };
+        ablegen(
+            &mut tabellen.kennungen,
+            kennung.clone(),
+            nach_kennung,
+            JE_KENNUNG,
+        );
+        ablegen(
+            &mut tabellen.herkuenfte,
+            herkunft,
+            nach_herkunft,
+            JE_HERKUNFT,
+        );
+        aufraeumen(&mut tabellen, jetzt);
+        if !reichen {
             self.gebremst.fetch_add(1, Ordering::Relaxed);
             return Err(bremsen(&je_kennung, &je_herkunft, volle_kosten));
         }
+        Ok(())
+    }
+}
+
+/// Mehr Einträge lösen einen Durchgang aus (ADR-0036 Regel 6).
+const DURCHGANG_AB: usize = 1_024;
+
+/// Ein voller Eimer wird nicht gehalten — er gleicht dem fehlenden (ADR-0036 Regel 6).
+fn ablegen<S: std::hash::Hash + Eq>(
+    tabelle: &mut HashMap<S, Eimer>,
+    schluessel: S,
+    eimer: Eimer,
+    art: Eimerart,
+) {
+    if eimer.ist_voll(art) {
+        tabelle.remove(&schluessel);
+    } else {
+        tabelle.insert(schluessel, eimer);
+    }
+}
+
+/// Über 1.024 Einträgen fallen alle Eimer weg, die bis `jetzt` wieder voll sind.
+fn aufraeumen(tabellen: &mut Tabellen, jetzt: crate::uhr::Zeit) {
+    if tabellen.kennungen.len() > DURCHGANG_AB {
         tabellen
             .kennungen
-            .insert(kennung.clone(), je_kennung.abgebucht(einheiten));
+            .retain(|_, eimer| !eimer.nachgefuellt(JE_KENNUNG, jetzt).ist_voll(JE_KENNUNG));
+    }
+    if tabellen.herkuenfte.len() > DURCHGANG_AB {
         tabellen
             .herkuenfte
-            .insert(herkunft, je_herkunft.abgebucht(einheiten));
-        Ok(())
+            .retain(|_, eimer| !eimer.nachgefuellt(JE_HERKUNFT, jetzt).ist_voll(JE_HERKUNFT));
     }
 }
 
@@ -278,5 +323,45 @@ mod tests {
             konto.vorab(&kennung("k0@10.0.0.1"), ip("10.0.0.1")),
             gebremst(Grenze::Kennung, 1_000)
         );
+    }
+
+    #[cfg(test)]
+    fn eintraege(konto: &Schreibkonto) -> (usize, usize) {
+        let tabellen = konto.tabellen.lock().expect("Tabellen");
+        (tabellen.kennungen.len(), tabellen.herkuenfte.len())
+    }
+
+    /// R00011 F0045 „Speicher“ (B0232): 1.025 Kennungen buchen je 1; 30 s später (alle wieder voll) bucht eine
+    /// weitere → danach genau 1 Eintrag je Tabelle.
+    #[test]
+    fn volle_eimer_werden_ab_1024_eintraegen_entfernt() {
+        let (konto, uhr) = konto();
+        for nummer in 0..1_025_u32 {
+            let herkunft = format!("10.0.{}.{}", nummer / 256, nummer % 256);
+            konto
+                .vorab(&kennung(&format!("k@{herkunft}")), ip(&herkunft))
+                .expect("frei");
+        }
+        assert_eq!(eintraege(&konto), (1_025, 1_025));
+
+        uhr.stellen(t(30_000));
+        konto
+            .vorab(&kennung("neu@10.9.9.9"), ip("10.9.9.9"))
+            .expect("frei");
+
+        assert_eq!(eintraege(&konto), (1, 1));
+    }
+
+    /// Beim Zugriff: ein Eimer, der nach dem Nachfüllen voll ist und nichts bucht, wird nicht abgelegt.
+    #[test]
+    fn ein_voller_eimer_wird_beim_zugriff_entfernt() {
+        let (konto, uhr) = konto();
+        let a = kennung("a@10.0.0.1");
+        konto.vorab(&a, ip("10.0.0.1")).expect("frei");
+        uhr.stellen(t(1_000));
+
+        konto.rest(&a, ip("10.0.0.1"), 1).expect("frei");
+
+        assert_eq!(eintraege(&konto), (0, 0));
     }
 }
