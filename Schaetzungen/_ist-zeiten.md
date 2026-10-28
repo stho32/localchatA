@@ -197,3 +197,10 @@ Nie vom User erfragen.
 | 2026-10-28 | R00010 JSON-Körper-Flut | B0205 Flut im Release-Build messen | Standard | 2-4h | 0,25h | 0,25h | autonom |
 | 2026-10-28 | R00010 JSON-Körper-Flut | Mutationsprobe, Gate, Abschluss | Konsolidierung | — | 0,15h | 0,15h | autonom |
 | 2026-10-28 | R00007 Channel wechseln und Verlauf lesen | Nacharbeit 2: „1 Zeile“ im Singular | Nacharbeit | — | 0,3h | 0,3h | autonom |
+| 2026-10-28 | R00013 Langsame Leser | B0253 Budget im Block | Standard | 0,4h | 0,15h | 0,15h | autonom |
+| 2026-10-28 | R00013 Langsame Leser | B0254 Werkbank und JSON-Bytes | Standard | 2-4h | 0,1h | 0,1h | autonom |
+| 2026-10-28 | R00013 Langsame Leser | B0255 Laufzeit mit Rückhalt | Standard | 0,4h | 0,05h | 0,05h | autonom |
+| 2026-10-28 | R00013 Langsame Leser | B0256 Sendefrist als Vertrag | Standard | 2-4h | 0,05h | 0,05h | autonom |
+| 2026-10-28 | R00013 Langsame Leser | B0258 Langsame Leser messen | Standard | 2-4h | 0,1h | 0,1h | autonom |
+| 2026-10-28 | R00013 Langsame Leser | B0257 Abwurfschutz im Fenster | Standard | 2-4h | 0,05h | 0,05h | autonom |
+| 2026-10-28 | R00013 Langsame Leser | Mutationen, Wiederholungen, Gate | Konsolidierung | — | 0,3h | 0,3h | autonom |
