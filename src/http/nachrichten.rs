@@ -56,7 +56,9 @@ pub async fn beantworten(
     }
 }
 
+/// 500 — mit einer Zeile auf stderr, bis das Betriebsprotokoll (ADR-0040 bis ADR-0043) sie aufnimmt.
 fn nicht_gelesen(grund: &str) -> Response {
+    eprintln!("Verlauf nicht gelesen: {grund}");
     (
         StatusCode::INTERNAL_SERVER_ERROR,
         Json(json!({ "fehler": format!("Verlauf nicht gelesen — {grund}") })),
@@ -278,6 +280,21 @@ mod tests {
 
         assert_eq!(antwort.status(), 200);
         assert!(dauer <= Duration::from_secs(1), "{dauer:?}");
+    }
+
+    #[tokio::test]
+    async fn ein_abgebrochener_verlauf_ist_500_mit_grund() {
+        let antwort = nicht_gelesen("Werkbank geschlossen");
+
+        assert_eq!(antwort.status(), StatusCode::INTERNAL_SERVER_ERROR);
+        let koerper = axum::body::to_bytes(antwort.into_body(), 1024)
+            .await
+            .expect("Körper");
+        let json: serde_json::Value = serde_json::from_slice(&koerper).expect("JSON");
+        assert_eq!(
+            json["fehler"],
+            "Verlauf nicht gelesen — Werkbank geschlossen"
+        );
     }
 
     #[test]
