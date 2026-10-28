@@ -309,9 +309,17 @@ impl Anwesenheit {
     /// entfernt, Name frei); Nachlauf vorbei ohne Halter → `offline`. Je Sitzung nur echte Wechsel.
     pub fn pflegen(&self, jetzt: Zeit) -> Vec<Wechsel> {
         let mut bestand = self.bestand();
+        self.pflegen_unter_der_sperre(&mut bestand, jetzt)
+    }
+
+    fn pflegen_unter_der_sperre(
+        &self,
+        bestand: &mut MutexGuard<'_, Bestand>,
+        jetzt: Zeit,
+    ) -> Vec<Wechsel> {
         let mut wechsel = bestand.abgelaufene_melden(jetzt, self.gnadenfrist);
         wechsel.extend(bestand.status_melden(jetzt));
-        self.melden_unter_der_sperre(&bestand, &wechsel);
+        self.melden_unter_der_sperre(bestand, &wechsel);
         wechsel
     }
 
@@ -323,9 +331,12 @@ impl Anwesenheit {
 
     /// Der Stand und, unter derselben Sperre, `unter_der_sperre` — etwa das Abonnieren des Busses: zwischen
     /// Abonnieren und Stand kann so kein Wechsel liegen (ADR-0016 Regel 5).
+    /// Vorher pflegt sie unter derselben Sperre wie der Takt (Wechsel veröffentlicht): die Liste ist zum
+    /// Abrufzeitpunkt aktuell und passt trotzdem zu den Wechseln bis zu ihrem Stand (Nacharbeit 2, US-4).
     pub fn stand_mit<T>(&self, unter_der_sperre: impl FnOnce() -> T) -> (Stand, T) {
         let jetzt = self.uhr.jetzt();
-        let bestand = self.bestand();
+        let mut bestand = self.bestand();
+        self.pflegen_unter_der_sperre(&mut bestand, jetzt);
         let ergebnis = unter_der_sperre();
         let mut liste: Vec<Teilnehmerzeile> = bestand
             .eintraege
@@ -891,6 +902,7 @@ mod tests {
             kurz(&anwesenheit.pflegen(nach_ms(10_000))),
             [(4, claude.clone(), Status::Offline, nach_ms(10_000))]
         );
+        uhr.stellen(nach_ms(10_000));
         assert_eq!(anwesenheit.teilnehmer().stand, 4);
         assert_eq!(
             kurz(&anwesenheit.pflegen(nach_ms(10_250))),
@@ -990,6 +1002,25 @@ mod tests {
         assert!(wieder.is_some());
         assert_eq!(liste.len(), 1);
         drop(halter);
+    }
+
+    #[test]
+    fn der_stand_ist_zum_abrufzeitpunkt_gepflegt_ohne_takt() {
+        let (uhr, anwesenheit) = mit_gestellter_uhr();
+        anwesenheit
+            .beitreten(&wunsch("alpha", Art::Agent), ip("127.0.0.2"))
+            .expect("alpha");
+
+        uhr.stellen(nach_ms(999));
+        let davor = anwesenheit.teilnehmer();
+        uhr.stellen(nach_ms(1000));
+        let danach = anwesenheit.teilnehmer();
+
+        assert_eq!((davor.liste[0].status, davor.stand), (Status::Online, 1));
+        assert_eq!(
+            (danach.liste[0].status, danach.liste[0].seit, danach.stand),
+            (Status::Offline, nach_ms(1000), 2)
+        );
     }
 
     #[test]

@@ -159,6 +159,7 @@ async fn us2_wer_keinen_strom_offen_hat_steht_nach_einer_sekunde_als_offline() {
 
 /// US-4 mit `LOCALCHATA_GNADENFRIST_MS=3000`: alpha steht offline (Abfrage bis 2 s nach der 201), fehlt nach
 /// der Gnadenfrist (bis 4,5 s nach der 201, nicht vor 3 s), und der Name ist frei (Nacharbeit 1, A1).
+/// beta bleibt selbst am Leben: es fragt bis zum Verschwinden alle 50 ms ab, also auch um 2 s (Nacharbeit 2).
 #[tokio::test]
 async fn us4_wer_sich_nicht_mehr_meldet_verschwindet_aus_der_liste() {
     let wurzel = tempfile::tempdir().expect("Wegwerf-Ordner");
@@ -207,4 +208,97 @@ async fn us4_wer_sich_nicht_mehr_meldet_verschwindet_aus_der_liste() {
         "nicht vor der Gnadenfrist: {weg_nach:?}"
     );
     assert_eq!(neu.status, 201, "{}", neu.json);
+}
+
+/// Nacharbeit 2, Entwicklertest US-4 (a): die Liste ist zum Abrufzeitpunkt aktuell, nicht erst mit dem
+/// nächsten Takt. Je Abstand 10 Läufe (parallel, je eigener Name): alpha tritt bei t0 bei, beta fragt ab
+/// der 201 nach 1,0 / 1,05 / 1,1 / 1,2 s — alpha steht jedes Mal offline, seit = t0 + 1 s. Ebenso im ersten
+/// Stand eines Stroms, den beta nach 1,05 s öffnet.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn us4a_die_liste_ist_zum_abrufzeitpunkt_aktuell() {
+    let wurzel = tempfile::tempdir().expect("Wegwerf-Ordner");
+    let instanz = gemeinsam::starten_mit(
+        wurzel.path(),
+        &["--port", "0", "--host", "127.0.0.1", "--kein-browser"],
+        &[("LOCALCHATA_GNADENFRIST_MS", "3000")],
+    );
+    let drei = Absender::von("127.0.0.3");
+    let beta = token_aus(
+        &drei
+            .beitreten(&instanz.adresse, json!({"name": "beta"}), None)
+            .await,
+    );
+    let mut laeufe = tokio::task::JoinSet::new();
+    for (nummer, abstand_ms) in [1000u64, 1050, 1100, 1200, 1050]
+        .into_iter()
+        .flat_map(|abstand| std::iter::repeat_n(abstand, 10))
+        .enumerate()
+    {
+        let (basis, beta) = (instanz.adresse.clone(), beta.clone());
+        let als_strom = nummer >= 40;
+        laeufe.spawn(async move {
+            let (zwei, drei) = (Absender::von("127.0.0.2"), Absender::von("127.0.0.3"));
+            let kennung = format!("alpha{nummer}@127.0.0.2");
+            zwei.beitreten(&basis, json!({ "name": format!("alpha{nummer}") }), None)
+                .await;
+            let nach_der_201 = tokio::time::Instant::now();
+            let sofort = liste(&drei, &basis, Some(&beta)).await;
+            let t0 = zeit(eintrag(&sofort, &kennung).expect("alpha sofort"));
+            tokio::time::sleep_until(nach_der_201 + std::time::Duration::from_millis(abstand_ms))
+                .await;
+            let spaeter = if als_strom {
+                erster_stand_im_strom(&drei, &basis, &beta).await
+            } else {
+                liste(&drei, &basis, Some(&beta)).await.json
+            };
+            let alpha = spaeter["liste"]
+                .as_array()
+                .expect("liste")
+                .iter()
+                .find(|e| e["kennung"] == kennung.as_str())
+                .cloned()
+                .unwrap_or_default();
+            let seit = alpha["seit"]
+                .as_str()
+                .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok());
+            let stimmt =
+                alpha["status"] == "offline" && seit == Some(t0 + chrono::Duration::seconds(1));
+            (!stimmt).then(|| format!("{abstand_ms} ms, Strom {als_strom}: {alpha} (t0 {t0})"))
+        });
+    }
+
+    let mut abweichungen = Vec::new();
+    while let Some(lauf) = laeufe.join_next().await {
+        abweichungen.extend(lauf.expect("Lauf"));
+    }
+    assert!(
+        abweichungen.is_empty(),
+        "{} von 50:\n{}",
+        abweichungen.len(),
+        abweichungen.join("\n")
+    );
+}
+
+/// Öffnet einen Strom und liefert das erste Ereignis (den Stand) als JSON.
+async fn erster_stand_im_strom(absender: &Absender, basis: &str, token: &str) -> serde_json::Value {
+    let mut antwort = absender
+        .anfrage(reqwest::Method::GET, format!("{basis}api/ereignisse"))
+        .header("X-LocalchatA-Sitzung", token)
+        .send()
+        .await
+        .expect("Strom");
+    let mut text = String::new();
+    while !text.contains("\n\n") {
+        let stueck = antwort
+            .chunk()
+            .await
+            .expect("Stück")
+            .expect("nicht zu Ende");
+        text.push_str(&String::from_utf8_lossy(&stueck));
+    }
+    let daten = text
+        .lines()
+        .find_map(|zeile| zeile.strip_prefix("data:"))
+        .expect("data-Zeile");
+    serde_json::from_str(daten.trim()).expect("JSON")
 }
