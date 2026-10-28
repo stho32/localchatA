@@ -139,3 +139,6 @@ Eine Zeile je Auftrag an eine Rolle und je Retrospektive.
 | 2026-10-28 | #22 | Detailplanung → Entwicklung | entwickler | läuft | — | I0020 Senden bei Störungen und mit Komfort (R00012) |
 | 2026-10-28 | — | Vision | director | — | — | Betreiber: Archivieren ja; Vision fortgeschrieben (Leitplanke Team-LAN, Zielbild Archivieren, 5f046b4); I0022 als #29 in Architektur, sieben Fachfragen offen |
 | 2026-10-28 | #12 | Auto-Reviews → Entwicklertest | ux-, rechtschreib-, code-reviewer | bestanden | 0:20 | enge Wiederholung: alle Muss geschlossen |
+| 2026-10-28 | #12 | Entwicklertest → Abnahme | entwicklertester | bestanden | 0:08 | 34 Szenarien R00008/R00017; stderr-Zeilen aus R00008 nach R00017 bewertet (Director); Demo 3b4b509 |
+| 2026-10-28 | #12 | Retrospektive | director | — | — | Arbeit 0,78 h, Nacharbeit 0,25 h; Ursache: Fehler im Kriterium selbst (Plural in R00008), fehlende Barrierefreiheitsprüfung im Test, wackliger Test |
+| 2026-10-28 | #8 | Auto-Reviews | code-, ux-reviewer | befund | — | Muss: Nachricht geht beim letzten Nachladen verloren, Puffer und Sperrordnung ungetestet; UX S1 hochgestuft (Lesestelle springt nach Pillenklick) |
