@@ -230,3 +230,8 @@ Nie vom User erfragen.
 | 2026-10-28 | R00014 Betriebsprotokoll | B0282 Tagesbudget | Standard | 0,4h | 0,05h | 0,05h | autonom |
 | 2026-10-28 | R00014 Betriebsprotokoll | Mutanten, Gelerntes, Zeittests, Gate | Konsolidierung | — | 0,23h | 0,23h | autonom |
 | 2026-10-28 | R00013 Langsame Leser | Nacharbeit 1: Gegenstelle IP+Port, Hilfetext Sendefrist | Nacharbeit | — | 0,12h | 0,12h | autonom |
+| 2026-10-28 | R00015 Grenzen Team-LAN | B0283 Grenzen je Herkunft anheben | Standard | 0,4h | 0,08h | 0,08h | autonom |
+| 2026-10-28 | R00015 Grenzen Team-LAN | B0284 Grenzen über das echte Programm | Standard | 0,4h | 0,01h | 0,01h | autonom |
+| 2026-10-28 | R00015 Grenzen Team-LAN | B0288 Lesefrist für den Körper | Standard | 0,4h | 0,27h | 0,27h | autonom |
+| 2026-10-28 | R00015 Grenzen Team-LAN | B0285 Langsame Leser bei 160 messen | Standard | 2-4h | 0,12h | 0,12h | autonom |
+| 2026-10-28 | R00015 Grenzen Team-LAN | Mutanten, 20 Wiederholungen, Gate, E2E-Nachtrag | Konsolidierung | — | 0,25h | 0,25h | autonom |
