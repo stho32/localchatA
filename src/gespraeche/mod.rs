@@ -46,10 +46,11 @@ pub struct Gespraeche {
     veroeffentlichen: ChannelVeroeffentlichen,
 }
 
-/// Was beim Laden übersprungen wurde: eine defekte Zeile oder eine nicht lesbare Tagesdatei.
+/// Was beim Laden übersprungen wurde: eine defekte Zeile, eine nicht lesbare Tagesdatei oder ein Ordner, der
+/// kein Channel ist.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Ladedefekt {
-    /// Tagesdatei relativ zum Ordner.
+    /// Tagesdatei bzw. Ordner relativ zum Ordner.
     pub datei: String,
     pub art: Defektart,
 }
@@ -58,6 +59,8 @@ pub struct Ladedefekt {
 pub enum Defektart {
     Zeile(usize),
     Unlesbar(String),
+    /// Ein Ordner unter `channels/`, dessen Name kein Channelname ist (ADR-0020 Regel 6).
+    KeinChannelname,
 }
 
 impl fmt::Display for Ladedefekt {
@@ -65,6 +68,9 @@ impl fmt::Display for Ladedefekt {
         match &self.art {
             Defektart::Zeile(zeile) => {
                 write!(f, "{}:{zeile}: defekte Zeile übersprungen", self.datei)
+            }
+            Defektart::KeinChannelname => {
+                write!(f, "{}: kein gültiger Channelname, übergangen", self.datei)
             }
             Defektart::Unlesbar(grund) => {
                 write!(
@@ -98,6 +104,9 @@ impl Gespraeche {
             .gespraeche()
             .map_err(|fehler| Fehler::Ablage(format!("Gespräche nicht lesbar: {fehler}")))?;
         for gespraech in gespraeche {
+            if !geladen.ist_gespraech(&gespraech) {
+                continue;
+            }
             let tage = ablage.tage(&gespraech).map_err(|fehler| {
                 Fehler::Ablage(format!("Tage von {gespraech} nicht lesbar: {fehler}"))
             })?;
@@ -266,6 +275,24 @@ struct Geladen {
 }
 
 impl Geladen {
+    /// Ein Unterordner von `channels/` mit ungültigem Namen ist kein Gespräch (ADR-0020 Regel 6): beginnt er mit
+    /// `.`, still übergangen, sonst als Defekt gemeldet; er bleibt, wie er ist.
+    fn ist_gespraech(&mut self, gespraech: &Gespraech) -> bool {
+        let Gespraech::Channel(ordner) = gespraech else {
+            return true;
+        };
+        if Channelname::bilden(ordner).is_ok() {
+            return true;
+        }
+        if !ordner.starts_with('.') {
+            self.defekte.push(Ladedefekt {
+                datei: gespraech.pfad(),
+                art: Defektart::KeinChannelname,
+            });
+        }
+        false
+    }
+
     /// Ein Ordner unter `channels/` mit gültigem Namen ist ein Channel; `angelegt` und `angelegt_von` kommen aus
     /// seiner Einstellungsdatei, fehlt sie, sind sie unbekannt (ADR-0022 Regel 3).
     fn channel_aufnehmen(&mut self, ablage: &dyn Logablage, gespraech: &Gespraech) {
@@ -957,5 +984,45 @@ mod tests {
             gespraeche.channel_anlegen("zu-viel", &von("10.0.0.9")),
             Err(GESAMT_256)
         );
+    }
+
+    #[test]
+    fn ordner_mit_ungueltigem_namen_sind_kein_channel_mit_defekt_punktordner_still() {
+        let wurzel = tempfile::tempdir().expect("Wegwerf-Ordner");
+        let ordner = wurzel.path();
+        datei(
+            ordner,
+            "channels/allgemein/2026-10-27.log",
+            TAG_27.as_bytes(),
+        );
+        datei(ordner, "channels/Test/2026-10-27.log", TAG_27.as_bytes());
+        datei(ordner, "channels/.neu-x/zettel.txt", b"hallo");
+
+        let gespraeche = laden_um(ordner, "2026-10-27T12:00:00+01:00");
+
+        assert_eq!(
+            gespraeche
+                .channels()
+                .liste
+                .iter()
+                .map(|channel| channel.name.to_string())
+                .collect::<Vec<_>>(),
+            vec!["allgemein"]
+        );
+        let defekte: Vec<String> = gespraeche
+            .defekte()
+            .iter()
+            .map(ToString::to_string)
+            .collect();
+        assert_eq!(
+            defekte,
+            vec![
+                "channels/Test: kein gültiger Channelname, übergangen",
+                "channels/allgemein/2026-10-27.log:4: defekte Zeile übersprungen",
+            ]
+        );
+        assert_eq!(gespraeche.kennzahlen().nachrichten, 2);
+        assert!(ordner.join("channels/Test/2026-10-27.log").is_file());
+        assert!(ordner.join("channels/.neu-x/zettel.txt").is_file());
     }
 }
