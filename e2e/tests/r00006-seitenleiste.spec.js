@@ -71,7 +71,7 @@ test('US-16: ein Channel, den ein Agent anlegt, erscheint in B spätestens 2 s n
   await beitreten(b.page, 'mia');
   const alpha = await agent('alpha', '127.0.0.2');
   await b.page.getByRole('button', { name: /^Teilnehmer/ }).focus();
-  const fokusVorher = await b.page.evaluate(() => document.activeElement.textContent);
+  await b.page.evaluate(() => { document.activeElement.dataset.fokusVorher = 'ja'; });
 
   const angelegt = await alpha('allgemein');
   expect(angelegt.status).toBe(201);
@@ -83,7 +83,7 @@ test('US-16: ein Channel, den ein Agent anlegt, erscheint in B spätestens 2 s n
     expect((await alpha(name)).status).toBe(201);
   }
   await expect(eintraege(b.page)).toHaveText(['#allgemein', '#beta', '#zeta']);
-  expect(await b.page.evaluate(() => document.activeElement.textContent)).toBe(fokusVorher);
+  expect(await b.page.evaluate(() => document.activeElement.dataset.fokusVorher)).toBe('ja');
   await expect(b.page.locator('[role="alert"]:not([hidden]), [aria-live]:not([hidden])').filter({ hasText: 'allgemein' })).toHaveCount(0);
   await expect(eintraege(a.page)).toHaveText(['#allgemein', '#beta', '#zeta']);
   expect(a.fehler).toEqual([]);
