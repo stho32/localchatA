@@ -287,6 +287,7 @@ impl Gespraeche {
             angelegt: channel.angelegt,
             angelegt_von: channel.angelegt_von.clone(),
             beschreibung: channel.beschreibung.clone(),
+            frist_tage: None,
         };
         let text = einstellungen::schreiben(&einstellungen, None);
         self.ablage
@@ -847,6 +848,7 @@ mod tests {
                 angelegt: channel.angelegt,
                 angelegt_von: channel.angelegt_von.clone(),
                 beschreibung: None,
+                frist_tage: None,
             })
         );
         gespraeche
