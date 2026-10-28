@@ -400,6 +400,12 @@ async fn schleife_ist_begrenzt(host: &str, absender: &[&str], verbindungen: usiz
         })
         .count();
     assert!(von_zwei <= 2 * 64, "{von_zwei} Wechsel von 127.0.0.2");
+    assert!(ergebnis.erfolge >= 1, "{ergebnis:?}");
+    assert_eq!(
+        von_zwei,
+        2 * ergebnis.erfolge,
+        "jeder Erfolg zählt zur Herkunft 127.0.0.2 (online und weg), auch aus der gemappten Form"
+    );
     assert_eq!(kontrolle.status, 201, "{}", kontrolle.json);
     assert_eq!((alpha.status, verlassen_alpha.status), (201, 204));
     assert_eq!(
