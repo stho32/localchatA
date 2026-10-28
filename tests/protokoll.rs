@@ -246,3 +246,108 @@ async fn rueckfall_ist_logs_eine_datei_startet_die_instanz_und_schreibt_nach_dem
     assert!(protokoll[0].contains("wieder schreibbar"), "{datei:#?}");
     assert_eq!(mit(&datei, "INFORMATION", "sitzung").len(), 1, "{datei:#?}");
 }
+
+/// Was die Betreiberin im laufenden Tag mit dem Protokoll tut (US-16).
+#[derive(Clone, Copy, Debug)]
+enum Loeschen {
+    Tagesdatei,
+    Ordner,
+}
+
+/// Offene Deskriptoren der Instanz, die auf eine gelöschte Datei unter `logs/` zeigen.
+#[cfg(target_os = "linux")]
+fn geloeschte_offene_protokolle(instanz: &Instanz) -> Vec<String> {
+    std::fs::read_dir(format!("/proc/{}/fd", instanz.kind.id()))
+        .expect("/proc/<pid>/fd")
+        .filter_map(|eintrag| std::fs::read_link(eintrag.ok()?.path()).ok())
+        .map(|ziel| ziel.display().to_string())
+        .filter(|ziel| ziel.contains("/logs/") && ziel.ends_with("(deleted)"))
+        .collect()
+}
+
+/// US-16, Abnahme-Probe M1 (Observability-Review #24): `alpha` tritt bei, die Betreiberin löscht `heute.log`
+/// bzw. `logs/`, dann tritt `beta` bei — die Zeile steht in einer neuen `heute.log`, nichts zeigt mehr auf die
+/// gelöschte Datei, das Protokoll ist ok.
+#[cfg(target_os = "linux")]
+async fn us16_wer_im_laufenden_tag_loescht_verliert_nur_das_geloeschte(loeschen: Loeschen) {
+    let wurzel = tempfile::tempdir().expect("Wegwerf-Ordner");
+    let instanz = starten_um(wurzel.path(), "2026-10-28T12:00:00+01:00", &[]);
+    let absender = Absender::von("127.0.0.1");
+    let alpha = absender
+        .beitreten(&instanz.adresse, json!({"name": "alpha"}), None)
+        .await;
+    assert_eq!(alpha.status, 201);
+    let logs = wurzel.path().join("logs");
+    match loeschen {
+        Loeschen::Tagesdatei => std::fs::remove_file(logs.join("2026-10-28.log")).expect("rm"),
+        Loeschen::Ordner => std::fs::remove_dir_all(&logs).expect("rm -rf"),
+    }
+
+    let beta = absender
+        .beitreten(&instanz.adresse, json!({"name": "beta"}), None)
+        .await;
+    let (_, gesundheit) = gemeinsam::gesundheit(&instanz.adresse).await;
+
+    assert_eq!(beta.status, 201);
+    let datei = zeilen(wurzel.path(), "2026-10-28");
+    let sitzung = mit(&datei, "INFORMATION", "sitzung");
+    assert_eq!(sitzung.len(), 1, "{loeschen:?}: {datei:#?}");
+    assert!(
+        sitzung[0].ends_with(" INFORMATION sitzung Sitzung beigetreten | kennung=beta@127.0.0.1"),
+        "{loeschen:?}: {datei:#?}"
+    );
+    assert_eq!(
+        geloeschte_offene_protokolle(&instanz),
+        Vec::<String>::new(),
+        "{loeschen:?}"
+    );
+    assert_eq!(
+        gesundheit["protokoll_ok"], true,
+        "{loeschen:?}: {gesundheit}"
+    );
+}
+
+#[cfg(target_os = "linux")]
+#[tokio::test]
+async fn us16_eine_geloeschte_tagesdatei_legt_der_naechste_eintrag_neu_an() {
+    us16_wer_im_laufenden_tag_loescht_verliert_nur_das_geloeschte(Loeschen::Tagesdatei).await;
+}
+
+#[cfg(target_os = "linux")]
+#[tokio::test]
+async fn us16_ein_geloeschter_logs_ordner_entsteht_beim_naechsten_eintrag_neu() {
+    us16_wer_im_laufenden_tag_loescht_verliert_nur_das_geloeschte(Loeschen::Ordner).await;
+}
+
+/// Gegenprobe zu US-16: ist `logs` nach dem Löschen eine Datei, greift der Rückfall wie im Kriterium „Rückfall“.
+#[tokio::test]
+async fn us16_gegenprobe_ist_logs_danach_eine_datei_greift_der_rueckfall() {
+    let wurzel = tempfile::tempdir().expect("Wegwerf-Ordner");
+    let mut instanz = starten_um(wurzel.path(), "2026-10-28T12:00:00+01:00", &[]);
+    let absender = Absender::von("127.0.0.1");
+    let logs = wurzel.path().join("logs");
+    std::fs::remove_dir_all(&logs).expect("rm -rf");
+    std::fs::write(&logs, "keine Ablage").expect("logs als Datei");
+
+    let beta = absender
+        .beitreten(&instanz.adresse, json!({"name": "beta"}), None)
+        .await;
+    let (_, gesundheit) = gemeinsam::gesundheit(&instanz.adresse).await;
+    assert!(instanz.signal_und_warten("TERM").success());
+    let stderr = instanz.stderr_bis_zum_ende();
+
+    assert_eq!(beta.status, 201);
+    assert_eq!(gesundheit["protokoll_ok"], false, "{gesundheit}");
+    assert!(
+        stderr.contains(" WARNING protokoll Betriebsprotokoll nicht schreibbar"),
+        "{stderr}"
+    );
+    assert!(
+        stderr.contains(" INFORMATION sitzung Sitzung beigetreten | kennung=beta@127.0.0.1"),
+        "{stderr}"
+    );
+    assert_eq!(
+        std::fs::read_to_string(&logs).expect("logs"),
+        "keine Ablage"
+    );
+}

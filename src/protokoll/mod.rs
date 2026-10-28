@@ -679,14 +679,20 @@ mod tests {
         assert_eq!(p.datei("2026-10-28.log").len(), 1);
     }
 
+    /// Abnahme-Probe M1 (Observability-Review #24) am selben Tag — nicht erst am Folgetag, an dem ohnehin eine
+    /// neue Datei geöffnet würde.
     #[test]
-    fn einen_vom_betreiber_geloeschten_logs_ordner_legt_der_naechste_eintrag_neu_an() {
+    fn einen_vom_betreiber_geloeschten_logs_ordner_legt_der_naechste_eintrag_desselben_tages_neu_an()
+     {
         let p = in_dateien("2026-10-28T12:00:00+01:00", Stufe::Information);
         p.um("2026-10-28T12:00:00+01:00", "eins");
         std::fs::remove_dir_all(p.ordner.join("logs")).expect("logs weg");
-        p.um("2026-10-29T12:00:00+01:00", "zwei");
+        p.um("2026-10-28T12:00:01+01:00", "zwei");
 
-        assert_eq!(p.datei("2026-10-29.log").len(), 1);
+        let zwei = "2026-10-28T12:00:01.000+01:00 INFORMATION start zwei";
+        assert_eq!(p.datei("2026-10-28.log"), [zwei]);
+        assert!(p.protokoll.ok());
+        assert_eq!(p.protokoll.kennzahlen().bytes_heute, zwei.len() as u64 + 1);
     }
 
     #[test]

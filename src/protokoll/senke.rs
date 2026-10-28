@@ -1,5 +1,5 @@
-//! Wohin die Zeilen gehen: die Tagesdateien unter `logs/` (ADR-0040 Regel 2, ADR-0041 Regeln 2–3) oder im Test
-//! eine Speicher-Senke.
+//! Wohin die Zeilen gehen: die Tagesdateien unter `logs/` (ADR-0040 Regel 2 und 7, ADR-0041 Regel 3, je mit
+//! Ergänzung M1) oder im Test eine Speicher-Senke.
 
 use chrono::NaiveDate;
 use std::fs::{File, OpenOptions};
@@ -19,16 +19,11 @@ pub trait Senke: Send {
     }
 }
 
-/// Die Tagesdateien `logs/JJJJ-MM-TT.log`; die Datei des zuletzt geschriebenen Tages bleibt offen.
+/// Die Tagesdateien `logs/JJJJ-MM-TT.log`; jeder Eintrag öffnet seine Datei, schreibt und schließt sie — keine
+/// Datei bleibt über einen Eintrag hinaus offen, das Datum bestimmt den Pfad, sonst gibt es keinen Zustand
+/// (ADR-0040, Ergänzung „gelöschte Tagesdatei“, Option C).
 pub struct Tagesdateien {
     logs: PathBuf,
-    offen: Option<OffeneDatei>,
-}
-
-struct OffeneDatei {
-    tag: NaiveDate,
-    datei: File,
-    groesse: u64,
 }
 
 /// Name des Ordners im Instanzordner.
@@ -38,7 +33,6 @@ impl Tagesdateien {
     pub fn neu(ordner: &Path) -> Tagesdateien {
         Tagesdateien {
             logs: ordner.join(LOGS),
-            offen: None,
         }
     }
 
@@ -49,21 +43,15 @@ impl Tagesdateien {
 
     /// Öffnet die Datei des Tages (append, create); fehlt `logs/`, wird es einmal angelegt und erneut versucht
     /// (ADR-0040, Ergänzung Festlegung (4)).
-    fn oeffnen(&self, tag: NaiveDate) -> io::Result<OffeneDatei> {
+    fn oeffnen(&self, tag: NaiveDate) -> io::Result<File> {
         let pfad = self.logs.join(dateiname(tag));
-        let datei = match oeffnen_zum_anhaengen(&pfad) {
+        match oeffnen_zum_anhaengen(&pfad) {
             Err(fehler) if fehler.kind() == io::ErrorKind::NotFound => {
                 self.ordner_anlegen()?;
-                oeffnen_zum_anhaengen(&pfad)?
+                oeffnen_zum_anhaengen(&pfad)
             }
-            ergebnis => ergebnis?,
-        };
-        let groesse = datei.metadata()?.len();
-        Ok(OffeneDatei {
-            tag,
-            datei,
-            groesse,
-        })
+            ergebnis => ergebnis,
+        }
     }
 }
 
@@ -77,21 +65,12 @@ pub fn dateiname(tag: NaiveDate) -> String {
 }
 
 impl Senke for Tagesdateien {
+    /// Öffnen (append, create) → ein `write_all` der Zeile → Größe aus den Metadaten des Handles → schließen
+    /// (mit dem Ende des Aufrufs).
     fn anhaengen(&mut self, tag: NaiveDate, zeile: &str) -> io::Result<u64> {
-        let passend = self.offen.as_ref().is_some_and(|offen| offen.tag == tag);
-        if !passend {
-            self.offen = None;
-            self.offen = Some(self.oeffnen(tag)?);
-        }
-        let Some(offen) = self.offen.as_mut() else {
-            return Err(io::Error::other("keine Tagesdatei offen"));
-        };
-        if let Err(fehler) = offen.datei.write_all(zeile.as_bytes()) {
-            self.offen = None;
-            return Err(fehler);
-        }
-        offen.groesse += zeile.len() as u64;
-        Ok(offen.groesse)
+        let mut datei = self.oeffnen(tag)?;
+        datei.write_all(zeile.as_bytes())?;
+        Ok(datei.metadata()?.len())
     }
 
     fn datei(&self, tag: NaiveDate) -> String {
@@ -153,5 +132,86 @@ impl Senke for Speicher {
 
     fn datei(&self, tag: NaiveDate) -> String {
         format!("{LOGS}/{}", dateiname(tag))
+    }
+}
+
+/// ADR-0040, Ergänzung „gelöschte Tagesdatei“ (Observability-Review #24, M1; Code-Review #24, B2), am selben Tag:
+/// was die Betreiberin im laufenden Tag mit `heute.log` oder `logs/` tut, wirkt beim nächsten Eintrag.
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const ZEILE_A: &str = "a\n";
+
+    struct Probe {
+        _wurzel: tempfile::TempDir,
+        logs: PathBuf,
+        senke: Tagesdateien,
+        tag: NaiveDate,
+    }
+
+    /// Ein erster Eintrag am 2026-10-28 steht schon in `logs/2026-10-28.log`.
+    fn nach_dem_ersten_eintrag() -> Probe {
+        let wurzel = tempfile::tempdir().expect("Wegwerf-Ordner");
+        let mut senke = Tagesdateien::neu(wurzel.path());
+        let tag = NaiveDate::from_ymd_opt(2026, 10, 28).expect("Tag");
+        senke.anhaengen(tag, ZEILE_A).expect("erster Eintrag");
+        Probe {
+            logs: wurzel.path().join(LOGS),
+            _wurzel: wurzel,
+            senke,
+            tag,
+        }
+    }
+
+    impl Probe {
+        fn heute(&self) -> PathBuf {
+            self.logs.join("2026-10-28.log")
+        }
+    }
+
+    #[test]
+    fn eine_geloeschte_tagesdatei_legt_der_naechste_eintrag_desselben_tages_neu_an() {
+        let mut p = nach_dem_ersten_eintrag();
+        std::fs::remove_file(p.heute()).expect("gelöscht");
+
+        let groesse = p.senke.anhaengen(p.tag, "b\n").expect("Eintrag");
+
+        assert_eq!(std::fs::read_to_string(p.heute()).expect("neu da"), "b\n");
+        assert_eq!(groesse, 2);
+    }
+
+    #[test]
+    fn ein_geloeschter_logs_ordner_entsteht_beim_naechsten_eintrag_desselben_tages_neu() {
+        let mut p = nach_dem_ersten_eintrag();
+        std::fs::remove_dir_all(&p.logs).expect("logs weg");
+
+        let groesse = p.senke.anhaengen(p.tag, "c\n").expect("Eintrag");
+
+        assert_eq!(std::fs::read_to_string(p.heute()).expect("neu da"), "c\n");
+        assert_eq!(groesse, 2);
+    }
+
+    #[test]
+    fn nach_dem_verschieben_geht_der_naechste_eintrag_in_eine_neue_tagesdatei() {
+        let mut p = nach_dem_ersten_eintrag();
+        let alt = p.logs.join("alt.log");
+        std::fs::rename(p.heute(), &alt).expect("verschoben");
+
+        p.senke.anhaengen(p.tag, "d\n").expect("Eintrag");
+
+        assert_eq!(std::fs::read_to_string(p.heute()).expect("neu da"), "d\n");
+        assert_eq!(std::fs::read_to_string(&alt).expect("alt"), ZEILE_A);
+    }
+
+    #[test]
+    fn nach_dem_abschneiden_ist_die_groesse_die_der_neuen_zeile() {
+        let mut p = nach_dem_ersten_eintrag();
+        std::fs::File::create(p.heute()).expect("auf 0 Bytes abgeschnitten");
+
+        let groesse = p.senke.anhaengen(p.tag, "efg\n").expect("Eintrag");
+
+        assert_eq!(groesse, 4);
+        assert_eq!(std::fs::read_to_string(p.heute()).expect("da"), "efg\n");
     }
 }
