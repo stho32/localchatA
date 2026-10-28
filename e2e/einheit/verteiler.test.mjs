@@ -82,6 +82,46 @@ test('Ereignisse und Zustände gehen an alle Tabs; ein neuer Tab bekommt sofort 
   assert.deepEqual(zustaendeIn(zwei).map((n) => n.zustand), ['verbunden']);
 });
 
+// R00006 F0024, B0134 (ADR-0023 Regel 6): der Worker merkt sich auch die Channels und gibt einem neuen Tab beide
+// Stände — die Seitenleiste zeigt die Liste, ohne dass jemand etwas anlegt.
+test('ein neuer Tab bekommt den Stand der Teilnehmer und den der Channels', () => {
+  const { halter, verteiler } = anlegen();
+  const eins = port();
+  verteiler.verbinden(eins);
+  eins.senden({ art: 'token', token: 't1' });
+  const { beiEreignis } = halter.angelegt[0].optionen;
+  const allgemein = { name: 'allgemein', angelegt: null, angelegt_von: null, beschreibung: null };
+
+  beiEreignis({ art: 'teilnehmer', stand: 3, liste: [] }, 0);
+  beiEreignis({ art: 'channels', stand: 0, liste: [] }, 0);
+  beiEreignis({ art: 'channel', stand: 1, channel: allgemein }, 0);
+  const zwei = port();
+  verteiler.verbinden(zwei);
+
+  assert.deepEqual(ereignisseIn(eins).map((e) => e.art), ['teilnehmer', 'channels', 'channel']);
+  const anZwei = ereignisseIn(zwei);
+  assert.deepEqual(anZwei.map((e) => e.art), ['teilnehmer', 'channels']);
+  assert.deepEqual(anZwei[1], { art: 'channels', stand: 1, liste: [allgemein] });
+});
+
+test('ohne Stand der Channels bekommt ein neuer Tab nur die Teilnehmer; nach dem letzten Tab ist er vergessen', () => {
+  const { halter, verteiler } = anlegen();
+  const eins = port();
+  verteiler.verbinden(eins);
+  eins.senden({ art: 'token', token: 't1' });
+  halter.angelegt[0].optionen.beiEreignis({ art: 'teilnehmer', stand: 3, liste: [] }, 0);
+  const zwei = port();
+  verteiler.verbinden(zwei);
+  halter.angelegt[0].optionen.beiEreignis({ art: 'channels', stand: 4, liste: [] }, 0);
+  eins.senden({ art: 'tschuess' });
+  zwei.senden({ art: 'tschuess' });
+  const drei = port();
+  verteiler.verbinden(drei);
+
+  assert.deepEqual(ereignisseIn(zwei).map((e) => e.art), ['teilnehmer', 'channels']);
+  assert.deepEqual(ereignisseIn(drei), []);
+});
+
 // R00005 F0018, B0110 (ADR-0019 Regel 4): der Worker reicht den Versatz mit jedem Ereignis weiter, auch den
 // Herzschlag, und gibt einem neuen Tab den Stand mit dem aktuellen Versatz.
 test('Versatz im Worker: Stand empfangen, Herzschlag 40 s später, neuer Tab bekommt den Versatz aus dem Herzschlag', () => {

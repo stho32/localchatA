@@ -1,13 +1,15 @@
 // Verteiler im SharedWorker (B0094, ADR-0015 Regel 2 und 4): alle Tabs eines Browsers teilen höchstens einen
 // Strom. Ereignisse und Zustände gehen an jeden Tab; ein neuer Tab bekommt sofort den zusammengeführten Stand.
 // Lehnt der Server das Token ab, soll genau ein Tab still beitreten — bleibt sein neues Token aus, übernimmt
-// der nächste. Geht der letzte Tab, endet der Strom.
+// der nächste. Geht der letzte Tab, endet der Strom. Neben den Teilnehmern merkt er sich die Channels
+// (ADR-0023 Regel 6) und gibt einem neuen Tab beide Stände.
 //
 // Tab → Worker: { art: 'token', token } · { art: 'tschuess' }
 // Worker → Tab: { art: 'ereignis', ereignis, versatz } · { art: 'zustand', zustand, beitreten, token } (token: das
 // abgelehnte, nur bei 'abgelehnt'). Der Versatz (Serverzeit − Uhr des Rechners, B0110) geht mit jedem Ereignis
 // und mit dem Stand für einen neuen Tab hinaus — auch der Herzschlag wird dafür weitergereicht.
 import { LEER, zusammenfuehren } from './teilnehmerliste.js';
+import { LEER as KEINE_CHANNELS, channelsZusammenfuehren } from './channels.js';
 
 const UEBERNAHME_NACH_MS = 5000;
 
@@ -19,6 +21,7 @@ export function verteilerAnlegen({
   let ports = [];
   let halter = null;
   let liste = null;
+  let channels = null;
   let versatz = 0;
   let zustand = null;
   let abgelehntesToken = null;
@@ -29,6 +32,9 @@ export function verteilerAnlegen({
     port.onmessage = (nachricht) => empfangen(port, nachricht.data);
     if (liste !== null) {
       port.postMessage({ art: 'ereignis', ereignis: standAus(liste), versatz });
+    }
+    if (channels !== null) {
+      port.postMessage({ art: 'ereignis', ereignis: { art: 'channels', stand: channels.stand, liste: channels.channels }, versatz });
     }
     if (zustand === 'verbunden' || zustand === 'unterbrochen') {
       port.postMessage({ art: 'zustand', zustand, beitreten: false });
@@ -65,12 +71,16 @@ export function verteilerAnlegen({
     uebernahmeBeenden();
     halter = null;
     liste = null;
+    channels = null;
     zustand = null;
   }
 
   function beiEreignis(ereignis, neuerVersatz) {
     versatz = neuerVersatz;
     liste = zusammenfuehren(liste || LEER, ereignis);
+    if (ereignis.art === 'channels' || channels !== null) {
+      channels = channelsZusammenfuehren(channels || KEINE_CHANNELS, ereignis);
+    }
     allen({ art: 'ereignis', ereignis, versatz });
   }
 

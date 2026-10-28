@@ -28,6 +28,7 @@ pub fn nachschlagen(name: &str) -> Option<EingebetteteDatei> {
         "verteiler.js" => (include_bytes!("../../web/verteiler.js"), JS),
         "restzeit.js" => (include_bytes!("../../web/restzeit.js"), JS),
         "sekundentakt.js" => (include_bytes!("../../web/sekundentakt.js"), JS),
+        "channels.js" => (include_bytes!("../../web/channels.js"), JS),
         _ => return None,
     };
     Some(EingebetteteDatei { inhalt, typ })
@@ -111,5 +112,24 @@ mod tests {
         ] {
             assert_eq!(nachschlagen(name), None, "{name}");
         }
+    }
+
+    /// Jede Datei der Oberfläche unter `web/` ist eingebettet — ein vergessenes Modul fiele sonst erst im Browser
+    /// auf (der Import scheitert, der Worker startet nicht). `package.json` gehört nur zu den Node-Tests.
+    #[test]
+    fn jede_datei_der_oberflaeche_ist_eingebettet() {
+        let web = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("web");
+        let mut fehlend = Vec::new();
+        for eintrag in std::fs::read_dir(web).expect("web/") {
+            let name = eintrag
+                .expect("Eintrag")
+                .file_name()
+                .to_string_lossy()
+                .into_owned();
+            if name != "package.json" && nachschlagen(&name).is_none() {
+                fehlend.push(name);
+            }
+        }
+        assert_eq!(fehlend, Vec::<String>::new());
     }
 }
