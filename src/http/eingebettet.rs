@@ -19,6 +19,7 @@ pub fn nachschlagen(name: &str) -> Option<EingebetteteDatei> {
         "namensregel.js" => (include_bytes!("../../web/namensregel.js"), JS),
         "beitreten.js" => (include_bytes!("../../web/beitreten.js"), JS),
         "kopfzeile.js" => (include_bytes!("../../web/kopfzeile.js"), JS),
+        "teilnehmerliste.js" => (include_bytes!("../../web/teilnehmerliste.js"), JS),
         _ => return None,
     };
     Some(EingebetteteDatei { inhalt, typ })
@@ -74,6 +75,7 @@ mod tests {
             "namensregel.js",
             "beitreten.js",
             "kopfzeile.js",
+            "teilnehmerliste.js",
         ] {
             let modul = nachschlagen(name).unwrap_or_else(|| panic!("{name} eingebettet"));
             assert_eq!(modul.typ, "text/javascript; charset=utf-8", "{name}");

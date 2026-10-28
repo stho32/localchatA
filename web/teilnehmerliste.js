@@ -1,4 +1,5 @@
 // Teilnehmerliste (A00005, ADR-0016 Regel 5, Designsystem components/Teilnehmerliste).
+import { kuerzel } from './kopfzeile.js';
 //
 // Liste: { stand, eintraege: [{ kennung, name, herkunft, art, status, seit, stand }], entfernt: { kennung: stand } }
 
@@ -73,4 +74,84 @@ function nachKennung(links, rechts) {
 
 function natuerlich(links, rechts) {
   return links.localeCompare(rechts, 'de', { numeric: true });
+}
+
+// Zeichnet die Gruppen in die Region: Überschrift je Art mit Anzahl, Unterkopf je Herkunft, je Zeile Kachel,
+// Kennung in Mono, „Agent“, Status als Form (● online, ○ offline) und bei offline als Wort, die eigene Zeile
+// mit „(du)“. Text nur über textContent; keine Animation, keine Ansage (die Region hat kein aria-live).
+export function zeichnen(region, gruppen) {
+  const inhalt = [];
+  if (gruppen.menschen.length > 0) {
+    inhalt.push(ueberschrift(`Menschen · ${gruppen.menschen.length}`));
+    inhalt.push(...gruppen.menschen.map(zeileZeichnen));
+  }
+  const anzahlAgenten = gruppen.agenten.reduce((summe, gruppe) => summe + gruppe.zeilen.length, 0);
+  if (anzahlAgenten > 0) {
+    inhalt.push(ueberschrift(`Agenten · ${anzahlAgenten}`));
+  }
+  for (const gruppe of gruppen.agenten) {
+    if (gruppe.herkunft !== null) {
+      inhalt.push(unterkopf(gruppe.herkunft));
+    }
+    inhalt.push(...gruppe.zeilen.map(zeileZeichnen));
+  }
+  region.replaceChildren(...inhalt);
+}
+
+function ueberschrift(text) {
+  return element('div', { className: 'lc-sect' }, [element('span', { textContent: text })]);
+}
+
+function unterkopf(herkunft) {
+  return element('div', { className: 'lc-sect lc-unterkopf' }, [element('span', { className: 'lc-id', textContent: herkunft })]);
+}
+
+function zeileZeichnen(zeile) {
+  const art = artDer(zeile);
+  const istOffline = zeile.status === 'offline';
+  const kachel = element('span', { className: `lc-tile ${art}`, textContent: kuerzel(zeile.name) });
+  kachel.setAttribute('aria-hidden', 'true');
+  const kennung = element('span', { className: 'lc-id' }, [zeile.name, element('i', { textContent: `@${zeile.herkunft}` })]);
+  const teile = [kachel, kennung];
+  if (art === 'agent') {
+    teile.push(element('span', { className: 'lc-tag', textContent: 'Agent' }));
+  }
+  teile.push(punkt(istOffline));
+  if (istOffline) {
+    teile.push(element('span', { className: 'lc-status', textContent: 'offline' }));
+  }
+  if (zeile.eigene) {
+    teile.push(element('span', { className: 'lc-du', textContent: '(du)' }));
+  }
+  let klassen = 'lc-person';
+  if (istOffline) {
+    klassen += ' off';
+  }
+  return element('div', { className: klassen }, teile);
+}
+
+function punkt(istOffline) {
+  let form = 'on';
+  let wort = 'online';
+  if (istOffline) {
+    form = 'off';
+    wort = 'offline';
+  }
+  const punktElement = element('span', { className: `lc-dot ${form}` });
+  punktElement.setAttribute('role', 'img');
+  punktElement.setAttribute('aria-label', wort);
+  return punktElement;
+}
+
+function artDer(zeile) {
+  if (zeile.art === 'mensch') {
+    return 'mensch';
+  }
+  return 'agent';
+}
+
+function element(tag, eigenschaften = {}, kinder = []) {
+  const neu = Object.assign(document.createElement(tag), eigenschaften);
+  neu.append(...kinder);
+  return neu;
 }
