@@ -61,3 +61,7 @@ Sie bildet die Frist je Channel direkt auf Dateien ab und hält jedes Gespräch 
 
 - [A00006 Gespräche](../Architektur/A00006-gespraeche.md), [A00008 Logablage](../Architektur/A00008-logablage.md)
 - Vision, Zielbild „Ein Chat, der ein Ordner ist“, „Das Log ist das Gedächtnis“, „Anhänge“; WBS I0002, I0010, I0018
+
+## Ergänzungen
+
+- **2026-10-28 (Karte #6 I0007) — Slug und Einstellungen präzisiert:** Den abgeleiteten Slug und den getrennten Anzeigenamen gibt es nicht; der Channelname folgt der Namensregel aus ADR-0013 und **ist** der Ordnername, Abweichungen werden mit Vorschlag abgewiesen ([ADR-0020](0020-channelname-ist-ordnername-erlaubnisliste.md)). `einstellungen.toml` trägt deshalb keinen `name`; Inhalt, Schreiben und Lesen regelt [ADR-0022](0022-channel-einstellungen-je-channel-als-toml.md). Die übrigen Regeln dieser ADR gelten unverändert.
