@@ -6,6 +6,7 @@ pub mod gespraeche;
 mod http;
 mod live;
 mod name;
+pub mod protokoll;
 pub mod start;
 pub mod testdaten;
 pub mod uhr;
