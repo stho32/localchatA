@@ -117,3 +117,4 @@ Nie vom User erfragen.
 | 2026-10-28 | R00004 Teilnehmer mit Online-Status sehen | B0098 Ein- und Ausblenden bedienen | Standard | 0,4h | 0,04h | 0,05h | autonom |
 | 2026-10-28 | R00004 Teilnehmer mit Online-Status sehen | Lauf R00004 | Nacharbeit | — | — | 1,68h | autonom |
 | 2026-10-28 | R00004 Teilnehmer mit Online-Status sehen | Lauf R00004 | Konsolidierung | — | — | 0h | autonom |
+| 2026-10-28 | R00004 Teilnehmer mit Online-Status sehen | Nacharbeit 3 Teststabilität (ereignisgenaues Warten, A1, Leistung) | Nacharbeit | — | — | 0,6h | autonom |
