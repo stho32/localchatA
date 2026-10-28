@@ -27,6 +27,8 @@ use crate::gespraeche::{Dateiablage, Gespraeche};
 use crate::http::{self, Grenzschutz, Zustand};
 use crate::live::bus::{self, Bus};
 use crate::live::{self, herzschlag, takt};
+use crate::protokoll::bereinigung::Anlass;
+use crate::protokoll::tagestakt::{self, Tagestakt};
 use crate::protokoll::{Bereich, Kontext, Protokoll, Schluessel, Stufe};
 use crate::uhr::{self, Uhr};
 use crate::zufall::Betriebssystemzufall;
@@ -109,6 +111,8 @@ async fn starten(
         Arc::clone(&uhr),
         Stufe::Information,
     ));
+    let bereinigt_am = uhr.jetzt().date_naive();
+    protokoll.bereinigen(bereinigt_am, Anlass::Start);
     let laufen = nach_der_sperre(
         auftrag,
         uhr,
@@ -116,7 +120,10 @@ async fn starten(
         herzschlag,
         ordner,
         Arc::clone(&protokoll),
-        beginn,
+        Startlaeufe {
+            beginn,
+            bereinigt_am,
+        },
     );
     laufen.await.map_err(|fehler| {
         protokoll.eintragen(
@@ -129,6 +136,30 @@ async fn starten(
     })
 }
 
+/// Was die Start-Läufe vor dem Laden ergaben: Beginn der Laufzeit und das Datum der Start-Bereinigung.
+struct Startlaeufe {
+    beginn: Instant,
+    bereinigt_am: chrono::NaiveDate,
+}
+
+/// Der Tagestakt mit der Bereinigung als erster Tagesaufgabe; `zuletzt` = Datum der Start-Bereinigung
+/// (ADR-0041, Ergänzung „Vertrag des Tagestakts“).
+fn tagestakt(
+    uhr: &Arc<dyn Uhr>,
+    protokoll: &Arc<Protokoll>,
+    bereinigt_am: chrono::NaiveDate,
+) -> Tagestakt {
+    let bereinigen = Arc::clone(protokoll);
+    Tagestakt::neu(Arc::clone(uhr), Arc::clone(protokoll)).tagesaufgabe(
+        "bereinigen",
+        "alte Protokolldateien bleiben bis dahin liegen",
+        bereinigt_am,
+        Arc::new(move |heute| {
+            bereinigen.bereinigen(heute, Anlass::Tageswechsel);
+        }),
+    )
+}
+
 /// Vom Laden bis zum Ende; jeder Fehler hier gehört ins Protokoll (ADR-0042 Regel 2, `start`).
 async fn nach_der_sperre(
     auftrag: Startauftrag,
@@ -137,8 +168,12 @@ async fn nach_der_sperre(
     herzschlag: Duration,
     ordner: std::path::PathBuf,
     protokoll: Arc<Protokoll>,
-    beginn: Instant,
+    startlaeufe: Startlaeufe,
 ) -> Result<(), Startfehler> {
+    let Startlaeufe {
+        beginn,
+        bereinigt_am,
+    } = startlaeufe;
     let bus = Arc::new(Bus::neu(live::KAPAZITAET));
     let gespraeche = verlauf_laden(&ordner, Arc::clone(&uhr), &protokoll)?
         .mit_veroeffentlichen(bus::channels_veroeffentlichen(&bus));
@@ -157,6 +192,9 @@ async fn nach_der_sperre(
         grund: fehler.to_string(),
     })?;
     let (ende, signal) = ende_einrichten(Arc::clone(&protokoll), beginn);
+    tokio::spawn(
+        tagestakt(&uhr, &protokoll, bereinigt_am).takten(ende.clone(), tagestakt::PERIODE),
+    );
     tokio::spawn(takt::takten(
         Arc::clone(&anwesenheit),
         uhr,
