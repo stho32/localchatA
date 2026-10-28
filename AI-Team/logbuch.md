@@ -76,3 +76,4 @@ Eine Zeile je Auftrag an eine Rolle und je Retrospektive.
 | 2026-10-28 | #6 I0007 | Bereit | planer | bestanden | 0:30 | R00006, 25 Bubbles in F0020–F0025, F0026 Ausbau (5c33c5b…a9df317) |
 | 2026-10-28 | — | Prozess | Betreiber | — | — | Trommel-Puffer-Seil: Puffer 2 vor der Entwicklung, WIP 1 nur in Entwicklung; #7 sofort in die Architektur |
 | 2026-10-28 | — | Prozess | Betreiber | — | — | Vorlauf (architekt, planer) im Worktree localchatA-vorlauf, Zweig vorlauf/<nr> je Karte, Übernahme per Rebase/Fast-Forward durch den Director |
+| 2026-10-28 | #6 I0007 | Entwicklung | entwickler | bestanden | 0:59 | R00006 B0116–B0140 (c242a2a…8cc1f7d), WBS/Ist-Zeiten durch Director (b1076ca) |
