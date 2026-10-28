@@ -1,6 +1,6 @@
 // Channel im Browser anlegen (F0025, ADR-0024 Regeln 4, 5, 7): `+` oder `Strg Alt N` öffnet den modalen Dialog
 // „Channel anlegen“; Enter legt an. 201 → Dialog zu, Statuszeile, Fokus zurück zum Auslöser; jeder Fehler bleibt
-// im offenen Dialog (⚠ in kd-danger, aria-invalid), die Eingabe bleibt stehen. Esc und „Abbrechen“ schließen.
+// im offenen Dialog (⚠ in kd-danger, aria-invalid), die Eingabe bleibt stehen, der Fokus im Feld „Name“. Esc und „Abbrechen“ schließen.
 import { pruefen } from './namensregel.js';
 
 // anlegen: async name → { serverWeg, status, daten } (api.js); statusZeigen: text → Statuszeile;
@@ -56,6 +56,8 @@ function bedienen(teile, { anlegen, statusZeigen }, signal) {
       return;
     }
     fehlerZeigen(teile, gedeutet);
+    // Der Schalter war während der Anfrage gesperrt und hat den Fokus verloren — der Fehler betrifft den Namen.
+    teile.feld.focus();
   }
 
   teile.formular.addEventListener('submit', (ereignis) => {
