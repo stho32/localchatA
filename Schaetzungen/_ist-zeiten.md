@@ -113,3 +113,4 @@ Nie vom User erfragen.
 | 2026-10-28 | R00004 Teilnehmer mit Online-Status sehen | B0094 Strom im SharedWorker halten | unklar | 2-4h | 0,01h | 0,02h | autonom |
 | 2026-10-28 | R00004 Teilnehmer mit Online-Status sehen | B0095 Worker oder Rückfall wählen | Standard | 0,4h | 0,04h | 0,04h | autonom |
 | 2026-10-28 | R00004 Teilnehmer mit Online-Status sehen | B0096 Neues Token an den Worker | Standard | 0,4h | 0,02h | 0,02h | autonom |
+| 2026-10-28 | R00004 Teilnehmer mit Online-Status sehen | B0097 Sichtbarkeit wählen | Standard | 0,4h | 0h | 0h | autonom |

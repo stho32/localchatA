@@ -17,6 +17,20 @@ export function zeichnen(wurzel, teilnehmer, optionen) {
   return { region, verbindungZeigen: (zustand) => verbindungZeigen(hinweis, zustand) };
 }
 
+// Designsystem README: unter 1100 px klappt die Teilnehmerliste ein, damit der Chat neben die IDE passt; hat der
+// Mensch sie ein- oder ausgeblendet (wunsch 'ein' | 'aus'), gilt das bis zum Neuladen, sonst die Breite.
+const SICHTBAR_AB_PX = 1100;
+
+export function teilnehmerSichtbar(fensterbreite, wunsch) {
+  if (wunsch === 'ein') {
+    return true;
+  }
+  if (wunsch === 'aus') {
+    return false;
+  }
+  return fensterbreite >= SICHTBAR_AB_PX;
+}
+
 function verbindungZeigen(hinweis, zustand) {
   if (zustand === 'unterbrochen') {
     hinweis.textContent = UNTERBROCHEN;
