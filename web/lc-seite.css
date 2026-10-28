@@ -62,9 +62,11 @@ body { background: var(--kd-bg); color: var(--kd-ink); font-family: var(--font-s
 .lc-verbindung { grid-row: 2; margin: 0; padding: var(--kd-space-8) var(--kd-space-12); background: var(--kd-surface); border-bottom: 1px solid var(--kd-line); }
 .lc-main { grid-row: 3; display: grid; grid-template-columns: var(--lc-sidebar) minmax(0, 1fr) var(--lc-members); min-height: 0; }
 .lc-main.ohne-teilnehmer { grid-template-columns: var(--lc-sidebar) minmax(0, 1fr); }
-.lc-center { min-width: 0; overflow-y: auto; background: var(--kd-surface); padding: var(--kd-space-12); }
+.lc-center { position: relative; min-width: 0; min-height: 0; overflow: hidden; display: flex; flex-direction: column; background: var(--kd-surface); }
+.lc-mitte-hinweis { margin: var(--kd-space-12); }
 
-/* Nachricht (Baustein Nachricht) */
+/* Verlauf (ADR-0026, Baustein Nachricht): die einzige scrollende Fläche der Mitte; der Anker wird von Hand gehalten */
+.lc-log { flex: 1; min-height: 0; overflow-y: auto; overflow-anchor: none; padding: var(--kd-space-12) 0; }
 .lc-msg { display: grid; grid-template-columns: var(--lc-gutter) minmax(0, var(--lc-measure)); padding: var(--kd-space-2) var(--kd-space-12) var(--kd-space-2) 0; }
 .lc-msg:hover { background: var(--kd-surface-2); }
 .lc-msg.first { margin-top: var(--kd-space-12); }

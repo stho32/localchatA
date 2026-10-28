@@ -8,6 +8,7 @@
 // neu ab — Seitenleiste, Kopfzeile und Mitte zeigen sie.
 import * as kopfzeile from './kopfzeile.js';
 import { auswahl, auswahlMerken, startadresse, MERKER } from './auswahl.js';
+import { verlaufAnlegen } from './verlauf.js';
 import * as seitenleiste from './seitenleiste.js';
 import { dialogEinrichten } from './channel-anlegen.js';
 import { onlineBenennen } from './teilnehmerliste.js';
@@ -46,7 +47,8 @@ export function zeichnen(wurzel, teilnehmer, optionen) {
   einAusblendenBedienen({ schalter, region, haupt }, vorigeAnsichtAbmelden.signal);
   let letzterZustand = 'verbunden';
   channels.channelsZeigen([]);
-  const auswahlFolgen = auswahlEinrichten({ seitenleiste: channels, kopf, mitte }, vorigeAnsichtAbmelden.signal);
+  const verlauf = verlaufAnlegen({ abrufen: optionen.verlaufAbrufen });
+  const auswahlFolgen = auswahlEinrichten({ seitenleiste: channels, kopf, mitte, verlauf }, vorigeAnsichtAbmelden.signal);
   return {
     region: zeilen,
     channelsZeigen: auswahlFolgen,
@@ -61,12 +63,13 @@ export function zeichnen(wurzel, teilnehmer, optionen) {
 
 // Liefert channelsZeigen(liste): die Liste ist erst mit dem ersten Stand bekannt — bis dahin bleibt ein
 // gewählter Name ohne Urteil, damit „gibt es nicht“ nie vor dem Stand erscheint.
-function auswahlEinrichten({ seitenleiste, kopf, mitte }, signal) {
+function auswahlEinrichten({ seitenleiste, kopf, mitte, verlauf }, signal) {
   const adresse = startadresse(window.location.hash, window.sessionStorage.getItem(MERKER));
   if (adresse !== null) {
     window.history.replaceState(null, '', adresse);
   }
   let liste = null;
+  let offen = null;
   function folgen() {
     const namen = (liste || []).map((channel) => channel.name);
     const gewaehlt = auswahl(window.location.hash, namen);
@@ -77,7 +80,17 @@ function auswahlEinrichten({ seitenleiste, kopf, mitte }, signal) {
     }
     seitenleiste.auswahlZeigen(bekannt && bekannt.name);
     kopf.ortZeigen(bekannt);
-    mitteZeigen(mitte, gewaehlt, liste !== null);
+    if (bekannt === null) {
+      offen = null;
+      verlaufSchliessen(verlauf, seitenleiste);
+      mitteZeigen(mitte, gewaehlt, liste !== null);
+      return;
+    }
+    if (offen !== bekannt.name) {
+      offen = bekannt.name;
+      mitte.replaceChildren(verlauf.element);
+      verlauf.oeffnen(bekannt.name);
+    }
   }
   window.addEventListener('hashchange', folgen, { signal });
   folgen();
@@ -88,12 +101,22 @@ function auswahlEinrichten({ seitenleiste, kopf, mitte }, signal) {
   };
 }
 
+// Liegt der Fokus im Verlauf, der jetzt geht, kommt er auf den Schalter „Channel anlegen“ — nie ins Nichts.
+function verlaufSchliessen(verlauf, seitenleiste) {
+  const fokusImVerlauf = verlauf.element.contains(document.activeElement);
+  verlauf.schliessen();
+  verlauf.element.remove();
+  if (fokusImVerlauf) {
+    seitenleiste.plus.focus();
+  }
+}
+
 function mitteZeigen(mitte, gewaehlt, listeBekannt) {
   if (gewaehlt === null) {
     mitte.replaceChildren(element('p', { className: 'lc-mitte-hinweis', textContent: 'Links einen Channel wählen.' }));
     return;
   }
-  if (!listeBekannt || gewaehlt.bekannt) {
+  if (!listeBekannt) {
     mitte.replaceChildren();
     return;
   }

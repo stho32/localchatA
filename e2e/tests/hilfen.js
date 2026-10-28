@@ -255,7 +255,34 @@ function zeigtNichtMehrOnline({ kennung }) {
   return anzeige !== null && /^(offline|weg in \d:\d\d)$/.test(anzeige.textContent.trim());
 }
 
+/// Ein Satz im Logformat (ADR-0004): Kopfzeile, Text mit zwei Leerzeichen eingerückt, Leerzeile als Abschluss.
+function satz(zeit, von, text) {
+  const zeilen = text.split('\n').map((zeile) => {
+    if (zeile === '') {
+      return '';
+    }
+    return `  ${zeile}`;
+  });
+  return `@ ${zeit} ${von}\n${zeilen.join('\n')}\n\n`;
+}
+
+/// Legt Tagesdateien eines Channels an: tage = { '2026-10-28': [[zeit, von, text], …] }; ohne Tage nur den Ordner.
+function channelAnlegen(ordner, name, tage = {}) {
+  const pfad = path.join(ordner, 'channels', name);
+  fs.mkdirSync(pfad, { recursive: true });
+  for (const [datum, saetze] of Object.entries(tage)) {
+    fs.writeFileSync(path.join(pfad, `${datum}.log`), saetze.map(([zeit, von, text]) => satz(zeit, von, text)).join(''));
+  }
+}
+
+/// Der Channel `gross` (100.000 Nachrichten über 7 Tage bis 2026-10-28 15:00), einmal je Lauf vom Testdaten-Erzeuger
+/// angelegt (bauen.js), in den Ordner kopiert.
+function grossAnlegen(ordner) {
+  fs.cpSync(process.env.LOCALCHATA_E2E_GROSS, path.join(ordner, 'channels', 'gross'), { recursive: true });
+}
+
 module.exports = {
+  satz, channelAnlegen, grossAnlegen,
   instanzStarten, freierPort, lanAdresse, fehlerSammeln, beitretenPerApi, channelAnlegenPerApi, fokusImBrowser, stromOeffnen, sichtbarNach,
   sichtbarMitWertNach, zeigtNichtMehrOnline, NICHT_MEHR_ONLINE,
 };
