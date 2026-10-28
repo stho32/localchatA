@@ -123,3 +123,82 @@ async fn us1_gesundheit_nennt_herzschlag_und_abrissgrenze() {
         "{gestellt}"
     );
 }
+
+/// Der Kernel-Timer einer angenommenen Verbindung, wie `/proc/net/tcp` ihn zeigt: (`timer_active`, `when` in
+/// Ticks zu 1/100 s) der Zeile mit lokalem Port `instanzport` und Gegenport `clientport`.
+fn kernel_timer(instanzport: u16, clientport: u16) -> Option<(u32, u64)> {
+    let tabelle = std::fs::read_to_string("/proc/net/tcp").expect("/proc/net/tcp");
+    tabelle.lines().skip(1).find_map(|zeile| {
+        let felder: Vec<&str> = zeile.split_whitespace().collect();
+        let port = |adresse: &str| u16::from_str_radix(adresse.rsplit(':').next()?, 16).ok();
+        let passt = port(felder[1])? == instanzport && port(felder[2])? == clientport;
+        if !passt {
+            return None;
+        }
+        let (aktiv, wann) = felder[5].split_once(':')?;
+        Some((
+            u32::from_str_radix(aktiv, 16).ok()?,
+            u64::from_str_radix(wann, 16).ok()?,
+        ))
+    })
+}
+
+/// Hält von 127.0.0.2 eine Keep-alive-Verbindung mit einer beantworteten Anfrage offen und liest dann, bis der
+/// Keepalive-Timer (`timer_active` = 2) der angenommenen Seite läuft, höchstens 3 s: (`timer_active`, `when`).
+async fn timer_nach_einer_anfrage(instanz: &Instanz) -> (u32, u64) {
+    let socket = TcpSocket::new_v4().expect("Socket");
+    socket
+        .bind("127.0.0.2:0".parse().expect("Absender"))
+        .expect("gebunden");
+    let ziel = format!("127.0.0.1:{}", instanz.port())
+        .parse()
+        .expect("Ziel");
+    let mut strom = socket.connect(ziel).await.expect("verbunden");
+    let clientport = strom.local_addr().expect("Adresse").port();
+    strom
+        .write_all(b"GET /api/gesundheit HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n")
+        .await
+        .expect("gesendet");
+    let mut puffer = vec![0u8; 4096];
+    let gelesen = strom.read(&mut puffer).await.expect("Antwort");
+    assert!(String::from_utf8_lossy(&puffer[..gelesen]).starts_with("HTTP/1.1 200"));
+    let ende = Instant::now() + Duration::from_secs(3);
+    let mut zuletzt = None;
+    while Instant::now() < ende {
+        zuletzt = kernel_timer(instanz.port(), clientport);
+        if matches!(zuletzt, Some((2, _))) {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    drop(strom);
+    zuletzt.expect("Zeile der angenommenen Verbindung in /proc/net/tcp")
+}
+
+/// Nacharbeit 1, Code-Review B1: der Start setzt die Kernel-Pflege mit dem Herzschlag ein —
+/// `LOCALCHATA_HERZSCHLAG_MS=2000` → Keepalive-Timer aktiv, `when` ≤ 200 Ticks (Keepidle 2 s).
+#[tokio::test]
+async fn nacharbeit1_b1_der_start_pflegt_mit_dem_herzschlag_aus_dem_knopf() {
+    let wurzel = tempfile::tempdir().expect("Wegwerf-Ordner");
+    let instanz = gemeinsam::starten_mit(
+        wurzel.path(),
+        &["--port", "0", "--host", "127.0.0.1", "--kein-browser"],
+        &[("LOCALCHATA_HERZSCHLAG_MS", "2000")],
+    );
+
+    let (aktiv, wann) = timer_nach_einer_anfrage(&instanz).await;
+
+    assert_eq!(aktiv, 2, "Keepalive-Timer, when {wann}");
+    assert!(wann <= 200, "when {wann} Ticks");
+}
+
+/// Variante ohne Knopf: Herzschlag 5 s → Keepalive-Timer aktiv, `when` ≤ 500 Ticks.
+#[tokio::test]
+async fn nacharbeit1_b1_ohne_knopf_pflegt_der_start_mit_5_s() {
+    let instanz = wegwerf_starten();
+
+    let (aktiv, wann) = timer_nach_einer_anfrage(&instanz).await;
+
+    assert_eq!(aktiv, 2, "Keepalive-Timer, when {wann}");
+    assert!(wann <= 500, "when {wann} Ticks");
+}
