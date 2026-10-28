@@ -257,10 +257,6 @@ impl Anwesenheit {
 
     /// Ein Halter der Sitzung (ADR-0016 Regel 2), nur mit gültigem Token derselben Herkunft; ein
     /// Lebenszeichen. War die Sitzung `offline`, ist sie ab jetzt `online` — der Wechsel kommt mit.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "Brücke bis B0084: der Strom hält die Sitzung")
-    )]
     pub fn verbunden(
         self: &Arc<Self>,
         token: &Token,

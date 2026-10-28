@@ -2,6 +2,7 @@
 
 mod beitreten;
 mod eingebettet;
+mod ereignisse;
 mod gesundheit;
 mod grenzschutz;
 mod ich;
@@ -14,11 +15,13 @@ pub use grenzschutz::Grenzschutz;
 use crate::anwesenheit::Anwesenheit;
 use crate::gespraeche::Gespraeche;
 use crate::live::bus::Bus;
+use crate::start::ende::Ende;
 use axum::Router;
 use axum::middleware;
 use axum::routing::{get, post};
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::time::Duration;
 
 /// Was die Handler über die laufende Instanz wissen: ihren Ordner, die geladenen Gespräche, die
 /// Anwesenheit, den Ereignisbus und die Namen, unter denen sie antworten darf.
@@ -28,6 +31,10 @@ pub struct Zustand {
     pub gespraeche: Arc<Gespraeche>,
     pub anwesenheit: Arc<Anwesenheit>,
     pub bus: Arc<Bus>,
+    /// Abstand der Herzschläge im Ereignisstrom.
+    pub herzschlag: Duration,
+    /// Ende des Programms — jeder Strom hört es und endet selbst.
+    pub ende: Ende,
     pub grenzschutz: Grenzschutz,
 }
 
@@ -41,6 +48,7 @@ pub fn router(zustand: Zustand) -> Router {
         .route("/api/beitreten", post(beitreten::beantworten))
         .route("/api/ich", get(ich::beantworten))
         .route("/api/teilnehmer", get(teilnehmerliste::beantworten))
+        .route("/api/ereignisse", get(ereignisse::beantworten))
         .with_state(Arc::new(zustand))
         .layer(middleware::from_fn_with_state(
             grenzschutz,
@@ -84,6 +92,8 @@ pub(crate) mod testserver {
                 Duration::from_secs(60),
             )),
             bus: Arc::new(crate::live::bus::Bus::neu(crate::live::KAPAZITAET)),
+            herzschlag: Duration::from_secs(15),
+            ende: Ende::nie(),
             grenzschutz: Grenzschutz::neu(None, Vec::new()),
         }
     }

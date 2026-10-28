@@ -57,15 +57,21 @@ pub fn gemeldete_sitzung(
     herkunft: IpAddr,
     anwesenheit: &Anwesenheit,
 ) -> Option<Sitzung> {
-    let sitzung_header = HeaderName::from_static(SITZUNG_HEADER);
-    let token = einziger_wert(kopf, &sitzung_header).and_then(Token::lesen)?;
+    let token = gemeldetes_token(kopf)?;
     anwesenheit.wiederkehren(&token, herkunft)
+}
+
+/// Das Token aus dem Header `X-LocalchatA-Sitzung` — genau einmal und lesbar, sonst keines. Nur der Header
+/// zählt, nie ein Query-Parameter (ADR-0015 Regel 1).
+pub fn gemeldetes_token(kopf: &HeaderMap) -> Option<Token> {
+    let sitzung_header = HeaderName::from_static(SITZUNG_HEADER);
+    einziger_wert(kopf, &sitzung_header).and_then(Token::lesen)
 }
 
 /// Der Nachweis einer Sitzung bei jedem Aufruf (ADR-0012).
 const SITZUNG_HEADER: &str = "x-localchata-sitzung";
 
-fn nicht_erkannt() -> Response {
+pub fn nicht_erkannt() -> Response {
     let fehler = "Keine gültige Sitzung — mit POST /api/beitreten beitreten und das Token im Header X-LocalchatA-Sitzung senden (gültig nur von derselben Herkunft).";
     (StatusCode::UNAUTHORIZED, Json(json!({ "fehler": fehler }))).into_response()
 }

@@ -86,7 +86,7 @@ async fn starten(
     auftrag: Startauftrag,
     uhr: Box<dyn Uhr>,
     gnadenfrist: Duration,
-    _herzschlag: Duration,
+    herzschlag: Duration,
 ) -> Result<(), Startfehler> {
     let uhr: Arc<dyn Uhr> = Arc::from(uhr);
     let ordner = ordner::ordner_vorbereiten(&auftrag.ordner)?;
@@ -121,6 +121,8 @@ async fn starten(
         gespraeche: Arc::new(gespraeche),
         anwesenheit,
         bus,
+        herzschlag,
+        ende: ende.clone(),
         grenzschutz: Grenzschutz::neu(rechnername::lesen(), auftrag.erreichbar_als),
     });
     ausliefern::ausliefern(
