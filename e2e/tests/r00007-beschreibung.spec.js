@@ -114,7 +114,7 @@ test('Dialog (US-24): Name und Beschreibung, Enter legt an; a<Tab>b wird abgewie
   await feld.fill('Notizen zur Doku');
   await feld.press('Enter');
 
-  await expect(page.getByRole('status')).toHaveText('Channel # doku angelegt.');
+  await expect(page.getByRole('status').and(page.locator('.lc-statuszeile'))).toHaveText('Channel # doku angelegt.');
   await expect(dialog).toHaveCount(0);
   await page.getByRole('navigation', { name: 'Channels' }).getByRole('link', { name: 'doku', exact: true }).click();
   await expect(beschreibung(page)).toHaveText('Notizen zur Doku');

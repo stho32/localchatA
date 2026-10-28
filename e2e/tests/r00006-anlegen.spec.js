@@ -68,7 +68,7 @@ test('US-19: Strg Alt N, Name, Enter — Dialog zu, Statuszeile, einmal in der L
   await a.page.keyboard.press('Enter');
 
   await expect(dialog(a.page)).toBeHidden();
-  await expect(a.page.getByRole('status')).toHaveText('Channel # security-entwicklung angelegt.');
+  await expect(a.page.getByRole('status').and(a.page.locator('.lc-statuszeile'))).toHaveText('Channel # security-entwicklung angelegt.');
   await expect(eintragVon(a.page, 'security-entwicklung')).toHaveCount(1);
   await expect(a.page.getByRole('button', { name: /^Teilnehmer/ })).toBeFocused();
   await expect(eintragVon(b.page, 'security-entwicklung')).toHaveCount(1);
@@ -175,7 +175,7 @@ test('verzögerte Antwort (1 s): der Dialog bleibt bis zur 201 offen, dann Statu
   await expect(dialog(a.page)).toBeVisible();
 
   await expect(dialog(a.page)).toBeHidden({ timeout: 5000 });
-  await expect(a.page.getByRole('status')).toHaveText('Channel # langsam angelegt.');
+  await expect(a.page.getByRole('status').and(a.page.locator('.lc-statuszeile'))).toHaveText('Channel # langsam angelegt.');
   await expect(plus(a.page)).toBeFocused();
   await expect(eintragVon(a.page, 'langsam')).toHaveCount(1);
   expect(a.fehler).toEqual([]);

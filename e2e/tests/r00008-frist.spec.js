@@ -63,7 +63,7 @@ const schalter = (page, name = 'allgemein') => kopf(page).getByRole('button', { 
 const fristText = (page) => kopf(page).locator('.lc-head-frist');
 const dialog = (page) => page.getByRole('dialog');
 const feld = (page) => dialog(page).getByLabel('Aufbewahrungsfrist');
-const statuszeile = (page) => page.getByRole('status');
+const statuszeile = (page) => page.getByRole('status').and(page.locator('.lc-statuszeile'));
 
 /// `PUT …/frist` per API von 127.0.0.1 (Agent).
 function fristPerApi(adresse, token, name, koerper) {

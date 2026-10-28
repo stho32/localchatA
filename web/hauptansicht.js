@@ -22,6 +22,7 @@ import { fokusTaste } from './fokus.js';
 import { VERBINDUNG_ANFANG, verbindung } from './wiederverbinden.js';
 import { nachholen } from './nachholen.js';
 import { wiederVerbundenText, leisteInhalt } from './verbindungsleiste.js';
+import { ANSAGE_LEER, ansage } from './ansage.js';
 
 const UNTERBROCHEN = '⚠ Verbindung unterbrochen — localchatA verbindet neu.';
 const STAND_UNBEKANNT = 'Stand unbekannt — zuletzt bekannte Liste.';
@@ -56,8 +57,9 @@ export function zeichnen(wurzel, teilnehmer, optionen) {
   const haupt = element('div', { className: 'lc-main' }, [channels.nav, mitte, region]);
   const statuszeile = element('p', { className: 'lc-statuszeile', hidden: true });
   statuszeile.setAttribute('role', 'status');
+  const ansagen = ansageEinrichten();
   wurzel.classList.add('lc-app');
-  wurzel.append(hinweis, haupt, statuszeile);
+  wurzel.append(hinweis, haupt, statuszeile, ansagen.region);
   dialogEinrichten({
     wurzel,
     plus: channels.plus,
@@ -82,7 +84,7 @@ export function zeichnen(wurzel, teilnehmer, optionen) {
     abschicken: optionen.nachrichtSenden,
     wiederBeitreten: optionen.wiederBeitreten,
     netzAus: () => navigator.onLine === false,
-    ansagen: () => {},
+    ansagen: ansagen.melden,
   });
   const eingabe = eingabeAnlegen({ senden: senden.senden, entwurf: entwurfAnlegen({ speicher: window.sessionStorage }) });
   const wieder = wiederverbindenEinrichten({ verlauf, senden, abrufen: optionen.verlaufAbrufen }, vorigeAnsichtAbmelden.signal);
@@ -96,6 +98,7 @@ export function zeichnen(wurzel, teilnehmer, optionen) {
   const beiOeffnen = (name) => {
     eingabe.channelSetzen(name);
     senden.channelGeoeffnet(name);
+    ansagen.melden({ art: 'gewechselt' });
   };
   const auswahlFolgen = auswahlEinrichten({
     seitenleiste: channels, kopf, mitte, verlauf, eingabe, beiAuswahl, beiOeffnen,
@@ -201,6 +204,45 @@ function meldungAus(ergebnis) {
     return { art: 'nachgeholt', zahl: ergebnis.nachrichten.length };
   }
   return { art: 'nachgeholt', zahl: 0 };
+}
+
+// Gebündelte Ansage (ADR-0038 Regel 10, ansage.js): eine Statusregion außerhalb des Verlaufs, visuell verborgen; ein
+// Zeitgeber sagt Gesammeltes frühestens 10 s nach der letzten Ansage an. Gleicher Text zweimal wird neu gesetzt, damit
+// er wieder angesagt wird.
+function ansageEinrichten() {
+  const region = element('p', { className: 'lc-unsichtbar lc-ansage' });
+  region.setAttribute('role', 'status');
+  region.setAttribute('aria-live', 'polite');
+  let zustand = ANSAGE_LEER;
+  let takt = null;
+
+  function sagen(text) {
+    region.textContent = '';
+    requestAnimationFrame(() => {
+      region.textContent = text;
+    });
+  }
+
+  function taktStellen() {
+    const ABSTAND_MS = 10000;
+    clearTimeout(takt);
+    if (zustand.gesammelt === 0) {
+      return;
+    }
+    const wartenMs = Math.max(0, zustand.letzteAnsageMs + ABSTAND_MS - Date.now());
+    takt = setTimeout(() => melden({ art: 'takt' }), wartenMs);
+  }
+
+  function melden(ereignis) {
+    const ergebnis = ansage(zustand, ereignis, Date.now());
+    zustand = ergebnis.zustand;
+    if (ergebnis.text !== null) {
+      sagen(ergebnis.text);
+    }
+    taktStellen();
+  }
+
+  return { region, melden };
 }
 
 // `/` außerhalb von Textfeldern und `Esc` im Verlauf holen den Fokus in die Eingabe (ADR-0038 Regel 8, fokus.js).
