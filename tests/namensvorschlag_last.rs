@@ -13,21 +13,14 @@ use std::time::{Duration, Instant};
 
 const GRENZE: Duration = Duration::from_millis(150);
 
-/// Körper knapp unter der Grenze von 2 MB, mit dem Vorschlag, den der Server heute macht.
+/// Körper an der Grenze von 4 096 Bytes (R00010; bis dahin knapp unter 2 MB), mit dem Vorschlag, den der
+/// Server macht.
 fn lange_namen() -> Vec<(&'static str, Vec<u8>, Option<String>)> {
     let koerper = |name: String| serde_json::to_vec(&json!({ "name": name })).expect("JSON");
     vec![
-        (
-            "ÿ×995000",
-            koerper("ÿ".repeat(995_000)),
-            Some("y".repeat(32)),
-        ),
-        ("日×663000", koerper("日".repeat(663_000)), None),
-        (
-            "a×1990000",
-            koerper("a".repeat(1_990_000)),
-            Some("a".repeat(32)),
-        ),
+        ("ÿ×2042", koerper("ÿ".repeat(2_042)), Some("y".repeat(32))),
+        ("日×1361", koerper("日".repeat(1_361)), None),
+        ("a×4085", koerper("a".repeat(4_085)), Some("a".repeat(32))),
     ]
 }
 

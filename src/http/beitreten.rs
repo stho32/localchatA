@@ -26,7 +26,7 @@ pub async fn beantworten(
     kopf: HeaderMap,
     koerper: Body,
 ) -> Response {
-    let koerper = match json_lesen(&kopf, koerper).await {
+    let koerper = match json_lesen(&kopf, koerper, BEITRETEN_GRENZE).await {
         Ok(koerper) => koerper,
         Err(fehler) => return kein_json(fehler),
     };
@@ -82,21 +82,27 @@ fn sitzung_als_json(sitzung: &Sitzung, gnadenfrist_s: u64) -> Json<Value> {
 
 const BEISPIEL: &str = r#"{"name":"shoff"}"#;
 
+/// Körpergrenze des Beitritts (R00010): höchstens 248 Bytes in der längsten JSON-Schreibweise (`name` 32 und
+/// `art` 6 Zeichen je als `\uXXXX`); dieselbe Grenze wie die Anlage eines Channels, 4 KiB.
+const BEITRETEN_GRENZE: usize = 4096;
+
 /// Eine deutsche `{fehler}`-Antwort mit Grund und Ausweg; nach 413 schließt die Verbindung (der Rest des
 /// Körpers ist höchstens bis zur Obergrenze gelesen).
 fn kein_json(fehler: Koerperfehler) -> Response {
-    let (status, grund) = match fehler {
+    let (status, grund): (StatusCode, String) = match fehler {
         Koerperfehler::KeinJson => (
             StatusCode::UNSUPPORTED_MEDIA_TYPE,
-            "Der Körper muss JSON sein — mit Content-Type: application/json schicken",
+            "Der Körper muss JSON sein — mit Content-Type: application/json schicken".into(),
         ),
         Koerperfehler::Kaputt => (
             StatusCode::BAD_REQUEST,
-            "Der Körper ist kein gültiges JSON — ein JSON-Objekt schicken",
+            "Der Körper ist kein gültiges JSON — ein JSON-Objekt schicken".into(),
         ),
         Koerperfehler::ZuGross => (
             StatusCode::PAYLOAD_TOO_LARGE,
-            "Der Körper ist zu groß — nur Name und Art schicken",
+            format!(
+                "Der Körper ist zu groß — höchstens {BEITRETEN_GRENZE} Bytes, nur Name und Art schicken"
+            ),
         ),
     };
     let text = format!("{grund}, zum Beispiel {BEISPIEL}.");

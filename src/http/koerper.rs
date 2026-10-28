@@ -1,4 +1,5 @@
-//! JSON-Körper lesen (Gate-Stabilität, Befund aus R00003): höchstens `GRENZE` Bytes. Ist der Körper größer,
+//! JSON-Körper lesen (Gate-Stabilität, Befund aus R00003): höchstens so viele Bytes, wie die Route als Grenze
+//! nennt (R00010, ADR-0010: jede JSON-Route nennt ihre Grenze mit Herleitung). Ist der Körper größer,
 //! liest der Server den Rest noch bis `VERWERFEN_HOECHSTENS` bzw. `VERWERFEN_FRIST` und verwirft ihn, bevor
 //! er antwortet — schlösse er mit ungelesenen Bytes, setzte das Betriebssystem die Verbindung zurück, und der
 //! Client sähe einen Abbruch statt der 413. Die Obergrenzen halten Großlast und Tröpfeln aus (ADR-0010).
@@ -10,8 +11,6 @@ use futures_util::StreamExt;
 use serde_json::Value;
 use std::time::Duration;
 
-/// Größter angenommener Körper (wie die Grenze von axum zuvor).
-pub const GRENZE: usize = 2 * 1024 * 1024;
 const VERWERFEN_HOECHSTENS: usize = 16 * 1024 * 1024;
 const VERWERFEN_FRIST: Duration = Duration::from_secs(2);
 
@@ -21,27 +20,31 @@ pub enum Koerperfehler {
     KeinJson,
     /// Kein gültiges JSON oder ein Lesefehler.
     Kaputt,
-    /// Größer als `GRENZE`.
+    /// Größer als die Grenze der Route — erkannt vor jedem Parse.
     ZuGross,
 }
 
-/// Erst den Körper lesen (begrenzt), dann Typ und Inhalt prüfen — so ist er in jedem Fall gelesen, bevor
-/// die Antwort geht.
-pub async fn json_lesen(kopf: &HeaderMap, koerper: Body) -> Result<Value, Koerperfehler> {
-    let bytes = begrenzt_lesen(koerper).await?;
+/// Erst den Körper lesen (höchstens `grenze` Bytes), dann Typ und Inhalt prüfen — so ist er in jedem Fall
+/// gelesen, bevor die Antwort geht, und über der Grenze wird nichts geparst.
+pub async fn json_lesen(
+    kopf: &HeaderMap,
+    koerper: Body,
+    grenze: usize,
+) -> Result<Value, Koerperfehler> {
+    let bytes = begrenzt_lesen(koerper, grenze).await?;
     if !json_angekuendigt(kopf) {
         return Err(Koerperfehler::KeinJson);
     }
     serde_json::from_slice(&bytes).map_err(|_| Koerperfehler::Kaputt)
 }
 
-async fn begrenzt_lesen(koerper: Body) -> Result<Vec<u8>, Koerperfehler> {
+async fn begrenzt_lesen(koerper: Body, grenze: usize) -> Result<Vec<u8>, Koerperfehler> {
     let mut strom = koerper.into_data_stream();
     let mut gelesen = Vec::new();
     while let Some(stueck) = strom.next().await {
         let stueck = stueck.map_err(|_| Koerperfehler::Kaputt)?;
         let gesamt = gelesen.len() + stueck.len();
-        if gesamt > GRENZE {
+        if gesamt > grenze {
             let _ = tokio::time::timeout(VERWERFEN_FRIST, rest_verwerfen(&mut strom, gesamt)).await;
             return Err(Koerperfehler::ZuGross);
         }
@@ -109,16 +112,33 @@ mod tests {
         assert!(!json_angekuendigt(&HeaderMap::new()));
     }
 
+    /// R00010: genau an der Grenze angenommen, ein Byte darüber `ZuGross` — auch ungültiges JSON, denn die
+    /// Grenze greift vor dem Parse. Zwei Grenzen, damit keine feste Zahl im Code den Test besteht.
     #[tokio::test]
-    async fn zu_gross_ab_einem_byte_ueber_der_grenze() {
+    async fn grenze_je_aufruf_als_spanne() {
         let kopf = mit_typ("application/json");
-        let genau = format!("\"{}\"", "x".repeat(GRENZE - 2));
-        let drueber = format!("\"{}\"", "x".repeat(GRENZE - 1));
+        let gueltig = |laenge: usize| format!("{:<laenge$}", "{\"name\":\"spanne\"}");
+        let kaputt = |laenge: usize| format!("{{{}", "x".repeat(laenge - 1));
 
-        assert!(json_lesen(&kopf, Body::from(genau)).await.is_ok());
+        for grenze in [4096, 64] {
+            assert!(
+                json_lesen(&kopf, Body::from(gueltig(grenze)), grenze)
+                    .await
+                    .is_ok(),
+                "{grenze} Bytes an der Grenze {grenze}"
+            );
+            for koerper in [gueltig(grenze + 1), kaputt(grenze + 1)] {
+                assert_eq!(
+                    json_lesen(&kopf, Body::from(koerper), grenze).await,
+                    Err(Koerperfehler::ZuGross),
+                    "{} Bytes an der Grenze {grenze}",
+                    grenze + 1
+                );
+            }
+        }
         assert_eq!(
-            json_lesen(&kopf, Body::from(drueber)).await,
-            Err(Koerperfehler::ZuGross)
+            json_lesen(&kopf, Body::from(kaputt(4096)), 4096).await,
+            Err(Koerperfehler::Kaputt)
         );
     }
 }

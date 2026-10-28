@@ -27,7 +27,7 @@ pub async fn anlegen(
     kopf: HeaderMap,
     koerper: Body,
 ) -> Response {
-    let koerper = match json_lesen(&kopf, koerper).await {
+    let koerper = match json_lesen(&kopf, koerper, CHANNEL_ANLEGEN_GRENZE).await {
         Ok(koerper) => koerper,
         Err(fehler) => return kein_json(fehler),
     };
@@ -183,20 +183,26 @@ fn ablagefehler(grund: &str) -> Response {
         .into_response()
 }
 
+/// Körpergrenze der Anlage (R00010): der größte gültige Körper hat 2 621 Bytes (Name 32 × `\u0061`,
+/// Beschreibung 200 Ersatzpaare je 12 Bytes); mit 30 % Reserve 3 408, auf 4 KiB gerundet.
+const CHANNEL_ANLEGEN_GRENZE: usize = 4096;
+
 /// Wie beim Beitreten: deutsche `{fehler}`-Antwort mit Grund und Ausweg; nach 413 schließt die Verbindung.
 fn kein_json(fehler: Koerperfehler) -> Response {
-    let (status, grund) = match fehler {
+    let (status, grund): (StatusCode, String) = match fehler {
         Koerperfehler::KeinJson => (
             StatusCode::UNSUPPORTED_MEDIA_TYPE,
-            "Der Körper muss JSON sein — mit Content-Type: application/json schicken",
+            "Der Körper muss JSON sein — mit Content-Type: application/json schicken".into(),
         ),
         Koerperfehler::Kaputt => (
             StatusCode::BAD_REQUEST,
-            "Der Körper ist kein gültiges JSON — ein JSON-Objekt schicken",
+            "Der Körper ist kein gültiges JSON — ein JSON-Objekt schicken".into(),
         ),
         Koerperfehler::ZuGross => (
             StatusCode::PAYLOAD_TOO_LARGE,
-            "Der Körper ist zu groß — nur den Namen schicken",
+            format!(
+                "Der Körper ist zu groß — höchstens {CHANNEL_ANLEGEN_GRENZE} Bytes, nur Name und Beschreibung schicken"
+            ),
         ),
     };
     let antwort = (

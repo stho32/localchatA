@@ -472,25 +472,35 @@ async fn beitreten_roh(basis: &str, koerper: &Value) -> (u16, String) {
 }
 
 /// B0071 (Entwicklertest A4): eine ungültige Eingabe kommt nie vollständig zurück — 422 bleibt höchstens
-/// 1 KB groß, ein Vorschlag höchstens 32 Zeichen, gleich wie lang Name oder Art sind.
+/// 1 KB groß, ein Vorschlag höchstens 32 Zeichen, gleich wie lang Name oder Art sind. Seit R00010 ist der
+/// längste Körper 4 096 Bytes (darüber 413, `tests/koerpergrenze.rs`); die Fälle füllen die Grenze aus.
 #[tokio::test]
 async fn b0071_ungueltige_eingaben_jeder_laenge_kommen_nur_gekuerzt_zurueck() {
     let instanz = wegwerf_starten();
-    let lang = |zeichen: &str, anzahl: usize| zeichen.repeat(anzahl);
+    let grenze = 4096;
+    let name = |zeichen: &str| {
+        let rahmen = json!({"name": ""}).to_string().len();
+        json!({"name": zeichen.repeat(grenze - rahmen)})
+    };
+    let art = || {
+        let rahmen = json!({"name": "anna", "art": ""}).to_string().len();
+        json!({"name": "anna", "art": "x".repeat(grenze - rahmen)})
+    };
+    let liste = || {
+        let rahmen = json!({"name": "anna", "art": [1]}).to_string().len();
+        json!({"name": "anna", "art": vec![1; 1 + (grenze - rahmen) / 2]})
+    };
     let faelle = [
-        ("Name 2.000.000 × a", json!({"name": lang("a", 2_000_000)})),
-        ("Name 2.000.000 × _", json!({"name": lang("_", 2_000_000)})),
-        ("Name 2.000.000 × A", json!({"name": lang("A", 2_000_000)})),
-        ("Name 33 × a", json!({"name": lang("a", 33)})),
-        (
-            "Art 1.000.000 × x",
-            json!({"name": "anna", "art": lang("x", 1_000_000)}),
-        ),
-        (
-            "Art als lange Liste",
-            json!({"name": "anna", "art": vec![1; 200_000]}),
-        ),
+        ("Name 4.085 × a", name("a")),
+        ("Name 4.085 × _", name("_")),
+        ("Name 4.085 × A", name("A")),
+        ("Name 33 × a", json!({"name": "a".repeat(33)})),
+        ("Art 4.072 × x", art()),
+        ("Art als lange Liste", liste()),
     ];
+    for (fall, koerper) in &faelle {
+        assert!(koerper.to_string().len() <= grenze, "{fall}");
+    }
 
     for (fall, koerper) in faelle {
         let (status, text) = beitreten_roh(&instanz.adresse, &koerper).await;
