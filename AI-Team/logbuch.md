@@ -89,3 +89,4 @@ Eine Zeile je Auftrag an eine Rolle und je Retrospektive.
 | 2026-10-28 | #6 I0007 | Retrospektive | director | — | — | etwa 3 h, eine Nacharbeit (Muss aus Security und UX), parallel zum Vorlauf von #7/#12. Puffer hat getragen: der Engpass wartete nach der Nacharbeit nicht. Neu: zweiter Vorfall „Scratchpad geleert“ (Vorschlag); Befunde aus älteren Karten als eigene Befundkarten statt Nacharbeit |
 | 2026-10-28 | #20, #21 | Detailplanung | planer | bestanden | 0:30 | R00009 (Kopfzeile 320 px), R00010 (Körpergrenze 4 KiB), F0039/F0040 (aus vorlauf/20 übernommen); kommen mit Vorrang nach #7 |
 | 2026-10-28 | #8 I0009 | Architektur | architekt | bestanden | 0:55 | ADR-0034–0038, ADR-0010-Ergänzung, A00014 Schreibkonto; Berichtigung ADR-0028 R8 (aus vorlauf/8 übernommen) |
+| 2026-10-28 | #8 I0009 | Detailplanung | planer | bestanden | 0:40 | R00011 (31 Bubbles); geteilt: I0020 mit R00012 als neue Karte, fertig geplant im Puffer |
