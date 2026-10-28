@@ -9,6 +9,7 @@ Gewohnte Konventionen (Slack/Discord, Browser), auf macOS `Strg` = `⌘`. Kürze
 | `Alt ↑` / `Alt ↓` | vorheriger / nächster Channel bzw. DM in der Seitenleiste | überall |
 | `Alt Shift ↑` / `Alt Shift ↓` | vorheriger / nächster Eintrag **mit Ungelesenem** | überall |
 | `Strg Alt N` | Channel anlegen (4.3) | überall |
+| `Enter` auf `# name` | Channel-Einstellungen (Aufbewahrungsfrist) öffnen — kein eigenes Kürzel (ADR-0033) | Kopfzeile |
 | `Strg Shift M` | Übersicht „Wo wurde ich erwähnt?“ (4.6) | überall |
 | `Strg .` | Teilnehmerliste ein-/ausblenden (4.4) | überall |
 | `Esc` | Overlay/Dialog schließen; im Verlauf: zurück in die Eingabe; zweimal: Channel als gelesen markieren | überall |

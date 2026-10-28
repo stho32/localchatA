@@ -8,4 +8,6 @@ Die dunkle 40-px-Leiste aus kanbanD mit drei Zonen: Ort · Navigation · Bedienu
 - Fokus in der Kopfzeile: `lc-focus-header`, nie `kd-focus` (zu wenig Kontrast auf dem dunklen Grund im hellen Modus).
 - Schmales Fenster (< 720 px): Beschreibung entfällt, Suchfeld schrumpft auf das Symbol ⌕, die eigene Kennung bleibt sichtbar.
 
-Der Verbraucher liefert: Instanzname, aktuellen Channel oder DM-Partner, eigene Kennung, Zahl der Teilnehmer.
+- **Channel-Einstellungen** (Ergänzung 2026-10-28, ADR-0033): `# name` ist ein Schalter `# name ▾` (`▾` in `kd-header-muted`, Hover `kd-header-surface`, Fokus `lc-focus-header`), der den Dialog [ChannelEinstellungen](../ChannelEinstellungen/README.md) öffnet. Ab 720 px folgt `· 7 Tage` (Aufbewahrungsfrist, `lc-small`, `kd-header-muted`, Singular „1 Tag“) **vor** der Beschreibung, damit die Ellipse nur die Beschreibung kürzt; bei defekter Einstellungsdatei `· ⚠ Frist gesperrt`. Unter 720 px entfallen Frist-Text und Beschreibung gemeinsam, der Schalter bleibt.
+
+Der Verbraucher liefert: Instanzname, aktuellen Channel oder DM-Partner (mit Frist), eigene Kennung, Zahl der Teilnehmer.
