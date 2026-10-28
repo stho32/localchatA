@@ -196,3 +196,4 @@ Nie vom User erfragen.
 | 2026-10-28 | R00010 JSON-Körper-Flut | B0204 Körpergrenze je Route | Standard | 0,4h | 0,15h | 0,15h | autonom |
 | 2026-10-28 | R00010 JSON-Körper-Flut | B0205 Flut im Release-Build messen | Standard | 2-4h | 0,25h | 0,25h | autonom |
 | 2026-10-28 | R00010 JSON-Körper-Flut | Mutationsprobe, Gate, Abschluss | Konsolidierung | — | 0,15h | 0,15h | autonom |
+| 2026-10-28 | R00007 Channel wechseln und Verlauf lesen | Nacharbeit 2: „1 Zeile“ im Singular | Nacharbeit | — | 0,3h | 0,3h | autonom |
