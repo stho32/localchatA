@@ -6,11 +6,11 @@ mod gemeinsam;
 
 use gemeinsam::Absender;
 use gemeinsam::frist::{
-    MITTAG, beitreten, channel_in_liste, datei_anlegen, nachrichten, starten_um, tag_anlegen,
-    tag_da,
+    MITTAG, beitreten, channel_in_liste, datei_anlegen, frist_setzen, nachrichten, starten_um,
+    tag_anlegen, tag_da,
 };
 use gemeinsam::protokoll::{mit, zeilen};
-use serde_json::Value;
+use serde_json::{Value, json};
 use std::fs;
 
 const HEUTE: &str = "2026-10-28";
@@ -101,4 +101,139 @@ async fn us11_kaputte_einstellungen_sperren_das_loeschen_und_melden_sich_in_date
         .collect();
     assert_eq!(frist_zeilen(&stderr), erwartet, "{stderr:#?}");
     assert_eq!(mit(&stderr, "WARNING", "laden").len(), 2, "{stderr:#?}");
+}
+
+/// `allgemein` mit `frist_tage = 30` und 20.(2), 21.(3), 22.(1), 28.(1) (R00008 F0034).
+fn verkuerzbar(ordner: &std::path::Path) {
+    datei_anlegen(
+        ordner,
+        "channels/allgemein/einstellungen.toml",
+        b"farbe = \"blau\"\nfrist_tage = 30\n",
+    );
+    for (tag, anzahl) in [
+        ("2026-10-20", 2),
+        ("2026-10-21", 3),
+        ("2026-10-22", 1),
+        ("2026-10-28", 1),
+    ] {
+        tag_anlegen(ordner, "allgemein", tag, anzahl);
+    }
+}
+
+fn alle_vier_da(ordner: &std::path::Path) -> bool {
+    ["2026-10-20", "2026-10-21", "2026-10-22", "2026-10-28"]
+        .iter()
+        .all(|tag| tag_da(ordner, "allgemein", tag))
+}
+
+/// US-8 und US-10, Kriterien „Verkürzen braucht Bestätigung“, „Grenze der Vorschau“, „`bestaetigt` als
+/// Wahrheitswert“ (R00008) und „Bestätigt verkürzen“, erster Teil (R00017: eine 409 schreibt nichts).
+#[tokio::test]
+async fn us8_us10_verkuerzen_fragt_mit_zahlen_zurueck_und_aendert_nichts() {
+    let wurzel = tempfile::tempdir().expect("Wegwerf-Ordner");
+    verkuerzbar(wurzel.path());
+    let vorher =
+        fs::read(wurzel.path().join("channels/allgemein/einstellungen.toml")).expect("Datei");
+    let instanz = starten_um(wurzel.path(), MITTAG);
+    assert_eq!(nachrichten(&instanz).await, 7);
+    let eins = Absender::von("127.0.0.1");
+    let beta = beitreten(&eins, &instanz, "beta").await;
+
+    for koerper in [
+        json!({ "tage": 7 }),
+        json!({ "tage": 7, "bestaetigt": false }),
+    ] {
+        let rueckfrage = frist_setzen(&eins, &instanz, &beta, "allgemein", koerper.clone()).await;
+        assert_eq!(rueckfrage.status, 409, "{koerper} → {}", rueckfrage.json);
+        assert_eq!(rueckfrage.json["regel"], "bestaetigen");
+        assert_eq!(
+            rueckfrage.json["entfaellt"],
+            json!({ "tage": 2, "nachrichten": 5, "bis": "2026-10-21" })
+        );
+        assert!(rueckfrage.json["fehler"].is_string());
+    }
+    let grenze = frist_setzen(&eins, &instanz, &beta, "allgemein", json!({ "tage": 8 })).await;
+    assert_eq!(grenze.status, 409, "{}", grenze.json);
+    assert_eq!(
+        grenze.json["entfaellt"],
+        json!({ "tage": 1, "nachrichten": 2, "bis": "2026-10-20" })
+    );
+    for bestaetigt in [json!("ja"), json!(1), Value::Null] {
+        let abgewiesen = frist_setzen(
+            &eins,
+            &instanz,
+            &beta,
+            "allgemein",
+            json!({ "tage": 7, "bestaetigt": bestaetigt }),
+        )
+        .await;
+        assert_eq!(abgewiesen.status, 422, "{bestaetigt} → {}", abgewiesen.json);
+        assert_eq!(abgewiesen.json["regel"], "bestaetigt");
+    }
+
+    assert!(alle_vier_da(wurzel.path()));
+    assert_eq!(nachrichten(&instanz).await, 7);
+    let (channel, _) = channel_in_liste(&eins, &instanz, &beta, "allgemein").await;
+    assert_eq!(channel["frist_tage"], 30);
+    assert_eq!(
+        fs::read(wurzel.path().join("channels/allgemein/einstellungen.toml")).expect("Datei"),
+        vorher
+    );
+    assert!(frist_zeilen(&zeilen(wurzel.path(), HEUTE)).is_empty());
+}
+
+/// US-9, Kriterien „Bestätigt verkürzen“ und „Verlängern und Verkürzen ohne Entfallen“ (R00008) und „Bestätigt
+/// verkürzen“ (R00017: gesetzt, dann entfallen, mit Kennung; stderr schweigt).
+#[tokio::test]
+async fn us9_bestaetigt_verkuerzen_loescht_sofort_und_steht_mit_kennung_im_protokoll() {
+    let wurzel = tempfile::tempdir().expect("Wegwerf-Ordner");
+    verkuerzbar(wurzel.path());
+    let mut instanz = starten_um(wurzel.path(), MITTAG);
+    let eins = Absender::von("127.0.0.1");
+    let beta = beitreten(&eins, &instanz, "beta").await;
+
+    let verkuerzt = frist_setzen(
+        &eins,
+        &instanz,
+        &beta,
+        "allgemein",
+        json!({ "tage": 7, "bestaetigt": true }),
+    )
+    .await;
+
+    assert_eq!(verkuerzt.status, 200, "{}", verkuerzt.json);
+    assert_eq!(verkuerzt.json["channel"]["frist_tage"], 7);
+    assert_eq!(
+        verkuerzt.json["entfallen"],
+        json!({ "tage": 2, "nachrichten": 5 })
+    );
+    assert!(!tag_da(wurzel.path(), "allgemein", "2026-10-20"));
+    assert!(!tag_da(wurzel.path(), "allgemein", "2026-10-21"));
+    assert!(tag_da(wurzel.path(), "allgemein", "2026-10-22"));
+    assert!(tag_da(wurzel.path(), "allgemein", "2026-10-28"));
+    assert_eq!(nachrichten(&instanz).await, 2);
+    assert_eq!(
+        frist_zeilen(&zeilen(wurzel.path(), HEUTE)),
+        vec![
+            "INFORMATION frist Frist 30 → 7 Tage gesetzt | channel=allgemein kennung=beta@127.0.0.1",
+            "INFORMATION frist 2 Tage entfallen (2026-10-20 bis 2026-10-21; Frist 7 Tage) | channel=allgemein anzahl=2 grund=frist_gesetzt kennung=beta@127.0.0.1",
+        ]
+    );
+
+    let verlaengert =
+        frist_setzen(&eins, &instanz, &beta, "allgemein", json!({ "tage": 30 })).await;
+    let ohne_entfallen =
+        frist_setzen(&eins, &instanz, &beta, "allgemein", json!({ "tage": 10 })).await;
+
+    assert_eq!(verlaengert.status, 200, "{}", verlaengert.json);
+    assert_eq!(
+        verlaengert.json["entfallen"],
+        json!({ "tage": 0, "nachrichten": 0 })
+    );
+    assert_eq!(ohne_entfallen.status, 200, "{}", ohne_entfallen.json);
+    assert!(!tag_da(wurzel.path(), "allgemein", "2026-10-20"));
+    assert_eq!(nachrichten(&instanz).await, 2);
+    instanz.signal_und_warten("TERM");
+    let stderr = instanz.stderr_bis_zum_ende();
+    assert!(!stderr.contains(" frist "), "{stderr}");
 }

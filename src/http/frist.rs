@@ -9,7 +9,11 @@ use super::anfrageprotokoll::Eingetragen;
 use super::channels::channel_als_json;
 use super::koerper::{Koerperfehler, Koerperort, ZU_LANGSAM, json_lesen};
 use super::teilnehmer::Teilnehmer;
-use crate::gespraeche::{FristGesetzt, Fristfehler, Gespraeche, frist_in_spanne};
+use crate::gespraeche::fristeintrag::{frist_gesetzt_eintrag, pflege_eintrag};
+use crate::gespraeche::{
+    Entfaellt, Frist, FristGesetzt, Fristfehler, Gespraeche, Kennung, frist_in_spanne,
+};
+use crate::protokoll::{Eintrag, Protokoll};
 use axum::Json;
 use axum::body::Body;
 use axum::extract::{Path, State};
@@ -25,6 +29,8 @@ const BEISPIEL: &str = r#"{"tage":30}"#;
 /// 33 Bytes; mit Raum für Leerraum und Einrückung auf 1 KiB.
 const FRIST_GRENZE: usize = 1024;
 const REGEL_FRIST: &str = "frist";
+const REGEL_BESTAETIGT: &str = "bestaetigt";
+const REGEL_BESTAETIGEN: &str = "bestaetigen";
 const REGEL_EINSTELLUNGEN_DEFEKT: &str = "einstellungen-defekt";
 
 pub async fn setzen(
@@ -46,11 +52,16 @@ pub async fn setzen(
     };
     let gespraeche = Arc::clone(&zustand.gespraeche);
     let gewuenscht = name.clone();
-    let ergebnis =
-        tokio::task::spawn_blocking(move || pruefen_und_setzen(&gespraeche, &gewuenscht, &koerper))
-            .await;
+    let kennung = teilnehmer.kennung.clone();
+    let ergebnis = tokio::task::spawn_blocking(move || {
+        pruefen_und_setzen(&gespraeche, &gewuenscht, &koerper, &kennung)
+    })
+    .await;
     match ergebnis {
-        Ok(Ok(gesetzt)) => gesetzt_beantworten(&gesetzt),
+        Ok(Ok(gesetzt)) => {
+            gesetzt_eintragen(&zustand.protokoll, &gesetzt, &teilnehmer.kennung);
+            gesetzt_beantworten(&gesetzt)
+        }
         Ok(Err(abweisung)) => abweisung.beantworten(&name),
         Err(abgebrochen) => abbruch_beantworten(
             &zustand.protokoll,
@@ -73,19 +84,50 @@ enum Abweisung {
     Frist(Fristfehler),
 }
 
-/// Channel vor Wert vor Defekt (ADR-0031 Regel 2.2–2.4).
+/// Channel vor Wert vor Defekt (ADR-0031 Regel 2.2–2.4); `bestaetigt` fehlt = `false`, sonst ein Wahrheitswert.
 fn pruefen_und_setzen(
     gespraeche: &Gespraeche,
     name: &str,
     koerper: &Value,
+    von: &Kennung,
 ) -> Result<FristGesetzt, Abweisung> {
     if !gespraeche.channel_bekannt(name) {
         return Err(Abweisung::Unbekannt);
     }
     let tage = frist_bilden(koerper.get("tage")).map_err(|_| Abweisung::Regel(REGEL_FRIST))?;
+    let bestaetigt = match koerper.get("bestaetigt") {
+        None => false,
+        Some(wert) => wert.as_bool().ok_or(Abweisung::Regel(REGEL_BESTAETIGT))?,
+    };
     gespraeche
-        .frist_setzen(name, tage)
+        .frist_setzen(name, tage, bestaetigt, von)
         .map_err(Abweisung::Frist)
+}
+
+/// Eine wirksame Änderung, dann was die Pflege tat — derselbe Wert schreibt nichts (R00017).
+fn gesetzt_eintragen(protokoll: &Protokoll, gesetzt: &FristGesetzt, von: &Kennung) {
+    let Some(alt) = gesetzt.geaendert_von else {
+        return;
+    };
+    let Frist::Tage(neu) = gesetzt.channel.frist else {
+        return;
+    };
+    eintragen(
+        protokoll,
+        frist_gesetzt_eintrag(gesetzt.channel.name.als_text(), alt, neu, von),
+    );
+    for bericht in &gesetzt.berichte {
+        eintragen(protokoll, pflege_eintrag(bericht));
+    }
+}
+
+fn eintragen(protokoll: &Protokoll, eintrag: Eintrag) {
+    protokoll.eintragen(
+        eintrag.stufe,
+        eintrag.bereich,
+        eintrag.text,
+        eintrag.kontext,
+    );
 }
 
 impl Abweisung {
@@ -96,6 +138,14 @@ impl Abweisung {
                 Json(json!({ "fehler": format!("# {name} gibt es nicht.") })),
             )
                 .into_response(),
+            Abweisung::Regel(REGEL_BESTAETIGT) => (
+                StatusCode::UNPROCESSABLE_ENTITY,
+                Json(json!({
+                    "fehler": "„bestaetigt“ ist true oder false, zum Beispiel {\"tage\":7,\"bestaetigt\":true}.",
+                    "regel": REGEL_BESTAETIGT,
+                })),
+            )
+                .into_response(),
             Abweisung::Regel(regel) => (
                 StatusCode::UNPROCESSABLE_ENTITY,
                 Json(json!({
@@ -104,6 +154,7 @@ impl Abweisung {
                 })),
             )
                 .into_response(),
+            Abweisung::Frist(Fristfehler::Bestaetigen(entfaellt)) => bestaetigen(&entfaellt),
             Abweisung::Frist(Fristfehler::EinstellungenDefekt { datei }) => (
                 StatusCode::CONFLICT,
                 Json(json!({
@@ -125,11 +176,32 @@ impl Abweisung {
 }
 
 fn gesetzt_beantworten(gesetzt: &FristGesetzt) -> Response {
+    let (tage, nachrichten) = gesetzt.entfallen();
     Json(json!({
         "channel": channel_als_json(&gesetzt.channel),
-        "entfallen": { "tage": 0, "nachrichten": 0 },
+        "entfallen": { "tage": tage, "nachrichten": nachrichten },
     }))
     .into_response()
+}
+
+/// 409 mit dem, was entfiele (ADR-0031 Regel 2.6) — die Oberfläche fragt mit diesen Zahlen zurück.
+fn bestaetigen(entfaellt: &Entfaellt) -> Response {
+    (
+        StatusCode::CONFLICT,
+        Json(json!({
+            "fehler": format!(
+                "Mit dieser Frist entfallen sofort {} Tagesdateien mit {} Nachrichten bis {} — mit \"bestaetigt\":true erneut senden.",
+                entfaellt.tage, entfaellt.nachrichten, entfaellt.bis
+            ),
+            "regel": REGEL_BESTAETIGEN,
+            "entfaellt": {
+                "tage": entfaellt.tage,
+                "nachrichten": entfaellt.nachrichten,
+                "bis": entfaellt.bis.format("%Y-%m-%d").to_string(),
+            },
+        })),
+    )
+        .into_response()
 }
 
 /// Wie beim Anlegen: deutsche `{fehler}`-Antwort mit Grund und Beispiel; nach 413 und 408 schließt die Verbindung.

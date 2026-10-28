@@ -150,12 +150,34 @@ impl Gespraeche {
     }
 }
 
-/// Eine gesetzte Frist: der Channel danach und, wenn sie sich geändert hat, die Frist davor.
+/// Eine gesetzte Frist: der Channel danach, wenn sie sich geändert hat, die Frist davor, und was die Pflege danach
+/// tat (ADR-0031 Regel 2.8).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FristGesetzt {
     pub channel: Channel,
     /// Die Frist davor; `None` heißt: derselbe Wert, nichts geschrieben.
     pub geaendert_von: Option<u32>,
+    pub berichte: Vec<Pflegebericht>,
+}
+
+impl FristGesetzt {
+    /// Die tatsächlich entfallenen Tagesdateien und ihre Nachrichten im Index.
+    pub fn entfallen(&self) -> (usize, usize) {
+        self.berichte
+            .iter()
+            .filter_map(|bericht| match bericht {
+                Pflegebericht::Entfallen {
+                    tage, nachrichten, ..
+                } => Some((tage.len(), *nachrichten)),
+                Pflegebericht::NichtEntfallen { .. } | Pflegebericht::Gesperrt { .. } => None,
+            })
+            .fold(
+                (0, 0),
+                |(tage, nachrichten), (dazu_tage, dazu_nachrichten)| {
+                    (tage + dazu_tage, nachrichten + dazu_nachrichten)
+                },
+            )
+    }
 }
 
 /// Warum eine Frist nicht gesetzt wurde; nichts hat sich geändert.
@@ -165,20 +187,61 @@ pub enum Fristfehler {
     Unbekannt,
     /// Die Einstellungsdatei war beim Start defekt oder nicht lesbar; sie wird nie überschrieben.
     EinstellungenDefekt { datei: String },
+    /// Mit der neuen Frist entfielen Tage, und es war nicht bestätigt — nichts geändert (ADR-0031 Regel 2.6).
+    Bestaetigen(Entfaellt),
     /// Die Einstellungen ließen sich nicht schreiben (ADR-0031 Regel 2.7).
     Ablage { datei: String, grund: String },
 }
 
 impl Gespraeche {
-    /// Setzt die Frist des Channels `name` unter der Sperre des Verzeichnisses: unbekannt → defekt → derselbe Wert
-    /// (nichts geschrieben) → `einstellungen.toml` geschrieben (übrige Schlüssel aus den gelesenen Bytes) → Frist im
-    /// Channel gesetzt.
-    pub fn frist_setzen(&self, name: &str, tage: u32) -> Result<FristGesetzt, Fristfehler> {
+    /// Setzt die Frist des Channels `name` (ADR-0031 Regel 2): unbekannt → eintragen unter der Sperre des
+    /// Verzeichnisses → bei einer wirksamen Änderung sofort pflegen mit dem Anlass „Frist gesetzt von <von>“.
+    /// Meldungen schreibt der Aufrufer (R00017).
+    pub fn frist_setzen(
+        &self,
+        name: &str,
+        tage: u32,
+        bestaetigt: bool,
+        von: &Kennung,
+    ) -> Result<FristGesetzt, Fristfehler> {
         let name = Channelname::bilden(name).map_err(|_| Fristfehler::Unbekannt)?;
+        let heute = self.uhr.jetzt().date_naive();
+        let (channel, vorher) = self.frist_eintragen(&name, tage, bestaetigt, heute)?;
+        let berichte = match vorher {
+            Some(_) => self.channel_pflegen(
+                &name,
+                heute,
+                &Pflegeanlass::FristGesetzt { von: von.clone() },
+            ),
+            None => Vec::new(),
+        };
+        Ok(FristGesetzt {
+            channel,
+            geaendert_von: vorher,
+            berichte,
+        })
+    }
+
+    /// Unter der Schreibsperre des Verzeichnisses (ADR-0031 Regeln 2.4–2.7): defekt → derselbe Wert (nichts
+    /// geschrieben, `None`) → Vorschau, ohne Bestätigung abgewiesen → Datei schreiben → Frist setzen. Gepflegt wird
+    /// danach ohne diese Sperre (Regel 2.8).
+    fn frist_eintragen(
+        &self,
+        name: &Channelname,
+        tage: u32,
+        bestaetigt: bool,
+        heute: NaiveDate,
+    ) -> Result<(Channel, Option<u32>), Fristfehler> {
         let mut verzeichnis = schreibend(&self.verzeichnis);
+        let gespraech = Gespraech::channel(name.als_text());
+        let verlauf = verzeichnis
+            .verlaeufe
+            .get(&gespraech)
+            .cloned()
+            .ok_or(Fristfehler::Unbekannt)?;
         let channel = verzeichnis
             .channels
-            .get_mut(&name)
+            .get_mut(name)
             .ok_or(Fristfehler::Unbekannt)?;
         let vorher = match &channel.frist {
             Frist::Gesperrt { datei, .. } => {
@@ -189,17 +252,23 @@ impl Gespraeche {
             Frist::Tage(vorher) => *vorher,
         };
         if vorher == tage {
-            return Ok(FristGesetzt {
-                channel: channel.clone(),
-                geaendert_von: None,
-            });
+            return Ok((channel.clone(), None));
+        }
+        if !bestaetigt {
+            let auf_der_platte =
+                self.ablage
+                    .tage(&gespraech)
+                    .map_err(|fehler| Fristfehler::Ablage {
+                        datei: gespraech.pfad(),
+                        grund: fehler.to_string(),
+                    })?;
+            if let Some(entfaellt) = vorschau(&auf_der_platte, &sperren(&verlauf), heute, tage) {
+                return Err(Fristfehler::Bestaetigen(entfaellt));
+            }
         }
         self.einstellungen_ablegen(channel, tage)?;
         channel.frist = Frist::Tage(tage);
-        Ok(FristGesetzt {
-            channel: channel.clone(),
-            geaendert_von: Some(vorher),
-        })
+        Ok((channel.clone(), Some(vorher)))
     }
 
     /// Schreibt `einstellungen.toml` mit der neuen Frist; die bekannten Schlüssel aus dem Channel, die übrigen aus
@@ -255,7 +324,9 @@ mod tests {
         ablage.einstellungen_setzen(&Gespraech::channel("allgemein"), ALLGEMEIN);
         let gespraeche = geladen(&ablage);
 
-        let gesetzt = gespraeche.frist_setzen("allgemein", 30).expect("gesetzt");
+        let gesetzt = gespraeche
+            .frist_setzen("allgemein", 30, false, &beta())
+            .expect("gesetzt");
 
         assert_eq!(gesetzt.geaendert_von, Some(7));
         assert_eq!(gesetzt.channel.frist, Frist::Tage(30));
@@ -276,7 +347,9 @@ mod tests {
         ablage.einstellungen_setzen(&Gespraech::channel("allgemein"), b"frist_tage = 30\n");
         let gespraeche = geladen(&ablage);
 
-        let gesetzt = gespraeche.frist_setzen("allgemein", 30).expect("gesetzt");
+        let gesetzt = gespraeche
+            .frist_setzen("allgemein", 30, false, &beta())
+            .expect("gesetzt");
 
         assert_eq!(gesetzt.geaendert_von, None);
         assert_eq!(gesetzt.channel.frist, Frist::Tage(30));
@@ -289,7 +362,9 @@ mod tests {
         ablage.gespraech_anlegen(&Gespraech::channel("leer"));
         let gespraeche = geladen(&ablage);
 
-        let gesetzt = gespraeche.frist_setzen("leer", 30).expect("gesetzt");
+        let gesetzt = gespraeche
+            .frist_setzen("leer", 30, false, &beta())
+            .expect("gesetzt");
 
         assert_eq!(gesetzt.geaendert_von, Some(7));
         assert_eq!(
@@ -307,13 +382,13 @@ mod tests {
 
         for name in ["fehlt", "Allgemein", "../allgemein", ""] {
             assert_eq!(
-                gespraeche.frist_setzen(name, 30),
+                gespraeche.frist_setzen(name, 30, false, &beta()),
                 Err(Fristfehler::Unbekannt),
                 "{name}"
             );
         }
         assert_eq!(
-            gespraeche.frist_setzen("kaputt", 30),
+            gespraeche.frist_setzen("kaputt", 30, false, &beta()),
             Err(Fristfehler::EinstellungenDefekt {
                 datei: "channels/kaputt/einstellungen.toml".into()
             })
@@ -482,5 +557,97 @@ mod tests {
         );
         assert_eq!(vorschau(&tage, &verlauf, heute, 9), None);
         assert_eq!(vorschau(&tage, &verlauf, heute, 30), None);
+    }
+
+    fn beta() -> Kennung {
+        Kennung::bilden("beta@127.0.0.1").expect("Kennung")
+    }
+
+    /// `allgemein` mit Frist 30 und 20.(2), 21.(3), 22.(1), 28.(1) — alle im Index (R00008 F0034).
+    fn verkuerzbar() -> (Gespraeche, Arc<Speicherablage>, Gespraech) {
+        let ablage = Arc::new(Speicherablage::neu());
+        let gespraech = Gespraech::channel("allgemein");
+        ablage.einstellungen_setzen(&gespraech, b"frist_tage = 30\n");
+        for (tag_text, anzahl) in [
+            ("2026-10-20", 2),
+            ("2026-10-21", 3),
+            ("2026-10-22", 1),
+            ("2026-10-28", 1),
+        ] {
+            ablage.tag_setzen(&gespraech, tag(tag_text), &satz(tag_text).repeat(anzahl));
+        }
+        let gespraeche = geladen(&ablage);
+        assert_eq!(gespraeche.kennzahlen().nachrichten, 7);
+        (gespraeche, ablage, gespraech)
+    }
+
+    #[test]
+    fn verkuerzen_ohne_bestaetigung_nennt_was_entfiele_und_aendert_nichts() {
+        let (gespraeche, ablage, gespraech) = verkuerzbar();
+
+        let ergebnis = gespraeche.frist_setzen("allgemein", 7, false, &beta());
+
+        assert_eq!(
+            ergebnis,
+            Err(Fristfehler::Bestaetigen(Entfaellt {
+                tage: 2,
+                nachrichten: 5,
+                bis: tag("2026-10-21"),
+            }))
+        );
+        assert_eq!(ablage.schreibvorgaenge(), 0);
+        assert_eq!(gespraeche.channels().liste[0].frist, Frist::Tage(30));
+        assert_eq!(
+            crate::gespraeche::Logablage::tage(ablage.as_ref(), &gespraech)
+                .expect("Tage")
+                .len(),
+            4
+        );
+        assert_eq!(gespraeche.kennzahlen().nachrichten, 7);
+    }
+
+    #[test]
+    fn bestaetigt_verkuerzen_setzt_und_pflegt_sofort_mit_der_kennung() {
+        let (gespraeche, ablage, gespraech) = verkuerzbar();
+
+        let gesetzt = gespraeche
+            .frist_setzen("allgemein", 7, true, &beta())
+            .expect("gesetzt");
+
+        assert_eq!(gesetzt.channel.frist, Frist::Tage(7));
+        assert_eq!(gesetzt.geaendert_von, Some(30));
+        assert_eq!(
+            gesetzt.berichte,
+            vec![Pflegebericht::Entfallen {
+                channel: allgemein(),
+                tage: vec![tag("2026-10-20"), tag("2026-10-21")],
+                nachrichten: 5,
+                frist: 7,
+                anlass: Pflegeanlass::FristGesetzt { von: beta() },
+            }]
+        );
+        assert_eq!(gesetzt.entfallen(), (2, 5));
+        assert_eq!(
+            crate::gespraeche::Logablage::tage(ablage.as_ref(), &gespraech).expect("Tage"),
+            vec![tag("2026-10-22"), tag("2026-10-28")]
+        );
+        assert_eq!(gespraeche.kennzahlen().nachrichten, 2);
+    }
+
+    #[test]
+    fn verlaengern_und_verkuerzen_ohne_entfallen_brauchen_keine_bestaetigung() {
+        let (gespraeche, _, _) = verkuerzbar();
+
+        let verkuerzt = gespraeche
+            .frist_setzen("allgemein", 9, false, &beta())
+            .expect("nichts entfällt");
+        let verlaengert = gespraeche
+            .frist_setzen("allgemein", 3650, false, &beta())
+            .expect("verlängert");
+
+        assert_eq!(verkuerzt.entfallen(), (0, 0));
+        assert!(verkuerzt.berichte.is_empty());
+        assert_eq!(verlaengert.channel.frist, Frist::Tage(3650));
+        assert_eq!(gespraeche.kennzahlen().nachrichten, 7);
     }
 }
