@@ -269,3 +269,159 @@ async fn us15_der_eigene_strom_liefert_weg_und_endet() {
         .collect();
     assert_eq!(bei_beta, ["online", "weg"], "nichts nach weg");
 }
+
+/// Gnadenfrist der Proben zur Nacharbeit 1 — klein, aber deutlich länger als 200 Zyklen dauern.
+const KURZE_GNADENFRIST: Duration = Duration::from_secs(10);
+
+/// Was eine Schleife aus `beitreten("f<i>")` → bei 201 sofort `verlassen` ergab.
+#[derive(Debug, Default)]
+struct Zyklen {
+    erfolge: usize,
+    abgewiesen: usize,
+    anderes: Vec<String>,
+}
+
+/// `anzahl` Zyklen über `verbindungen` parallele Clients von den Absendern `absender` (reihum), so schnell wie
+/// möglich; jeder Client hält seine Keep-alive-Verbindung.
+async fn zyklen(port: u16, absender: &[&str], verbindungen: usize, anzahl: usize) -> Zyklen {
+    let mut aufgaben = tokio::task::JoinSet::new();
+    for nummer in 0..verbindungen {
+        let von = absender[nummer % absender.len()].to_string();
+        let basis = basis_fuer(&von, port);
+        let eigene: Vec<usize> = (0..anzahl).filter(|i| i % verbindungen == nummer).collect();
+        aufgaben.spawn(async move {
+            let client = Absender::von(&von);
+            let mut ergebnis = Zyklen::default();
+            for i in eigene {
+                let antwort = client
+                    .beitreten(&basis, json!({ "name": format!("f{i}") }), None)
+                    .await;
+                match antwort.status {
+                    201 => {
+                        ergebnis.erfolge += 1;
+                        let token = antwort.json["token"].as_str().expect("Token").to_string();
+                        let verlassen = gemeinsam::api_antwort(
+                            client
+                                .anfrage(reqwest::Method::POST, format!("{basis}api/verlassen"))
+                                .header("X-LocalchatA-Sitzung", token),
+                        )
+                        .await;
+                        assert_eq!(verlassen.status, 204);
+                    }
+                    429 if antwort.json["fehler"].is_string() => ergebnis.abgewiesen += 1,
+                    _ => ergebnis
+                        .anderes
+                        .push(format!("{} {}", antwort.status, antwort.json)),
+                }
+            }
+            ergebnis
+        });
+    }
+    let mut gesamt = Zyklen::default();
+    while let Some(teil) = aufgaben.join_next().await {
+        let teil = teil.expect("Aufgabe");
+        gesamt.erfolge += teil.erfolge;
+        gesamt.abgewiesen += teil.abgewiesen;
+        gesamt.anderes.extend(teil.anderes);
+    }
+    gesamt
+}
+
+/// Die Adresse der Instanz in der Familie des Absenders: IPv4 an 127.0.0.1, die gemappte Form an
+/// `::ffff:127.0.0.1` (die Instanz lauscht dafür auf `::`).
+fn basis_fuer(absender: &str, port: u16) -> String {
+    if absender.contains(':') {
+        return format!("http://[::ffff:127.0.0.1]:{port}/");
+    }
+    format!("http://127.0.0.1:{port}/")
+}
+
+/// Abnahme-Probe Nacharbeit 1 (Security, CWE-770, ADR-0018 Regel 2a): `beta` (127.0.0.3) liest den Strom; von
+/// `absender` laufen 200 Zyklen `beitreten` → `verlassen` über `verbindungen` Verbindungen → innerhalb der
+/// Gnadenfrist höchstens 64 × 201, der Rest 429 mit `{fehler}`; `beta` liest höchstens 2 × 64 Wechsel mit
+/// Herkunft 127.0.0.2. Kontrollpaar danach: 127.0.0.4 tritt mit 201 bei; `alpha` von 127.0.0.5 → verlassen →
+/// `alpha` von 127.0.0.6 sofort 201.
+async fn schleife_ist_begrenzt(host: &str, absender: &[&str], verbindungen: usize) {
+    let wurzel = tempfile::tempdir().expect("Wegwerf-Ordner");
+    let frist = KURZE_GNADENFRIST.as_millis().to_string();
+    let instanz = gemeinsam::starten_mit(
+        wurzel.path(),
+        &["--port", "0", "--host", host, "--kein-browser"],
+        &[("LOCALCHATA_GNADENFRIST_MS", &frist)],
+    );
+    let basis = basis_fuer("127.0.0.3", instanz.port());
+    let drei = Absender::von("127.0.0.3");
+    let beta = drei
+        .beitreten(&basis, json!({ "name": "beta" }), None)
+        .await
+        .json["token"]
+        .as_str()
+        .expect("Token")
+        .to_string();
+    let mut strom_beta = Strom::oeffnen(&drei, &basis, &beta).await;
+
+    let anfang = Instant::now();
+    let ergebnis = zyklen(instanz.port(), absender, verbindungen, 200).await;
+    let dauer = anfang.elapsed();
+    let kontrolle = Absender::von("127.0.0.4")
+        .beitreten(&basis, json!({ "name": "kontrolle" }), None)
+        .await;
+    let (fuenf, sechs) = (Absender::von("127.0.0.5"), Absender::von("127.0.0.6"));
+    let alpha = fuenf
+        .beitreten(&basis, json!({ "name": "alpha" }), None)
+        .await;
+    let token = alpha.json["token"].as_str().expect("Token").to_string();
+    let verlassen_alpha = gemeinsam::api_antwort(
+        fuenf
+            .anfrage(reqwest::Method::POST, format!("{basis}api/verlassen"))
+            .header("X-LocalchatA-Sitzung", token),
+    )
+    .await;
+    let alpha_neu = sechs
+        .beitreten(&basis, json!({ "name": "alpha" }), None)
+        .await;
+    strom_beta.mitlesen(Duration::from_millis(500)).await;
+
+    eprintln!(
+        "messung schleife_ms={} verbindungen={verbindungen}",
+        dauer.as_millis()
+    );
+    assert!(
+        dauer < KURZE_GNADENFRIST,
+        "Schleife innerhalb der Gnadenfrist: {dauer:?}"
+    );
+    assert!(ergebnis.erfolge <= 64, "{ergebnis:?}");
+    assert_eq!(ergebnis.erfolge + ergebnis.abgewiesen, 200, "{ergebnis:?}");
+    let von_zwei = strom_beta
+        .ereignisse
+        .iter()
+        .filter(|e| {
+            e.data["art"] == "anwesenheit" && e.data["teilnehmer"]["herkunft"] == "127.0.0.2"
+        })
+        .count();
+    assert!(von_zwei <= 2 * 64, "{von_zwei} Wechsel von 127.0.0.2");
+    assert_eq!(kontrolle.status, 201, "{}", kontrolle.json);
+    assert_eq!((alpha.status, verlassen_alpha.status), (201, 204));
+    assert_eq!(
+        alpha_neu.status, 201,
+        "Name sofort frei: {}",
+        alpha_neu.json
+    );
+}
+
+#[tokio::test]
+async fn nacharbeit1_beitreten_und_verlassen_in_schleife_ueber_eine_keepalive_verbindung_begrenzt()
+{
+    schleife_ist_begrenzt("127.0.0.1", &["127.0.0.2"], 1).await;
+}
+
+#[tokio::test]
+async fn nacharbeit1_beitreten_und_verlassen_in_schleife_ueber_vier_verbindungen_begrenzt() {
+    schleife_ist_begrenzt("127.0.0.1", &["127.0.0.2"], 4).await;
+}
+
+/// (b) `::ffff:127.0.0.2` zählt zur selben Herkunft wie 127.0.0.2: reihum von beiden, zusammen höchstens 64.
+#[tokio::test]
+async fn nacharbeit1_die_gemappte_ipv6_form_zaehlt_zur_selben_herkunft() {
+    schleife_ist_begrenzt("::", &["127.0.0.2", "::ffff:127.0.0.2"], 4).await;
+}

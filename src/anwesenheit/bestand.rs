@@ -77,6 +77,9 @@ struct Bestand {
     stand: u64,
     /// Die späteste Zeit, mit der unter der Sperre gerechnet wurde — „jetzt“ läuft nie dahinter zurück.
     zuletzt: Option<Zeit>,
+    /// Plätze verlassener Sitzungen (Herkunft, bis wann) — sie zählen für die Grenzen bis zum Ende der
+    /// Gnadenfrist ab `verlassen` (ADR-0018 Regel 2a); in keinem Stand, in keinem Wechsel.
+    reserviert: Vec<(IpAddr, Zeit)>,
 }
 
 #[derive(Clone)]
@@ -234,13 +237,16 @@ impl Anwesenheit {
 
     /// Unter einer Sperre: Name lebend belegt (egal von wo) → vergeben mit Vorschlag; Grenze je Herkunft
     /// oder gesamt erreicht → zu viele; sonst eine neue Sitzung mit frischem Token, gemeldet als `online`.
-    /// Abgelaufene Sitzungen zählen nicht; gelingt der Beitritt, gehen sie mit `weg` vor dem `online`.
+    /// Abgelaufene Sitzungen zählen nicht; gelingt der Beitritt, gehen sie mit `weg` vor dem `online`. Plätze
+    /// verlassener Sitzungen zählen bis zum Ende ihrer Gnadenfrist mit (ADR-0018 Regel 2a); ihr Auslaufen ist
+    /// kein Wechsel.
     pub fn beitreten(
         &self,
         wunsch: &Beitrittswunsch,
         herkunft: IpAddr,
     ) -> Result<Beitritt, Beitrittsfehler> {
         let (mut bestand, jetzt) = self.bestand_und_jetzt();
+        bestand.reserviert.retain(|(_, bis)| jetzt <= *bis);
         self.beitritt_pruefen(&bestand, wunsch, herkunft, jetzt)?;
         let token = self.zufall.token().map_err(Beitrittsfehler::KeinZufall)?;
         let sitzung = Sitzung {
@@ -292,11 +298,18 @@ impl Anwesenheit {
                 vorschlag: freier_name(&wunsch.name, belegt),
             });
         }
+        let reserviert_von_hier = bestand
+            .reserviert
+            .iter()
+            .filter(|(von, _)| *von == herkunft)
+            .count();
         let von_dieser_herkunft = lebende
             .iter()
             .filter(|sitzung| sitzung.herkunft == herkunft)
-            .count();
-        if von_dieser_herkunft >= JE_HERKUNFT || lebende.len() >= GESAMT {
+            .count()
+            + reserviert_von_hier;
+        let gesamt = lebende.len() + bestand.reserviert.len();
+        if von_dieser_herkunft >= JE_HERKUNFT || gesamt >= GESAMT {
             return Err(Beitrittsfehler::ZuVieleSitzungen);
         }
         Ok(())
@@ -359,6 +372,8 @@ impl Anwesenheit {
             ..eintrag.zeile(self.gnadenfrist)
         };
         bestand.eintraege.remove(token);
+        let reserviert_bis = weg_um(jetzt, self.gnadenfrist);
+        bestand.reserviert.push((herkunft, reserviert_bis));
         bestand.stand += 1;
         let wechsel = vec![Wechsel {
             stand: bestand.stand,
@@ -1405,6 +1420,94 @@ mod tests {
         assert_eq!(erstes.len(), 1);
         assert_eq!(zweites, vec![]);
         assert_eq!(anwesenheit.bestand().stand, stand_davor + 1);
+    }
+
+    /// Nacharbeit 1, Security (CWE-770): ein verlassener Platz zählt für `JE_HERKUNFT` und `GESAMT` weiter, bis
+    /// die Gnadenfrist ab `verlassen` abgelaufen ist — der Name ist sofort frei.
+    #[test]
+    fn ein_verlassener_platz_zaehlt_bis_zum_ende_der_gnadenfrist_der_name_ist_sofort_frei() {
+        let (uhr, anwesenheit) = mit_gestellter_uhr();
+        let anwesenheit = Anwesenheit {
+            zufall: Arc::new(FesteFolge::neu(1..=2000)),
+            ..anwesenheit
+        };
+        for nummer in 1..=JE_HERKUNFT {
+            let token = anwesenheit
+                .beitreten(&wunsch(&format!("f{nummer}"), Art::Agent), ip("127.0.0.2"))
+                .expect("innerhalb der Grenze")
+                .sitzung
+                .token;
+            assert_eq!(anwesenheit.verlassen(&token, ip("127.0.0.2")).len(), 1);
+        }
+
+        let zu_viel = anwesenheit.beitreten(&wunsch("f65", Art::Agent), ip("127.0.0.2"));
+        let andere_herkunft = anwesenheit.beitreten(&wunsch("f1", Art::Agent), ip("127.0.0.4"));
+        uhr.stellen(nach_ms(60_000));
+        let am_ende_der_frist = anwesenheit.beitreten(&wunsch("f66", Art::Agent), ip("127.0.0.2"));
+        uhr.stellen(nach_ms(60_001));
+        let danach = anwesenheit.beitreten(&wunsch("f67", Art::Agent), ip("127.0.0.2"));
+
+        assert_eq!(zu_viel, Err(Beitrittsfehler::ZuVieleSitzungen));
+        assert!(
+            andere_herkunft.is_ok(),
+            "Name sofort frei: {andere_herkunft:?}"
+        );
+        assert_eq!(am_ende_der_frist, Err(Beitrittsfehler::ZuVieleSitzungen));
+        assert!(danach.is_ok(), "{danach:?}");
+    }
+
+    #[test]
+    fn ein_doppeltes_verlassen_belegt_nur_einen_platz() {
+        let (_, anwesenheit) = mit_gestellter_uhr();
+        let anwesenheit = Anwesenheit {
+            zufall: Arc::new(FesteFolge::neu(1..=2000)),
+            ..anwesenheit
+        };
+        for nummer in 1..JE_HERKUNFT {
+            let token = anwesenheit
+                .beitreten(&wunsch(&format!("f{nummer}"), Art::Agent), ip("127.0.0.2"))
+                .expect("innerhalb der Grenze")
+                .sitzung
+                .token;
+            anwesenheit.verlassen(&token, ip("127.0.0.2"));
+            anwesenheit.verlassen(&token, ip("127.0.0.2"));
+        }
+
+        let vierundsechzigster = anwesenheit.beitreten(&wunsch("f64", Art::Agent), ip("127.0.0.2"));
+        let fuenfundsechzigster =
+            anwesenheit.beitreten(&wunsch("f65", Art::Agent), ip("127.0.0.2"));
+
+        assert!(
+            vierundsechzigster.is_ok(),
+            "63 Plätze reserviert, nicht 126: {vierundsechzigster:?}"
+        );
+        assert_eq!(fuenfundsechzigster, Err(Beitrittsfehler::ZuVieleSitzungen));
+    }
+
+    #[test]
+    fn verlassene_plaetze_zaehlen_auch_gegen_die_gesamtgrenze() {
+        let (_, anwesenheit) = mit_gestellter_uhr();
+        let anwesenheit = Anwesenheit {
+            zufall: Arc::new(FesteFolge::neu(1..=2000)),
+            ..anwesenheit
+        };
+        let mut nummer = 0;
+        for letzte_stelle in 2..=9u8 {
+            let herkunft = IpAddr::V4(Ipv4Addr::new(127, 0, 0, letzte_stelle));
+            for _ in 0..JE_HERKUNFT {
+                nummer += 1;
+                let token = anwesenheit
+                    .beitreten(&wunsch(&format!("g{nummer}"), Art::Agent), herkunft)
+                    .expect("innerhalb der Grenzen")
+                    .sitzung
+                    .token;
+                anwesenheit.verlassen(&token, herkunft);
+            }
+        }
+
+        let ueber_gesamt = anwesenheit.beitreten(&wunsch("neu", Art::Agent), ip("127.0.0.10"));
+
+        assert_eq!(ueber_gesamt, Err(Beitrittsfehler::ZuVieleSitzungen));
     }
 
     #[test]
