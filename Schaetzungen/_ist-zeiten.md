@@ -244,3 +244,30 @@ Nie vom User erfragen.
 | 2026-10-28 | R00014 Betriebsprotokoll | B0298 Debug-Abläufe belegt | Nacharbeit | 0,4h | 0,02h | 0,02h | autonom |
 | 2026-10-28 | R00014 Betriebsprotokoll | B0299 Grenz-Episoden belegt | Nacharbeit | 2-4h | 0,02h | 0,02h | autonom |
 | 2026-10-28 | R00014 Betriebsprotokoll | Nacharbeit #24: Mutanten, Gate, Release-Probe | Nacharbeit | — | 0,15h | 0,15h | autonom |
+| 2026-10-28 | R00008/R00017 Aufbewahrungsfrist | B0175 Frist prüfen | Standard | 0,4h | 0,08h | 0,08h | autonom |
+| 2026-10-28 | R00008/R00017 Aufbewahrungsfrist | B0176 Frist in den Einstellungen | Standard | 0,4h | 0,01h | 0,01h | autonom |
+| 2026-10-28 | R00008/R00017 Aufbewahrungsfrist | B0177 Tage nach der Frist teilen | Standard | 0,4h | 0,02h | 0,02h | autonom |
+| 2026-10-28 | R00008/R00017 Aufbewahrungsfrist | B0178 Laden mit der Frist des Channels | Standard | 0,4h | 0,02h | 0,02h | autonom |
+| 2026-10-28 | R00008/R00017 Aufbewahrungsfrist | B0179 Frist im Verzeichnis setzen | Standard | 0,4h | 0,02h | 0,02h | autonom |
+| 2026-10-28 | R00008/R00017 Aufbewahrungsfrist | B0180 Frist beantworten | Standard | 0,4h | 0,05h | 0,05h | autonom |
+| 2026-10-28 | R00008/R00017 Aufbewahrungsfrist | B0181 Tagesdatei entfernen | Standard | 0,4h | 0,01h | 0,01h | autonom |
+| 2026-10-28 | R00008/R00017 Aufbewahrungsfrist | B0182 Tag aus dem Index nehmen | Standard | 0,4h | 0,02h | 0,02h | autonom |
+| 2026-10-28 | R00008/R00017 Aufbewahrungsfrist | B0183 Pflegen | Standard | 2-4h | 0,03h | 0,03h | autonom |
+| 2026-10-28 | R00008/R00017 Aufbewahrungsfrist | B0289 Frist-Meldungen als Einträge | Standard | 0,4h | 0,02h | 0,02h | autonom |
+| 2026-10-28 | R00008/R00017 Aufbewahrungsfrist | B0185 Pflege beim Start | Standard | 0,4h | 0,01h | 0,01h | autonom |
+| 2026-10-28 | R00008/R00017 Aufbewahrungsfrist | B0186 Vorschau des Entfallens | Standard | 0,4h | 0,02h | 0,02h | autonom |
+| 2026-10-28 | R00008/R00017 Aufbewahrungsfrist | B0187 Verkürzen bestätigen | Standard | 0,4h | 0,05h | 0,05h | autonom |
+| 2026-10-28 | R00008/R00017 Aufbewahrungsfrist | B0191 Friständerung veröffentlichen | Standard | 0,4h | 0,02h | 0,02h | autonom |
+| 2026-10-28 | R00008/R00017 Aufbewahrungsfrist | B0291 Fristpflege als Tagesaufgabe anmelden | Standard | 0,4h | 0,02h | 0,02h | autonom |
+| 2026-10-28 | R00008/R00017 Aufbewahrungsfrist | B0199 Nur reguläre Dateien entfernen | Standard | 0,4h | 0,01h | 0,01h | autonom |
+| 2026-10-28 | R00008/R00017 Aufbewahrungsfrist | B0200 Löschfehler je Datei | Standard | 0,4h | 0,02h | 0,02h | autonom |
+| 2026-10-28 | R00008/R00017 Aufbewahrungsfrist | B0201 Schreibfehler beim Setzen | Standard | 0,4h | 0,02h | 0,02h | autonom |
+| 2026-10-28 | R00008/R00017 Aufbewahrungsfrist | B0290 Frist-Einträge eintragen | Standard | 0,4h | 0,02h | 0,02h | autonom |
+| 2026-10-28 | R00008/R00017 Aufbewahrungsfrist | B0193 Frist-Eingabe prüfen | Standard | 0,4h | 0,02h | 0,02h | autonom |
+| 2026-10-28 | R00008/R00017 Aufbewahrungsfrist | B0194 Frist-Texte formen | Standard | 0,4h | 0,01h | 0,01h | autonom |
+| 2026-10-28 | R00008/R00017 Aufbewahrungsfrist | B0195 Frist setzen abrufen | Standard | 0,4h | 0,01h | 0,01h | autonom |
+| 2026-10-28 | R00008/R00017 Aufbewahrungsfrist | B0196 Kopfzeile mit Schalter und Frist | Standard | 0,4h | 0,07h | 0,07h | autonom |
+| 2026-10-28 | R00008/R00017 Aufbewahrungsfrist | B0197 Dialog Channel-Einstellungen | Standard | 2-4h | 0,05h | 0,05h | autonom |
+| 2026-10-28 | R00008/R00017 Aufbewahrungsfrist | B0198 Verkürzen bestätigen im Dialog | Standard | 2-4h | 0,01h | 0,01h | autonom |
+| 2026-10-28 | R00008/R00017 Aufbewahrungsfrist | B0192 Wechsel-Flut messen | Standard | 0,4h | 0,02h | 0,02h | autonom |
+| 2026-10-28 | R00008/R00017 Aufbewahrungsfrist | Mutanten, Zeittests, Gate, Messung M3, Gelerntes | Konsolidierung | — | 0,20h | 0,20h | autonom |
