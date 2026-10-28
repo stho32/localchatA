@@ -72,7 +72,11 @@ function leisteBeschriften(schalter, offen) {
     schalter.textContent = 'Einklappen';
     return;
   }
-  schalter.textContent = `Ganze Nachricht anzeigen · ${schalter.dataset.zeilen} Zeilen`;
+  schalter.textContent = leistenBeschriftung(Number(schalter.dataset.zeilen));
+}
+
+export function leistenBeschriftung(zeilen) {
+  return `Ganze Nachricht anzeigen · ${zeilen} Zeilen`;
 }
 
 // Tagestrenner (Designsystem VerlaufsMarken): Datum zentriert zwischen zwei Haarlinien, klebt oben.
