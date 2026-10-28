@@ -89,3 +89,7 @@ Regeln:
 - ADR-0007, ADR-0010, ADR-0012, ADR-0014, ADR-0016
 - kanbanD `web/verbindung.js` (Wächter, Rückzug; Q04, nur gelesen); `web/start.js` (Web Locks nur im sicheren Kontext)
 - OWASP Session Management Cheat Sheet (Sitzungskennung nicht in der URL); WHATWG HTML, Abschnitt „Shared workers“; Fetch Standard (Antwortkörper als `ReadableStream`)
+
+## Ergänzungen
+
+- **2026-10-28 (Karte #5 I0006):** Regel 1 und 4 — Herzschlag 5 s statt 15 s, Wächter 15 s statt 40 s ([ADR-0017](0017-stiller-abriss-kernel-erkennt-tote-verbindungen.md)); Rückzug 1 s, 2 s, 5 s, 10 s unverändert. Regel 2 — der Worker reicht neben den Datenereignissen den Herzschlag (`jetzt`) weiter und gibt jedem neuen Tab zum letzten Stand den aktuellen Uhrenversatz mit ([ADR-0019](0019-restzeit-weg-um-in-serverzeit-und-statusformen.md), Regel 4). Nach dem eigenen `weg` (`POST /api/verlassen`) verbindet der Worker nicht neu ([ADR-0018](0018-verlassen-sofort-weg-nie-beim-schliessen.md), Regel 4 und 6).

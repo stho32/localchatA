@@ -105,3 +105,7 @@ Es überwiegt, dass „ein Mensch, ein Name“ im Browser ohne Sonderfall gilt u
 - [A00010 Anwesenheit](../Architektur/A00010-anwesenheit.md) (primär), [A00004 HTTP-Schnittstelle](../Architektur/A00004-http-schnittstelle.md), [A00003 Start](../Architektur/A00003-start.md), [A00005 Weboberfläche](../Architektur/A00005-weboberflaeche.md); Aspekte [X00003](../Architektur/Aspekte/X00003-authentifizierung-und-sitzung.md), [X00002](../Architektur/Aspekte/X00002-benutzerrechte.md)
 - ADR-0003 (Ordnernamen der Direktgespräche), ADR-0007, ADR-0008 (abgelöst), ADR-0009, ADR-0010, ADR-0013, ADR-0014
 - Vision R00000, Zielbild „Mensch und KI sind gleichberechtigt“, „Wer da ist, ist sichtbar“; Designsystem `3-offene-fragen.md` Fragen 3, 7, 8, `components/ScreenFlow`; `AI-Team/gelerntes.md` (#1, Annahmeschleife)
+
+## Ergänzungen
+
+- **2026-10-28 (Karte #5 I0006):** Folgeaufgaben „explizites `POST /api/verlassen`“ und „Takt für weg“ sind entschieden bzw. gebaut: `verlassen` in [ADR-0018](0018-verlassen-sofort-weg-nie-beim-schliessen.md) (sofort `weg`, idempotent 204, die Oberfläche ruft es nie beim Schließen); `weg` meldet der Takt seit I0005 ([ADR-0016](0016-anwesenheitsstatus-aus-haltern-mit-nachlauf-liste-als-stand-plus-wechsel.md)). Das Ende eines Halters durch einen stillen Abriss ([ADR-0017](0017-stiller-abriss-kernel-erkennt-tote-verbindungen.md)) ist ein Lebenszeichen zum Zeitpunkt des Erkennens; die Gnadenfrist läuft ab dort.
