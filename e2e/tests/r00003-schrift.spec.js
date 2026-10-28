@@ -36,7 +36,7 @@ test('Name vergeben: Name, Kennung und Vorschlag in Mono', async ({ page, reques
   for (const index of [0, 1, 2]) {
     expect(await schriftart(mono.nth(index))).toContain('IBM Plex Mono');
   }
-  await expect(meldung(page)).toContainText(/^Der Name shoff ist vergeben — shoff@127\.0\.0\.1 ist seit \d\d:\d\d dabei\. Wie wäre shoff-2\?$/);
+  await expect(meldung(page)).toContainText(/^⚠ Der Name shoff ist vergeben — shoff@127\.0\.0\.1 ist seit \d\d:\d\d dabei\. Wie wäre shoff-2\?$/);
 });
 
 test('ungültig: Name und Vorschlag in Mono, auch im Hinweis beim Tippen', async ({ page }) => {

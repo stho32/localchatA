@@ -70,7 +70,7 @@ export function meldungsteile(zustand) {
   switch (zustand.art) {
     case 'vergeben':
       return [
-        'Der Name ', { kennung: zustand.name }, ' ist vergeben — ', { kennung: zustand.belegtVon },
+        '⚠ Der Name ', { kennung: zustand.name }, ' ist vergeben — ', { kennung: zustand.belegtVon },
         ` ist seit ${uhrzeit(zustand.seit)} dabei.`, ...vorschlagsteile(zustand.vorschlag),
       ];
     case 'ungueltig':
@@ -90,7 +90,7 @@ export function meldungsteile(zustand) {
 }
 
 function istFehler(zustand) {
-  return ['ungueltig', 'leer', 'serverWeg', 'fehler'].includes(zustand.art);
+  return ['vergeben', 'ungueltig', 'leer', 'serverWeg', 'fehler'].includes(zustand.art);
 }
 
 export function hinweisFuer(text) {

@@ -75,6 +75,29 @@ for (const thema of ['light', 'dark']) {
   });
 }
 
+// Nacharbeit 2 (UX-Review Sollte): auch „vergeben“ ist ein Fehler — ⚠, kd-danger, ohne Querscrollen.
+for (const thema of ['light', 'dark']) {
+  for (const breite of [320, 375, 1280]) {
+    test(`Fehlergestalt ${thema} ${breite} px: vergeben — beginnt mit ⚠ in kd-danger, kein Querscrollen`, async ({ page, request }) => {
+      instanz = await instanzStarten();
+      expect((await request.post(instanz.adresse + 'api/beitreten', { data: { name: 'shoff' } })).status()).toBe(201);
+      await page.setViewportSize({ width: breite, height: 640 });
+      await page.emulateMedia({ colorScheme: thema });
+      await page.goto(instanz.adresse);
+
+      await senden(page, 'shoff');
+
+      await expect(meldung(page)).toContainText('vergeben');
+      expect(await meldung(page).textContent()).toMatch(/^⚠ /);
+      expect(await meldungsfarbe(page)).toBe(await gefahrenfarbe(page));
+      const { inhalt, fenster } = await page.evaluate(() => ({
+        inhalt: document.documentElement.scrollWidth, fenster: window.innerWidth,
+      }));
+      expect(inhalt).toBeLessThanOrEqual(fenster);
+    });
+  }
+}
+
 test('ohne Vorschlag des Servers bleibt der ungültige Name im Feld und aria-invalid', async ({ page }) => {
   instanz = await instanzStarten();
   await page.goto(instanz.adresse);

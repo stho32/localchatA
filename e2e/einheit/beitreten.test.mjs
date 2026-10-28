@@ -21,12 +21,12 @@ function kennungen(teile) {
   return teile.filter((teil) => typeof teil !== 'string').map((teil) => teil.kennung);
 }
 
-test('Name vergeben nennt Name, Träger, Uhrzeit HH:MM in Ortszeit und den Vorschlag, alle drei als Kennung', () => {
+test('Name vergeben: ⚠, Name, Träger, Uhrzeit HH:MM in Ortszeit und den Vorschlag, alle drei als Kennung', () => {
   const teile = meldungsteile({
     art: 'vergeben', name: 'shoff', belegtVon: 'shoff@127.0.0.1', seit: '2026-10-27T08:04:00.000+00:00', vorschlag: 'shoff-2',
   });
 
-  assert.equal(alsText(teile), 'Der Name shoff ist vergeben — shoff@127.0.0.1 ist seit 09:04 dabei. Wie wäre shoff-2?');
+  assert.equal(alsText(teile), '⚠ Der Name shoff ist vergeben — shoff@127.0.0.1 ist seit 09:04 dabei. Wie wäre shoff-2?');
   assert.deepEqual(kennungen(teile), ['shoff', 'shoff@127.0.0.1', 'shoff-2']);
 });
 
