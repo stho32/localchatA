@@ -38,10 +38,9 @@ export function verlaufAnlegen({ abrufen }) {
     if (schalter === null) {
       return;
     }
-    const artikel = schalter.closest('.lc-msg');
-    const vorher = artikel.getBoundingClientRect().top;
+    const anker = ankerVon(schalter.closest('.lc-msg'));
     langeUmschalten(schalter);
-    log.scrollTop += artikel.getBoundingClientRect().top - vorher;
+    ankerHalten(log, anker);
     amEnde = log.scrollHeight - log.scrollTop - log.clientHeight <= 1;
   });
 
@@ -88,6 +87,38 @@ export function verlaufAnlegen({ abrufen }) {
   }
 
   return { element: log, oeffnen, schliessen, heuteSetzen };
+}
+
+// Anker (ADR-0026 Regel 3): die oberste sichtbare Nachricht und ihr Abstand zum oberen Rand vor einer Änderung;
+// danach wird scrollTop um ihre Verschiebung korrigiert. Gesucht wird binär über die Nachrichten im DOM.
+function ankerMerken(log, inhalt) {
+  const nachrichten = inhalt.querySelectorAll('.lc-msg');
+  const rand = log.getBoundingClientRect().top;
+  let unten = 0;
+  let oben = nachrichten.length;
+  while (unten < oben) {
+    const mitte = Math.floor((unten + oben) / 2);
+    if (nachrichten[mitte].getBoundingClientRect().bottom > rand) {
+      oben = mitte;
+    } else {
+      unten = mitte + 1;
+    }
+  }
+  if (unten === nachrichten.length) {
+    return null;
+  }
+  return ankerVon(nachrichten[unten]);
+}
+
+function ankerVon(nachricht) {
+  return { nachricht, top: nachricht.getBoundingClientRect().top };
+}
+
+function ankerHalten(log, anker) {
+  if (anker === null || !anker.nachricht.isConnected) {
+    return;
+  }
+  log.scrollTop += anker.nachricht.getBoundingClientRect().top - anker.top;
 }
 
 function nurNachrichten(knoten) {
