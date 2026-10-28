@@ -1,7 +1,8 @@
 //! Nachricht senden (F0041; ADR-0034): `POST /api/channels/{name}/nachrichten {text}` mit Sitzung → 201
-//! `{channel, nachricht}`. Prüfreihenfolge (abgewiesen, nie umgeformt): Grenzschutz 403 · Sitzung 401 · Körper zu
+//! `{channel, nachricht}`. Prüfreihenfolge (abgewiesen, nie umgeformt): Grenzschutz 403 · Sitzung 401 · Vorab-Buchung
+//! 429 · Körper zu
 //! groß 413 · kein JSON-Typ 415 · kein JSON 400 · Channel 404 · Sendekörper 422 `text`/`feld` · Textregel 422
-//! `leer`/`laenge`/`zeichen` · Plattenfehler 500. Der Körper wird auf der Werkbank geparst (Grenze über 16 KiB).
+//! `leer`/`laenge`/`zeichen` · Restbuchung 429 · Plattenfehler 500. Der Körper wird auf der Werkbank geparst (Grenze über 16 KiB).
 
 use super::Zustand;
 use super::abbruch::{Abgebrochen, Grenzort, abbruch_beantworten};
@@ -13,6 +14,7 @@ use crate::gespraeche::textregel::{TEXT_HOECHSTENS_BYTES, Textfehler, text_pruef
 use crate::gespraeche::{Gespraech, Kennung, Nachricht, Sendefehler};
 use crate::protokoll::episoden::Auftreten;
 use crate::protokoll::{Bereich, Kontext, Schluessel, Stufe};
+use crate::schreibkonto::eimer::kosten_senden;
 use crate::schreibkonto::{Gebremst, Grenze};
 use crate::uhr::{vorlauf_melden, vorlauf_text};
 use axum::Json;
@@ -38,6 +40,12 @@ pub async fn senden(
     kopf: HeaderMap,
     koerper: Body,
 ) -> Response {
+    if let Err(gebremst) = zustand
+        .schreibkonto
+        .vorab(&teilnehmer.kennung, teilnehmer.herkunft)
+    {
+        return gebremst_beantworten(gebremst, &teilnehmer.kennung, teilnehmer.herkunft);
+    }
     let wer = teilnehmer.kennung.als_text().to_string();
     let ort = Koerperort {
         protokoll: &zustand.protokoll,
@@ -61,6 +69,14 @@ pub async fn senden(
     };
     if let Err(fehler) = text_pruefen(&text) {
         return text_abgewiesen(fehler);
+    }
+    let kosten = kosten_senden(text.len());
+    if let Err(gebremst) =
+        zustand
+            .schreibkonto
+            .rest(&teilnehmer.kennung, teilnehmer.herkunft, kosten)
+    {
+        return gebremst_beantworten(gebremst, &teilnehmer.kennung, teilnehmer.herkunft);
     }
     let gespraeche = Arc::clone(&zustand.gespraeche);
     let gespraech = Gespraech::channel(&name);
@@ -223,7 +239,6 @@ fn vorlauf_eintragen(protokoll: &crate::protokoll::Protokoll, vorlauf_ms: u64) {
 }
 
 /// 429 `{fehler, grenze, wieder_in_ms}` mit `Retry-After` (B0234, ADR-0036 Regel 4).
-#[allow(dead_code)] // bis B0233 das Senden bucht
 fn gebremst_beantworten(gebremst: Gebremst, kennung: &Kennung, herkunft: IpAddr) -> Response {
     let wieder_in_ms = u64::try_from(gebremst.wieder_in.as_millis()).unwrap_or(u64::MAX);
     let sekunden = wieder_in_ms.div_ceil(1_000).max(1);

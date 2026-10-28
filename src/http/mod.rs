@@ -29,6 +29,7 @@ use crate::gespraeche::Gespraeche;
 use crate::live::bus::Bus;
 use crate::protokoll::Protokoll;
 use crate::protokoll::testpanik::Testpanik;
+use crate::schreibkonto::Schreibkonto;
 use crate::start::ende::Ende;
 use axum::Router;
 use axum::middleware;
@@ -52,6 +53,8 @@ pub struct Zustand {
     pub grenzschutz: Grenzschutz,
     /// Plätze für schwere Arbeit (ADR-0039 Regel 4).
     pub werkbank: Werkbank,
+    /// Token-Eimer gegen Flut beim Senden (A00014).
+    pub schreibkonto: Arc<Schreibkonto>,
     /// Betriebsprotokoll der Instanz (A00015).
     pub protokoll: Arc<Protokoll>,
     /// Testknopf `LOCALCHATA_TESTPANIK` (nur Debug-Build wirksam).
@@ -143,6 +146,7 @@ pub(crate) mod testserver {
             ende: Ende::nie(),
             grenzschutz: Grenzschutz::neu(None, Vec::new()),
             werkbank: Werkbank::aus_kernen(),
+            schreibkonto: Arc::new(crate::schreibkonto::Schreibkonto::neu(Arc::new(Systemuhr))),
             protokoll: Arc::new(crate::protokoll::Protokoll::ohne_ablage()),
             testpanik: crate::protokoll::testpanik::Testpanik::keine(),
         }

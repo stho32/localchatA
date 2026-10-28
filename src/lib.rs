@@ -7,7 +7,6 @@ mod http;
 mod live;
 mod name;
 pub mod protokoll;
-#[allow(dead_code)] // bis B0233 das Senden bucht
 mod schreibkonto;
 pub mod start;
 pub mod testdaten;

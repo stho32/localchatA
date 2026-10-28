@@ -21,6 +21,8 @@ pub struct Gesundheit {
     channels: u64,
     /// Vorlauf der Nachrichtenzeit vor der Uhr (ADR-0035 Regel 4), 0 ohne.
     zeit_vorlauf_ms: u64,
+    /// Zahl der 429 des Schreibkontos seit dem Start (ADR-0036 Regel 7).
+    gebremst: u64,
     sitzungen: usize,
     halter: usize,
     herzschlag_ms: u128,
@@ -57,6 +59,7 @@ pub async fn beantworten(State(zustand): State<Arc<Zustand>>) -> Json<Gesundheit
         defekte_zeilen: kennzahlen.defekte_zeilen,
         channels: kennzahlen.channels,
         zeit_vorlauf_ms: zustand.gespraeche.zeit_vorlauf_ms(),
+        gebremst: zustand.schreibkonto.gebremst(),
         sitzungen: betrieb.sitzungen,
         halter: betrieb.halter,
         herzschlag_ms: zustand.herzschlag.as_millis(),
@@ -126,6 +129,7 @@ mod tests {
                 "defekte_zeilen": 0,
                 "channels": 0,
                 "zeit_vorlauf_ms": 0,
+                "gebremst": 0,
                 "sitzungen": 0,
                 "halter": 0,
                 "herzschlag_ms": 5000,

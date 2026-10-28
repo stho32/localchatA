@@ -35,6 +35,7 @@ use crate::protokoll::tagestakt::{self, Tagestakt};
 use crate::protokoll::testpanik::Testpanik;
 use crate::protokoll::wache::bewacht;
 use crate::protokoll::{Bereich, Kontext, Protokoll, Schluessel, Stufe};
+use crate::schreibkonto::Schreibkonto;
 use crate::uhr::{self, Uhr};
 use crate::zufall::Betriebssystemzufall;
 use aufruf::HILFE;
@@ -301,7 +302,7 @@ async fn nach_der_sperre(
         ende.clone(),
         takt::takten(
             Arc::clone(&anwesenheit),
-            uhr,
+            Arc::clone(&uhr),
             Arc::clone(&protokoll),
             testpanik.clone(),
             ende.clone(),
@@ -335,6 +336,7 @@ async fn nach_der_sperre(
         ende: ende.clone(),
         grenzschutz: Grenzschutz::neu(rechnername::lesen(), auftrag.erreichbar_als),
         werkbank: http::Werkbank::aus_kernen(),
+        schreibkonto: Arc::new(Schreibkonto::neu(Arc::clone(&uhr))),
         protokoll: Arc::clone(&protokoll),
         testpanik,
     });
