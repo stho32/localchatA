@@ -3,6 +3,7 @@
 
 mod gemeinsam;
 
+use gemeinsam::protokoll::ort;
 use gemeinsam::{gesundheit, starten_mit};
 use std::fs;
 use std::path::Path;
@@ -39,16 +40,17 @@ async fn laden(ordner: &Path) -> (serde_json::Value, String) {
     (inhalt, instanz.stderr_bis_zum_ende())
 }
 
+/// Die einzeln gemeldeten Defekte als `<datei>:<zeile>`, in der Reihenfolge der Datei (R00014: Protokollzeilen).
 fn defekte_zeilen(stderr: &str) -> Vec<String> {
-    let mut zeilen: Vec<String> = stderr.lines().map(str::to_string).collect();
-    zeilen.sort();
-    zeilen
+    stderr
+        .lines()
+        .filter(|zeile| zeile.contains(" zeile="))
+        .map(ort)
+        .collect()
 }
 
 fn erwartete_defekte(saetze: std::ops::Range<usize>) -> Vec<String> {
-    let mut zeilen: Vec<String> = saetze.map(|k| format!("{TAG}:{}", 3 * k + 1)).collect();
-    zeilen.sort();
-    zeilen
+    saetze.map(|k| format!("{TAG}:{}", 3 * k + 1)).collect()
 }
 
 #[tokio::test]
@@ -80,11 +82,20 @@ async fn siebzehn_saetze_drei_gueltige_kennungen_vierzehn_defekte_mit_zeile() {
 
     assert_eq!(inhalt["nachrichten"], 3, "{inhalt}");
     assert_eq!(inhalt["defekte_zeilen"], 14, "{inhalt}");
-    let defekte = defekte_zeilen(&stderr);
-    assert_eq!(defekte.len(), 14, "{stderr:?}");
-    for (gefunden, erwartet) in defekte.iter().zip(erwartete_defekte(3..17)) {
-        assert!(gefunden.contains(&erwartet), "{gefunden} statt {erwartet}");
-    }
+    // R00014: je Datei höchstens 10 einzeln, die übrigen 4 als eine Zeile „und 4 weitere“.
+    assert_eq!(
+        defekte_zeilen(&stderr),
+        erwartete_defekte(3..13),
+        "{stderr:?}"
+    );
+    assert_eq!(
+        stderr
+            .lines()
+            .filter(|zeile| zeile.contains("und 4 weitere"))
+            .count(),
+        1,
+        "{stderr:?}"
+    );
 }
 
 #[tokio::test]
@@ -108,9 +119,9 @@ async fn us5_verwechselbare_kennungen_im_log_sind_defekt() {
 
     assert_eq!(inhalt["nachrichten"], 3, "{inhalt}");
     assert_eq!(inhalt["defekte_zeilen"], 4, "{inhalt}");
-    let defekte = defekte_zeilen(&stderr);
-    assert_eq!(defekte.len(), 4, "{stderr:?}");
-    for (gefunden, erwartet) in defekte.iter().zip(erwartete_defekte(3..7)) {
-        assert!(gefunden.contains(&erwartet), "{gefunden} statt {erwartet}");
-    }
+    assert_eq!(
+        defekte_zeilen(&stderr),
+        erwartete_defekte(3..7),
+        "{stderr:?}"
+    );
 }

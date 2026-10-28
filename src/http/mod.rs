@@ -21,6 +21,7 @@ pub use werkbank::Werkbank;
 use crate::anwesenheit::Anwesenheit;
 use crate::gespraeche::Gespraeche;
 use crate::live::bus::Bus;
+use crate::protokoll::Protokoll;
 use crate::start::ende::Ende;
 use axum::Router;
 use axum::middleware;
@@ -44,6 +45,8 @@ pub struct Zustand {
     pub grenzschutz: Grenzschutz,
     /// Plätze für schwere Arbeit (ADR-0039 Regel 4).
     pub werkbank: Werkbank,
+    /// Betriebsprotokoll der Instanz (A00015).
+    pub protokoll: Arc<Protokoll>,
 }
 
 /// Alle Routen unter der Schicht `grenzschutz` (ADR-0014) — sie ist die äußerste, auch für 404 und 405.
@@ -119,6 +122,7 @@ pub(crate) mod testserver {
             ende: Ende::nie(),
             grenzschutz: Grenzschutz::neu(None, Vec::new()),
             werkbank: Werkbank::aus_kernen(),
+            protokoll: Arc::new(crate::protokoll::Protokoll::ohne_ablage()),
         }
     }
 
@@ -130,7 +134,10 @@ pub(crate) mod testserver {
             .expect("Testport gebunden");
         let adresse = listener.local_addr().expect("Adresse");
         let grenzen = Verbindungsgrenzen::fuer_deskriptoren(None);
-        let pflege = Pflege::kernel(pflege_aus(Duration::from_secs(5)));
+        let pflege = Pflege::kernel(
+            pflege_aus(Duration::from_secs(5)),
+            Arc::new(crate::protokoll::Protokoll::ohne_ablage()),
+        );
         tokio::spawn(ausliefern(listener, app, Ende::nie(), grenzen, pflege));
         format!("http://{adresse}/")
     }

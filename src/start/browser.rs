@@ -1,13 +1,15 @@
 //! Browser öffnen: nach der Startzeile den Standardbrowser mit der Oberfläche; scheitert das, ein Hinweis.
 
+use crate::protokoll::{Bereich, Kontext, Protokoll, Schluessel, Stufe};
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 use std::process::{Command, Stdio};
+use std::sync::Arc;
 
 /// Testknopf: ersetzt den Standardbrowser durch ein eigenes Programm (ADR-0009, X00006).
 const EIGENER_BROWSER: &str = "LOCALCHATA_BROWSER";
 
 /// Öffnet die Oberfläche im Browser; scheitert das, steht ein Hinweis auf stderr und der Start läuft weiter.
-pub fn oeffnen(adresse: SocketAddr) {
+pub fn oeffnen(adresse: SocketAddr, protokoll: Arc<Protokoll>) {
     let ziel = browser_adresse(adresse);
     let (programm, argumente) = befehl(std::env::var(EIGENER_BROWSER).ok(), &ziel);
     let gestartet = Command::new(&programm)
@@ -20,16 +22,23 @@ pub fn oeffnen(adresse: SocketAddr) {
         Ok(mut kind) => {
             std::thread::spawn(move || match kind.wait() {
                 Ok(ende) if ende.success() => {}
-                Ok(ende) => hinweis(&ziel, &format!("{programm} endete mit {ende}")),
-                Err(fehler) => hinweis(&ziel, &fehler.to_string()),
+                Ok(ende) => hinweis(&protokoll, &ziel, &format!("{programm} endete mit {ende}")),
+                Err(fehler) => hinweis(&protokoll, &ziel, &fehler.to_string()),
             });
         }
-        Err(fehler) => hinweis(&ziel, &format!("{programm}: {fehler}")),
+        Err(fehler) => hinweis(&protokoll, &ziel, &format!("{programm}: {fehler}")),
     }
 }
 
-fn hinweis(ziel: &str, grund: &str) {
-    eprintln!("Browser ließ sich nicht öffnen ({grund}) — bitte {ziel} selbst aufrufen");
+fn hinweis(protokoll: &Protokoll, ziel: &str, grund: &str) {
+    protokoll.eintragen(
+        Stufe::Warning,
+        Bereich::Start,
+        "Browser ließ sich nicht öffnen — bitte die Adresse selbst aufrufen",
+        Kontext::neu()
+            .mit(Schluessel::Adresse, ziel)
+            .mit(Schluessel::Grund, grund),
+    );
 }
 
 /// Unter welcher Adresse ein Browser auf diesem Rechner die Instanz erreicht.

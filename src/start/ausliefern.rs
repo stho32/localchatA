@@ -99,7 +99,10 @@ mod tests {
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
     fn programmpflege() -> Pflege {
-        Pflege::kernel(pflege_aus(Duration::from_secs(5)))
+        Pflege::kernel(
+            pflege_aus(Duration::from_secs(5)),
+            Arc::new(crate::protokoll::Protokoll::ohne_ablage()),
+        )
     }
 
     /// Startet die Annahmeschleife mit einer Route, die die Herkunft der Anfrage nennt.

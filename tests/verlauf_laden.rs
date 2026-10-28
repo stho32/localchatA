@@ -2,6 +2,7 @@
 
 mod gemeinsam;
 
+use gemeinsam::protokoll::ort;
 use gemeinsam::{Instanz, aufrufen_mit, gesundheit, starten_mit};
 use std::fs;
 use std::path::Path;
@@ -9,6 +10,11 @@ use std::path::Path;
 const TAG_26: &str = "@ 2026-10-26T09:00:00.000+01:00 shoff@127.0.0.1\n  Guten Morgen\n\n@ 2026-10-26T09:01:00.000+01:00 claude@10.0.0.5\n  Scan läuft.\n\n";
 const TAG_27: &str = "@ 2026-10-27T10:00:00.000+01:00 shoff@127.0.0.1\n  Wie weit?\n\nkaputt\n@ 2026-10-27T10:00:05.000+01:00 claude@10.0.0.5\n  Fertig.\n\n";
 const EIN_SATZ: &str = "@ 2026-10-21T08:00:00.000+02:00 shoff@127.0.0.1\n  Ein Satz.\n\n";
+
+/// Die Orte der Ladedefekte auf stderr (`<datei>:<zeile>`), seit R00014 als Protokollzeilen.
+fn orte(stderr: &str) -> Vec<String> {
+    stderr.lines().map(ort).collect()
+}
 
 fn datei(ordner: &Path, pfad: &str, inhalt: &str) {
     let ziel = ordner.join(pfad);
@@ -63,11 +69,7 @@ async fn us1_verlauf_laden_und_kennzahlen_ablesen() {
     assert!(inhalt["ladezeit_ms"].as_u64().is_some(), "{inhalt}");
     let zeilen: Vec<&str> = stderr.lines().collect();
     assert_eq!(zeilen.len(), 1, "{stderr:?}");
-    assert!(
-        zeilen[0].contains("channels/allgemein/2026-10-27.log:4"),
-        "{}",
-        zeilen[0]
-    );
+    assert_eq!(ort(zeilen[0]), "channels/allgemein/2026-10-27.log:4");
     assert_eq!(stdout, "", "stdout trägt nur die Startzeile");
 }
 
@@ -135,10 +137,7 @@ async fn kopf_mit_unlesbarer_zeit_ist_ein_defekt_an_der_kopfzeile_die_nachbarn_w
 
     assert_eq!(inhalt["nachrichten"], 2);
     assert_eq!(inhalt["defekte_zeilen"], 1);
-    assert!(
-        stderr.contains("channels/allgemein/2026-10-27.log:4"),
-        "{stderr}"
-    );
+    assert_eq!(orte(&stderr), ["channels/allgemein/2026-10-27.log:4"]);
 }
 
 #[tokio::test]
@@ -262,11 +261,7 @@ async fn b1a_mitten_im_zeichen_abgeschnitten_verliert_nur_die_zeile_nicht_den_ta
     assert_eq!(inhalt["defekte_zeilen"], 1);
     let zeilen: Vec<&str> = stderr.lines().collect();
     assert_eq!(zeilen.len(), 1, "{stderr:?}");
-    assert!(
-        zeilen[0].contains("channels/allgemein/2026-10-27.log:8"),
-        "{}",
-        zeilen[0]
-    );
+    assert_eq!(ort(zeilen[0]), "channels/allgemein/2026-10-27.log:8");
 }
 
 #[tokio::test]
@@ -285,11 +280,7 @@ async fn b1b_ungueltiges_byte_im_ersten_satz_ist_ein_defekt_seiner_zeile() {
     assert_eq!(inhalt["defekte_zeilen"], 1);
     let zeilen: Vec<&str> = stderr.lines().collect();
     assert_eq!(zeilen.len(), 1, "{stderr:?}");
-    assert!(
-        zeilen[0].contains("channels/allgemein/2026-10-27.log:2"),
-        "{}",
-        zeilen[0]
-    );
+    assert_eq!(ort(zeilen[0]), "channels/allgemein/2026-10-27.log:2");
 }
 
 #[tokio::test]
@@ -306,10 +297,7 @@ async fn ungueltiges_byte_in_der_kopfzeile_ist_ein_defekt_des_satzes_der_nachbar
 
     assert_eq!(inhalt["nachrichten"], 1);
     assert_eq!(inhalt["defekte_zeilen"], 1);
-    assert!(
-        stderr.contains("channels/allgemein/2026-10-27.log:1"),
-        "{stderr}"
-    );
+    assert_eq!(orte(&stderr), ["channels/allgemein/2026-10-27.log:1"]);
 }
 
 #[cfg(unix)]

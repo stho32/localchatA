@@ -9,6 +9,7 @@ use super::werkbank::Abgebrochen;
 use crate::gespraeche::abfrage::{Abfrage, Abschnitt, Blockgroesse};
 use crate::gespraeche::{Nachricht, Nachrichtenblock, Unbekannt};
 use crate::name::Channelname;
+use crate::protokoll::{Bereich, Kontext, Schluessel, Stufe};
 use crate::uhr::Zeit;
 use axum::Json;
 use axum::extract::{Path, RawQuery, State};
@@ -51,14 +52,19 @@ pub async fn beantworten(
     match ergebnis {
         Ok(Ok(Ok(bytes))) => ([(CONTENT_TYPE, "application/json")], bytes).into_response(),
         Ok(Err(Unbekannt)) => unbekannt(&name),
-        Ok(Ok(Err(fehler))) => nicht_gelesen(&fehler.to_string()),
-        Err(Abgebrochen(grund)) => nicht_gelesen(&grund),
+        Ok(Ok(Err(fehler))) => nicht_gelesen(&zustand, &fehler.to_string()),
+        Err(Abgebrochen(grund)) => nicht_gelesen(&zustand, &grund),
     }
 }
 
-/// 500 — mit einer Zeile auf stderr, bis das Betriebsprotokoll (ADR-0040 bis ADR-0043) sie aufnimmt.
-fn nicht_gelesen(grund: &str) -> Response {
-    eprintln!("Verlauf nicht gelesen: {grund}");
+/// 500 — mit einem ERROR im Betriebsprotokoll (ADR-0042 Regel 2).
+fn nicht_gelesen(zustand: &Zustand, grund: &str) -> Response {
+    zustand.protokoll.eintragen(
+        Stufe::Error,
+        Bereich::Verlauf,
+        "Verlauf nicht gelesen",
+        Kontext::neu().mit(Schluessel::Grund, grund),
+    );
     (
         StatusCode::INTERNAL_SERVER_ERROR,
         Json(json!({ "fehler": format!("Verlauf nicht gelesen — {grund}") })),
@@ -284,7 +290,8 @@ mod tests {
 
     #[tokio::test]
     async fn ein_abgebrochener_verlauf_ist_500_mit_grund() {
-        let antwort = nicht_gelesen("Werkbank geschlossen");
+        let zustand = crate::http::testserver::zustand(std::path::Path::new("/tmp"));
+        let antwort = nicht_gelesen(&zustand, "Werkbank geschlossen");
 
         assert_eq!(antwort.status(), StatusCode::INTERNAL_SERVER_ERROR);
         let koerper = axum::body::to_bytes(antwort.into_body(), 1024)

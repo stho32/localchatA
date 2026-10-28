@@ -7,6 +7,7 @@ mod aufruf;
 pub(crate) mod ausliefern;
 mod browser;
 pub(crate) mod ende;
+mod ladedefekte;
 pub mod laufzeit;
 mod ordner;
 mod port;
@@ -73,10 +74,11 @@ pub async fn ausfuehren<I: IntoIterator<Item = String>>(argumente: I) -> ExitCod
             };
             match starten(auftrag, uhr, gnadenfrist, herzschlag).await {
                 Ok(()) => ExitCode::SUCCESS,
-                Err(fehler) => {
+                Err(Startabbruch::VorDerSperre(fehler)) => {
                     eprintln!("{fehler}");
                     ExitCode::FAILURE
                 }
+                Err(Startabbruch::Eingetragen) => ExitCode::FAILURE,
             }
         }
         Err(fehler) => {
@@ -86,23 +88,59 @@ pub async fn ausfuehren<I: IntoIterator<Item = String>>(argumente: I) -> ExitCod
     }
 }
 
+/// Warum der Start endete, ohne zu laufen: vor der Sperre steht der Fehler auf stderr, danach im Protokoll.
+enum Startabbruch {
+    VorDerSperre(Startfehler),
+    Eingetragen,
+}
+
 async fn starten(
     auftrag: Startauftrag,
     uhr: Box<dyn Uhr>,
     gnadenfrist: Duration,
     herzschlag: Duration,
-) -> Result<(), Startfehler> {
+) -> Result<(), Startabbruch> {
     let uhr: Arc<dyn Uhr> = Arc::from(uhr);
-    let ordner = ordner::ordner_vorbereiten(&auftrag.ordner)?;
-    let _sperre = sperre::ordner_sperren(&ordner)?;
+    let ordner = ordner::ordner_vorbereiten(&auftrag.ordner).map_err(Startabbruch::VorDerSperre)?;
+    let _sperre = sperre::ordner_sperren(&ordner).map_err(Startabbruch::VorDerSperre)?;
     let beginn = Instant::now();
     let protokoll = Arc::new(Protokoll::oeffnen(
         &ordner,
         Arc::clone(&uhr),
         Stufe::Information,
     ));
+    let laufen = nach_der_sperre(
+        auftrag,
+        uhr,
+        gnadenfrist,
+        herzschlag,
+        ordner,
+        Arc::clone(&protokoll),
+        beginn,
+    );
+    laufen.await.map_err(|fehler| {
+        protokoll.eintragen(
+            Stufe::Error,
+            Bereich::Start,
+            "Start gescheitert — die Instanz endet",
+            Kontext::neu().mit(Schluessel::Grund, fehler),
+        );
+        Startabbruch::Eingetragen
+    })
+}
+
+/// Vom Laden bis zum Ende; jeder Fehler hier gehört ins Protokoll (ADR-0042 Regel 2, `start`).
+async fn nach_der_sperre(
+    auftrag: Startauftrag,
+    uhr: Arc<dyn Uhr>,
+    gnadenfrist: Duration,
+    herzschlag: Duration,
+    ordner: std::path::PathBuf,
+    protokoll: Arc<Protokoll>,
+    beginn: Instant,
+) -> Result<(), Startfehler> {
     let bus = Arc::new(Bus::neu(live::KAPAZITAET));
-    let gespraeche = verlauf_laden(&ordner, Arc::clone(&uhr))?
+    let gespraeche = verlauf_laden(&ordner, Arc::clone(&uhr), &protokoll)?
         .mit_veroeffentlichen(bus::channels_veroeffentlichen(&bus));
     let anwesenheit = Arc::new(
         Anwesenheit::neu(
@@ -141,7 +179,7 @@ async fn starten(
     );
     startzeile_schreiben(&ordner, adresse);
     if auftrag.browser_oeffnen {
-        browser::oeffnen(adresse);
+        browser::oeffnen(adresse, Arc::clone(&protokoll));
     }
     let app = http::router(Zustand {
         ordner,
@@ -152,13 +190,14 @@ async fn starten(
         ende: ende.clone(),
         grenzschutz: Grenzschutz::neu(rechnername::lesen(), auftrag.erreichbar_als),
         werkbank: http::Werkbank::aus_kernen(),
+        protokoll: Arc::clone(&protokoll),
     });
     ausliefern::ausliefern(
         listener,
         app,
         ende,
         Verbindungsgrenzen::fuer_diesen_prozess(),
-        Pflege::kernel(pflege_aus(herzschlag)),
+        Pflege::kernel(pflege_aus(herzschlag), Arc::clone(&protokoll)),
     )
     .await;
     protokoll.eintragen(
@@ -171,17 +210,25 @@ async fn starten(
 }
 
 /// Lädt den Verlauf vor dem Binden — ab der Startzeile ist er vollständig da (A00003).
-/// Jeder Defekt steht als eine Zeile `<datei>:<zeile>` auf stderr (X00004).
-fn verlauf_laden(ordner: &Path, uhr: Arc<dyn Uhr>) -> Result<Gespraeche, Startfehler> {
+/// Jeder Defekt ist eine WARNING `laden` im Protokoll (ADR-0042 Regel 2).
+fn verlauf_laden(
+    ordner: &Path,
+    uhr: Arc<dyn Uhr>,
+    protokoll: &Arc<Protokoll>,
+) -> Result<Gespraeche, Startfehler> {
+    let ablage = Dateiablage::neu(ordner).mit_protokoll(Arc::clone(protokoll));
     let gespraeche =
-        Gespraeche::laden(Arc::new(Dateiablage::neu(ordner)), uhr).map_err(|fehler| {
-            Startfehler::Laden {
-                ordner: ordner.to_path_buf(),
-                grund: fehler.to_string(),
-            }
+        Gespraeche::laden(Arc::new(ablage), uhr).map_err(|fehler| Startfehler::Laden {
+            ordner: ordner.to_path_buf(),
+            grund: fehler.to_string(),
         })?;
-    for defekt in gespraeche.defekte() {
-        eprintln!("{defekt}");
+    for eintrag in ladedefekte::eintraege(gespraeche.defekte()) {
+        protokoll.eintragen(
+            eintrag.stufe,
+            eintrag.bereich,
+            eintrag.text,
+            eintrag.kontext,
+        );
     }
     Ok(gespraeche)
 }
@@ -203,7 +250,7 @@ fn ende_einrichten(
     let (melden, ende) = Ende::neu();
     let signal = Arc::new(OnceLock::new());
     let gemerkt = Arc::clone(&signal);
-    let beenden = beenden_einrichten();
+    let beenden = beenden_einrichten(&protokoll);
     tokio::spawn(async move {
         let grund = beenden.await;
         let _ = gemerkt.set(grund);
@@ -228,10 +275,12 @@ fn ende_kontext(grund: Option<&str>, beginn: Instant) -> Kontext {
 /// Richtet den Empfang von Strg+C und SIGTERM sofort ein — vor der Startzeile, denn ab ihr gilt die Instanz
 /// als bereit, und ein Signal ab da muss geordnet beenden. Das Ergebnis endet, sobald eines eintrifft.
 #[cfg(unix)]
-fn beenden_einrichten() -> impl Future<Output = &'static str> + Send + 'static {
+fn beenden_einrichten(
+    protokoll: &Protokoll,
+) -> impl Future<Output = &'static str> + Send + 'static {
     use tokio::signal::unix::SignalKind;
-    let strg_c = signal_einrichten(SignalKind::interrupt(), "Strg+C");
-    let sigterm = signal_einrichten(SignalKind::terminate(), "SIGTERM");
+    let strg_c = signal_einrichten(SignalKind::interrupt(), "Strg+C", protokoll);
+    let sigterm = signal_einrichten(SignalKind::terminate(), "SIGTERM", protokoll);
     async move {
         tokio::select! {
             _ = eintreffen(strg_c) => "Strg+C",
@@ -240,19 +289,29 @@ fn beenden_einrichten() -> impl Future<Output = &'static str> + Send + 'static {
     }
 }
 
-/// Lässt sich ein Signal nicht abfangen, steht ein Hinweis auf stderr; beendet wird dann nur über das andere.
+/// Lässt sich ein Signal nicht abfangen, steht eine WARNING im Protokoll; beendet wird dann nur über das andere.
 #[cfg(unix)]
 fn signal_einrichten(
     art: tokio::signal::unix::SignalKind,
     name: &str,
+    protokoll: &Protokoll,
 ) -> Option<tokio::signal::unix::Signal> {
     match tokio::signal::unix::signal(art) {
         Ok(signal) => Some(signal),
         Err(fehler) => {
-            eprintln!("{name} lässt sich nicht abfangen ({fehler})");
+            signal_warnen(protokoll, name, &fehler);
             None
         }
     }
+}
+
+fn signal_warnen(protokoll: &Protokoll, name: &str, fehler: &std::io::Error) {
+    protokoll.eintragen(
+        Stufe::Warning,
+        Bereich::Start,
+        format!("{name} lässt sich nicht abfangen — beendet wird nur über das andere Signal"),
+        Kontext::neu().mit(Schluessel::Grund, fehler),
+    );
 }
 
 #[cfg(unix)]
@@ -267,18 +326,20 @@ async fn eintreffen(signal: Option<tokio::signal::unix::Signal>) {
 
 /// Wie unter Unix, nur mit Strg+C; lässt es sich nicht abfangen, wird nie beendet statt sofort.
 #[cfg(windows)]
-fn beenden_einrichten() -> impl Future<Output = &'static str> + Send + 'static {
+fn beenden_einrichten(
+    protokoll: &Protokoll,
+) -> impl Future<Output = &'static str> + Send + 'static {
     let strg_c = tokio::signal::windows::ctrl_c();
+    if let Err(fehler) = &strg_c {
+        signal_warnen(protokoll, "Strg+C", fehler);
+    }
     async move {
         match strg_c {
             Ok(mut strg_c) => {
                 strg_c.recv().await;
                 "Strg+C"
             }
-            Err(fehler) => {
-                eprintln!("Strg+C lässt sich nicht abfangen ({fehler})");
-                std::future::pending::<&'static str>().await
-            }
+            Err(_) => std::future::pending::<&'static str>().await,
         }
     }
 }

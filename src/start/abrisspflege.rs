@@ -2,6 +2,7 @@
 //! Verbindung selbst abbricht — `TCP_USER_TIMEOUT` = 2H (die Abrissgrenze), Keepalive nach H, alle H, 2 Proben.
 //! `pflege_aus` ist rein; `kernel_pflegen` setzt die Werte am Socket (B0100, über `rustix::net::sockopt`).
 
+use crate::protokoll::{Bereich, Kontext, Protokoll, Schluessel, Stufe};
 use std::fmt;
 use std::io;
 use std::sync::Arc;
@@ -113,11 +114,20 @@ pub struct Pflege {
 }
 
 impl Pflege {
-    /// Die Fassung des Programms: Kernel-Pflege, der erste Fehler eine Zeile auf stderr.
-    pub fn kernel(pflege: Verbindungspflege) -> Pflege {
+    /// Die Fassung des Programms: Kernel-Pflege, der erste Fehler eine WARNING im Betriebsprotokoll.
+    pub fn kernel(pflege: Verbindungspflege, protokoll: Arc<Protokoll>) -> Pflege {
         Pflege::neu(
             move |strom: &TcpStream| kernel_pflegen(strom, &pflege),
-            |fehler: &Pflegefehler| eprintln!("{fehler}"),
+            move |fehler: &Pflegefehler| {
+                protokoll.eintragen(
+                    Stufe::Warning,
+                    Bereich::Verbindung,
+                    "Abrisspflege nicht setzbar — Verbindungen werden ohne Pflege bedient",
+                    Kontext::neu()
+                        .mit(Schluessel::Option, fehler.option)
+                        .mit(Schluessel::Grund, &fehler.fehler),
+                );
+            },
         )
     }
 

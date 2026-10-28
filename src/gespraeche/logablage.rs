@@ -2,11 +2,13 @@
 //!
 //! Kennt das Logformat nicht — liest und schreibt Sätze als fertigen Text.
 
+use crate::protokoll::{Bereich, Kontext, Protokoll, Schluessel, Stufe};
 use chrono::NaiveDate;
 use std::fmt;
 use std::fs::File;
 use std::io::{self, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 /// Ein Gespräch ist ein Ordner unter `channels/<slug>` oder `direkt/<name>`.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -87,13 +89,21 @@ pub struct Angehaengt {
 /// Die Ablage im Ordner der Instanz.
 pub struct Dateiablage {
     ordner: PathBuf,
+    protokoll: Option<Arc<Protokoll>>,
 }
 
 impl Dateiablage {
     pub fn neu(ordner: &Path) -> Dateiablage {
         Dateiablage {
             ordner: ordner.to_path_buf(),
+            protokoll: None,
         }
+    }
+
+    /// Ein gescheiterter Rückbau steht dann als ERROR im Betriebsprotokoll (ADR-0042 Regel 2, `senden`).
+    pub fn mit_protokoll(mut self, protokoll: Arc<Protokoll>) -> Dateiablage {
+        self.protokoll = Some(protokoll);
+        self
     }
 }
 
@@ -149,8 +159,19 @@ impl Logablage for Dateiablage {
         }
         bytes.extend_from_slice(satz.as_bytes());
         if let Err(fehler) = datei.write_all(&bytes) {
-            if let Some(meldung) = zurueckbauen(|auf| datei.set_len(auf), laenge, &tagesdatei) {
-                eprintln!("{meldung}");
+            if let (Some(grund), Some(protokoll)) = (
+                zurueckbauen(|auf| datei.set_len(auf), laenge, &tagesdatei),
+                &self.protokoll,
+            ) {
+                protokoll.eintragen(
+                    Stufe::Error,
+                    Bereich::Senden,
+                    "Rückbau gescheitert — der Rest des Satzes bleibt in der Tagesdatei stehen",
+                    Kontext::neu()
+                        .mit(Schluessel::Datei, &tagesdatei)
+                        .mit(Schluessel::Grund, grund)
+                        .mit(Schluessel::Anzahl, laenge),
+                );
             }
             return Err(fehler);
         }

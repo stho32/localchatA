@@ -76,6 +76,17 @@ impl Protokoll {
         }
     }
 
+    /// Ein Protokoll, dessen Einträge nirgends stehen — für Bausteine, die außerhalb des Programms laufen
+    /// (Testserver, Werkzeuge); Zähler und Kennzahlen arbeiten wie sonst.
+    pub fn ohne_ablage() -> Protokoll {
+        Protokoll::mit(
+            Box::new(senke::Speicher::neu()),
+            Arc::new(|_: &str| {}),
+            Arc::new(crate::uhr::Systemuhr),
+            Stufe::Information,
+        )
+    }
+
     /// `true`, solange Einträge in die Datei gehen; `false` im Rückfall auf stderr (ADR-0043 Regel 5).
     pub fn ok(&self) -> bool {
         self.ok.load(Ordering::SeqCst)

@@ -4,6 +4,7 @@
 
 mod gemeinsam;
 
+use gemeinsam::protokoll::ort;
 use gemeinsam::strom::Strom;
 use gemeinsam::{Absender, Instanz, gesundheit, starten_mit};
 use serde_json::{Value, json};
@@ -69,8 +70,12 @@ async fn us14_ordner_mit_ungueltigem_namen_werden_beim_start_uebergangen_und_ble
     assert_eq!(gesundheit["defekte_zeilen"], 1);
     let zu_test = stderr_zeilen(instanz, "channels/");
     assert_eq!(
-        zu_test,
-        vec!["channels/Test: kein gültiger Channelname, übergangen"]
+        zu_test.iter().map(|z| ort(z)).collect::<Vec<_>>(),
+        ["channels/Test"]
+    );
+    assert!(
+        zu_test[0].contains("WARNING laden Kein gültiger Channelname"),
+        "{zu_test:?}"
     );
     assert_eq!(
         fs::read(ordner.join("channels/Test/zettel.txt")).expect("Test"),
@@ -102,7 +107,7 @@ async fn us14_eine_defekte_einstellungsdatei_wird_als_unbekannt_gelesen_und_nie_
     let zeilen = stderr_zeilen(instanz, "channels/kaputt/einstellungen.toml");
     assert_eq!(zeilen.len(), 1, "{zeilen:?}");
     assert!(
-        zeilen[0].starts_with("channels/kaputt/einstellungen.toml:1: "),
+        ort(&zeilen[0]) == "channels/kaputt/einstellungen.toml:1",
         "{zeilen:?}"
     );
     assert_eq!(
@@ -131,7 +136,7 @@ async fn r00007_eine_beschreibung_gegen_die_regel_macht_die_einstellungen_defekt
     let zeilen = stderr_zeilen(instanz, "channels/kaputt/einstellungen.toml");
     assert_eq!(zeilen.len(), 1, "{zeilen:?}");
     assert!(
-        zeilen[0].starts_with("channels/kaputt/einstellungen.toml:2: "),
+        ort(&zeilen[0]) == "channels/kaputt/einstellungen.toml:2",
         "{zeilen:?}"
     );
     assert_eq!(

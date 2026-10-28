@@ -79,3 +79,13 @@ pub fn wert(zeile: &str, schluessel: &str) -> Option<String> {
         Some(rest.split(' ').next().unwrap_or_default().to_string())
     }
 }
+
+/// Der Ort, den eine `laden`-Zeile nennt: `<datei>:<zeile>` bzw. `<datei>` ohne Zeile — die Form, in der
+/// ältere Kriterien Ladedefekte nennen.
+pub fn ort(zeile: &str) -> String {
+    let datei = wert(zeile, "datei").unwrap_or_default();
+    match wert(zeile, "zeile") {
+        Some(nummer) => format!("{datei}:{nummer}"),
+        None => datei,
+    }
+}

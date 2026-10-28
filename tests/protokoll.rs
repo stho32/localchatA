@@ -91,3 +91,45 @@ async fn nach_sigterm_stehen_ende_und_beendet_in_dieser_reihenfolge() {
     assert!(!ende[0].contains("beendet"), "{ende:#?}");
     assert!(ende[1].contains("beendet"), "{ende:#?}");
 }
+
+/// 13 defekte Kopfzeilen in einer Tagesdatei.
+fn dreizehn_defekte(ordner: &Path) {
+    let ziel = ordner.join("channels/allgemein/2026-10-28.log");
+    std::fs::create_dir_all(ziel.parent().expect("Elternordner")).expect("Ordner");
+    std::fs::write(ziel, "@ kaputt\n\n".repeat(13)).expect("Tagesdatei");
+}
+
+#[tokio::test]
+async fn ladedefekte_zehn_einzeln_und_der_rest_als_eine_zeile_in_datei_und_auf_stderr() {
+    let wurzel = tempfile::tempdir().expect("Wegwerf-Ordner");
+    dreizehn_defekte(wurzel.path());
+    let mut instanz = starten_um(wurzel.path(), "2026-10-28T12:00:00+01:00", &[]);
+
+    let (status, gesundheit) = gemeinsam::gesundheit(&instanz.adresse).await;
+    assert!(instanz.signal_und_warten("TERM").success());
+    let stderr = instanz.stderr_bis_zum_ende();
+    let stdout = instanz.restliche_ausgabe();
+
+    assert_eq!(status, 200);
+    assert_eq!(gesundheit["defekte_zeilen"], 13);
+    let datei = zeilen(wurzel.path(), "2026-10-28");
+    let laden = mit(&datei, "WARNING", "laden");
+    assert_eq!(laden.len(), 11, "{laden:#?}");
+    for zeile in &laden[..10] {
+        assert_eq!(
+            wert(zeile, "datei").as_deref(),
+            Some("channels/allgemein/2026-10-28.log"),
+            "{zeile}"
+        );
+        assert!(wert(zeile, "zeile").is_some(), "{zeile}");
+    }
+    assert!(laden[10].contains("und 3 weitere"), "{}", laden[10]);
+    // stderr nur im Protokollformat ab Warning, wortgleich in der Datei; stdout nur die Startzeile.
+    let stderr_zeilen: Vec<String> = stderr.lines().map(str::to_string).collect();
+    assert_eq!(stderr_zeilen, laden, "{stderr}");
+    for zeile in &stderr_zeilen {
+        assert!(ist_protokollzeile(zeile), "{zeile}");
+        assert!(datei.contains(zeile), "{zeile}");
+    }
+    assert_eq!(stdout, "");
+}

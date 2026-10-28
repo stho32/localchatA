@@ -12,6 +12,7 @@ use super::teilnehmerliste::zeit_als_text;
 use crate::gespraeche::einstellungen::{Beschreibung, Beschreibungsfehler};
 use crate::gespraeche::{Anlegefehler, Channel, ChannelStand, Grenzart, Grenze};
 use crate::name::{NAMENSREGEL, Namensfehler, RESERVIERT};
+use crate::protokoll::{Bereich, Kontext, Schluessel, Stufe};
 use axum::Json;
 use axum::body::Body;
 use axum::extract::State;
@@ -37,6 +38,7 @@ pub async fn anlegen(
     };
     let gespraeche = Arc::clone(&zustand.gespraeche);
     let kennung = teilnehmer.kennung;
+    let wer = kennung.als_text().to_string();
     let gewuenscht = name.clone();
     let ergebnis = tokio::task::spawn_blocking(move || {
         gespraeche.channel_anlegen(&gewuenscht, beschreibung, &kennung)
@@ -48,6 +50,18 @@ pub async fn anlegen(
             Json(json!({ "channel": channel_als_json(&channel) })),
         )
             .into_response(),
+        Ok(Err(Anlegefehler::Ablage(grund))) => {
+            zustand.protokoll.eintragen(
+                Stufe::Error,
+                Bereich::Channels,
+                "Channel nicht angelegt — Ordner oder Einstellungen ließen sich nicht schreiben",
+                Kontext::neu()
+                    .mit(Schluessel::Channel, &name)
+                    .mit(Schluessel::Kennung, &wer)
+                    .mit(Schluessel::Grund, &grund),
+            );
+            ablagefehler(&grund)
+        }
         Ok(Err(fehler)) => anlegefehler(fehler, &name),
         Err(abgebrochen) => ablagefehler(&format!("Anlegen abgebrochen: {abgebrochen}")),
     }
@@ -131,10 +145,7 @@ fn anlegefehler(fehler: Anlegefehler, name: &str) -> Response {
         }
         Anlegefehler::Regel(fehler) => regelverstoss(&fehler),
         Anlegefehler::Grenze(grenze) => grenze_erreicht(grenze),
-        Anlegefehler::Ablage(grund) => {
-            eprintln!("Channel nicht angelegt: {grund}");
-            ablagefehler(&grund)
-        }
+        Anlegefehler::Ablage(grund) => ablagefehler(&grund),
     }
 }
 
