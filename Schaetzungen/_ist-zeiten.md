@@ -155,3 +155,10 @@ Nie vom User erfragen.
 | 2026-10-28 | R00006 Channel anlegen | B0132 Rückbau bei Plattenfehler | Standard | 0,4h | 0,15h | 0,15h | autonom |
 | 2026-10-28 | R00006 Channel anlegen | B0133 Channels zusammenführen | Standard | 0,4h | 0,05h | 0,05h | autonom |
 | 2026-10-28 | R00006 Channel anlegen | B0134 Worker gibt beide Stände | Standard | 0,4h | 0,1h | 0,1h | autonom |
+| 2026-10-28 | R00006 Channel anlegen | B0135 Seitenleiste zeichnen | unklar | 2-4h | 0,3h | 0,3h | autonom |
+| 2026-10-28 | R00006 Channel anlegen | B0136 Seitenleiste in die Hauptansicht | Standard | 0,4h | 0,2h | 0,2h | autonom |
+| 2026-10-28 | R00006 Channel anlegen | B0137 Tastenkürzel ohne AltGr | Standard | 0,4h | 0,05h | 0,05h | autonom |
+| 2026-10-28 | R00006 Channel anlegen | B0138 Namensregel im Browser mit reservierten Namen | Standard | 0,4h | 0,15h | 0,15h | autonom |
+| 2026-10-28 | R00006 Channel anlegen | B0139 Antwort im Dialog deuten | Standard | 0,4h | 0,1h | 0,1h | autonom |
+| 2026-10-28 | R00006 Channel anlegen | B0140 Dialog zeichnen und bedienen | unklar | 2-4h | 0,6h | 0,6h | autonom |
+| 2026-10-28 | R00006 Channel anlegen | Lauf R00006: Zeitmessung, Mutationsproben, Gate | Konsolidierung | — | 0,7h | 0,7h | autonom |
