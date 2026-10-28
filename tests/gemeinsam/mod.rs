@@ -1,6 +1,8 @@
 //! Startet das echte Programm `localchatA` und liest die Adresse aus der Startzeile (ADR-0009).
 #![allow(dead_code)]
 
+pub mod strom;
+
 use std::io::{BufRead, BufReader, Read};
 use std::path::{Path, PathBuf};
 use std::process::{Child, ChildStderr, ChildStdout, Command, ExitStatus, Stdio};

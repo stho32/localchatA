@@ -3,6 +3,7 @@
 
 mod gemeinsam;
 
+use gemeinsam::strom::{Empfangen, Strom, ist_wechsel};
 use gemeinsam::{Absender, ApiAntwort, Instanz, aufrufen_mit, starten_mit, wegwerf_starten};
 use serde_json::{Value, json};
 use std::time::Duration;
@@ -20,118 +21,6 @@ async fn beitreten(absender: &Absender, instanz: &Instanz, name: &str) -> String
             .beitreten(&instanz.adresse, json!({ "name": name }), None)
             .await,
     )
-}
-
-/// Ein Ereignis, wie der Strom es liefert: `event` (leer für `data`-Ereignisse), `data` als JSON, Ankunft.
-#[derive(Debug, Clone)]
-struct Empfangen {
-    event: String,
-    data: Value,
-    ankunft: Instant,
-}
-
-/// Ein offener Ereignisstrom: liest Teilstücke und zerlegt sie in Ereignisse; `drop` schließt ihn.
-struct Strom {
-    antwort: reqwest::Response,
-    rest: String,
-    ereignisse: Vec<Empfangen>,
-}
-
-impl Strom {
-    async fn oeffnen(absender: &Absender, basis: &str, token: &str) -> Strom {
-        let antwort = absender
-            .anfrage(reqwest::Method::GET, format!("{basis}api/ereignisse"))
-            .header("X-LocalchatA-Sitzung", token)
-            .send()
-            .await
-            .expect("Strom");
-        assert_eq!(antwort.status(), 200);
-        Strom {
-            antwort,
-            rest: String::new(),
-            ereignisse: Vec::new(),
-        }
-    }
-
-    /// Liest bis zum nächsten Ereignis, das `passt`, höchstens `hoechstens`; alle gelesenen bleiben in
-    /// `ereignisse`. `None`, wenn keines kam oder der Strom endete.
-    async fn bis(
-        &mut self,
-        hoechstens: Duration,
-        passt: impl Fn(&Empfangen) -> bool,
-    ) -> Option<Empfangen> {
-        let ende = Instant::now() + hoechstens;
-        let mut gelesen = self.ereignisse.len();
-        loop {
-            if let Some(treffer) = self.ereignisse[gelesen..].iter().find(|e| passt(e)) {
-                return Some(treffer.clone());
-            }
-            gelesen = self.ereignisse.len();
-            let stueck = tokio::time::timeout_at(ende, self.antwort.chunk()).await;
-            match stueck {
-                Ok(Ok(Some(bytes))) => self.zerlegen(&String::from_utf8_lossy(&bytes)),
-                _ => return None,
-            }
-        }
-    }
-
-    /// Liest `dauer` lang alles mit; `true`, wenn der Strom dabei endete.
-    async fn mitlesen(&mut self, dauer: Duration) -> bool {
-        let ende = Instant::now() + dauer;
-        loop {
-            match tokio::time::timeout_at(ende, self.antwort.chunk()).await {
-                Ok(Ok(Some(bytes))) => self.zerlegen(&String::from_utf8_lossy(&bytes)),
-                Ok(_) => return true,
-                Err(_) => return false,
-            }
-        }
-    }
-
-    fn zerlegen(&mut self, stueck: &str) {
-        self.rest.push_str(stueck);
-        while let Some(stelle) = self.rest.find("\n\n") {
-            let block: String = self.rest.drain(..stelle + 2).collect();
-            let mut event = String::new();
-            let mut data = String::new();
-            for zeile in block.lines() {
-                if let Some(wert) = zeile.strip_prefix("event:") {
-                    event = wert.trim().to_string();
-                } else if let Some(wert) = zeile.strip_prefix("data:") {
-                    data.push_str(wert.trim());
-                }
-            }
-            self.ereignisse.push(Empfangen {
-                event,
-                data: serde_json::from_str(&data).unwrap_or(Value::Null),
-                ankunft: Instant::now(),
-            });
-        }
-    }
-
-    fn wechsel_von(&self, kennung: &str) -> Vec<Empfangen> {
-        self.ereignisse
-            .iter()
-            .filter(|e| {
-                e.data["art"] == "anwesenheit" && e.data["teilnehmer"]["kennung"] == kennung
-            })
-            .cloned()
-            .collect()
-    }
-
-    fn staende(&self) -> Vec<u64> {
-        self.ereignisse
-            .iter()
-            .filter_map(|e| e.data["stand"].as_u64())
-            .collect()
-    }
-}
-
-fn ist_wechsel(kennung: &'static str, status: &'static str) -> impl Fn(&Empfangen) -> bool {
-    move |e| {
-        e.data["art"] == "anwesenheit"
-            && e.data["teilnehmer"]["kennung"] == kennung
-            && e.data["teilnehmer"]["status"] == status
-    }
 }
 
 fn streng_steigend(staende: &[u64]) -> bool {
