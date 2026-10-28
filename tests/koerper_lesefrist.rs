@@ -57,6 +57,8 @@ async fn verbinden(port: u16, herkunft: &str) -> TcpStream {
 #[derive(Debug)]
 struct Ausgang {
     status: Option<u16>,
+    /// Kopfzeilen der Antwort, Namen klein geschrieben.
+    kopf: Vec<String>,
     inhalt: String,
     zu: bool,
     nach: Duration,
@@ -80,13 +82,11 @@ async fn bis_zum_schliessen(strom: &mut TcpStream, seit: Instant) -> Ausgang {
         .nth(1)
         .and_then(|code| code.parse().ok())
         .filter(|_| text.starts_with("HTTP/1.1 "));
-    let inhalt = text
-        .split_once("\r\n\r\n")
-        .map(|(_, inhalt)| inhalt.to_string())
-        .unwrap_or_default();
+    let (kopf, inhalt) = text.split_once("\r\n\r\n").unwrap_or_default();
     Ausgang {
         status,
-        inhalt,
+        kopf: kopf.lines().skip(1).map(str::to_lowercase).collect(),
+        inhalt: inhalt.to_string(),
         zu,
         nach,
     }
@@ -257,6 +257,10 @@ async fn g4_jede_408_wird_als_zu_langsam_gezaehlt_und_als_episode_gemeldet() {
             json,
             serde_json::json!({"fehler": "Körper nicht vollständig innerhalb von 10 s — Anfrage abgebrochen."})
         );
+        assert!(
+            ausgang.kopf.iter().any(|z| z == "connection: close"),
+            "{ausgang:?}"
+        );
         assert!(ausgang.zu, "{ausgang:?}");
     }
     assert_eq!(
@@ -275,6 +279,43 @@ async fn g4_jede_408_wird_als_zu_langsam_gezaehlt_und_als_episode_gemeldet() {
         assert_eq!(wert(zeile, "route").as_deref(), Some("POST /api/beitreten"));
         assert_eq!(wert(zeile, "herkunft").as_deref(), Some("127.0.0.1"));
     }
+}
+
+/// Muster-Suche: jede Route, die über `json_lesen` liest, antwortet nach der Frist 408 — auch die Anlage eines
+/// Channels (mit gültiger Sitzung), nicht nur der Beitritt.
+#[tokio::test]
+async fn g4_auch_die_anlage_eines_channels_antwortet_nach_der_frist_408() {
+    let instanz = starten_um(tempfile::tempdir().expect("Ordner").path(), &[]);
+    let token = gemeinsam::Absender::von("127.0.0.1")
+        .beitreten(&instanz.adresse, serde_json::json!({"name": "alpha"}), None)
+        .await
+        .json["token"]
+        .as_str()
+        .expect("Token")
+        .to_string();
+    let mut strom = verbinden(instanz.port(), "127.0.0.1").await;
+    strom
+        .write_all(
+            format!(
+                "POST /api/channels HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Type: application/json\r\nX-LocalchatA-Sitzung: {token}\r\nContent-Length: 4096\r\n\r\n{{\"name\":\"a"
+            )
+            .as_bytes(),
+        )
+        .await
+        .expect("Kopf und 10 Bytes");
+    let ausgang = bis_zum_schliessen(&mut strom, Instant::now()).await;
+
+    assert_eq!(ausgang.status, Some(408), "{ausgang:?}");
+    assert!(
+        ausgang.kopf.iter().any(|z| z == "connection: close"),
+        "{ausgang:?}"
+    );
+    assert!(ausgang.zu && ausgang.nach <= GRENZE, "{ausgang:?}");
+    let json: serde_json::Value = serde_json::from_str(&ausgang.inhalt).expect("JSON");
+    assert_eq!(
+        json["fehler"],
+        "Körper nicht vollständig innerhalb von 10 s — Anfrage abgebrochen."
+    );
 }
 
 /// Wartet höchstens 10 s auf das Ende der Körper-Episode in den Zeilen von heute.
