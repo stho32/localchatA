@@ -84,6 +84,7 @@ mod tests {
                 art: Art::Agent,
                 status: Status::Online,
                 seit: Zeit::parse_from_rfc3339("2026-10-28T09:00:00+01:00").expect("Zeit"),
+                weg_um: None,
             },
         })
     }

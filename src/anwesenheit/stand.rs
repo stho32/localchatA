@@ -8,7 +8,8 @@ use crate::name::Name;
 use crate::uhr::Zeit;
 use std::net::IpAddr;
 
-/// Ein Teilnehmer, wie ihn alle anderen sehen: wer, woher, welche Art, welcher Status seit wann.
+/// Ein Teilnehmer, wie ihn alle anderen sehen: wer, woher, welche Art, welcher Status seit wann — und bei
+/// `offline`, bis wann die Sitzung noch lebt (ADR-0019 Regel 1).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Teilnehmerzeile {
     pub kennung: Kennung,
@@ -17,6 +18,9 @@ pub struct Teilnehmerzeile {
     pub art: Art,
     pub status: Status,
     pub seit: Zeit,
+    /// Bei `offline` der letzte Augenblick, in dem die Sitzung noch lebt (letztes Lebenszeichen +
+    /// Gnadenfrist); sonst keiner.
+    pub weg_um: Option<Zeit>,
 }
 
 /// Eine Statusänderung; `stand` wächst unter der Sperre der Anwesenheit mit jedem Wechsel.

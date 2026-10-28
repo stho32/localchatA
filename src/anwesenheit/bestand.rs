@@ -97,8 +97,11 @@ impl Eintrag {
         self.sitzung.kennung.als_text()
     }
 
-    fn zeile(&self) -> Teilnehmerzeile {
+    /// Die Zeile mit dem zuletzt gemeldeten Status; bei `offline` mit `weg_um` aus dem letzten Lebenszeichen.
+    fn zeile(&self, gnadenfrist: Duration) -> Teilnehmerzeile {
         let (status, seit) = self.gemeldet;
+        let weg_um = (status == Status::Offline)
+            .then(|| weg_um(self.sitzung.letztes_lebenszeichen, gnadenfrist));
         Teilnehmerzeile {
             kennung: self.sitzung.kennung.clone(),
             name: self.sitzung.name.clone(),
@@ -106,6 +109,7 @@ impl Eintrag {
             art: self.sitzung.art,
             status,
             seit,
+            weg_um,
         }
     }
 }
@@ -137,7 +141,8 @@ impl Bestand {
                     teilnehmer: Teilnehmerzeile {
                         status: Status::Weg,
                         seit: jetzt,
-                        ..eintrag.zeile()
+                        weg_um: None,
+                        ..eintrag.zeile(gnadenfrist)
                     },
                 }
             })
@@ -145,7 +150,7 @@ impl Bestand {
     }
 
     /// Meldet jede Sitzung, deren Status sich gegenüber dem zuletzt gemeldeten geändert hat — nach Kennung.
-    fn status_melden(&mut self, jetzt: Zeit) -> Vec<Wechsel> {
+    fn status_melden(&mut self, jetzt: Zeit, gnadenfrist: Duration) -> Vec<Wechsel> {
         let mut geaendert: Vec<(Token, Status, Zeit, String)> = self
             .eintraege
             .iter()
@@ -165,18 +170,24 @@ impl Bestand {
         geaendert.sort_by(|links, rechts| links.3.cmp(&rechts.3));
         geaendert
             .into_iter()
-            .filter_map(|(token, status, seit, _)| self.melden(&token, status, seit))
+            .filter_map(|(token, status, seit, _)| self.melden(&token, status, seit, gnadenfrist))
             .collect()
     }
 
     /// Meldet `status` für den Eintrag: zählt `stand` hoch und liefert den Wechsel.
-    fn melden(&mut self, token: &Token, status: Status, seit: Zeit) -> Option<Wechsel> {
+    fn melden(
+        &mut self,
+        token: &Token,
+        status: Status,
+        seit: Zeit,
+        gnadenfrist: Duration,
+    ) -> Option<Wechsel> {
         let eintrag = self.eintraege.get_mut(token)?;
         eintrag.gemeldet = (status, seit);
         self.stand += 1;
         Some(Wechsel {
             stand: self.stand,
-            teilnehmer: eintrag.zeile(),
+            teilnehmer: eintrag.zeile(gnadenfrist),
         })
     }
 }
@@ -244,7 +255,7 @@ impl Anwesenheit {
         };
         let mut wechsel = bestand.abgelaufene_melden(jetzt, self.gnadenfrist);
         bestand.eintraege.insert(token.clone(), eintrag);
-        wechsel.extend(bestand.melden(&token, Status::Online, jetzt));
+        wechsel.extend(bestand.melden(&token, Status::Online, jetzt, self.gnadenfrist));
         self.melden_unter_der_sperre(&bestand, &wechsel);
         Ok(Beitritt { sitzung, wechsel })
     }
@@ -301,7 +312,7 @@ impl Anwesenheit {
         let eintrag = self.lebender_eintrag(&mut bestand, token, herkunft, jetzt)?;
         eintrag.sitzung.letztes_lebenszeichen = jetzt;
         eintrag.haltung.halter_beginnt(jetzt);
-        let wechsel = bestand.status_melden(jetzt);
+        let wechsel = bestand.status_melden(jetzt, self.gnadenfrist);
         self.melden_unter_der_sperre(&bestand, &wechsel);
         let halter = Halter {
             anwesenheit: Arc::clone(self),
@@ -324,7 +335,7 @@ impl Anwesenheit {
         jetzt: Zeit,
     ) -> Vec<Wechsel> {
         let mut wechsel = bestand.abgelaufene_melden(jetzt, self.gnadenfrist);
-        wechsel.extend(bestand.status_melden(jetzt));
+        wechsel.extend(bestand.status_melden(jetzt, self.gnadenfrist));
         self.melden_unter_der_sperre(bestand, &wechsel);
         wechsel
     }
@@ -347,7 +358,7 @@ impl Anwesenheit {
             .eintraege
             .values()
             .filter(|eintrag| eintrag.lebt(jetzt, self.gnadenfrist))
-            .map(Eintrag::zeile)
+            .map(|eintrag| eintrag.zeile(self.gnadenfrist))
             .collect();
         liste.sort_by(|links, rechts| links.kennung.als_text().cmp(rechts.kennung.als_text()));
         let stand = Stand {
@@ -414,10 +425,18 @@ impl Drop for Halter {
     }
 }
 
-/// Ohne Halter lebt eine Sitzung, solange ihr letztes Lebenszeichen höchstens die Gnadenfrist zurückliegt.
+/// Ohne Halter lebt eine Sitzung, solange ihr letztes Lebenszeichen höchstens die Gnadenfrist zurückliegt —
+/// weg ist sie erst, wenn `jetzt > weg_um`.
 fn lebt(letztes_lebenszeichen: Zeit, jetzt: Zeit, gnadenfrist: Duration) -> bool {
+    jetzt <= weg_um(letztes_lebenszeichen, gnadenfrist)
+}
+
+/// Der letzte Augenblick, in dem eine Sitzung ohne Halter noch lebt (ADR-0019 Regel 1, B0105).
+fn weg_um(letztes_lebenszeichen: Zeit, gnadenfrist: Duration) -> Zeit {
     let frist = chrono::Duration::from_std(gnadenfrist).unwrap_or(chrono::Duration::MAX);
-    jetzt - letztes_lebenszeichen <= frist
+    letztes_lebenszeichen
+        .checked_add_signed(frist)
+        .unwrap_or(Zeit::MAX_UTC.fixed_offset())
 }
 
 #[cfg(test)]
@@ -720,6 +739,7 @@ mod tests {
             art,
             status,
             seit,
+            weg_um: None,
         }
     }
 
@@ -968,6 +988,64 @@ mod tests {
         );
         assert_eq!(kurz(&danach), [], "weg wird einmal gemeldet");
         assert!(neu.is_ok(), "{neu:?}");
+    }
+
+    /// Kriterium „Regel weg“ (R00005 F0017, ADR-0019 Regel 1): fällt der Halter bei t, ist die Sitzung ab
+    /// t + 1 s `offline` mit `weg_um` = t + 60 s, bei t + 60 s noch da, bei t + 60 s + 1 ms `weg`.
+    #[test]
+    fn faellt_der_halter_bei_t_ist_weg_um_t_plus_gnadenfrist_und_weg_erst_danach() {
+        let (uhr, anwesenheit) = mit_gestellter_uhr();
+        let anwesenheit = Arc::new(anwesenheit);
+        let token = anwesenheit
+            .beitreten(&wunsch("alpha", Art::Agent), ip("127.0.0.2"))
+            .expect("alpha")
+            .sitzung
+            .token;
+        let (halter, _) = anwesenheit
+            .verbunden(&token, ip("127.0.0.2"))
+            .expect("Halter");
+        let t = nach_ms(5000);
+        let nach_t = |millisekunden: i64| t + chrono::Duration::milliseconds(millisekunden);
+        uhr.stellen(t);
+        drop(halter);
+
+        let offline = anwesenheit.pflegen(nach_t(1000));
+        let noch_da = anwesenheit.pflegen(nach_t(60_000));
+        let weg = anwesenheit.pflegen(nach_t(60_001));
+
+        assert_eq!(offline.len(), 1, "{offline:?}");
+        let zeile = &offline[0].teilnehmer;
+        assert_eq!(
+            (zeile.status, zeile.seit, zeile.weg_um),
+            (Status::Offline, nach_t(1000), Some(nach_t(60_000)))
+        );
+        assert_eq!(noch_da, vec![]);
+        assert_eq!(
+            kurz(&weg),
+            [(3, "alpha@127.0.0.2".into(), Status::Weg, nach_t(60_001))]
+        );
+        assert!(weg[0].teilnehmer.seit > nach_t(60_000));
+    }
+
+    #[test]
+    fn online_zeilen_tragen_kein_weg_um_offline_zeilen_im_stand_schon() {
+        let (uhr, anwesenheit) = mit_gestellter_uhr();
+        anwesenheit
+            .beitreten(&wunsch("alpha", Art::Agent), ip("127.0.0.2"))
+            .expect("alpha");
+        let online = anwesenheit.teilnehmer();
+        uhr.stellen(nach_ms(2000));
+        let offline = anwesenheit.teilnehmer();
+
+        assert_eq!(online.liste[0].weg_um, None);
+        assert_eq!(
+            (
+                offline.liste[0].status,
+                offline.liste[0].seit,
+                offline.liste[0].weg_um
+            ),
+            (Status::Offline, nach_ms(1000), Some(nach_ms(60_000)))
+        );
     }
 
     #[test]
