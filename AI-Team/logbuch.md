@@ -90,3 +90,4 @@ Eine Zeile je Auftrag an eine Rolle und je Retrospektive.
 | 2026-10-28 | #20, #21 | Detailplanung | planer | bestanden | 0:30 | R00009 (Kopfzeile 320 px), R00010 (Körpergrenze 4 KiB), F0039/F0040 (aus vorlauf/20 übernommen); kommen mit Vorrang nach #7 |
 | 2026-10-28 | #8 I0009 | Architektur | architekt | bestanden | 0:55 | ADR-0034–0038, ADR-0010-Ergänzung, A00014 Schreibkonto; Berichtigung ADR-0028 R8 (aus vorlauf/8 übernommen) |
 | 2026-10-28 | #8 I0009 | Detailplanung | planer | bestanden | 0:40 | R00011 (31 Bubbles); geteilt: I0020 mit R00012 als neue Karte, fertig geplant im Puffer |
+| 2026-10-28 | #7 I0008 | Entwicklung | entwickler | bestanden | 1:26 | R00007 B0141–B0174 (388cbf6…0c1ff83); L1–L5 grün, M1 0,17 %, M2 47 ms; Puffer-Zug: #20 in Entwicklung |
