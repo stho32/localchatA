@@ -101,3 +101,5 @@ Eine Zeile je Auftrag an eine Rolle und je Retrospektive.
 | 2026-10-28 | #23 Befund | Detailplanung | planer | bestanden | 0:15 | R00013, F0050 B0253–B0258; F0041 braucht F0050 (aus vorlauf/23b) |
 | 2026-10-28 | — | Prozess | Betreiber | — | — | neue Rolle observability-reviewer (obs) in Auto-Reviews; Logging-Konzept ./logs täglich, 14 Tage; Interaction „Betriebsprotokoll“ mit Vorrang |
 | 2026-10-28 | — | Lastprofil | Betreiber | — | — | „Team-LAN“: 20 Menschen + 50 Agenten, Spitze 30 Nachrichten/s, dauerhaft 5/s, 100.000 je Channel, 50 Channels; Zustellung < 1 s, Öffnen < 500 ms, Suche < 1 s |
+| 2026-10-28 | #21 Befund | Entwicklung → Auto-Reviews | entwickler | bestanden | 0:30 | B0204, B0205 grün; Reviews code, security, rechtschreib, observability (erster Einsatz) parallel; UX entfällt |
+| 2026-10-28 | #7 | Nacharbeit 2 | entwickler | läuft | — | nur Muss „1 Zeile“ aus dem Rechtschreib-Review |
