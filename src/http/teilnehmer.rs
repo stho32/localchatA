@@ -68,6 +68,11 @@ pub fn gemeldetes_token(kopf: &HeaderMap) -> Option<Token> {
     einziger_wert(kopf, &sitzung_header).and_then(Token::lesen)
 }
 
+/// Ob die Anfrage den Header `X-LocalchatA-Sitzung` überhaupt trägt — lesbar oder nicht.
+pub fn sitzung_gemeldet(kopf: &HeaderMap) -> bool {
+    kopf.contains_key(SITZUNG_HEADER)
+}
+
 /// Der Nachweis einer Sitzung bei jedem Aufruf (ADR-0012).
 const SITZUNG_HEADER: &str = "x-localchata-sitzung";
 

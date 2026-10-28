@@ -10,6 +10,7 @@ mod koerper;
 mod oberflaeche;
 mod teilnehmer;
 mod teilnehmerliste;
+mod verlassen;
 
 pub use grenzschutz::Grenzschutz;
 
@@ -50,6 +51,7 @@ pub fn router(zustand: Zustand) -> Router {
         .route("/api/ich", get(ich::beantworten))
         .route("/api/teilnehmer", get(teilnehmerliste::beantworten))
         .route("/api/ereignisse", get(ereignisse::beantworten))
+        .route("/api/verlassen", post(verlassen::beantworten))
         .with_state(Arc::new(zustand))
         .layer(middleware::from_fn_with_state(
             grenzschutz,
