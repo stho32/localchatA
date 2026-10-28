@@ -4,7 +4,7 @@
 
 mod gemeinsam;
 
-use gemeinsam::{Absender, Instanz, lokal_starten, wegwerf_starten};
+use gemeinsam::{Absender, Instanz, gesundheit, lokal_starten, wegwerf_starten};
 use serde_json::json;
 
 async fn beitreten(absender: &Absender, instanz: &Instanz, name: &str) -> String {
@@ -93,4 +93,21 @@ async fn us11_hoechstens_256_insgesamt_ein_vorhandener_name_bleibt_409() {
     assert_eq!(ueber.json["grenze"], "gesamt");
     assert_eq!(ueber.json["hoechstens"], 256);
     assert_eq!(vorhanden, 409);
+    assert_eq!(gesundheit(&instanz.adresse).await.1["channels"], 256);
+}
+
+#[tokio::test]
+async fn die_gesundheit_nennt_die_zahl_der_channels() {
+    let instanz = wegwerf_starten();
+    let eins = Absender::von("127.0.0.1");
+    let token = beitreten(&eins, &instanz, "shoff").await;
+
+    let vorher = gesundheit(&instanz.adresse).await.1;
+    assert_eq!(anlegen(&eins, &instanz, &token, "allgemein").await, 201);
+    let nachher = gesundheit(&instanz.adresse).await.1;
+
+    assert_eq!(
+        (&vorher["channels"], &nachher["channels"]),
+        (&json!(0), &json!(1))
+    );
 }

@@ -84,6 +84,8 @@ pub struct Kennzahlen {
     pub log_bytes: u64,
     pub ladezeit_ms: u64,
     pub defekte_zeilen: u64,
+    /// Channels im Verzeichnis — wie nah die Gesamtgrenze ist (ADR-0021).
+    pub channels: u64,
 }
 
 impl Gespraeche {
@@ -176,7 +178,8 @@ impl Gespraeche {
     pub fn kennzahlen(&self) -> Kennzahlen {
         let mut nachrichten = 0;
         let mut log_bytes = 0;
-        for verlauf in lesend(&self.verzeichnis).verlaeufe.values() {
+        let verzeichnis = lesend(&self.verzeichnis);
+        for verlauf in verzeichnis.verlaeufe.values() {
             let verlauf = sperren(verlauf);
             nachrichten += verlauf.nachrichten();
             log_bytes += verlauf.bytes();
@@ -186,6 +189,7 @@ impl Gespraeche {
             log_bytes,
             ladezeit_ms: u64::try_from(self.ladezeit.as_millis()).unwrap_or(u64::MAX),
             defekte_zeilen: self.defekte.len() as u64,
+            channels: verzeichnis.channels.len() as u64,
         }
     }
 }

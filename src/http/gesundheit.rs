@@ -16,6 +16,7 @@ pub struct Gesundheit {
     log_bytes: u64,
     ladezeit_ms: u64,
     defekte_zeilen: u64,
+    channels: u64,
     sitzungen: usize,
     halter: usize,
     herzschlag_ms: u128,
@@ -23,7 +24,7 @@ pub struct Gesundheit {
 }
 
 /// Antwortet der Port, ist die Instanz bereit: geladen wird vor dem Binden (A00003).
-/// Die Kennzahlen kommen aus Laden und Verlaufsindex (R00002) und der Anwesenheit: lebende Sitzungen und
+/// Die Kennzahlen kommen aus Laden und Verlaufsindex (R00002), dem Channelverzeichnis (Anzahl, ADR-0021) und der Anwesenheit: lebende Sitzungen und
 /// offene Ströme (R00004) — Zahlen ohne Namen, ohne Sitzung lesbar; dazu die Programmversion, mit der die
 /// Oberfläche ihren Worker anlegt (ADR-0015 Regel 3), und die wirksamen Werte von Herzschlag und Abrissgrenze
 /// (ADR-0017, B0103).
@@ -38,6 +39,7 @@ pub async fn beantworten(State(zustand): State<Arc<Zustand>>) -> Json<Gesundheit
         log_bytes: kennzahlen.log_bytes,
         ladezeit_ms: kennzahlen.ladezeit_ms,
         defekte_zeilen: kennzahlen.defekte_zeilen,
+        channels: kennzahlen.channels,
         sitzungen: betrieb.sitzungen,
         halter: betrieb.halter,
         herzschlag_ms: zustand.herzschlag.as_millis(),
@@ -90,6 +92,7 @@ mod tests {
                 "log_bytes": 0,
                 "ladezeit_ms": null,
                 "defekte_zeilen": 0,
+                "channels": 0,
                 "sitzungen": 0,
                 "halter": 0,
                 "herzschlag_ms": 5000,
