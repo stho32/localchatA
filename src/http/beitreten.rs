@@ -8,6 +8,7 @@ use super::teilnehmer::gemeldete_sitzung;
 use crate::anwesenheit::{
     Abweisung, Beitrittsfehler, Beitrittswunsch, GESAMT, JE_HERKUNFT, Sitzung,
 };
+use crate::live::bus::Ereignis;
 use axum::Json;
 use axum::extract::rejection::JsonRejection;
 use axum::extract::{ConnectInfo, State};
@@ -38,6 +39,9 @@ pub async fn beantworten(
     }
     match anwesenheit.beitreten(&wunsch, gegenstelle.ip()) {
         Ok(beitritt) => {
+            for wechsel in beitritt.wechsel {
+                zustand.bus.veroeffentlichen(Ereignis::Anwesenheit(wechsel));
+            }
             let gnadenfrist_s = anwesenheit.gnadenfrist().as_secs();
             (
                 StatusCode::CREATED,

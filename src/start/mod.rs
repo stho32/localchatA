@@ -1,6 +1,6 @@
 //! Start: vom Aufruf bis zum lauschenden Server (A00003).
 //!
-//! Reihenfolge: Aufruf lesen → Uhr → Gnadenfrist → Herzschlag → Ordner vorbereiten → sperren → Verlauf laden → Anwesenheit → binden → Startzeile → Browser → ausliefern bis zum Signal.
+//! Reihenfolge: Aufruf lesen → Uhr → Gnadenfrist → Herzschlag → Ordner vorbereiten → sperren → Verlauf laden → Anwesenheit → Bus → binden → Ende-Signal → Takt → Startzeile → Browser → ausliefern bis zum Signal.
 
 mod aufruf;
 pub(crate) mod ausliefern;
@@ -21,7 +21,8 @@ use verbindungen::Verbindungsgrenzen;
 use crate::anwesenheit::{Anwesenheit, gnadenfrist};
 use crate::gespraeche::{Dateiablage, Gespraeche};
 use crate::http::{self, Grenzschutz, Zustand};
-use crate::live::herzschlag;
+use crate::live::bus::Bus;
+use crate::live::{self, herzschlag, takt};
 use crate::uhr::{self, Uhr};
 use crate::zufall::Betriebssystemzufall;
 use aufruf::HILFE;
@@ -91,7 +92,12 @@ async fn starten(
     let ordner = ordner::ordner_vorbereiten(&auftrag.ordner)?;
     let _sperre = sperre::ordner_sperren(&ordner)?;
     let gespraeche = verlauf_laden(&ordner, Arc::clone(&uhr))?;
-    let anwesenheit = Anwesenheit::neu(uhr, Arc::new(Betriebssystemzufall), gnadenfrist);
+    let anwesenheit = Arc::new(Anwesenheit::neu(
+        Arc::clone(&uhr),
+        Arc::new(Betriebssystemzufall),
+        gnadenfrist,
+    ));
+    let bus = Arc::new(Bus::neu(live::KAPAZITAET));
     let listener = port::listener_binden(&auftrag.host, auftrag.port).await?;
     let adresse = listener.local_addr().map_err(|fehler| Startfehler::Port {
         host: auftrag.host.clone(),
@@ -99,6 +105,13 @@ async fn starten(
         grund: fehler.to_string(),
     })?;
     let ende = ende_einrichten();
+    tokio::spawn(takt::takten(
+        Arc::clone(&anwesenheit),
+        uhr,
+        Arc::clone(&bus),
+        ende.clone(),
+        takt::PERIODE,
+    ));
     startzeile_schreiben(&ordner, adresse);
     if auftrag.browser_oeffnen {
         browser::oeffnen(adresse);
@@ -106,7 +119,8 @@ async fn starten(
     let app = http::router(Zustand {
         ordner,
         gespraeche: Arc::new(gespraeche),
-        anwesenheit: Arc::new(anwesenheit),
+        anwesenheit,
+        bus,
         grenzschutz: Grenzschutz::neu(rechnername::lesen(), auftrag.erreichbar_als),
     });
     ausliefern::ausliefern(

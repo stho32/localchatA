@@ -13,6 +13,7 @@ pub use grenzschutz::Grenzschutz;
 
 use crate::anwesenheit::Anwesenheit;
 use crate::gespraeche::Gespraeche;
+use crate::live::bus::Bus;
 use axum::Router;
 use axum::middleware;
 use axum::routing::{get, post};
@@ -20,12 +21,13 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 /// Was die Handler über die laufende Instanz wissen: ihren Ordner, die geladenen Gespräche, die
-/// Anwesenheit und die Namen, unter denen sie antworten darf.
+/// Anwesenheit, den Ereignisbus und die Namen, unter denen sie antworten darf.
 #[derive(Clone)]
 pub struct Zustand {
     pub ordner: PathBuf,
     pub gespraeche: Arc<Gespraeche>,
     pub anwesenheit: Arc<Anwesenheit>,
+    pub bus: Arc<Bus>,
     pub grenzschutz: Grenzschutz,
 }
 
@@ -81,6 +83,7 @@ pub(crate) mod testserver {
                 Arc::new(Betriebssystemzufall),
                 Duration::from_secs(60),
             )),
+            bus: Arc::new(crate::live::bus::Bus::neu(crate::live::KAPAZITAET)),
             grenzschutz: Grenzschutz::neu(None, Vec::new()),
         }
     }

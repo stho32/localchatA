@@ -281,10 +281,6 @@ impl Anwesenheit {
 
     /// Der Takt (ADR-0016 Regel 4): Gnadenfrist ohne Lebenszeichen und ohne Halter vorbei → `weg` (Sitzung
     /// entfernt, Name frei); Nachlauf vorbei ohne Halter → `offline`. Je Sitzung nur echte Wechsel.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "Brücke bis B0083: der Takt pflegt alle 250 ms")
-    )]
     pub fn pflegen(&self, jetzt: Zeit) -> Vec<Wechsel> {
         let mut bestand = self.bestand();
         let mut wechsel = bestand.abgelaufene_melden(jetzt, self.gnadenfrist);
