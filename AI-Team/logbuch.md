@@ -107,3 +107,4 @@ Eine Zeile je Auftrag an eine Rolle und je Retrospektive.
 | 2026-10-28 | #7 | Nacharbeit 2 → Entwicklertest | entwickler | bestanden | 0:20 | „1 Zeile“; Auto-Reviews vollständig; Entwicklertest auf dc65faf läuft |
 | 2026-10-28 | #23 Befund | Entwicklung | entwickler | läuft | — | F0050 B0253–B0258 (R00013) |
 | 2026-10-28 | #21 Befund | Auto-Reviews | rechtschreib-reviewer, observability-reviewer, planer | befund → behoben / bestanden | 0:15 | R00010 Text korrigiert (172e376); Observability-Anbindung → Betriebsprotokoll |
+| 2026-10-28 | #21 Befund | Auto-Reviews → Entwicklertest | code-reviewer, security-reviewer | bestanden | 0:25 | alle 5 Teilaufgaben ✓; Lesefrist für Körper → Paket „Grenzen nach Lastprofil“ |
