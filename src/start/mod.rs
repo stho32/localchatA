@@ -30,6 +30,7 @@ use crate::http::{self, Grenzschutz, Zustand};
 use crate::live::bus::{self, Bus};
 use crate::live::{self, herzschlag, takt};
 use crate::protokoll::bereinigung::Anlass;
+use crate::protokoll::episodenruhe;
 use crate::protokoll::tagestakt::{self, Tagestakt};
 use crate::protokoll::testpanik::Testpanik;
 use crate::protokoll::wache::bewacht;
@@ -89,6 +90,14 @@ pub async fn ausfuehren<I: IntoIterator<Item = String>>(argumente: I) -> ExitCod
                     return ExitCode::from(2);
                 }
             };
+            let ruhe_wert = std::env::var_os(episodenruhe::VARIABLE);
+            let ruhe = match episodenruhe::aus_umgebung(ruhe_wert.as_deref()) {
+                Ok(ruhe) => ruhe,
+                Err(fehler) => {
+                    eprintln!("{fehler}");
+                    return ExitCode::from(2);
+                }
+            };
             let testpanik = match Testpanik::aus_umgebung() {
                 Ok(testpanik) => testpanik,
                 Err(fehler) => {
@@ -96,7 +105,17 @@ pub async fn ausfuehren<I: IntoIterator<Item = String>>(argumente: I) -> ExitCod
                     return ExitCode::from(2);
                 }
             };
-            match starten(auftrag, uhr, gnadenfrist, herzschlag, testpanik, stufe).await {
+            match starten(
+                auftrag,
+                uhr,
+                gnadenfrist,
+                herzschlag,
+                testpanik,
+                stufe,
+                ruhe,
+            )
+            .await
+            {
                 Ok(()) => ExitCode::SUCCESS,
                 Err(Startabbruch::VorDerSperre(fehler)) => {
                     eprintln!("{fehler}");
@@ -125,12 +144,14 @@ async fn starten(
     herzschlag: Duration,
     testpanik: Testpanik,
     (stufe, stufe_herkunft): (Stufe, &'static str),
+    ruhe: Duration,
 ) -> Result<(), Startabbruch> {
     let uhr: Arc<dyn Uhr> = Arc::from(uhr);
     let ordner = ordner::ordner_vorbereiten(&auftrag.ordner).map_err(Startabbruch::VorDerSperre)?;
     let _sperre = sperre::ordner_sperren(&ordner).map_err(Startabbruch::VorDerSperre)?;
     let beginn = Instant::now();
-    let protokoll = Arc::new(Protokoll::oeffnen(&ordner, Arc::clone(&uhr), stufe));
+    let protokoll =
+        Arc::new(Protokoll::oeffnen(&ordner, Arc::clone(&uhr), stufe).mit_episodenruhe(ruhe));
     crate::protokoll::haken_setzen(Arc::clone(&protokoll));
     let bereinigt_am = uhr.jetzt().date_naive();
     protokoll.bereinigen(bereinigt_am, Anlass::Start);
@@ -176,14 +197,21 @@ fn tagestakt(
     bereinigt_am: chrono::NaiveDate,
 ) -> Tagestakt {
     let bereinigen = Arc::clone(protokoll);
-    Tagestakt::neu(Arc::clone(uhr), Arc::clone(protokoll)).tagesaufgabe(
-        "bereinigen",
-        "alte Protokolldateien bleiben bis dahin liegen",
-        bereinigt_am,
-        Arc::new(move |heute| {
-            bereinigen.bereinigen(heute, Anlass::Tageswechsel);
-        }),
-    )
+    let episoden = Arc::clone(protokoll);
+    Tagestakt::neu(Arc::clone(uhr), Arc::clone(protokoll))
+        .tagesaufgabe(
+            "bereinigen",
+            "alte Protokolldateien bleiben bis dahin liegen",
+            bereinigt_am,
+            Arc::new(move |heute| {
+                bereinigen.bereinigen(heute, Anlass::Tageswechsel);
+            }),
+        )
+        .sekundenaufgabe(
+            "episoden",
+            "Episoden enden nicht mehr",
+            Box::new(move |_| episoden.episoden_schliessen()),
+        )
 }
 
 /// Vom Laden bis zum Ende; jeder Fehler hier gehört ins Protokoll (ADR-0042 Regel 2, `start`).

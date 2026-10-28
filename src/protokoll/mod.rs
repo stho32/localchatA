@@ -3,6 +3,7 @@
 
 pub mod bereinigung;
 pub mod episoden;
+pub mod episodenruhe;
 pub mod senke;
 pub mod tagestakt;
 pub mod testpanik;
