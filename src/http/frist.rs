@@ -198,10 +198,7 @@ fn bestaetigen(entfaellt: &Entfaellt) -> Response {
     (
         StatusCode::CONFLICT,
         Json(json!({
-            "fehler": format!(
-                "Mit dieser Frist entfallen sofort {} Tagesdateien mit {} Nachrichten bis {} — mit \"bestaetigt\":true erneut senden.",
-                entfaellt.tage, entfaellt.nachrichten, entfaellt.bis
-            ),
+            "fehler": bestaetigen_text(entfaellt),
             "regel": REGEL_BESTAETIGEN,
             "entfaellt": {
                 "tage": entfaellt.tage,
@@ -211,6 +208,22 @@ fn bestaetigen(entfaellt: &Entfaellt) -> Response {
         })),
     )
         .into_response()
+}
+
+/// Der Satz der 409 für Agenten: Verb, Tagesdatei und Nachricht je nach ihrer Zahl gebeugt (R00008, Nacharbeit #12).
+fn bestaetigen_text(entfaellt: &Entfaellt) -> String {
+    let (verb, tagesdateien) = match entfaellt.tage {
+        1 => ("entfällt", "1 Tagesdatei".to_string()),
+        n => ("entfallen", format!("{n} Tagesdateien")),
+    };
+    let nachrichten = match entfaellt.nachrichten {
+        1 => "1 Nachricht".to_string(),
+        n => format!("{n} Nachrichten"),
+    };
+    format!(
+        "Mit dieser Frist {verb} sofort {tagesdateien} mit {nachrichten} bis {} — mit \"bestaetigt\":true erneut senden.",
+        entfaellt.bis
+    )
 }
 
 /// Wie beim Anlegen: deutsche `{fehler}`-Antwort mit Grund und Beispiel; nach 413 und 408 schließt die Verbindung.
@@ -259,6 +272,32 @@ pub fn frist_bilden(wert: Option<&Value>) -> Result<u32, Regelfehler> {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    fn rueckfrage(tage: usize, nachrichten: usize) -> String {
+        bestaetigen_text(&Entfaellt {
+            tage,
+            nachrichten,
+            bis: chrono::NaiveDate::from_ymd_opt(2026, 10, 21).expect("Datum"),
+        })
+    }
+
+    /// Abnahme-Probe Rechtschreib-Review #12, Muss 3: Verb, Tagesdatei und Nachricht folgen je ihrer Zahl.
+    #[test]
+    fn die_rueckfrage_beugt_verb_tagesdatei_und_nachricht_nach_ihrer_zahl() {
+        let nachsatz = "bis 2026-10-21 — mit \"bestaetigt\":true erneut senden.";
+        for (tage, nachrichten, erwartet) in [
+            (1, 1, "entfällt sofort 1 Tagesdatei mit 1 Nachricht"),
+            (1, 2, "entfällt sofort 1 Tagesdatei mit 2 Nachrichten"),
+            (2, 1, "entfallen sofort 2 Tagesdateien mit 1 Nachricht"),
+            (2, 5, "entfallen sofort 2 Tagesdateien mit 5 Nachrichten"),
+        ] {
+            assert_eq!(
+                rueckfrage(tage, nachrichten),
+                format!("Mit dieser Frist {erwartet} {nachsatz}"),
+                "{tage}/{nachrichten}"
+            );
+        }
+    }
 
     fn gebildet(koerper: Value) -> Result<u32, Regelfehler> {
         frist_bilden(koerper.get("tage"))

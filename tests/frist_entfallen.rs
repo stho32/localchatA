@@ -150,13 +150,20 @@ async fn us8_us10_verkuerzen_fragt_mit_zahlen_zurueck_und_aendert_nichts() {
             rueckfrage.json["entfaellt"],
             json!({ "tage": 2, "nachrichten": 5, "bis": "2026-10-21" })
         );
-        assert!(rueckfrage.json["fehler"].is_string());
+        assert_eq!(
+            rueckfrage.json["fehler"],
+            "Mit dieser Frist entfallen sofort 2 Tagesdateien mit 5 Nachrichten bis 2026-10-21 — mit \"bestaetigt\":true erneut senden."
+        );
     }
     let grenze = frist_setzen(&eins, &instanz, &beta, "allgemein", json!({ "tage": 8 })).await;
     assert_eq!(grenze.status, 409, "{}", grenze.json);
     assert_eq!(
         grenze.json["entfaellt"],
         json!({ "tage": 1, "nachrichten": 2, "bis": "2026-10-20" })
+    );
+    assert_eq!(
+        grenze.json["fehler"],
+        "Mit dieser Frist entfällt sofort 1 Tagesdatei mit 2 Nachrichten bis 2026-10-20 — mit \"bestaetigt\":true erneut senden."
     );
     for bestaetigt in [json!("ja"), json!(1), Value::Null] {
         let abgewiesen = frist_setzen(
@@ -180,6 +187,54 @@ async fn us8_us10_verkuerzen_fragt_mit_zahlen_zurueck_und_aendert_nichts() {
         vorher
     );
     assert!(frist_zeilen(&zeilen(wurzel.path(), HEUTE)).is_empty());
+}
+
+/// US-24 und Kriterium „Einzahl in der Rückfrage“ (R00008; Abnahme-Probe Rechtschreib-Review #12, Muss 3, über
+/// das Programm): `fehler` beugt Verb, Tagesdatei und Nachricht nach ihrer Zahl — 1/1 und 2/1 (leere Tagesdatei).
+#[tokio::test]
+async fn us24_die_rueckfrage_nennt_eine_tagesdatei_und_eine_nachricht_in_der_einzahl() {
+    for (tage, entfaellt, verb_und_zahlen) in [
+        (
+            &[("2026-10-21", 1), ("2026-10-22", 1), ("2026-10-28", 1)][..],
+            json!({ "tage": 1, "nachrichten": 1, "bis": "2026-10-21" }),
+            "entfällt sofort 1 Tagesdatei mit 1 Nachricht",
+        ),
+        (
+            &[
+                ("2026-10-20", 0),
+                ("2026-10-21", 1),
+                ("2026-10-22", 1),
+                ("2026-10-28", 1),
+            ][..],
+            json!({ "tage": 2, "nachrichten": 1, "bis": "2026-10-21" }),
+            "entfallen sofort 2 Tagesdateien mit 1 Nachricht",
+        ),
+    ] {
+        let wurzel = tempfile::tempdir().expect("Wegwerf-Ordner");
+        datei_anlegen(
+            wurzel.path(),
+            "channels/allgemein/einstellungen.toml",
+            b"frist_tage = 30\n",
+        );
+        for (tag, anzahl) in tage {
+            tag_anlegen(wurzel.path(), "allgemein", tag, *anzahl);
+        }
+        let instanz = starten_um(wurzel.path(), MITTAG);
+        let eins = Absender::von("127.0.0.1");
+        let beta = beitreten(&eins, &instanz, "beta").await;
+
+        let rueckfrage =
+            frist_setzen(&eins, &instanz, &beta, "allgemein", json!({ "tage": 7 })).await;
+
+        assert_eq!(rueckfrage.status, 409, "{}", rueckfrage.json);
+        assert_eq!(rueckfrage.json["entfaellt"], entfaellt);
+        assert_eq!(
+            rueckfrage.json["fehler"],
+            format!(
+                "Mit dieser Frist {verb_und_zahlen} bis 2026-10-21 — mit \"bestaetigt\":true erneut senden."
+            )
+        );
+    }
 }
 
 /// US-9, Kriterien „Bestätigt verkürzen“ und „Verlängern und Verkürzen ohne Entfallen“ (R00008) und „Bestätigt
