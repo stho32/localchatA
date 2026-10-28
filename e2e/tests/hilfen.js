@@ -95,10 +95,12 @@ const VORGESCHRIEBENE_ANTWORTEN = { '/api/ich': [401], '/api/beitreten': [409, 4
 /// Sammelt, was im Browser schiefgeht: Konsolenfehler (auch CSP-Verstöße) und Ausnahmen. Ausgenommen sind
 /// nur die vorgeschriebenen API-Antworten und — wenn der Test den Server selbst beendet — die abgewiesene
 /// Verbindung zur API.
-function fehlerSammeln(page, { serverWegErwartet = false } = {}) {
+/// Mit `streng` gilt keine Ausnahme: jede Konsolenzeile auf Stufe error zählt (AK F0013 „ohne einen einzigen
+/// Konsolenfehler“, auch nach einem Neustart).
+function fehlerSammeln(page, { serverWegErwartet = false, streng = false } = {}) {
   const fehler = [];
   page.on('console', (meldung) => {
-    if (meldung.type() !== 'error' || vorgeschrieben(meldung, serverWegErwartet)) {
+    if (meldung.type() !== 'error' || (!streng && vorgeschrieben(meldung, serverWegErwartet))) {
       return;
     }
     fehler.push('Konsole: ' + meldung.text() + ' (' + meldung.location().url + ')');

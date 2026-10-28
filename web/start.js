@@ -14,6 +14,7 @@ const api = {
 const speicher = window.localStorage;
 const wurzel = document.getElementById('app');
 let laufenderStrom = null;
+let tokenDesStroms = null;
 
 farbschemaFolgen();
 zeigen(await sitzungBeimLaden());
@@ -37,8 +38,9 @@ function hauptansichtZeigen(teilnehmer, nachEingabe) {
   const ansicht = hauptansicht.zeichnen(wurzel, teilnehmer, { kennungFokussieren: nachEingabe });
   let liste = teilnehmerliste.LEER;
   stromBeenden();
+  tokenDesStroms = speicher.getItem(sitzung.SITZUNG);
   laufenderStrom = verbinden({
-    token: speicher.getItem(sitzung.SITZUNG),
+    token: tokenDesStroms,
     version: document.querySelector('meta[name="lc-version"]').content,
     beiEreignis: (ereignis) => {
       liste = teilnehmerliste.zusammenfuehren(liste, ereignis);
@@ -54,10 +56,20 @@ function hauptansichtZeigen(teilnehmer, nachEingabe) {
   });
 }
 
+// Ohne GET /api/ich: dessen 401 stünde als Konsolenfehler (AK F0013); mit Web Lock tritt auch im Rückfall
+// je Tab nur einer bei, die anderen lesen dessen Token.
 async function stillWiederBeitreten() {
-  const zustand = await sitzungBeimLaden();
+  const abgelehntesToken = tokenDesStroms;
+  const wiederBeitreten = () => sitzung.nachAblehnung(speicher, api, abgelehntesToken);
+  let zustand;
+  if (navigator.locks === undefined) {
+    zustand = await wiederBeitreten();
+  } else {
+    zustand = await navigator.locks.request(sitzung.SITZUNG, wiederBeitreten);
+  }
   if (zustand.art === 'kopfzeile') {
-    laufenderStrom.tokenSetzen(speicher.getItem(sitzung.SITZUNG));
+    tokenDesStroms = speicher.getItem(sitzung.SITZUNG);
+    laufenderStrom.tokenSetzen(tokenDesStroms);
     return;
   }
   stromBeenden();

@@ -102,3 +102,18 @@ function sitzungMerken(speicher, daten) {
 function teilnehmerAus(daten) {
   return { kennung: daten.kennung, name: daten.name, herkunft: daten.herkunft, art: daten.art };
 }
+
+// Nach einem 401 aus dem Strom (Neustart, Gnadenfrist): ohne GET /api/ich wieder beitreten — dessen 401
+// (Vertrag aus R00003) stünde sonst als Konsolenfehler. Hat ein anderer Tab schon ein neues Token gemerkt,
+// gilt es; ohne gemerkten Namen bleibt nur der Beitreten-Bildschirm.
+export async function nachAblehnung(speicher, api, abgelehntesToken) {
+  const token = speicher.getItem(SITZUNG);
+  if (token && token !== abgelehntesToken) {
+    return { art: 'kopfzeile', teilnehmer: null };
+  }
+  const gemerkterName = speicher.getItem(NAME) || '';
+  if (!gemerkterName) {
+    return { art: 'beitreten', name: '' };
+  }
+  return beitreten(gemerkterName, speicher, api);
+}

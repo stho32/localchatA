@@ -150,7 +150,7 @@ for (const { ohneWebLocks, titel } of [{ ohneWebLocks: false, titel: '' }, { ohn
     const fehler = [];
     for (let nummer = 0; nummer < 3; nummer += 1) {
       const tab = await kontext.newPage();
-      fehler.push(fehlerSammeln(tab, { serverWegErwartet: true }));
+      fehler.push(fehlerSammeln(tab, { streng: true }));
       await tab.goto(instanz.adresse);
       if (nummer === 0) {
         await tab.getByLabel('Name').fill('shoff');

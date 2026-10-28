@@ -2,7 +2,7 @@
 // localStorage-Ersatz und API-Ersatz mit festen Antworten.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { beimLaden, beitreten, SITZUNG, NAME } from '../../web/sitzung.js';
+import { beimLaden, beitreten, nachAblehnung, SITZUNG, NAME } from '../../web/sitzung.js';
 
 const SHOFF = { kennung: 'shoff@127.0.0.1', name: 'shoff', herkunft: '127.0.0.1', art: 'mensch' };
 const SERVER_WEG = { serverWeg: true, status: 0, daten: null };
@@ -259,4 +259,37 @@ test('A2: Beitreten schickt das gemerkte Token mit — eine noch lebende Sitzung
   assert.equal(mitToken.art, 'kopfzeile');
   assert.equal(ohneToken.art, 'kopfzeile');
   assert.deepEqual(aufrufe, [['shoff', 'lebt'], ['anna', null]]);
+});
+
+// Nacharbeit 2 (Entwicklertest, AK F0013 „ohne einen einzigen Konsolenfehler“): nach dem 401 aus dem Strom
+// tritt die Seite ohne GET /api/ich wieder bei — das 401 auf /api/ich (Vertrag aus R00003) fällt so nicht an.
+test('nach Ablehnung im Strom: Beitritt mit gemerktem Namen, ohne /api/ich', async () => {
+  const speicher = speicherMit({ [SITZUNG]: 'alt', [NAME]: 'shoff' });
+  const api = apiMit({ beitreten: angenommen(201) });
+
+  const zustand = await nachAblehnung(speicher, api, 'alt');
+
+  assert.deepEqual(zustand, { art: 'kopfzeile', teilnehmer: SHOFF });
+  assert.deepEqual(api.aufrufe, [['beitreten', 'shoff']]);
+  assert.equal(speicher.getItem(SITZUNG), 'neu');
+});
+
+test('nach Ablehnung im Strom: hat ein anderer Tab schon ein neues Token, kein Aufruf', async () => {
+  const speicher = speicherMit({ [SITZUNG]: 'neu-vom-nachbarn', [NAME]: 'shoff' });
+  const api = apiMit({});
+
+  const zustand = await nachAblehnung(speicher, api, 'alt');
+
+  assert.equal(zustand.art, 'kopfzeile');
+  assert.deepEqual(api.aufrufe, []);
+});
+
+test('nach Ablehnung im Strom: ohne gemerkten Namen der Beitreten-Bildschirm, ohne Aufruf', async () => {
+  const speicher = speicherMit({ [SITZUNG]: 'alt' });
+  const api = apiMit({});
+
+  const zustand = await nachAblehnung(speicher, api, 'alt');
+
+  assert.deepEqual(zustand, { art: 'beitreten', name: '' });
+  assert.deepEqual(api.aufrufe, []);
 });

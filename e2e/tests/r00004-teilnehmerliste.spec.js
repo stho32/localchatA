@@ -100,7 +100,7 @@ test('US-16: sieben Agenten ohne Unterkopf mit „Agent“, ab dem achten nach H
 
 test('US-17: Programm beendet → ⚠ in Fehlerfarbe; neu gestartet → ohne Neuladen wieder ● „(du)“, Hinweis weg', async ({ page }) => {
   instanz = await instanzStarten({ port: await freierPort() });
-  const fehler = fehlerSammeln(page, { serverWegErwartet: true });
+  const fehler = fehlerSammeln(page, { streng: true });
   await beitreten(page, 'shoff');
   await istOnline(zeileVon(page, 'shoff@127.0.0.1'));
   const hinweis = page.locator('#lc-verbindung');
@@ -265,7 +265,7 @@ test('Zeilen bleiben lesbar: der Name bricht nicht, umbrochen wird höchstens vo
 // öffnet nach dem stillen Wiederbeitritt sofort, nicht erst nach dem Rückzug, und hält die neue Sitzung.
 test('Neustart mit Gnadenfrist 3 s: Hinweis binnen ca. 3 s weg, Strom hält die neue Sitzung online', async ({ page, request }) => {
   instanz = await instanzStarten({ port: await freierPort(), umgebung: { LOCALCHATA_GNADENFRIST_MS: '3000' } });
-  const fehler = fehlerSammeln(page, { serverWegErwartet: true });
+  const fehler = fehlerSammeln(page, { streng: true });
   await page.setViewportSize({ width: 1280, height: 800 });
   await beitreten(page, 'shoff');
   await istOnline(zeileVon(page, 'shoff@127.0.0.1'));
