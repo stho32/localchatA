@@ -61,3 +61,5 @@ Eine Zeile je Auftrag an eine Rolle und je Retrospektive.
 | 2026-10-28 | #5 I0006 | Architektur | architekt | bestanden | 0:55 | ADR-0017 stiller Abriss (Vorgeschlagen, Messwert), 0018 verlassen, 0019 weg_um; Nachzüge (3915255, 9bc118c) |
 | 2026-10-28 | #5 I0006 | Bereit | planer | bestanden | 0:20 | R00005, 17 Bubbles in F0016–F0019 (59ead76, 6a213d6) |
 | 2026-10-28 | #5 I0006 | Entscheidung | Betreiber | — | — | „Verlassen“ im Browser erst auf Nachfrage der Abnahme; stiller Abriss ≈ 14 s, höchstens 22 s angenommen |
+| 2026-10-28 | #19 I0019 | Backlog → Architektur | director | — | — | neue Interaction „Claude Code einbinden“ (82284c2), vom Betreiber freigegeben |
+| 2026-10-28 | #5 I0006 | Entwicklung | entwickler | blockiert | 0:45 | 17 Bubbles gebaut; Statusspalte vs. R00004-Test → Betreiber: Liste 264 px |
