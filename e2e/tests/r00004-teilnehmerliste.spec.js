@@ -210,10 +210,15 @@ test('US-19: über die LAN-Adresse laden Beitreten und Liste ohne einen Konsolen
   expect(fehler).toEqual([]);
 });
 
+// Abrufe aus einem SharedWorker sieht Playwright nicht (weder route noch request) — verzögert wird deshalb der
+// Strom im Tab (Rückfall ohne SharedWorker); Zusammenführen und Zeichnen sind auf beiden Wegen dieselben.
 test('verzögerter Strom: der erste Stand kommt 1 s später — die Seite steht, die Liste füllt sich danach', async ({ page }) => {
   instanz = await instanzStarten();
   const fehler = fehlerSammeln(page);
+  await page.addInitScript(() => { delete window.SharedWorker; });
+  let verzoegert = 0;
   await page.route('**/api/ereignisse', async (route) => {
+    verzoegert += 1;
     await new Promise((weiter) => setTimeout(weiter, 1000));
     await route.continue();
   });
@@ -224,6 +229,7 @@ test('verzögerter Strom: der erste Stand kommt 1 s später — die Seite steht,
   const vorDemStand = await region(page).locator('.lc-person').count();
   await istOnline(zeileVon(page, 'shoff@127.0.0.1'));
 
+  expect(verzoegert).toBe(1);
   expect(vorDemStand).toBe(0);
   await expect(page.locator('#lc-verbindung')).toBeHidden();
   expect(fehler).toEqual([]);

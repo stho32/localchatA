@@ -8,6 +8,38 @@ import { entscheiden } from './verbindung.js';
 
 const NICHT_AUTORISIERT = 401;
 
+// Worker oder Rückfall (B0095, ADR-0015 Regel 2 und 5): gibt es SharedWorker, teilen alle Tabs einen Strom im
+// Worker; sonst hält dieser Tab ihn selbst. Beide Wege liefern dieselben Ereignisse und Zustände, auf
+// 'abgelehnt' mit { beitreten }: ob dieser Tab still beitreten soll (im Worker genau einer).
+export function verbinden({ token, version, beiEreignis, beiZustand }) {
+  if (typeof globalThis.SharedWorker === 'undefined') {
+    return halten({ token, beiEreignis, beiZustand: (zustand) => beiZustand(zustand, { beitreten: true }) });
+  }
+  const worker = new globalThis.SharedWorker(workerAdresse(version), { type: 'module', name: `localchatA ${version}` });
+  const port = worker.port;
+  port.onmessage = (nachricht) => {
+    const daten = nachricht.data;
+    if (daten.art === 'ereignis') {
+      beiEreignis(daten.ereignis);
+    }
+    if (daten.art === 'zustand') {
+      beiZustand(daten.zustand, { beitreten: daten.beitreten });
+    }
+  };
+  worker.onerror = (fehler) => console.error(`localchatA: Fehler im Strom-Worker — ${fehler.message}`);
+  const gehen = () => port.postMessage({ art: 'tschuess' });
+  globalThis.addEventListener('pagehide', gehen);
+  port.postMessage({ art: 'token', token });
+  return {
+    tokenSetzen: (neuesToken) => port.postMessage({ art: 'token', token: neuesToken }),
+    beenden: () => {
+      globalThis.removeEventListener('pagehide', gehen);
+      gehen();
+      port.close();
+    },
+  };
+}
+
 // Die Programmversion in der Adresse des Workers: nach einem Update läuft kein alter Worker weiter (ADR-0015).
 export function workerAdresse(version) {
   return `/web/strom.js?v=${version}`;

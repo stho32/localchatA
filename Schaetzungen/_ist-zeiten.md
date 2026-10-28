@@ -111,3 +111,4 @@ Nie vom User erfragen.
 | 2026-10-28 | R00004 Teilnehmer mit Online-Status sehen | B0092 Hauptansicht verdrahten | Standard | 0,4h | 0,08h | 0,08h | autonom |
 | 2026-10-28 | R00004 Teilnehmer mit Online-Status sehen | B0093 Worker-Adresse mit Programmversion | Standard | 0,4h | 0,01h | 0,07h | autonom |
 | 2026-10-28 | R00004 Teilnehmer mit Online-Status sehen | B0094 Strom im SharedWorker halten | unklar | 2-4h | 0,01h | 0,02h | autonom |
+| 2026-10-28 | R00004 Teilnehmer mit Online-Status sehen | B0095 Worker oder Rückfall wählen | Standard | 0,4h | 0,04h | 0,04h | autonom |

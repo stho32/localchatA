@@ -5,7 +5,7 @@ import * as sitzung from './sitzung.js';
 import * as beitretenBildschirm from './beitreten.js';
 import * as hauptansicht from './hauptansicht.js';
 import * as teilnehmerliste from './teilnehmerliste.js';
-import { halten } from './live.js';
+import { verbinden } from './live.js';
 
 const api = {
   ich: (token) => rufen('/api/ich', { token }),
@@ -30,21 +30,23 @@ function zeigen(zustand, nachEingabe = false) {
   });
 }
 
-// Die Liste folgt dem Strom: Stand und Wechsel werden nach `stand` zusammengeführt, geordnet und gezeichnet.
-// Lehnt der Strom das Token ab (Neustart, Gnadenfrist), tritt die Seite still wieder bei wie beim Laden.
+// Die Liste folgt dem Strom — im SharedWorker für alle Tabs, sonst im Tab: Stand und Wechsel werden nach
+// `stand` zusammengeführt, geordnet und gezeichnet. Lehnt der Strom das Token ab (Neustart, Gnadenfrist),
+// tritt der zuständige Tab still wieder bei wie beim Laden und gibt das neue Token weiter.
 function hauptansichtZeigen(teilnehmer, nachEingabe) {
   const ansicht = hauptansicht.zeichnen(wurzel, teilnehmer, { kennungFokussieren: nachEingabe });
   let liste = teilnehmerliste.LEER;
   stromBeenden();
-  laufenderStrom = halten({
+  laufenderStrom = verbinden({
     token: speicher.getItem(sitzung.SITZUNG),
+    version: document.querySelector('meta[name="lc-version"]').content,
     beiEreignis: (ereignis) => {
       liste = teilnehmerliste.zusammenfuehren(liste, ereignis);
       teilnehmerliste.zeichnen(ansicht.region, teilnehmerliste.ordnen(liste, teilnehmer.kennung));
     },
-    beiZustand: (zustand) => {
+    beiZustand: (zustand, { beitreten }) => {
       ansicht.verbindungZeigen(zustand);
-      if (zustand === 'abgelehnt') {
+      if (zustand === 'abgelehnt' && beitreten) {
         stillWiederBeitreten();
       }
     },
