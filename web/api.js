@@ -34,3 +34,23 @@ function alsJson(text) {
     return null;
   }
 }
+
+// Ein Block des Verlaufs (ADR-0025): cursor { vor } | { nach } | {} — kodiert mit encodeURIComponent, damit das
+// + im Versatz ankommt. → { art: 'block', block } | { art: 'fehler', status } (0: Server weg) | { art: 'abgebrochen' }
+export async function verlaufAbrufen(name, cursor, { token, signal }, holen = holenImBrowser) {
+  const BLOCKGROESSE = 100;
+  const abfrage = Object.entries(cursor).map(([schluessel, zeit]) => `${schluessel}=${encodeURIComponent(zeit)}&`).join('');
+  const pfad = `/api/channels/${encodeURIComponent(name)}/nachrichten?${abfrage}n=${BLOCKGROESSE}`;
+  try {
+    const antwort = await holen(pfad, { method: 'GET', headers: { [SITZUNGS_HEADER]: token }, signal });
+    if (!antwort.ok) {
+      return { art: 'fehler', status: antwort.status };
+    }
+    return { art: 'block', block: await antwort.json() };
+  } catch (ausnahme) {
+    if (signal !== undefined && signal.aborted) {
+      return { art: 'abgebrochen' };
+    }
+    return { art: 'fehler', status: 0 };
+  }
+}
