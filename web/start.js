@@ -31,18 +31,24 @@ function zeigen(zustand, nachEingabe = false) {
 }
 
 // Die Liste folgt dem Strom — im SharedWorker für alle Tabs, sonst im Tab: Stand und Wechsel werden nach
-// `stand` zusammengeführt, geordnet und gezeichnet. Lehnt der Strom das Token ab (Neustart, Gnadenfrist),
-// tritt der zuständige Tab still wieder bei wie beim Laden und gibt das neue Token weiter.
+// `stand` zusammengeführt, geordnet und mit dem Versatz zur Serverzeit gezeichnet; der Herzschlag erneuert nur
+// den Versatz. Lehnt der Strom das Token ab (Neustart, Gnadenfrist), tritt der zuständige Tab still wieder bei
+// wie beim Laden und gibt das neue Token weiter.
 function hauptansichtZeigen(teilnehmer, nachEingabe) {
   const ansicht = hauptansicht.zeichnen(wurzel, teilnehmer, { kennungFokussieren: nachEingabe });
   let liste = teilnehmerliste.LEER;
+  let versatz = 0;
   stromBeenden();
   laufenderStrom = verbinden({
     token: speicher.getItem(sitzung.SITZUNG),
     version: document.querySelector('meta[name="lc-version"]').content,
-    beiEreignis: (ereignis) => {
+    beiEreignis: (ereignis, neuerVersatz) => {
+      versatz = neuerVersatz;
+      if (ereignis.art === 'herzschlag') {
+        return;
+      }
       liste = teilnehmerliste.zusammenfuehren(liste, ereignis);
-      teilnehmerliste.zeichnen(ansicht.region, teilnehmerliste.ordnen(liste, teilnehmer.kennung));
+      teilnehmerliste.zeichnen(ansicht.region, teilnehmerliste.ordnen(liste, teilnehmer.kennung), { versatz });
       ansicht.anzahlZeigen(liste.eintraege.length);
     },
     beiZustand: (zustand, { beitreten, token }) => {

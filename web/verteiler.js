@@ -4,8 +4,9 @@
 // der nächste. Geht der letzte Tab, endet der Strom.
 //
 // Tab → Worker: { art: 'token', token } · { art: 'tschuess' }
-// Worker → Tab: { art: 'ereignis', ereignis } · { art: 'zustand', zustand, beitreten, token } (token: das
-// abgelehnte, nur bei 'abgelehnt')
+// Worker → Tab: { art: 'ereignis', ereignis, versatz } · { art: 'zustand', zustand, beitreten, token } (token: das
+// abgelehnte, nur bei 'abgelehnt'). Der Versatz (Serverzeit − Uhr des Rechners, B0110) geht mit jedem Ereignis
+// und mit dem Stand für einen neuen Tab hinaus — auch der Herzschlag wird dafür weitergereicht.
 import { LEER, zusammenfuehren } from './teilnehmerliste.js';
 
 const UEBERNAHME_NACH_MS = 5000;
@@ -18,6 +19,7 @@ export function verteilerAnlegen({
   let ports = [];
   let halter = null;
   let liste = null;
+  let versatz = 0;
   let zustand = null;
   let abgelehntesToken = null;
   let uebernahme = null;
@@ -26,7 +28,7 @@ export function verteilerAnlegen({
     ports.push(port);
     port.onmessage = (nachricht) => empfangen(port, nachricht.data);
     if (liste !== null) {
-      port.postMessage({ art: 'ereignis', ereignis: standAus(liste) });
+      port.postMessage({ art: 'ereignis', ereignis: standAus(liste), versatz });
     }
     if (zustand === 'verbunden' || zustand === 'unterbrochen') {
       port.postMessage({ art: 'zustand', zustand, beitreten: false });
@@ -66,9 +68,10 @@ export function verteilerAnlegen({
     zustand = null;
   }
 
-  function beiEreignis(ereignis) {
+  function beiEreignis(ereignis, neuerVersatz) {
+    versatz = neuerVersatz;
     liste = zusammenfuehren(liste || LEER, ereignis);
-    allen({ art: 'ereignis', ereignis });
+    allen({ art: 'ereignis', ereignis, versatz });
   }
 
   function beiZustand(neuerZustand, token) {

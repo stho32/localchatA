@@ -82,6 +82,28 @@ test('Ereignisse und Zustände gehen an alle Tabs; ein neuer Tab bekommt sofort 
   assert.deepEqual(zustaendeIn(zwei).map((n) => n.zustand), ['verbunden']);
 });
 
+// R00005 F0018, B0110 (ADR-0019 Regel 4): der Worker reicht den Versatz mit jedem Ereignis weiter, auch den
+// Herzschlag, und gibt einem neuen Tab den Stand mit dem aktuellen Versatz.
+test('Versatz im Worker: Stand empfangen, Herzschlag 40 s später, neuer Tab bekommt den Versatz aus dem Herzschlag', () => {
+  const { halter, verteiler } = anlegen();
+  const eins = port();
+  verteiler.verbinden(eins);
+  eins.senden({ art: 'token', token: 't1' });
+  const { beiEreignis } = halter.angelegt[0].optionen;
+
+  beiEreignis({ art: 'teilnehmer', stand: 3, jetzt: '2026-10-28T09:00:00.000+01:00', liste: [] }, 100);
+  beiEreignis({ art: 'herzschlag', jetzt: '2026-10-28T09:00:40.000+01:00' }, 250);
+  const zwei = port();
+  verteiler.verbinden(zwei);
+
+  const anEins = eins.erhalten.filter((n) => n.art === 'ereignis').map((n) => [n.ereignis.art, n.versatz]);
+  assert.deepEqual(anEins, [['teilnehmer', 100], ['herzschlag', 250]]);
+  const [anZwei] = zwei.erhalten.filter((n) => n.art === 'ereignis');
+  assert.equal(anZwei.ereignis.art, 'teilnehmer');
+  assert.equal(anZwei.ereignis.stand, 3);
+  assert.equal(anZwei.versatz, 250);
+});
+
 test('geht der letzte Tab, endet der Strom; ein späterer Tab legt einen neuen an', () => {
   const { halter, verteiler } = anlegen();
   const [eins, zwei] = [port(), port()];

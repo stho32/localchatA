@@ -1,4 +1,4 @@
-// Live-Strom (B0091, ADR-0015): fetch auf /api/ereignisse mit dem Sitzungs-Header statt EventSource — das
+// Live-Strom (B0091, ADR-0015, B0110): fetch auf /api/ereignisse mit dem Sitzungs-Header statt EventSource — das
 // Token steht nie in einer URL. Eigener Leser (sse.js) und Wächter (verbindung.js): nach einem Abbruch neu
 // verbinden (1 s, 2 s, 5 s, dann alle 10 s), 15 s ohne Byte gilt als Abbruch. Auf 401 meldet der Halter
 // „abgelehnt“ und wartet auf ein neues Token. Ohne DOM, damit derselbe Code im SharedWorker läuft.
@@ -23,7 +23,7 @@ export function verbinden({ token, version, beiEreignis, beiZustand }) {
   port.onmessage = (nachricht) => {
     const daten = nachricht.data;
     if (daten.art === 'ereignis') {
-      beiEreignis(daten.ereignis);
+      beiEreignis(daten.ereignis, daten.versatz);
     }
     if (daten.art === 'zustand') {
       beiZustand(daten.zustand, { beitreten: daten.beitreten, token: daten.token });
@@ -59,6 +59,7 @@ export function halten({
   pruefAbstandMs = 5000,
 }) {
   let aktuellesToken = token;
+  let versatz = 0;
   let beendet = false;
   let laufenderAbruf = null;
   let neuesTokenMelden = () => {};
@@ -152,7 +153,7 @@ export function halten({
         letzteAktivitaetMs = jetzt();
         const zerlegt = zerlegen(rest, stueck);
         rest = zerlegt.rest;
-        zerlegt.ereignisse.filter((ereignis) => ereignis.event === '').forEach(weiterreichen);
+        zerlegt.ereignisse.forEach(weiterreichen);
       }
     } catch (abgebrochen) {
       return;
@@ -162,7 +163,14 @@ export function halten({
   }
 
   // Ein Ereignis, das kein JSON ist, ist ein Fehler des Servers — sichtbar in der Konsole, der Strom läuft weiter.
+  // Der Herzschlag geht als { art: 'herzschlag', jetzt } weiter; andere benannte Ereignisse kennt die Seite nicht.
+  // Trägt ein Ereignis die Serverzeit, gleicht der Leser beim Empfang ab: versatz = jetzt − eigene Uhr (ADR-0019
+  // Regel 4); jedes Ereignis geht mit dem zuletzt gebildeten Versatz hinaus.
   function weiterreichen(ereignis) {
+    const bekannt = ereignis.event === '' || ereignis.event === 'herzschlag';
+    if (!bekannt) {
+      return;
+    }
     let daten;
     try {
       daten = JSON.parse(ereignis.data);
@@ -170,7 +178,13 @@ export function halten({
       console.warn(`localchatA: Ereignis ist kein JSON — ${ereignis.data.slice(0, 80)}`);
       return;
     }
-    beiEreignis(daten);
+    if (ereignis.event === 'herzschlag') {
+      daten = { art: 'herzschlag', ...daten };
+    }
+    if (typeof daten.jetzt === 'string') {
+      versatz = Date.parse(daten.jetzt) - jetzt();
+    }
+    beiEreignis(daten, versatz);
   }
 
   function aufNeuesTokenWarten() {

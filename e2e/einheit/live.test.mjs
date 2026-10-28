@@ -41,19 +41,24 @@ function bis(bedingung, hoechstensMs = 2000) {
 
 function protokoll() {
   const ereignisse = [];
+  const versaetze = [];
   const zustaende = [];
   const wartezeiten = [];
   return {
     ereignisse,
+    versaetze,
     zustaende,
     wartezeiten,
-    beiEreignis: (ereignis) => ereignisse.push(ereignis),
+    beiEreignis: (ereignis, versatz) => {
+      ereignisse.push(ereignis);
+      versaetze.push(versatz);
+    },
     beiZustand: (zustand) => zustaende.push(zustand),
     schlafen: async (ms) => { wartezeiten.push(ms); },
   };
 }
 
-test('Header mit Token, Ereignisse als JSON, Herzschlag nicht weitergereicht, verbunden gemeldet', async () => {
+test('Header mit Token, Ereignisse als JSON, Herzschlag weitergereicht (R00005), verbunden gemeldet', async () => {
   const strom = offenerStrom();
   const aufrufe = [];
   const p = protokoll();
@@ -64,13 +69,36 @@ test('Header mit Token, Ereignisse als JSON, Herzschlag nicht weitergereicht, ve
   strom.schieben('data: {"art":"teilnehmer","stand":1,"liste":[]}\n\nevent: herzschlag\ndata: {}\n\n');
   strom.schieben('data: {"art":"anwesenheit","st');
   strom.schieben('and":2,"teilnehmer":{}}\n\n');
-  await bis(() => p.ereignisse.length === 2);
+  await bis(() => p.ereignisse.length === 3);
   halter.beenden();
 
   assert.equal(aufrufe[0].pfad, '/api/ereignisse');
   assert.equal(aufrufe[0].optionen.headers['X-LocalchatA-Sitzung'], 'abc');
-  assert.deepEqual(p.ereignisse.map((ereignis) => ereignis.stand), [1, 2]);
+  assert.deepEqual(p.ereignisse.map((ereignis) => ereignis.art), ['teilnehmer', 'herzschlag', 'anwesenheit']);
+  assert.deepEqual(p.ereignisse.map((ereignis) => ereignis.stand), [1, undefined, 2]);
   assert.deepEqual(p.zustaende, ['verbunden']);
+});
+
+// R00005 F0018, B0110 (ADR-0019 Regel 4): wer liest, gleicht beim Empfang ab — versatz = jetzt_server − Uhr;
+// der Herzschlag trägt jetzt und erneuert den Versatz, ein Ereignis ohne jetzt behält den letzten.
+test('Versatz beim Empfang: jetzt des Servers minus eigene Uhr, auch aus dem Herzschlag', async () => {
+  const strom = offenerStrom();
+  const p = protokoll();
+  const server = Date.parse('2026-10-28T09:00:00.000+01:00');
+  let uhr = server - 30000;
+  const halter = halten({ token: 'abc', holen: async (pfad, optionen) => strom.antwortFuer(optionen), ...p, jetzt: () => uhr });
+
+  strom.schieben(`data: {"art":"teilnehmer","stand":1,"jetzt":"${new Date(server).toISOString()}","liste":[]}\n\n`);
+  await bis(() => p.ereignisse.length === 1);
+  uhr += 40000;
+  strom.schieben(`event: herzschlag\ndata: {"jetzt":"${new Date(server + 40700).toISOString()}"}\n\n`);
+  await bis(() => p.ereignisse.length === 2);
+  strom.schieben('data: {"art":"anwesenheit","stand":2,"teilnehmer":{}}\n\n');
+  await bis(() => p.ereignisse.length === 3);
+  halter.beenden();
+
+  assert.deepEqual(p.versaetze, [30000, 30700, 30700]);
+  assert.deepEqual(p.ereignisse[1], { art: 'herzschlag', jetzt: new Date(server + 40700).toISOString() });
 });
 
 test('Server weg: unterbrochen, dann neu nach 1 s, 2 s, 5 s, 10 s; danach wieder verbunden', async () => {
