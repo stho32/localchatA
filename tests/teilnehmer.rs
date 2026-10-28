@@ -95,8 +95,33 @@ fn zeit(eintrag: &serde_json::Value) -> chrono::DateTime<chrono::FixedOffset> {
     chrono::DateTime::parse_from_rfc3339(eintrag["seit"].as_str().expect("seit")).expect("RFC 3339")
 }
 
-/// US-2, Rechenbeispiel mit echter Zeit: Beitritt bei t0 → bei t0 + 0,5 s online seit t0, bei t0 + 1,5 s
-/// offline seit t0 + 1 s, und der Stand ist gewachsen.
+/// Fragt die Liste alle 50 ms ab, bis `passt` gilt, höchstens bis `frist` — liefert die passende Antwort.
+async fn abfragen_bis(
+    absender: &Absender,
+    basis: &str,
+    token: &str,
+    frist: tokio::time::Instant,
+    passt: impl Fn(&ApiAntwort) -> bool,
+) -> Option<ApiAntwort> {
+    loop {
+        let antwort = liste(absender, basis, Some(token)).await;
+        if passt(&antwort) {
+            return Some(antwort);
+        }
+        if tokio::time::Instant::now() >= frist {
+            return None;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    }
+}
+
+fn status_von(antwort: &ApiAntwort, kennung: &str) -> Option<String> {
+    eintrag(antwort, kennung).map(|e| e["status"].as_str().unwrap_or_default().to_string())
+}
+
+/// US-2, Rechenbeispiel mit echter Zeit: gleich nach dem Beitritt (t0) online seit t0; offline seit t0 + 1 s,
+/// gemeldet spätestens mit dem nächsten Takt — abgefragt bis zu einer Obergrenze von 2 s nach der 201,
+/// gemessen ab der 201 (Nacharbeit 1, A1); der Stand ist gewachsen.
 #[tokio::test]
 async fn us2_wer_keinen_strom_offen_hat_steht_nach_einer_sekunde_als_offline() {
     let instanz = wegwerf_starten();
@@ -106,19 +131,24 @@ async fn us2_wer_keinen_strom_offen_hat_steht_nach_einer_sekunde_als_offline() {
             .beitreten(&instanz.adresse, json!({"name": "beta"}), None)
             .await,
     );
-    let start = tokio::time::Instant::now();
     zwei.beitreten(&instanz.adresse, json!({"name": "alpha"}), None)
         .await;
+    let nach_der_201 = tokio::time::Instant::now();
 
-    tokio::time::sleep_until(start + std::time::Duration::from_millis(500)).await;
     let frueh = liste(&drei, &instanz.adresse, Some(&beta)).await;
-    tokio::time::sleep_until(start + std::time::Duration::from_millis(1500)).await;
-    let spaet = liste(&drei, &instanz.adresse, Some(&beta)).await;
+    let spaet = abfragen_bis(
+        &drei,
+        &instanz.adresse,
+        &beta,
+        nach_der_201 + std::time::Duration::from_secs(2),
+        |antwort| status_von(antwort, "alpha@127.0.0.2").as_deref() == Some("offline"),
+    )
+    .await
+    .expect("alpha binnen 2 s nach der 201 offline");
 
-    let alpha_frueh = eintrag(&frueh, "alpha@127.0.0.2").expect("alpha bei 0,5 s");
-    let alpha_spaet = eintrag(&spaet, "alpha@127.0.0.2").expect("alpha bei 1,5 s");
+    let alpha_frueh = eintrag(&frueh, "alpha@127.0.0.2").expect("alpha gleich nach der 201");
+    let alpha_spaet = eintrag(&spaet, "alpha@127.0.0.2").expect("alpha offline");
     assert_eq!(alpha_frueh["status"], "online", "{alpha_frueh}");
-    assert_eq!(alpha_spaet["status"], "offline", "{alpha_spaet}");
     assert_eq!(
         zeit(alpha_spaet) - zeit(alpha_frueh),
         chrono::Duration::seconds(1),
@@ -127,9 +157,8 @@ async fn us2_wer_keinen_strom_offen_hat_steht_nach_einer_sekunde_als_offline() {
     assert!(spaet.json["stand"].as_u64() > frueh.json["stand"].as_u64());
 }
 
-/// US-4 mit `LOCALCHATA_GNADENFRIST_MS=3000`: „bei 1 s“ steht alpha offline, bei 4 s fehlt alpha
-/// (4 s > 3 s), und der Name ist frei. Vor 1 s ist alpha im Anlauf online, gemeldet wird offline mit dem
-/// nächsten Takt (≤ 1,25 s) — gefragt wird deshalb bei 1,5 s.
+/// US-4 mit `LOCALCHATA_GNADENFRIST_MS=3000`: alpha steht offline (Abfrage bis 2 s nach der 201), fehlt nach
+/// der Gnadenfrist (bis 4,5 s nach der 201, nicht vor 3 s), und der Name ist frei (Nacharbeit 1, A1).
 #[tokio::test]
 async fn us4_wer_sich_nicht_mehr_meldet_verschwindet_aus_der_liste() {
     let wurzel = tempfile::tempdir().expect("Wegwerf-Ordner");
@@ -139,29 +168,43 @@ async fn us4_wer_sich_nicht_mehr_meldet_verschwindet_aus_der_liste() {
         &[("LOCALCHATA_GNADENFRIST_MS", "3000")],
     );
     let (zwei, drei) = (Absender::von("127.0.0.2"), Absender::von("127.0.0.3"));
-    let start = tokio::time::Instant::now();
-    zwei.beitreten(&instanz.adresse, json!({"name": "alpha"}), None)
-        .await;
     let beta = token_aus(
         &drei
             .beitreten(&instanz.adresse, json!({"name": "beta"}), None)
             .await,
     );
+    let vor_der_anfrage = tokio::time::Instant::now();
+    zwei.beitreten(&instanz.adresse, json!({"name": "alpha"}), None)
+        .await;
+    let nach_der_201 = tokio::time::Instant::now();
+    let sekunden = |s: f64| std::time::Duration::from_secs_f64(s);
 
-    tokio::time::sleep_until(start + std::time::Duration::from_millis(1500)).await;
-    let bei_1 = liste(&drei, &instanz.adresse, Some(&beta)).await;
-    tokio::time::sleep_until(start + std::time::Duration::from_secs(4)).await;
-    let bei_4 = liste(&drei, &instanz.adresse, Some(&beta)).await;
+    let offline = abfragen_bis(
+        &drei,
+        &instanz.adresse,
+        &beta,
+        nach_der_201 + sekunden(2.0),
+        |a| status_von(a, "alpha@127.0.0.2").as_deref() == Some("offline"),
+    )
+    .await;
+    let weg = abfragen_bis(
+        &drei,
+        &instanz.adresse,
+        &beta,
+        nach_der_201 + sekunden(4.5),
+        |a| eintrag(a, "alpha@127.0.0.2").is_none(),
+    )
+    .await;
+    let weg_nach = vor_der_anfrage.elapsed();
     let neu = drei
         .beitreten(&instanz.adresse, json!({"name": "alpha"}), None)
         .await;
 
-    let alpha = eintrag(&bei_1, "alpha@127.0.0.2").expect("alpha bei 1 s");
-    assert_eq!(alpha["status"], "offline", "{alpha}");
+    assert!(offline.is_some(), "alpha binnen 2 s offline");
+    assert!(weg.is_some(), "alpha binnen 4,5 s weg");
     assert!(
-        eintrag(&bei_4, "alpha@127.0.0.2").is_none(),
-        "{}",
-        bei_4.json
+        weg_nach >= sekunden(3.0),
+        "nicht vor der Gnadenfrist: {weg_nach:?}"
     );
     assert_eq!(neu.status, 201, "{}", neu.json);
 }
