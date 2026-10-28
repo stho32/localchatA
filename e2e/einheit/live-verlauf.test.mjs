@@ -2,7 +2,7 @@
 // node --test).
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { einordnen, buendlerAnlegen } from '../../web/live-verlauf.js';
+import { einordnen, buendlerAnlegen, folgenOderZaehlen, pillenText } from '../../web/live-verlauf.js';
 
 const t = (sekunde) => `2026-10-28T12:00:${String(sekunde).padStart(2, '0')}.000+01:00`;
 const n = (sekunde) => ({ zeit: t(sekunde), von: 'beta@127.0.0.1', art: 'agent', text: `n${sekunde}` });
@@ -76,4 +76,18 @@ test('nach einem Frame sammelt der nächste von vorn', () => {
   frame();
 
   assert.deepEqual(eingefuegt.map(zeiten), [[t(1)], [t(2), t(3)]]);
+});
+
+// B0225 „Folgen oder zählen“ (Zeilenhöhe 20 px).
+test('am Ende (höchstens eine Zeile Abstand) folgen, sonst anfügen und zählen, ohne neuesten Block nur zählen', () => {
+  assert.equal(folgenOderZaehlen(0, 20, true), 'folgen');
+  assert.equal(folgenOderZaehlen(20, 20, true), 'folgen');
+  assert.equal(folgenOderZaehlen(21, 20, true), 'zaehlen');
+  assert.equal(folgenOderZaehlen(0, 20, false), 'nurZaehlen');
+  assert.equal(folgenOderZaehlen(5000, 20, false), 'nurZaehlen');
+});
+
+test('die Pille nennt die Zahl in Einzahl und Mehrzahl', () => {
+  assert.equal(pillenText(1), '1 neue Nachricht');
+  assert.equal(pillenText(3), '3 neue Nachrichten');
 });

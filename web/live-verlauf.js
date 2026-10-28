@@ -32,3 +32,23 @@ export function buendlerAnlegen({ einfuegen, naechsterFrame = (rueckruf) => glob
     },
   };
 }
+
+// Wohin eine neue fremde Nachricht kommt: steht der neueste Block nicht im Fenster, wird nur gezählt; steht der Blick
+// höchstens eine Zeile vor dem Ende, folgt er; sonst wird angefügt und gezählt, nichts scrollt.
+// → 'folgen' | 'zaehlen' | 'nurZaehlen'
+export function folgenOderZaehlen(abstandUnten, zeilenhoehe, neuesterImFenster) {
+  if (!neuesterImFenster) {
+    return 'nurZaehlen';
+  }
+  if (abstandUnten <= zeilenhoehe) {
+    return 'folgen';
+  }
+  return 'zaehlen';
+}
+
+export function pillenText(anzahl) {
+  if (anzahl === 1) {
+    return '1 neue Nachricht';
+  }
+  return `${anzahl} neue Nachrichten`;
+}
