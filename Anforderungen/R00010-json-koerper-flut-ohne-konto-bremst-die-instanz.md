@@ -31,7 +31,7 @@ Zahlt ein auf: [Vision](R00000-vision.md) — eine gemeinsame LAN-Instanz ohne A
 ### Root Cause
 
 - `src/http/koerper.rs:14` — `GRENZE = 2 * 1024 * 1024` gilt für jede JSON-Route gleich, ohne Bezug auf das, was die Route braucht.
-- `src/http/koerper.rs:30–36` — `json_lesen` liest bis `GRENZE` und ruft dann `serde_json::from_slice::<Value>` direkt im async-Handler auf. Für `[0,0,…]` mit 1 048 575 Elementen entstehen ebenso viele `Value`-Knoten (je 32 Bytes und mehr) — CPU-Arbeit von vielen Millisekunden je Anfrage auf einem Tokio-Worker, der in dieser Zeit keine andere Verbindung bedient, und Speicher in der Größenordnung zehn MB je laufender Anfrage.
+- `src/http/koerper.rs:30–36` — `json_lesen` liest bis `GRENZE` und ruft dann `serde_json::from_slice::<Value>` direkt im async-Handler auf. Für `[0,0,…]` mit 1 048 575 Elementen entstehen ebenso viele `Value`-Knoten (je 32 Bytes und mehr) — CPU-Arbeit von vielen Millisekunden je Anfrage auf einem Tokio-Worker, der in dieser Zeit keine andere Verbindung bedient, und Speicher in der Größenordnung zehn MB je laufende Anfrage.
 - `src/http/beitreten.rs:29` — `beitreten` liest den Körper vor jeder Prüfung und ohne Sitzung (die Route ist der Weg zur Sitzung). Begrenzt ist nur die Zahl der Verbindungen (64 je Herkunft, 512 gesamt, ADR-0010), nicht die Arbeit je Anfrage.
 - `src/http/channels.rs:29` — derselbe Leseweg mit Sitzung (Extraktor `Teilnehmer` vorher, also 401 ohne Sitzung); eine Sitzung kostet einen Beitritt.
 
@@ -50,7 +50,7 @@ Ausgeschlossen: der Grenzschutz (Host, Origin) lässt `curl` ohne `Origin` durch
 
 **Option A — Körpergrenze je Route.** `json_lesen` bekommt die Grenze als Argument; jede Route nennt ihre eigene Grenze mit Herleitung. `beitreten` und `channels` (anlegen) bekommen je **4096 Bytes**. Über der Grenze antwortet die Route 413, bevor ein Byte geparst wird (der Rest wird wie heute begrenzt gelesen und verworfen, damit der Client die 413 sieht statt eines Verbindungsabbruchs).
 
-Herleitung der 4096 (gerechnet): der größte gültige Körper ist ein Channel mit 32 Zeichen Name und 200 Zeichen Beschreibung, jedes Zeichen in der längsten JSON-Schreibweise — Name `a` je Zeichen (6 Bytes), Beschreibung ein Ersatzpaar `😀` je Zeichen (12 Bytes): `{"name":"` (9) + 32 × 6 (192) + `","beschreibung":"` (18) + 200 × 12 (2 400) + `"}` (2) = **2 621 Bytes**. Mit 30 % Reserve 3 408 Bytes, auf 4 KiB gerundet 4 096 (≈ 56 % Reserve). In gewöhnlicher Schreibweise ist derselbe Körper 9 + 32 + 18 + 800 + 2 = 861 Bytes; ein Beitritt höchstens `{"name":"` (9) + 192 + `","art":"` (9) + 6 × 6 (36) + 2 = 248 Bytes.
+Herleitung der 4096 (gerechnet): der größte gültige Körper ist ein Channel mit 32 Zeichen Name und 200 Zeichen Beschreibung, jedes Zeichen in der längsten JSON-Schreibweise — Name `\u0061` je Zeichen (6 Bytes), Beschreibung ein Ersatzpaar `\ud83d\ude00` je Zeichen (12 Bytes): `{"name":"` (9) + 32 × 6 (192) + `","beschreibung":"` (18) + 200 × 12 (2 400) + `"}` (2) = **2 621 Bytes**. Mit 30 % Reserve 3 408 Bytes, auf 4 KiB gerundet 4096 (≈ 56 % Reserve). In gewöhnlicher Schreibweise ist derselbe Körper 9 + 32 + 18 + 800 + 2 = 861 Bytes; ein Beitritt höchstens `{"name":"` (9) + 192 + `","art":"` (9) + 6 × 6 (36) + 2 = 248 Bytes.
 
 ### Alternative Ansätze
 
@@ -67,8 +67,8 @@ Herleitung der 4096 (gerechnet): der größte gültige Körper ist ein Channel m
 
 ### Unit Test zur Bug-Reproduktion
 
-- `src/http/koerper.rs`, Test `grenze_je_aufruf_als_spanne`: `json_lesen(kopf, koerper, 4096)` mit einem Körper aus genau 4 096 Bytes gültigem JSON (`{"name":"spanne"}` und Leerzeichen bis 4 096) → `Ok`; mit 4 097 Bytes → `Err(ZuGross)`; mit 4 097 Bytes **ungültigem** JSON (`{` und 4 096 × `x`) → `Err(ZuGross)`, nicht `Err(Kaputt)` — die Grenze greift vor dem Parse. Heute rot, weil `json_lesen` keine Grenze annimmt (kompiliert nicht) und 4 097 Bytes unter 2 MiB geparst würden.
-- Integration (`tests/beitreten.rs`, echtes Programm): `POST /api/beitreten` mit den 4 097 ungültigen Bytes → **413** `{fehler}` mit „zu groß“; heute 400. Das ist der Reproduktionstest im Gate.
+- `src/http/koerper.rs`, Test `grenze_je_aufruf_als_spanne`: `json_lesen(kopf, koerper, 4096)` mit einem Körper aus genau 4096 Bytes gültigem JSON (`{"name":"spanne"}` und Leerzeichen bis 4096) → `Ok`; mit 4097 Bytes → `Err(ZuGross)`; mit 4097 Bytes **ungültigem** JSON (`{` und 4096 × `x`) → `Err(ZuGross)`, nicht `Err(Kaputt)` — die Grenze greift vor dem Parse. Heute rot, weil `json_lesen` keine Grenze annimmt (kompiliert nicht) und 4097 Bytes unter 2 MiB geparst würden.
+- Integration (`tests/beitreten.rs`, echtes Programm): `POST /api/beitreten` mit den 4097 ungültigen Bytes → **413** `{fehler}` mit „zu groß“; heute 400. Das ist der Reproduktionstest im Gate.
 
 ### Code-Extraktion für isoliertes Testing
 
@@ -76,8 +76,8 @@ Keine neue nötig: `json_lesen` ist bereits eine Operation mit eigenen Unit-Test
 
 ### Regressionstests
 
-- Integration je Route (`beitreten`, `channels` anlegen) über das echte Programm: Spanne 4 096 → nicht 413 (Antwort nach Inhalt: 201, 409 oder 422) · 4 097 → 413; ohne `Content-Type` und über der Grenze → 413 (wie heute: Größe vor Typ); bestehende 413-Tests (`zu_grosser_koerper_ergibt_413_auch_bei_langsamem_senden`, `ein_riesiger_tropfender_koerper_bekommt_die_413_nach_kurzer_frist`) bleiben grün.
-- Mutationsprobe (Spanne, Lehre #5): Grenze 4 095 → Test „4 096 nicht 413“ rot; Grenze 4 097 → Test „4 097 ist 413“ rot; Grenze wieder 2 MiB bzw. ignoriert → beide Routen-Tests „4 097 ist 413“ rot; Grenze nur an einer Route gesetzt → der Test der anderen Route rot. Mutationsproben im eigenen Worktree mit eigenem `CARGO_TARGET_DIR`, Original mit frischem Änderungsdatum zurück.
+- Integration je Route (`beitreten`, `channels` anlegen) über das echte Programm: Spanne 4096 → nicht 413 (Antwort nach Inhalt: 201, 409 oder 422) · 4097 → 413; ohne `Content-Type` und über der Grenze → 413 (wie heute: Größe vor Typ); bestehende 413-Tests (`zu_grosser_koerper_ergibt_413_auch_bei_langsamem_senden`, `ein_riesiger_tropfender_koerper_bekommt_die_413_nach_kurzer_frist`) bleiben grün.
+- Mutationsprobe (Spanne, Lehre #5): Grenze 4095 → Test „4096 nicht 413“ rot; Grenze 4097 → Test „4097 ist 413“ rot; Grenze wieder 2 MiB bzw. ignoriert → beide Routen-Tests „4097 ist 413“ rot; Grenze nur an einer Route gesetzt → der Test der anderen Route rot. Mutationsproben im eigenen Worktree mit eigenem `CARGO_TARGET_DIR`, Original mit frischem Änderungsdatum zurück.
 - Kontrollpaar (Integration): gültige Beitritte `{"name":"spanne"}` → 201 und Channel-Anlagen `{"name":"security-entwicklung"}` → 201 unverändert; der längste gültige Körper (2 621 Bytes, Schreibweise wie in der Herleitung) ist nie 413.
 - Leistungstest Flut (`tests/verfuegbarkeit.rs`, `#[ignore]`, nur im Release-Build): siehe Akzeptanzkriterien „Flut“.
 
@@ -89,9 +89,9 @@ Keine neue nötig: `json_lesen` ist bereits eine Operation mit eigenen Unit-Test
 
 ### Grenze (Gate)
 
-- [ ] `POST /api/beitreten` und `POST /api/channels` (mit Sitzung) nehmen Körper bis einschließlich 4 096 Bytes an und antworten bei 4 097 Bytes und mehr **413** `{fehler}` mit „zu groß“, ohne den Körper zu parsen: 4 097 Bytes ungültiges JSON → 413, nicht 400.
-- [ ] Spanne mit Mutanten (Grenze ± 1 Byte): je Route ein Test für 4 096 (nicht 413) und einer für 4 097 (413); die Mutanten „Grenze 4 095“, „Grenze 4 097“, „Grenze 2 MiB/ignoriert“ und „Grenze nur an einer Route“ werden je von mindestens einem Test rot. Ergebnis der Mutationsprobe steht im Bericht des Entwicklers.
-- [ ] Kontrollpaar: gültige Beitritte und Anlagen bleiben 201 — `{"name":"spanne"}` → 201; `{"name":"security-entwicklung"}` mit Sitzung → 201; der längste gültige Channel-Körper (2 621 Bytes: Name `a` × 32, Beschreibung `😀` × 200) ist nie 413 (201, sobald F0026 Beschreibung gebaut ist, vorher 422 `regel:"beschreibung"`).
+- [ ] `POST /api/beitreten` und `POST /api/channels` (mit Sitzung) nehmen Körper bis einschließlich 4096 Bytes an und antworten bei 4097 Bytes und mehr **413** `{fehler}` mit „zu groß“, ohne den Körper zu parsen: 4097 Bytes ungültiges JSON → 413, nicht 400.
+- [ ] Spanne mit Mutanten (Grenze ± 1 Byte): je Route ein Test für 4096 (nicht 413) und einer für 4097 (413); die Mutanten „Grenze 4095“, „Grenze 4097“, „Grenze 2 MiB/ignoriert“ und „Grenze nur an einer Route“ werden je von mindestens einem Test rot. Ergebnis der Mutationsprobe steht im Bericht des Entwicklers.
+- [ ] Kontrollpaar: gültige Beitritte und Anlagen bleiben 201 — `{"name":"spanne"}` → 201; `{"name":"security-entwicklung"}` mit Sitzung → 201; der längste gültige Channel-Körper (2 621 Bytes: Name `\u0061` × 32, Beschreibung `\ud83d\ude00` × 200) ist nie 413 (201, sobald F0026 Beschreibung gebaut ist, vorher 422 `regel:"beschreibung"`).
 
 ### Flut (Messung im Release-Build, Entwicklertest und Abnahme)
 
@@ -103,7 +103,7 @@ Keine neue nötig: `json_lesen` ist bereits eine Operation mit eigenen Unit-Test
 
 ## Implementierungshinweise
 
-- `json_lesen(kopf, koerper, grenze: usize)`; Konstanten je Route neben dem Handler mit einem Satz Herleitung (`BEITRETEN_GRENZE`, `CHANNEL_ANLEGEN_GRENZE`, je 4 096); `GRENZE` (2 MiB) entfällt als Vorgabe. Das Verwerfen des Rests (`VERWERFEN_HOECHSTENS`, `VERWERFEN_FRIST`) bleibt — sonst sieht der Client einen Abbruch statt der 413 (bestehende Tests).
+- `json_lesen(kopf, koerper, grenze: usize)`; Konstanten je Route neben dem Handler mit einem Satz Herleitung (`BEITRETEN_GRENZE`, `CHANNEL_ANLEGEN_GRENZE`, je 4096); `GRENZE` (2 MiB) entfällt als Vorgabe. Das Verwerfen des Rests (`VERWERFEN_HOECHSTENS`, `VERWERFEN_FRIST`) bleibt — sonst sieht der Client einen Abbruch statt der 413 (bestehende Tests).
 - Die Fehlermeldung der 413 nennt die Grenze der Route („höchstens 4096 Bytes“), damit ein Agent den Ausweg kennt.
 - `PUT /api/channels/<name>/frist` (R00008, F0035 ff.) verwendet bei seinem Bau dieselbe Form mit eigener Grenze; wird R00010 zuerst gebaut, hat R00008 das Argument schon.
 - Für Leistungstests gilt `gemeinsam/gelerntes.md` (Timing-Proben bei hoher Systemlast nur mit zufälliger Reihenfolge und Kontrollpaar) und `AI-Team/entwickler.md` (#4: Grenze nie schärfer als hier, Median-Abstand zur Grenze im Bericht).
@@ -114,7 +114,7 @@ Keine neue nötig: `json_lesen` ist bereits eine Operation mit eigenen Unit-Test
 
 ## Warum löst diese Anforderung das Problem? (Pflicht)
 
-Auslöser ist der Security-Befund: ein Rechner ohne Sitzung schickt in Schleifen 2-MiB-Körper an `beitreten`, und jede Anfrage baut auf einem Tokio-Worker einen Baum aus über einer Million JSON-Werten — die Worker sind mit Parsen belegt, Gesundheit und alle anderen Routen warten (p90 0,23–0,28 s, RSS ≈ 460 MB). Ursache ist die eine 2-MiB-Grenze für Routen, die höchstens 2,6 KiB brauchen. Wenn jede Route nur annimmt, was sie braucht (4 KiB), dann wird ein großer Körper mit 413 abgewiesen, bevor geparst wird; die Arbeit je Anfrage schrumpft auf Lesen und Verwerfen, und die gemessene Antwortzeit der Gesundheit fällt unter Flut auf 0,018–0,038 s. Der Hebel liegt an der Grenze und nicht an der Ausführung (Option C), weil Arbeit, die gar nicht anfällt, weder Worker noch Speicher bindet; die Spanne 4 096/4 097 mit Mutanten stellt sicher, dass die Grenze wirklich dort sitzt und echte Beitritte und Anlagen nicht trifft.
+Auslöser ist der Security-Befund: ein Rechner ohne Sitzung schickt in Schleifen 2-MiB-Körper an `beitreten`, und jede Anfrage baut auf einem Tokio-Worker einen Baum aus über einer Million JSON-Werten — die Worker sind mit Parsen belegt, Gesundheit und alle anderen Routen warten (p90 0,23–0,28 s, RSS ≈ 460 MB). Ursache ist die eine 2-MiB-Grenze für Routen, die höchstens 2,6 KiB brauchen. Wenn jede Route nur annimmt, was sie braucht (4 KiB), dann wird ein großer Körper mit 413 abgewiesen, bevor geparst wird; die Arbeit je Anfrage schrumpft auf Lesen und Verwerfen, und die gemessene Antwortzeit der Gesundheit fällt unter Flut auf 0,018–0,038 s. Der Hebel liegt an der Grenze und nicht an der Ausführung (Option C), weil Arbeit, die gar nicht anfällt, weder Worker noch Speicher bindet; die Spanne 4096/4097 mit Mutanten stellt sicher, dass die Grenze wirklich dort sitzt und echte Beitritte und Anlagen nicht trifft.
 
 ## Notizen
 
@@ -125,6 +125,7 @@ Auslöser ist der Security-Befund: ein Rechner ohne Sitzung schickt in Schleifen
 - Herkunft: Befundkarte #21, Security-Review Karte #6 (I0007), 2026-10-28; Ursprung R00003 (F0008 Beitreten über die API) und ADR-0010
 - Messung der Reproduktion: Skript im Scratchpad des planers (entfernt), Release-Programm `~/.cargo/bin/localchatA` vom 2026-10-28 09:31 auf eigenem Port und Wegwerf-Ordner; Systemlast beim Messen ≈ 4 (8 Kerne)
 - WBS: F0040 unter I0004 mit B0204, B0205
+- Ergänzung 2026-10-28 (`/anforderung review` nach Rechtschreib-Review zu Karte #21, planer): Herleitung der 4096 und Kriterium „Kontrollpaar“ nennen die Zeichen jetzt in der längsten JSON-Schreibweise (Unicode-Escape, Ersatzpaar als zwei Escapes) wie `tests/koerpergrenze.rs` — vorher stand das Zeichen selbst, wörtlich gelesen 861 statt 2 621 Bytes; „je laufende Anfrage“; Grenzzahlen einheitlich 4095/4096/4097. Kriterien inhaltlich unverändert.
 
 ### Bubbles
 
