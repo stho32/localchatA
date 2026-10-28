@@ -283,3 +283,43 @@ test('Schmal (US-20): bei 320 px mit und ohne offenen Dialog kein Querscrollen',
   expect(await querscrollen()).toBe(false);
   expect(a.fehler).toEqual([]);
 });
+
+test('Verkürzen in zwei Schritten (US-17, B0198): zweimal Enter löscht nichts, „Frist verkürzen“ löscht und öffnet neu', async ({ browser }) => {
+  await starten(verkuerzbar);
+  const a = await seiteMitFehlern(browser, { zusaetzlich: { '/api/channels/allgemein/frist': [409] } });
+  await beitreten(a.page, 'shoff');
+  await expect(a.page.locator('.lc-msg')).toHaveCount(7);
+  await schalter(a.page).click();
+
+  await feld(a.page).fill('7');
+  await feld(a.page).press('Enter');
+
+  const satz = 'Bei 7 Tagen entfallen sofort 2 Tage bis einschließlich 21. Oktober 2026 mit 5 Nachrichten. Das lässt sich nicht rückgängig machen.';
+  await expect(dialog(a.page).locator('.lc-bestaetigung')).toHaveText(satz);
+  await expect(feld(a.page)).toHaveJSProperty('readOnly', true);
+  await expect(dialog(a.page).getByRole('button', { name: 'Zurück' })).toBeFocused();
+  await a.page.keyboard.press('Enter');
+  await expect(dialog(a.page).locator('.lc-bestaetigung')).toBeHidden();
+  await expect(feld(a.page)).toHaveValue('7');
+  await expect(feld(a.page)).toHaveJSProperty('readOnly', false);
+  expect(['2026-10-20', '2026-10-21', '2026-10-22', '2026-10-28'].every(tagDa)).toBe(true);
+  const beta = await beitretenPerApi(instanz.adresse, 'beta');
+  const liste = await new Promise((fertig) => {
+    http.get(new URL('api/channels', instanz.adresse), { headers: { 'X-LocalchatA-Sitzung': beta.daten.token }, localAddress: '127.0.0.1' }, (antwort) => {
+      let text = '';
+      antwort.on('data', (teil) => { text += teil; });
+      antwort.on('end', () => fertig(JSON.parse(text)));
+    });
+  });
+  expect(liste.liste.find((channel) => channel.name === 'allgemein').frist_tage).toBe(30);
+
+  await feld(a.page).press('Enter');
+  await dialog(a.page).getByRole('button', { name: 'Frist verkürzen' }).click();
+
+  await expect(statuszeile(a.page)).toHaveText('Frist für # allgemein: 7 Tage — 2 Tage mit 5 Nachrichten entfallen.');
+  await expect(dialog(a.page)).toHaveCount(0);
+  await expect(a.page.locator('.lc-msg')).toHaveCount(2);
+  await expect(a.page.locator('.lc-msg').first().locator('.lc-body')).toHaveText('2026-10-22 n0');
+  expect(tagDa('2026-10-20') || tagDa('2026-10-21')).toBe(false);
+  expect(a.fehler).toEqual([]);
+});

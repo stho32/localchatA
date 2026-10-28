@@ -70,6 +70,11 @@ function bedienen(zustand, { setzen, statusZeigen, neuOeffnen }, signal) {
       }
       return;
     }
+    if (antwort.status === 409 && antwort.daten.regel === 'bestaetigen' && !bestaetigt) {
+      schritt = 2;
+      zweiterSchritt(teile, bestaetigungText(tage, antwort.daten.entfaellt));
+      return;
+    }
     schritt = 1;
     ersterSchritt(teile);
     fehlerZeigen(teile, fehlertext(antwort));
