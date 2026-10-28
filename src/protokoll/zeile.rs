@@ -199,7 +199,7 @@ pub fn zeile(eintrag: &Eintrag, zeit: Zeit) -> String {
         zeit.format("%Y-%m-%dT%H:%M:%S%.3f%:z"),
         eintrag.stufe.als_text(),
         eintrag.bereich.als_text(),
-        neutralisieren(&eintrag.text, TEXT_HOECHSTENS)
+        text_neutralisieren(&eintrag.text)
     );
     for (nummer, (schluessel, wert)) in eintrag.kontext.0.iter().enumerate() {
         zeile.push_str(if nummer == 0 { " | " } else { " " });
@@ -226,10 +226,21 @@ pub const WERT_HOECHSTENS: usize = 256;
 /// Höchstens so viele Zeichen hat der Text eines Eintrags.
 pub const TEXT_HOECHSTENS: usize = 1024;
 
+/// Der Text eines Eintrags: wie `neutralisieren`, dazu jedes `|` als `\u{7c}` — so ist das erste „ | “ einer
+/// Zeile immer der Trenner zum Kontext (ADR-0040, Ergänzung „`|` im Text wird escaped“).
+fn text_neutralisieren(roh: &str) -> String {
+    neutralisieren_mit(roh, TEXT_HOECHSTENS, |zeichen| zeichen == '|')
+}
+
 /// Escape (CWE-117) und Kürzung: `\` → `\\`; Steuer-, Zeilentrenner- und Richtungszeichen → `\u{…}` in
 /// Kleinbuchstaben-Hex; länger als `hoechstens` Zeichen → gekürzt mit `…` am Ende, nie mitten in einem Escape.
 pub fn neutralisieren(roh: &str, hoechstens: usize) -> String {
-    let stuecke: Vec<String> = roh.chars().map(stueck).collect();
+    neutralisieren_mit(roh, hoechstens, |_| false)
+}
+
+/// `neutralisieren` mit weiteren Zeichen, die als `\u{…}` stehen.
+fn neutralisieren_mit(roh: &str, hoechstens: usize, auch: impl Fn(char) -> bool) -> String {
+    let stuecke: Vec<String> = roh.chars().map(|zeichen| stueck(zeichen, &auch)).collect();
     let laenge: usize = stuecke.iter().map(|s| s.chars().count()).sum();
     if laenge <= hoechstens {
         return stuecke.concat();
@@ -249,10 +260,10 @@ pub fn neutralisieren(roh: &str, hoechstens: usize) -> String {
 }
 
 /// Ein Zeichen in seiner Form im Protokoll.
-fn stueck(zeichen: char) -> String {
+fn stueck(zeichen: char, auch: impl Fn(char) -> bool) -> String {
     if zeichen == '\\' {
         "\\\\".to_string()
-    } else if zu_escapen(zeichen) {
+    } else if zu_escapen(zeichen) || auch(zeichen) {
         format!("\\u{{{:x}}}", u32::from(zeichen))
     } else {
         zeichen.to_string()
@@ -264,6 +275,7 @@ fn zu_escapen(zeichen: char) -> bool {
     matches!(zeichen,
         '\u{0}'..='\u{1f}'
         | '\u{7f}'..='\u{9f}'
+        | '\u{61c}'
         | '\u{2028}'
         | '\u{2029}'
         | '\u{200e}'
@@ -320,8 +332,52 @@ mod tests {
         );
         assert_eq!(
             zeile(&eintrag, zeit("2026-10-28T14:03:07.123+01:00")),
-            "2026-10-28T14:03:07.123+01:00 DEBUG körper Text mit | Strich | grund=\"a=b|c \\\"d\\\"\" route=\"GET /api/channels\" anzahl=3 typ=\"\"\n"
+            "2026-10-28T14:03:07.123+01:00 DEBUG körper Text mit \\u{7c} Strich | grund=\"a=b|c \\\"d\\\"\" route=\"GET /api/channels\" anzahl=3 typ=\"\"\n"
         );
+    }
+
+    /// ADR-0040, Ergänzung „`|` im Text wird escaped“ (Code-Review #24, H1): ein fremder Text täuscht keinen
+    /// Kontext vor — das erste „ | “ einer Zeile ist immer der Trenner.
+    #[test]
+    fn ein_strich_im_text_taeuscht_keinen_kontext_vor() {
+        let jetzt = zeit("2026-10-28T14:03:07.123+01:00");
+        let ohne = Eintrag::neu(
+            Stufe::Exception,
+            Bereich::Programmfehler,
+            "x | kennung=admin",
+            Kontext::neu(),
+        );
+        let mit = Eintrag::neu(
+            Stufe::Exception,
+            Bereich::Programmfehler,
+            "x | kennung=admin",
+            Kontext::neu().mit(Schluessel::Grund, "panik"),
+        );
+
+        let ohne = zeile(&ohne, jetzt);
+        let mit = zeile(&mit, jetzt);
+
+        assert!(ohne.contains("x \\u{7c} kennung=admin"), "{ohne}");
+        assert_eq!(ohne.matches(" | ").count(), 0, "{ohne}");
+        assert_eq!(mit.matches(" | ").count(), 1, "{mit}");
+        assert!(mit.ends_with(" | grund=panik\n"), "{mit}");
+    }
+
+    /// ADR-0040, Ergänzung „U+061C“ (Security-Review #24, O2): ein Richtungszeichen wie U+200E/U+200F.
+    #[test]
+    fn das_arabische_richtungszeichen_wird_in_text_und_wert_escaped() {
+        let eintrag = Eintrag::neu(
+            Stufe::Warning,
+            Bereich::Grenzschutz,
+            "a\u{61c}b",
+            Kontext::neu().mit(Schluessel::Grund, "c\u{61c}d"),
+        );
+
+        let zeile = zeile(&eintrag, zeit("2026-10-28T14:03:07.123+01:00"));
+
+        assert!(zeile.contains(" a\\u{61c}b | "), "{zeile}");
+        assert!(zeile.ends_with("grund=c\\u{61c}d\n"), "{zeile}");
+        assert!(!zeile.contains('\u{61c}'), "{zeile}");
     }
 
     #[test]
