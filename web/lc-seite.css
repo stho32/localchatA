@@ -16,7 +16,7 @@ body { background: var(--kd-bg); color: var(--kd-ink); font-family: var(--font-s
 
 /* Beitreten-Bildschirm (4.1) */
 .lc-beitreten { min-height: 100%; display: grid; place-items: center; padding: var(--kd-space-24); }
-.lc-beitreten-karte { width: min(100%, 420px); display: grid; gap: var(--kd-space-8); padding: var(--kd-space-24); background: var(--kd-surface); border: 1px solid var(--kd-line); }
+.lc-beitreten-karte { width: min(100%, 420px); display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--kd-space-8); padding: var(--kd-space-24); background: var(--kd-surface); border: 1px solid var(--kd-line); }
 .lc-beitreten-titel { margin: 0 0 var(--kd-space-8); font-family: var(--font-mono); font-size: 16px; font-weight: 600; }
 .lc-beitreten-zeile { display: flex; gap: var(--kd-space-8); }
 .lc-feld { flex: 1; min-width: 0; height: var(--kd-row); padding: 0 var(--kd-space-8); border: 1px solid var(--kd-line-strong); background: var(--kd-surface); font-family: var(--font-mono); }
@@ -27,7 +27,7 @@ body { background: var(--kd-bg); color: var(--kd-ink); font-family: var(--font-s
 
 /* Kopfzeile und Kennung (Bausteine Kopfzeile, Kennung) */
 #app { min-height: 100%; }
-.lc-head { height: var(--kd-header); background: var(--kd-header-bg); color: var(--kd-header-ink); display: grid; grid-template-columns: minmax(0, 1fr) minmax(200px, 420px) auto; align-items: center; gap: var(--kd-space-16); padding: 0 var(--kd-space-8) 0 var(--kd-space-12); }
+.lc-head { height: var(--kd-header); background: var(--kd-header-bg); color: var(--kd-header-ink); display: grid; grid-template-columns: minmax(max-content, 1fr) minmax(0, 420px) auto; align-items: center; gap: var(--kd-space-16); padding: 0 var(--kd-space-8) 0 var(--kd-space-12); }
 .lc-head :focus-visible { outline-color: var(--lc-focus-header); }
 .lc-head-ort { display: flex; align-items: baseline; gap: var(--kd-space-8); white-space: nowrap; min-width: 0; overflow: hidden; }
 .lc-head-inst { font-family: var(--font-mono); font-size: 12px; color: var(--kd-header-muted); min-width: 0; overflow: hidden; text-overflow: ellipsis; flex: 0 1 auto; }

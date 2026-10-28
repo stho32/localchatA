@@ -80,3 +80,4 @@ Nie vom User erfragen.
 | 2026-10-28 | R00003 Namen wählen und beitreten | B0063 Antworten von ich unterscheiden, Speicherfehler sichtbar | Nacharbeit | 0,4h | 0,05h | 0,05h | autonom |
 | 2026-10-28 | R00003 Namen wählen und beitreten | B0064 Fokus auf dem Primärschalter sichtbar | Nacharbeit | 0,4h | 0,1h | 0,1h | autonom |
 | 2026-10-28 | R00003 Namen wählen und beitreten | B0066 Fehlergestalt nach Designsystem | Nacharbeit | 0,4h | 0,2h | 0,2h | autonom |
+| 2026-10-28 | R00003 Namen wählen und beitreten | B0065 Schmale Fenster ohne Querscrollen | Nacharbeit | 0,4h | 0,1h | 0,1h | autonom |
