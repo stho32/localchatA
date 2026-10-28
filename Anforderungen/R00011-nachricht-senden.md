@@ -86,7 +86,7 @@ Bis R00010 kann man in localchatA lesen, aber nicht schreiben: Nachrichten entst
   | M2 | Flut großer Körper mit Sitzung | **Messwert im Entwicklertest, kein Gate** (Release-Build) | 24 Schleifen von 4 Herkünften (`127.0.0.1` bis `127.0.0.4`, je 6 Agenten), jede wiederholt `POST …/allgemein/nachrichten` mit einem Körper von genau 131 072 Bytes: `{"text":"` + 16 384 Leerzeichen als Text + `"}`, aufgefüllt mit Leerraum (Antwort 422 `leer` oder 429), 10 s lang; von `127.0.0.5` alle 50 ms `GET /api/gesundheit`, je Anfrage vom Öffnen der Verbindung bis zum letzten Byte, ab 1 s nach Beginn bis zum Ende | ungemessen; R00010 maß auf dem 413-Weg p90 0,018–0,038 s | p90 ≤ 0,15 s (wie R00010) | die Instanz bleibt für alle bedienbar, während ein Rechner mit gültigen Sitzungen flutet |
 
   Reserve: Z10 und Z1 liegen mehr als das 15-Fache über dem erwarteten Wert; Z3 und Z5 sind keine Dauern. Für M2 gilt die Kontrolle aus R00010: 3 s Leerlauf vorher, Leerlauf-p90 über 0,05 s macht den Lauf ungültig (wiederholen, nicht rot); im Bericht stehen Leerlauf-p90, p50, p90, max und die Antworten je Status (erwartet: überwiegend 429, weil das Konto die Vorab-Einheit vor dem Lesen bucht). Über der Grenze von Z9 oder M2 ist ein Befund an ADR-0037 bzw. ADR-0036, kein roter Test.
-- **Sicherheit**: Senden nur mit Sitzung und unter Grenzschutz (Host, Origin, Content-Type, Körpergrenze 131 072 Bytes); Text wird abgewiesen, nie umgeformt; Steuerzeichen kommen nie ins Log (kein Terminal-Steuern, CWE-150); Text erscheint im Browser nur über `textContent`; das Schreibkonto bremst Fluten je Kennung und je Herkunft (CWE-770), auch Fluten ungültiger großer Körper (Vorab-Buchung vor dem Lesen); jede Bremsung ist im Health-Check zählbar.
+- **Sicherheit**: Senden nur mit Sitzung und unter Grenzschutz (Host, Origin, Content-Type, Körpergrenze 131 072 Bytes); Text wird abgewiesen, nie umgeformt; Steuerzeichen kommen nie ins Log (kein Terminal-Steuern, CWE-150) und blähen deshalb keine Verlaufsantwort auf (JSON eines angenommenen Texts ≤ 2 × seiner Bytes, Annahme des Budgets aus R00013; Security-Review zu #23); Text erscheint im Browser nur über `textContent`; das Schreibkonto bremst Fluten je Kennung und je Herkunft (CWE-770), auch Fluten ungültiger großer Körper (Vorab-Buchung vor dem Lesen); jede Bremsung ist im Health-Check zählbar.
 - **Benutzerfreundlichkeit**: die eigene Nachricht erscheint vor der Antwort; Fehler stehen an der Nachricht mit ⚠ und Wort, nie nur über Farbe; der Fokus bleibt nach dem Senden im Feld; Lesende werden nie aus ihrer Stelle im Verlauf gerissen; bei 320 px kein Querscrollen.
 - **Testbarkeit**: Eimer, Vorlauf und Bündeln über gestellte Uhr bzw. gestellten `requestAnimationFrame`; Zustellung und Tasten als reine Funktionen mit Node-Tests; Herkünfte im Integrationstest über Quelladressen `127.0.0.2` bis `127.0.0.11`; Gegeben mit vielen Nachrichten über den Testdaten-Erzeuger aus R00007.
 
@@ -104,6 +104,10 @@ Gemeinsam für alle Kriterien, wenn nicht anders genannt: Start mit `TZ=Europe/B
 - [ ] Körpergrenze als Spanne (Integration): ein gültiger Körper von genau 131 072 Bytes (`{"text":"` + 16 384 × `a` + `"}` + Leerzeichen) → 201 mit 16 384 × `a`; ein Körper von 131 073 Bytes (`{` und 131 072 × `a`, kein JSON) → 413 mit „höchstens 131072 Bytes“, nicht 400; derselbe mit `Content-Type: text/plain` → 413 (Größe vor Typ). Die Mutanten „Grenze − 1“ und „Grenze + 1“ werden je rot.
 - [ ] Längste Schreibweise (Integration): Körper `{"text":"` + 16 384 × `a` + `"}` (98 315 Bytes) → 201 mit 16 384 × `a`; Körper mit 5 462 × `€` → 422 `regel:"laenge"`, `bytes:16386`.
 - [ ] Abweisungen (Integration): `{"text":"  "}` → 422 `regel:"leer"`, `fehler` „Die Nachricht ist leer.“; 16 385 × `a` → 422 `{regel:"laenge", hoechstens:16384, bytes:16385}`, `fehler` „Zu lang: 16.385 von höchstens 16.384 Byte — bitte teilen.“; `"rot \u001b[31m"` → 422 `{regel:"zeichen", stelle:4, zeichen:"U+001B"}`, `fehler` „Steuerzeichen U+001B an Stelle 5 — bitte entfernen.“; `{"text":"Hallo","antwort":"x"}` → 422 `{regel:"feld", feld:"antwort"}`; `{"text":5}` → 422 `regel:"text"`. Danach ist die Tagesdatei byte-gleich wie vorher und der Verlauf unverändert.
+- [ ] Steuerzeichen und JSON-Ausdehnung (Zweck: ein Text, den die Instanz annimmt, wird im Verlauf als JSON höchstens doppelt so lang — die Annahme „JSON ≤ 2 × Satzbytes + 60 Bytes je Nachricht“ hinter dem Budget aus R00013; ein Steuerzeichen ohne Kurzform würde als `\u0001` 6 Bytes, ein Text aus `a` und 16 383 × U+0001 also 1 + 16 383 × 6 = 98 299 Bytes JSON statt höchstens 32 768):
+  - Klassengrenzen als Spanne (Unit, rein, je hinter `"ab"`): U+0008 → `zeichen`, U+0009 → ok; U+000A → ok, U+000B → `zeichen`; U+001F → `zeichen`, U+0020 → ok; U+007E → ok, U+007F → `zeichen`; U+009F → `zeichen`, U+00A0 → ok. Die Mutanten „Klasse endet bei U+001E“, „Tab verboten“, „Zeilenumbruch verboten“ und „Zeichenregel abgeschaltet“ werden je rot (der Entwickler nennt die vier Ergebnisse).
+  - Ausdehnung (Unit, rein): für `a` + 16 383 × `\t`, `a` + 16 383 × `"`, `a` + 16 383 × `\\` und `a` + 16 383 × `\n` sagt die Textregel ok, und die JSON-Zeichenkette des Texts (`serde_json::to_vec`) ist höchstens 2 × 16 384 + 2 = 32 770 Bytes lang (gerechnet: 1 + 16 383 × 2 + 2 Anführungszeichen = 32 769).
+  - Über HTTP (Integration): `{"text":"a\u0001b"}` → 422 `{regel:"zeichen", stelle:1, zeichen:"U+0001"}`, `fehler` „Steuerzeichen U+0001 an Stelle 2 — bitte entfernen.“, Tagesdatei byte-gleich; Kontrolle `{"text":"a\tb\nc"}` → 201, der Verlauf liefert `"text":"a\tb\nc"` (Tab und Zeilenumbruch bleiben erlaubt).
 - [ ] Grenzschutz und Reihenfolge (Integration): ohne Header → 401; `Origin: http://fremd.example` ohne Header → 403; `Content-Type: text/plain` → 415; Körper `{` → 400; an `fehlt` und an `Allgemein` → je 404 mit `fehler` „# fehlt gibt es nicht.“ bzw. „# Allgemein gibt es nicht.“; an `fehlt` mit `{"text":""}` → 404 (Channel vor Text).
 - [ ] Plattenfehler (Integration; Testlauf nicht als root): `channels/allgemein/` ohne Schreibrecht (`chmod a-w`) → `POST` `Hallo` → 500 `{fehler}`; stderr nennt Datei und Grund; keine Tagesdatei entstanden, der Verlauf ist leer; nach `chmod u+w` gelingt `Hallo` mit 201.
 
@@ -166,7 +170,7 @@ Gemeinsam für alle Kriterien, wenn nicht anders genannt: Start mit `TZ=Europe/B
 
 ## Betroffene Verzeichnisstruktur
 
-- Senden: `src/http/nachrichten.rs` (`POST` neben `GET`, `nachricht_als_json` mit `art`), `src/http/koerper.rs` (Parse außerhalb des Workers mit Semaphore), `src/http/mod.rs` (Route), neu `src/gespraeche/textregel.rs` (rein); `src/gespraeche/logformat.rs` (Metazeile `art`), `src/gespraeche/mod.rs` (`senden` mit Art unter der Schreibsperre, `Nachricht.art`), `src/gespraeche/verlaufsindex.rs` (Art beim Lesen).
+- Senden: `src/http/nachrichten.rs` (`POST` neben `GET`; `NachrichtAntwort` öffentlich und mit `art`), `src/http/koerper.rs` (Parse außerhalb des Workers mit Semaphore), `src/http/mod.rs` (Route), neu `src/gespraeche/textregel.rs` (rein); `src/gespraeche/logformat.rs` (Metazeile `art`), `src/gespraeche/mod.rs` (`senden` mit Art unter der Schreibsperre, `Nachricht.art`), `src/gespraeche/verlaufsindex.rs` (Art beim Lesen).
 - Strom: `src/live/bus.rs` (`Ereignis::Nachricht`), `src/http/ereignisse.rs` (Form im Strom), `src/http/gesundheit.rs` (`zeit_vorlauf_ms`, `gebremst`), `src/uhr.rs` (Vorlauf).
 - Schreibkonto: neu `src/schreibkonto/` (A00014: Eimer, Abbuchen, Kosten, Episode); `src/start/mod.rs` (Baustein erzeugen).
 - Oberfläche: neu `web/eingabe.js` (Feld, Tasten), `web/zustellung.js` (rein), `web/live-verlauf.js` oder Erweiterung von `web/verlauf.js` (Einordnen, Bündeln, Pille); geändert `web/api.js` (`nachrichtSenden`), `web/hauptansicht.js`, `web/lc-seite.css`.
@@ -208,7 +212,7 @@ Wireframe: die WBS führt `wireframes: Dokumentation/Wireframes/`, ein Artboard 
 
 - `gespraeche::Gespraeche::senden`: Art, Schreibsperre über alle Gespräche statt `letzte`, Rückruf `veroeffentlichen` unter der Sperre; `Nachricht` um `art`.
 - `gespraeche::logformat`: Metazeile `+ art:` schreiben und lesen.
-- `http::nachrichten::nachricht_als_json`: `art`.
+- `http::nachrichten::NachrichtAntwort` (seit R00013, B0254, die eine Form einer Nachricht an der Grenze; heute privat, `{zeit, von, text}`): öffentlich gemacht, damit die 201 und das Ereignis im Strom (F0042, `src/http/ereignisse.rs`) dieselbe Struktur serialisieren; um `art` ergänzt (`null` ohne Metazeile). Kein zweiter Weg zu JSON — `nachricht_als_json` gibt es seit R00013 nicht mehr.
 - `http::koerper`: Parse großer Körper außerhalb des Workers.
 - `http::gesundheit`: `zeit_vorlauf_ms`, `gebremst`.
 - `live::bus`: `Ereignis::Nachricht`.
@@ -218,9 +222,9 @@ Wireframe: die WBS führt `wireframes: Dokumentation/Wireframes/`, ein Artboard 
 
 Nach Skill `test-pyramide` und ADR-0009; die Szenarien der User Story werden Tests. Tests sind nie schärfer als diese Anforderung: sie übernehmen Z1, Z10 und die exakten Regeln wörtlich; Z9 und M2 sind Messwerte, keine Tests im Gate.
 
-**Unit (rein, gestellte Uhr):** Textregel (Spanne in Bytes, Mutanten), Sendekörper, Metazeile, Schranken-Test der Schreibsperre (vorher rot), Sperrordnung mit der Pflege, Vorlauf (Schwelle 60 000/60 001 ms), Eimer (30/31, 120/121, 999/1 000 ms, Mutanten), Kosten, zwei Schritte, Speicher, Episode.
+**Unit (rein, gestellte Uhr):** Textregel (Spanne in Bytes, Klassengrenzen der Steuerzeichen, JSON-Ausdehnung ≤ 2 ×, Mutanten), Sendekörper, Metazeile, Schranken-Test der Schreibsperre (vorher rot), Sperrordnung mit der Pflege, Vorlauf (Schwelle 60 000/60 001 ms), Eimer (30/31, 120/121, 999/1 000 ms, Mutanten), Kosten, zwei Schritte, Speicher, Episode.
 
-**Integration (`tests/`, echtes Programm, ohne `Origin`):** Rundweg POST → Datei → GET → Neustart; Art Mensch/Agent/null; Körpergrenze 131 072/131 073; Abweisungen und Reihenfolge; Plattenfehler; Ereignis und kein Ereignis bei Fehlern; 40 × 25 über zwei Channels; Vorlauf; Konto je Kennung und je Herkunft als Spanne, Vorab vor dem Körper, kein Gegenzug, Betrieb, Mutationsprobe.
+**Integration (`tests/`, echtes Programm, ohne `Origin`):** Rundweg POST → Datei → GET → Neustart; Art Mensch/Agent/null; U+0001 abgewiesen, Tab und Zeilenumbruch angenommen; Körpergrenze 131 072/131 073; Abweisungen und Reihenfolge; Plattenfehler; Ereignis und kein Ereignis bei Fehlern; 40 × 25 über zwei Channels; Vorlauf; Konto je Kennung und je Herkunft als Spanne, Vorab vor dem Körper, kein Gegenzug, Betrieb, Mutationsprobe.
 
 **Oberfläche rein (`e2e/einheit/`):** Tasten, Zustellung (Z4), Einordnen, Bündeln, Folgen oder zählen.
 
@@ -292,6 +296,11 @@ Auslöser: Die Vision verspricht ein Gespräch zwischen Menschen und Agenten, da
 - **Z1 mit Absender im Browser A**: verworfen — F0044 hinge dann an F0043; der Absender über die API misst dieselbe Zustellung.
 - **20 × 50 aus einer Kennung je Task** (ADR-0035): verworfen — scheitert ab F0045 am Konto; 40 × 25 auf 10 Herkünften bleibt unter beiden Eimern.
 - **Texte mit Kennungen der Planung** („ab I0010 als Anhang“, ADR-0038): verworfen — Oberflächentexte nennen keine Planungskennungen.
+
+### Review 2026-10-28 (planer, `/anforderung review` im Auftrag des Directors)
+
+- Grobentwurf und „Änderungen an bestehenden Klassen“: `nachricht_als_json` wurde mit R00013 (Commit 80d1e89) entfernt; die eine Form an der Grenze ist `NachrichtAntwort` — B0210 macht sie öffentlich und ergänzt `art`.
+- F0041: Kriterium „Steuerzeichen und JSON-Ausdehnung“ ergänzt (Hinweis aus dem Security-Review zu #23: Steuerzeichen blähen JSON auf das 6-Fache). Die Regel selbst stand schon da (verbotene Zeichen, ADR-0034); neu sind Klassengrenzen als Spanne mit Mutanten, die Ausdehnungsgrenze und die Probe über HTTP mit U+0001. Tab und Zeilenumbruch bleiben erlaubt (nicht strenger als die Regel). Die Alternative „Budget zählt 6 Bytes je Steuerzeichen“ entfällt, weil Senden sie abweist.
 
 ### Bewusst außerhalb
 
