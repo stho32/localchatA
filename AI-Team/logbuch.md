@@ -118,3 +118,5 @@ Eine Zeile je Auftrag an eine Rolle und je Retrospektive.
 | 2026-10-28 | #24 | Entwicklung → Auto-Reviews | entwickler | bestanden | 1:25 | I0021 grün, 24 Bubbles, Gate 675/0 nachgefahren; UX entfällt (keine Oberfläche); 4 Reviews parallel |
 | 2026-10-28 | #23 Befund | Auto-Reviews → Entwicklertest | entwickler, rechtschreib-reviewer | bestanden | 0:07 | Nacharbeit 1 (Gegenstelle IP+Port, Hilfetext Sendefrist); enge Wiederholung per grep-Probe |
 | 2026-10-28 | #25 Befund | Detailplanung → Entwicklung | entwickler | läuft | — | F0056 Grenzen Team-LAN (R00015) |
+| 2026-10-28 | #23 Befund | Entwicklertest → Abnahme | entwicklertester | bestanden | 0:13 | US-1–US-8 bestanden (+10 MB statt +760 MB); Demo auf 2e0004a |
+| 2026-10-28 | #24 | Auto-Reviews | code-, observability-, rechtschreib-reviewer | befund | — | Muss: gelöschte Tagesdatei bleibt offen, 8 Einträge ohne Test, 2 Pluralfehler; security bestanden; architekt entscheidet M1 im Vorlauf |
