@@ -151,3 +151,4 @@ Nie vom User erfragen.
 | 2026-10-28 | R00006 Channel anlegen | B0128 Gesundheit nennt Channels | Standard | 0,4h | 0,05h | 0,05h | autonom |
 | 2026-10-28 | R00006 Channel anlegen | B0129 Ungültige Channel-Ordner beim Laden übergehen | Standard | 0,4h | 0,1h | 0,1h | autonom |
 | 2026-10-28 | R00006 Channel anlegen | B0130 Defekte Einstellungen erkennen | Standard | 0,4h | 0,2h | 0,2h | autonom |
+| 2026-10-28 | R00006 Channel anlegen | B0131 Ordner vorhanden, aber nicht geladen | Standard | 0,4h | 0,1h | 0,1h | autonom |

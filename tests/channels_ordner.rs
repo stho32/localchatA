@@ -127,3 +127,51 @@ async fn us14_ungueltiger_ordner_und_defekte_datei_zaehlen_zusammen_zwei_defekte
     assert_eq!(namen.as_array().map(Vec::len), Some(1), "{namen}");
     assert_eq!(namen[0]["name"], "kaputt");
 }
+
+#[tokio::test]
+async fn us12_ein_von_hand_angelegter_ordner_wird_nicht_ueberschrieben_und_beim_neustart_uebernommen()
+ {
+    let wurzel = tempfile::tempdir().expect("Wegwerf-Ordner");
+    let ordner = wurzel.path();
+    let instanz = starten_mit(ordner, LOKAL, &[]);
+    let zwei = Absender::von("127.0.0.2");
+    let alpha = beitreten(&zwei, &instanz, "alpha").await;
+    datei(ordner, "channels/notizen/zettel.txt", b"hallo\n");
+
+    let antwort = zwei
+        .channel_anlegen(&instanz.adresse, &alpha, json!({ "name": "notizen" }))
+        .await;
+    let vorher = liste(&instanz).await;
+
+    assert_eq!(antwort.status, 409, "{}", antwort.json);
+    assert_eq!(antwort.json["regel"], "ordner-vorhanden");
+    assert_eq!(
+        antwort.json["fehler"],
+        "channels/notizen besteht im Ordner schon; localchatA übernimmt ihn beim nächsten Start."
+    );
+    let inhalt: Vec<String> = fs::read_dir(ordner.join("channels/notizen"))
+        .expect("Ordner")
+        .map(|eintrag| {
+            eintrag
+                .expect("Eintrag")
+                .file_name()
+                .to_string_lossy()
+                .into_owned()
+        })
+        .collect();
+    assert_eq!(inhalt, vec!["zettel.txt"]);
+    assert_eq!(
+        fs::read(ordner.join("channels/notizen/zettel.txt")).expect("Zettel"),
+        b"hallo\n"
+    );
+    assert_eq!(vorher, json!([]));
+
+    drop(instanz);
+    let instanz = starten_mit(ordner, LOKAL, &[]);
+    let nachher = liste(&instanz).await;
+
+    assert_eq!(
+        nachher,
+        json!([{ "name": "notizen", "angelegt": null, "angelegt_von": null, "beschreibung": null }])
+    );
+}

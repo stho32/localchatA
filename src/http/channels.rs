@@ -1,5 +1,5 @@
 //! Channels beantworten (B0121, B0122; ADR-0021 Regeln 1, 2, 7): `POST /api/channels {name}` mit Sitzung →
-//! 201 `{channel}` | 409 `{fehler, channel}` | 422 `{fehler, regel, vorschlag?}` | 429 `{fehler, grenze,
+//! 201 `{channel}` | 409 `{fehler, channel}` oder `{fehler, regel: "ordner-vorhanden"}` | 422 `{fehler, regel, vorschlag?}` | 429 `{fehler, grenze,
 //! hoechstens}`; `GET /api/channels` → 200
 //! `{stand, liste}` nach Name. Ohne Sitzung 401 (Extraktor `Teilnehmer`), fremder `Origin` 403 (Grenzschutz),
 //! ohne JSON 415, kaputtes JSON 400, zu großer Körper 413. Die Arbeit am Verzeichnis läuft über `spawn_blocking`.
@@ -35,15 +35,17 @@ pub async fn anlegen(
     };
     let gespraeche = Arc::clone(&zustand.gespraeche);
     let kennung = teilnehmer.kennung;
+    let gewuenscht = name.clone();
     let ergebnis =
-        tokio::task::spawn_blocking(move || gespraeche.channel_anlegen(&name, &kennung)).await;
+        tokio::task::spawn_blocking(move || gespraeche.channel_anlegen(&gewuenscht, &kennung))
+            .await;
     match ergebnis {
         Ok(Ok(channel)) => (
             StatusCode::CREATED,
             Json(json!({ "channel": channel_als_json(&channel) })),
         )
             .into_response(),
-        Ok(Err(fehler)) => anlegefehler(fehler),
+        Ok(Err(fehler)) => anlegefehler(fehler, &name),
         Err(abgebrochen) => ablagefehler(&format!("Anlegen abgebrochen: {abgebrochen}")),
     }
 }
@@ -94,13 +96,25 @@ fn gewuenschter_name(koerper: &Value) -> Result<String, Value> {
 const REGEL_BESCHREIBUNG: &str = "beschreibung";
 const BEISPIEL: &str = r#"{"name":"allgemein"}"#;
 
-fn anlegefehler(fehler: Anlegefehler) -> Response {
+const REGEL_ORDNER_VORHANDEN: &str = "ordner-vorhanden";
+
+fn anlegefehler(fehler: Anlegefehler, name: &str) -> Response {
     match fehler {
         Anlegefehler::Vorhanden(channel) => {
             let text = format!("# {} gibt es schon.", channel.name);
             (
                 StatusCode::CONFLICT,
                 Json(json!({ "fehler": text, "channel": channel_als_json(&channel) })),
+            )
+                .into_response()
+        }
+        Anlegefehler::OrdnerVorhanden => {
+            let text = format!(
+                "channels/{name} besteht im Ordner schon; localchatA übernimmt ihn beim nächsten Start."
+            );
+            (
+                StatusCode::CONFLICT,
+                Json(json!({ "fehler": text, "regel": REGEL_ORDNER_VORHANDEN })),
             )
                 .into_response()
         }

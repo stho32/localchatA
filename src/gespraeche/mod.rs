@@ -269,7 +269,10 @@ impl Gespraeche {
         let text = einstellungen::schreiben(&einstellungen, None);
         self.ablage
             .channel_ordner_anlegen(gespraech)
-            .map_err(|fehler| Anlegefehler::Ablage(format!("{gespraech}: {fehler}")))?;
+            .map_err(|fehler| match fehler.kind() {
+                std::io::ErrorKind::AlreadyExists => Anlegefehler::OrdnerVorhanden,
+                _ => Anlegefehler::Ablage(format!("{gespraech}: {fehler}")),
+            })?;
         self.ablage
             .einstellungen_schreiben(gespraech, text.as_bytes())
             .map_err(|fehler| {
@@ -1128,6 +1131,23 @@ mod tests {
                 "channels/zu/einstellungen.toml: nicht lesbar, als unbekannt gelesen ("
             ),
             "{defekte:?}"
+        );
+    }
+
+    #[test]
+    fn ein_von_hand_angelegter_nicht_geladener_ordner_ist_ordner_vorhanden() {
+        let (gespraeche, ablage) = leer_im_speicher("2026-10-28T10:15:00.123+01:00");
+        let notizen = Gespraech::channel("notizen");
+        ablage.tag_setzen(&notizen, tag("2026-10-28"), "von Hand\n");
+
+        let ergebnis = gespraeche.channel_anlegen("notizen", &alpha());
+
+        assert_eq!(ergebnis, Err(Anlegefehler::OrdnerVorhanden));
+        assert_eq!(gespraeche.channels().stand, 0);
+        assert_eq!(ablage.einstellungen_lesen(&notizen).expect("lesbar"), None);
+        assert_eq!(
+            ablage.inhalt(&notizen, tag("2026-10-28")).as_deref(),
+            Some("von Hand\n")
         );
     }
 }
