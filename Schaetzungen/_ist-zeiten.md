@@ -163,3 +163,31 @@ Nie vom User erfragen.
 | 2026-10-28 | R00006 Channel anlegen | B0140 Dialog zeichnen und bedienen | unklar | 2-4h | 0,6h | 0,6h | autonom |
 | 2026-10-28 | R00006 Channel anlegen | Lauf R00006: Zeitmessung, Mutationsproben, Gate | Konsolidierung | — | 0,7h | 0,7h | autonom |
 | 2026-10-28 | R00006 Channel anlegen | Nacharbeit 1 (Security CWE-407, UX Fokus) | Nacharbeit | — | 0,4h | 0,4h | autonom |
+| 2026-10-28 | R00007 Channel wechseln und Verlauf lesen | B0141 Grenze im Tag finden | Standard | 0,4h | 0,15h | 0,15h | autonom |
+| 2026-10-28 | R00007 Channel wechseln und Verlauf lesen | B0142 Block über Tage sammeln | Standard | 0,4h | 0,02h | 0,02h | autonom |
+| 2026-10-28 | R00007 Channel wechseln und Verlauf lesen | B0143 Satz als Nachricht | Standard | 0,4h | 0,02h | 0,02h | autonom |
+| 2026-10-28 | R00007 Channel wechseln und Verlauf lesen | B0144 Abfrage lesen | Standard | 0,4h | 0,02h | 0,02h | autonom |
+| 2026-10-28 | R00007 Channel wechseln und Verlauf lesen | B0145 Verlauf im Verzeichnis abfragen | Standard | 0,4h | 0,01h | 0,01h | autonom |
+| 2026-10-28 | R00007 Channel wechseln und Verlauf lesen | B0146 Verlauf beantworten | Standard | 0,4h | 0,02h | 0,02h | autonom |
+| 2026-10-28 | R00007 Channel wechseln und Verlauf lesen | B0147 Testdaten-Erzeuger | Standard | 0,4h | 0,03h | 0,03h | autonom |
+| 2026-10-28 | R00007 Channel wechseln und Verlauf lesen | B0148 Auswahl ableiten | Standard | 0,4h | 0,03h | 0,03h | autonom |
+| 2026-10-28 | R00007 Channel wechseln und Verlauf lesen | B0149 Auswahl merken | Standard | 0,4h | 0,02h | 0,02h | autonom |
+| 2026-10-28 | R00007 Channel wechseln und Verlauf lesen | B0150–B0152 Seitenleiste mit Links, Kopfzeile, Auswahl in der Hauptansicht | Gruppe | 1,2h + 2-4h | 0,08h | 0,08h | autonom |
+| 2026-10-28 | R00007 Channel wechseln und Verlauf lesen | B0153 Verlauf abrufen | Standard | 0,4h | 0,02h | 0,02h | autonom |
+| 2026-10-28 | R00007 Channel wechseln und Verlauf lesen | B0154 Uhrzeit | Standard | 0,4h | 0,01h | 0,01h | autonom |
+| 2026-10-28 | R00007 Channel wechseln und Verlauf lesen | B0155–B0157 Nachricht zeichnen, Channel öffnen, Öffnungszeit | Gruppe | 0,8h + 2-4h | 0,1h | 0,1h | autonom |
+| 2026-10-28 | R00007 Channel wechseln und Verlauf lesen | B0158 Gliederung bestimmen | Standard | 0,4h | 0,01h | 0,01h | autonom |
+| 2026-10-28 | R00007 Channel wechseln und Verlauf lesen | B0159 Datum benennen | Standard | 0,4h | 0,01h | 0,01h | autonom |
+| 2026-10-28 | R00007 Channel wechseln und Verlauf lesen | B0160–B0161 Gegliedert zeichnen, Lange Nachricht einklappen | Gruppe | 4-8h | 0,06h | 0,06h | autonom |
+| 2026-10-28 | R00007 Channel wechseln und Verlauf lesen | B0162 Nachladen entscheiden | Standard | 0,4h | 0,01h | 0,01h | autonom |
+| 2026-10-28 | R00007 Channel wechseln und Verlauf lesen | B0163 Block ins Fenster | Standard | 0,4h | 0,01h | 0,01h | autonom |
+| 2026-10-28 | R00007 Channel wechseln und Verlauf lesen | B0164–B0166 Anker halten, Nachladen, Zum Neuesten | Gruppe | 0,4h + 4-8h | 0,15h | 0,15h | autonom |
+| 2026-10-28 | R00007 Channel wechseln und Verlauf lesen | B0167 Frames beim Scrollen messen | Standard | 0,4h | 0,18h | 0,18h | autonom |
+| 2026-10-28 | R00007 Channel wechseln und Verlauf lesen | B0168 Nachbar-Channel | Standard | 0,4h | 0,02h | 0,02h | autonom |
+| 2026-10-28 | R00007 Channel wechseln und Verlauf lesen | B0169 Kürzel Alt ↑ und Alt ↓ | Standard | 0,4h | 0,02h | 0,02h | autonom |
+| 2026-10-28 | R00007 Channel wechseln und Verlauf lesen | B0170 Beschreibung prüfen | Standard | 0,4h | 0,01h | 0,01h | autonom |
+| 2026-10-28 | R00007 Channel wechseln und Verlauf lesen | B0171 Beschreibung in den Einstellungen | Standard | 0,4h | 0,02h | 0,02h | autonom |
+| 2026-10-28 | R00007 Channel wechseln und Verlauf lesen | B0172 Anlegen mit Beschreibung | Standard | 0,4h | 0,03h | 0,03h | autonom |
+| 2026-10-28 | R00007 Channel wechseln und Verlauf lesen | B0173 Feld Beschreibung im Dialog | Standard | 0,4h | 0,1h | 0,1h | autonom |
+| 2026-10-28 | R00007 Channel wechseln und Verlauf lesen | B0174 Beschreibung in der Kopfzeile | Standard | 0,4h | 0,01h | 0,01h | autonom |
+| 2026-10-28 | R00007 Channel wechseln und Verlauf lesen | Konsolidierung R00007: Selbstprüfung, Abbruch-Test, Gelerntes, Fix, Gate | Konsolidierung | — | 0,5h | 0,5h | autonom |
