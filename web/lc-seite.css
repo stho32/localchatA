@@ -74,6 +74,12 @@ body { background: var(--kd-bg); color: var(--kd-ink); font-family: var(--font-s
 .lc-msg:hover { background: var(--kd-surface-2); }
 .lc-msg.first { margin-top: var(--kd-space-12); }
 .lc-msg .g { display: flex; justify-content: center; padding-top: var(--kd-space-2); }
+/* Folgenachricht: die Uhrzeit links erscheint bei Hover und Fokus, für Screenreader ist sie immer da */
+.lc-msg .g .lc-time { opacity: 0; }
+.lc-msg:hover .g .lc-time, .lc-msg:focus-within .g .lc-time { opacity: 1; }
+/* Tagestrenner (Baustein VerlaufsMarken): der des obersten sichtbaren Tages klebt oben */
+.lc-day { position: sticky; top: 0; z-index: 1; display: flex; align-items: center; gap: var(--kd-space-12); margin: var(--kd-space-16) 0 var(--kd-space-4); padding: 0 var(--kd-space-12); background: var(--kd-surface); font-size: 12px; line-height: 20px; font-weight: 600; color: var(--kd-ink-muted); }
+.lc-day::before, .lc-day::after { content: ""; flex: 1; height: 1px; background: var(--kd-line); }
 .lc-meta { display: flex; align-items: baseline; gap: var(--kd-space-8); flex-wrap: wrap; }
 .lc-meta .lc-id i { font-style: normal; color: var(--kd-ink-muted); }
 .lc-time { font-family: var(--font-mono); font-size: 11px; line-height: 20px; color: var(--kd-ink-muted); font-variant-numeric: tabular-nums; }

@@ -55,6 +55,9 @@ function hauptansichtZeigen(teilnehmer, nachEingabe) {
     version: document.querySelector('meta[name="lc-version"]').content,
     beiEreignis: (ereignis, neuerVersatz) => {
       versatz = neuerVersatz;
+      if (typeof ereignis.jetzt === 'string') {
+        ansicht.serverzeitZeigen(ereignis.jetzt);
+      }
       if (ereignis.art === 'herzschlag') {
         return;
       }

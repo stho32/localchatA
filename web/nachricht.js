@@ -3,7 +3,7 @@
 // Datum mit Sekunden im title. Der Text steht nur als Text (textContent), Zeilenumbrüche bleiben (CSS pre-wrap);
 // Markdown kommt mit I0017, die Art des Absenders mit I0009 — bis dahin trägt die Kachel nur das Kürzel.
 import { kuerzel } from './kopfzeile.js';
-import { uhrzeit, zeitTitel } from './gliederung.js';
+import { uhrzeit, zeitTitel, datumBenennen } from './gliederung.js';
 
 // nachricht: { zeit, von, text } aus der API.
 export function nachrichtZeichnen(nachricht) {
@@ -39,6 +39,14 @@ export function kopfSetzen(artikel, mitKopf) {
   gutter.replaceChildren(kachel);
   const kennung = element('span', { className: 'lc-id' }, [name, element('i', { textContent: `@${herkunft}` })]);
   inhalt.prepend(element('div', { className: 'lc-meta' }, [kennung, zeitElement(zeit)]));
+}
+
+// Tagestrenner (Designsystem VerlaufsMarken): Datum zentriert zwischen zwei Haarlinien, klebt oben.
+export function trennerZeichnen(datum, heute) {
+  const trenner = element('div', { className: 'lc-day', textContent: datumBenennen(datum, heute) });
+  trenner.setAttribute('role', 'separator');
+  trenner.dataset.datum = datum;
+  return trenner;
 }
 
 function zeitElement(zeit) {

@@ -3,7 +3,8 @@
 // wenn Höhen sich nachträglich ändern (Schrift, Fenster). Ein Wechsel bricht den laufenden Abruf ab, eine Antwort
 // für einen verlassenen Channel wird verworfen, Daten des vorigen Channels fallen weg. Der Verlauf ist die einzige
 // scrollende Fläche der Mitte: role="log", aria-live="off", mit der Tastatur fokussierbar.
-import { nachrichtZeichnen } from './nachricht.js';
+import { nachrichtZeichnen, kopfSetzen, trennerZeichnen } from './nachricht.js';
+import { gliederung, datumBenennen } from './gliederung.js';
 
 // abrufen: async (name, cursor, signal) → { art: 'block' | 'fehler' | 'abgebrochen', … } (api.js verlaufAbrufen).
 export function verlaufAnlegen({ abrufen }) {
@@ -13,6 +14,7 @@ export function verlaufAnlegen({ abrufen }) {
   log.setAttribute('aria-live', 'off');
   let laufend = new AbortController();
   let amEnde = true;
+  let heute = null;
 
   function ansEnde() {
     log.scrollTop = log.scrollHeight;
@@ -50,8 +52,19 @@ export function verlaufAnlegen({ abrufen }) {
       inhalt.replaceChildren(hinweis(`Noch keine Nachrichten in # ${name}.`, 'lc-mitte-hinweis'));
       return;
     }
-    inhalt.replaceChildren(...ergebnis.block.nachrichten.map(nachrichtZeichnen));
+    inhalt.replaceChildren(...gegliedertZeichnen(ergebnis.block.nachrichten, null, heute));
     ansEnde();
+  }
+
+  // Das heutige Datum des Servers ('JJJJ-MM-TT') benennt die Tagestrenner neu — gleiche Höhe, nichts springt.
+  function heuteSetzen(datum) {
+    if (datum === heute) {
+      return;
+    }
+    heute = datum;
+    for (const trenner of inhalt.querySelectorAll('.lc-day')) {
+      trenner.textContent = datumBenennen(trenner.dataset.datum, heute);
+    }
   }
 
   function schliessen() {
@@ -59,7 +72,25 @@ export function verlaufAnlegen({ abrufen }) {
     inhalt.replaceChildren();
   }
 
-  return { element: log, oeffnen, schliessen };
+  return { element: log, oeffnen, schliessen, heuteSetzen };
+}
+
+// Nachrichten nach der vorigen (oder null) gegliedert: Tagestrenner vor dem ersten des Tages, Kopf nur bei neuer
+// Gruppe (ADR-0026 Regel 4).
+function gegliedertZeichnen(nachrichten, vorige, heute) {
+  const knoten = [];
+  let davor = vorige;
+  for (const nachricht of nachrichten) {
+    const { kopf, tagestrenner } = gliederung(davor, nachricht);
+    if (tagestrenner !== null) {
+      knoten.push(trennerZeichnen(tagestrenner, heute));
+    }
+    const artikel = nachrichtZeichnen(nachricht);
+    kopfSetzen(artikel, kopf);
+    knoten.push(artikel);
+    davor = nachricht;
+  }
+  return knoten;
 }
 
 function hinweis(text, klasse) {

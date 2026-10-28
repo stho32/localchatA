@@ -52,6 +52,8 @@ export function zeichnen(wurzel, teilnehmer, optionen) {
   return {
     region: zeilen,
     channelsZeigen: auswahlFolgen,
+    // Serverzeit aus einem Ereignis (RFC 3339 mit Versatz): ihr Datum ist das heutige des Servers.
+    serverzeitZeigen: (jetzt) => verlauf.heuteSetzen(jetzt.slice(0, 10)),
     anzahlZeigen: (wieViele) => {
       anzahl.textContent = String(wieViele);
     },
