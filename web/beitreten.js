@@ -65,7 +65,7 @@ export function zeichnen(wurzel, zustand, aktionen) {
   feld.focus();
 }
 
-// Teile der Meldung: Text oder { kennung } für Namen, Kennungen und Vorschläge (Mono, bidi-isoliert).
+// Teile der Meldung: Text oder { kennung } für Namen, Kennungen und Vorschläge (Mono).
 export function meldungsteile(zustand) {
   switch (zustand.art) {
     case 'vergeben':

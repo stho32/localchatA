@@ -25,8 +25,8 @@ body { background: var(--kd-bg); color: var(--kd-ink); font-family: var(--font-s
 .lc-meldung { display: flex; flex-wrap: wrap; align-items: center; gap: var(--kd-space-8); }
 .lc-meldung > span:first-child { flex: 1 1 100%; }
 .lc-fehler { color: var(--kd-danger); }
-/* Namen, Kennungen, Vorschläge (lc-id); isoliert, damit Steuerzeichen im Namen den Satz nicht umdrehen */
-.lc-id { font-family: var(--font-mono); font-size: 12px; unicode-bidi: isolate; }
+/* Namen, Kennungen, Vorschläge (lc-id) */
+.lc-id { font-family: var(--font-mono); font-size: 12px; }
 
 /* Kopfzeile und Kennung (Bausteine Kopfzeile, Kennung) */
 #app { min-height: 100%; }
