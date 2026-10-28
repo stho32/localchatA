@@ -26,14 +26,15 @@ use crate::gespraeche::{Dateiablage, Gespraeche};
 use crate::http::{self, Grenzschutz, Zustand};
 use crate::live::bus::{self, Bus};
 use crate::live::{self, herzschlag, takt};
+use crate::protokoll::{Bereich, Kontext, Protokoll, Schluessel, Stufe};
 use crate::uhr::{self, Uhr};
 use crate::zufall::Betriebssystemzufall;
 use aufruf::HILFE;
 use std::net::SocketAddr;
 use std::path::Path;
 use std::process::ExitCode;
-use std::sync::Arc;
-use std::time::Duration;
+use std::sync::{Arc, OnceLock};
+use std::time::{Duration, Instant};
 
 /// Führt einen Aufruf (Argumente ohne Programmnamen) bis zum Ende aus und liefert den Exit-Code:
 /// 0 geordnet beendet oder Hilfe, 1 Ordner, Port oder Sperre scheitert, 2 falscher Aufruf oder
@@ -94,6 +95,12 @@ async fn starten(
     let uhr: Arc<dyn Uhr> = Arc::from(uhr);
     let ordner = ordner::ordner_vorbereiten(&auftrag.ordner)?;
     let _sperre = sperre::ordner_sperren(&ordner)?;
+    let beginn = Instant::now();
+    let protokoll = Arc::new(Protokoll::oeffnen(
+        &ordner,
+        Arc::clone(&uhr),
+        Stufe::Information,
+    ));
     let bus = Arc::new(Bus::neu(live::KAPAZITAET));
     let gespraeche = verlauf_laden(&ordner, Arc::clone(&uhr))?
         .mit_veroeffentlichen(bus::channels_veroeffentlichen(&bus));
@@ -111,13 +118,27 @@ async fn starten(
         port: 0,
         grund: fehler.to_string(),
     })?;
-    let ende = ende_einrichten();
+    let (ende, signal) = ende_einrichten(Arc::clone(&protokoll), beginn);
     tokio::spawn(takt::takten(
         Arc::clone(&anwesenheit),
         uhr,
         ende.clone(),
         takt::PERIODE,
     ));
+    let kennzahlen = gespraeche.kennzahlen();
+    protokoll.eintragen(
+        Stufe::Information,
+        Bereich::Start,
+        "Instanz bereit",
+        Kontext::neu()
+            .mit(Schluessel::Version, env!("CARGO_PKG_VERSION"))
+            .mit(Schluessel::Adresse, format!("http://{adresse}/"))
+            .mit(Schluessel::Ordner, ordner.display())
+            .mit(Schluessel::Stufe, "information")
+            .mit(Schluessel::Option, "standard")
+            .mit(Schluessel::Anzahl, kennzahlen.nachrichten)
+            .mit(Schluessel::DauerMs, kennzahlen.ladezeit_ms),
+    );
     startzeile_schreiben(&ordner, adresse);
     if auftrag.browser_oeffnen {
         browser::oeffnen(adresse);
@@ -140,6 +161,12 @@ async fn starten(
         Pflege::kernel(pflege_aus(herzschlag)),
     )
     .await;
+    protokoll.eintragen(
+        Stufe::Information,
+        Bereich::Ende,
+        "Instanz beendet",
+        ende_kontext(signal.get().copied(), beginn),
+    );
     Ok(())
 }
 
@@ -167,28 +194,48 @@ fn startzeile_schreiben(ordner: &Path, adresse: SocketAddr) {
     );
 }
 
-/// Das Ende-Signal für alle: trifft Strg+C oder SIGTERM ein, wird das Ende gemeldet.
-fn ende_einrichten() -> Ende {
+/// Das Ende-Signal für alle: trifft Strg+C oder SIGTERM ein, steht `INFORMATION ende` im Protokoll und das Ende
+/// wird gemeldet; welches Signal es war, steht danach im zweiten Wert.
+fn ende_einrichten(
+    protokoll: Arc<Protokoll>,
+    beginn: Instant,
+) -> (Ende, Arc<OnceLock<&'static str>>) {
     let (melden, ende) = Ende::neu();
+    let signal = Arc::new(OnceLock::new());
+    let gemerkt = Arc::clone(&signal);
     let beenden = beenden_einrichten();
     tokio::spawn(async move {
-        beenden.await;
+        let grund = beenden.await;
+        let _ = gemerkt.set(grund);
+        protokoll.eintragen(
+            Stufe::Information,
+            Bereich::Ende,
+            "Ende-Signal empfangen — die Instanz endet",
+            ende_kontext(Some(grund), beginn),
+        );
         melden.melden();
     });
-    ende
+    (ende, signal)
+}
+
+/// `grund` (welches Signal) und `dauer_ms` (Laufzeit seit der Sperre).
+fn ende_kontext(grund: Option<&str>, beginn: Instant) -> Kontext {
+    Kontext::neu()
+        .mit(Schluessel::Grund, grund.unwrap_or("unbekannt"))
+        .mit(Schluessel::DauerMs, beginn.elapsed().as_millis())
 }
 
 /// Richtet den Empfang von Strg+C und SIGTERM sofort ein — vor der Startzeile, denn ab ihr gilt die Instanz
 /// als bereit, und ein Signal ab da muss geordnet beenden. Das Ergebnis endet, sobald eines eintrifft.
 #[cfg(unix)]
-fn beenden_einrichten() -> impl Future<Output = ()> + Send + 'static {
+fn beenden_einrichten() -> impl Future<Output = &'static str> + Send + 'static {
     use tokio::signal::unix::SignalKind;
     let strg_c = signal_einrichten(SignalKind::interrupt(), "Strg+C");
     let sigterm = signal_einrichten(SignalKind::terminate(), "SIGTERM");
     async move {
         tokio::select! {
-            _ = eintreffen(strg_c) => {}
-            _ = eintreffen(sigterm) => {}
+            _ = eintreffen(strg_c) => "Strg+C",
+            _ = eintreffen(sigterm) => "SIGTERM",
         }
     }
 }
@@ -220,16 +267,17 @@ async fn eintreffen(signal: Option<tokio::signal::unix::Signal>) {
 
 /// Wie unter Unix, nur mit Strg+C; lässt es sich nicht abfangen, wird nie beendet statt sofort.
 #[cfg(windows)]
-fn beenden_einrichten() -> impl Future<Output = ()> + Send + 'static {
+fn beenden_einrichten() -> impl Future<Output = &'static str> + Send + 'static {
     let strg_c = tokio::signal::windows::ctrl_c();
     async move {
         match strg_c {
             Ok(mut strg_c) => {
                 strg_c.recv().await;
+                "Strg+C"
             }
             Err(fehler) => {
                 eprintln!("Strg+C lässt sich nicht abfangen ({fehler})");
-                std::future::pending::<()>().await;
+                std::future::pending::<&'static str>().await
             }
         }
     }

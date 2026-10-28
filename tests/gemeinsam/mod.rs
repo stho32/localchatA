@@ -2,6 +2,7 @@
 #![allow(dead_code)]
 
 pub mod langsam;
+pub mod protokoll;
 pub mod strom;
 
 use std::io::{BufRead, BufReader, Read};
