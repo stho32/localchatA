@@ -3,6 +3,7 @@
 
 pub mod bereinigung;
 pub mod senke;
+pub mod tagestakt;
 pub mod zeile;
 
 pub use zeile::{Bereich, Eintrag, Kontext, Schluessel, Stufe};
@@ -26,6 +27,8 @@ pub struct Protokoll {
     spiegel: Spiegel,
     inneres: Mutex<Inneres>,
     ok: AtomicBool,
+    /// Namen beendeter Hintergrundaufgaben (ADR-0042 Regel 4) — für `aufgaben_ausgefallen`.
+    ausgefallen: Mutex<Vec<&'static str>>,
 }
 
 struct Inneres {
@@ -75,6 +78,7 @@ impl Protokoll {
                 rueckfall: false,
             }),
             ok: AtomicBool::new(true),
+            ausgefallen: Mutex::new(Vec::new()),
         }
     }
 
@@ -92,6 +96,29 @@ impl Protokoll {
     /// `true`, solange Einträge in die Datei gehen; `false` im Rückfall auf stderr (ADR-0043 Regel 5).
     pub fn ok(&self) -> bool {
         self.ok.load(Ordering::SeqCst)
+    }
+
+    /// Eine Hintergrundaufgabe ist beendet: `ERROR programmfehler Hintergrundaufgabe <name> beendet — <folge>`,
+    /// und ihr Name steht in den ausgefallenen.
+    pub fn aufgabe_ausgefallen(&self, name: &'static str, folge: &str) {
+        self.ausgefallen
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .push(name);
+        self.eintragen(
+            Stufe::Error,
+            Bereich::Programmfehler,
+            format!("Hintergrundaufgabe {name} beendet — {folge}"),
+            Kontext::neu(),
+        );
+    }
+
+    /// Namen der beendeten Hintergrundaufgaben in der Reihenfolge ihres Ausfalls.
+    pub fn ausgefallen(&self) -> Vec<&'static str> {
+        self.ausgefallen
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone()
     }
 
     pub fn mindeststufe(&self) -> Stufe {
