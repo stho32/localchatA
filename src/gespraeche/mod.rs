@@ -99,7 +99,7 @@ impl Gespraeche {
             for tag in frist::tage_in_frist(&tage, heute, frist::STANDARD_FRIST_TAGE) {
                 geladen.tag_laden(ablage.as_ref(), &gespraech, tag, &mut verlauf);
             }
-            geladen.channel_aufnehmen(&gespraech);
+            geladen.channel_aufnehmen(ablage.as_ref(), &gespraech);
             geladen
                 .verzeichnis
                 .verlaeufe
@@ -243,21 +243,29 @@ struct Geladen {
 }
 
 impl Geladen {
-    /// Ein Ordner unter `channels/` mit gültigem Namen ist ein Channel.
-    fn channel_aufnehmen(&mut self, gespraech: &Gespraech) {
+    /// Ein Ordner unter `channels/` mit gültigem Namen ist ein Channel; `angelegt` und `angelegt_von` kommen aus
+    /// seiner Einstellungsdatei, fehlt sie, sind sie unbekannt (ADR-0022 Regel 3).
+    fn channel_aufnehmen(&mut self, ablage: &dyn Logablage, gespraech: &Gespraech) {
         let Gespraech::Channel(ordner) = gespraech else {
             return;
         };
-        if let Ok(name) = Channelname::bilden(ordner) {
-            self.verzeichnis.channels.insert(
-                name.clone(),
-                Channel {
-                    name,
-                    angelegt: None,
-                    angelegt_von: None,
-                },
-            );
-        }
+        let Ok(name) = Channelname::bilden(ordner) else {
+            return;
+        };
+        let gelesen = ablage
+            .einstellungen_lesen(gespraech)
+            .ok()
+            .flatten()
+            .and_then(|bytes| einstellungen::lesen(&bytes).ok())
+            .unwrap_or_default();
+        self.verzeichnis.channels.insert(
+            name.clone(),
+            Channel {
+                name,
+                angelegt: gelesen.angelegt,
+                angelegt_von: gelesen.angelegt_von,
+            },
+        );
     }
 
     /// Liest einen Tag, nimmt seine gültigen Sätze in den Verlauf und merkt Defekte und jüngste Zeit.
@@ -750,5 +758,34 @@ mod tests {
                 .collect::<Vec<_>>(),
             vec!["allgemein", "b", "security-entwicklung"]
         );
+    }
+
+    #[test]
+    fn laden_liest_die_einstellungen_je_channel_und_beginnt_bei_stand_null() {
+        let ablage = Arc::new(Speicherablage::neu());
+        let uhr = Arc::new(GestellteUhr::neu(zeit("2026-10-28T10:15:00.123+01:00")));
+        let vorher = Gespraeche::laden(ablage.clone(), uhr.clone()).expect("geladen");
+        let angelegt = vorher
+            .channel_anlegen("allgemein", &alpha())
+            .expect("angelegt");
+        ablage.gespraech_anlegen(&Gespraech::channel("notizen"));
+
+        let nachher = Gespraeche::laden(ablage, uhr).expect("neu geladen");
+
+        assert_eq!(
+            nachher.channels(),
+            ChannelStand {
+                stand: 0,
+                liste: vec![
+                    angelegt,
+                    Channel {
+                        name: Channelname::bilden("notizen").expect("Name"),
+                        angelegt: None,
+                        angelegt_von: None,
+                    },
+                ],
+            }
+        );
+        assert!(nachher.defekte().is_empty());
     }
 }
