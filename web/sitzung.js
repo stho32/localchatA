@@ -105,8 +105,9 @@ function teilnehmerAus(daten) {
 
 // Nach einem 401 aus dem Strom (Neustart, Gnadenfrist): ohne GET /api/ich wieder beitreten — dessen 401
 // (Vertrag aus R00003) stünde sonst als Konsolenfehler. Hat ein anderer Tab schon ein neues Token gemerkt,
-// gilt es; ohne gemerkten Namen bleibt nur der Beitreten-Bildschirm.
-export async function nachAblehnung(speicher, api, abgelehntesToken) {
+// gilt es; sonst das abgelehnte Token vergessen und still beitreten wie beim Laden — ein 409 kann dann vom
+// Nachbar-Tab stammen, dessen Token übernommen wird (Nacharbeit 3, B2).
+export async function nachAblehnung(speicher, api, abgelehntesToken, geschwister = KEINE_GESCHWISTER) {
   const token = speicher.getItem(SITZUNG);
   if (token && token !== abgelehntesToken) {
     return { art: 'kopfzeile', teilnehmer: null };
@@ -115,5 +116,6 @@ export async function nachAblehnung(speicher, api, abgelehntesToken) {
   if (!gemerkterName) {
     return { art: 'beitreten', name: '' };
   }
-  return beitreten(gemerkterName, speicher, api);
+  tokenVergessen(speicher, abgelehntesToken);
+  return stillBeitreten(gemerkterName, speicher, api, geschwister);
 }

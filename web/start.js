@@ -60,12 +60,12 @@ function hauptansichtZeigen(teilnehmer, nachEingabe) {
 // je Tab nur einer bei, die anderen lesen dessen Token.
 async function stillWiederBeitreten() {
   const abgelehntesToken = tokenDesStroms;
-  const wiederBeitreten = () => sitzung.nachAblehnung(speicher, api, abgelehntesToken);
+  const wiederBeitreten = (geschwister) => sitzung.nachAblehnung(speicher, api, abgelehntesToken, geschwister);
   let zustand;
   if (navigator.locks === undefined) {
-    zustand = await wiederBeitreten();
+    zustand = await wiederBeitreten({ neuesToken: aufTokenEinesAnderenTabsWarten });
   } else {
-    zustand = await navigator.locks.request(sitzung.SITZUNG, wiederBeitreten);
+    zustand = await navigator.locks.request(sitzung.SITZUNG, () => wiederBeitreten());
   }
   if (zustand.art === 'kopfzeile') {
     tokenDesStroms = speicher.getItem(sitzung.SITZUNG);

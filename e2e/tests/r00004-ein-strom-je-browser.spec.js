@@ -180,3 +180,48 @@ for (const { ohneWebLocks, titel } of [{ ohneWebLocks: false, titel: '' }, { ohn
     ohneFehler(fehler);
   });
 }
+
+// Nacharbeit 3, Code-Review B2: LAN-Rückfall ohne SharedWorker und ohne Web Locks — nach einem Neustart
+// treten die Tabs gleichzeitig wieder bei; der 409 eines Nachbar-Tabs wird abgefangen und dessen Token
+// übernommen. Kontrolle: dieselbe Probe mit Web Locks.
+for (const { tabs: anzahl, ohneWebLocks } of [
+  { tabs: 2, ohneWebLocks: true }, { tabs: 3, ohneWebLocks: true }, { tabs: 3, ohneWebLocks: false },
+]) {
+  let titel = `${anzahl} Tabs ohne SharedWorker`;
+  if (ohneWebLocks) {
+    titel += ' und ohne Web Locks';
+  }
+  test(`B2: Neustart im Rückfall, ${titel} — jeder Tab ist zurück, shoff genau einmal belegt`, async ({ browser, request }) => {
+    instanz = await instanzStarten({ port: await freierPort() });
+    const kontext = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+    await kontext.addInitScript(() => { delete window.SharedWorker; });
+    if (ohneWebLocks) {
+      await kontext.addInitScript(() => {
+        Object.defineProperty(Navigator.prototype, 'locks', { get: () => undefined });
+      });
+    }
+    const tabs = [];
+    for (let nummer = 0; nummer < anzahl; nummer += 1) {
+      const tab = await kontext.newPage();
+      fehlerSammeln(tab, { serverWegErwartet: true });
+      await tab.goto(instanz.adresse);
+      if (nummer === 0) {
+        await tab.getByLabel('Name').fill('shoff');
+        await tab.getByLabel('Name').press('Enter');
+      }
+      await zeigtSichSelbst(tab);
+      tabs.push(tab);
+    }
+
+    await instanz.beenden();
+    await expect(tabs[0].locator('#lc-verbindung')).toBeVisible();
+    await instanz.starten();
+
+    for (const tab of tabs) {
+      await expect(tab.locator('#lc-verbindung')).toBeHidden({ timeout: 15000 });
+      await zeigtSichSelbst(tab, 'shoff@127.0.0.1', 15000);
+      await expect(tab.getByLabel('Name')).toHaveCount(0);
+    }
+    expect((await request.post(instanz.adresse + 'api/beitreten', { data: { name: 'shoff' } })).status()).toBe(409);
+  });
+}

@@ -293,3 +293,40 @@ test('nach Ablehnung im Strom: ohne gemerkten Namen der Beitreten-Bildschirm, oh
   assert.deepEqual(zustand, { art: 'beitreten', name: '' });
   assert.deepEqual(api.aufrufe, []);
 });
+
+// Nacharbeit 3, Code-Review B2: auch nach einer Ablehnung im Strom fängt der Wiederbeitritt den 409 eines
+// Nachbar-Tabs ab (LAN-Rückfall ohne SharedWorker und ohne Web Locks) und übernimmt dessen Token.
+const VERGEBEN = { serverWeg: false, status: 409, daten: { belegt_von: 'shoff@127.0.0.1', seit: 'x', vorschlag: 'shoff-2' } };
+
+test('nach Ablehnung im Strom: 409, der Nachbar hat schon geschrieben → Kopfzeile mit dessen Token', async () => {
+  const speicher = speicherMit({ [SITZUNG]: 'alt', [NAME]: 'shoff' });
+  const aufrufe = [];
+  const api = {
+    beitreten: async (name) => {
+      aufrufe.push(['beitreten', name]);
+      speicher.setItem(SITZUNG, 'neu-vom-nachbarn');
+      return VERGEBEN;
+    },
+    ich: async (token) => { aufrufe.push(['ich', token]); return { serverWeg: false, status: 200, daten: SHOFF }; },
+  };
+
+  const zustand = await nachAblehnung(speicher, api, 'alt');
+
+  assert.deepEqual(zustand, { art: 'kopfzeile', teilnehmer: SHOFF });
+  assert.deepEqual(aufrufe, [['beitreten', 'shoff'], ['ich', 'neu-vom-nachbarn']]);
+});
+
+test('nach Ablehnung im Strom: 409, der Nachbar schreibt erst danach → warten, dann Kopfzeile', async () => {
+  const speicher = speicherMit({ [SITZUNG]: 'alt', [NAME]: 'shoff' });
+  const aufrufe = [];
+  const api = {
+    beitreten: async (name) => { aufrufe.push(['beitreten', name]); return VERGEBEN; },
+    ich: async (token) => { aufrufe.push(['ich', token]); return { serverWeg: false, status: 200, daten: SHOFF }; },
+  };
+  const geschwister = { neuesToken: async () => 'neu-vom-nachbarn' };
+
+  const zustand = await nachAblehnung(speicher, api, 'alt', geschwister);
+
+  assert.deepEqual(zustand, { art: 'kopfzeile', teilnehmer: SHOFF });
+  assert.deepEqual(aufrufe, [['beitreten', 'shoff'], ['ich', 'neu-vom-nachbarn']]);
+});
