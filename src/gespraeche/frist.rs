@@ -2,8 +2,19 @@
 
 use chrono::NaiveDate;
 
-/// Standardfrist, solange `einstellungen.toml` nicht gelesen wird (I0007/I0018).
+/// Standardfrist, wenn `einstellungen.toml` oder darin `frist_tage` fehlt (ADR-0029 Regel 1).
 pub const STANDARD_FRIST_TAGE: u32 = 7;
+/// Kürzeste Frist: nur heute (ADR-0029 Regel 1).
+pub const FRIST_MIN: u32 = 1;
+/// Längste Frist, etwa zehn Jahre — „praktisch unbegrenzt“ (ADR-0029 Regel 1).
+pub const FRIST_MAX: u32 = 3650;
+
+/// Eine ganze Zahl als Frist in Tagen, wenn sie in der Spanne liegt — dieselbe Prüfung für API und Datei.
+pub fn frist_in_spanne(zahl: i64) -> Option<u32> {
+    u32::try_from(zahl)
+        .ok()
+        .filter(|tage| (FRIST_MIN..=FRIST_MAX).contains(tage))
+}
 
 /// Tage ab `heute − (frist_tage − 1)`, einschließlich heute und späterer Tage; ältere fallen weg.
 pub fn tage_in_frist(tage: &[NaiveDate], heute: NaiveDate, frist_tage: u32) -> Vec<NaiveDate> {

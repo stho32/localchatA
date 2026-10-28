@@ -10,6 +10,7 @@ mod speicherablage;
 mod verlaufsindex;
 mod verzeichnis;
 
+pub use frist::{FRIST_MAX, FRIST_MIN, STANDARD_FRIST_TAGE, frist_in_spanne};
 pub use kennung::Kennung;
 pub use logablage::{Angehaengt, Dateiablage, Gespraech, Logablage};
 pub use speicherablage::Speicherablage;

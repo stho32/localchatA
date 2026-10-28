@@ -6,6 +6,7 @@ mod beitreten;
 mod channels;
 mod eingebettet;
 mod ereignisse;
+mod frist;
 mod gesundheit;
 mod grenzschutz;
 mod ich;
