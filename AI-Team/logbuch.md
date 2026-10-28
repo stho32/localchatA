@@ -41,3 +41,6 @@ Eine Zeile je Auftrag an eine Rolle und je Retrospektive.
 | 2026-10-28 | #3 I0004 | UX-Review | ux-reviewer | bestanden | 0:03 | Wiederholung; 2 Sollte offen |
 | 2026-10-28 | #3 I0004 | Entwicklertest | entwicklertester | bestanden | 0:07 | US-1–US-21; LAN-Konsolenfehler COOP als Befund gewertet → Nacharbeit 2 |
 | 2026-10-28 | #3 I0004 | Entwicklung | entwickler | bestanden | 0:12 | Nacharbeit 2: COOP, 422-Echo, UX, Token; 288/39/55 nachgeprüft |
+| 2026-10-28 | #3 I0004 | Reviews | code-, ux-, security-reviewer | bestanden | 0:15 | Nacharbeit 2 geprüft |
+| 2026-10-28 | #3 I0004 | Abnahme | director | Zug | — | kein Remote; wartet auf Betreiber |
+| 2026-10-28 | #3 I0004 | Retrospektive | director | — | — | zwei Nacharbeiten durch parallele Reviews früh sichtbar; UX-Review fand Muss, den Tests nicht sahen; Lehre: erste Oberfläche braucht UX-Maßstab im Entwicklerauftrag (Fokus auf Akzentflächen, 320 px, Fehlergestalt) |

@@ -29,3 +29,4 @@ IDs aus `AI-Team/quellen.md`, die diese Rolle besonders braucht, mit Anlass.
 - Q04 — Vorbild für Aufbau und Live-Kanal
 
 ## Gelerntes
+- 2026-10-28 (#3): Oberfläche vor dem Bericht selbst gegen das Designsystem prüfen — Fokus auf gefüllten Schaltern außen (Kontrast ≥ 3:1 gegen die Fläche daneben), kein Querscrollen bei 320 px, Fehler in kd-danger mit ⚠ und aria-invalid, Kennungen in Mono, Konsole über die LAN-Adresse ohne Fehler; mehrere Tabs desselben Browsers gleichzeitig laden.
