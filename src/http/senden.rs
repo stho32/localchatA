@@ -10,17 +10,19 @@ use super::koerper::{Koerperfehler, Koerperort, ZU_LANGSAM, json_lesen_auf_werkb
 use super::nachrichten::NachrichtAntwort;
 use super::teilnehmer::Teilnehmer;
 use crate::gespraeche::textregel::{TEXT_HOECHSTENS_BYTES, Textfehler, text_pruefen};
-use crate::gespraeche::{Gespraech, Nachricht, Sendefehler};
+use crate::gespraeche::{Gespraech, Kennung, Nachricht, Sendefehler};
 use crate::protokoll::episoden::Auftreten;
 use crate::protokoll::{Bereich, Kontext, Schluessel, Stufe};
+use crate::schreibkonto::{Gebremst, Grenze};
 use crate::uhr::{vorlauf_melden, vorlauf_text};
 use axum::Json;
 use axum::body::Body;
 use axum::extract::{Path, State};
-use axum::http::header::CONNECTION;
+use axum::http::header::{CONNECTION, RETRY_AFTER};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use serde_json::{Value, json};
+use std::net::IpAddr;
 use std::sync::Arc;
 
 const ROUTE: &str = "POST /api/channels/{name}/nachrichten";
@@ -220,6 +222,27 @@ fn vorlauf_eintragen(protokoll: &crate::protokoll::Protokoll, vorlauf_ms: u64) {
     });
 }
 
+/// 429 `{fehler, grenze, wieder_in_ms}` mit `Retry-After` (B0234, ADR-0036 Regel 4).
+#[allow(dead_code)] // bis B0233 das Senden bucht
+fn gebremst_beantworten(gebremst: Gebremst, kennung: &Kennung, herkunft: IpAddr) -> Response {
+    let wieder_in_ms = u64::try_from(gebremst.wieder_in.as_millis()).unwrap_or(u64::MAX);
+    let sekunden = wieder_in_ms.div_ceil(1_000).max(1);
+    let (grenze, wer) = match gebremst.grenze {
+        Grenze::Kennung => ("kennung", kennung.als_text().to_string()),
+        Grenze::Herkunft => (
+            "herkunft",
+            format!("{herkunft} (alle Teilnehmer dieser Adresse zusammen)"),
+        ),
+    };
+    let fehler = format!("Zu viele Nachrichten von {wer} — wieder möglich in {sekunden} s.");
+    (
+        StatusCode::TOO_MANY_REQUESTS,
+        [(RETRY_AFTER, sekunden.to_string())],
+        Json(json!({ "fehler": fehler, "grenze": grenze, "wieder_in_ms": wieder_in_ms })),
+    )
+        .into_response()
+}
+
 /// `17020` → `17.020`.
 fn mit_tausenderpunkt(zahl: usize) -> String {
     let ziffern = zahl.to_string();
@@ -309,6 +332,60 @@ mod tests {
                 .iter()
                 .any(|zeile| zeile.contains(" 2 h 03 min voraus"))
         );
+    }
+
+    async fn teile(antwort: Response) -> (u16, Option<String>, serde_json::Value) {
+        let status = antwort.status().as_u16();
+        let retry = antwort
+            .headers()
+            .get("retry-after")
+            .map(|wert| wert.to_str().expect("Text").to_string());
+        let bytes = axum::body::to_bytes(antwort.into_body(), usize::MAX)
+            .await
+            .expect("Körper");
+        (status, retry, serde_json::from_slice(&bytes).expect("JSON"))
+    }
+
+    /// B0234 (ADR-0036 Regel 4): 429 mit Grenze, `wieder_in_ms`, `Retry-After` = ⌈ms / 1000⌉, mindestens 1, und
+    /// dem Text je Eimer.
+    #[tokio::test]
+    async fn gebremst_ist_429_mit_retry_after_und_text_je_eimer() {
+        use std::time::Duration;
+        let beta = Kennung::bilden("beta@127.0.0.1").expect("Kennung");
+        let antwort = |grenze, ms| {
+            gebremst_beantworten(
+                Gebremst {
+                    grenze,
+                    wieder_in: Duration::from_millis(ms),
+                },
+                &beta,
+                "127.0.0.2".parse().expect("IP"),
+            )
+        };
+
+        let kennung = teile(antwort(Grenze::Kennung, 2_500)).await;
+        let herkunft = teile(antwort(Grenze::Herkunft, 125)).await;
+        let genau = teile(antwort(Grenze::Kennung, 3_000)).await;
+        let null = teile(antwort(Grenze::Kennung, 0)).await;
+
+        assert_eq!(
+            kennung,
+            (
+                429,
+                Some("3".to_string()),
+                json!({"fehler": "Zu viele Nachrichten von beta@127.0.0.1 — wieder möglich in 3 s.", "grenze": "kennung", "wieder_in_ms": 2_500})
+            )
+        );
+        assert_eq!(
+            herkunft,
+            (
+                429,
+                Some("1".to_string()),
+                json!({"fehler": "Zu viele Nachrichten von 127.0.0.2 (alle Teilnehmer dieser Adresse zusammen) — wieder möglich in 1 s.", "grenze": "herkunft", "wieder_in_ms": 125})
+            )
+        );
+        assert_eq!(genau.1.as_deref(), Some("3"));
+        assert_eq!(null.1.as_deref(), Some("1"));
     }
 
     #[test]
