@@ -62,3 +62,7 @@ Regeln:
 - [A00010 Anwesenheit](../Architektur/A00010-anwesenheit.md), [A00007 Logformat](../Architektur/A00007-logformat.md), [A00004 HTTP-Schnittstelle](../Architektur/A00004-http-schnittstelle.md)
 - ADR-0003 (Slug-Regel, Ordnernamen der Direktgespräche), ADR-0004, ADR-0005, ADR-0012
 - Vision R00000, Zielbild „Mensch und KI sind gleichberechtigt“; Designsystem `components/Kennung/README.md`; Security-Review Karte #2 (über den Auftrag des Directors); Unicode TR #39 (Verwechslungs-Skelett, nur als Option B)
+
+## Ergänzungen
+
+- **2026-10-28 (Karte #4, Nachzug aus #3) — Korrektur:** Das Beispiel unter Option A, „`José` → Vorschlag `jose`“, ist falsch. Die Umformung unter „Regeln“ macht nur Umlaute zu `ae/oe/ue/ss`; `é` ist ein sonst nicht erlaubtes Zeichen und wird `-`, der Rand-Bindestrich entfällt: `José` → `jos` (so auch `umformen` in `src/name.rs`). Die Regel gilt unverändert; nur das Beispiel war falsch. Ob weitere Buchstaben mit Akzent auf ihren Grundbuchstaben abgebildet werden sollen (`é` → `e`), ist eine fachliche Frage für den `planer` (Empfehlung: ja, als kleine Ergänzung der Vorschlagsregel — der Vorschlag ist nur ein Angebot, die Regel bleibt).
