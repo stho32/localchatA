@@ -185,7 +185,7 @@ Nach Skill `test-pyramide` und ADR-0009; die Szenarien der User Story werden Tes
 
 **Oberfläche rein (`e2e/einheit/`, `node --test`):** `sse.js`, `verbindung.js` (Rückzug 1/2/5/10 s, 40 s Stille), `teilnehmerliste.js` (Zusammenführung nach `stand`, Gruppierung 7/8 Agenten, eigene Zeile), Sichtbarkeit 1099/1100 px.
 
-**E2E (Playwright):** die Szenarien aus F0013, F0014, F0015 — zwei Kontexte, Kontext zu → offline < 2 s, 7 Tabs, Rückfall ohne `SharedWorker`, Neustart, LAN-Adresse, 320 px; mindestens ein Test mit verzögert antwortendem Strom (erstes Ereignis 1 s verzögert), damit Zeichnen vor dem Stand sichtbar wird (`gemeinsam/gelerntes.md`, UI-Tests mit verzögertem Fake). Zeitkriterien am beobachtbaren Zustand der Liste festmachen, nicht an festen Wartezeiten.
+**E2E (Playwright):** die Szenarien aus F0013, F0014, F0015 — zwei Kontexte, Kontext zu → offline < 2 s, 7 Tabs, Rückfall ohne `SharedWorker`, Neustart, LAN-Adresse, 320 px; mindestens ein Test mit verzögert antwortendem Strom (erstes Ereignis 1 s verzögert), damit Zeichnen vor dem Stand sichtbar wird (`gemeinsam/gelerntes.md`, UI-Tests mit verzögertem Fake). Zeitkriterien am beobachtbaren Zustand der Liste festmachen, nicht an festen Wartezeiten. Dauern im Browser werden ereignisgenau gemessen (Prüfintervall ≤ 25 ms oder Animationsrahmen), nicht im Standardraster von `expect`.
 
 ## Abhängigkeiten
 
@@ -255,6 +255,7 @@ Auslöser: Nach R00003 kann man beitreten, sieht aber niemanden — weder ob die
 
 - 2026-10-28 (Karte #4, Entwicklertest): US-4 und das Kriterium „Weg“ unter F0011 — `beta` fragt zusätzlich bei 2 s ab, bei 4 s wird 200 erwartet. Grund: der alte Zeitplan widersprach der eigenen Gnadenfrist; mit dem letzten Abruf bei 1 s war `beta` bei 4 s selbst abgelaufen (401 in 2 von 8 Läufen). Geprüftes Verhalten (`alpha` bei 1 s `offline`, bei 4 s weg, Name frei) unverändert.
 - 2026-10-28 (Karte #4, realist-consultant): letztes Kriterium unter F0013 — Konsole eingegrenzt: das Laden über die LAN-Adresse bleibt ohne Konsolenfehler; in den Szenarien von F0013 und F0014 gilt keine unbehandelte Ausnahme (`pageerror`), kein CSP-Verstoß, und als Konsolenfehler nur „Failed to load resource“ zu vorgeschriebenen Antworten (401 von `/api/ereignisse` und `/api/ich`, 409 und 422 von `/api/beitreten`) sowie `net::ERR_CONNECTION_REFUSED` zu `/api/…` bei beendeter Instanz. Grund: Urteil realist-consultant 2026-10-28: Kriterium widersprach vorgeschriebenen Antworten bzw. nannte den Startpunkt der Uhr nicht; vom Betreiber genehmigte Anpassung. US-19 und US-23 unverändert.
+- 2026-10-28 (Karte #4, realist-consultant): US-15 und US-22 — die 2 s bis „offline“ zählen ab dem abgeschlossenen Schließen (von B bzw. des dritten Tabs); Abschnitt Tests/E2E: Dauern im Browser ereignisgenau messen (Prüfintervall ≤ 25 ms oder Animationsrahmen), nicht im Standardraster von `expect`. Grund: Urteil realist-consultant 2026-10-28: Kriterium widersprach vorgeschriebenen Antworten bzw. nannte den Startpunkt der Uhr nicht; vom Betreiber genehmigte Anpassung.
 
 ### Bewusst außerhalb
 
