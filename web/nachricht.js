@@ -76,6 +76,9 @@ function leisteBeschriften(schalter, offen) {
 }
 
 export function leistenBeschriftung(zeilen) {
+  if (zeilen === 1) {
+    return 'Ganze Nachricht anzeigen · 1 Zeile';
+  }
   return `Ganze Nachricht anzeigen · ${zeilen} Zeilen`;
 }
 

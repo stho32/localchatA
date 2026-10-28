@@ -98,3 +98,24 @@ test('Lange Nachricht (US-15): 240 px mit Leiste „Ganze Nachricht anzeigen · 
   expect(Math.abs((await hoehe()) - 240)).toBeLessThanOrEqual(1);
   expect(fehler).toEqual([]);
 });
+
+test.describe('bei 1280 × 800', () => {
+  test.use({ viewport: { width: 1280, height: 800 } });
+
+  test('Lange Nachricht (Nacharbeit 2): eine einzige lange Zeile heißt „· 1 Zeile“, zwei lange Zeilen „· 2 Zeilen“', async ({ page }) => {
+    const fehler = fehlerSammeln(page);
+    const woerter = (anzahl) => Array.from({ length: anzahl }, (_, index) => `Wort${index + 1}`).join(' ');
+    await geoeffnet(page, {
+      '2026-10-28': [
+        ['2026-10-28T14:00:00.000+01:00', ALPHA, woerter(400)],
+        ['2026-10-28T14:10:00.000+01:00', BETA, `${woerter(300)}\n${woerter(300)}`],
+      ],
+    });
+    const einzeilig = nachricht(page, '2026-10-28T14:00:00.000+01:00');
+    const zweizeilig = nachricht(page, '2026-10-28T14:10:00.000+01:00');
+
+    await expect(einzeilig.getByRole('button')).toHaveText('Ganze Nachricht anzeigen · 1 Zeile');
+    await expect(zweizeilig.getByRole('button')).toHaveText('Ganze Nachricht anzeigen · 2 Zeilen');
+    expect(fehler).toEqual([]);
+  });
+});
