@@ -142,7 +142,8 @@ impl Gespraeche {
                 Fehler::Ablage(format!("Tage von {gespraech} nicht lesbar: {fehler}"))
             })?;
             let mut verlauf = Verlauf::default();
-            for tag in frist::tage_in_frist(&tage, heute, frist::STANDARD_FRIST_TAGE) {
+            let (behalten, _) = frist::teilen(&tage, heute, frist::STANDARD_FRIST_TAGE);
+            for tag in behalten {
                 geladen.tag_laden(ablage.as_ref(), &gespraech, tag, &mut verlauf);
             }
             geladen.channel_aufnehmen(ablage.as_ref(), &gespraech);
