@@ -136,7 +136,7 @@ mod tests {
                 "letzter_error": null,
                 "letzte_exception": null,
                 "aufgaben_ausgefallen": [],
-                "abgewiesen": {"zu_gross": 0, "kein_json": 0, "kaputt": 0, "abgebrochen": 0}
+                "abgewiesen": {"zu_gross": 0, "kein_json": 0, "kaputt": 0, "abgebrochen": 0, "zu_langsam": 0}
             })
         );
     }

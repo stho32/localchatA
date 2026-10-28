@@ -74,7 +74,7 @@ async fn us11_abgewiesene_koerper_werden_je_art_gezaehlt() {
     assert_eq!(status, [413, 415, 400]);
     assert_eq!(
         abgewiesen,
-        serde_json::json!({"zu_gross":1,"kein_json":1,"kaputt":1,"abgebrochen":1})
+        serde_json::json!({"zu_gross":1,"kein_json":1,"kaputt":1,"abgebrochen":1,"zu_langsam":0})
     );
 }
 

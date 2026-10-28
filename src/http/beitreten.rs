@@ -5,7 +5,7 @@
 
 use super::Zustand;
 use super::anfrageprotokoll::Eingetragen;
-use super::koerper::{Koerperfehler, Koerperort, json_lesen};
+use super::koerper::{Koerperfehler, Koerperort, ZU_LANGSAM, json_lesen};
 use super::teilnehmer::gemeldete_sitzung;
 use crate::anwesenheit::{
     Abweisung, Beitrittsfehler, Beitrittswunsch, GESAMT, JE_HERKUNFT, Sitzung,
@@ -113,27 +113,29 @@ const BEISPIEL: &str = r#"{"name":"shoff"}"#;
 const BEITRETEN_GRENZE: usize = 4096;
 
 /// Eine deutsche `{fehler}`-Antwort mit Grund und Ausweg; nach 413 schließt die Verbindung (der Rest des
-/// Körpers ist höchstens bis zur Obergrenze gelesen).
+/// Körpers ist höchstens bis zur Obergrenze gelesen), ebenso nach 408 (der Rest kommt nicht, R00015).
 fn kein_json(fehler: Koerperfehler) -> Response {
-    let (status, grund): (StatusCode, String) = match fehler {
+    let mit_beispiel = |grund: &str| format!("{grund}, zum Beispiel {BEISPIEL}.");
+    let (status, text) = match fehler {
         Koerperfehler::KeinJson => (
             StatusCode::UNSUPPORTED_MEDIA_TYPE,
-            "Der Körper muss JSON sein — mit Content-Type: application/json schicken".into(),
+            mit_beispiel("Der Körper muss JSON sein — mit Content-Type: application/json schicken"),
         ),
         Koerperfehler::Kaputt | Koerperfehler::Abgebrochen => (
             StatusCode::BAD_REQUEST,
-            "Der Körper ist kein gültiges JSON — ein JSON-Objekt schicken".into(),
+            mit_beispiel("Der Körper ist kein gültiges JSON — ein JSON-Objekt schicken"),
         ),
         Koerperfehler::ZuGross => (
             StatusCode::PAYLOAD_TOO_LARGE,
-            format!(
+            mit_beispiel(&format!(
                 "Der Körper ist zu groß — höchstens {BEITRETEN_GRENZE} Bytes, nur Name und Art schicken"
-            ),
+            )),
         ),
+        Koerperfehler::ZuLangsam => (StatusCode::REQUEST_TIMEOUT, ZU_LANGSAM.to_string()),
     };
-    let text = format!("{grund}, zum Beispiel {BEISPIEL}.");
     let antwort = (status, Json(json!({ "fehler": text })));
-    let mut antwort = if fehler == Koerperfehler::ZuGross {
+    let schliessen = matches!(fehler, Koerperfehler::ZuGross | Koerperfehler::ZuLangsam);
+    let mut antwort = if schliessen {
         ([(CONNECTION, "close")], antwort).into_response()
     } else {
         antwort.into_response()

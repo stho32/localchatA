@@ -136,7 +136,7 @@ async fn us10_frische_instanz_meldet_null_und_die_bytes_der_heutigen_datei() {
         ("aufgaben_ausgefallen", serde_json::json!([])),
         (
             "abgewiesen",
-            serde_json::json!({"zu_gross":0,"kein_json":0,"kaputt":0,"abgebrochen":0}),
+            serde_json::json!({"zu_gross":0,"kein_json":0,"kaputt":0,"abgebrochen":0,"zu_langsam":0}),
         ),
     ] {
         assert_eq!(inhalt[feld], erwartet, "{feld}: {inhalt}");

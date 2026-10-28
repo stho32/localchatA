@@ -75,6 +75,8 @@ pub enum Abweisungsart {
     KeinJson,
     Kaputt,
     Abgebrochen,
+    /// 408 der Lesefrist (R00015, ADR-0043 Ergänzung R00015).
+    ZuLangsam,
 }
 
 /// Abgewiesene Körper aller JSON-Routen seit dem Start, gezählt beim Entstehen.
@@ -84,6 +86,7 @@ pub struct Abgewiesen {
     kein_json: AtomicU64,
     kaputt: AtomicU64,
     abgebrochen: AtomicU64,
+    zu_langsam: AtomicU64,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
@@ -92,6 +95,7 @@ pub struct AbgewiesenStand {
     pub kein_json: u64,
     pub kaputt: u64,
     pub abgebrochen: u64,
+    pub zu_langsam: u64,
 }
 
 impl Abgewiesen {
@@ -101,6 +105,7 @@ impl Abgewiesen {
             Abweisungsart::KeinJson => &self.kein_json,
             Abweisungsart::Kaputt => &self.kaputt,
             Abweisungsart::Abgebrochen => &self.abgebrochen,
+            Abweisungsart::ZuLangsam => &self.zu_langsam,
         };
         zaehler.fetch_add(1, Ordering::SeqCst);
     }
@@ -111,6 +116,7 @@ impl Abgewiesen {
             kein_json: self.kein_json.load(Ordering::SeqCst),
             kaputt: self.kaputt.load(Ordering::SeqCst),
             abgebrochen: self.abgebrochen.load(Ordering::SeqCst),
+            zu_langsam: self.zu_langsam.load(Ordering::SeqCst),
         }
     }
 }

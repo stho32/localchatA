@@ -8,7 +8,7 @@
 use super::Zustand;
 use super::abbruch::{Abgebrochen, Grenzort, abbruch_beantworten};
 use super::anfrageprotokoll::Eingetragen;
-use super::koerper::{Koerperfehler, Koerperort, json_lesen};
+use super::koerper::{Koerperfehler, Koerperort, ZU_LANGSAM, json_lesen};
 use super::teilnehmer::Teilnehmer;
 use super::teilnehmerliste::zeit_als_text;
 use crate::gespraeche::einstellungen::{Beschreibung, Beschreibungsfehler};
@@ -251,29 +251,29 @@ fn ablagefehler(grund: &str) -> Response {
 /// Beschreibung 200 Ersatzpaare je 12 Bytes); mit 30 % Reserve 3 408, auf 4 KiB gerundet.
 const CHANNEL_ANLEGEN_GRENZE: usize = 4096;
 
-/// Wie beim Beitreten: deutsche `{fehler}`-Antwort mit Grund und Ausweg; nach 413 schließt die Verbindung.
+/// Wie beim Beitreten: deutsche `{fehler}`-Antwort mit Grund und Ausweg; nach 413 und 408 schließt die Verbindung.
 fn kein_json(fehler: Koerperfehler) -> Response {
-    let (status, grund): (StatusCode, String) = match fehler {
+    let mit_beispiel = |grund: &str| format!("{grund}, zum Beispiel {BEISPIEL}.");
+    let (status, text) = match fehler {
         Koerperfehler::KeinJson => (
             StatusCode::UNSUPPORTED_MEDIA_TYPE,
-            "Der Körper muss JSON sein — mit Content-Type: application/json schicken".into(),
+            mit_beispiel("Der Körper muss JSON sein — mit Content-Type: application/json schicken"),
         ),
         Koerperfehler::Kaputt | Koerperfehler::Abgebrochen => (
             StatusCode::BAD_REQUEST,
-            "Der Körper ist kein gültiges JSON — ein JSON-Objekt schicken".into(),
+            mit_beispiel("Der Körper ist kein gültiges JSON — ein JSON-Objekt schicken"),
         ),
         Koerperfehler::ZuGross => (
             StatusCode::PAYLOAD_TOO_LARGE,
-            format!(
+            mit_beispiel(&format!(
                 "Der Körper ist zu groß — höchstens {CHANNEL_ANLEGEN_GRENZE} Bytes, nur Name und Beschreibung schicken"
-            ),
+            )),
         ),
+        Koerperfehler::ZuLangsam => (StatusCode::REQUEST_TIMEOUT, ZU_LANGSAM.to_string()),
     };
-    let antwort = (
-        status,
-        Json(json!({ "fehler": format!("{grund}, zum Beispiel {BEISPIEL}.") })),
-    );
-    let mut antwort = if fehler == Koerperfehler::ZuGross {
+    let antwort = (status, Json(json!({ "fehler": text })));
+    let schliessen = matches!(fehler, Koerperfehler::ZuGross | Koerperfehler::ZuLangsam);
+    let mut antwort = if schliessen {
         ([(CONNECTION, "close")], antwort).into_response()
     } else {
         antwort.into_response()
