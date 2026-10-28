@@ -6,11 +6,13 @@ pub mod zeile;
 
 pub use zeile::{Bereich, Eintrag, Kontext, Schluessel, Stufe};
 
-use crate::uhr::Uhr;
+use crate::uhr::{Uhr, Zeit};
+use chrono::NaiveDate;
 use senke::{Senke, Tagesdateien};
-use std::io::Write;
+use std::io::{self, Write};
 use std::path::Path;
-use std::sync::{Arc, Mutex, PoisonError};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 /// Wohin Zeilen auf stderr gehen — im Programm stderr, im Test eine Aufzeichnung.
 pub type Spiegel = Arc<dyn Fn(&str) + Send + Sync>;
@@ -21,18 +23,38 @@ pub struct Protokoll {
     mindeststufe: Stufe,
     spiegel: Spiegel,
     inneres: Mutex<Inneres>,
+    ok: AtomicBool,
 }
 
 struct Inneres {
     senke: Box<dyn Senke>,
+    /// Im Rückfall auf stderr (ADR-0040 Regel 8): die Episode hat ihre Warning schon geschrieben.
+    rueckfall: bool,
 }
 
 impl Protokoll {
-    /// Das Protokoll unter `<ordner>/logs/`; scheitert nie.
+    /// Das Protokoll unter `<ordner>/logs/`; scheitert nie — lässt sich `logs/` nicht anlegen, beginnt es im
+    /// Rückfall auf stderr.
     pub fn oeffnen(ordner: &Path, uhr: Arc<dyn Uhr>, mindeststufe: Stufe) -> Protokoll {
+        Protokoll::oeffnen_mit_spiegel(ordner, uhr, mindeststufe, stderr_spiegel())
+    }
+
+    /// Wie `oeffnen`, mit eigenem Spiegel statt stderr.
+    pub fn oeffnen_mit_spiegel(
+        ordner: &Path,
+        uhr: Arc<dyn Uhr>,
+        mindeststufe: Stufe,
+        spiegel: Spiegel,
+    ) -> Protokoll {
         let dateien = Tagesdateien::neu(ordner);
-        let _ = dateien.ordner_anlegen();
-        Protokoll::mit(Box::new(dateien), stderr_spiegel(), uhr, mindeststufe)
+        let angelegt = dateien.ordner_anlegen();
+        let protokoll = Protokoll::mit(Box::new(dateien), spiegel, uhr, mindeststufe);
+        if let Err(fehler) = angelegt {
+            let tag = protokoll.uhr.jetzt().date_naive();
+            let mut inneres = protokoll.sperren();
+            protokoll.rueckfall_beginnen(&mut inneres, tag, &fehler);
+        }
+        protokoll
     }
 
     /// Ein Protokoll über eine beliebige Senke und einen beliebigen Spiegel (Tests).
@@ -46,8 +68,17 @@ impl Protokoll {
             uhr,
             mindeststufe,
             spiegel,
-            inneres: Mutex::new(Inneres { senke }),
+            inneres: Mutex::new(Inneres {
+                senke,
+                rueckfall: false,
+            }),
+            ok: AtomicBool::new(true),
         }
+    }
+
+    /// `true`, solange Einträge in die Datei gehen; `false` im Rückfall auf stderr (ADR-0043 Regel 5).
+    pub fn ok(&self) -> bool {
+        self.ok.load(Ordering::SeqCst)
     }
 
     pub fn mindeststufe(&self) -> Stufe {
@@ -67,14 +98,69 @@ impl Protokoll {
             return;
         }
         let jetzt = self.uhr.jetzt();
-        let zeile = zeile::zeile(&Eintrag::neu(stufe, bereich, text, kontext), jetzt);
+        let eintrag = Eintrag::neu(stufe, bereich, text, kontext);
+        let mut inneres = self.sperren();
+        self.ablegen(&mut inneres, &eintrag, jetzt);
+    }
+
+    fn sperren(&self) -> MutexGuard<'_, Inneres> {
+        self.inneres.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    /// Die Zeile in die Datei, ab Warning auf stderr; scheitert die Datei, Rückfall: die Zeile auf stderr.
+    fn ablegen(&self, inneres: &mut Inneres, eintrag: &Eintrag, jetzt: Zeit) {
         let tag = jetzt.date_naive();
-        {
-            let mut inneres = self.inneres.lock().unwrap_or_else(PoisonError::into_inner);
-            let _ = inneres.senke.anhaengen(tag, &zeile);
+        if inneres.rueckfall && self.mindeststufe <= Stufe::Information {
+            self.rueckfall_beenden(inneres, jetzt);
         }
-        if stufe >= Stufe::Warning {
-            (self.spiegel)(&zeile);
+        let zeile = zeile::zeile(eintrag, jetzt);
+        match inneres.senke.anhaengen(tag, &zeile) {
+            Ok(_) => {
+                inneres.rueckfall = false;
+                self.ok.store(true, Ordering::SeqCst);
+                if eintrag.stufe >= Stufe::Warning {
+                    (self.spiegel)(&zeile);
+                }
+            }
+            Err(fehler) => {
+                if !inneres.rueckfall {
+                    self.rueckfall_beginnen(inneres, tag, &fehler);
+                }
+                (self.spiegel)(&zeile);
+            }
+        }
+    }
+
+    /// Eine Warning je Episode, nur auf stderr; das Protokoll gilt als nicht schreibbar.
+    fn rueckfall_beginnen(&self, inneres: &mut Inneres, tag: NaiveDate, fehler: &io::Error) {
+        inneres.rueckfall = true;
+        self.ok.store(false, Ordering::SeqCst);
+        let warnung = Eintrag::neu(
+            Stufe::Warning,
+            Bereich::Protokoll,
+            "Betriebsprotokoll nicht schreibbar — Einträge gehen bis auf Weiteres nur auf stderr",
+            Kontext::neu()
+                .mit(Schluessel::Datei, inneres.senke.datei(tag))
+                .mit(Schluessel::Grund, fehler),
+        );
+        (self.spiegel)(&zeile::zeile(&warnung, self.uhr.jetzt()));
+    }
+
+    /// Versucht die Information, die die Episode beendet; gelingt sie, geht es in der Datei weiter.
+    fn rueckfall_beenden(&self, inneres: &mut Inneres, jetzt: Zeit) {
+        let ende = Eintrag::neu(
+            Stufe::Information,
+            Bereich::Protokoll,
+            "Betriebsprotokoll wieder schreibbar — Einträge gehen wieder in die Datei",
+            Kontext::neu(),
+        );
+        if inneres
+            .senke
+            .anhaengen(jetzt.date_naive(), &zeile::zeile(&ende, jetzt))
+            .is_ok()
+        {
+            inneres.rueckfall = false;
+            self.ok.store(true, Ordering::SeqCst);
         }
     }
 }
@@ -89,7 +175,8 @@ fn stderr_spiegel() -> Spiegel {
 #[cfg(test)]
 pub(crate) mod testhilfe {
     use super::*;
-    use crate::uhr::Zeit;
+    use crate::uhr::{GestellteUhr, Zeit};
+    use senke::Speicher;
 
     pub fn zeit(text: &str) -> Zeit {
         Zeit::parse_from_rfc3339(text).expect("Testzeit")
@@ -116,6 +203,23 @@ pub(crate) mod testhilfe {
                 .unwrap_or_else(PoisonError::into_inner)
                 .clone()
         }
+    }
+
+    /// Protokoll in eine Speicher-Senke mit gestellter Uhr und aufgezeichnetem stderr.
+    pub fn im_speicher(
+        start: &str,
+        mindeststufe: Stufe,
+    ) -> (Arc<Protokoll>, Speicher, Arc<GestellteUhr>, Aufzeichnung) {
+        let uhr = Arc::new(GestellteUhr::neu(zeit(start)));
+        let speicher = Speicher::neu();
+        let stderr = Aufzeichnung::default();
+        let protokoll = Protokoll::mit(
+            Box::new(speicher.clone()),
+            stderr.spiegel(),
+            Arc::clone(&uhr) as Arc<dyn Uhr>,
+            mindeststufe,
+        );
+        (Arc::new(protokoll), speicher, uhr, stderr)
     }
 }
 
@@ -262,5 +366,109 @@ mod tests {
         p.um("2026-10-29T12:00:00+01:00", "zwei");
 
         assert_eq!(p.datei("2026-10-29.log").len(), 1);
+    }
+
+    #[test]
+    fn rueckfall_eintraege_gehen_ab_der_mindeststufe_auf_stderr_mit_einer_warning_je_episode() {
+        let (protokoll, speicher, _, stderr) =
+            im_speicher("2026-10-28T12:00:00+01:00", Stufe::Information);
+        speicher.scheitern_lassen(true);
+
+        protokoll.eintragen(Stufe::Information, Bereich::Start, "eins", Kontext::neu());
+        protokoll.eintragen(Stufe::Debug, Bereich::Start, "leise", Kontext::neu());
+        protokoll.eintragen(Stufe::Information, Bereich::Sitzung, "zwei", Kontext::neu());
+
+        let zeilen = stderr.zeilen();
+        assert_eq!(zeilen.len(), 3, "{zeilen:#?}");
+        assert!(
+            zeilen[0].starts_with("2026-10-28T12:00:00.000+01:00 WARNING protokoll Betriebsprotokoll nicht schreibbar — Einträge gehen bis auf Weiteres nur auf stderr | datei=logs/2026-10-28.log grund="),
+            "{zeilen:#?}"
+        );
+        assert!(zeilen[1].ends_with("INFORMATION start eins"), "{zeilen:#?}");
+        assert!(
+            zeilen[2].ends_with("INFORMATION sitzung zwei"),
+            "{zeilen:#?}"
+        );
+        assert!(!protokoll.ok());
+    }
+
+    #[test]
+    fn die_naechste_gelungene_zeile_beendet_den_rueckfall_mit_einer_information() {
+        let (protokoll, speicher, _, stderr) =
+            im_speicher("2026-10-28T12:00:00+01:00", Stufe::Information);
+        speicher.scheitern_lassen(true);
+        protokoll.eintragen(Stufe::Warning, Bereich::Laden, "verloren", Kontext::neu());
+        speicher.scheitern_lassen(false);
+
+        protokoll.eintragen(
+            Stufe::Information,
+            Bereich::Sitzung,
+            "beigetreten",
+            Kontext::neu(),
+        );
+        speicher.scheitern_lassen(true);
+        protokoll.eintragen(
+            Stufe::Information,
+            Bereich::Sitzung,
+            "wieder",
+            Kontext::neu(),
+        );
+
+        let datei = speicher.zeilen();
+        assert_eq!(datei.len(), 2, "{datei:#?}");
+        assert!(
+            datei[0].contains(" INFORMATION protokoll Betriebsprotokoll wieder schreibbar"),
+            "{datei:#?}"
+        );
+        assert!(
+            datei[1].ends_with("INFORMATION sitzung beigetreten"),
+            "{datei:#?}"
+        );
+        let warnungen = stderr
+            .zeilen()
+            .iter()
+            .filter(|zeile| zeile.contains("nicht schreibbar"))
+            .count();
+        assert_eq!(warnungen, 2, "eine neue Episode, eine neue Warning");
+        assert!(!protokoll.ok());
+    }
+
+    #[test]
+    fn ohne_rueckfall_ist_das_protokoll_ok_und_nichts_doppelt_auf_stderr() {
+        let (protokoll, speicher, _, stderr) =
+            im_speicher("2026-10-28T12:00:00+01:00", Stufe::Information);
+        protokoll.eintragen(Stufe::Warning, Bereich::Laden, "eins", Kontext::neu());
+
+        assert!(protokoll.ok());
+        assert_eq!(speicher.zeilen().len(), 1);
+        assert_eq!(stderr.zeilen(), speicher.zeilen());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn ist_logs_eine_datei_startet_das_protokoll_im_rueckfall() {
+        let wurzel = tempfile::tempdir().expect("Wegwerf-Ordner");
+        std::fs::write(wurzel.path().join("logs"), "keine Ablage").expect("Datei logs");
+        let uhr: Arc<dyn Uhr> = Arc::new(GestellteUhr::neu(zeit("2026-10-28T12:00:00+01:00")));
+        let stderr = Aufzeichnung::default();
+
+        let protokoll = Protokoll::oeffnen_mit_spiegel(
+            wurzel.path(),
+            uhr,
+            Stufe::Information,
+            stderr.spiegel(),
+        );
+        protokoll.eintragen(Stufe::Information, Bereich::Start, "bereit", Kontext::neu());
+
+        assert!(!protokoll.ok());
+        let zeilen = stderr.zeilen();
+        assert_eq!(zeilen.len(), 2, "{zeilen:#?}");
+        assert!(zeilen[0].contains("WARNING protokoll Betriebsprotokoll nicht schreibbar"));
+        assert!(zeilen[1].ends_with("INFORMATION start bereit"));
+        assert_eq!(
+            std::fs::read_to_string(wurzel.path().join("logs")).expect("logs"),
+            "keine Ablage",
+            "eine Datei namens logs wird nie ersetzt"
+        );
     }
 }
