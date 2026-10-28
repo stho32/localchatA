@@ -7,6 +7,7 @@ mod grenzschutz;
 mod ich;
 mod oberflaeche;
 mod teilnehmer;
+mod teilnehmerliste;
 
 pub use grenzschutz::Grenzschutz;
 
@@ -37,6 +38,7 @@ pub fn router(zustand: Zustand) -> Router {
         .route("/api/gesundheit", get(gesundheit::beantworten))
         .route("/api/beitreten", post(beitreten::beantworten))
         .route("/api/ich", get(ich::beantworten))
+        .route("/api/teilnehmer", get(teilnehmerliste::beantworten))
         .with_state(Arc::new(zustand))
         .layer(middleware::from_fn_with_state(
             grenzschutz,

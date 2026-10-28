@@ -15,4 +15,5 @@ mod vorschlag;
 mod wunsch;
 
 pub use bestand::{Anwesenheit, Beitrittsfehler, GESAMT, JE_HERKUNFT, Sitzung};
+pub use stand::{Stand, Teilnehmerzeile};
 pub use wunsch::{Abweisung, Art, Beitrittswunsch};

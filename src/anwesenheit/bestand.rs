@@ -185,10 +185,6 @@ impl Anwesenheit {
 
     /// Alle lebenden Sitzungen mit ihrem zuletzt gemeldeten Status, nach Kennung sortiert, und der Stand des
     /// letzten Wechsels — die Liste passt zu den Wechseln, die bis zu diesem Stand veröffentlicht wurden.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "Brücke bis B0077: die Route liefert den Stand")
-    )]
     pub fn teilnehmer(&self) -> Stand {
         let jetzt = self.uhr.jetzt();
         let bestand = self.bestand();
