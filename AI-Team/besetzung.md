@@ -11,5 +11,6 @@ Rollen dieses Projekts aus der Kollektion der Factory (`/factory rollen`). Das K
 | ux-reviewer | ux | Oberfläche gegen Designsystem, Tastaturbedienung, Barrierefreiheit, im Browser |
 | entwicklertester | etst | User Story wörtlich im echten Programm, Browser und API |
 | security-reviewer | srev | LAN ohne Anmeldung: Uploads, Pfade im Log-Ordner, Markdown-Darstellung (XSS), Namensübernahme |
+| rechtschreib-reviewer | rsr | Rechtschreibung, Grammatik und Begriffstreue der Texte in Oberfläche, Fehlermeldungen, Hilfe und Anforderungen |
 
 Beratung über `/factory fragen`: `datenschutz-spezialist` (Chatinhalte mit IP-Adressen). Vorgeschlagen für die Factory: Rolle `performance-reviewer` für das Leistungsziel.
