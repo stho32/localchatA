@@ -193,3 +193,6 @@ Nie vom User erfragen.
 | 2026-10-28 | R00007 Channel wechseln und Verlauf lesen | Konsolidierung R00007: Selbstprüfung, Abbruch-Test, Gelerntes, Fix, Gate | Konsolidierung | — | 0,5h | 0,5h | autonom |
 | 2026-10-28 | R00009 Kopfzeile 320 px | B0202 Schmal-Matrix der eigenen Kennung | Standard | 0,4h | 0,05h | 0,05h | autonom |
 | 2026-10-28 | R00009 Kopfzeile 320 px | B0203 Kennung in der Kopfzeile umbrechen | Standard | 0,4h | 0,25h | 0,25h | autonom |
+| 2026-10-28 | R00010 JSON-Körper-Flut | B0204 Körpergrenze je Route | Standard | 0,4h | 0,15h | 0,15h | autonom |
+| 2026-10-28 | R00010 JSON-Körper-Flut | B0205 Flut im Release-Build messen | Standard | 2-4h | 0,25h | 0,25h | autonom |
+| 2026-10-28 | R00010 JSON-Körper-Flut | Mutationsprobe, Gate, Abschluss | Konsolidierung | — | 0,15h | 0,15h | autonom |
