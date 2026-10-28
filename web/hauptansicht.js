@@ -3,6 +3,7 @@
 // Verbindung steht in Fehlergestalt (⚠ und Wort, kd-danger) unter der Kopfzeile über die ganze Breite. `Strg .` und der Schalter
 // „Teilnehmer“ blenden die Liste ein und aus (1-tastatur.md).
 import * as kopfzeile from './kopfzeile.js';
+import { onlineBenennen } from './teilnehmerliste.js';
 
 const UNTERBROCHEN = '⚠ Verbindung unterbrochen — localchatA verbindet neu.';
 const STAND_UNBEKANNT = 'Stand unbekannt — zuletzt bekannte Liste.';
@@ -109,6 +110,7 @@ function verbindungZeigen({ hinweis, region, standUnbekannt }, letzterZustand, z
     standUnbekannt.textContent = STAND_UNBEKANNT;
     standUnbekannt.hidden = false;
     region.classList.add('lc-unbekannt');
+    onlineBenennen(region, true);
     return 'unterbrochen';
   }
   if (zustand === 'verbunden' && letzterZustand !== 'verbunden') {
@@ -116,6 +118,7 @@ function verbindungZeigen({ hinweis, region, standUnbekannt }, letzterZustand, z
     hinweis.hidden = true;
     standUnbekannt.hidden = true;
     region.classList.remove('lc-unbekannt');
+    onlineBenennen(region, false);
     return 'verbunden';
   }
   return letzterZustand;

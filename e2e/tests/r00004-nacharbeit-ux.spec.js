@@ -39,20 +39,139 @@ async function listeZeigen(page) {
   await expect(region(page)).toBeVisible();
 }
 
-test('S1: „(du)“ und „Agent“ stehen in der Zeile hinter der Kennung — je 28 px hoch bei 1280 px', async ({ page }) => {
+// S1 nach Nacharbeit 2 (N3, Spalte wieder 240 px): eine Zeile, die in die Spalte passt, ist 28 px hoch;
+// „Agent“ und „(du)“ stehen im selben Textblock hinter der Kennung und brechen nur bei Platzmangel um.
+test('S1: passende Zeilen sind 28 px hoch, „Agent“ und „(du)“ stehen hinter der Kennung', async ({ page, browser }) => {
   instanz = await instanzStarten();
   await page.setViewportSize({ width: 1280, height: 800 });
   await agentMitStrom('claude');
+  const mia = await (await browser.newContext()).newPage();
+  await beitreten(mia, 'mia');
   await beitreten(page);
   await expect(zeileVon(page, 'claude@127.0.0.1').locator('.lc-dot')).toHaveClass(/\bon\b/);
 
-  const hoehen = await Promise.all(['shoff@127.0.0.1', 'claude@127.0.0.1'].map((kennung) =>
-    zeileVon(page, kennung).evaluate((zeile) => zeile.getBoundingClientRect().height)));
+  const hoehe = await zeileVon(page, 'mia@127.0.0.1').evaluate((zeile) => zeile.getBoundingClientRect().height);
 
-  expect(hoehen).toEqual([28, 28]);
-  await expect(zeileVon(page, 'shoff@127.0.0.1')).toContainText('(du)');
-  await expect(zeileVon(page, 'claude@127.0.0.1').locator('.lc-tag')).toHaveText('Agent');
+  expect(hoehe).toBe(28);
+  await expect(zeileVon(page, 'shoff@127.0.0.1').locator('.lc-person-text .lc-du')).toHaveText('(du)');
+  await expect(zeileVon(page, 'claude@127.0.0.1').locator('.lc-person-text .lc-tag')).toHaveText('Agent');
 });
+
+test('N3: die Teilnehmerspalte ist bei 1280 px wieder 240 px breit (Token lc-members)', async ({ page }) => {
+  instanz = await instanzStarten();
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await beitreten(page);
+
+  const spalten = await page.locator('.lc-main').evaluate((element) => getComputedStyle(element).gridTemplateColumns);
+
+  expect(spalten).toMatch(/ 240px$/);
+});
+
+for (const thema of ['light', 'dark']) {
+  test(`N2: offline ist die Kennung gedämpft, online in kd-ink — ${thema}`, async ({ page }) => {
+    instanz = await instanzStarten();
+    await page.emulateMedia({ colorScheme: thema });
+    await page.setViewportSize({ width: 1280, height: 800 });
+    const strom = await agentMitStrom('claude');
+    await beitreten(page);
+    const farbe = (kennung) => zeileVon(page, kennung).locator('.lc-id').evaluate((element) => getComputedStyle(element).color);
+    const online = await farbe('shoff@127.0.0.1');
+    strom.schliessen();
+    await expect(zeileVon(page, 'claude@127.0.0.1').locator('.lc-status')).toHaveText('offline', { timeout: 3000 });
+
+    const erwartet = {
+      light: { offline: 'rgb(79, 93, 107)', online: 'rgb(28, 37, 48)' },
+      dark: { offline: 'rgb(154, 167, 180)', online: 'rgb(227, 232, 238)' },
+    }[thema];
+    expect(await farbe('claude@127.0.0.1')).toBe(erwartet.offline);
+    expect(online).toBe(erwartet.online);
+  });
+}
+
+// Kontrast nach WCAG 2.x mit eingerechneter Deckkraft aller Vorfahren: Text ≥ 4,5:1 gegen die Fläche
+// darunter, Statusform (Füllung oder Rand) ≥ 3:1.
+function kontrasteInDerListe() {
+  function rgb(farbe) {
+    return farbe.match(/[\d.]+/g).slice(0, 4).map(Number);
+  }
+  function leuchtdichte([r, g, b]) {
+    const [lr, lg, lb] = [r, g, b].map((wert) => {
+      const kanal = wert / 255;
+      if (kanal <= 0.03928) {
+        return kanal / 12.92;
+      }
+      return ((kanal + 0.055) / 1.055) ** 2.4;
+    });
+    return 0.2126 * lr + 0.7152 * lg + 0.0722 * lb;
+  }
+  function flaecheUnter(element) {
+    for (let knoten = element; knoten !== null; knoten = knoten.parentElement) {
+      const farbe = rgb(getComputedStyle(knoten).backgroundColor);
+      if (farbe.length < 4 || farbe[3] > 0) {
+        return farbe.slice(0, 3);
+      }
+    }
+    return [255, 255, 255];
+  }
+  function deckkraft(element) {
+    let produkt = 1;
+    for (let knoten = element; knoten !== null; knoten = knoten.parentElement) {
+      produkt *= Number(getComputedStyle(knoten).opacity);
+    }
+    return produkt;
+  }
+  function kontrast(vorn, hinten, alpha) {
+    const gemischt = vorn.map((kanal, stelle) => kanal * alpha + hinten[stelle] * (1 - alpha));
+    const [hell, dunkel] = [leuchtdichte(gemischt), leuchtdichte(hinten)].sort((a, b) => b - a);
+    return (hell + 0.05) / (dunkel + 0.05);
+  }
+  const liste = document.querySelector('.lc-members');
+  const texte = [...liste.querySelectorAll('*')]
+    .filter((element) => [...element.childNodes].some((kind) => kind.nodeType === 3 && kind.textContent.trim() !== ''))
+    .map((element) => ({
+      text: element.textContent.trim().slice(0, 30),
+      wert: kontrast(rgb(getComputedStyle(element).color).slice(0, 3), flaecheUnter(element), deckkraft(element)),
+    }));
+  const formen = [...liste.querySelectorAll('.lc-dot')].map((punkt) => {
+    const stil = getComputedStyle(punkt);
+    let farbe = rgb(stil.backgroundColor);
+    if (farbe.length === 4 && farbe[3] === 0) {
+      farbe = rgb(stil.borderTopColor);
+    }
+    return { text: punkt.getAttribute('aria-label'), wert: kontrast(farbe.slice(0, 3), flaecheUnter(punkt.parentElement), deckkraft(punkt)) };
+  });
+  return { texte: texte.filter((eintrag) => eintrag.wert < 4.5), formen: formen.filter((eintrag) => eintrag.wert < 3) };
+}
+
+for (const thema of ['light', 'dark']) {
+  for (const breite of [1280, 320]) {
+    test(`N1 und Name: „Stand unbekannt“ hält die Kontraste und nennt den Punkt „zuletzt online“ — ${thema}, ${breite} px`, async ({ page }) => {
+      instanz = await instanzStarten({ port: await freierPort() });
+      await page.emulateMedia({ colorScheme: thema });
+      await page.setViewportSize({ width: breite, height: 800 });
+      const strom = await agentMitStrom('claude');
+      await agentMitStrom('mia');
+      await beitreten(page);
+      await listeZeigen(page);
+      strom.schliessen();
+      await expect(zeileVon(page, 'claude@127.0.0.1').locator('.lc-status')).toHaveText('offline', { timeout: 3000 });
+
+      await instanz.beenden();
+      await expect(region(page).locator('.lc-stand')).toHaveText(/Stand unbekannt/);
+
+      const zuSchwach = await page.evaluate(kontrasteInDerListe);
+      expect(zuSchwach).toEqual({ texte: [], formen: [] });
+      const namen = await region(page).locator('.lc-dot.on').evaluateAll((punkte) => punkte.map((punkt) => punkt.getAttribute('aria-label')));
+      expect(namen.length).toBeGreaterThan(0);
+      expect(new Set(namen)).toEqual(new Set(['zuletzt online']));
+
+      await instanz.starten();
+      await expect(region(page).locator('.lc-stand')).toBeHidden({ timeout: 15000 });
+      const wieder = await region(page).locator('.lc-dot.on').evaluateAll((punkte) => punkte.map((punkt) => punkt.getAttribute('aria-label')));
+      expect(new Set(wieder)).toEqual(new Set(['online']));
+    });
+  }
+}
 
 for (const breite of [1280, 320]) {
   test(`S2: geht ein Agent mit 32 Zeichen offline, verschiebt sich die Zeile darunter um 0 px — ${breite} px`, async ({ page }) => {
@@ -150,7 +269,7 @@ test('S5: Server beendet — nach < 2 s ist die Liste als „Stand unbekannt“ 
 });
 
 test('S6: der Alarmtext ändert sich nur beim Wechsel — 1 Mutation beim Unterbrechen, 1 beim Wiederverbinden', async ({ page }) => {
-  test.setTimeout(90000);
+  test.setTimeout(60000);
   instanz = await instanzStarten({ port: await freierPort() });
   fehlerSammeln(page, { serverWegErwartet: true });
   await page.setViewportSize({ width: 1280, height: 800 });
@@ -163,7 +282,7 @@ test('S6: der Alarmtext ändert sich nur beim Wechsel — 1 Mutation beim Unterb
   });
 
   await instanz.beenden();
-  await page.waitForTimeout(30000);
+  await page.waitForTimeout(9000);
   const waehrendAus = await page.evaluate(() => window.alarmMutationen.length);
   await instanz.starten();
   await expect(page.locator('#lc-verbindung')).toBeHidden({ timeout: 15000 });

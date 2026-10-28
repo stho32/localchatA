@@ -80,10 +80,12 @@ function natuerlich(links, rechts) {
 // Kennung in Mono, „Agent“, Status als Form (● online, ○ offline) und bei offline als Wort, die eigene Zeile
 // mit „(du)“. Text nur über textContent; keine Animation, keine Ansage (die Region hat kein aria-live).
 export function zeichnen(region, gruppen) {
+  const standUnbekannt = region.closest('.lc-unbekannt') !== null;
+  const zeileFuer = (zeile) => zeileZeichnen(zeile, standUnbekannt);
   const inhalt = [];
   if (gruppen.menschen.length > 0) {
     inhalt.push(ueberschrift(`Menschen · ${gruppen.menschen.length}`));
-    inhalt.push(...gruppen.menschen.map(zeileZeichnen));
+    inhalt.push(...gruppen.menschen.map(zeileFuer));
   }
   const anzahlAgenten = gruppen.agenten.reduce((summe, gruppe) => summe + gruppe.zeilen.length, 0);
   if (anzahlAgenten > 0) {
@@ -93,7 +95,7 @@ export function zeichnen(region, gruppen) {
     if (gruppe.herkunft !== null) {
       inhalt.push(unterkopf(gruppe.herkunft));
     }
-    inhalt.push(...gruppe.zeilen.map(zeileZeichnen));
+    inhalt.push(...gruppe.zeilen.map(zeileFuer));
   }
   region.replaceChildren(...inhalt);
 }
@@ -108,7 +110,7 @@ function unterkopf(herkunft) {
 
 // Kachel, dann Kennung mit „Agent“ und „(du)“ dahinter (umbrochen erst bei Platzmangel, die Kennung vor dem @),
 // rechts der Status in einer festen Spalte — so verschiebt ein Wechsel nach offline keine Zeile.
-function zeileZeichnen(zeile) {
+function zeileZeichnen(zeile, standUnbekannt) {
   const art = artDer(zeile);
   const istOffline = zeile.status === 'offline';
   const kachel = element('span', { className: `lc-tile ${art}`, textContent: kuerzel(zeile.name) });
@@ -123,7 +125,7 @@ function zeileZeichnen(zeile) {
   if (zeile.eigene) {
     text.append(element('span', { className: 'lc-du', textContent: '(du)' }));
   }
-  const status = element('span', { className: 'lc-person-status' }, [punkt(istOffline)]);
+  const status = element('span', { className: 'lc-person-status' }, [punkt(istOffline, standUnbekannt)]);
   if (istOffline) {
     status.append(element('span', { className: 'lc-status', textContent: 'offline' }));
   }
@@ -134,9 +136,9 @@ function zeileZeichnen(zeile) {
   return element('div', { className: klassen }, [kachel, text, status]);
 }
 
-function punkt(istOffline) {
+function punkt(istOffline, standUnbekannt) {
   let form = 'on';
-  let wort = 'online';
+  let wort = onlineWort(standUnbekannt);
   if (istOffline) {
     form = 'off';
     wort = 'offline';
@@ -145,6 +147,21 @@ function punkt(istOffline) {
   punktElement.setAttribute('role', 'img');
   punktElement.setAttribute('aria-label', wort);
   return punktElement;
+}
+
+// Solange die Verbindung fehlt, weiß niemand, ob ein Teilnehmer noch online ist: der Punkt heißt dann
+// „zuletzt online“ (Nacharbeit 2).
+export function onlineBenennen(bereich, standUnbekannt) {
+  bereich.querySelectorAll('.lc-dot.on').forEach((punktElement) => {
+    punktElement.setAttribute('aria-label', onlineWort(standUnbekannt));
+  });
+}
+
+function onlineWort(standUnbekannt) {
+  if (standUnbekannt) {
+    return 'zuletzt online';
+  }
+  return 'online';
 }
 
 function artDer(zeile) {

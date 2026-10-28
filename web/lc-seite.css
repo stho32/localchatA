@@ -55,9 +55,7 @@ body { background: var(--kd-bg); color: var(--kd-ink); font-family: var(--font-s
 .lc-app { height: 100%; display: grid; grid-template-rows: var(--kd-header) auto minmax(0, 1fr); }
 .lc-verbindung[hidden] { display: none; }
 .lc-verbindung { grid-row: 2; margin: 0; padding: var(--kd-space-8) var(--kd-space-12); background: var(--kd-surface); border-bottom: 1px solid var(--kd-line); }
-/* Breiter als das Token lc-members (240 px): Kennung, „Agent“ und die feste Statusspalte passen so in eine
-   28-px-Zeile (Nacharbeit 1, S1) */
-.lc-main { grid-row: 3; --lc-teilnehmerspalte: 288px; display: grid; grid-template-columns: minmax(0, 1fr) var(--lc-teilnehmerspalte); min-height: 0; }
+.lc-main { grid-row: 3; display: grid; grid-template-columns: minmax(0, 1fr) var(--lc-members); min-height: 0; }
 .lc-main.ohne-teilnehmer { grid-template-columns: minmax(0, 1fr); }
 .lc-center { min-width: 0; overflow-y: auto; background: var(--kd-surface); padding: var(--kd-space-12); }
 
@@ -71,10 +69,11 @@ body { background: var(--kd-bg); color: var(--kd-ink); font-family: var(--font-s
 .lc-person-text { min-width: 0; display: flex; flex-wrap: wrap; align-items: center; column-gap: var(--kd-space-8); }
 .lc-person .lc-id { min-width: 0; overflow-wrap: anywhere; }
 .lc-person .lc-id i { font-style: normal; color: var(--kd-ink-muted); }
+.lc-person.off .lc-id { color: var(--kd-ink-muted); }
 .lc-person-status { display: inline-flex; align-items: center; gap: var(--kd-space-4); }
-/* Verbindung unterbrochen: Stand unbekannt — gedämpft, ● nicht mehr gefüllt */
+/* Verbindung unterbrochen: Stand unbekannt — Kennungen gedämpft (ohne Deckkraft, Kontrast bleibt), ● nicht mehr gefüllt */
 .lc-stand { margin: 0; padding: 0 var(--kd-space-12) var(--kd-space-4); font-size: 12px; color: var(--kd-ink-muted); }
-.lc-unbekannt .lc-members-zeilen { opacity: .6; }
+.lc-unbekannt .lc-id { color: var(--kd-ink-muted); }
 .lc-unbekannt .lc-dot.on { background: transparent; border: 1.5px dashed var(--lc-offline); }
 .lc-dot { width: 8px; height: 8px; border-radius: 50%; flex: none; display: inline-block; }
 .lc-dot.on { background: var(--lc-online); }
