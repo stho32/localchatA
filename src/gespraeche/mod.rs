@@ -3,6 +3,7 @@
 pub mod abfrage;
 pub mod einstellungen;
 mod frist;
+pub mod fristeintrag;
 mod kennung;
 mod logablage;
 pub mod logformat;
