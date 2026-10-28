@@ -17,13 +17,16 @@ body { background: var(--kd-bg); color: var(--kd-ink); font-family: var(--font-s
 /* Beitreten-Bildschirm (4.1) */
 .lc-beitreten { min-height: 100%; display: grid; place-items: center; padding: var(--kd-space-24); }
 .lc-beitreten-karte { width: min(100%, 420px); display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--kd-space-8); padding: var(--kd-space-24); background: var(--kd-surface); border: 1px solid var(--kd-line); }
-.lc-beitreten-titel { margin: 0 0 var(--kd-space-8); font-family: var(--font-mono); font-size: 16px; font-weight: 600; }
+.lc-beitreten-titel { margin: 0; font-size: 14px; line-height: 20px; font-weight: 600; }
+.lc-zweck { margin: 0 0 var(--kd-space-8); font-size: 12px; line-height: 16px; color: var(--kd-ink-muted); }
 .lc-beitreten-zeile { display: flex; gap: var(--kd-space-8); }
 .lc-feld { flex: 1; min-width: 0; height: var(--kd-row); padding: 0 var(--kd-space-8); border: 1px solid var(--kd-line-strong); background: var(--kd-surface); font-family: var(--font-mono); }
 .lc-hinweis { margin: 0; font-size: 12px; color: var(--kd-ink-muted); }
 .lc-meldung { display: flex; flex-wrap: wrap; align-items: center; gap: var(--kd-space-8); }
 .lc-meldung > span:first-child { flex: 1 1 100%; }
 .lc-fehler { color: var(--kd-danger); }
+/* Namen, Kennungen, Vorschläge (lc-id); isoliert, damit Steuerzeichen im Namen den Satz nicht umdrehen */
+.lc-id { font-family: var(--font-mono); font-size: 12px; unicode-bidi: isolate; }
 
 /* Kopfzeile und Kennung (Bausteine Kopfzeile, Kennung) */
 #app { min-height: 100%; }

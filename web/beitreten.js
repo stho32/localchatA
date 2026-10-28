@@ -11,7 +11,7 @@ export function zeichnen(wurzel, zustand, aktionen) {
     value: feldinhalt(zustand),
   });
   feld.setAttribute('autocapitalize', 'none');
-  feld.setAttribute('aria-describedby', 'lc-name-hinweis lc-meldung');
+  feld.setAttribute('aria-describedby', 'lc-name-zweck lc-name-hinweis lc-meldung');
   const schalter = element('button', { type: 'submit', className: 'lc-btn primary', textContent: 'Beitreten' });
   const hinweis = element('p', { id: 'lc-name-hinweis', className: 'lc-hinweis' });
   hinweis.setAttribute('aria-live', 'polite');
@@ -19,6 +19,10 @@ export function zeichnen(wurzel, zustand, aktionen) {
   meldung.setAttribute('role', 'alert');
   const formular = element('form', { className: 'lc-beitreten-karte', noValidate: true }, [
     element('h1', { className: 'lc-beitreten-titel', textContent: 'localchatA' }),
+    element('p', { id: 'lc-name-zweck', className: 'lc-zweck' }, [
+      'Der Name steht mit der Herkunft als ', element('span', { className: 'lc-id', textContent: 'name@herkunft' }),
+      ' an jeder Nachricht; erlaubt sind 1 bis 32 Zeichen aus a–z, 0–9 und -.',
+    ]),
     element('label', { htmlFor: 'lc-name', className: 'lc-label', textContent: 'Name' }),
     element('div', { className: 'lc-beitreten-zeile' }, [feld, schalter]),
     hinweis,
