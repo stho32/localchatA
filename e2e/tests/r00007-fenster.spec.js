@@ -83,7 +83,12 @@ test('L3 (US-16): nach zehnmal Nachladen nach oben stehen genau 500 Nachrichten 
   const abrufe = abrufeZaehlen(page);
   const erwartet = await bloeckeRueckwaerts(instanz.adresse, 'gross', 11);
 
-  await scrollen(page, -1000, () => abrufe.vor >= 10);
+  // Je Nachladen ein Sprung an den oberen Rand (wie im zweiten L4-Test) statt 1.000-px-Schritten: zehn Schritte statt
+  // rund 150, damit L3 auch unter Last im Budget von 30 s bleibt; ein Sprung zu viel hieße ein elfter Abruf.
+  for (let sprung = 0; sprung < 10; sprung += 1) {
+    await verlauf(page).evaluate((log) => { log.scrollTop = 0; });
+    await ruhig(page);
+  }
 
   expect(abrufe.vor).toBe(10);
   await expect(nachrichten(page)).toHaveCount(500);
