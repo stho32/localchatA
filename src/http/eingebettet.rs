@@ -30,6 +30,7 @@ pub fn nachschlagen(name: &str) -> Option<EingebetteteDatei> {
         "sekundentakt.js" => (include_bytes!("../../web/sekundentakt.js"), JS),
         "channels.js" => (include_bytes!("../../web/channels.js"), JS),
         "seitenleiste.js" => (include_bytes!("../../web/seitenleiste.js"), JS),
+        "channel-anlegen.js" => (include_bytes!("../../web/channel-anlegen.js"), JS),
         _ => return None,
     };
     Some(EingebetteteDatei { inhalt, typ })
