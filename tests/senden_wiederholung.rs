@@ -43,7 +43,7 @@ fn saetze_mit(inhalt: &[u8], text: &str) -> usize {
 }
 
 /// R00012 F0046 „Format“: `a`, `A-z_0-9` und 64 × `a` → 201; leer, 65 × `a`, `a b`, `ä`, `a.b` → je 422
-/// `regel: "schluessel"`; dazu zwei Köpfe `a` und `b` → 422; nichts geschrieben.
+/// `regel: "schluessel"`; dazu zwei Köpfe mit unverbrauchten Schlüsseln → 422; nichts geschrieben.
 #[tokio::test]
 async fn das_format_des_schluessels_wird_geprueft_nichts_geschrieben() {
     let wurzel = ordner();
@@ -79,7 +79,7 @@ async fn das_format_des_schluessels_wird_geprueft_nichts_geschrieben() {
     let doppelt = gemeinsam::roh_anfragen(
         std::net::SocketAddr::from(([127, 0, 0, 1], instanz.port())),
         &format!(
-            "POST /api/channels/allgemein/nachrichten HTTP/1.1\r\nHost: 127.0.0.1:{}\r\nX-LocalchatA-Sitzung: {token}\r\nContent-Type: application/json\r\nIdempotency-Key: a\r\nIdempotency-Key: b",
+            "POST /api/channels/allgemein/nachrichten HTTP/1.1\r\nHost: 127.0.0.1:{}\r\nX-LocalchatA-Sitzung: {token}\r\nContent-Type: application/json\r\nIdempotency-Key: zwei1\r\nIdempotency-Key: zwei2",
             instanz.port()
         ),
         r#"{"text":"schlecht"}"#,
@@ -89,7 +89,7 @@ async fn das_format_des_schluessels_wird_geprueft_nichts_geschrieben() {
         kopf: reqwest::header::HeaderMap::new(),
         json: serde_json::from_str(&doppelt.inhalt).unwrap_or_default(),
     };
-    ungueltig.push(("a, b (zwei Köpfe)".to_string(), doppelt));
+    ungueltig.push(("zwei1, zwei2 (zwei Köpfe)".to_string(), doppelt));
 
     assert_eq!(
         gueltig.iter().map(|a| a.status).collect::<Vec<_>>(),
