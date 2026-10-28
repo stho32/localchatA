@@ -30,10 +30,13 @@ body { background: var(--kd-bg); color: var(--kd-ink); font-family: var(--font-s
 
 /* Kopfzeile und Kennung (Bausteine Kopfzeile, Kennung) */
 #app { min-height: 100%; }
-.lc-head { height: var(--kd-header); background: var(--kd-header-bg); color: var(--kd-header-ink); display: grid; grid-template-columns: minmax(max-content, 1fr) minmax(0, 420px) auto; align-items: center; gap: var(--kd-space-16); padding: 0 var(--kd-space-8) 0 var(--kd-space-12); }
+/* Die Zone „Ort“ nimmt den freien Platz und kürzt zuerst die Beschreibung; die Navigation ist leer, bis die Suche kommt (I0011) */
+.lc-head { height: var(--kd-header); background: var(--kd-header-bg); color: var(--kd-header-ink); display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; gap: var(--kd-space-16); padding: 0 var(--kd-space-8) 0 var(--kd-space-12); }
 .lc-head :focus-visible { outline-color: var(--lc-focus-header); }
 .lc-head-ort { display: flex; align-items: baseline; gap: var(--kd-space-8); white-space: nowrap; min-width: 0; overflow: hidden; }
 .lc-head-inst { font-family: var(--font-mono); font-size: 12px; color: var(--kd-header-muted); min-width: 0; overflow: hidden; text-overflow: ellipsis; flex: 0 1 auto; }
+.lc-head-desc { font-size: 12px; line-height: 16px; color: var(--kd-header-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; flex: 0 100 auto; }
+@media (max-width: 719px) { .lc-head-desc { display: none; } }
 .lc-head-chan { font-size: 14px; line-height: 20px; font-weight: 600; min-width: 0; overflow: hidden; text-overflow: ellipsis; flex: 0 1 auto; }
 .lc-head-bed { white-space: nowrap; display: flex; align-items: center; gap: var(--kd-space-8); }
 .lc-me { font-family: var(--font-mono); font-size: 12px; color: var(--kd-header-ink); }

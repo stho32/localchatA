@@ -1,7 +1,7 @@
 // Eigene Kennung in der Kopfzeile (Designsystem: Bausteine Kopfzeile und Kennung): dunkle 40-px-Leiste,
 // rechts Kürzel-Kachel und `name@herkunft`, Herkunft gedämpft, Farbe und Marke nach Art, danach die Schalter
 // der Bedienung (z. B. „Teilnehmer“). Zone „Ort“: nach dem Instanznamen der gewählte Channel `# name` in lc-title
-// (ADR-0027 Regel 5); der Tab heißt dann „# name — localchatA“.
+// und danach seine Beschreibung (ADR-0027 Regel 5); der Tab heißt dann „# name — localchatA“.
 
 export function zeichnen(wurzel, teilnehmer, { kennungFokussieren = false, schalter = [] } = {}) {
   const art = artDes(teilnehmer);
@@ -40,7 +40,16 @@ function ortZeigen(ort, channel) {
     return;
   }
   ort.replaceChildren(inst, element('span', { className: 'lc-head-chan', textContent: `# ${channel.name}` }));
+  if (channel.beschreibung) {
+    ort.append(beschreibungZeichnen(channel.beschreibung));
+  }
   document.title = `# ${channel.name} — localchatA`;
+}
+
+// Einzeilig mit Ellipse, ganz im title, die Schreibrichtung in <bdi> isoliert (ADR-0022 Regel 5); unter 720 px
+// blendet das CSS sie aus.
+function beschreibungZeichnen(beschreibung) {
+  return element('span', { className: 'lc-head-desc', title: beschreibung }, [element('bdi', { textContent: beschreibung })]);
 }
 
 export function kuerzel(name) {
