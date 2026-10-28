@@ -136,7 +136,7 @@ test('401: abgelehnt mit dem abgelehnten Token, kein neuer Versuch bis ein neues
   assert.equal(abgelehnt[0], 'alt');
 });
 
-test('40 s ohne Byte: der Wächter bricht ab und verbindet neu', async () => {
+test('15 s ohne Byte: der Wächter bricht ab und verbindet neu', async () => {
   const erster = offenerStrom();
   const zweiter = offenerStrom();
   const stroeme = [erster, zweiter];
@@ -147,7 +147,7 @@ test('40 s ohne Byte: der Wächter bricht ab und verbindet neu', async () => {
   });
 
   await bis(() => p.zustaende.length === 1);
-  uhr = 40001;
+  uhr = 15001;
   await bis(() => p.zustaende.length === 3);
   halter.beenden();
 

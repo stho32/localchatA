@@ -1,6 +1,6 @@
 // Live-Strom (B0091, ADR-0015): fetch auf /api/ereignisse mit dem Sitzungs-Header statt EventSource — das
 // Token steht nie in einer URL. Eigener Leser (sse.js) und Wächter (verbindung.js): nach einem Abbruch neu
-// verbinden (1 s, 2 s, 5 s, dann alle 10 s), 40 s ohne Byte gilt als Abbruch. Auf 401 meldet der Halter
+// verbinden (1 s, 2 s, 5 s, dann alle 10 s), 15 s ohne Byte gilt als Abbruch. Auf 401 meldet der Halter
 // „abgelehnt“ und wartet auf ein neues Token. Ohne DOM, damit derselbe Code im SharedWorker läuft.
 import { SITZUNGS_HEADER } from './api.js';
 import { zerlegen } from './sse.js';
