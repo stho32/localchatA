@@ -24,7 +24,7 @@ Beantwortet Blockabrufe und Suchanfragen über alle Nachrichten in der Frist aus
 
 - `tag_aufnehmen(gespraech, tag, rohtext)` — beim Laden und beim Tageswechsel.
 - `anhaengen(gespraech, tag, satz)` — nach jedem Schreiben, unter der Sperre des Gesprächs.
-- `block(gespraech, vor, n)`, `suchen(begriff, gespraeche, nach, n)`, `tag_entfernen(gespraech, tag)`.
+- `block(abschnitt, n) -> Block { saetze, aelter, neuer }` mit `abschnitt` = `Neueste` | `Vor(zeit)` | `Nach(zeit)`, Sätze älteste zuerst ([ADR-0025](../ADRs/0025-verlauf-ueber-die-api-bloecke-mit-zeit-als-cursor.md)); `suchen(begriff, gespraeche, nach, n)`, `tag_entfernen(gespraech, tag)`.
 - Kennzahlen für den Health-Check: Nachrichtenzahl, Bytes Rohtext, Bytes Suchkopie.
 
 ## Abhaengigkeiten
@@ -34,6 +34,8 @@ Beantwortet Blockabrufe und Suchanfragen über alle Nachrichten in der Frist aus
 ## Entscheidungen
 
 - [ADR-0006: Verlaufsindex im Speicher über dem Rohtext der Tagesdateien](../ADRs/0006-verlaufsindex-im-speicher.md) — Akzeptiert, 2026-10-27
+- [ADR-0025: Verlauf über die API — `GET /api/channels/<name>/nachrichten` in Blöcken, Nachrichtenzeit als Cursor in beide Richtungen](../ADRs/0025-verlauf-ueber-die-api-bloecke-mit-zeit-als-cursor.md) — Akzeptiert, 2026-10-28
+- [ADR-0026: Verlauf im Browser als Fenster aus höchstens fünf Blöcken — Nachladen an beiden Enden, Anker von Hand; was „sofort“ und „flüssig“ messbar heißt](../ADRs/0026-verlauf-im-browser-als-fenster-aus-hoechstens-fuenf-bloecken.md) — Akzeptiert, 2026-10-28
 
 ## Offene Fragen
 
@@ -45,3 +47,4 @@ Beantwortet Blockabrufe und Suchanfragen über alle Nachrichten in der Frist aus
 - Suche läuft Tag für Tag von neu nach alt über alle sichtbaren Gespräche, sortiert die Treffer eines Tages nach Zeit und hört bei 50 auf.
 - Erster Test (Unit, ohne Platte): drei Tage zu je 250 Sätzen aufnehmen; `block(g, None, 100)` liefert die letzten 100 des jüngsten Tages, `block(g, Some(zeit_des_ersten), 100)` greift über die Tagesgrenze; `suchen("GRÖSSE")` findet `größe`.
 - **Ergänzung 2026-10-27 (Karte #2, I0002):** `anhaengen` wird nur nach erfolgreichem Schreiben aufgerufen ([ADR-0011](../ADRs/0011-anhaengen-mit-rueckbau-und-zeilenende-waechter.md)); damit ist der Rohtext im Speicher byte-gleich mit der Datei, und `log_bytes` im Health-Check ist die Summe der Rohtexte. Für I0002 genügt `tag_aufnehmen`, `anhaengen` und die Zählung; `block` und `suchen` gehören zu I0008/I0011, sind aber der natürliche Prüfweg der Unit-Tests von Gespräche.
+- **Ergänzung 2026-10-28 (Karte #7, I0008):** `block` nach [ADR-0025](../ADRs/0025-verlauf-ueber-die-api-bloecke-mit-zeit-als-cursor.md) Regeln 2–4: exklusive Grenzen in beide Richtungen, Weg über die `BTreeMap` der Tage, binäre Suche über die Kopfzeiten der Satzanfänge eines Tages (Zeiten steigen im Tag, einziger Schreiber), Ergebnis als Bytebereiche bzw. Kopien der Sätze — das Deuten (`logformat::text`, Kennung, Zeit) liegt bei [Gespräche](A00006-gespraeche.md) bzw. im Logformat, nicht im Index. `aelter`/`neuer` ergeben sich aus der Lage der Grenze, ohne zu zählen. Kosten je Block unabhängig von der Länge des Verlaufs (ADR-0006: 0,06 ms im Release). Erster Test: ADR-0025, „Folgeentscheidungen“ (drei Tage zu 250 Sätzen, Grenze am Tageswechsel, Cursor zwischen zwei Sätzen).
