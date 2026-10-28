@@ -51,7 +51,7 @@ test('422 mit Vorschlag → Regel und Vorschlag; 422 reserviert → Regel ohne V
 });
 
 test('429 → beginnt mit „Zu viele Channels“ und nennt die Grenze aus hoechstens', () => {
-  for (const [grenze, hoechstens] of [['herkunft', 32], ['gesamt', 256]]) {
+  for (const [grenze, hoechstens] of [['herkunft', 128], ['gesamt', 256]]) {
     const gedeutet = anlegeAntwort(antwort(429, { fehler: 'x', grenze, hoechstens }));
     assert.equal(gedeutet.art, 'grenze');
     assert.match(gedeutet.text, /^Zu viele Channels/);

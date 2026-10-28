@@ -125,11 +125,12 @@ test('US-21: ungültig mit „allgemein übernehmen“, dann vorhanden — Dialo
   expect(a.fehler).toEqual([]);
 });
 
-test('US-22: an der Grenze sagt der Dialog „Zu viele Channels“ mit 32', async ({ browser }) => {
+// R00015 G3: die Grenze je Herkunft ist 128 (vorher 32).
+test('US-22: an der Grenze sagt der Dialog „Zu viele Channels“ mit 128', async ({ browser }) => {
   instanz = await instanzStarten();
   const lokal = await agent('lokal', '127.0.0.1');
-  for (let nummer = 1; nummer <= 32; nummer += 1) {
-    expect((await lokal(`c${String(nummer).padStart(2, '0')}`)).status).toBe(201);
+  for (let nummer = 1; nummer <= 128; nummer += 1) {
+    expect((await lokal(`c${String(nummer).padStart(3, '0')}`)).status).toBe(201);
   }
   const a = await seiteMitFehlern(browser, { zusaetzlich: { '/api/channels': [429] } });
   await beitreten(a.page, 'shoff');
@@ -138,7 +139,7 @@ test('US-22: an der Grenze sagt der Dialog „Zu viele Channels“ mit 32', asyn
   await namensfeld(a.page).fill('noch-einer');
   await namensfeld(a.page).press('Enter');
 
-  await expect(fehlerzeile(a.page).locator('span').first()).toHaveText(/^⚠ Zu viele Channels.*32/);
+  await expect(fehlerzeile(a.page).locator('span').first()).toHaveText(/^⚠ Zu viele Channels.*128/);
   await expect(dialog(a.page)).toBeVisible();
   expect(a.fehler).toEqual([]);
 });
