@@ -479,6 +479,39 @@ mod tests {
         assert!(!gescheitert.contains('\n'), "{gescheitert}");
     }
 
+    /// Code-Review #24 B1, Abnahme-Probe 6: `write_all` und `set_len` scheitern beide — die Tagesdatei zeigt auf
+    /// `/dev/full` (Schreiben: ENOSPC, Kürzen eines Zeichengeräts: EINVAL). Genau ein ERROR `senden` mit Datei,
+    /// Grund und der Länge, auf die zurückgebaut werden sollte.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn ein_gescheiterter_rueckbau_ist_genau_ein_error_mit_datei_grund_und_anzahl() {
+        use crate::protokoll::Stufe;
+        use crate::protokoll::testhilfe::im_speicher;
+        let wurzel = tempfile::tempdir().expect("Wegwerf-Ordner");
+        let (ablage, allgemein) = allgemein(wurzel.path());
+        std::os::unix::fs::symlink(
+            "/dev/full",
+            wurzel.path().join("channels/allgemein/2026-10-28.log"),
+        )
+        .expect("Symlink");
+        let (protokoll, speicher, _, _) =
+            im_speicher("2026-10-28T12:00:00+01:00", Stufe::Information);
+        let ablage = ablage.mit_protokoll(protokoll);
+
+        let ergebnis = ablage.anhaengen(&allgemein, tag("2026-10-28"), "@ eins\n  a\n\n");
+
+        assert!(ergebnis.is_err());
+        let zeilen = speicher.zeilen();
+        assert_eq!(zeilen.len(), 1, "{zeilen:#?}");
+        assert!(
+            zeilen[0].starts_with(
+                "2026-10-28T12:00:00.000+01:00 ERROR senden Rückbau gescheitert — der Rest des Satzes bleibt in der Tagesdatei stehen | datei=channels/allgemein/2026-10-28.log grund=\"channels/allgemein/2026-10-28.log: Rückbau auf 0 Bytes gescheitert"
+            ),
+            "{zeilen:#?}"
+        );
+        assert!(zeilen[0].ends_with("\" anzahl=0"), "{zeilen:#?}");
+    }
+
     #[test]
     fn rueckbau_kuerzt_auf_die_uebergebene_laenge() {
         let mut gekuerzt = None;

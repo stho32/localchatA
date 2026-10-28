@@ -326,6 +326,31 @@ mod tests {
         );
     }
 
+    /// Code-Review #24 B1, Abnahme-Probe 7: genau eine ERROR-Zeile mit dem Grund; die Antwort nennt ihn nicht.
+    /// R00018 (B0304) stellt den Eintrag auf EXCEPTION um und passt diesen Test an.
+    #[tokio::test]
+    async fn nicht_gelesen_ist_genau_ein_error_mit_grund_den_die_antwort_nicht_nennt() {
+        use crate::protokoll::testhilfe::im_speicher;
+        let mut zustand = crate::http::testserver::zustand(std::path::Path::new("/tmp"));
+        let (protokoll, speicher, _, _) =
+            im_speicher("2026-10-28T12:00:00+01:00", Stufe::Information);
+        zustand.protokoll = protokoll;
+
+        let antwort = nicht_gelesen(&zustand, "key must be a string");
+
+        assert_eq!(
+            speicher.zeilen(),
+            [
+                "2026-10-28T12:00:00.000+01:00 ERROR verlauf Verlauf nicht gelesen | grund=\"key must be a string\""
+            ]
+        );
+        let koerper = axum::body::to_bytes(antwort.into_body(), 1024)
+            .await
+            .expect("Körper");
+        let text = String::from_utf8_lossy(&koerper);
+        assert!(!text.contains("key must be"), "{text}");
+    }
+
     #[test]
     fn das_budget_je_block_ist_256_kib() {
         assert_eq!(VERLAUF_BUDGET, 262_144);

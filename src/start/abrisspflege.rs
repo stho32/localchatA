@@ -116,19 +116,27 @@ pub struct Pflege {
 impl Pflege {
     /// Die Fassung des Programms: Kernel-Pflege, der erste Fehler eine WARNING im Betriebsprotokoll.
     pub fn kernel(pflege: Verbindungspflege, protokoll: Arc<Protokoll>) -> Pflege {
-        Pflege::neu(
+        Pflege::mit_protokoll(
             move |strom: &TcpStream| kernel_pflegen(strom, &pflege),
-            move |fehler: &Pflegefehler| {
-                protokoll.eintragen(
-                    Stufe::Warning,
-                    Bereich::Verbindung,
-                    "Abrisspflege nicht setzbar — Verbindungen werden ohne Pflege bedient",
-                    Kontext::neu()
-                        .mit(Schluessel::Option, fehler.option)
-                        .mit(Schluessel::Grund, &fehler.fehler),
-                );
-            },
+            protokoll,
         )
+    }
+
+    /// Ein beliebiger Pfleger; der erste Fehler ist eine WARNING `verbindung` mit `option` und `grund`.
+    pub fn mit_protokoll(
+        pflegen: impl Fn(&TcpStream) -> Result<(), Pflegefehler> + Send + Sync + 'static,
+        protokoll: Arc<Protokoll>,
+    ) -> Pflege {
+        Pflege::neu(pflegen, move |fehler: &Pflegefehler| {
+            protokoll.eintragen(
+                Stufe::Warning,
+                Bereich::Verbindung,
+                "Abrisspflege nicht setzbar — Verbindungen werden ohne Pflege bedient",
+                Kontext::neu()
+                    .mit(Schluessel::Option, fehler.option)
+                    .mit(Schluessel::Grund, &fehler.fehler),
+            );
+        })
     }
 
     pub fn neu(
@@ -165,6 +173,40 @@ mod tests {
             keepintvl: Duration::from_secs(keepalive_s),
             keepcnt: 2,
         }
+    }
+
+    /// Code-Review #24 B1, Abnahme-Probe 5: die Fassung des Programms mit scheiterndem Pfleger — genau eine
+    /// WARNING mit Option und Grund, die zweite gescheiterte Verbindung keine weitere.
+    #[tokio::test]
+    async fn die_erste_gescheiterte_abrisspflege_ist_genau_eine_warning_mit_option_und_grund() {
+        use crate::protokoll::testhilfe::im_speicher;
+        let (protokoll, speicher, _, _) =
+            im_speicher("2026-10-28T12:00:00+01:00", Stufe::Information);
+        let pflege = Pflege::mit_protokoll(
+            |_: &TcpStream| {
+                Err(Pflegefehler {
+                    option: "TCP_KEEPIDLE",
+                    fehler: io::Error::other("verweigert"),
+                })
+            },
+            protokoll,
+        );
+        let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0))
+            .await
+            .expect("gebunden");
+        let adresse = listener.local_addr().expect("Adresse");
+        let _client = TcpStream::connect(adresse).await.expect("verbunden");
+        let (angenommen, _) = listener.accept().await.expect("angenommen");
+
+        pflege.anwenden(&angenommen);
+        pflege.anwenden(&angenommen);
+
+        assert_eq!(
+            speicher.zeilen(),
+            [
+                "2026-10-28T12:00:00.000+01:00 WARNING verbindung Abrisspflege nicht setzbar — Verbindungen werden ohne Pflege bedient | option=TCP_KEEPIDLE grund=verweigert"
+            ]
+        );
     }
 
     #[test]
