@@ -129,3 +129,4 @@ Eine Zeile je Auftrag an eine Rolle und je Retrospektive.
 | 2026-10-28 | #24 | Nacharbeit → Auto-Reviews | entwickler (entw2) | bestanden | 0:40 | B0292–B0299 im Worktree, Rebase + Gate + Fast-Forward (261874d); Nacharbeitszeit 0,30 h gegen 1,25 h erste Entwicklung; enge Wiederholung 3 Reviews |
 | 2026-10-28 | #12 | Entwicklung → Auto-Reviews | entwickler | bestanden | 0:47 | I0018 grün (30 Commits), Gate 778/0 und E2E 145/209 nachgefahren; 5 Reviews parallel |
 | 2026-10-28 | #8 | Detailplanung → Entwicklung | entwickler | läuft | — | I0009 Nachricht senden (R00011, R00016), 33 Bubbles |
+| 2026-10-28 | #24 | Auto-Reviews → Entwicklertest | code-, observability-, rechtschreib-reviewer | bestanden | 0:35 | enge Wiederholung: alle Muss geschlossen; A8 (Verdrahtung online/offline) → #26 |
