@@ -38,3 +38,31 @@ export function auswahlMerken(speicher, gewaehlt) {
     speicher.setItem(MERKER, gewaehlt.name);
   }
 }
+
+// Alt ↓ / Alt ↑ (ADR-0027 Regel 4): richtung 'ab' | 'auf' → Name | null; ohne bekannte Auswahl ↓ der erste,
+// ↑ der letzte; am Rand nichts.
+export function nachbarChannel(namen, gewaehlt, richtung) {
+  const stelle = namen.indexOf(gewaehlt);
+  if (stelle === -1) {
+    return erster(namen, richtung);
+  }
+  let schritt = -1;
+  if (richtung === 'ab') {
+    schritt = 1;
+  }
+  const nachbar = namen[stelle + schritt];
+  if (nachbar === undefined) {
+    return null;
+  }
+  return nachbar;
+}
+
+function erster(namen, richtung) {
+  if (namen.length === 0) {
+    return null;
+  }
+  if (richtung === 'ab') {
+    return namen[0];
+  }
+  return namen[namen.length - 1];
+}

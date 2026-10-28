@@ -1,7 +1,7 @@
 // Unit-Tests der Channel-Auswahl (R00007 F0028 B0148, B0149; F0032 B0168, B0169; ADR-0027; node --test).
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { auswahl, startadresse, auswahlMerken, MERKER } from '../../web/auswahl.js';
+import { auswahl, startadresse, auswahlMerken, MERKER, nachbarChannel } from '../../web/auswahl.js';
 
 const LISTE = ['allgemein', 'test'];
 
@@ -40,4 +40,20 @@ test('jede Auswahl wird je Tab gemerkt, keine Auswahl ändert den Merker nicht',
   auswahlMerken(speicher, null);
   assert.equal(gespeichert.get(MERKER), 'spaeter');
   assert.equal(MERKER, 'localchatA.channel');
+});
+
+test('Nachbar-Channel: nächster und voriger in der Reihenfolge der Liste, am Rand nichts', () => {
+  const liste = ['a', 'b', 'c'];
+  assert.equal(nachbarChannel(liste, 'b', 'ab'), 'c');
+  assert.equal(nachbarChannel(liste, 'b', 'auf'), 'a');
+  assert.equal(nachbarChannel(liste, 'c', 'ab'), null);
+  assert.equal(nachbarChannel(liste, 'a', 'auf'), null);
+});
+
+test('Nachbar-Channel ohne Auswahl: ↓ der erste, ↑ der letzte; eine leere Liste hat keinen', () => {
+  assert.equal(nachbarChannel(['a', 'b', 'c'], null, 'ab'), 'a');
+  assert.equal(nachbarChannel(['a', 'b', 'c'], null, 'auf'), 'c');
+  assert.equal(nachbarChannel(['a', 'b', 'c'], 'unbekannt', 'ab'), 'a');
+  assert.equal(nachbarChannel([], null, 'ab'), null);
+  assert.equal(nachbarChannel([], null, 'auf'), null);
 });
