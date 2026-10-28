@@ -1,7 +1,7 @@
 // Unit-Tests der Teilnehmerliste (R00004 F0013, ADR-0016 Regel 5; node --test): Zusammenführung nach `stand`.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { LEER, zusammenfuehren } from '../../web/teilnehmerliste.js';
+import { LEER, ordnen, zusammenfuehren } from '../../web/teilnehmerliste.js';
 
 function zeile(name, status, art = 'agent', herkunft = '127.0.0.1') {
   return { kennung: `${name}@${herkunft}`, name, herkunft, art, status, seit: '2026-10-28T09:00:00.000+01:00' };
@@ -55,4 +55,47 @@ test('die alte Liste bleibt unverändert', () => {
   zusammenfuehren(vorher, wechsel(2, zeile('alpha', 'weg')));
 
   assert.deepEqual(statusVon(vorher), { 'alpha@127.0.0.1': 'online' });
+});
+
+function kennungen(zeilen) {
+  return zeilen.map((zeile) => zeile.kennung);
+}
+
+function listeAus(zeilen) {
+  return zusammenfuehren(LEER, stand(1, zeilen));
+}
+
+test('Menschen zuerst, dann Agenten, je alphabetisch; die eigene Zeile ist markiert', () => {
+  const liste = listeAus([
+    zeile('shoff', 'online', 'mensch'), zeile('claude', 'offline'), zeile('mia', 'online', 'mensch'), zeile('a1', 'online'),
+  ]);
+
+  const gruppen = ordnen(liste, 'shoff@127.0.0.1');
+
+  assert.deepEqual(kennungen(gruppen.menschen), ['mia@127.0.0.1', 'shoff@127.0.0.1']);
+  assert.deepEqual(gruppen.menschen.map((zeile) => zeile.eigene), [false, true]);
+  assert.equal(gruppen.agenten.length, 1);
+  assert.equal(gruppen.agenten[0].herkunft, null);
+  assert.deepEqual(kennungen(gruppen.agenten[0].zeilen), ['a1@127.0.0.1', 'claude@127.0.0.1']);
+});
+
+test('sieben Agenten ohne Unterkopf, ab dem achten nach Herkunft gruppiert, alphabetisch innerhalb', () => {
+  const sieben = ['a7', 'a3', 'a1', 'a5', 'a2', 'a6', 'a4'].map((name) => zeile(name, 'online'));
+  const mitAchtem = [...sieben, zeile('a8', 'online', 'agent', '127.0.0.2')];
+
+  const ungruppiert = ordnen(listeAus(sieben), 'shoff@127.0.0.1');
+  const gruppiert = ordnen(listeAus(mitAchtem), 'shoff@127.0.0.1');
+
+  assert.deepEqual(ungruppiert.agenten.map((gruppe) => gruppe.herkunft), [null]);
+  assert.deepEqual(kennungen(ungruppiert.agenten[0].zeilen), ['a1', 'a2', 'a3', 'a4', 'a5', 'a6', 'a7'].map((n) => `${n}@127.0.0.1`));
+  assert.deepEqual(gruppiert.agenten.map((gruppe) => [gruppe.herkunft, gruppe.zeilen.length]), [['127.0.0.1', 7], ['127.0.0.2', 1]]);
+  assert.deepEqual(kennungen(gruppiert.agenten[0].zeilen), ['a1', 'a2', 'a3', 'a4', 'a5', 'a6', 'a7'].map((n) => `${n}@127.0.0.1`));
+  assert.deepEqual(gruppiert.menschen, []);
+});
+
+test('Herkünfte in natürlicher Reihenfolge: 127.0.0.2 vor 127.0.0.10', () => {
+  const agenten = ['b1', 'b2', 'b3', 'b4', 'b5', 'b6', 'b7'].map((name) => zeile(name, 'online', 'agent', '127.0.0.10'));
+  const gruppen = ordnen(listeAus([...agenten, zeile('c1', 'online', 'agent', '127.0.0.2')]), '');
+
+  assert.deepEqual(gruppen.agenten.map((gruppe) => gruppe.herkunft), ['127.0.0.2', '127.0.0.10']);
 });

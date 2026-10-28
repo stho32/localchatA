@@ -38,3 +38,39 @@ function zuletztGesehenerStand(liste, kennung) {
   }
   return liste.stand;
 }
+
+// Designsystem: zuerst Menschen, dann Agenten, je alphabetisch; ab 8 Agenten nach Herkunft gruppiert,
+// damit auch 20 und mehr lesbar bleiben. Ergebnis: { menschen: [zeile], agenten: [{ herkunft, zeilen }] },
+// herkunft null ohne Unterkopf; jede Zeile mit `eigene`.
+const AGENTEN_AB_DENEN_GRUPPIERT_WIRD = 8;
+
+export function ordnen(liste, eigeneKennung) {
+  const zeilen = liste.eintraege
+    .map((eintrag) => ({ ...eintrag, eigene: eintrag.kennung === eigeneKennung }))
+    .sort(nachKennung);
+  const menschen = zeilen.filter((zeile) => zeile.art === 'mensch');
+  const agenten = zeilen.filter((zeile) => zeile.art !== 'mensch');
+  return { menschen, agenten: agentenGruppieren(agenten) };
+}
+
+function agentenGruppieren(agenten) {
+  if (agenten.length === 0) {
+    return [];
+  }
+  if (agenten.length < AGENTEN_AB_DENEN_GRUPPIERT_WIRD) {
+    return [{ herkunft: null, zeilen: agenten }];
+  }
+  const herkuenfte = [...new Set(agenten.map((agent) => agent.herkunft))].sort(natuerlich);
+  return herkuenfte.map((herkunft) => ({
+    herkunft,
+    zeilen: agenten.filter((agent) => agent.herkunft === herkunft),
+  }));
+}
+
+function nachKennung(links, rechts) {
+  return natuerlich(links.kennung, rechts.kennung);
+}
+
+function natuerlich(links, rechts) {
+  return links.localeCompare(rechts, 'de', { numeric: true });
+}
