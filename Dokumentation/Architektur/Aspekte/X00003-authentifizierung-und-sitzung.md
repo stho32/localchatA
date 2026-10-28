@@ -31,3 +31,5 @@ Durchsetzung: ein Extraktor `Teilnehmer` an der Grenze, den jeder Handler mit Wi
 ## Notizen / Quellen
 
 Tokens nur im Speicher; ein Neustart beendet alle Sitzungen, die Oberfläche tritt mit dem gemerkten Namen still wieder bei. Ausnahmen von der Sitzungspflicht: `beitreten` selbst, `/api/gesundheit`, die Oberfläche (`/`, `/web/*`).
+
+- **Ergänzung 2026-10-28 (Karte #4, I0005):** Auch der Ereignisstrom `GET /api/ereignisse` weist sich nur über den Header aus; ein Token im Query-Parameter gibt es nicht, auch nicht für Ströme ([ADR-0015](../../ADRs/0015-ein-ereignisstrom-je-browser-sharedworker-mit-sitzungs-header.md)). Im Browser hält ein `SharedWorker` den einen Strom je Browser — ein Browser, eine Sitzung, höchstens ein Halter. Durchsetzung zusätzlich: Integrationstest „Token im Query, kein Header → 401“; Review-Punkt „keine Route liest das Token aus Query oder Body“.

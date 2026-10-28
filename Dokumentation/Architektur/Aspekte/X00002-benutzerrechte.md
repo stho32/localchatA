@@ -33,3 +33,5 @@ Ohne Rechte bleibt die Abwehr fremder **Ursprünge**: Wirkungen nur aus dem eige
 ## Notizen / Quellen
 
 Sichtbarkeit ist kein Schutz gegen Absicht: Dateien sind lesbar, Tokens sind nicht an Personen gebunden, nur an die Herkunft ([ADR-0012](../../ADRs/0012-identitaet-und-sitzung.md)); wer im LAN direkt per IP spricht, wird durch den Grenzschutz nicht abgehalten — gewollt, es gibt keine Anmeldung.
+
+- **Ergänzung 2026-10-28 (Karte #4, I0005):** Die Teilnehmerliste sieht jeder mit Sitzung vollständig — alle lebenden Sitzungen mit Kennung (also Herkunft), Art und Status ([ADR-0016](../../ADRs/0016-anwesenheitsstatus-aus-haltern-mit-nachlauf-liste-als-stand-plus-wechsel.md), Regel 6); es gibt keine Sichtbarkeitsregel für Anwesenheit. Die Herkunft ist ohnehin Teil jeder Kennung (Vision). Ohne Sitzung gibt es keine Liste (`GET /api/teilnehmer` und der Strom verlangen sie). Halter und Lebenszeichen sind Wirkungen eines `GET`, entstehen aber nur mit eigenem Header — Lesart von Regel 3 in der Ergänzung zu [ADR-0014](../../ADRs/0014-grenzschutz-host-origin-sicherheitsheader.md).
