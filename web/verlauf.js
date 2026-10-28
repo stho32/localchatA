@@ -27,6 +27,7 @@ export function verlaufAnlegen({ abrufen }) {
   let heute = null;
   let fenster = null;
   let bloeckeKnoten = [];
+  let gescheitert = false;
 
   function abstandUnten() {
     return log.scrollHeight - log.scrollTop - log.clientHeight;
@@ -89,6 +90,7 @@ export function verlaufAnlegen({ abrufen }) {
     offenerName = name;
     fenster = null;
     bloeckeKnoten = [];
+    gescheitert = false;
     ladenBeendet();
     log.setAttribute('aria-label', `Verlauf # ${name}`);
     inhalt.replaceChildren();
@@ -101,6 +103,7 @@ export function verlaufAnlegen({ abrufen }) {
       const fehler = hinweis('⚠ Verlauf nicht geladen — Verbindung prüfen.', 'lc-mitte-hinweis lc-fehler');
       fehler.setAttribute('role', 'alert');
       inhalt.replaceChildren(fehler);
+      gescheitert = true;
       return;
     }
     if (ergebnis.block.nachrichten.length === 0) {
@@ -226,17 +229,25 @@ export function verlaufAnlegen({ abrufen }) {
     }
   }
 
+  // Nach „Verlauf nicht geladen“ öffnet eine neue Wahl desselben Channels ihn neu; sonst bleibt der Verlauf, wie er ist.
+  function erneutVersuchen() {
+    if (gescheitert) {
+      oeffnen(offenerName);
+    }
+  }
+
   function schliessen() {
     laufend.abort();
     offenerName = null;
     fenster = null;
     bloeckeKnoten = [];
+    gescheitert = false;
     ladenBeendet();
     inhalt.replaceChildren();
     lageMerken();
   }
 
-  return { element: rahmen, oeffnen, schliessen, heuteSetzen };
+  return { element: rahmen, oeffnen, erneutVersuchen, schliessen, heuteSetzen };
 }
 
 function cursorFuer(fenster, richtung) {

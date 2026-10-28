@@ -201,6 +201,68 @@ test('Fehler (US-13): ist der Server weg, sagt die Mitte „Verlauf nicht gelade
   expect(farben.text).toBe(farben.gefahr);
 });
 
+// Abrufe der neuesten 100 (Öffnen) für einen Channel; Nachladen trägt vor= bzw. nach= und zählt nicht.
+function oeffnungenZaehlen(page, channel) {
+  const oeffnungen = [];
+  page.on('request', (anfrage) => {
+    const ziel = new URL(anfrage.url());
+    if (ziel.pathname === `/api/channels/${channel}/nachrichten` && ziel.search === '?n=100') {
+      oeffnungen.push(ziel.href);
+    }
+  });
+  return oeffnungen;
+}
+
+// UX S4 (R00007: „eine neue Wahl versucht es erneut“): nach „Verlauf nicht geladen“ öffnet auch die Wahl des schon
+// gewählten Channels neu — per Klick und per Enter auf dem Eintrag; Variante: erst ein zweiter Fehlschlag.
+const klicken = (page) => link(page, 'allgemein').click();
+const enterDruecken = async (page) => { await link(page, 'allgemein').focus(); await page.keyboard.press('Enter'); };
+for (const [weg, waehlen, fehlschlaege] of [['Klick', klicken, 1], ['Enter', enterDruecken, 1], ['Klick, zweimal gescheitert', klicken, 2]]) {
+  test(`Fehler (US-13, ${weg}): nach „Verlauf nicht geladen“ versucht eine neue Wahl desselben Channels es erneut`, async ({ browser }) => {
+    await starten((ordner) => channelAnlegen(ordner, 'allgemein', US9));
+    const kontext = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+    const page = await kontext.newPage();
+    const fehler = fehlerSammeln(page, { serverWegErwartet: true });
+    await beitreten(page);
+    const oeffnungen = oeffnungenZaehlen(page, 'allgemein');
+    const meldung = page.locator('.lc-center .lc-fehler');
+    await page.route('**/api/channels/allgemein/nachrichten?n=100', (route) => route.abort('connectionrefused'));
+
+    for (let versuch = 1; versuch <= fehlschlaege; versuch += 1) {
+      await waehlen(page);
+      await expect.poll(() => oeffnungen.length).toBe(versuch);
+      await expect(meldung).toHaveText('⚠ Verlauf nicht geladen — Verbindung prüfen.');
+    }
+    await page.unroute('**/api/channels/allgemein/nachrichten?n=100');
+    await waehlen(page);
+
+    await expect(nachrichten(page)).toHaveCount(3);
+    await expect(meldung).toHaveCount(0);
+    await waehlen(page);
+    await page.waitForTimeout(300);
+    expect(oeffnungen.length).toBe(fehlschlaege + 1);
+    await expect(nachrichten(page)).toHaveCount(3);
+    expect(fehler).toEqual([]);
+  });
+}
+
+test('Kontrollpaar zu S4: ohne vorherigen Fehler löst die Wahl des gewählten Channels keinen zweiten Abruf aus', async ({ browser }) => {
+  await starten((ordner) => channelAnlegen(ordner, 'allgemein', US9));
+  const a = await seiteMitFehlern(browser);
+  await beitreten(a.page);
+  const oeffnungen = oeffnungenZaehlen(a.page, 'allgemein');
+
+  await link(a.page, 'allgemein').click();
+  await expect(nachrichten(a.page)).toHaveCount(3);
+  await link(a.page, 'allgemein').click();
+  await link(a.page, 'allgemein').press('Enter');
+  await a.page.waitForTimeout(500);
+
+  expect(oeffnungen.length).toBe(1);
+  await expect(nachrichten(a.page)).toHaveCount(3);
+  expect(a.fehler).toEqual([]);
+});
+
 test('Fokus: Tab von der Seitenleiste erreicht den Verlauf (role=log, aria-live=off), Bild ↑ scrollt ihn', async ({ browser }) => {
   await starten((ordner) => grossAnlegen(ordner));
   const a = await seiteMitFehlern(browser);

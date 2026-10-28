@@ -97,6 +97,13 @@ function auswahlEinrichten({ seitenleiste, kopf, mitte, verlauf }, signal) {
     }
   }
   window.addEventListener('hashchange', folgen, { signal });
+  // Die Wahl des schon gewählten Channels ändert die Adresse nicht, es kommt kein hashchange (R00007, US-13).
+  seitenleiste.nav.addEventListener('click', (ereignis) => {
+    const verweis = ereignis.target.closest('a[data-channel]');
+    if (verweis !== null && verweis.dataset.channel === offen) {
+      verlauf.erneutVersuchen();
+    }
+  }, { signal });
   // Alt ↓ / Alt ↑ wählt wie ein Klick über die Adresse; der Fokus bleibt, wo er ist (ADR-0027 Regel 4).
   document.addEventListener('keydown', (ereignis) => {
     const richtung = kuerzelRichtung(ereignis);
