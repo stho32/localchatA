@@ -75,7 +75,8 @@ body { background: var(--kd-bg); color: var(--kd-ink); font-family: var(--font-s
 .lc-loadmore[hidden], .lc-pill[hidden] { display: none; }
 .lc-pillen { position: absolute; left: 0; right: 0; bottom: var(--kd-space-12); z-index: 2; display: flex; justify-content: center; pointer-events: none; }
 .lc-pill { pointer-events: auto; display: inline-flex; align-items: center; gap: var(--kd-space-8); height: var(--kd-row); padding: 0 var(--kd-space-12); background: var(--kd-header-bg); color: var(--kd-header-ink); border: 0; font-weight: 600; cursor: pointer; }
-.lc .lc-pill:focus-visible { outline: 2px solid var(--lc-focus-header); outline-offset: 2px; }
+/* Der Rahmen liegt innen auf der dunklen Pille — außen läge lc-focus-header auf kd-surface unter 3:1 */
+.lc .lc-pill:focus-visible { outline: 2px solid var(--lc-focus-header); outline-offset: -2px; }
 .lc-pill kbd { font-family: var(--font-mono); font-size: 11px; line-height: 16px; padding: 0 var(--kd-space-4); border: 1px solid currentColor; color: var(--kd-header-muted); }
 .lc-log { flex: 1; min-height: 0; overflow-y: auto; overflow-anchor: none; }
 .lc-log-inhalt { padding: var(--kd-space-12) 0; }

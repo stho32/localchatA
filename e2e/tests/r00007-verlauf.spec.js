@@ -238,3 +238,17 @@ test('Tab-Reihenfolge: Kopfzeile → Seitenleiste → Verlauf → Teilnehmerlist
   expect(folge).toEqual(['Channel anlegen', 'allgemein', 'Verlauf # allgemein', 'Teilnehmer']);
   expect(a.fehler).toEqual([]);
 });
+
+test('Schmal: bei 320 px mit geöffnetem Verlauf voller langer Nachrichten kein Querscrollen, die neueste ganz sichtbar', async ({ browser }) => {
+  await starten((ordner) => grossAnlegen(ordner));
+  const a = await seiteMitFehlern(browser, { viewport: { width: 320, height: 640 } });
+  await beitreten(a.page, 'shoff', `${instanz.adresse}#/c/gross`);
+  const juengste = await juengsteZeit(instanz.adresse, 'gross');
+
+  await expect(nachrichten(a.page).last()).toHaveAttribute('data-zeit', juengste);
+
+  const breiten = await a.page.evaluate(() => ({ inhalt: document.documentElement.scrollWidth, fenster: window.innerWidth }));
+  expect(breiten.inhalt).toBeLessThanOrEqual(breiten.fenster);
+  expect(await ganzSichtbar(nachrichten(a.page).last())).toBe(true);
+  expect(a.fehler).toEqual([]);
+});
