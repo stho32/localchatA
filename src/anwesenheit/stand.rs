@@ -1,0 +1,34 @@
+//! Teilnehmerstand und Wechsel (B0076, ADR-0016 Regel 3 und 5): die Liste als `Stand` mit laufender Nummer,
+//! jede Statusänderung als `Wechsel` mit größerer Nummer — der Empfänger ordnet danach, nicht nach Ankunft.
+
+use super::status::Status;
+use super::wunsch::Art;
+use crate::gespraeche::Kennung;
+use crate::name::Name;
+use crate::uhr::Zeit;
+use std::net::IpAddr;
+
+/// Ein Teilnehmer, wie ihn alle anderen sehen: wer, woher, welche Art, welcher Status seit wann.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Teilnehmerzeile {
+    pub kennung: Kennung,
+    pub name: Name,
+    pub herkunft: IpAddr,
+    pub art: Art,
+    pub status: Status,
+    pub seit: Zeit,
+}
+
+/// Eine Statusänderung; `stand` wächst unter der Sperre der Anwesenheit mit jedem Wechsel.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Wechsel {
+    pub stand: u64,
+    pub teilnehmer: Teilnehmerzeile,
+}
+
+/// Alle lebenden Sitzungen nach Kennung sortiert, mit dem Stand des zuletzt gemeldeten Wechsels.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Stand {
+    pub stand: u64,
+    pub liste: Vec<Teilnehmerzeile>,
+}

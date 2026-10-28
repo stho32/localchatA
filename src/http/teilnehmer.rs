@@ -87,7 +87,8 @@ mod tests {
         let sitzung = zustand
             .anwesenheit
             .beitreten(&wunsch, "127.0.0.1".parse().expect("IP"))
-            .expect("beigetreten");
+            .expect("beigetreten")
+            .sitzung;
         let app = Router::new()
             .route(
                 "/wer",

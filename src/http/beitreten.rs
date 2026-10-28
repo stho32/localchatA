@@ -37,11 +37,11 @@ pub async fn beantworten(
         return wiederkehr(&sitzung, &wunsch, anwesenheit.gnadenfrist().as_secs());
     }
     match anwesenheit.beitreten(&wunsch, gegenstelle.ip()) {
-        Ok(sitzung) => {
+        Ok(beitritt) => {
             let gnadenfrist_s = anwesenheit.gnadenfrist().as_secs();
             (
                 StatusCode::CREATED,
-                sitzung_als_json(&sitzung, gnadenfrist_s),
+                sitzung_als_json(&beitritt.sitzung, gnadenfrist_s),
             )
                 .into_response()
         }

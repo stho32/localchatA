@@ -92,3 +92,4 @@ Nie vom User erfragen.
 | 2026-10-28 | R00003 Namen wählen und beitreten | B0074 Beitreten und Erneut versuchen mit Token | Nacharbeit | 0,4h | 0,1h | 0,1h | autonom |
 | 2026-10-28 | R00003 Namen wählen und beitreten | Nacharbeit 2 Mutationsprobe und Gate | Nacharbeit | — | — | 0,15h | autonom |
 | 2026-10-28 | R00004 Teilnehmer mit Online-Status sehen | B0075 Status je Sitzung | Standard | 0,4h | 0,01h | 0,09h | autonom |
+| 2026-10-28 | R00004 Teilnehmer mit Online-Status sehen | B0076 Teilnehmerstand bilden | Standard | 0,4h | 0,03h | 0,03h | autonom |

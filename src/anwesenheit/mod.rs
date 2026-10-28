@@ -2,9 +2,13 @@
 
 mod bestand;
 pub mod gnadenfrist;
+mod stand;
 #[cfg_attr(
     not(test),
-    expect(dead_code, reason = "Brücke bis B0076: der Bestand nutzt den Status")
+    expect(
+        dead_code,
+        reason = "Brücke bis B0080: Halter und pflegen lesen den Status"
+    )
 )]
 mod status;
 mod vorschlag;

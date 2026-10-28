@@ -1,6 +1,9 @@
 //! Namen belegen (B0048): der Bestand aller Sitzungen hinter einer Sperre — Prüfen und Belegen eines Namens
 //! geschehen unter derselben Sperre, gleichzeitige Beitritte mit demselben Namen ergeben genau einen Erfolg.
+//! Teilnehmerstand (B0076): unter derselben Sperre zählt `stand` jeden gemeldeten Statuswechsel (ADR-0016).
 
+use super::stand::{Stand, Teilnehmerzeile, Wechsel};
+use super::status::{Haltung, Status};
 use super::vorschlag::freier_name;
 use super::wunsch::{Art, Beitrittswunsch};
 use crate::gespraeche::Kennung;
@@ -28,6 +31,13 @@ pub struct Sitzung {
     pub letztes_lebenszeichen: Zeit,
 }
 
+/// Ein gelungener Beitritt und die Wechsel, die er ausgelöst hat (zu veröffentlichen nach der Sperre).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Beitritt {
+    pub sitzung: Sitzung,
+    pub wechsel: Vec<Wechsel>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Beitrittsfehler {
     NameVergeben {
@@ -44,7 +54,52 @@ pub struct Anwesenheit {
     uhr: Arc<dyn Uhr>,
     zufall: Arc<dyn Zufall>,
     gnadenfrist: Duration,
-    sitzungen: Mutex<HashMap<Token, Sitzung>>,
+    bestand: Mutex<Bestand>,
+}
+
+/// Was unter der Sperre steht: die Sitzungen mit ihrer Haltung und dem zuletzt gemeldeten Status, und die
+/// laufende Nummer des letzten Wechsels.
+#[derive(Default)]
+struct Bestand {
+    eintraege: HashMap<Token, Eintrag>,
+    stand: u64,
+}
+
+struct Eintrag {
+    sitzung: Sitzung,
+    #[expect(
+        dead_code,
+        reason = "Brücke bis B0080: Halter und pflegen lesen die Haltung"
+    )]
+    haltung: Haltung,
+    gemeldet: (Status, Zeit),
+}
+
+impl Eintrag {
+    fn zeile(&self) -> Teilnehmerzeile {
+        let (status, seit) = self.gemeldet;
+        Teilnehmerzeile {
+            kennung: self.sitzung.kennung.clone(),
+            name: self.sitzung.name.clone(),
+            herkunft: self.sitzung.herkunft,
+            art: self.sitzung.art,
+            status,
+            seit,
+        }
+    }
+}
+
+impl Bestand {
+    /// Meldet `status` für den Eintrag: zählt `stand` hoch und liefert den Wechsel.
+    fn melden(&mut self, token: &Token, status: Status, seit: Zeit) -> Option<Wechsel> {
+        let eintrag = self.eintraege.get_mut(token)?;
+        eintrag.gemeldet = (status, seit);
+        self.stand += 1;
+        Some(Wechsel {
+            stand: self.stand,
+            teilnehmer: eintrag.zeile(),
+        })
+    }
 }
 
 impl Anwesenheit {
@@ -53,7 +108,7 @@ impl Anwesenheit {
             uhr,
             zufall,
             gnadenfrist,
-            sitzungen: Mutex::new(HashMap::new()),
+            bestand: Mutex::new(Bestand::default()),
         }
     }
 
@@ -63,30 +118,28 @@ impl Anwesenheit {
     }
 
     /// Unter einer Sperre: Name lebend belegt (egal von wo) → vergeben mit Vorschlag; Grenze je Herkunft
-    /// oder gesamt erreicht → zu viele; sonst eine neue Sitzung mit frischem Token.
+    /// oder gesamt erreicht → zu viele; sonst eine neue Sitzung mit frischem Token, gemeldet als `online`.
     pub fn beitreten(
         &self,
         wunsch: &Beitrittswunsch,
         herkunft: IpAddr,
-    ) -> Result<Sitzung, Beitrittsfehler> {
+    ) -> Result<Beitritt, Beitrittsfehler> {
         let jetzt = self.uhr.jetzt();
-        let mut sitzungen = self.lebende_sitzungen(jetzt);
-        let traeger = sitzungen
-            .values()
-            .find(|sitzung| sitzung.name == wunsch.name);
+        let mut bestand = self.lebender_bestand(jetzt);
+        let sitzungen = || bestand.eintraege.values().map(|eintrag| &eintrag.sitzung);
+        let traeger = sitzungen().find(|sitzung| sitzung.name == wunsch.name);
         if let Some(traeger) = traeger {
-            let belegt = |name: &Name| sitzungen.values().any(|sitzung| &sitzung.name == name);
+            let belegt = |name: &Name| sitzungen().any(|sitzung| &sitzung.name == name);
             return Err(Beitrittsfehler::NameVergeben {
                 belegt_von: traeger.kennung.clone(),
                 seit: traeger.seit,
                 vorschlag: freier_name(&wunsch.name, belegt),
             });
         }
-        let von_dieser_herkunft = sitzungen
-            .values()
+        let von_dieser_herkunft = sitzungen()
             .filter(|sitzung| sitzung.herkunft == herkunft)
             .count();
-        if von_dieser_herkunft >= JE_HERKUNFT || sitzungen.len() >= GESAMT {
+        if von_dieser_herkunft >= JE_HERKUNFT || bestand.eintraege.len() >= GESAMT {
             return Err(Beitrittsfehler::ZuVieleSitzungen);
         }
         let token = self.zufall.token().map_err(Beitrittsfehler::KeinZufall)?;
@@ -99,38 +152,84 @@ impl Anwesenheit {
             seit: jetzt,
             letztes_lebenszeichen: jetzt,
         };
-        sitzungen.insert(token, sitzung.clone());
-        Ok(sitzung)
+        let eintrag = Eintrag {
+            sitzung: sitzung.clone(),
+            haltung: Haltung {
+                beitritt: jetzt,
+                halter: 0,
+                halter_ende: None,
+                online_seit: jetzt,
+            },
+            gemeldet: (Status::Online, jetzt),
+        };
+        bestand.eintraege.insert(token.clone(), eintrag);
+        let wechsel = bestand
+            .melden(&token, Status::Online, jetzt)
+            .into_iter()
+            .collect();
+        Ok(Beitritt { sitzung, wechsel })
     }
 
     /// Gültiges Token derselben Herkunft → die Sitzung, ihr Lebenszeichen erneuert; sonst keine
     /// (unbekannt, abgelaufen, andere Herkunft — eine fremde Herkunft erneuert nichts).
     pub fn wiederkehren(&self, token: &Token, herkunft: IpAddr) -> Option<Sitzung> {
         let jetzt = self.uhr.jetzt();
-        let mut sitzungen = self.lebende_sitzungen(jetzt);
-        let sitzung = sitzungen
+        let mut bestand = self.lebender_bestand(jetzt);
+        let eintrag = bestand
+            .eintraege
             .get_mut(token)
-            .filter(|sitzung| sitzung.herkunft == herkunft)?;
-        sitzung.letztes_lebenszeichen = jetzt;
-        Some(sitzung.clone())
+            .filter(|eintrag| eintrag.sitzung.herkunft == herkunft)?;
+        eintrag.sitzung.letztes_lebenszeichen = jetzt;
+        Some(eintrag.sitzung.clone())
+    }
+
+    /// Alle lebenden Sitzungen mit ihrem zuletzt gemeldeten Status, nach Kennung sortiert, und der Stand des
+    /// letzten Wechsels — die Liste passt zu den Wechseln, die bis zu diesem Stand veröffentlicht wurden.
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "Brücke bis B0077: die Route liefert den Stand")
+    )]
+    pub fn teilnehmer(&self) -> Stand {
+        let jetzt = self.uhr.jetzt();
+        let bestand = self.bestand();
+        let mut liste: Vec<Teilnehmerzeile> = bestand
+            .eintraege
+            .values()
+            .filter(|eintrag| {
+                lebt(
+                    eintrag.sitzung.letztes_lebenszeichen,
+                    jetzt,
+                    self.gnadenfrist,
+                )
+            })
+            .map(Eintrag::zeile)
+            .collect();
+        liste.sort_by(|links, rechts| links.kennung.als_text().cmp(rechts.kennung.als_text()));
+        Stand {
+            stand: bestand.stand,
+            liste,
+        }
     }
 
     /// Der Bestand unter der Sperre, abgelaufene Sitzungen schon entfernt: ihr Token ist ungültig, ihr Name frei.
-    fn lebende_sitzungen(&self, jetzt: Zeit) -> MutexGuard<'_, HashMap<Token, Sitzung>> {
-        let mut sitzungen = self.sitzungen();
-        sitzungen.retain(|_, sitzung| lebt(sitzung.letztes_lebenszeichen, jetzt, self.gnadenfrist));
-        sitzungen
+    fn lebender_bestand(&self, jetzt: Zeit) -> MutexGuard<'_, Bestand> {
+        let mut bestand = self.bestand();
+        bestand.eintraege.retain(|_, eintrag| {
+            lebt(
+                eintrag.sitzung.letztes_lebenszeichen,
+                jetzt,
+                self.gnadenfrist,
+            )
+        });
+        bestand
     }
 
-    fn sitzungen(&self) -> MutexGuard<'_, HashMap<Token, Sitzung>> {
-        self.sitzungen
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
+    fn bestand(&self) -> MutexGuard<'_, Bestand> {
+        self.bestand.lock().unwrap_or_else(PoisonError::into_inner)
     }
 }
 
 /// Eine Sitzung lebt, solange ihr letztes Lebenszeichen höchstens die Gnadenfrist zurückliegt (ADR-0012).
-/// Geprüft wird beim Zugriff; einen Takt, der „weg“ meldet, gibt es erst mit I0006.
 fn lebt(letztes_lebenszeichen: Zeit, jetzt: Zeit, gnadenfrist: Duration) -> bool {
     let frist = chrono::Duration::from_std(gnadenfrist).unwrap_or(chrono::Duration::MAX);
     jetzt - letztes_lebenszeichen <= frist
@@ -174,7 +273,8 @@ mod tests {
 
         let sitzung = anwesenheit
             .beitreten(&wunsch("claude", Art::Agent), ip("10.0.0.5"))
-            .expect("beigetreten");
+            .expect("beigetreten")
+            .sitzung;
 
         assert_eq!(sitzung.kennung.als_text(), "claude@10.0.0.5");
         assert_eq!(sitzung.token.als_text(), format!("{:032x}", 7));
@@ -251,7 +351,7 @@ mod tests {
                     .expect("innerhalb der Gesamtgrenze");
             }
         }
-        assert_eq!(anwesenheit.sitzungen().len(), GESAMT);
+        assert_eq!(anwesenheit.bestand().eintraege.len(), GESAMT);
         let ueber_gesamt = anwesenheit.beitreten(&wunsch("neu", Art::Agent), ip("127.0.0.9"));
         assert_eq!(ueber_gesamt, Err(Beitrittsfehler::ZuVieleSitzungen));
     }
@@ -266,7 +366,7 @@ mod tests {
             matches!(ergebnis, Err(Beitrittsfehler::KeinZufall(_))),
             "{ergebnis:?}"
         );
-        assert!(anwesenheit.sitzungen().is_empty());
+        assert!(anwesenheit.bestand().eintraege.is_empty());
     }
 
     #[test]
@@ -307,11 +407,11 @@ mod tests {
             "{nach_59:?}"
         );
         assert_eq!(
-            nach_61.map(|sitzung| sitzung.kennung.to_string()),
+            nach_61.map(|beitritt| beitritt.sitzung.kennung.to_string()),
             Ok("claude@127.0.0.1".into())
         );
         assert_eq!(
-            anwesenheit.sitzungen().len(),
+            anwesenheit.bestand().eintraege.len(),
             1,
             "die abgelaufene Sitzung ist weg"
         );
@@ -357,7 +457,8 @@ mod tests {
         let (uhr, anwesenheit) = mit_gestellter_uhr();
         let sitzung = anwesenheit
             .beitreten(&wunsch("claude", Art::Agent), ip("10.0.0.5"))
-            .expect("beigetreten");
+            .expect("beigetreten")
+            .sitzung;
 
         uhr.stellen(sekunden_nach_t0(59));
         let vergeben_bei_59 =
@@ -394,7 +495,8 @@ mod tests {
         let (uhr, anwesenheit) = mit_gestellter_uhr();
         let sitzung = anwesenheit
             .beitreten(&wunsch("claude", Art::Agent), ip("10.0.0.5"))
-            .expect("beigetreten");
+            .expect("beigetreten")
+            .sitzung;
 
         uhr.stellen(sekunden_nach_t0(30));
         let fremd = anwesenheit.wiederkehren(&sitzung.token, ip("10.0.0.6"));
@@ -417,6 +519,75 @@ mod tests {
         let unbekannt = Token::lesen("00000000000000000000000000000000").expect("Token");
 
         assert_eq!(anwesenheit.wiederkehren(&unbekannt, ip("10.0.0.5")), None);
+    }
+
+    fn nach_ms(millisekunden: i64) -> Zeit {
+        zeit(T0) + chrono::Duration::milliseconds(millisekunden)
+    }
+
+    fn zeile(kennung: &str, art: Art, status: Status, seit: Zeit) -> Teilnehmerzeile {
+        let kennung = Kennung::bilden(kennung).expect("Kennung");
+        let (name, herkunft) = kennung.als_text().split_once('@').expect("@");
+        Teilnehmerzeile {
+            name: Name::bilden(name).expect("Name"),
+            herkunft: ip(herkunft),
+            kennung: kennung.clone(),
+            art,
+            status,
+            seit,
+        }
+    }
+
+    #[test]
+    fn beitreten_meldet_online_und_der_stand_nennt_alle_lebenden_nach_kennung() {
+        let (uhr, anwesenheit) = mit_gestellter_uhr();
+        let beta = anwesenheit
+            .beitreten(&wunsch("beta", Art::Agent), ip("127.0.0.3"))
+            .expect("beta");
+        uhr.stellen(nach_ms(200));
+        let alpha = anwesenheit
+            .beitreten(&wunsch("alpha", Art::Mensch), ip("127.0.0.2"))
+            .expect("alpha");
+        let vergeben = anwesenheit.beitreten(&wunsch("alpha", Art::Agent), ip("127.0.0.3"));
+        let stand = anwesenheit.teilnehmer();
+
+        let beta_online = zeile("beta@127.0.0.3", Art::Agent, Status::Online, nach_ms(0));
+        let alpha_online = zeile("alpha@127.0.0.2", Art::Mensch, Status::Online, nach_ms(200));
+        assert_eq!(
+            beta.wechsel,
+            vec![Wechsel {
+                stand: 1,
+                teilnehmer: beta_online.clone()
+            }]
+        );
+        assert_eq!(
+            alpha.wechsel,
+            vec![Wechsel {
+                stand: 2,
+                teilnehmer: alpha_online.clone()
+            }]
+        );
+        assert!(vergeben.is_err());
+        assert_eq!(
+            stand,
+            Stand {
+                stand: 2,
+                liste: vec![alpha_online, beta_online]
+            },
+            "nach Kennung sortiert, ein abgewiesener Beitritt zählt nicht"
+        );
+    }
+
+    #[test]
+    fn der_stand_nennt_keine_abgelaufene_sitzung() {
+        let (uhr, anwesenheit) = mit_gestellter_uhr();
+        anwesenheit
+            .beitreten(&wunsch("claude", Art::Agent), ip("10.0.0.5"))
+            .expect("beigetreten");
+
+        uhr.stellen(sekunden_nach_t0(61));
+
+        assert_eq!(anwesenheit.teilnehmer().liste, vec![]);
     }
 
     #[test]
@@ -444,6 +615,6 @@ mod tests {
                 .count(),
             1
         );
-        assert_eq!(anwesenheit.sitzungen().len(), 1);
+        assert_eq!(anwesenheit.bestand().eintraege.len(), 1);
     }
 }
