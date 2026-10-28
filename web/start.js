@@ -43,6 +43,7 @@ function hauptansichtZeigen(teilnehmer, nachEingabe) {
     beiEreignis: (ereignis) => {
       liste = teilnehmerliste.zusammenfuehren(liste, ereignis);
       teilnehmerliste.zeichnen(ansicht.region, teilnehmerliste.ordnen(liste, teilnehmer.kennung));
+      ansicht.anzahlZeigen(liste.eintraege.length);
     },
     beiZustand: (zustand, { beitreten }) => {
       ansicht.verbindungZeigen(zustand);

@@ -92,7 +92,7 @@ test('US-16: sieben Agenten ohne Unterkopf mit „Agent“, ab dem achten nach H
 
   expect((await beitretenPerApi(instanz.adresse, 'a8', '127.0.0.2')).status).toBe(201);
   await expect(region(page).locator('.lc-sect')).toHaveText(['Menschen · 1', 'Agenten · 8', '127.0.0.1', '127.0.0.2']);
-  const gruppiert = await region(page).evaluate((element) => [...element.children].map((kind) => kind.textContent));
+  const gruppiert = await region(page).locator('.lc-members-zeilen').evaluate((element) => [...element.children].map((kind) => kind.textContent));
   expect(gruppiert.slice(gruppiert.indexOf('127.0.0.1') + 1, gruppiert.indexOf('127.0.0.2'))).toHaveLength(7);
   expect(gruppiert.slice(gruppiert.indexOf('127.0.0.2') + 1)).toHaveLength(1);
   expect(fehler).toEqual([]);

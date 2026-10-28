@@ -180,4 +180,19 @@ function fokusImBrowser() {
   };
 }
 
-module.exports = { instanzStarten, freierPort, lanAdresse, fehlerSammeln, beitretenPerApi, fokusImBrowser };
+/// Hält einen Ereignisstrom einer per API beigetretenen Sitzung offen (Agent mit Strom); `schliessen()` beendet ihn.
+function stromOeffnen(adresse, token, herkunft = '127.0.0.1') {
+  const ziel = new URL('api/ereignisse', adresse);
+  return new Promise((offen, gescheitert) => {
+    const anfrage = http.get({
+      host: ziel.hostname, port: ziel.port, path: ziel.pathname, localAddress: herkunft,
+      headers: { 'X-LocalchatA-Sitzung': token },
+    }, (antwort) => {
+      antwort.on('data', () => {});
+      offen({ schliessen: () => anfrage.destroy() });
+    });
+    anfrage.once('error', gescheitert);
+  });
+}
+
+module.exports = { instanzStarten, freierPort, lanAdresse, fehlerSammeln, beitretenPerApi, fokusImBrowser, stromOeffnen };

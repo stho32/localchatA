@@ -106,8 +106,8 @@ function unterkopf(herkunft) {
   return element('div', { className: 'lc-sect lc-unterkopf' }, [element('span', { className: 'lc-id', textContent: herkunft })]);
 }
 
-// Erste Zeile: Kachel, Kennung (umbrochen höchstens vor dem @), Status als Form und bei offline als Wort.
-// Zweite Zeile, nur wenn nötig: „Agent“ und „(du)“ — so bleibt der Kennung die Breite der Spalte.
+// Kachel, dann Kennung mit „Agent“ und „(du)“ dahinter (umbrochen erst bei Platzmangel, die Kennung vor dem @),
+// rechts der Status in einer festen Spalte — so verschiebt ein Wechsel nach offline keine Zeile.
 function zeileZeichnen(zeile) {
   const art = artDer(zeile);
   const istOffline = zeile.status === 'offline';
@@ -116,26 +116,22 @@ function zeileZeichnen(zeile) {
   const kennung = element('span', { className: 'lc-id' }, [
     zeile.name, element('wbr'), element('i', { textContent: `@${zeile.herkunft}` }),
   ]);
+  const text = element('span', { className: 'lc-person-text' }, [kennung]);
+  if (art === 'agent') {
+    text.append(element('span', { className: 'lc-tag', textContent: 'Agent' }));
+  }
+  if (zeile.eigene) {
+    text.append(element('span', { className: 'lc-du', textContent: '(du)' }));
+  }
   const status = element('span', { className: 'lc-person-status' }, [punkt(istOffline)]);
   if (istOffline) {
     status.append(element('span', { className: 'lc-status', textContent: 'offline' }));
-  }
-  const teile = [kachel, kennung, status];
-  const merkmale = [];
-  if (art === 'agent') {
-    merkmale.push(element('span', { className: 'lc-tag', textContent: 'Agent' }));
-  }
-  if (zeile.eigene) {
-    merkmale.push(element('span', { className: 'lc-du', textContent: '(du)' }));
-  }
-  if (merkmale.length > 0) {
-    teile.push(element('span', { className: 'lc-person-merkmale' }, merkmale));
   }
   let klassen = 'lc-person';
   if (istOffline) {
     klassen += ' off';
   }
-  return element('div', { className: klassen }, teile);
+  return element('div', { className: klassen }, [kachel, text, status]);
 }
 
 function punkt(istOffline) {
