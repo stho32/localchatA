@@ -81,3 +81,7 @@ Regeln:
 - ADR-0003 (Ablage-Layout), ADR-0005 (einziger Schreiber), ADR-0020, ADR-0021
 - Vision R00000 (Frist je Channel, lesbar ohne localchatA); WBS B0021, I0018; `design-prompt.md` 4.3
 - Crate `toml` 1.1.8 (toml-rs), Verhalten wie oben geprobt
+
+## Ergänzungen
+
+- **2026-10-28 (Karte #12 I0018) — `frist_tage`:** Ganzzahl 1–3650; ein anderer Typ oder ein Wert außerhalb ist ein Defekt nach Regel 3 (Standardwerte, Ladedefekt, Datei unangetastet) **und** sperrt nach Regel 6 jedes Entfallen in diesem Channel; eine **fehlende** Datei oder ein fehlender Schlüssel ist kein Defekt — es gilt 7 und es entfällt wie sonst ([ADR-0029](0029-frist-in-kalendertagen-heute-zaehlt-mit-1-bis-3650.md), [ADR-0032](0032-loeschen-nur-tagesdateien-nach-erlaubnisliste-keine-symlinks-defekt-heisst-nichts.md)). Geschrieben wird `frist_tage` erst bei der ersten Änderung über `PUT /api/channels/{name}/frist`, nie über eine beim Start defekte Datei (409 `einstellungen-defekt`, [ADR-0031](0031-frist-setzen-put-api-channels-name-frist-jeder-mit-sitzung-bestaetigung-beim-verkuerzen.md)). Liste, Stand und Wechsel tragen `frist_tage` (Zahl, `null` bei defekter Datei).

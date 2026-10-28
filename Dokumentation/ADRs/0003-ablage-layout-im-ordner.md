@@ -55,7 +55,7 @@ Sie bildet die Frist je Channel direkt auf Dateien ab und hält jedes Gespräch 
 - Die Ordnernamen der Direktgespräche hängen an der Identitätsregel (ADR-0008) — ändert sie sich, braucht es eine Migration.
 
 **Folgeentscheidungen / Aufgaben:**
-- [ ] Genaue Grenze der Frist (zählt heute mit?) und Frist für Direktgespräche — fachlich, `planer` bei I0018/I0012.
+- [x] Genaue Grenze der Frist (zählt heute mit?) — entschieden in [ADR-0029](0029-frist-in-kalendertagen-heute-zaehlt-mit-1-bis-3650.md) (Karte #12). Frist für Direktgespräche — offen, `planer` bei I0012.
 
 ## Quellen / Bezuege
 
@@ -65,3 +65,4 @@ Sie bildet die Frist je Channel direkt auf Dateien ab und hält jedes Gespräch 
 ## Ergänzungen
 
 - **2026-10-28 (Karte #6 I0007) — Slug und Einstellungen präzisiert:** Den abgeleiteten Slug und den getrennten Anzeigenamen gibt es nicht; der Channelname folgt der Namensregel aus ADR-0013 und **ist** der Ordnername, Abweichungen werden mit Vorschlag abgewiesen ([ADR-0020](0020-channelname-ist-ordnername-erlaubnisliste.md)). `einstellungen.toml` trägt deshalb keinen `name`; Inhalt, Schreiben und Lesen regelt [ADR-0022](0022-channel-einstellungen-je-channel-als-toml.md). Die übrigen Regeln dieser ADR gelten unverändert.
+- **2026-10-28 (Karte #12 I0018) — Frist und Entfallen präzisiert:** „Tag D entfällt, sobald D älter ist als `frist_tage` Kalendertage vor heute“ heißt genau: heute zählt mit, Tag D entfällt ⇔ `D < heute − (frist_tage − 1)` nach lokalem Datum; Spanne 1–3650 ([ADR-0029](0029-frist-in-kalendertagen-heute-zaehlt-mit-1-bis-3650.md)). Wann und wie entfallen wird — Start, Tageswechsel im Sekundentakt, sofort beim Verkürzen; Löschen unter der Gesprächssperre, dann Index — regelt [ADR-0030](0030-entfallen-beim-start-beim-tageswechsel-und-beim-verkuerzen-loeschen-unter-der-gespraechssperre.md); was gelöscht werden darf, [ADR-0032](0032-loeschen-nur-tagesdateien-nach-erlaubnisliste-keine-symlinks-defekt-heisst-nichts.md). Direktgespräche entfallen bis I0012 nicht.
