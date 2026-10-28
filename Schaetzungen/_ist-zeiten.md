@@ -191,3 +191,5 @@ Nie vom User erfragen.
 | 2026-10-28 | R00007 Channel wechseln und Verlauf lesen | B0173 Feld Beschreibung im Dialog | Standard | 0,4h | 0,1h | 0,1h | autonom |
 | 2026-10-28 | R00007 Channel wechseln und Verlauf lesen | B0174 Beschreibung in der Kopfzeile | Standard | 0,4h | 0,01h | 0,01h | autonom |
 | 2026-10-28 | R00007 Channel wechseln und Verlauf lesen | Konsolidierung R00007: Selbstprüfung, Abbruch-Test, Gelerntes, Fix, Gate | Konsolidierung | — | 0,5h | 0,5h | autonom |
+| 2026-10-28 | R00009 Kopfzeile 320 px | B0202 Schmal-Matrix der eigenen Kennung | Standard | 0,4h | 0,05h | 0,05h | autonom |
+| 2026-10-28 | R00009 Kopfzeile 320 px | B0203 Kennung in der Kopfzeile umbrechen | Standard | 0,4h | 0,25h | 0,25h | autonom |
