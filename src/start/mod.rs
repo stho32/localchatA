@@ -1,6 +1,6 @@
 //! Start: vom Aufruf bis zum lauschenden Server (A00003).
 //!
-//! Reihenfolge: Aufruf lesen → Uhr → Gnadenfrist → Herzschlag → Ordner vorbereiten → sperren → Bus → Verlauf laden (Channel-Wechsel an den Bus) → Anwesenheit → binden → Ende-Signal → Takt → Startzeile → Browser → ausliefern bis zum Signal.
+//! Reihenfolge: Aufruf lesen → Uhr → Gnadenfrist → Herzschlag → Ordner vorbereiten → sperren → Bus → Verlauf laden (Channel-Wechsel an den Bus) → Fristpflege (Start) → Anwesenheit → binden → Ende-Signal → Takt → Startzeile → Browser → ausliefern bis zum Signal.
 
 pub(crate) mod abrisspflege;
 mod aufruf;
@@ -25,7 +25,7 @@ use verbindungen::Verbindungsgrenzen;
 
 use crate::anwesenheit::status::Status;
 use crate::anwesenheit::{Anwesenheit, gnadenfrist};
-use crate::gespraeche::{Dateiablage, Gespraeche};
+use crate::gespraeche::{Dateiablage, Gespraeche, Pflegeanlass, fristeintrag};
 use crate::http::{self, Grenzschutz, Zustand};
 use crate::live::bus::{self, Bus};
 use crate::live::{self, herzschlag, takt};
@@ -233,6 +233,8 @@ async fn nach_der_sperre(
     let bus = Arc::new(Bus::neu(live::KAPAZITAET));
     let gespraeche = verlauf_laden(&ordner, Arc::clone(&uhr), &protokoll)?
         .mit_veroeffentlichen(bus::channels_veroeffentlichen(&bus));
+    let gepflegt_am = uhr.jetzt().date_naive();
+    frist_pflegen(&gespraeche, gepflegt_am, Pflegeanlass::Start, &protokoll);
     let anwesenheit = Arc::new(
         Anwesenheit::neu(
             Arc::clone(&uhr),
@@ -339,6 +341,24 @@ fn verlauf_laden(
         );
     }
     Ok(gespraeche)
+}
+
+/// Pflegt alle Channels nach ihrer Frist und trägt jeden Bericht ins Protokoll ein (R00017: nie selbst auf stderr).
+fn frist_pflegen(
+    gespraeche: &Gespraeche,
+    heute: chrono::NaiveDate,
+    anlass: Pflegeanlass,
+    protokoll: &Protokoll,
+) {
+    for bericht in gespraeche.pflegen(heute, anlass) {
+        let eintrag = fristeintrag::pflege_eintrag(&bericht);
+        protokoll.eintragen(
+            eintrag.stufe,
+            eintrag.bereich,
+            eintrag.text,
+            eintrag.kontext,
+        );
+    }
 }
 
 /// Wechsel an den Bus; online/offline zusätzlich als DEBUG `sitzung` (ADR-0042 Regel 2).
