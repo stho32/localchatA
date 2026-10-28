@@ -17,3 +17,5 @@ Je Spalte des Boards: Art (`Team` bearbeitet der Director mit der Rolle, `Manuel
 | Ohne Mensch nicht lösbar | Manuell | — | — | Schleifen und Entscheidungen, die ein Mensch treffen muss |
 
 Schleifen an den Menschen: Ohne Mensch nicht lösbar
+
+Fluss (Betreiber 2026-10-28, Trommel-Puffer-Seil): Der entwickler ist der Engpass. In „Entwicklung“ liegt höchstens eine Karte. Architektur und Bereit laufen voraus und halten einen Puffer von 2 Karten, die „Bereit“ bestanden haben. Nachgezogen wird, sobald der entwickler eine Karte aus dem Puffer nimmt. In den Puffer kommen nur Karten, deren `Braucht` mindestens in Entwicklung ist. WBS-Status der Bubbles, Ist-Zeiten und Logbuch schreiben Director bzw. planer, nicht der entwickler.

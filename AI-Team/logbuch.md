@@ -74,3 +74,4 @@ Eine Zeile je Auftrag an eine Rolle und je Retrospektive.
 | 2026-10-28 | #5 I0006 | Retrospektive | director | — | — | etwa 4 h, zwei kleine Nacharbeiten statt dreier großer: Regel „nur Muss“ und Zeitregeln aus #4 trugen (keine wackligen Zeittests). Neue Klasse: Tests, die nur eine Grenze prüfen (Obergrenze ohne Untergrenze) → Lehre: Wertprüfungen gegen eine Konfiguration immer als Spanne, mit Mutanten „zu groß“ und „zu klein“ |
 | 2026-10-28 | #6 I0007 | Architektur | architekt | bestanden | 0:35 | ADR-0020–0024, A00012/A00013 (b4926fd) |
 | 2026-10-28 | #6 I0007 | Bereit | planer | bestanden | 0:30 | R00006, 25 Bubbles in F0020–F0025, F0026 Ausbau (5c33c5b…a9df317) |
+| 2026-10-28 | — | Prozess | Betreiber | — | — | Trommel-Puffer-Seil: Puffer 2 vor der Entwicklung, WIP 1 nur in Entwicklung; #7 sofort in die Architektur |
