@@ -3,6 +3,7 @@
 
 use crate::anwesenheit::Anwesenheit;
 use crate::anwesenheit::status::Status;
+use crate::protokoll::testpanik::Testpanik;
 use crate::protokoll::{Bereich, Kontext, Protokoll, Schluessel, Stufe};
 use crate::start::ende::Ende;
 use crate::uhr::Uhr;
@@ -16,6 +17,7 @@ pub async fn takten(
     anwesenheit: Arc<Anwesenheit>,
     uhr: Arc<dyn Uhr>,
     protokoll: Arc<Protokoll>,
+    testpanik: Testpanik,
     mut ende: Ende,
     periode: Duration,
 ) {
@@ -25,6 +27,7 @@ pub async fn takten(
         tokio::select! {
             () = ende.abwarten() => return,
             _ = takt.tick() => {
+                testpanik.takt();
                 for wechsel in anwesenheit.pflegen(uhr.jetzt()) {
                     if wechsel.teilnehmer.status == Status::Weg {
                         protokoll.eintragen(
@@ -75,6 +78,7 @@ mod tests {
             Arc::clone(&anwesenheit),
             Arc::clone(&uhr) as Arc<dyn Uhr>,
             Arc::new(Protokoll::ohne_ablage()),
+            Testpanik::keine(),
             ende,
             Duration::from_millis(10),
         ));
@@ -118,6 +122,7 @@ mod tests {
             Arc::clone(&anwesenheit),
             Arc::clone(&uhr) as Arc<dyn Uhr>,
             protokoll,
+            Testpanik::keine(),
             ende,
             Duration::from_millis(10),
         ));

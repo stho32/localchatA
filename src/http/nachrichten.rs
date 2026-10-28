@@ -41,9 +41,11 @@ pub async fn beantworten(
     };
     let gespraeche = Arc::clone(&zustand.gespraeche);
     let gefragt = name.clone();
+    let testpanik = zustand.testpanik.clone();
     let ergebnis = zustand
         .werkbank
         .ausfuehren(move || {
+            testpanik.verlauf();
             gespraeche
                 .verlauf(&gefragt, &abfrage, VERLAUF_BUDGET)
                 .map(|block| block_als_bytes(&gefragt, &block))

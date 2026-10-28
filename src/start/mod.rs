@@ -29,6 +29,7 @@ use crate::live::bus::{self, Bus};
 use crate::live::{self, herzschlag, takt};
 use crate::protokoll::bereinigung::Anlass;
 use crate::protokoll::tagestakt::{self, Tagestakt};
+use crate::protokoll::testpanik::Testpanik;
 use crate::protokoll::wache::bewacht;
 use crate::protokoll::{Bereich, Kontext, Protokoll, Schluessel, Stufe};
 use crate::uhr::{self, Uhr};
@@ -75,7 +76,14 @@ pub async fn ausfuehren<I: IntoIterator<Item = String>>(argumente: I) -> ExitCod
                     return ExitCode::from(2);
                 }
             };
-            match starten(auftrag, uhr, gnadenfrist, herzschlag).await {
+            let testpanik = match Testpanik::aus_umgebung() {
+                Ok(testpanik) => testpanik,
+                Err(fehler) => {
+                    eprintln!("{fehler}");
+                    return ExitCode::from(2);
+                }
+            };
+            match starten(auftrag, uhr, gnadenfrist, herzschlag, testpanik).await {
                 Ok(()) => ExitCode::SUCCESS,
                 Err(Startabbruch::VorDerSperre(fehler)) => {
                     eprintln!("{fehler}");
@@ -102,6 +110,7 @@ async fn starten(
     uhr: Box<dyn Uhr>,
     gnadenfrist: Duration,
     herzschlag: Duration,
+    testpanik: Testpanik,
 ) -> Result<(), Startabbruch> {
     let uhr: Arc<dyn Uhr> = Arc::from(uhr);
     let ordner = ordner::ordner_vorbereiten(&auftrag.ordner).map_err(Startabbruch::VorDerSperre)?;
@@ -125,6 +134,7 @@ async fn starten(
         Startlaeufe {
             beginn,
             bereinigt_am,
+            testpanik,
         },
     );
     laufen.await.map_err(|fehler| {
@@ -142,6 +152,7 @@ async fn starten(
 struct Startlaeufe {
     beginn: Instant,
     bereinigt_am: chrono::NaiveDate,
+    testpanik: Testpanik,
 }
 
 /// Der Tagestakt mit der Bereinigung als erster Tagesaufgabe; `zuletzt` = Datum der Start-Bereinigung
@@ -175,6 +186,7 @@ async fn nach_der_sperre(
     let Startlaeufe {
         beginn,
         bereinigt_am,
+        testpanik,
     } = startlaeufe;
     let bus = Arc::new(Bus::neu(live::KAPAZITAET));
     let gespraeche = verlauf_laden(&ordner, Arc::clone(&uhr), &protokoll)?
@@ -210,6 +222,7 @@ async fn nach_der_sperre(
             Arc::clone(&anwesenheit),
             uhr,
             Arc::clone(&protokoll),
+            testpanik.clone(),
             ende.clone(),
             takt::PERIODE,
         ),
@@ -242,6 +255,7 @@ async fn nach_der_sperre(
         grenzschutz: Grenzschutz::neu(rechnername::lesen(), auftrag.erreichbar_als),
         werkbank: http::Werkbank::aus_kernen(),
         protokoll: Arc::clone(&protokoll),
+        testpanik,
     });
     ausliefern::ausliefern(
         listener,

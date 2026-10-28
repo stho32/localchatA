@@ -23,6 +23,7 @@ use crate::anwesenheit::Anwesenheit;
 use crate::gespraeche::Gespraeche;
 use crate::live::bus::Bus;
 use crate::protokoll::Protokoll;
+use crate::protokoll::testpanik::Testpanik;
 use crate::start::ende::Ende;
 use axum::Router;
 use axum::middleware;
@@ -48,6 +49,8 @@ pub struct Zustand {
     pub werkbank: Werkbank,
     /// Betriebsprotokoll der Instanz (A00015).
     pub protokoll: Arc<Protokoll>,
+    /// Testknopf `LOCALCHATA_TESTPANIK` (nur Debug-Build wirksam).
+    pub testpanik: Testpanik,
 }
 
 /// Alle Routen unter der Schicht `grenzschutz` (ADR-0014) — sie ist die äußerste, auch für 404 und 405.
@@ -124,6 +127,7 @@ pub(crate) mod testserver {
             grenzschutz: Grenzschutz::neu(None, Vec::new()),
             werkbank: Werkbank::aus_kernen(),
             protokoll: Arc::new(crate::protokoll::Protokoll::ohne_ablage()),
+            testpanik: crate::protokoll::testpanik::Testpanik::keine(),
         }
     }
 
