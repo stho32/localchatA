@@ -63,19 +63,22 @@ export function halten({
   async function laufen() {
     let fehlversuche = 0;
     while (!beendet) {
-      await schlafen(entscheiden({ verbunden: false, letzteAktivitaetMs: 0, jetztMs: 0, fehlversuche }).wartenMs);
       if (!aktuellesToken) {
         await aufNeuesTokenWarten();
         fehlversuche = 0;
         continue;
       }
+      await schlafen(entscheiden({ verbunden: false, letzteAktivitaetMs: 0, jetztMs: 0, fehlversuche }).wartenMs);
       const ergebnis = await einmalVerbinden(aktuellesToken);
       if (beendet) {
         return;
       }
+      // Das neue Token kommt aus einem frischen Beitritt: dann sofort verbinden, sonst läuft die neue Sitzung
+      // während des Rückzugs ohne Halter in die Gnadenfrist (Nacharbeit 1).
       if (ergebnis === 'abgelehnt') {
         beiZustand('abgelehnt', aktuellesToken);
         aktuellesToken = null;
+        fehlversuche = 0;
         continue;
       }
       if (ergebnis === 'gelesen') {

@@ -153,3 +153,34 @@ test('40 s ohne Byte: der Wächter bricht ab und verbindet neu', async () => {
 
   assert.deepEqual(p.zustaende, ['verbunden', 'unterbrochen', 'verbunden']);
 });
+
+test('nach abgelehnt öffnet der Strom mit dem neuen Token sofort, auch nach vielen Fehlversuchen (Nacharbeit 1)', async () => {
+  const strom = offenerStrom();
+  const p = protokoll();
+  let versuche = 0;
+  const holen = async (pfad, optionen) => {
+    versuche += 1;
+    if (versuche <= 4) {
+      throw new TypeError('Failed to fetch');
+    }
+    if (optionen.headers['X-LocalchatA-Sitzung'] === 'alt') {
+      return new Response('{"fehler":"x"}', { status: 401 });
+    }
+    return strom.antwortFuer(optionen);
+  };
+  let wartezeitenBisAbgelehnt = null;
+  const beiZustand = (zustand) => {
+    p.zustaende.push(zustand);
+    if (zustand === 'abgelehnt') {
+      wartezeitenBisAbgelehnt = p.wartezeiten.length;
+    }
+  };
+  const halter = halten({ token: 'alt', holen, ...p, beiZustand });
+
+  await bis(() => p.zustaende.includes('abgelehnt'));
+  halter.tokenSetzen('neu');
+  await bis(() => p.zustaende.includes('verbunden'));
+  halter.beenden();
+
+  assert.deepEqual(p.wartezeiten.slice(wartezeitenBisAbgelehnt).filter((ms) => ms > 0), []);
+});

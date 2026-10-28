@@ -260,3 +260,28 @@ test('Zeilen bleiben lesbar: der Name bricht nicht, umbrochen wird höchstens vo
     expect(zeile, zeile.kennung).toEqual({ kennung: zeile.kennung, name: 1, herkunft: 1 });
   }
 });
+
+// Nacharbeit 1 (UX-Review): mit kurzer Gnadenfrist findet die Seite nach einem Neustart zurück — der Strom
+// öffnet nach dem stillen Wiederbeitritt sofort, nicht erst nach dem Rückzug, und hält die neue Sitzung.
+test('Neustart mit Gnadenfrist 3 s: Hinweis binnen ca. 3 s weg, Strom hält die neue Sitzung online', async ({ page, request }) => {
+  instanz = await instanzStarten({ port: await freierPort(), umgebung: { LOCALCHATA_GNADENFRIST_MS: '3000' } });
+  const fehler = fehlerSammeln(page, { serverWegErwartet: true });
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await beitreten(page, 'shoff');
+  await istOnline(zeileVon(page, 'shoff@127.0.0.1'));
+
+  await instanz.beenden();
+  await expect(page.locator('#lc-verbindung')).toBeVisible();
+  await page.waitForTimeout(6000);
+  await instanz.starten();
+  const neu = Date.now();
+  await expect(page.locator('#lc-verbindung')).toBeHidden({ timeout: 3500 });
+  const wiederDa = Date.now() - neu;
+  await page.waitForTimeout(4000);
+
+  expect(wiederDa).toBeLessThan(3500);
+  await istOnline(zeileVon(page, 'shoff@127.0.0.1'));
+  await expect(page.locator('#lc-verbindung')).toBeHidden();
+  expect((await (await request.get(instanz.adresse + 'api/gesundheit')).json()).halter).toBeGreaterThanOrEqual(1);
+  expect(fehler).toEqual([]);
+});
