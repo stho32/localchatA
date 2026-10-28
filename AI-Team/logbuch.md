@@ -40,3 +40,4 @@ Eine Zeile je Auftrag an eine Rolle und je Retrospektive.
 | 2026-10-28 | #3 I0004 | Code-Review | code-reviewer | bestanden | 0:20 | Wiederholung B1 behoben |
 | 2026-10-28 | #3 I0004 | UX-Review | ux-reviewer | bestanden | 0:03 | Wiederholung; 2 Sollte offen |
 | 2026-10-28 | #3 I0004 | Entwicklertest | entwicklertester | bestanden | 0:07 | US-1–US-21; LAN-Konsolenfehler COOP als Befund gewertet → Nacharbeit 2 |
+| 2026-10-28 | #3 I0004 | Entwicklung | entwickler | bestanden | 0:12 | Nacharbeit 2: COOP, 422-Echo, UX, Token; 288/39/55 nachgeprüft |
