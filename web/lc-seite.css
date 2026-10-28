@@ -75,6 +75,20 @@ body { background: var(--kd-bg); color: var(--kd-ink); font-family: var(--font-s
 .lc-item .hash { font-family: var(--font-mono); width: 12px; flex: none; text-align: center; }
 .lc-item .n { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 
+/* Statuszeile (ADR-0024 Regel 5): unten links über allem, verschwindet nach einigen Sekunden */
+.lc-statuszeile[hidden] { display: none; }
+.lc-statuszeile { position: fixed; left: var(--kd-space-12); bottom: var(--kd-space-12); max-width: calc(100vw - 2 * var(--kd-space-12)); margin: 0; padding: var(--kd-space-8) var(--kd-space-12); background: var(--kd-surface); color: var(--kd-ink); border: 1px solid var(--kd-line-strong); overflow-wrap: anywhere; z-index: 2; }
+
+/* Dialog „Channel anlegen“ (Bildschirm 4.3, ADR-0024 Regel 4): Fläche wie die Beitreten-Karte */
+.lc-dialog { width: min(calc(100vw - 2 * var(--kd-space-16)), 420px); max-width: none; padding: var(--kd-space-24); background: var(--kd-surface); color: var(--kd-ink); border: 1px solid var(--kd-line-strong); }
+.lc-dialog::backdrop { background: rgb(0 0 0 / 40%); }
+.lc-dialog-formular { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--kd-space-8); }
+.lc-dialog-titel { margin: 0 0 var(--kd-space-8); font-size: 14px; line-height: 20px; font-weight: 600; }
+.lc-dialog .lc-feld { width: 100%; }
+.lc-dialog .lc-meldung[hidden] { display: none; }
+.lc-dialog .lc-meldung > span:first-child { overflow-wrap: anywhere; }
+.lc-dialog-schalter { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: var(--kd-space-8); margin-top: var(--kd-space-8); }
+
 /* Teilnehmerliste (Baustein Teilnehmerliste, Status nach components/bundle.css) */
 .lc-members { background: var(--kd-surface); border-left: 1px solid var(--kd-line); padding: var(--kd-space-8) 0; overflow-y: auto; min-width: 0; }
 .lc-sect { font-size: 11px; line-height: 16px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--kd-ink-muted); padding: var(--kd-space-8) var(--kd-space-12) var(--kd-space-4); }

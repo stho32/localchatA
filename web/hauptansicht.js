@@ -2,9 +2,11 @@
 // „Channels“, Mitte und rechts die Region „Teilnehmer“. Tab-Reihenfolge: Kopfzeile → Seitenleiste → Mitte →
 // Teilnehmer (ADR-0024 Regel 1). Der Hinweis auf eine unterbrochene
 // Verbindung steht in Fehlergestalt (⚠ und Wort, kd-danger) unter der Kopfzeile über die ganze Breite. `Strg .` und der Schalter
-// „Teilnehmer“ blenden die Liste ein und aus (1-tastatur.md).
+// „Teilnehmer“ blenden die Liste ein und aus (1-tastatur.md). `+` und `Strg Alt N` öffnen „Channel anlegen“; die
+// Statuszeile meldet den angelegten Channel (ADR-0024 Regeln 4, 5). optionen.channelAnlegen: async name → Antwort.
 import * as kopfzeile from './kopfzeile.js';
 import * as seitenleiste from './seitenleiste.js';
+import { dialogEinrichten } from './channel-anlegen.js';
 import { onlineBenennen } from './teilnehmerliste.js';
 
 const UNTERBROCHEN = '⚠ Verbindung unterbrochen — localchatA verbindet neu.';
@@ -27,15 +29,23 @@ export function zeichnen(wurzel, teilnehmer, optionen) {
   const channels = seitenleiste.anlegen();
   const mitte = element('main', { className: 'lc-center' });
   const haupt = element('div', { className: 'lc-main' }, [channels.nav, mitte, region]);
+  const statuszeile = element('p', { className: 'lc-statuszeile', hidden: true });
+  statuszeile.setAttribute('role', 'status');
   wurzel.classList.add('lc-app');
-  wurzel.append(hinweis, haupt);
+  wurzel.append(hinweis, haupt, statuszeile);
+  dialogEinrichten({
+    wurzel,
+    plus: channels.plus,
+    anlegen: optionen.channelAnlegen,
+    statusZeigen: (text) => statusZeigen(statuszeile, text),
+    signal: vorigeAnsichtAbmelden.signal,
+  });
   einAusblendenBedienen({ schalter, region, haupt }, vorigeAnsichtAbmelden.signal);
   let letzterZustand = 'verbunden';
   channels.channelsZeigen([]);
   return {
     region: zeilen,
     channelsZeigen: channels.channelsZeigen,
-    channelAnlegenSchalter: channels.plus,
     anzahlZeigen: (wieViele) => {
       anzahl.textContent = String(wieViele);
     },
@@ -43,6 +53,20 @@ export function zeichnen(wurzel, teilnehmer, optionen) {
       letzterZustand = verbindungZeigen({ hinweis, region, standUnbekannt }, letzterZustand, zustand);
     },
   };
+}
+
+// Die Meldung steht einige Sekunden und geht dann von selbst; eine neue ersetzt sie.
+const STATUS_STEHT_MS = 6000;
+let statusAusblenden = null;
+
+function statusZeigen(statuszeile, text) {
+  clearTimeout(statusAusblenden);
+  statuszeile.textContent = text;
+  statuszeile.hidden = false;
+  statusAusblenden = setTimeout(() => {
+    statuszeile.hidden = true;
+    statuszeile.textContent = '';
+  }, STATUS_STEHT_MS);
 }
 
 // Unter 720 px legt sich die eingeblendete Liste als Fläche über die Mitte (Gestaltungsfrage 1): beim Öffnen

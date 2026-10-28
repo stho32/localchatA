@@ -39,7 +39,10 @@ function zeigen(zustand, nachEingabe = false) {
 // Sekundentakt herunter; der Herzschlag erneuert nur den Versatz. Lehnt der Strom das Token ab (Neustart, Gnadenfrist), tritt der zuständige Tab still wieder bei
 // wie beim Laden und gibt das neue Token weiter.
 function hauptansichtZeigen(teilnehmer, nachEingabe) {
-  const ansicht = hauptansicht.zeichnen(wurzel, teilnehmer, { kennungFokussieren: nachEingabe });
+  const ansicht = hauptansicht.zeichnen(wurzel, teilnehmer, {
+    kennungFokussieren: nachEingabe,
+    channelAnlegen: (name) => rufen('/api/channels', { koerper: { name }, token: speicher.getItem(sitzung.SITZUNG) }),
+  });
   let liste = teilnehmerliste.LEER;
   let channels = KEINE_CHANNELS;
   let versatz = 0;
