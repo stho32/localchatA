@@ -1,6 +1,7 @@
 //! Startet das echte Programm `localchatA` und liest die Adresse aus der Startzeile (ADR-0009).
 #![allow(dead_code)]
 
+pub mod frist;
 pub mod langsam;
 pub mod protokoll;
 pub mod strom;

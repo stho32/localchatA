@@ -65,7 +65,8 @@ async fn us1_ein_agent_legt_einen_channel_mit_ordner_und_einstellungsdatei_an() 
     assert_eq!(channel["angelegt_von"], "alpha@127.0.0.2");
     assert_eq!(channel["beschreibung"], Value::Null);
     assert!(mit_millisekunden(&channel["angelegt"]), "{channel}");
-    assert_eq!(channel.as_object().expect("Objekt").len(), 4, "{channel}");
+    assert_eq!(channel["frist_tage"], 7);
+    assert_eq!(channel.as_object().expect("Objekt").len(), 5, "{channel}");
     let ordner = instanz.ordner.join("channels/allgemein");
     assert!(!ordner.join("einstellungen.toml.neu").exists());
     let datei: toml::Table = fs::read_to_string(ordner.join("einstellungen.toml"))
@@ -292,7 +293,7 @@ async fn ein_ordner_ohne_einstellungsdatei_steht_mit_unbekannten_werten_in_der_l
     assert_eq!(
         liste.json,
         json!({ "stand": 0, "liste": [
-            { "name": "notizen", "angelegt": null, "angelegt_von": null, "beschreibung": null }
+            { "name": "notizen", "angelegt": null, "angelegt_von": null, "beschreibung": null, "frist_tage": 7 }
         ] })
     );
     assert_eq!(gesundheit(&instanz.adresse).await.1["defekte_zeilen"], 0);

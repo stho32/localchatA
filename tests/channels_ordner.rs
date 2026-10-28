@@ -102,7 +102,7 @@ async fn us14_eine_defekte_einstellungsdatei_wird_als_unbekannt_gelesen_und_nie_
 
     assert_eq!(
         namen,
-        json!([{ "name": "kaputt", "angelegt": null, "angelegt_von": null, "beschreibung": null }])
+        json!([{ "name": "kaputt", "angelegt": null, "angelegt_von": null, "beschreibung": null, "frist_tage": null }])
     );
     let zeilen = stderr_zeilen(instanz, "channels/kaputt/einstellungen.toml");
     assert_eq!(zeilen.len(), 1, "{zeilen:?}");
@@ -130,7 +130,7 @@ async fn r00007_eine_beschreibung_gegen_die_regel_macht_die_einstellungen_defekt
 
     assert_eq!(
         namen,
-        json!([{ "name": "kaputt", "angelegt": null, "angelegt_von": null, "beschreibung": null }])
+        json!([{ "name": "kaputt", "angelegt": null, "angelegt_von": null, "beschreibung": null, "frist_tage": null }])
     );
     assert_eq!(gesundheit["defekte_zeilen"], 1);
     let zeilen = stderr_zeilen(instanz, "channels/kaputt/einstellungen.toml");
@@ -209,7 +209,7 @@ async fn us12_ein_von_hand_angelegter_ordner_wird_nicht_ueberschrieben_und_beim_
 
     assert_eq!(
         nachher,
-        json!([{ "name": "notizen", "angelegt": null, "angelegt_von": null, "beschreibung": null }])
+        json!([{ "name": "notizen", "angelegt": null, "angelegt_von": null, "beschreibung": null, "frist_tage": 7 }])
     );
 }
 

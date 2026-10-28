@@ -29,7 +29,7 @@ use crate::protokoll::testpanik::Testpanik;
 use crate::start::ende::Ende;
 use axum::Router;
 use axum::middleware;
-use axum::routing::{get, post};
+use axum::routing::{get, post, put};
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
@@ -75,6 +75,7 @@ pub fn router(zustand: Zustand) -> Router {
             "/api/channels/{name}/nachrichten",
             get(nachrichten::beantworten),
         )
+        .route("/api/channels/{name}/frist", put(frist::setzen))
         .route("/api/ich", get(ich::beantworten))
         .route("/api/teilnehmer", get(teilnehmerliste::beantworten))
         .route("/api/ereignisse", get(ereignisse::beantworten))

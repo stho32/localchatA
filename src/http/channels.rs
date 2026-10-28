@@ -12,7 +12,7 @@ use super::koerper::{Koerperfehler, Koerperort, ZU_LANGSAM, json_lesen};
 use super::teilnehmer::Teilnehmer;
 use super::teilnehmerliste::zeit_als_text;
 use crate::gespraeche::einstellungen::{Beschreibung, Beschreibungsfehler};
-use crate::gespraeche::{Anlegefehler, Channel, ChannelStand, Grenzart, Grenze};
+use crate::gespraeche::{Anlegefehler, Channel, ChannelStand, Frist, Grenzart, Grenze};
 use crate::name::{NAMENSREGEL, Namensfehler, RESERVIERT};
 use crate::protokoll::{Bereich, Kontext, Schluessel, Stufe};
 use axum::Json;
@@ -134,13 +134,19 @@ pub fn stand_als_json(stand: &ChannelStand) -> Value {
     json!({ "stand": stand.stand, "liste": liste })
 }
 
-/// `{name, angelegt, angelegt_von, beschreibung}`; unbekannte Werte und keine Beschreibung `null`.
+/// `{name, angelegt, angelegt_von, beschreibung, frist_tage}`; unbekannte Werte und keine Beschreibung `null`,
+/// `frist_tage` `null` bei defekten Einstellungen — dann entfällt nichts (ADR-0031 Regel 3).
 pub fn channel_als_json(channel: &Channel) -> Value {
+    let frist_tage = match channel.frist {
+        Frist::Tage(tage) => Some(tage),
+        Frist::Gesperrt { .. } => None,
+    };
     json!({
         "name": channel.name.als_text(),
         "angelegt": channel.angelegt.as_ref().map(zeit_als_text),
         "angelegt_von": channel.angelegt_von.as_ref().map(|kennung| kennung.als_text()),
         "beschreibung": channel.beschreibung.as_ref().map(Beschreibung::als_text),
+        "frist_tage": frist_tage,
     })
 }
 

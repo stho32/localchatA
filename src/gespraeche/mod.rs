@@ -352,6 +352,12 @@ impl Gespraeche {
         })
     }
 
+    /// Ob es den Channel `name` gibt (gültiger Name, im Verzeichnis).
+    pub fn channel_bekannt(&self, name: &str) -> bool {
+        Channelname::bilden(name)
+            .is_ok_and(|name| lesend(&self.verzeichnis).channels.contains_key(&name))
+    }
+
     /// Alle Channels nach Name mit `stand`.
     pub fn channels(&self) -> ChannelStand {
         lesend(&self.verzeichnis).stand()
@@ -1354,7 +1360,9 @@ mod tests {
     /// `anzahl` Sätze am Tag `tag` (09:00 im Minutentakt, Versatz +02:00 wie im Oktober), Text „n<nummer>“.
     fn saetze(tag: &str, anzahl: usize) -> String {
         (0..anzahl)
-            .map(|nummer| format!("@ {tag}T09:{nummer:02}:00.000+02:00 a@127.0.0.9\n  n{nummer}\n\n"))
+            .map(|nummer| {
+                format!("@ {tag}T09:{nummer:02}:00.000+02:00 a@127.0.0.9\n  n{nummer}\n\n")
+            })
             .collect()
     }
 
