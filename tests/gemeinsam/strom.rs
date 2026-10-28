@@ -102,11 +102,33 @@ impl Strom {
             .collect()
     }
 
-    pub fn staende(&self) -> Vec<u64> {
+    /// Die `stand`-Folge eines Themas: jedes Thema zählt für sich (ADR-0023 Regel 1).
+    pub fn staende(&self, thema: Thema) -> Vec<u64> {
         self.ereignisse
             .iter()
+            .filter(|e| {
+                thema
+                    .arten()
+                    .contains(&e.data["art"].as_str().unwrap_or_default())
+            })
             .filter_map(|e| e.data["stand"].as_u64())
             .collect()
+    }
+}
+
+/// Die Themen des Stroms mit ihrem Stand und ihren Wechseln.
+#[derive(Debug, Clone, Copy)]
+pub enum Thema {
+    Teilnehmer,
+    Channels,
+}
+
+impl Thema {
+    fn arten(self) -> [&'static str; 2] {
+        match self {
+            Thema::Teilnehmer => ["teilnehmer", "anwesenheit"],
+            Thema::Channels => ["channels", "channel"],
+        }
     }
 }
 

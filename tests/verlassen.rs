@@ -3,7 +3,7 @@
 
 mod gemeinsam;
 
-use gemeinsam::strom::{Strom, ist_wechsel};
+use gemeinsam::strom::{Strom, Thema, ist_wechsel};
 use gemeinsam::{Absender, ApiAntwort, Instanz, wegwerf_starten};
 use serde_json::{Value, json};
 use std::time::Duration;
@@ -199,12 +199,12 @@ async fn ein_zweites_verlassen_ist_204_ohne_weiteren_wechsel() {
         )
         .await
         .expect("weg");
-    let staende_davor = strom_beta.staende();
+    let staende_davor = strom_beta.staende(Thema::Teilnehmer);
     let zweites = verlassen(&zwei, &instanz, Some(&alpha), &[]).await;
     strom_beta.mitlesen(Duration::from_millis(1500)).await;
 
     assert_eq!((erstes.status, zweites.status), (204, 204));
-    let neu: Vec<u64> = strom_beta.staende()[staende_davor.len()..].to_vec();
+    let neu: Vec<u64> = strom_beta.staende(Thema::Teilnehmer)[staende_davor.len()..].to_vec();
     assert_eq!(neu, Vec::<u64>::new(), "kein weiterer Wechsel");
 }
 

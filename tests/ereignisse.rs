@@ -3,7 +3,7 @@
 
 mod gemeinsam;
 
-use gemeinsam::strom::{Empfangen, Strom, ist_wechsel};
+use gemeinsam::strom::{Empfangen, Strom, Thema, ist_wechsel};
 use gemeinsam::{Absender, ApiAntwort, Instanz, aufrufen_mit, starten_mit, wegwerf_starten};
 use serde_json::{Value, json};
 use std::time::Duration;
@@ -144,9 +144,9 @@ async fn us6_kommen_und_gehen_erscheinen_live() {
     );
     assert!(offline.data["stand"].as_u64() > online.data["stand"].as_u64());
     assert!(
-        streng_steigend(&strom_beta.staende()),
+        streng_steigend(&strom_beta.staende(Thema::Teilnehmer)),
         "{:?}",
-        strom_beta.staende()
+        strom_beta.staende(Thema::Teilnehmer)
     );
 }
 
@@ -224,7 +224,11 @@ async fn us8_wer_sich_nicht_mehr_meldet_wird_als_weg_gemeldet() {
         "{:?}",
         bei(&weg)
     );
-    assert!(streng_steigend(&strom.staende()), "{:?}", strom.staende());
+    assert!(
+        streng_steigend(&strom.staende(Thema::Teilnehmer)),
+        "{:?}",
+        strom.staende(Thema::Teilnehmer)
+    );
 }
 
 /// US-10: mit `LOCALCHATA_HERZSCHLAG_MS=500` in 2 s mindestens 3 Zeilen `event: herzschlag` (2000 / 500 = 4,
@@ -323,7 +327,7 @@ async fn us12_gesundheit_zaehlt_sitzungen_und_offene_stroeme() {
 /// Je Strom: (a) `stand` streng steigend; (b) nach dem ersten Stand S kommt jede Nummer S+1 … höchste genau
 /// einmal (keine Lücke, kein Doppel). Leer, wenn alles stimmt, sonst die Abweichung.
 fn reihenfolge_pruefen(name: &str, strom: &Strom) -> Option<String> {
-    let staende = strom.staende();
+    let staende = strom.staende(Thema::Teilnehmer);
     let Some((&erster, wechsel)) = staende.split_first() else {
         return Some(format!("{name}: kein Ereignis"));
     };
