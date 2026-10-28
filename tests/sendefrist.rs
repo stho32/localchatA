@@ -58,7 +58,7 @@ async fn k5_nicht_lesende_verbindungen_schliesst_die_instanz_nach_der_sendefrist
         .await;
         offen.push((verbindung, Instant::now()));
     }
-    let gegenstellen: Vec<u16> = offen.iter().map(|(v, _)| v.eigener_port).collect();
+    let gegenstellen: Vec<_> = offen.iter().map(|(v, _)| v.eigene).collect();
 
     let mut dauern: Vec<Option<Duration>> = vec![None; offen.len()];
     let beobachten_bis = Instant::now() + Duration::from_secs(15);
@@ -66,7 +66,7 @@ async fn k5_nicht_lesende_verbindungen_schliesst_die_instanz_nach_der_sendefrist
         let noch_offen = server_seitig_offen(port, &gegenstellen);
         let jetzt = Instant::now();
         for (index, (verbindung, gesendet)) in offen.iter().enumerate() {
-            if dauern[index].is_none() && !noch_offen.contains(&verbindung.eigener_port) {
+            if dauern[index].is_none() && !noch_offen.contains(&verbindung.eigene) {
                 dauern[index] = Some(jetzt - *gesendet);
             }
         }

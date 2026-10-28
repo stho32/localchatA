@@ -225,7 +225,7 @@ async fn fahren(lauf: Lauf) -> Ergebnis {
         }
     }
     let t0 = Instant::now();
-    let gegenstellen: Vec<u16> = offen.iter().map(|v| v.eigener_port).collect();
+    let gegenstellen: Vec<_> = offen.iter().map(|v| v.eigene).collect();
 
     let mut gesundheit = Vec::new();
     for nach in [Duration::from_secs(2), Duration::from_secs(5)] {
