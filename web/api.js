@@ -3,14 +3,14 @@
 
 export const SITZUNGS_HEADER = 'X-LocalchatA-Sitzung';
 
-export async function rufen(pfad, { koerper, token } = {}, holen = holenImBrowser) {
+export async function rufen(pfad, { koerper, token, methode = 'POST' } = {}, holen = holenImBrowser) {
   const headers = {};
   if (token) {
     headers[SITZUNGS_HEADER] = token;
   }
   const optionen = { method: 'GET', headers };
   if (koerper !== undefined) {
-    optionen.method = 'POST';
+    optionen.method = methode;
     headers['Content-Type'] = 'application/json';
     optionen.body = JSON.stringify(koerper);
   }
@@ -21,6 +21,15 @@ export async function rufen(pfad, { koerper, token } = {}, holen = holenImBrowse
   } catch (ausnahme) {
     return { serverWeg: true, status: 0, daten: null };
   }
+}
+
+// Frist setzen (ADR-0031): PUT {tage}, im zweiten Schritt mit bestaetigt: true → { serverWeg, status, daten }.
+export function fristSetzen(name, tage, bestaetigt, { token }, holen = holenImBrowser) {
+  const koerper = { tage };
+  if (bestaetigt) {
+    koerper.bestaetigt = true;
+  }
+  return rufen(`/api/channels/${encodeURIComponent(name)}/frist`, { koerper, token, methode: 'PUT' }, holen);
 }
 
 function holenImBrowser(pfad, optionen) {

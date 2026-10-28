@@ -57,3 +57,30 @@ test('ist der Server nicht erreichbar, heißt das Ergebnis Server weg', async ()
 
   assert.deepEqual(await rufen('/api/ich', { token: 'abc' }, holen), { serverWeg: true, status: 0, daten: null });
 });
+
+test('fristSetzen: PUT mit Sitzung und {tage}; bestätigt mit bestaetigt:true; Name kodiert (R00008 B0195)', async () => {
+  const { fristSetzen } = await import('../../web/api.js');
+  const { holen, aufrufe } = antwortenMit(409, '{"regel":"bestaetigen","entfaellt":{"tage":2,"nachrichten":5,"bis":"2026-10-21"}}');
+
+  const ergebnis = await fristSetzen('allgemein', 7, false, { token: 'abc' }, holen);
+  await fristSetzen('allgemein', 7, true, { token: 'abc' }, holen);
+
+  assert.deepEqual(ergebnis, {
+    serverWeg: false, status: 409, daten: { regel: 'bestaetigen', entfaellt: { tage: 2, nachrichten: 5, bis: '2026-10-21' } },
+  });
+  assert.equal(aufrufe[0].pfad, '/api/channels/allgemein/frist');
+  assert.equal(aufrufe[0].optionen.method, 'PUT');
+  assert.equal(aufrufe[0].optionen.headers['X-LocalchatA-Sitzung'], 'abc');
+  assert.equal(aufrufe[0].optionen.headers['Content-Type'], 'application/json');
+  assert.deepEqual(JSON.parse(aufrufe[0].optionen.body), { tage: 7 });
+  assert.deepEqual(JSON.parse(aufrufe[1].optionen.body), { tage: 7, bestaetigt: true });
+});
+
+test('fristSetzen: ein unerreichbarer Server ist serverWeg', async () => {
+  const { fristSetzen } = await import('../../web/api.js');
+  const holen = async () => {
+    throw new TypeError('Failed to fetch');
+  };
+
+  assert.deepEqual(await fristSetzen('allgemein', 30, false, { token: 'abc' }, holen), { serverWeg: true, status: 0, daten: null });
+});
