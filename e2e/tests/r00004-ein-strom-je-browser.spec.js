@@ -2,7 +2,7 @@
 // R00004 F0014 Ein Strom je Browser (US-20 bis US-24, ADR-0015): alle Tabs eines Browser-Kontexts teilen einen
 // Strom über einen SharedWorker; ohne SharedWorker hält jeder Tab seinen eigenen.
 const { test, expect } = require('@playwright/test');
-const { instanzStarten, freierPort, fehlerSammeln, sichtbarNach, zeigtStatus } = require('./hilfen');
+const { instanzStarten, freierPort, fehlerSammeln, sichtbarNach, zeigtNichtMehrOnline, NICHT_MEHR_ONLINE } = require('./hilfen');
 
 let instanz;
 test.afterEach(async () => {
@@ -112,12 +112,12 @@ test('US-22: offline erst, wenn der letzte Tab zu ist', async ({ browser }) => {
   const nachZweien = await mia.locator('.lc-status').count();
   await b.tabs[2].close();
   const geschlossen = Date.now();
-  const offlineNach = await sichtbarNach(a.tabs[0], zeigtStatus, { argument: { kennung: 'mia@127.0.0.1', status: 'offline' }, ab: geschlossen, timeout: 10000 });
+  const offlineNach = await sichtbarNach(a.tabs[0], zeigtNichtMehrOnline, { argument: { kennung: 'mia@127.0.0.1' }, ab: geschlossen, timeout: 10000 });
   test.info().annotations.push({ type: 'messung', description: `offlineNach ${offlineNach} ms` });
 
   expect(nachZweien).toBe(0);
   expect(offlineNach).toBeLessThan(2000);
-  await expect(mia.locator('.lc-status')).toHaveText('offline');
+  await expect(mia.locator('.lc-status')).toHaveText(NICHT_MEHR_ONLINE);
   ohneFehler(a.fehler);
 });
 

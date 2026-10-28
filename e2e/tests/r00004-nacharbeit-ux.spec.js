@@ -2,7 +2,7 @@
 // R00004 Nacharbeit 1 aus dem UX-Review (S1–S6, O1): Zeilen, Anzahl am Schalter, Liste als Fläche unter
 // 720 px, „Stand unbekannt“ bei unterbrochener Verbindung, ruhiger Alarmtext, Fokus beim Einklappen.
 const { test, expect } = require('@playwright/test');
-const { instanzStarten, freierPort, fehlerSammeln, beitretenPerApi, stromOeffnen } = require('./hilfen');
+const { instanzStarten, freierPort, fehlerSammeln, beitretenPerApi, stromOeffnen, NICHT_MEHR_ONLINE } = require('./hilfen');
 
 let instanz;
 const offeneStroeme = [];
@@ -77,7 +77,7 @@ for (const thema of ['light', 'dark']) {
     const farbe = (kennung) => zeileVon(page, kennung).locator('.lc-id').evaluate((element) => getComputedStyle(element).color);
     const online = await farbe('shoff@127.0.0.1');
     strom.schliessen();
-    await expect(zeileVon(page, 'claude@127.0.0.1').locator('.lc-status')).toHaveText('offline', { timeout: 3000 });
+    await expect(zeileVon(page, 'claude@127.0.0.1').locator('.lc-status')).toHaveText(NICHT_MEHR_ONLINE, { timeout: 3000 });
 
     const erwartet = {
       light: { offline: 'rgb(79, 93, 107)', online: 'rgb(28, 37, 48)' },
@@ -154,7 +154,7 @@ for (const thema of ['light', 'dark']) {
       await beitreten(page);
       await listeZeigen(page);
       strom.schliessen();
-      await expect(zeileVon(page, 'claude@127.0.0.1').locator('.lc-status')).toHaveText('offline', { timeout: 3000 });
+      await expect(zeileVon(page, 'claude@127.0.0.1').locator('.lc-status')).toHaveText(NICHT_MEHR_ONLINE, { timeout: 3000 });
 
       await instanz.beenden();
       await expect(region(page).locator('.lc-stand')).toHaveText(/Stand unbekannt/);
@@ -188,7 +188,7 @@ for (const breite of [1280, 320]) {
     const vorher = await darunter.evaluate((zeile) => zeile.getBoundingClientRect().top);
 
     strom.schliessen();
-    await expect(lang.locator('.lc-status')).toHaveText('offline', { timeout: 3000 });
+    await expect(lang.locator('.lc-status')).toHaveText(NICHT_MEHR_ONLINE, { timeout: 3000 });
     const nachher = await darunter.evaluate((zeile) => zeile.getBoundingClientRect().top);
 
     expect(nachher - vorher).toBe(0);
@@ -264,8 +264,18 @@ test('S5: Server beendet — nach < 2 s ist die Liste als „Stand unbekannt“ 
   const unmarkiert = await page.evaluate(() =>
     [...document.querySelectorAll('.lc-dot.on')].filter((punkt) => punkt.closest('.lc-unbekannt') === null).length);
   expect(unmarkiert).toBe(0);
-  const punkt = await region(page).locator('.lc-dot.on').first().evaluate((element) => getComputedStyle(element).backgroundColor);
-  expect(punkt).toBe('rgba(0, 0, 0, 0)');
+  // R00005 (ADR-0019 Regel 6): „zuletzt online“ ist grau gefüllt in lc-offline, nicht mehr gestrichelt.
+  const punkt = await region(page).locator('.lc-dot.on').first().evaluate((element) => {
+    const stil = getComputedStyle(element);
+    const probe = document.createElement('span');
+    probe.style.color = 'var(--lc-offline)';
+    document.body.append(probe);
+    const token = getComputedStyle(probe).color;
+    probe.remove();
+    return { fuellung: stil.backgroundColor, token, rand: stil.borderTopStyle };
+  });
+  expect(punkt.fuellung).toBe(punkt.token);
+  expect(punkt.rand).not.toBe('dashed');
 });
 
 test('S6: der Alarmtext ändert sich nur beim Wechsel — 1 Mutation beim Unterbrechen, 1 beim Wiederverbinden', async ({ page }) => {

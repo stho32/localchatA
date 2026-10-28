@@ -206,18 +206,30 @@ async function sichtbarNach(seite, pruefung, { argument, ab, timeout = 5000 }) {
   return Date.now() - ab;
 }
 
-/// Prüfung für sichtbarNach: die Zeile mit `kennung` in der Teilnehmerliste zeigt den Status `status`.
-function zeigtStatus({ kennung, status }) {
+/// Wie sichtbarNach, liefert zusätzlich, was `pruefung` im Augenblick des Erfüllens zurückgab (etwa den gezeigten
+/// Text): { ms, wert }.
+async function sichtbarMitWertNach(seite, pruefung, { argument, ab, timeout = 5000 }) {
+  const ergebnis = await seite.waitForFunction(pruefung, argument, { polling: 'raf', timeout });
+  const ms = Date.now() - ab;
+  return { ms, wert: await ergebnis.jsonValue() };
+}
+
+/// „Nicht mehr online“ (R00005, Änderungen gegenüber R00004): nach dem Schließen ○ „offline“ oder — mit der
+/// Restzeit — gestrichelt „weg in m:ss“; für toHaveText.
+const NICHT_MEHR_ONLINE = /^(offline|weg in \d:\d\d)$/;
+
+/// Prüfung für sichtbarNach: die Zeile mit `kennung` steht nicht mehr online (○ „offline“ oder „weg in m:ss“).
+function zeigtNichtMehrOnline({ kennung }) {
   const zeile = [...document.querySelectorAll('#lc-teilnehmer .lc-person')]
     .find((person) => person.querySelector('.lc-id').textContent.includes(kennung));
   if (zeile === undefined) {
     return false;
   }
   const anzeige = zeile.querySelector('.lc-status');
-  return anzeige !== null && anzeige.textContent.trim() === status;
+  return anzeige !== null && /^(offline|weg in \d:\d\d)$/.test(anzeige.textContent.trim());
 }
 
 module.exports = {
   instanzStarten, freierPort, lanAdresse, fehlerSammeln, beitretenPerApi, fokusImBrowser, stromOeffnen, sichtbarNach,
-  zeigtStatus,
+  sichtbarMitWertNach, zeigtNichtMehrOnline, NICHT_MEHR_ONLINE,
 };
