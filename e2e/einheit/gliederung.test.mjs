@@ -2,7 +2,7 @@
 // tragen den Versatz des Servers; Uhrzeit und Datum folgen ihm, nie der Zeitzone des Testprozesses.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { uhrzeit, zeitTitel, gliederung } from '../../web/gliederung.js';
+import { uhrzeit, zeitTitel, gliederung, datumBenennen } from '../../web/gliederung.js';
 
 test('Uhrzeit HH:MM im Versatz der Nachricht, auch über die Zeitumstellung', () => {
   assert.equal(uhrzeit('2026-10-24T23:30:00.000+02:00'), '23:30');
@@ -48,4 +48,15 @@ test('anderer Absender, neuer Tag oder keine vorige: mit Kopf', () => {
 test('die Zeitspanne wird als Zeitpunkt gerechnet, über die Zeitumstellung', () => {
   const vorige = nachricht(ALPHA, '2026-10-25T02:58:00.000+02:00');
   assert.deepEqual(gliederung(vorige, nachricht(ALPHA, '2026-10-25T02:02:00.000+01:00')), { kopf: false, tagestrenner: null });
+});
+
+test('Datum benennen nach dem heutigen Datum des Servers', () => {
+  const heute = '2026-10-28';
+  assert.equal(datumBenennen('2026-10-28', heute), 'Heute');
+  assert.equal(datumBenennen('2026-10-27', heute), 'Gestern');
+  assert.equal(datumBenennen('2026-10-26', heute), 'Montag, 26. Oktober 2026');
+  assert.equal(datumBenennen('2026-10-24', heute), 'Samstag, 24. Oktober 2026');
+  assert.equal(datumBenennen('2026-02-28', '2026-03-01'), 'Gestern');
+  assert.equal(datumBenennen('2025-12-31', '2026-01-01'), 'Gestern');
+  assert.equal(datumBenennen('2026-10-28', null), 'Mittwoch, 28. Oktober 2026');
 });

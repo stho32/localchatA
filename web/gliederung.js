@@ -37,3 +37,30 @@ function datumDer(zeit) {
   const { jahr, monat, tag } = teile(zeit);
   return `${jahr}-${monat}-${tag}`;
 }
+
+// Name eines Tagestrenners (Designsystem VerlaufsMarken): „Heute“ und „Gestern“ nach dem heutigen Datum des
+// Servers (heute: 'JJJJ-MM-TT' oder null, solange es unbekannt ist), sonst „Montag, 26. Oktober 2026“.
+export function datumBenennen(datum, heute) {
+  if (datum === heute) {
+    return 'Heute';
+  }
+  if (heute !== null && datum === tagDavor(heute)) {
+    return 'Gestern';
+  }
+  const WOCHENTAGE = ['Sonntag', 'Montag', 'Dienstag', 'Mittwoch', 'Donnerstag', 'Freitag', 'Samstag'];
+  const MONATE = ['Januar', 'Februar', 'März', 'April', 'Mai', 'Juni', 'Juli', 'August', 'September', 'Oktober',
+    'November', 'Dezember'];
+  const kalendertag = alsKalendertag(datum);
+  const wochentag = WOCHENTAGE[kalendertag.getUTCDay()];
+  return `${wochentag}, ${kalendertag.getUTCDate()}. ${MONATE[kalendertag.getUTCMonth()]} ${kalendertag.getUTCFullYear()}`;
+}
+
+// Kalenderrechnung in UTC, damit die Zeitzone des Browsers nie hineinspielt.
+function alsKalendertag(datum) {
+  return new Date(`${datum}T00:00:00Z`);
+}
+
+function tagDavor(datum) {
+  const EIN_TAG_MS = 24 * 60 * 60 * 1000;
+  return new Date(alsKalendertag(datum).getTime() - EIN_TAG_MS).toISOString().slice(0, 10);
+}
