@@ -84,6 +84,8 @@ struct Eintrag {
     sitzung: Sitzung,
     haltung: Haltung,
     gemeldet: (Status, Zeit),
+    /// Das zuletzt gemeldete `weg_um` — Maß der Drossel (ADR-0019 Regel 3).
+    gemeldet_weg_um: Option<Zeit>,
 }
 
 impl Eintrag {
@@ -188,11 +190,13 @@ impl Bestand {
     ) -> Option<Wechsel> {
         let eintrag = self.eintraege.get_mut(token)?;
         eintrag.gemeldet = (status, seit);
+        let teilnehmer = eintrag.zeile(gnadenfrist);
+        eintrag.gemeldet_weg_um = teilnehmer.weg_um;
         self.stand += 1;
         Some(Wechsel {
             stand: self.stand,
             jetzt,
-            teilnehmer: eintrag.zeile(gnadenfrist),
+            teilnehmer,
         })
     }
 }
@@ -257,6 +261,7 @@ impl Anwesenheit {
                 online_seit: jetzt,
             },
             gemeldet: (Status::Online, jetzt),
+            gemeldet_weg_um: None,
         };
         let mut wechsel = bestand.abgelaufene_melden(jetzt, self.gnadenfrist);
         bestand.eintraege.insert(token.clone(), eintrag);
@@ -298,12 +303,23 @@ impl Anwesenheit {
     }
 
     /// Gültiges Token derselben Herkunft → die Sitzung, ihr Lebenszeichen erneuert; sonst keine
-    /// (unbekannt, abgelaufen, andere Herkunft — eine fremde Herkunft erneuert nichts).
+    /// (unbekannt, abgelaufen, andere Herkunft — eine fremde Herkunft erneuert nichts). Verschiebt das
+    /// Lebenszeichen einer `offline` gemeldeten Sitzung ihr `weg_um` um mindestens 1 s, ist das ein Wechsel.
     pub fn wiederkehren(&self, token: &Token, herkunft: IpAddr) -> Option<Sitzung> {
         let (mut bestand, jetzt) = self.bestand_und_jetzt();
         let eintrag = self.lebender_eintrag(&mut bestand, token, herkunft, jetzt)?;
         eintrag.sitzung.letztes_lebenszeichen = jetzt;
-        Some(eintrag.sitzung.clone())
+        let sitzung = eintrag.sitzung.clone();
+        let verschoben = weg_um_verschoben(eintrag, self.gnadenfrist);
+        if verschoben {
+            let (status, seit) = eintrag.gemeldet;
+            let wechsel: Vec<Wechsel> = bestand
+                .melden(token, status, seit, jetzt, self.gnadenfrist)
+                .into_iter()
+                .collect();
+            self.melden_unter_der_sperre(&bestand, &wechsel);
+        }
+        Some(sitzung)
     }
 
     /// Ein Halter der Sitzung (ADR-0016 Regel 2), nur mit gültigem Token derselben Herkunft; ein
@@ -441,6 +457,21 @@ impl Drop for Halter {
 fn lebt(letztes_lebenszeichen: Zeit, jetzt: Zeit, gnadenfrist: Duration) -> bool {
     jetzt <= weg_um(letztes_lebenszeichen, gnadenfrist)
 }
+
+/// Die Drossel (B0108, ADR-0019 Regel 3): nur eine `offline` gemeldete Sitzung, deren `weg_um` sich um
+/// mindestens 1 s gegenüber dem zuletzt gemeldeten verschoben hat — gemeldet ist es dann höchstens 1 s zu früh.
+fn weg_um_verschoben(eintrag: &Eintrag, gnadenfrist: Duration) -> bool {
+    if eintrag.gemeldet.0 != Status::Offline {
+        return false;
+    }
+    let neu = weg_um(eintrag.sitzung.letztes_lebenszeichen, gnadenfrist);
+    eintrag
+        .gemeldet_weg_um
+        .is_none_or(|gemeldet| neu - gemeldet >= DROSSEL)
+}
+
+/// Kleinste Verschiebung von `weg_um`, die gemeldet wird.
+const DROSSEL: chrono::Duration = chrono::Duration::seconds(1);
 
 /// Der letzte Augenblick, in dem eine Sitzung ohne Halter noch lebt (ADR-0019 Regel 1, B0105).
 fn weg_um(letztes_lebenszeichen: Zeit, gnadenfrist: Duration) -> Zeit {
@@ -1139,6 +1170,113 @@ mod tests {
         assert_eq!(
             (erst, dann, spaeter),
             (nach_ms(2000), nach_ms(2000), nach_ms(3000))
+        );
+    }
+
+    /// Kriterium „Drossel“ (R00005 F0017, ADR-0019 Regel 3): ein Lebenszeichen ohne Halter, das `weg_um` um
+    /// mindestens 1 s verschiebt, ist ein Wechsel mit unverändertem `offline` — unter der Sperre veröffentlicht;
+    /// kleinere Verschiebungen nicht.
+    #[test]
+    fn ein_verschobenes_weg_um_wird_ab_1_s_gemeldet_und_unter_der_sperre_veroeffentlicht() {
+        let uhr = Arc::new(GestellteUhr::neu(zeit(T0)));
+        let selbst: Arc<std::sync::OnceLock<std::sync::Weak<Anwesenheit>>> = Arc::default();
+        let veroeffentlicht: Arc<Mutex<Vec<(Wechsel, bool)>>> = Arc::default();
+        let (selbst_im_aufruf, notiert) = (Arc::clone(&selbst), Arc::clone(&veroeffentlicht));
+        let anwesenheit = Arc::new(
+            Anwesenheit::neu(
+                Arc::clone(&uhr) as Arc<dyn Uhr>,
+                Arc::new(FesteFolge::neu([1])),
+                Duration::from_secs(60),
+            )
+            .mit_veroeffentlichen(Arc::new(move |wechsel: &Wechsel| {
+                let anwesenheit = selbst_im_aufruf.get().and_then(std::sync::Weak::upgrade);
+                let unter_sperre =
+                    anwesenheit.is_some_and(|anwesenheit| anwesenheit.bestand.try_lock().is_err());
+                notiert
+                    .lock()
+                    .expect("Liste")
+                    .push((wechsel.clone(), unter_sperre));
+            })),
+        );
+        selbst
+            .set(Arc::downgrade(&anwesenheit))
+            .expect("einmal gesetzt");
+        let token = anwesenheit
+            .beitreten(&wunsch("alpha", Art::Agent), ip("127.0.0.2"))
+            .expect("alpha")
+            .sitzung
+            .token;
+        anwesenheit.pflegen(nach_ms(1000));
+        let lebenszeichen = |millisekunden: i64| {
+            uhr.stellen(nach_ms(millisekunden));
+            anwesenheit
+                .wiederkehren(&token, ip("127.0.0.2"))
+                .expect("lebt");
+            veroeffentlicht.lock().expect("Liste").len()
+        };
+
+        let nach_10_5 = lebenszeichen(10_500);
+        let nach_11 = lebenszeichen(11_000);
+        let nach_11_6 = lebenszeichen(11_600);
+
+        assert_eq!(
+            (nach_10_5, nach_11, nach_11_6),
+            (3, 3, 4),
+            "beitreten, offline, dann die Drossel"
+        );
+        let gemeldet = veroeffentlicht.lock().expect("Liste").clone();
+        let verschoben: Vec<(u64, Status, Zeit, Option<Zeit>, bool)> = gemeldet[2..]
+            .iter()
+            .map(|(wechsel, unter_sperre)| {
+                let zeile = &wechsel.teilnehmer;
+                (
+                    wechsel.stand,
+                    zeile.status,
+                    zeile.seit,
+                    zeile.weg_um,
+                    *unter_sperre,
+                )
+            })
+            .collect();
+        assert_eq!(
+            verschoben,
+            [
+                (
+                    3,
+                    Status::Offline,
+                    nach_ms(1000),
+                    Some(nach_ms(70_500)),
+                    true
+                ),
+                (
+                    4,
+                    Status::Offline,
+                    nach_ms(1000),
+                    Some(nach_ms(71_600)),
+                    true
+                ),
+            ]
+        );
+        assert!(gemeldet.iter().all(|(_, unter_sperre)| *unter_sperre));
+    }
+
+    #[test]
+    fn ein_lebenszeichen_im_anlauf_meldet_nichts() {
+        let (uhr, anwesenheit) = mit_gestellter_uhr();
+        let token = anwesenheit
+            .beitreten(&wunsch("alpha", Art::Agent), ip("127.0.0.2"))
+            .expect("alpha")
+            .sitzung
+            .token;
+        let stand_davor = anwesenheit.bestand().stand;
+
+        uhr.stellen(nach_ms(900));
+        anwesenheit.wiederkehren(&token, ip("127.0.0.2"));
+
+        assert_eq!(
+            anwesenheit.bestand().stand,
+            stand_davor,
+            "online, kein weg_um"
         );
     }
 

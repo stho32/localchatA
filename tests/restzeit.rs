@@ -216,3 +216,61 @@ async fn us8_der_herzschlag_traegt_die_serverzeit() {
         "{zeiten:?}"
     );
 }
+
+/// US-9 (Kriterium „Drossel“): `alpha` ist ohne Strom `offline` und ruft 2 s lang alle 0,25 s `GET /api/ich`
+/// → `beta` liest mindestens einen weiteren Wechsel `offline` für `alpha`, je zwei gemeldete `weg_um` liegen
+/// ≥ 1000 ms auseinander; die Liste danach nennt ein `weg_um`, das 0 bis < 1000 ms nach dem letzten im Strom
+/// gemeldeten mit `stand` ≤ dem `stand` der Liste liegt (Zuordnung über `stand`).
+#[tokio::test]
+async fn us9_wer_ohne_strom_weiterarbeitet_schiebt_seine_restzeit_gedrosselt() {
+    let instanz = wegwerf_starten();
+    let (zwei, drei) = (Absender::von("127.0.0.2"), Absender::von("127.0.0.3"));
+    let beta = beitreten(&drei, &instanz, "beta").await;
+    let mut strom_beta = Strom::oeffnen(&drei, &instanz.adresse, &beta).await;
+    let alpha = beitreten(&zwei, &instanz, "alpha").await;
+    strom_beta
+        .bis(
+            Duration::from_secs(5),
+            ist_wechsel("alpha@127.0.0.2", "offline"),
+        )
+        .await
+        .expect("alpha offline");
+    let vorher = strom_beta.wechsel_von("alpha@127.0.0.2").len();
+
+    for _ in 0..8 {
+        let antwort = zwei.ich(&instanz.adresse, Some(&alpha)).await;
+        assert_eq!(antwort.status, 200);
+        tokio::time::sleep(Duration::from_millis(250)).await;
+    }
+    let liste = teilnehmer(&drei, &instanz, &beta).await;
+    strom_beta.mitlesen(Duration::from_millis(500)).await;
+
+    let gemeldet: Vec<Value> = strom_beta
+        .wechsel_von("alpha@127.0.0.2")
+        .into_iter()
+        .filter(|e| e.data["teilnehmer"]["status"] == "offline")
+        .map(|e| e.data)
+        .collect();
+    assert!(
+        strom_beta.wechsel_von("alpha@127.0.0.2").len() > vorher,
+        "kein weiterer Wechsel: {gemeldet:?}"
+    );
+    for paar in gemeldet.windows(2) {
+        let abstand = millisekunden_zwischen(
+            &paar[0]["teilnehmer"]["weg_um"],
+            &paar[1]["teilnehmer"]["weg_um"],
+        );
+        assert!(abstand >= 1000, "{abstand} ms: {gemeldet:?}");
+    }
+    let stand_liste = liste["stand"].as_u64().expect("stand");
+    let zuletzt_gemeldet = gemeldet
+        .iter()
+        .rfind(|wechsel| wechsel["stand"].as_u64().expect("stand") <= stand_liste)
+        .expect("ein gemeldetes weg_um bis zum Stand der Liste");
+    let in_der_liste = &zeile_von(&liste["liste"], "alpha@127.0.0.2")["weg_um"];
+    let spaeter = millisekunden_zwischen(&zuletzt_gemeldet["teilnehmer"]["weg_um"], in_der_liste);
+    assert!(
+        (0..1000).contains(&spaeter),
+        "{spaeter} ms: Liste {liste}, gemeldet {gemeldet:?}"
+    );
+}
