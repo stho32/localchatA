@@ -2,7 +2,7 @@
 // Text oder { kennung } für Namen, Kennungen und Vorschläge.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { meldungsteile, hinweisteile } from '../../web/beitreten.js';
+import { meldungsteile, hinweisFuer } from '../../web/beitreten.js';
 
 process.env.TZ = 'Europe/Berlin';
 
@@ -54,10 +54,12 @@ test('ohne Meldung: leerer Bildschirm', () => {
 });
 
 test('Hinweis beim Tippen: leer bei gültigem, leerem oder nur aus Leerzeichen bestehendem Text, sonst Regel und Vorschlag', () => {
-  assert.deepEqual(hinweisteile('claude-2'), []);
-  assert.deepEqual(hinweisteile(''), []);
-  assert.deepEqual(hinweisteile('   '), []);
-  assert.equal(alsText(hinweisteile('Jörg')), `Erlaubt sind ${REGEL}. Wie wäre joerg?`);
-  assert.deepEqual(kennungen(hinweisteile('Jörg')), ['joerg']);
-  assert.equal(alsText(hinweisteile('___')), `Erlaubt sind ${REGEL}.`);
+  const ohne = { regel: '', vorschlagsteile: [] };
+  assert.deepEqual(hinweisFuer('claude-2'), ohne);
+  assert.deepEqual(hinweisFuer(''), ohne);
+  assert.deepEqual(hinweisFuer('   '), ohne);
+  assert.equal(hinweisFuer('Jörg').regel, `Erlaubt sind ${REGEL}.`);
+  assert.equal(alsText(hinweisFuer('Jörg').vorschlagsteile), ' Wie wäre joerg?');
+  assert.deepEqual(kennungen(hinweisFuer('Jörg').vorschlagsteile), ['joerg']);
+  assert.deepEqual(hinweisFuer('___'), { regel: `Erlaubt sind ${REGEL}.`, vorschlagsteile: [] });
 });

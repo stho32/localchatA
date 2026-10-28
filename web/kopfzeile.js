@@ -1,7 +1,7 @@
 // Eigene Kennung in der Kopfzeile (Designsystem: Bausteine Kopfzeile und Kennung): dunkle 40-px-Leiste,
 // rechts Kürzel-Kachel und `name@herkunft`, Herkunft gedämpft, Farbe und Marke nach Art.
 
-export function zeichnen(wurzel, teilnehmer) {
+export function zeichnen(wurzel, teilnehmer, { kennungFokussieren = false } = {}) {
   const art = artDes(teilnehmer);
   const kachel = element('span', { className: `lc-tile ${art}`, textContent: kuerzel(teilnehmer.name) });
   kachel.setAttribute('aria-hidden', 'true');
@@ -9,6 +9,7 @@ export function zeichnen(wurzel, teilnehmer) {
     teilnehmer.name,
     element('i', { textContent: `@${teilnehmer.herkunft}` }),
   ]);
+  kennung.tabIndex = -1;
   const bedienung = element('div', { className: 'lc-head-bed' }, [kachel, kennung]);
   if (art === 'agent') {
     bedienung.append(element('span', { className: 'lc-tag', textContent: 'Agent' }));
@@ -20,6 +21,9 @@ export function zeichnen(wurzel, teilnehmer) {
   ]);
   kopf.setAttribute('role', 'banner');
   wurzel.replaceChildren(kopf);
+  if (kennungFokussieren) {
+    kennung.focus();
+  }
 }
 
 export function kuerzel(name) {

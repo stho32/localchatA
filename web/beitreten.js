@@ -13,7 +13,9 @@ export function zeichnen(wurzel, zustand, aktionen) {
   feld.setAttribute('autocapitalize', 'none');
   feld.setAttribute('aria-describedby', 'lc-name-zweck lc-name-hinweis lc-meldung');
   const schalter = element('button', { type: 'submit', className: 'lc-btn primary', textContent: 'Beitreten' });
-  const hinweis = element('p', { id: 'lc-name-hinweis', className: 'lc-hinweis' });
+  const hinweisRegel = element('span', { className: 'lc-hinweis-regel' });
+  const hinweisVorschlag = element('span', { className: 'lc-hinweis-vorschlag' });
+  const hinweis = element('p', { id: 'lc-name-hinweis', className: 'lc-hinweis' }, [hinweisRegel, hinweisVorschlag]);
   hinweis.setAttribute('aria-live', 'polite');
   const meldung = element('div', { id: 'lc-meldung', className: 'lc-meldung' });
   meldung.setAttribute('role', 'alert');
@@ -47,7 +49,7 @@ export function zeichnen(wurzel, zustand, aktionen) {
   }
 
   function beimTippen() {
-    hinweisZeigen(hinweis, feld.value);
+    hinweisZeigen({ hinweis, hinweisRegel, hinweisVorschlag }, feld.value);
     gueltigkeitZeigen(feld);
   }
 
@@ -91,12 +93,12 @@ function istFehler(zustand) {
   return ['ungueltig', 'leer', 'serverWeg', 'fehler'].includes(zustand.art);
 }
 
-export function hinweisteile(text) {
+export function hinweisFuer(text) {
   const ergebnis = pruefen(text);
   if (text.trim() === '' || ergebnis.gueltig) {
-    return [];
+    return { regel: '', vorschlagsteile: [] };
   }
-  return [ergebnis.hinweis, ...vorschlagsteile(ergebnis.vorschlag)];
+  return { regel: ergebnis.hinweis, vorschlagsteile: vorschlagsteile(ergebnis.vorschlag) };
 }
 
 function vorschlagsteile(vorschlag) {
@@ -126,10 +128,15 @@ function gueltigkeitZeigen(feld) {
   }
 }
 
-function hinweisZeigen(hinweis, text) {
-  const teile = hinweisteile(text);
-  hinweis.replaceChildren(...teile.map(alsKnoten));
-  hinweis.hidden = teile.length === 0;
+// Die Regel steht in einer Live-Region: nur geänderter Text wird vorgelesen, darum bleibt ihr Knoten
+// unberührt, solange sie gleich lautet — beim Tippen ändert sich nur der Vorschlag.
+function hinweisZeigen({ hinweis, hinweisRegel, hinweisVorschlag }, text) {
+  const { regel, vorschlagsteile: teile } = hinweisFuer(text);
+  if (hinweisRegel.textContent !== regel) {
+    hinweisRegel.textContent = regel;
+  }
+  hinweisVorschlag.replaceChildren(...teile.map(alsKnoten));
+  hinweis.hidden = regel === '';
 }
 
 function meldungZeigen(meldung, zustand, erneutVersuchen) {

@@ -14,13 +14,15 @@ const wurzel = document.getElementById('app');
 farbschemaFolgen();
 zeigen(await sitzungBeimLaden());
 
-function zeigen(zustand) {
+// Nach einem Beitritt per Eingabe wandert der Fokus auf die eigene Kennung, sonst läge er nach dem Abbau
+// des Formulars auf dem Dokument.
+function zeigen(zustand, nachEingabe = false) {
   if (zustand.art === 'kopfzeile') {
-    kopfzeile.zeichnen(wurzel, zustand.teilnehmer);
+    kopfzeile.zeichnen(wurzel, zustand.teilnehmer, { kennungFokussieren: nachEingabe });
     return;
   }
   beitretenBildschirm.zeichnen(wurzel, zustand, {
-    beitreten: async (name) => zeigen(await sitzung.beitreten(name, speicher, api)),
+    beitreten: async (name) => zeigen(await sitzung.beitreten(name, speicher, api), true),
   });
 }
 
