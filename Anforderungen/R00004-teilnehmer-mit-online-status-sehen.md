@@ -82,7 +82,7 @@ Gemeinsam für alle Kriterien: Start mit `localchatA <ordner> --port 0 --host 12
 - [ ] `alpha` von `127.0.0.2` und `beta` von `127.0.0.3` beigetreten; `GET /api/teilnehmer` mit dem Token von `beta` → 200, `liste` enthält genau `alpha@127.0.0.2` und `beta@127.0.0.3` in dieser Reihenfolge, je mit `name`, `herkunft`, `"art":"agent"`, `status` und `seit`; Header-Satz mit `Cache-Control: no-store`.
 - [ ] Anlauf und Nachlauf (Rechenbeispiel, gestellte Uhr im Unit-Test und echte Zeit im Integrationstest): `alpha` tritt bei t0 bei → bei t0 + 0,5 s `"status":"online"`, `seit` = t0; bei t0 + 1,5 s `"status":"offline"`, `seit` = t0 + 1 s; `stand` bei t0 + 1,5 s ist größer als bei t0 + 0,5 s.
 - [ ] Ohne Header → 401 `{fehler}`; mit `X-LocalchatA-Sitzung: 00000000000000000000000000000000` → 401; das Token von `alpha` (127.0.0.2) von `127.0.0.3` → 401.
-- [ ] Weg (`LOCALCHATA_GNADENFRIST_MS=3000`): `alpha` beigetreten bei 0 s, danach keine Anfrage mit seinem Token; `beta` fragt bei 1 s und bei 4 s → bei 1 s steht `alpha` `offline` in der Liste, bei 4 s fehlt `alpha` (4 s > 3 s), und `{"name":"alpha"}` von `127.0.0.3` → 201.
+- [ ] Weg (`LOCALCHATA_GNADENFRIST_MS=3000`): `alpha` beigetreten bei 0 s, danach keine Anfrage mit seinem Token; `beta` (beigetreten bei 0 s) fragt bei 1 s, bei 2 s und bei 4 s → bei 1 s steht `alpha` `offline` in der Liste; bei 4 s antwortet die Instanz 200 (letztes Lebenszeichen von `beta` bei 2 s: 4 s − 2 s = 2 s ≤ 3 s), `alpha` fehlt (4 s − 0 s = 4 s > 3 s), und `{"name":"alpha"}` von `127.0.0.3` → 201.
 
 ### F0012 Anwesenheit live im Ereignisstrom
 
@@ -250,6 +250,10 @@ Auslöser: Nach R00003 kann man beitreten, sieht aber niemanden — weder ob die
 - **„weg“ erst mit I0006**: verworfen (Empfehlung architekt) — ohne `weg` blieben Zeilen von Teilnehmern stehen, deren Name längst frei ist (Geisterzeilen, Pre-Mortem 1 in ADR-0016).
 - **Ende-Signal, Bus, Takt als eigene Slices** (Zuschnitt-Liste des architekt): verworfen — für sich nicht von außen prüfbar; als Bubbles in F0012 werden sie über Strom-Ende, Wechsel und Exit-Zeit geprüft.
 - **Ein Strom je Browser als Ausbaustufe nach I0005**: verworfen — ADR-0015 macht ihn zur Regel, und mit einem Strom je Tab steht die Instanz ab dem 7. Tab; als eigener Slice F0014 bleibt er von außen prüfbar und nach F0013 baubar.
+
+### Änderungen nach Prüfung
+
+- 2026-10-28 (Karte #4, Entwicklertest): US-4 und das Kriterium „Weg“ unter F0011 — `beta` fragt zusätzlich bei 2 s ab, bei 4 s wird 200 erwartet. Grund: der alte Zeitplan widersprach der eigenen Gnadenfrist; mit dem letzten Abruf bei 1 s war `beta` bei 4 s selbst abgelaufen (401 in 2 von 8 Läufen). Geprüftes Verhalten (`alpha` bei 1 s `offline`, bei 4 s weg, Name frei) unverändert.
 
 ### Bewusst außerhalb
 
