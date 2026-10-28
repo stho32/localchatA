@@ -66,3 +66,19 @@ function erster(namen, richtung) {
   }
   return namen[namen.length - 1];
 }
+
+// Nur Alt mit ↓ bzw. ↑ — ohne Strg, Umschalt, Meta und AltGraph. → 'ab' | 'auf' | null
+export function kuerzelRichtung(ereignis) {
+  const nurAlt = ereignis.altKey && !ereignis.ctrlKey && !ereignis.shiftKey && !ereignis.metaKey
+    && !ereignis.getModifierState('AltGraph');
+  if (!nurAlt) {
+    return null;
+  }
+  if (ereignis.key === 'ArrowDown') {
+    return 'ab';
+  }
+  if (ereignis.key === 'ArrowUp') {
+    return 'auf';
+  }
+  return null;
+}

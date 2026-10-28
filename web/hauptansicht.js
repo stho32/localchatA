@@ -7,7 +7,7 @@
 // Die Auswahl folgt allein Adresse und Channel-Liste (ADR-0027): Start, hashchange und jede neue Liste leiten sie
 // neu ab — Seitenleiste, Kopfzeile und Mitte zeigen sie.
 import * as kopfzeile from './kopfzeile.js';
-import { auswahl, auswahlMerken, startadresse, MERKER } from './auswahl.js';
+import { auswahl, auswahlMerken, startadresse, MERKER, nachbarChannel, kuerzelRichtung } from './auswahl.js';
 import { verlaufAnlegen } from './verlauf.js';
 import * as seitenleiste from './seitenleiste.js';
 import { dialogEinrichten } from './channel-anlegen.js';
@@ -88,11 +88,27 @@ function auswahlEinrichten({ seitenleiste, kopf, mitte, verlauf }, signal) {
     }
     if (offen !== bekannt.name) {
       offen = bekannt.name;
-      mitte.replaceChildren(verlauf.element);
+      if (verlauf.element.parentNode !== mitte) {
+        mitte.replaceChildren(verlauf.element);
+      }
       verlauf.oeffnen(bekannt.name);
     }
   }
   window.addEventListener('hashchange', folgen, { signal });
+  // Alt ↓ / Alt ↑ wählt wie ein Klick über die Adresse; der Fokus bleibt, wo er ist (ADR-0027 Regel 4).
+  document.addEventListener('keydown', (ereignis) => {
+    const richtung = kuerzelRichtung(ereignis);
+    const dialogOffen = document.querySelector('dialog[open]') !== null;
+    if (richtung === null || dialogOffen || liste === null) {
+      return;
+    }
+    ereignis.preventDefault();
+    const namen = liste.map((channel) => channel.name);
+    const nachbar = nachbarChannel(namen, offen, richtung);
+    if (nachbar !== null) {
+      window.location.hash = `#/c/${nachbar}`;
+    }
+  }, { signal });
   folgen();
   return (neueListe) => {
     liste = neueListe;

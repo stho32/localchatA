@@ -1,7 +1,7 @@
 // Unit-Tests der Channel-Auswahl (R00007 F0028 B0148, B0149; F0032 B0168, B0169; ADR-0027; node --test).
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { auswahl, startadresse, auswahlMerken, MERKER, nachbarChannel } from '../../web/auswahl.js';
+import { auswahl, startadresse, auswahlMerken, MERKER, nachbarChannel, kuerzelRichtung } from '../../web/auswahl.js';
 
 const LISTE = ['allgemein', 'test'];
 
@@ -56,4 +56,19 @@ test('Nachbar-Channel ohne Auswahl: ↓ der erste, ↑ der letzte; eine leere Li
   assert.equal(nachbarChannel(['a', 'b', 'c'], 'unbekannt', 'ab'), 'a');
   assert.equal(nachbarChannel([], null, 'ab'), null);
   assert.equal(nachbarChannel([], null, 'auf'), null);
+});
+
+const taste = (key, zusatz = {}, altGraph = false) => ({
+  key, altKey: true, ctrlKey: false, shiftKey: false, metaKey: false, getModifierState: (name) => name === 'AltGraph' && altGraph, ...zusatz,
+});
+
+test('Kürzel: Alt ↓ und Alt ↑ wechseln, mit Strg, Umschalt, Meta oder AltGraph nicht', () => {
+  assert.equal(kuerzelRichtung(taste('ArrowDown')), 'ab');
+  assert.equal(kuerzelRichtung(taste('ArrowUp')), 'auf');
+  assert.equal(kuerzelRichtung(taste('ArrowDown', { ctrlKey: true })), null);
+  assert.equal(kuerzelRichtung(taste('ArrowDown', { shiftKey: true })), null);
+  assert.equal(kuerzelRichtung(taste('ArrowDown', { metaKey: true })), null);
+  assert.equal(kuerzelRichtung(taste('ArrowDown', {}, true)), null);
+  assert.equal(kuerzelRichtung(taste('ArrowDown', { altKey: false })), null);
+  assert.equal(kuerzelRichtung(taste('ArrowLeft')), null);
 });
