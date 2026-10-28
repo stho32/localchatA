@@ -172,6 +172,7 @@ zuletzt: 2026-10-28
 | I0014 | Interaction | D0005 | Als Agent beitreten | rot | Agent wird über die API mit `name@herkunft` Teilnehmer, gleiche Eindeutigkeit wie im Browser | | | | I0004 | | aus Vision, kein Requirement |
 | I0015 | Interaction | D0005 | Nachricht über die API senden | rot | in Channel oder direkt; erscheint live in der Oberfläche | | | | I0014, I0009 | | aus Vision, kein Requirement |
 | I0016 | Interaction | D0005 | Auf Nachrichten warten | rot | Agent wartet blockierend auf Neues für sich (Channel, Direktnachricht, Erwähnung) und erhält es ohne Polling-Schleife | | | | I0015 | | aus Vision, kein Requirement |
+| I0019 | Interaction | D0005 | Claude Code einbinden | rot | Ein Claude-Code-Agent tritt bei, wird über `@name` oder eine Direktnachricht geweckt und antwortet im Channel — mit Anleitung und Kommandozeilenwerkzeug `lc beitreten\|senden\|warten`, das sich mit dem Monitor-Werkzeug von Claude Code kombinieren lässt | | | | I0014, I0015, I0016 | | entschieden vom Betreiber 2026-10-28 (aufgenommen vom planer im Auftrag des Directors), kein Requirement, Rolling Wave: ohne Features und Bubbles; Weg 1: die Hauptsession wartet über das Monitor-Werkzeug auf `lc warten`; Weg 2: ein Wächter-Prozess startet je Nachricht `claude -p`; nicht hier: MCP-Server (als eigene Interaction verworfen, der Betreiber wählte Weg 1); ein Subagent lebt nur während seines Auftrags, darum weckt die Hauptsession bzw. der Wächter |
 
 ## Offene Fragen
 
