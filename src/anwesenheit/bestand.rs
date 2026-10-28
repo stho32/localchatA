@@ -75,6 +75,8 @@ pub type Veroeffentlichen = Arc<dyn Fn(&Wechsel) + Send + Sync>;
 struct Bestand {
     eintraege: HashMap<Token, Eintrag>,
     stand: u64,
+    /// Die späteste Zeit, mit der unter der Sperre gerechnet wurde — „jetzt“ läuft nie dahinter zurück.
+    zuletzt: Option<Zeit>,
 }
 
 #[derive(Clone)]
@@ -109,6 +111,12 @@ impl Eintrag {
 }
 
 impl Bestand {
+    fn monoton(&mut self, jetzt: Zeit) -> Zeit {
+        let spaetestens = self.zuletzt.map_or(jetzt, |zuletzt| zuletzt.max(jetzt));
+        self.zuletzt = Some(spaetestens);
+        spaetestens
+    }
+
     /// Entfernt jede Sitzung, die nicht mehr lebt, und meldet sie als `weg` — nach Kennung, nie still.
     fn abgelaufene_melden(&mut self, jetzt: Zeit, gnadenfrist: Duration) -> Vec<Wechsel> {
         let mut abgelaufen: Vec<Eintrag> = Vec::new();
@@ -212,8 +220,7 @@ impl Anwesenheit {
         wunsch: &Beitrittswunsch,
         herkunft: IpAddr,
     ) -> Result<Beitritt, Beitrittsfehler> {
-        let jetzt = self.uhr.jetzt();
-        let mut bestand = self.bestand();
+        let (mut bestand, jetzt) = self.bestand_und_jetzt();
         self.beitritt_pruefen(&bestand, wunsch, herkunft, jetzt)?;
         let token = self.zufall.token().map_err(Beitrittsfehler::KeinZufall)?;
         let sitzung = Sitzung {
@@ -277,8 +284,7 @@ impl Anwesenheit {
     /// Gültiges Token derselben Herkunft → die Sitzung, ihr Lebenszeichen erneuert; sonst keine
     /// (unbekannt, abgelaufen, andere Herkunft — eine fremde Herkunft erneuert nichts).
     pub fn wiederkehren(&self, token: &Token, herkunft: IpAddr) -> Option<Sitzung> {
-        let jetzt = self.uhr.jetzt();
-        let mut bestand = self.bestand();
+        let (mut bestand, jetzt) = self.bestand_und_jetzt();
         let eintrag = self.lebender_eintrag(&mut bestand, token, herkunft, jetzt)?;
         eintrag.sitzung.letztes_lebenszeichen = jetzt;
         Some(eintrag.sitzung.clone())
@@ -291,8 +297,7 @@ impl Anwesenheit {
         token: &Token,
         herkunft: IpAddr,
     ) -> Option<(Halter, Vec<Wechsel>)> {
-        let jetzt = self.uhr.jetzt();
-        let mut bestand = self.bestand();
+        let (mut bestand, jetzt) = self.bestand_und_jetzt();
         let eintrag = self.lebender_eintrag(&mut bestand, token, herkunft, jetzt)?;
         eintrag.sitzung.letztes_lebenszeichen = jetzt;
         eintrag.haltung.halter_beginnt(jetzt);
@@ -309,6 +314,7 @@ impl Anwesenheit {
     /// entfernt, Name frei); Nachlauf vorbei ohne Halter → `offline`. Je Sitzung nur echte Wechsel.
     pub fn pflegen(&self, jetzt: Zeit) -> Vec<Wechsel> {
         let mut bestand = self.bestand();
+        let jetzt = bestand.monoton(jetzt);
         self.pflegen_unter_der_sperre(&mut bestand, jetzt)
     }
 
@@ -334,8 +340,7 @@ impl Anwesenheit {
     /// Vorher pflegt sie unter derselben Sperre wie der Takt (Wechsel veröffentlicht): die Liste ist zum
     /// Abrufzeitpunkt aktuell und passt trotzdem zu den Wechseln bis zu ihrem Stand (Nacharbeit 2, US-4).
     pub fn stand_mit<T>(&self, unter_der_sperre: impl FnOnce() -> T) -> (Stand, T) {
-        let jetzt = self.uhr.jetzt();
-        let mut bestand = self.bestand();
+        let (mut bestand, jetzt) = self.bestand_und_jetzt();
         self.pflegen_unter_der_sperre(&mut bestand, jetzt);
         let ergebnis = unter_der_sperre();
         let mut liste: Vec<Teilnehmerzeile> = bestand
@@ -354,8 +359,7 @@ impl Anwesenheit {
 
     /// Für den Betrieb: wie viele Sitzungen leben und wie viele Halter (offene Ströme) sie zusammen haben.
     pub fn betrieb(&self) -> Betrieb {
-        let jetzt = self.uhr.jetzt();
-        let bestand = self.bestand();
+        let (bestand, jetzt) = self.bestand_und_jetzt();
         let lebende = bestand
             .eintraege
             .values()
@@ -379,6 +383,15 @@ impl Anwesenheit {
         })
     }
 
+    /// Die Sperre und „jetzt“, gelesen unter ihr und nie früher als die zuletzt verwendete Zeit: ein Abruf,
+    /// der die Sperre nach dem Takt bekommt, oder eine zurückspringende Uhr dreht keinen Wechsel zurück
+    /// (Nacharbeit 3, B1).
+    fn bestand_und_jetzt(&self) -> (MutexGuard<'_, Bestand>, Zeit) {
+        let mut bestand = self.bestand();
+        let jetzt = bestand.monoton(self.uhr.jetzt());
+        (bestand, jetzt)
+    }
+
     fn bestand(&self) -> MutexGuard<'_, Bestand> {
         self.bestand.lock().unwrap_or_else(PoisonError::into_inner)
     }
@@ -393,8 +406,7 @@ pub struct Halter {
 
 impl Drop for Halter {
     fn drop(&mut self) {
-        let jetzt = self.anwesenheit.uhr.jetzt();
-        let mut bestand = self.anwesenheit.bestand();
+        let (mut bestand, jetzt) = self.anwesenheit.bestand_und_jetzt();
         if let Some(eintrag) = bestand.eintraege.get_mut(&self.token) {
             eintrag.haltung.halter_endet(jetzt);
             eintrag.sitzung.letztes_lebenszeichen = jetzt;
@@ -902,7 +914,6 @@ mod tests {
             kurz(&anwesenheit.pflegen(nach_ms(10_000))),
             [(4, claude.clone(), Status::Offline, nach_ms(10_000))]
         );
-        uhr.stellen(nach_ms(10_000));
         assert_eq!(anwesenheit.teilnehmer().stand, 4);
         assert_eq!(
             kurz(&anwesenheit.pflegen(nach_ms(10_250))),
@@ -1079,6 +1090,55 @@ mod tests {
             vec![(1, true), (2, true), (3, true)],
             "beitreten (online), pflegen (offline), verbunden (online)"
         );
+    }
+
+    /// Nacharbeit 3, Code-Review B1: die Pflege beim Abruf dreht keinen Wechsel zurück — auch wenn „jetzt“
+    /// des Abrufs vor der Zeit liegt, mit der schon gepflegt wurde (unfairer Mutex, Uhr springt zurück).
+    #[test]
+    fn ein_abruf_mit_frueherer_zeit_dreht_keinen_wechsel_zurueck() {
+        for (uhr_beim_abruf, ueber_stand_mit) in
+            [(999, false), (500, false), (1000, false), (999, true)]
+        {
+            let uhr = Arc::new(GestellteUhr::neu(zeit(T0)));
+            let gemeldet = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+            let zaehler = Arc::clone(&gemeldet);
+            let anwesenheit = Anwesenheit::neu(
+                Arc::clone(&uhr) as Arc<dyn Uhr>,
+                Arc::new(FesteFolge::neu([1])),
+                Duration::from_secs(60),
+            )
+            .mit_veroeffentlichen(Arc::new(move |_: &Wechsel| {
+                zaehler.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            }));
+            anwesenheit
+                .beitreten(&wunsch("alpha", Art::Agent), ip("127.0.0.2"))
+                .expect("alpha");
+
+            let gepflegt = anwesenheit.pflegen(nach_ms(1000));
+            uhr.stellen(nach_ms(uhr_beim_abruf));
+            let stand = if ueber_stand_mit {
+                anwesenheit.stand_mit(|| ()).0
+            } else {
+                anwesenheit.teilnehmer()
+            };
+
+            let fall = format!("Uhr {uhr_beim_abruf} ms, stand_mit {ueber_stand_mit}");
+            assert_eq!(
+                kurz(&gepflegt),
+                [(2, "alpha@127.0.0.2".into(), Status::Offline, nach_ms(1000))],
+                "{fall}"
+            );
+            assert_eq!(
+                (stand.liste[0].status, stand.liste[0].seit, stand.stand),
+                (Status::Offline, nach_ms(1000), 2),
+                "{fall}"
+            );
+            assert_eq!(
+                gemeldet.load(std::sync::atomic::Ordering::SeqCst),
+                2,
+                "{fall}"
+            );
+        }
     }
 
     #[test]
