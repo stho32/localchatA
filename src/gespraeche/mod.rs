@@ -12,6 +12,7 @@ mod speicherablage;
 pub mod textregel;
 mod verlaufsindex;
 mod verzeichnis;
+pub mod wiederholung;
 
 pub use crate::anwesenheit::Art;
 pub use frist::{FRIST_MAX, FRIST_MIN, Frist, STANDARD_FRIST_TAGE, frist_in_spanne};
