@@ -9,6 +9,7 @@ mod logablage;
 pub mod logformat;
 mod pflege;
 mod speicherablage;
+pub mod textregel;
 mod verlaufsindex;
 mod verzeichnis;
 
