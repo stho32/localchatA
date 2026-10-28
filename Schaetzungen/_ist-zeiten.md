@@ -162,3 +162,4 @@ Nie vom User erfragen.
 | 2026-10-28 | R00006 Channel anlegen | B0139 Antwort im Dialog deuten | Standard | 0,4h | 0,1h | 0,1h | autonom |
 | 2026-10-28 | R00006 Channel anlegen | B0140 Dialog zeichnen und bedienen | unklar | 2-4h | 0,6h | 0,6h | autonom |
 | 2026-10-28 | R00006 Channel anlegen | Lauf R00006: Zeitmessung, Mutationsproben, Gate | Konsolidierung | — | 0,7h | 0,7h | autonom |
+| 2026-10-28 | R00006 Channel anlegen | Nacharbeit 1 (Security CWE-407, UX Fokus) | Nacharbeit | — | 0,4h | 0,4h | autonom |
