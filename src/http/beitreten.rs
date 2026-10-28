@@ -4,14 +4,16 @@
 //! Token derselben Herkunft im Header ist es eine Wiederkehr: 200 dieselbe Sitzung, anderer Name 422.
 
 use super::Zustand;
+use super::koerper::{Koerperfehler, json_lesen};
 use super::teilnehmer::gemeldete_sitzung;
 use crate::anwesenheit::{
     Abweisung, Beitrittsfehler, Beitrittswunsch, GESAMT, JE_HERKUNFT, Sitzung,
 };
 use crate::live::bus::Ereignis;
 use axum::Json;
-use axum::extract::rejection::JsonRejection;
+use axum::body::Body;
 use axum::extract::{ConnectInfo, State};
+use axum::http::header::CONNECTION;
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use chrono::SecondsFormat;
@@ -23,11 +25,11 @@ pub async fn beantworten(
     State(zustand): State<Arc<Zustand>>,
     ConnectInfo(gegenstelle): ConnectInfo<SocketAddr>,
     kopf: HeaderMap,
-    koerper: Result<Json<Value>, JsonRejection>,
+    koerper: Body,
 ) -> Response {
-    let koerper = match koerper {
-        Ok(Json(koerper)) => koerper,
-        Err(abgewiesen) => return kein_json(&abgewiesen),
+    let koerper = match json_lesen(&kopf, koerper).await {
+        Ok(koerper) => koerper,
+        Err(fehler) => return kein_json(fehler),
     };
     let wunsch = match Beitrittswunsch::pruefen(&koerper) {
         Ok(wunsch) => wunsch,
@@ -84,22 +86,29 @@ fn sitzung_als_json(sitzung: &Sitzung, gnadenfrist_s: u64) -> Json<Value> {
 
 const BEISPIEL: &str = r#"{"name":"shoff"}"#;
 
-/// Statt des Klartexts von axum eine deutsche `{fehler}`-Antwort mit dessen Status.
-fn kein_json(abgewiesen: &JsonRejection) -> Response {
-    let grund = match abgewiesen {
-        JsonRejection::MissingJsonContentType(_) => {
-            "Der Körper muss JSON sein — mit Content-Type: application/json schicken"
-        }
-        JsonRejection::JsonSyntaxError(_) | JsonRejection::JsonDataError(_) => {
-            "Der Körper ist kein gültiges JSON — ein JSON-Objekt schicken"
-        }
-        _ if abgewiesen.status() == StatusCode::PAYLOAD_TOO_LARGE => {
-            "Der Körper ist zu groß — nur Name und Art schicken"
-        }
-        _ => "Der Körper ließ sich nicht lesen — erneut als JSON-Objekt schicken",
+/// Eine deutsche `{fehler}`-Antwort mit Grund und Ausweg; nach 413 schließt die Verbindung (der Rest des
+/// Körpers ist höchstens bis zur Obergrenze gelesen).
+fn kein_json(fehler: Koerperfehler) -> Response {
+    let (status, grund) = match fehler {
+        Koerperfehler::KeinJson => (
+            StatusCode::UNSUPPORTED_MEDIA_TYPE,
+            "Der Körper muss JSON sein — mit Content-Type: application/json schicken",
+        ),
+        Koerperfehler::Kaputt => (
+            StatusCode::BAD_REQUEST,
+            "Der Körper ist kein gültiges JSON — ein JSON-Objekt schicken",
+        ),
+        Koerperfehler::ZuGross => (
+            StatusCode::PAYLOAD_TOO_LARGE,
+            "Der Körper ist zu groß — nur Name und Art schicken",
+        ),
     };
     let text = format!("{grund}, zum Beispiel {BEISPIEL}.");
-    (abgewiesen.status(), Json(json!({ "fehler": text }))).into_response()
+    let antwort = (status, Json(json!({ "fehler": text })));
+    if fehler == Koerperfehler::ZuGross {
+        return ([(CONNECTION, "close")], antwort).into_response();
+    }
+    antwort.into_response()
 }
 
 fn regelverstoss(abweisung: Abweisung) -> Response {

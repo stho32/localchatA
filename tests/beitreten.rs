@@ -504,3 +504,103 @@ async fn b0071_ungueltige_eingaben_jeder_laenge_kommen_nur_gekuerzt_zurueck() {
         );
     }
 }
+
+/// Gate-Stabilität, Befund aus R00003 (Nachprüfung R00004): ein zu großer Körper bekommt die deutsche
+/// 413-Antwort, auch wenn der Server antwortet, bevor der Client fertig gesendet hat — nie einen
+/// Verbindungsabbruch. Der Client sendet wie über ein langsames Netz in Stücken: schließt der Server, bevor
+/// der Körper gelesen ist, scheitert das Schreiben (Broken pipe, Reset) — ein Client wie hyper/reqwest meldet
+/// dann den Abbruch statt der 413. Mehrere Durchläufe, damit der Wettlauf sicher auffällt.
+#[test]
+fn zu_grosser_koerper_ergibt_413_auch_bei_langsamem_senden() {
+    use std::io::{Read, Write};
+    let instanz = wegwerf_starten();
+    let ziel: std::net::SocketAddr = instanz
+        .adresse
+        .trim_start_matches("http://")
+        .trim_end_matches('/')
+        .parse()
+        .expect("Adresse");
+    let koerper = format!("{{\"name\":\"{}\"}}", "x".repeat(3 * 1024 * 1024));
+    let mut abbrueche = Vec::new();
+
+    for durchlauf in 1..=5 {
+        let mut verbindung = std::net::TcpStream::connect(ziel).expect("Verbindung");
+        verbindung
+            .set_read_timeout(Some(std::time::Duration::from_secs(5)))
+            .expect("Lesegrenze");
+        let kopf = format!(
+            "POST /api/beitreten HTTP/1.1\r\nHost: {ziel}\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n",
+            koerper.len()
+        );
+        let _ = verbindung.write_all(kopf.as_bytes());
+        let mut schreibfehler = None;
+        for stueck in koerper.as_bytes().chunks(64 * 1024) {
+            if let Err(fehler) = verbindung.write_all(stueck) {
+                schreibfehler = Some(fehler.kind());
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+        let mut antwort = Vec::new();
+        let gelesen = verbindung.read_to_end(&mut antwort);
+        let text = String::from_utf8_lossy(&antwort);
+        let mit_413 = text.starts_with("HTTP/1.1 413") && text.contains("zu groß");
+        if !mit_413 || schreibfehler.is_some() {
+            abbrueche.push(format!(
+                "{durchlauf}: Schreiben {schreibfehler:?}, Lesen {gelesen:?} {:.60}",
+                text
+            ));
+        }
+    }
+
+    assert!(
+        abbrueche.is_empty(),
+        "{} von 5:\n{}",
+        abbrueche.len(),
+        abbrueche.join("\n")
+    );
+}
+
+/// Die Obergrenze des Verwerfens hält (ADR-0010, Slowloris): ein Körper, der angeblich 1 GiB groß ist und
+/// tröpfchenweise kommt, bindet den Server nicht — die 413 kommt nach höchstens etwa 2 s.
+#[test]
+fn ein_riesiger_tropfender_koerper_bekommt_die_413_nach_kurzer_frist() {
+    use std::io::{Read, Write};
+    let instanz = wegwerf_starten();
+    let ziel: std::net::SocketAddr = instanz
+        .adresse
+        .trim_start_matches("http://")
+        .trim_end_matches('/')
+        .parse()
+        .expect("Adresse");
+    let mut verbindung = std::net::TcpStream::connect(ziel).expect("Verbindung");
+    let kopf = format!(
+        "POST /api/beitreten HTTP/1.1\r\nHost: {ziel}\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n",
+        1u64 << 30
+    );
+    verbindung.write_all(kopf.as_bytes()).expect("Kopf");
+    verbindung
+        .write_all(&vec![b' '; 3 * 1024 * 1024])
+        .expect("erste 3 MiB");
+    let tropfen = verbindung.try_clone().expect("Klon");
+    std::thread::spawn(move || {
+        let mut tropfen = tropfen;
+        while tropfen.write_all(b" ").is_ok() {
+            std::thread::sleep(std::time::Duration::from_millis(50));
+        }
+    });
+    verbindung
+        .set_read_timeout(Some(std::time::Duration::from_secs(4)))
+        .expect("Lesegrenze");
+
+    let anfang = std::time::Instant::now();
+    let mut antwort = [0u8; 64];
+    let gelesen = verbindung.read(&mut antwort).expect("Antwort binnen 4 s");
+
+    assert!(
+        String::from_utf8_lossy(&antwort[..gelesen]).starts_with("HTTP/1.1 413"),
+        "{:?}",
+        String::from_utf8_lossy(&antwort[..gelesen])
+    );
+    assert!(anfang.elapsed() < std::time::Duration::from_secs(4));
+}
