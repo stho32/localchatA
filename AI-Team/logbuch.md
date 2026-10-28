@@ -79,3 +79,4 @@ Eine Zeile je Auftrag an eine Rolle und je Retrospektive.
 | 2026-10-28 | #6 I0007 | Entwicklung | entwickler | bestanden | 0:59 | R00006 B0116–B0140 (c242a2a…8cc1f7d), WBS/Ist-Zeiten durch Director (b1076ca) |
 | 2026-10-28 | #7 I0008 | Architektur | architekt | bestanden | 0:27 | ADR-0025–0028, Probe 100.000 Nachrichten (2e04da5, 5e2c2d1, 61011a4); Puffer: #7 Bereit in vorlauf/7, #12 Architektur in vorlauf/12 |
 | 2026-10-28 | #7 I0008 | Bereit | planer | bestanden | 0:12 | R00007, 34 Bubbles, F0026 aktiviert (e1002a1, ebb13c7), aus vorlauf/7 auf main übernommen; Puffer 1 von 2 |
+| 2026-10-28 | #12 I0018 | Architektur | architekt | bestanden | 0:28 | ADR-0029–0033 (2c8611e…99c6d49) aus vorlauf/12 übernommen |
