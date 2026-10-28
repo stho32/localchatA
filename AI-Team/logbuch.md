@@ -142,3 +142,4 @@ Eine Zeile je Auftrag an eine Rolle und je Retrospektive.
 | 2026-10-28 | #12 | Entwicklertest → Abnahme | entwicklertester | bestanden | 0:08 | 34 Szenarien R00008/R00017; stderr-Zeilen aus R00008 nach R00017 bewertet (Director); Demo 3b4b509 |
 | 2026-10-28 | #12 | Retrospektive | director | — | — | Arbeit 0,78 h, Nacharbeit 0,25 h; Ursache: Fehler im Kriterium selbst (Plural in R00008), fehlende Barrierefreiheitsprüfung im Test, wackliger Test |
 | 2026-10-28 | #8 | Auto-Reviews | code-, ux-reviewer | befund | — | Muss: Nachricht geht beim letzten Nachladen verloren, Puffer und Sperrordnung ungetestet; UX S1 hochgestuft (Lesestelle springt nach Pillenklick) |
+| 2026-10-28 | #8 | Auto-Reviews → Nacharbeit | planer, entwickler (entw2) | läuft | 0:13 | Nacharbeit B0326–B0329 (R00011 nachgezogen); Härtung R00020 als #30 (Detailplanung) und #31 (Architektur); entw2 auf nacharbeit/8 |
