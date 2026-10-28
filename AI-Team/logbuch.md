@@ -126,3 +126,4 @@ Eine Zeile je Auftrag an eine Rolle und je Retrospektive.
 | 2026-10-28 | #25 Befund | Entwicklung → Auto-Reviews | entwickler | bestanden | 0:44 | F0056 grün, Gate 689/0 nachgefahren; UX entfällt; 4 Reviews parallel |
 | 2026-10-28 | #12 | Detailplanung → Entwicklung | entwickler | läuft | — | I0018 Aufbewahrungsfrist (R00008, R00017), 29 Bubbles |
 | 2026-10-28 | #25 Befund | Auto-Reviews → Entwicklertest | code-, security-, rechtschreib-, observability-reviewer | bestanden | 0:20 | kein Muss; Sollte/Optional an #26, #18 und architekt |
+| 2026-10-28 | #24 | Nacharbeit → Auto-Reviews | entwickler (entw2) | bestanden | 0:40 | B0292–B0299 im Worktree, Rebase + Gate + Fast-Forward (261874d); Nacharbeitszeit 0,30 h gegen 1,25 h erste Entwicklung; enge Wiederholung 3 Reviews |
