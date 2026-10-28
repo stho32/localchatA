@@ -165,12 +165,22 @@ async fn andere_dateien_werden_weder_gezaehlt_noch_gemeldet() {
 async fn leerer_ordner_hat_alle_kennzahlen_null_und_nichts_auf_stderr() {
     let wurzel = tempfile::tempdir().expect("Wegwerf-Ordner");
 
+    let anfang = std::time::Instant::now();
     let (inhalt, stderr, _) =
         kennzahlen_und_ausgaben(wurzel.path(), "2026-10-27T12:00:00+01:00").await;
+    let gemessen = anfang.elapsed();
 
     assert_eq!(inhalt["nachrichten"], 0);
     assert_eq!(inhalt["log_bytes"], 0);
-    assert_eq!(inhalt["ladezeit_ms"], 0);
+    // Die Ladezeit misst die echte Uhr: auch ein leerer Ordner kann 1 ms brauchen. Ehrlich ist: eine ganze
+    // Zahl, höchstens so lang wie der ganze Lauf von außen gemessen (geladen wird vor der Startzeile).
+    let ladezeit_ms = inhalt["ladezeit_ms"]
+        .as_u64()
+        .expect("ladezeit_ms als Zahl");
+    assert!(
+        u128::from(ladezeit_ms) <= gemessen.as_millis(),
+        "{ladezeit_ms} ms > {gemessen:?}"
+    );
     assert_eq!(inhalt["defekte_zeilen"], 0);
     assert_eq!(stderr, "");
 }

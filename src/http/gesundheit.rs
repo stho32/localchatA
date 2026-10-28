@@ -60,8 +60,18 @@ mod tests {
 
     #[tokio::test]
     async fn leerer_ordner_ist_bereit_mit_kennzahlen_null() {
-        let (status, typ, inhalt) = gesundheit_fuer("/tmp/lc-r1").await;
+        let anfang = std::time::Instant::now();
+        let (status, typ, mut inhalt) = gesundheit_fuer("/tmp/lc-r1").await;
+        let gemessen = anfang.elapsed();
+        let ladezeit_ms = inhalt["ladezeit_ms"]
+            .take()
+            .as_u64()
+            .expect("ladezeit_ms als Zahl");
 
+        assert!(
+            u128::from(ladezeit_ms) <= gemessen.as_millis(),
+            "{ladezeit_ms} ms"
+        );
         assert_eq!(status, 200);
         assert_eq!(typ, "application/json");
         assert_eq!(
@@ -72,7 +82,7 @@ mod tests {
                 "ordner": "/tmp/lc-r1",
                 "nachrichten": 0,
                 "log_bytes": 0,
-                "ladezeit_ms": 0,
+                "ladezeit_ms": null,
                 "defekte_zeilen": 0,
                 "sitzungen": 0,
                 "halter": 0
