@@ -97,3 +97,4 @@ Nie vom User erfragen.
 | 2026-10-28 | R00004 Teilnehmer mit Online-Status sehen | B0078 Ende-Signal für alle | Standard | 0,4h | 0,05h | 0,06h | autonom |
 | 2026-10-28 | R00004 Teilnehmer mit Online-Status sehen | B0079 Herzschlag aus der Umgebung | Standard | 0,4h | 0,01h | 0,01h | autonom |
 | 2026-10-28 | R00004 Teilnehmer mit Online-Status sehen | B0080 Halter | Standard | 0,4h | 0,01h | 0,02h | autonom |
+| 2026-10-28 | R00004 Teilnehmer mit Online-Status sehen | B0081 Anwesenheit pflegen | Standard | 0,4h | 0,02h | 0,02h | autonom |

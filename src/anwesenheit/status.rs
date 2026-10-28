@@ -13,10 +13,6 @@ pub const NACHLAUF: chrono::Duration = chrono::Duration::seconds(1);
 pub enum Status {
     Online,
     Offline,
-    #[cfg_attr(
-        test,
-        expect(dead_code, reason = "Brücke bis B0081: pflegen meldet weg")
-    )]
     /// Die Sitzung lebt nicht mehr (Gnadenfrist ohne Lebenszeichen vorbei) — sie steht in keiner Liste.
     Weg,
 }
