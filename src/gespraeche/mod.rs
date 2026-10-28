@@ -308,12 +308,14 @@ impl Gespraeche {
         })
     }
 
-    /// Ein Block aus dem Verlauf des Channels `name` (ADR-0025 Regel 5): das Verzeichnis lesend nur zum
-    /// Nachschlagen, die Sperre des Gesprächs nur zum Herauskopieren der Sätze; gedeutet wird ohne Sperre.
+    /// Ein Block aus dem Verlauf des Channels `name` mit höchstens `budget` Satzbytes (ADR-0025 Regel 5,
+    /// ADR-0039 Regel 2): das Verzeichnis lesend nur zum Nachschlagen, die Sperre des Gesprächs nur zum
+    /// Herauskopieren der Sätze; gedeutet wird ohne Sperre.
     pub fn verlauf(
         &self,
         name: &str,
         abfrage: &abfrage::Abfrage,
+        budget: usize,
     ) -> Result<Nachrichtenblock, Unbekannt> {
         let name = Channelname::bilden(name).map_err(|_| Unbekannt)?;
         let verlauf = lesend(&self.verzeichnis)
@@ -321,7 +323,7 @@ impl Gespraeche {
             .get(&Gespraech::channel(name.als_text()))
             .cloned()
             .ok_or(Unbekannt)?;
-        let block = sperren(&verlauf).block(abfrage);
+        let block = sperren(&verlauf).block(abfrage, budget);
         Ok(Nachrichtenblock {
             nachrichten: block
                 .saetze
@@ -1271,7 +1273,11 @@ mod tests {
         let (gespraeche, gesendet) = zweihundertfuenfzig_ueber_mitternacht();
 
         let block = gespraeche
-            .verlauf("allgemein", &abfrage(abfrage::Abschnitt::Neueste, 100))
+            .verlauf(
+                "allgemein",
+                &abfrage(abfrage::Abschnitt::Neueste, 100),
+                usize::MAX,
+            )
             .expect("bekannt");
 
         assert_eq!(block.nachrichten, gesendet[150..].to_vec());
@@ -1288,12 +1294,14 @@ mod tests {
             .verlauf(
                 "allgemein",
                 &abfrage(abfrage::Abschnitt::Vor(gesendet[150].zeit), 100),
+                usize::MAX,
             )
             .expect("bekannt");
         let danach = gespraeche
             .verlauf(
                 "allgemein",
                 &abfrage(abfrage::Abschnitt::Nach(gesendet[249].zeit), 100),
+                usize::MAX,
             )
             .expect("bekannt");
 
@@ -1309,7 +1317,7 @@ mod tests {
 
         for name in ["fehlt", "Allgemein", "../allgemein", ""] {
             assert_eq!(
-                gespraeche.verlauf(name, &abfrage(abfrage::Abschnitt::Neueste, 100)),
+                gespraeche.verlauf(name, &abfrage(abfrage::Abschnitt::Neueste, 100), usize::MAX),
                 Err(Unbekannt),
                 "{name}"
             );

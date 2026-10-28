@@ -16,6 +16,15 @@ use axum::response::{IntoResponse, Response};
 use serde_json::{Value, json};
 use std::sync::Arc;
 
+/// Höchstens so viele Satzbytes je Verlaufsblock (ADR-0039 Regel 1, R00013) — 256 KiB. Herleitung:
+/// - Kontrollpaar: der größte realistische Block zu 200 hat 80,7 KiB (100.000 Nachrichten aus dem
+///   Testdaten-Erzeuger) — das Budget liegt 3,2-fach darüber, realistische Blöcke bleiben vollständig.
+/// - Größte Nachricht: 16 384 Bytes Text (ADR-0034); ein Satz ist höchstens ≈ 32 768 Bytes + Kopf (eine Zeile
+///   je Zeichen) — also mindestens 7 Höchstgrößen je Block, bei einzeiligen 16-KiB-Texten 15.
+/// - Speicher: JSON ≤ 2 × Budget + 60 Bytes je Nachricht ≈ 0,5 MiB je Antwort; 64 Verbindungen einer Herkunft
+///   ≤ 32 MiB (Rechnung Q8 in ADR-0039).
+pub const VERLAUF_BUDGET: usize = 262_144;
+
 pub async fn beantworten(
     _: Teilnehmer,
     State(zustand): State<Arc<Zustand>>,
@@ -30,7 +39,7 @@ pub async fn beantworten(
     let gefragt = name.clone();
     let ergebnis = tokio::task::spawn_blocking(move || {
         gespraeche
-            .verlauf(&gefragt, &abfrage)
+            .verlauf(&gefragt, &abfrage, VERLAUF_BUDGET)
             .map(|block| block_als_json(&gefragt, &block))
     })
     .await;
@@ -187,6 +196,11 @@ mod tests {
 
     fn gelesen(query: &str) -> Result<(Abschnitt, usize), Abfragefehler> {
         abfrage_lesen(Some(query)).map(|abfrage| (abfrage.abschnitt, abfrage.n.wert()))
+    }
+
+    #[test]
+    fn das_budget_je_block_ist_256_kib() {
+        assert_eq!(VERLAUF_BUDGET, 262_144);
     }
 
     const VIERZEHN_UHR: &str = "2026-10-28T14:00:00.000+01:00";

@@ -65,37 +65,35 @@ pub struct Block {
 }
 
 impl Verlauf {
-    /// Höchstens `n` Sätze des Abschnitts über beliebig viele Tage, älteste zuerst (ADR-0025 Regeln 2–4). Die Arbeit
-    /// hängt an `n` und an der Zahl der Tage im Abschnitt, nie an der Länge des Verlaufs.
-    pub fn block(&self, abfrage: &Abfrage) -> Block {
-        let n = abfrage.n.wert();
+    /// Höchstens `n` Sätze des Abschnitts über beliebig viele Tage, älteste zuerst (ADR-0025 Regeln 2–4), und
+    /// höchstens `budget` Satzbytes (ADR-0039 Regel 2): in Cursor-Richtung Satz für Satz, solange die Summe der
+    /// Satzlängen das Budget nicht übersteigt; der erste Satz immer. Abgeschnitten wird am cursorfernen Ende,
+    /// kopiert nur, was genommen ist. Die Arbeit hängt an `n` und an der Zahl der Tage im Abschnitt, nie an der
+    /// Länge des Verlaufs.
+    pub fn block(&self, abfrage: &Abfrage, budget: usize) -> Block {
+        let sammler = Sammler::neu(abfrage.n.wert(), budget);
         match abfrage.abschnitt {
-            Abschnitt::Neueste => self.rueckwaerts(None, n),
-            Abschnitt::Vor(zeit) => self.rueckwaerts(Some(zeit), n),
-            Abschnitt::Nach(zeit) => self.vorwaerts(zeit, n),
+            Abschnitt::Neueste => self.rueckwaerts(None, sammler),
+            Abschnitt::Vor(zeit) => self.rueckwaerts(Some(zeit), sammler),
+            Abschnitt::Nach(zeit) => self.vorwaerts(zeit, sammler),
         }
     }
 
-    /// Die `n` jüngsten Sätze echt vor `bis` (ohne `bis`: die neuesten), vom jüngsten Tag zurück.
-    fn rueckwaerts(&self, bis: Option<Zeit>, n: usize) -> Block {
+    /// Die jüngsten Sätze echt vor `bis` (ohne `bis`: die neuesten), vom jüngsten Tag zurück.
+    fn rueckwaerts(&self, bis: Option<Zeit>, mut sammler: Sammler) -> Block {
         let letzter_tag = bis.map_or(NaiveDate::MAX, |zeit| tag_mit_abstand(zeit, 2));
         let mut gesammelt = Vec::new();
         let mut aelter = false;
         for tag in self.tage.range(..=letzter_tag).rev().map(|(_, tag)| tag) {
-            let ende = match bis {
+            let mut index = match bis {
                 Some(zeit) => grenze_im_tag(&tag.rohtext, &tag.satzanfaenge, &zeit, Seite::Vor),
                 None => tag.satzanfaenge.len(),
             };
-            if gesammelt.len() == n {
-                aelter = ende > 0;
-                if aelter {
-                    break;
-                }
-                continue;
+            while index > 0 && sammler.nimmt(tag.satzlaenge(index - 1)) {
+                index -= 1;
+                gesammelt.push(tag.satz(index));
             }
-            let anfang = ende.saturating_sub(n - gesammelt.len());
-            gesammelt.extend((anfang..ende).rev().map(|index| tag.satz(index)));
-            if anfang > 0 {
+            if index > 0 {
                 aelter = true;
                 break;
             }
@@ -112,24 +110,19 @@ impl Verlauf {
         }
     }
 
-    /// Die `n` ältesten Sätze echt nach `ab`, vom Tag der Zeit vorwärts.
-    fn vorwaerts(&self, ab: Zeit, n: usize) -> Block {
+    /// Die ältesten Sätze echt nach `ab`, vom Tag der Zeit vorwärts.
+    fn vorwaerts(&self, ab: Zeit, mut sammler: Sammler) -> Block {
         let erster_tag = tag_mit_abstand(ab, -2);
         let mut gesammelt = Vec::new();
         let mut neuer = false;
         for tag in self.tage.range(erster_tag..).map(|(_, tag)| tag) {
-            let anfang = grenze_im_tag(&tag.rohtext, &tag.satzanfaenge, &ab, Seite::Nach);
+            let mut index = grenze_im_tag(&tag.rohtext, &tag.satzanfaenge, &ab, Seite::Nach);
             let laenge = tag.satzanfaenge.len();
-            if gesammelt.len() == n {
-                neuer = anfang < laenge;
-                if neuer {
-                    break;
-                }
-                continue;
+            while index < laenge && sammler.nimmt(tag.satzlaenge(index)) {
+                gesammelt.push(tag.satz(index));
+                index += 1;
             }
-            let ende = laenge.min(anfang + n - gesammelt.len());
-            gesammelt.extend((anfang..ende).map(|index| tag.satz(index)));
-            if ende < laenge {
+            if index < laenge {
                 neuer = true;
                 break;
             }
@@ -165,13 +158,53 @@ impl Verlauf {
 impl Tag {
     /// Kopie des Satzes `index`: von seinem Anfang bis vor den nächsten Satz bzw. bis zum Ende des Tages.
     fn satz(&self, index: usize) -> Vec<u8> {
+        self.rohtext[self.spanne(index)].to_vec()
+    }
+
+    /// Länge des Satzes `index` in Bytes, ohne ihn zu kopieren.
+    fn satzlaenge(&self, index: usize) -> usize {
+        self.spanne(index).len()
+    }
+
+    fn spanne(&self, index: usize) -> std::ops::Range<usize> {
         let anfang = self.satzanfaenge[index];
         let ende = self
             .satzanfaenge
             .get(index + 1)
             .copied()
             .unwrap_or(self.rohtext.len());
-        self.rohtext[anfang..ende].to_vec()
+        anfang..ende
+    }
+}
+
+/// Zählt, was ein Block schon genommen hat, über alle Tage hinweg: höchstens `n` Sätze und höchstens `budget`
+/// Satzbytes, der erste Satz immer (ADR-0039 Regel 2).
+struct Sammler {
+    n: usize,
+    budget: usize,
+    genommen: usize,
+    summe: usize,
+}
+
+impl Sammler {
+    fn neu(n: usize, budget: usize) -> Sammler {
+        Sammler {
+            n,
+            budget,
+            genommen: 0,
+            summe: 0,
+        }
+    }
+
+    /// Nimmt einen Satz dieser Länge, wenn er noch passt.
+    fn nimmt(&mut self, satzlaenge: usize) -> bool {
+        let summe = self.summe.saturating_add(satzlaenge);
+        let passt = self.genommen < self.n && (self.genommen == 0 || summe <= self.budget);
+        if passt {
+            self.genommen += 1;
+            self.summe = summe;
+        }
+        passt
     }
 }
 
@@ -270,7 +303,7 @@ mod tests {
 
     #[test]
     fn die_neuesten_sind_die_letzten_des_juengsten_tages_aelteste_zuerst() {
-        let block = drei_tage().block(&abfrage(Abschnitt::Neueste, 100));
+        let block = drei_tage().block_ohne_grenze(&abfrage(Abschnitt::Neueste, 100));
 
         assert_eq!(zeiten_im(&block), erwartet("2026-10-28", 150..250));
         assert!(block.aelter);
@@ -281,7 +314,7 @@ mod tests {
     fn vor_reicht_lueckenlos_ueber_die_tagesgrenze() {
         let vor = zeit(&satzzeit("2026-10-28", 49));
 
-        let block = drei_tage().block(&abfrage(Abschnitt::Vor(vor), 100));
+        let block = drei_tage().block_ohne_grenze(&abfrage(Abschnitt::Vor(vor), 100));
 
         let mut zeiten = erwartet("2026-10-27", 199..250);
         zeiten.extend(erwartet("2026-10-28", 0..49));
@@ -294,7 +327,7 @@ mod tests {
     fn nach_dem_letzten_des_aeltesten_tages_kommt_der_anfang_des_mittleren() {
         let nach = zeit(&satzzeit("2026-10-26", 249));
 
-        let block = drei_tage().block(&abfrage(Abschnitt::Nach(nach), 100));
+        let block = drei_tage().block_ohne_grenze(&abfrage(Abschnitt::Nach(nach), 100));
 
         assert_eq!(zeiten_im(&block), erwartet("2026-10-27", 0..100));
         assert!(block.aelter);
@@ -303,7 +336,7 @@ mod tests {
 
     #[test]
     fn nach_einer_zeit_vor_dem_aeltesten_tag_kommen_die_ersten_n() {
-        let block = drei_tage().block(&abfrage(
+        let block = drei_tage().block_ohne_grenze(&abfrage(
             Abschnitt::Nach(zeit("2026-10-01T00:00:00.000+02:00")),
             7,
         ));
@@ -317,15 +350,15 @@ mod tests {
     fn an_den_raendern_ist_der_block_leer_mit_der_richtigen_seite() {
         let verlauf = drei_tage();
 
-        let vor_dem_ersten = verlauf.block(&abfrage(
+        let vor_dem_ersten = verlauf.block_ohne_grenze(&abfrage(
             Abschnitt::Vor(zeit(&satzzeit("2026-10-26", 0))),
             100,
         ));
-        let nach_dem_letzten = verlauf.block(&abfrage(
+        let nach_dem_letzten = verlauf.block_ohne_grenze(&abfrage(
             Abschnitt::Nach(zeit(&satzzeit("2026-10-28", 249))),
             100,
         ));
-        let leer = Verlauf::default().block(&abfrage(Abschnitt::Neueste, 100));
+        let leer = Verlauf::default().block_ohne_grenze(&abfrage(Abschnitt::Neueste, 100));
 
         assert!(vor_dem_ersten.saetze.is_empty());
         assert_eq!((vor_dem_ersten.aelter, vor_dem_ersten.neuer), (false, true));
@@ -342,11 +375,11 @@ mod tests {
     fn genau_n_bis_zum_rand_meldet_keinen_weiteren() {
         let verlauf = drei_tage();
 
-        let alle_bis_auf_einen = verlauf.block(&abfrage(
+        let alle_bis_auf_einen = verlauf.block_ohne_grenze(&abfrage(
             Abschnitt::Vor(zeit(&satzzeit("2026-10-26", 200))),
             200,
         ));
-        let ab_dem_zweiten = verlauf.block(&abfrage(
+        let ab_dem_zweiten = verlauf.block_ohne_grenze(&abfrage(
             Abschnitt::Nach(zeit(&satzzeit("2026-10-28", 49))),
             200,
         ));
@@ -369,7 +402,7 @@ mod tests {
             vec![0, 44],
         );
 
-        let block = verlauf.block(&abfrage(Abschnitt::Neueste, 100));
+        let block = verlauf.block_ohne_grenze(&abfrage(Abschnitt::Neueste, 100));
 
         assert_eq!(
             block.saetze,
@@ -418,6 +451,144 @@ mod tests {
 
     fn tag(text: &str) -> NaiveDate {
         NaiveDate::parse_from_str(text, "%Y-%m-%d").expect("Testtag")
+    }
+
+    impl Verlauf {
+        /// Die Tests aus R00007 fragen nach `n` allein — ein Budget, das nie greift.
+        fn block_ohne_grenze(&self, abfrage: &Abfrage) -> Block {
+            self.block(abfrage, usize::MAX)
+        }
+    }
+
+    // K1 (R00013, ADR-0039 Regel 2): Budget `B` als Parameter, Sätze bekannter Länge `L` (alle gleich lang).
+
+    const SATZ: usize = 49;
+
+    /// Ein Verlauf aus `je_tag` Sätzen je Tag ab 10:00 im Sekundentakt; jeder Satz ist genau `SATZ` Bytes lang.
+    fn verlauf_aus(je_tag: &[(&str, usize)]) -> Verlauf {
+        let mut verlauf = Verlauf::default();
+        for (datum, anzahl) in je_tag {
+            let zeiten: Vec<String> = (0..*anzahl).map(|i| satzzeit(datum, i)).collect();
+            let zeiten: Vec<&str> = zeiten.iter().map(String::as_str).collect();
+            let (rohtext, anfaenge) = tag_mit(&zeiten);
+            assert_eq!(rohtext.len(), SATZ * anzahl, "Satzlänge");
+            verlauf.tag_aufnehmen(tag(datum), rohtext, anfaenge);
+        }
+        verlauf
+    }
+
+    const NEUESTE: Abschnitt = Abschnitt::Neueste;
+
+    fn vor_allem() -> Abschnitt {
+        Abschnitt::Vor(zeit("2026-10-28T23:00:00.000+01:00"))
+    }
+
+    fn nach_allem() -> Abschnitt {
+        Abschnitt::Nach(zeit("2026-10-01T00:00:00.000+02:00"))
+    }
+
+    fn vier_saetze() -> Verlauf {
+        verlauf_aus(&[("2026-10-28", 4)])
+    }
+
+    #[test]
+    fn k1a_summe_genau_budget_nimmt_alle_vier_ohne_flag_zum_fernen_ende() {
+        let budget = 4 * SATZ;
+        for abschnitt in [NEUESTE, vor_allem()] {
+            let block = vier_saetze().block(&abfrage(abschnitt, 200), budget);
+            assert_eq!(
+                zeiten_im(&block),
+                erwartet("2026-10-28", 0..4),
+                "{abschnitt:?}"
+            );
+            assert!(!block.aelter, "{abschnitt:?}");
+        }
+        let block = vier_saetze().block(&abfrage(nach_allem(), 200), budget);
+        assert_eq!(zeiten_im(&block), erwartet("2026-10-28", 0..4));
+        assert!(!block.neuer);
+    }
+
+    #[test]
+    fn k1b_summe_budget_plus_eins_nimmt_die_drei_cursornahen_mit_flag_zum_fernen_ende() {
+        let budget = 4 * SATZ - 1;
+        for abschnitt in [NEUESTE, vor_allem()] {
+            let block = vier_saetze().block(&abfrage(abschnitt, 200), budget);
+            assert_eq!(
+                zeiten_im(&block),
+                erwartet("2026-10-28", 1..4),
+                "{abschnitt:?}"
+            );
+            assert!(block.aelter, "{abschnitt:?}");
+            assert!(!block.neuer, "{abschnitt:?}");
+        }
+        let block = vier_saetze().block(&abfrage(nach_allem(), 200), budget);
+        assert_eq!(zeiten_im(&block), erwartet("2026-10-28", 0..3));
+        assert!(block.neuer);
+        assert!(!block.aelter);
+    }
+
+    #[test]
+    fn k1c_ein_satz_ueber_dem_budget_wird_allein_genommen() {
+        let mut rohtext = Vec::new();
+        let mut anfaenge = Vec::new();
+        for index in 0..3 {
+            anfaenge.push(rohtext.len());
+            let kopf = format!("@ {} a@127.0.0.2\n", satzzeit("2026-10-28", index));
+            rohtext.extend_from_slice(kopf.as_bytes());
+            rohtext.extend_from_slice(format!("  {}\n\n", "x".repeat(300)).as_bytes());
+        }
+        let laenge = rohtext.len() / 3;
+        let budget = laenge - 100;
+        let mut verlauf = Verlauf::default();
+        verlauf.tag_aufnehmen(tag("2026-10-28"), rohtext, anfaenge);
+        for abschnitt in [NEUESTE, vor_allem()] {
+            let block = verlauf.block(&abfrage(abschnitt, 200), budget);
+            assert_eq!(
+                zeiten_im(&block),
+                erwartet("2026-10-28", 2..3),
+                "{abschnitt:?}"
+            );
+            assert!(block.aelter, "{abschnitt:?}");
+        }
+        let block = verlauf.block(&abfrage(nach_allem(), 200), budget);
+        assert_eq!(zeiten_im(&block), erwartet("2026-10-28", 0..1));
+        assert!(block.neuer);
+    }
+
+    #[test]
+    fn k1d_weit_unter_dem_budget_begrenzt_n() {
+        let verlauf = verlauf_aus(&[("2026-10-28", 10)]);
+        for abschnitt in [NEUESTE, vor_allem()] {
+            let block = verlauf.block(&abfrage(abschnitt, 2), 100 * SATZ);
+            assert_eq!(
+                zeiten_im(&block),
+                erwartet("2026-10-28", 8..10),
+                "{abschnitt:?}"
+            );
+            assert!(block.aelter, "{abschnitt:?}");
+        }
+        let block = verlauf.block(&abfrage(nach_allem(), 2), 100 * SATZ);
+        assert_eq!(zeiten_im(&block), erwartet("2026-10-28", 0..2));
+        assert!(block.neuer);
+    }
+
+    #[test]
+    fn k1e_die_summe_zaehlt_ueber_die_tagesgrenze_weiter() {
+        let budget = 3 * SATZ;
+        let rueckwaerts = verlauf_aus(&[("2026-10-27", 3), ("2026-10-28", 2)]);
+        for abschnitt in [NEUESTE, vor_allem()] {
+            let block = rueckwaerts.block(&abfrage(abschnitt, 200), budget);
+            let mut zeiten = erwartet("2026-10-27", 2..3);
+            zeiten.extend(erwartet("2026-10-28", 0..2));
+            assert_eq!(zeiten_im(&block), zeiten, "{abschnitt:?}");
+            assert!(block.aelter, "{abschnitt:?}");
+        }
+        let vorwaerts = verlauf_aus(&[("2026-10-27", 2), ("2026-10-28", 3)]);
+        let block = vorwaerts.block(&abfrage(nach_allem(), 200), budget);
+        let mut zeiten = erwartet("2026-10-27", 0..2);
+        zeiten.extend(erwartet("2026-10-28", 0..1));
+        assert_eq!(zeiten_im(&block), zeiten);
+        assert!(block.neuer);
     }
 
     #[test]
