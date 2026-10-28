@@ -67,10 +67,6 @@ struct Bestand {
 
 struct Eintrag {
     sitzung: Sitzung,
-    #[expect(
-        dead_code,
-        reason = "Brücke bis B0080: Halter und pflegen lesen die Haltung"
-    )]
     haltung: Haltung,
     gemeldet: (Status, Zeit),
 }
@@ -183,6 +179,38 @@ impl Anwesenheit {
         Some(eintrag.sitzung.clone())
     }
 
+    /// Ein Halter der Sitzung (ADR-0016 Regel 2), nur mit gültigem Token derselben Herkunft; ein
+    /// Lebenszeichen. War die Sitzung `offline`, ist sie ab jetzt `online` — der Wechsel kommt mit.
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "Brücke bis B0084: der Strom hält die Sitzung")
+    )]
+    pub fn verbunden(
+        self: &Arc<Self>,
+        token: &Token,
+        herkunft: IpAddr,
+    ) -> Option<(Halter, Vec<Wechsel>)> {
+        let jetzt = self.uhr.jetzt();
+        let mut bestand = self.lebender_bestand(jetzt);
+        let eintrag = bestand
+            .eintraege
+            .get_mut(token)
+            .filter(|eintrag| eintrag.sitzung.herkunft == herkunft)?;
+        eintrag.sitzung.letztes_lebenszeichen = jetzt;
+        eintrag.haltung.halter_beginnt(jetzt);
+        let (status, seit) = eintrag.haltung.status(jetzt);
+        let gewechselt = status != eintrag.gemeldet.0;
+        let mut wechsel = Vec::new();
+        if gewechselt {
+            wechsel.extend(bestand.melden(token, status, seit));
+        }
+        let halter = Halter {
+            anwesenheit: Arc::clone(self),
+            token: token.clone(),
+        };
+        Some((halter, wechsel))
+    }
+
     /// Alle lebenden Sitzungen mit ihrem zuletzt gemeldeten Status, nach Kennung sortiert, und der Stand des
     /// letzten Wechsels — die Liste passt zu den Wechseln, die bis zu diesem Stand veröffentlicht wurden.
     pub fn teilnehmer(&self) -> Stand {
@@ -222,6 +250,24 @@ impl Anwesenheit {
 
     fn bestand(&self) -> MutexGuard<'_, Bestand> {
         self.bestand.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+}
+
+/// Ein offener Strom (später ein Warte-Aufruf) seiner Sitzung: solange er lebt, ist sie `online`; sein
+/// `Drop` zählt herunter und ist ein Lebenszeichen (ADR-0016 Regel 2). Ohne `await`, die Sperre nur kurz.
+pub struct Halter {
+    anwesenheit: Arc<Anwesenheit>,
+    token: Token,
+}
+
+impl Drop for Halter {
+    fn drop(&mut self) {
+        let jetzt = self.anwesenheit.uhr.jetzt();
+        let mut bestand = self.anwesenheit.bestand();
+        if let Some(eintrag) = bestand.eintraege.get_mut(&self.token) {
+            eintrag.haltung.halter_endet(jetzt);
+            eintrag.sitzung.letztes_lebenszeichen = jetzt;
+        }
     }
 }
 
@@ -584,6 +630,78 @@ mod tests {
         uhr.stellen(sekunden_nach_t0(61));
 
         assert_eq!(anwesenheit.teilnehmer().liste, vec![]);
+    }
+
+    #[test]
+    fn halter_nur_mit_gueltigem_token_derselben_herkunft() {
+        let (_, anwesenheit) = mit_gestellter_uhr();
+        let anwesenheit = Arc::new(anwesenheit);
+        let sitzung = anwesenheit
+            .beitreten(&wunsch("claude", Art::Agent), ip("10.0.0.5"))
+            .expect("beigetreten")
+            .sitzung;
+        let unbekannt = Token::lesen("00000000000000000000000000000000").expect("Token");
+
+        assert!(
+            anwesenheit
+                .verbunden(&sitzung.token, ip("10.0.0.6"))
+                .is_none()
+        );
+        assert!(anwesenheit.verbunden(&unbekannt, ip("10.0.0.5")).is_none());
+        assert_eq!(haltung(&anwesenheit, &sitzung.token).halter, 0);
+    }
+
+    #[test]
+    fn mehrere_halter_je_sitzung_erst_der_letzte_setzt_ende_und_lebenszeichen() {
+        let (uhr, anwesenheit) = mit_gestellter_uhr();
+        let anwesenheit = Arc::new(anwesenheit);
+        let sitzung = anwesenheit
+            .beitreten(&wunsch("claude", Art::Agent), ip("10.0.0.5"))
+            .expect("beigetreten")
+            .sitzung;
+
+        uhr.stellen(nach_ms(500));
+        let (erster, wechsel_erster) = anwesenheit
+            .verbunden(&sitzung.token, ip("10.0.0.5"))
+            .expect("erster Halter");
+        let (zweiter, wechsel_zweiter) = anwesenheit
+            .verbunden(&sitzung.token, ip("10.0.0.5"))
+            .expect("zweiter Halter");
+        let mit_zweien = haltung(&anwesenheit, &sitzung.token);
+        uhr.stellen(nach_ms(30_000));
+        drop(erster);
+        let nach_dem_ersten = haltung(&anwesenheit, &sitzung.token);
+        uhr.stellen(nach_ms(40_000));
+        drop(zweiter);
+        let nach_dem_zweiten = haltung(&anwesenheit, &sitzung.token);
+
+        assert_eq!(wechsel_erster, vec![], "im Anlauf schon online gemeldet");
+        assert_eq!(wechsel_zweiter, vec![]);
+        assert_eq!((mit_zweien.halter, mit_zweien.halter_ende), (2, None));
+        assert_eq!(
+            (nach_dem_ersten.halter, nach_dem_ersten.halter_ende),
+            (1, None)
+        );
+        assert_eq!(
+            (nach_dem_zweiten.halter, nach_dem_zweiten.halter_ende),
+            (0, Some(nach_ms(40_000)))
+        );
+        assert_eq!(nach_dem_zweiten.online_seit, nach_ms(0));
+        assert_eq!(
+            lebenszeichen(&anwesenheit, &sitzung.token),
+            nach_ms(40_000),
+            "das Ende des letzten Halters ist ein Lebenszeichen"
+        );
+    }
+
+    fn haltung(anwesenheit: &Anwesenheit, token: &Token) -> Haltung {
+        anwesenheit.bestand().eintraege[token].haltung
+    }
+
+    fn lebenszeichen(anwesenheit: &Anwesenheit, token: &Token) -> Zeit {
+        anwesenheit.bestand().eintraege[token]
+            .sitzung
+            .letztes_lebenszeichen
     }
 
     #[test]

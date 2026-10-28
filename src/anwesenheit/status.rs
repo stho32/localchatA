@@ -47,6 +47,22 @@ impl Haltung {
         }
         (Status::Offline, nachlauf_ende)
     }
+
+    /// Ein Halter mehr; war die Sitzung `offline`, ist sie ab jetzt wieder `online`.
+    pub fn halter_beginnt(&mut self, jetzt: Zeit) {
+        if self.status(jetzt).0 == Status::Offline {
+            self.online_seit = jetzt;
+        }
+        self.halter += 1;
+    }
+
+    /// Ein Halter weniger; der letzte setzt das Halter-Ende, ab dem der Nachlauf läuft.
+    pub fn halter_endet(&mut self, jetzt: Zeit) {
+        self.halter = self.halter.saturating_sub(1);
+        if self.halter == 0 {
+            self.halter_ende = Some(jetzt);
+        }
+    }
 }
 
 #[cfg(test)]
