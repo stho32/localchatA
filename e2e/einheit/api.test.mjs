@@ -107,3 +107,60 @@ test('Nachricht senden: eine Fehlerantwort ist eine Antwort, ein unerreichbarer 
   assert.deepEqual(abgewiesen, { art: 'antwort', status: 422, daten: { fehler: 'leer' } });
   assert.deepEqual(weg, { art: 'netzfehler' });
 });
+
+// R00012 B0240 (F0046 „Zustellung erweitert“ (c), Z11): ohne Antwort bricht der Abruf 10 s nach Beginn ab — bei
+// 9 999 ms noch offen, bei 10 000 ms Zeitüberschreitung (Mutanten 9 s und 11 s werden rot).
+function gestellteZeitgeber() {
+  let jetzt = 0;
+  let wartende = [];
+  return {
+    zeitgeber: {
+      stellen: (ms, rueckruf) => {
+        const eintrag = { faellig: jetzt + ms, rueckruf };
+        wartende.push(eintrag);
+        return eintrag;
+      },
+      loeschen: (eintrag) => { wartende = wartende.filter((wartend) => wartend !== eintrag); },
+    },
+    vorstellen: (ms) => {
+      jetzt += ms;
+      const faellige = wartende.filter((wartend) => wartend.faellig <= jetzt);
+      wartende = wartende.filter((wartend) => wartend.faellig > jetzt);
+      faellige.forEach((wartend) => wartend.rueckruf());
+    },
+    offen: () => wartende.length,
+  };
+}
+
+// Wie fetch: antwortet nie, bricht aber mit einem AbortError ab, sobald das Signal abbricht.
+function nieAntworten(pfad, optionen) {
+  return new Promise((_, gescheitert) => {
+    optionen.signal.addEventListener('abort', () => gescheitert(new DOMException('abgebrochen', 'AbortError')));
+  });
+}
+
+const naechsteRunde = () => new Promise((weiter) => setImmediate(weiter));
+
+test('Nachricht senden ohne Antwort: bei 9 999 ms offen, bei 10 000 ms Zeitüberschreitung', async () => {
+  const uhr = gestellteZeitgeber();
+  let ergebnis = null;
+  nachrichtSenden('a', 'x', 'u', { token: 't', zeitgeber: uhr.zeitgeber }, nieAntworten).then((fertig) => { ergebnis = fertig; });
+
+  uhr.vorstellen(9999);
+  await naechsteRunde();
+  const bei9999 = ergebnis;
+  uhr.vorstellen(1);
+  await naechsteRunde();
+
+  assert.equal(bei9999, null);
+  assert.deepEqual(ergebnis, { art: 'zeitueberschreitung' });
+});
+
+test('Nachricht senden: eine Antwort vor der Zeitgrenze löscht den Zeitgeber', async () => {
+  const uhr = gestellteZeitgeber();
+
+  const ergebnis = await nachrichtSenden('a', 'x', 'u', { token: 't', zeitgeber: uhr.zeitgeber }, antwortenMit(201, '{}').holen);
+
+  assert.deepEqual(ergebnis, { art: 'antwort', status: 201, daten: {} });
+  assert.equal(uhr.offen(), 0);
+});

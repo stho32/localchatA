@@ -64,16 +64,30 @@ export async function verlaufAbrufen(name, cursor, { token, signal }, holen = ho
   }
 }
 
-// Eine Nachricht senden (ADR-0034, ADR-0037 Regel 2): POST {text} mit Sitzung und Wiederholschlüssel.
-// → { art: 'antwort', status, daten } | { art: 'netzfehler' }
-export async function nachrichtSenden(channel, text, schluessel, { token }, holen = holenImBrowser) {
+// Eine Nachricht senden (ADR-0034, ADR-0037 Regeln 2, 4): POST {text} mit Sitzung und Wiederholschlüssel; ohne Antwort
+// bricht der Abruf 10 s nach Beginn ab. zeitgeber: { stellen(ms, rueckruf) → id, loeschen(id) }.
+// → { art: 'antwort', status, daten } | { art: 'zeitueberschreitung' } | { art: 'netzfehler' }
+export async function nachrichtSenden(channel, text, schluessel, { token, zeitgeber = ECHTE_ZEITGEBER }, holen = holenImBrowser) {
+  const ZEITGRENZE_MS = 10000;
   const pfad = `/api/channels/${encodeURIComponent(channel)}/nachrichten`;
   const headers = { [SITZUNGS_HEADER]: token, 'Content-Type': 'application/json', 'Idempotency-Key': schluessel };
+  const abbruch = new AbortController();
+  const zeitgrenze = zeitgeber.stellen(ZEITGRENZE_MS, () => abbruch.abort());
   try {
-    const antwort = await holen(pfad, { method: 'POST', headers, body: JSON.stringify({ text }) });
+    const antwort = await holen(pfad, { method: 'POST', headers, body: JSON.stringify({ text }), signal: abbruch.signal });
     const inhalt = await antwort.text();
     return { art: 'antwort', status: antwort.status, daten: alsJson(inhalt) };
   } catch (ausnahme) {
+    if (abbruch.signal.aborted) {
+      return { art: 'zeitueberschreitung' };
+    }
     return { art: 'netzfehler' };
+  } finally {
+    zeitgeber.loeschen(zeitgrenze);
   }
 }
+
+const ECHTE_ZEITGEBER = {
+  stellen: (ms, rueckruf) => setTimeout(rueckruf, ms),
+  loeschen: (id) => clearTimeout(id),
+};
