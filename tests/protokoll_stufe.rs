@@ -171,3 +171,51 @@ async fn zaehler_zaehlen_auch_unter_der_mindeststufe() {
     assert!(mit(&zeilen(wurzel.path(), "2026-10-28"), "WARNING", "laden").is_empty());
     assert!(!stderr.contains(" WARNING "), "{stderr}");
 }
+
+/// Tritt bei, ruft den Verlauf von `allgemein` ab, beendet geordnet.
+async fn verlauf_abrufen(instanz: &mut Instanz) {
+    let absender = gemeinsam::Absender::von("127.0.0.1");
+    let token = absender
+        .beitreten(&instanz.adresse, serde_json::json!({"name": "beta"}), None)
+        .await
+        .json["token"]
+        .as_str()
+        .expect("Token")
+        .to_string();
+    let antwort = absender
+        .anfrage(
+            reqwest::Method::GET,
+            format!("{}api/channels/allgemein/nachrichten", instanz.adresse),
+        )
+        .header("X-LocalchatA-Sitzung", token)
+        .send()
+        .await
+        .expect("Antwort");
+    assert_eq!(antwort.status(), 200);
+    assert!(instanz.signal_und_warten("TERM").success());
+}
+
+#[tokio::test]
+async fn ohne_angabe_kein_debug_mit_debug_eine_verlaufszeile() {
+    for (stufe, debug_erwartet) in [(None, false), (Some("debug"), true)] {
+        let wurzel = tempfile::tempdir().expect("Wegwerf-Ordner");
+        std::fs::create_dir_all(wurzel.path().join("channels/allgemein")).expect("Channel");
+        let umgebung: Vec<(&str, &str)> = stufe
+            .map(|s| vec![("LOCALCHATA_PROTOKOLL_STUFE", s)])
+            .unwrap_or_default();
+        let mut instanz = starten_um(wurzel.path(), &[], &umgebung);
+
+        verlauf_abrufen(&mut instanz).await;
+
+        let datei = zeilen(wurzel.path(), "2026-10-28");
+        let verlauf = mit(&datei, "DEBUG", "verlauf");
+        if debug_erwartet {
+            assert_eq!(verlauf.len(), 1, "{datei:#?}");
+            assert_eq!(wert(&verlauf[0], "channel").as_deref(), Some("allgemein"));
+            assert_eq!(wert(&verlauf[0], "anzahl").as_deref(), Some("0"));
+            assert!(wert(&verlauf[0], "dauer_ms").is_some(), "{}", verlauf[0]);
+        } else {
+            assert!(datei.iter().all(|z| !z.contains(" DEBUG ")), "{datei:#?}");
+        }
+    }
+}

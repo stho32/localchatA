@@ -5,13 +5,15 @@
 use super::abrisspflege::Pflege;
 use super::ende::Ende;
 use super::verbindungen::{Belegung, Platz, Verbindungsgrenzen};
+use crate::protokoll::{Bereich, Kontext, Protokoll, Schluessel, Stufe};
 use axum::extract::ConnectInfo;
 use axum::{Extension, Router};
 use hyper::server::conn::http1;
 use hyper_util::rt::{TokioIo, TokioTimer};
 use hyper_util::service::TowerToHyperService;
-use std::net::SocketAddr;
-use std::time::Duration;
+use std::net::{IpAddr, SocketAddr};
+use std::sync::Arc;
+use std::time::{Duration, Instant};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::task::JoinSet;
 
@@ -33,6 +35,7 @@ pub async fn ausliefern(
     ende: Ende,
     grenzen: Verbindungsgrenzen,
     pflege: Pflege,
+    protokoll: Arc<Protokoll>,
 ) {
     let belegung = Belegung::neu(grenzen);
     let mut verbindungen = JoinSet::new();
@@ -48,7 +51,12 @@ pub async fn ausliefern(
                     if let Some(platz) = belegung.zulassen(gegenstelle.ip()) {
                         pflege.anwenden(&strom);
                         let app = app.clone().layer(Extension(ConnectInfo(gegenstelle)));
-                        verbindungen.spawn(bedienen(strom, app, platz, ende.clone()));
+                        let verbindung = Verbindungsprotokoll::angenommen(&protokoll, gegenstelle);
+                        let ende = ende.clone();
+                        verbindungen.spawn(async move {
+                            bedienen(strom, app, platz, ende).await;
+                            verbindung.beendet();
+                        });
                     }
                 }
                 Err(_) => tokio::time::sleep(ANNAHMEPAUSE).await,
@@ -62,6 +70,40 @@ pub async fn ausliefern(
         .is_err()
     {
         verbindungen.shutdown().await;
+    }
+}
+
+/// DEBUG `verbindung` je zugelassener Verbindung: angenommen, und beendet mit der Dauer (ADR-0042 Regel 2).
+struct Verbindungsprotokoll {
+    protokoll: Arc<Protokoll>,
+    herkunft: IpAddr,
+    seit: Instant,
+}
+
+impl Verbindungsprotokoll {
+    fn angenommen(protokoll: &Arc<Protokoll>, gegenstelle: SocketAddr) -> Verbindungsprotokoll {
+        protokoll.eintragen(
+            Stufe::Debug,
+            Bereich::Verbindung,
+            "Verbindung angenommen",
+            Kontext::neu().mit(Schluessel::Herkunft, gegenstelle.ip()),
+        );
+        Verbindungsprotokoll {
+            protokoll: Arc::clone(protokoll),
+            herkunft: gegenstelle.ip(),
+            seit: Instant::now(),
+        }
+    }
+
+    fn beendet(self) {
+        self.protokoll.eintragen(
+            Stufe::Debug,
+            Bereich::Verbindung,
+            "Verbindung beendet",
+            Kontext::neu()
+                .mit(Schluessel::Herkunft, self.herkunft)
+                .mit(Schluessel::DauerMs, self.seit.elapsed().as_millis()),
+        );
     }
 }
 
@@ -94,8 +136,8 @@ mod tests {
     use crate::start::abrisspflege::{Pflegefehler, pflege_aus};
     use axum::routing::get;
     use std::net::IpAddr;
+    use std::sync::Mutex;
     use std::sync::atomic::{AtomicUsize, Ordering};
-    use std::sync::{Arc, Mutex};
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
     fn programmpflege() -> Pflege {
@@ -124,6 +166,7 @@ mod tests {
             Ende::nie(),
             grenzen,
             programmpflege(),
+            Arc::new(Protokoll::ohne_ablage()),
         ));
         port
     }
@@ -179,7 +222,14 @@ mod tests {
         let listener = TcpListener::bind(("127.0.0.1", 0)).await.expect("gebunden");
         let adresse = listener.local_addr().expect("Adresse");
         let grenzen = Verbindungsgrenzen::fuer_deskriptoren(None);
-        let schleife = tokio::spawn(ausliefern(listener, app, ende, grenzen, programmpflege()));
+        let schleife = tokio::spawn(ausliefern(
+            listener,
+            app,
+            ende,
+            grenzen,
+            programmpflege(),
+            Arc::new(Protokoll::ohne_ablage()),
+        ));
         let anfrage = tokio::spawn(reqwest::get(format!("http://{adresse}/warten")));
         tokio::time::sleep(Duration::from_millis(200)).await;
 
@@ -230,7 +280,14 @@ mod tests {
         let app = Router::new().route("/", get(|| async { "da" }));
         let listener = TcpListener::bind(("127.0.0.1", 0)).await.expect("gebunden");
         let adresse = listener.local_addr().expect("Adresse");
-        tokio::spawn(ausliefern(listener, app, Ende::nie(), grenzen, pflege));
+        tokio::spawn(ausliefern(
+            listener,
+            app,
+            Ende::nie(),
+            grenzen,
+            pflege,
+            Arc::new(Protokoll::ohne_ablage()),
+        ));
         adresse
     }
 

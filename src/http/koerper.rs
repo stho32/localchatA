@@ -4,13 +4,14 @@
 //! er antwortet — schlösse er mit ungelesenen Bytes, setzte das Betriebssystem die Verbindung zurück, und der
 //! Client sähe einen Abbruch statt der 413. Die Obergrenzen halten Großlast und Tröpfeln aus (ADR-0010).
 
-use crate::protokoll::Protokoll;
 use crate::protokoll::zaehler::Abweisungsart;
+use crate::protokoll::{Bereich, Kontext, Protokoll, Schluessel, Stufe};
 use axum::body::Body;
 use axum::http::HeaderMap;
 use axum::http::header::CONTENT_TYPE;
 use futures_util::StreamExt;
 use serde_json::Value;
+use std::net::IpAddr;
 use std::time::Duration;
 
 const VERWERFEN_HOECHSTENS: usize = 16 * 1024 * 1024;
@@ -28,63 +29,154 @@ pub enum Koerperfehler {
     ZuGross,
 }
 
-/// Wo ein Körper gelesen wird: das Protokoll, das Abweisungen zählt.
+/// Wo ein Körper gelesen wird: Protokoll, Routenmuster, Herkunft, Kennung falls bekannt.
 pub struct Koerperort<'a> {
     pub protokoll: &'a Protokoll,
+    pub route: &'static str,
+    pub herkunft: IpAddr,
+    pub kennung: Option<&'a str>,
 }
 
-/// Liest den JSON-Körper wie `lesen`; jede Abweisung zählt in `abgewiesen` (ADR-0043, Ergänzung) — zentral
-/// hier, nicht je Handler.
+/// Wie der Rest eines zu großen Körpers verworfen wurde (ADR-0042, Ergänzung 4).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Verworfen {
+    Vollstaendig,
+    Frist,
+    Obergrenze,
+}
+
+impl Verworfen {
+    fn als_text(self) -> &'static str {
+        match self {
+            Verworfen::Vollstaendig => "vollständig",
+            Verworfen::Frist => "frist",
+            Verworfen::Obergrenze => "obergrenze",
+        }
+    }
+}
+
+/// Liest den JSON-Körper wie `lesen`; jede Abweisung zählt in `abgewiesen` (ADR-0043, Ergänzung) und steht als
+/// DEBUG `körper` mit Route, Status, Herkunft, Art, Bytes, Verwerfen und angekündigtem Typ im Protokoll —
+/// zentral hier, nicht je Handler. Nie Körperinhalt.
 pub async fn json_lesen(
     kopf: &HeaderMap,
     koerper: Body,
     grenze: usize,
     ort: &Koerperort<'_>,
 ) -> Result<Value, Koerperfehler> {
-    let ergebnis = lesen(kopf, koerper, grenze).await;
-    if let Err(fehler) = ergebnis {
-        ort.protokoll.abgewiesen(match fehler {
-            Koerperfehler::ZuGross => Abweisungsart::ZuGross,
-            Koerperfehler::KeinJson => Abweisungsart::KeinJson,
-            Koerperfehler::Kaputt => Abweisungsart::Kaputt,
-            Koerperfehler::Abgebrochen => Abweisungsart::Abgebrochen,
-        });
+    let gelesen = lesen_mit_umstaenden(kopf, koerper, grenze).await;
+    if let Err(fehler) = gelesen.ergebnis {
+        abweisung_eintragen(kopf, ort, fehler, &gelesen);
     }
-    ergebnis
+    gelesen.ergebnis
+}
+
+fn abweisung_eintragen(
+    kopf: &HeaderMap,
+    ort: &Koerperort<'_>,
+    fehler: Koerperfehler,
+    gelesen: &Gelesen,
+) {
+    let (art, status, abweisungsart) = match fehler {
+        Koerperfehler::ZuGross => ("zu_gross", Some(413), Abweisungsart::ZuGross),
+        Koerperfehler::KeinJson => ("kein_json", Some(415), Abweisungsart::KeinJson),
+        Koerperfehler::Kaputt => ("kaputt", Some(400), Abweisungsart::Kaputt),
+        Koerperfehler::Abgebrochen => ("abgebrochen", None, Abweisungsart::Abgebrochen),
+    };
+    ort.protokoll.abgewiesen(abweisungsart);
+    let mut kontext = Kontext::neu().mit(Schluessel::Route, ort.route);
+    if let Some(status) = status {
+        kontext = kontext.mit(Schluessel::Status, status);
+    }
+    kontext = match ort.kennung {
+        Some(kennung) => kontext.mit(Schluessel::Kennung, kennung),
+        None => kontext.mit(Schluessel::Herkunft, ort.herkunft),
+    };
+    if ort.kennung.is_some() {
+        kontext = kontext.mit(Schluessel::Herkunft, ort.herkunft);
+    }
+    kontext = kontext
+        .mit(Schluessel::Art, art)
+        .mit(Schluessel::Bytes, gelesen.bytes);
+    if let Some(verworfen) = gelesen.verworfen {
+        kontext = kontext.mit(Schluessel::Verworfen, verworfen.als_text());
+    }
+    if fehler == Koerperfehler::KeinJson {
+        let typ = kopf
+            .get(CONTENT_TYPE)
+            .map(|wert| String::from_utf8_lossy(wert.as_bytes()).into_owned())
+            .unwrap_or_default();
+        kontext = kontext.mit(Schluessel::Typ, typ);
+    }
+    ort.protokoll
+        .eintragen(Stufe::Debug, Bereich::Koerper, "Körper abgewiesen", kontext);
+}
+
+/// Ergebnis und Umstände des Lesens: gelesene Bytes (mit dem Verworfenen) und wie verworfen wurde.
+struct Gelesen {
+    ergebnis: Result<Value, Koerperfehler>,
+    bytes: usize,
+    verworfen: Option<Verworfen>,
 }
 
 /// Erst den Körper lesen (höchstens `grenze` Bytes), dann Typ und Inhalt prüfen — so ist er in jedem Fall
 /// gelesen, bevor die Antwort geht, und über der Grenze wird nichts geparst.
+#[cfg(test)]
 async fn lesen(kopf: &HeaderMap, koerper: Body, grenze: usize) -> Result<Value, Koerperfehler> {
-    let bytes = begrenzt_lesen(koerper, grenze).await?;
-    if !json_angekuendigt(kopf) {
-        return Err(Koerperfehler::KeinJson);
-    }
-    serde_json::from_slice(&bytes).map_err(|_| Koerperfehler::Kaputt)
+    lesen_mit_umstaenden(kopf, koerper, grenze).await.ergebnis
 }
 
-async fn begrenzt_lesen(koerper: Body, grenze: usize) -> Result<Vec<u8>, Koerperfehler> {
+async fn lesen_mit_umstaenden(kopf: &HeaderMap, koerper: Body, grenze: usize) -> Gelesen {
     let mut strom = koerper.into_data_stream();
     let mut gelesen = Vec::new();
     while let Some(stueck) = strom.next().await {
-        let stueck = stueck.map_err(|_| Koerperfehler::Abgebrochen)?;
+        let Ok(stueck) = stueck else {
+            return Gelesen {
+                ergebnis: Err(Koerperfehler::Abgebrochen),
+                bytes: gelesen.len(),
+                verworfen: None,
+            };
+        };
         let gesamt = gelesen.len() + stueck.len();
         if gesamt > grenze {
-            let _ = tokio::time::timeout(VERWERFEN_FRIST, rest_verwerfen(&mut strom, gesamt)).await;
-            return Err(Koerperfehler::ZuGross);
+            let (bytes, verworfen) =
+                match tokio::time::timeout(VERWERFEN_FRIST, rest_verwerfen(&mut strom, gesamt))
+                    .await
+                {
+                    Ok(ergebnis) => ergebnis,
+                    Err(_) => (gesamt, Verworfen::Frist),
+                };
+            return Gelesen {
+                ergebnis: Err(Koerperfehler::ZuGross),
+                bytes,
+                verworfen: Some(verworfen),
+            };
         }
         gelesen.extend_from_slice(&stueck);
     }
-    Ok(gelesen)
+    let ergebnis = if json_angekuendigt(kopf) {
+        serde_json::from_slice(&gelesen).map_err(|_| Koerperfehler::Kaputt)
+    } else {
+        Err(Koerperfehler::KeinJson)
+    };
+    Gelesen {
+        ergebnis,
+        bytes: gelesen.len(),
+        verworfen: None,
+    }
 }
 
-async fn rest_verwerfen(strom: &mut axum::body::BodyDataStream, mut gesamt: usize) {
+async fn rest_verwerfen(
+    strom: &mut axum::body::BodyDataStream,
+    mut gesamt: usize,
+) -> (usize, Verworfen) {
     while gesamt <= VERWERFEN_HOECHSTENS {
         match strom.next().await {
             Some(Ok(stueck)) => gesamt += stueck.len(),
-            _ => return,
+            _ => return (gesamt, Verworfen::Vollstaendig),
         }
     }
+    (gesamt, Verworfen::Obergrenze)
 }
 
 /// Wie axum: `application/json` oder ein Untertyp mit Endung `+json`, Parameter wie `charset` erlaubt.

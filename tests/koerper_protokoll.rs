@@ -3,6 +3,7 @@
 
 mod gemeinsam;
 
+use gemeinsam::protokoll::{mit, wert, zeilen};
 use gemeinsam::{Instanz, gesundheit, starten_mit};
 use std::io::Write;
 use std::path::Path;
@@ -75,4 +76,69 @@ async fn us11_abgewiesene_koerper_werden_je_art_gezaehlt() {
         abgewiesen,
         serde_json::json!({"zu_gross":1,"kein_json":1,"kaputt":1,"abgebrochen":1})
     );
+}
+
+#[tokio::test]
+async fn debug_je_anfrage_eine_zeile_je_abweisung_mit_route_status_herkunft_und_art() {
+    let wurzel = tempfile::tempdir().expect("Wegwerf-Ordner");
+    let instanz = starten_um(wurzel.path(), &[("LOCALCHATA_PROTOKOLL_STUFE", "debug")]);
+
+    let status = vier_abweisungen(&instanz).await;
+    let _ = abgewiesen_nach_abbruch(&instanz).await;
+    let unbekannt = reqwest::get(format!("{}api/gibtsnicht%0aX", instanz.adresse))
+        .await
+        .expect("Antwort")
+        .status()
+        .as_u16();
+
+    assert_eq!(status, [413, 415, 400]);
+    assert_eq!(unbekannt, 404);
+    let datei = zeilen(wurzel.path(), "2026-10-28");
+    let koerper: Vec<String> = datei
+        .iter()
+        .filter(|z| {
+            z.contains(" DEBUG ") && wert(z, "route").as_deref() == Some("POST /api/beitreten")
+        })
+        .cloned()
+        .collect();
+    assert_eq!(koerper.len(), 4, "{datei:#?}");
+    let mit_status = |code: &str| {
+        koerper
+            .iter()
+            .filter(|z| wert(z, "status").as_deref() == Some(code))
+            .cloned()
+            .collect::<Vec<_>>()
+    };
+    for code in ["413", "415", "400"] {
+        let gefunden = mit_status(code);
+        assert_eq!(gefunden.len(), 1, "{code}: {koerper:#?}");
+        assert_eq!(wert(&gefunden[0], "herkunft").as_deref(), Some("127.0.0.1"));
+    }
+    assert_eq!(
+        wert(&mit_status("415")[0], "typ").as_deref(),
+        Some("text/plain")
+    );
+    let zu_gross = &mit_status("413")[0];
+    assert_eq!(wert(zu_gross, "art").as_deref(), Some("zu_gross"));
+    assert!(wert(zu_gross, "bytes").is_some(), "{zu_gross}");
+    assert_eq!(wert(zu_gross, "verworfen").as_deref(), Some("vollständig"));
+    assert!(
+        koerper
+            .iter()
+            .any(|z| wert(z, "art").as_deref() == Some("abgebrochen")),
+        "{koerper:#?}"
+    );
+    let pfad = mit(&datei, "DEBUG", "verbindung").len();
+    assert!(pfad > 0, "Verbindungen auf Debug: {datei:#?}");
+    let unbekannte: Vec<&String> = datei
+        .iter()
+        .filter(|z| z.contains(" DEBUG ") && z.contains("gibtsnicht"))
+        .collect();
+    assert_eq!(unbekannte.len(), 1, "{datei:#?}");
+    assert!(
+        unbekannte[0].contains("/api/gibtsnicht\\u{a}X"),
+        "{}",
+        unbekannte[0]
+    );
+    assert_eq!(wert(unbekannte[0], "status").as_deref(), Some("404"));
 }

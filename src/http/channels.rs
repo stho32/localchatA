@@ -7,6 +7,7 @@
 
 use super::Zustand;
 use super::abbruch::{Abgebrochen, Grenzort, abbruch_beantworten};
+use super::anfrageprotokoll::Eingetragen;
 use super::koerper::{Koerperfehler, Koerperort, json_lesen};
 use super::teilnehmer::Teilnehmer;
 use super::teilnehmerliste::zeit_als_text;
@@ -31,6 +32,9 @@ pub async fn anlegen(
 ) -> Response {
     let ort = Koerperort {
         protokoll: &zustand.protokoll,
+        route: "POST /api/channels",
+        herkunft: teilnehmer.herkunft,
+        kennung: Some(teilnehmer.kennung.als_text()),
     };
     let koerper = match json_lesen(&kopf, koerper, CHANNEL_ANLEGEN_GRENZE, &ort).await {
         Ok(koerper) => koerper,
@@ -254,8 +258,11 @@ fn kein_json(fehler: Koerperfehler) -> Response {
         status,
         Json(json!({ "fehler": format!("{grund}, zum Beispiel {BEISPIEL}.") })),
     );
-    if fehler == Koerperfehler::ZuGross {
-        return ([(CONNECTION, "close")], antwort).into_response();
-    }
-    antwort.into_response()
+    let mut antwort = if fehler == Koerperfehler::ZuGross {
+        ([(CONNECTION, "close")], antwort).into_response()
+    } else {
+        antwort.into_response()
+    };
+    antwort.extensions_mut().insert(Eingetragen);
+    antwort
 }

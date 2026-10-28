@@ -4,6 +4,7 @@
 //! Token derselben Herkunft im Header ist es eine Wiederkehr: 200 dieselbe Sitzung, anderer Name 422.
 
 use super::Zustand;
+use super::anfrageprotokoll::Eingetragen;
 use super::koerper::{Koerperfehler, Koerperort, json_lesen};
 use super::teilnehmer::gemeldete_sitzung;
 use crate::anwesenheit::{
@@ -29,6 +30,9 @@ pub async fn beantworten(
 ) -> Response {
     let ort = Koerperort {
         protokoll: &zustand.protokoll,
+        route: "POST /api/beitreten",
+        herkunft: gegenstelle.ip(),
+        kennung: None,
     };
     let koerper = match json_lesen(&kopf, koerper, BEITRETEN_GRENZE, &ort).await {
         Ok(koerper) => koerper,
@@ -117,10 +121,13 @@ fn kein_json(fehler: Koerperfehler) -> Response {
     };
     let text = format!("{grund}, zum Beispiel {BEISPIEL}.");
     let antwort = (status, Json(json!({ "fehler": text })));
-    if fehler == Koerperfehler::ZuGross {
-        return ([(CONNECTION, "close")], antwort).into_response();
-    }
-    antwort.into_response()
+    let mut antwort = if fehler == Koerperfehler::ZuGross {
+        ([(CONNECTION, "close")], antwort).into_response()
+    } else {
+        antwort.into_response()
+    };
+    antwort.extensions_mut().insert(Eingetragen);
+    antwort
 }
 
 fn regelverstoss(abweisung: Abweisung) -> Response {

@@ -1,6 +1,7 @@
 //! HTTP-Schnittstelle: Router an der Systemgrenze (A00004).
 
 mod abbruch;
+mod anfrageprotokoll;
 mod beitreten;
 mod channels;
 mod eingebettet;
@@ -56,6 +57,7 @@ pub struct Zustand {
 /// Alle Routen unter der Schicht `grenzschutz` (ADR-0014) — sie ist die äußerste, auch für 404 und 405.
 pub fn router(zustand: Zustand) -> Router {
     let grenzschutz = Arc::new(zustand.grenzschutz.clone());
+    let protokoll = Arc::clone(&zustand.protokoll);
     Router::new()
         .route("/", get(oberflaeche::wurzel))
         .route("/web/{datei}", get(oberflaeche::datei))
@@ -74,6 +76,10 @@ pub fn router(zustand: Zustand) -> Router {
         .route("/api/ereignisse", get(ereignisse::beantworten))
         .route("/api/verlassen", post(verlassen::beantworten))
         .with_state(Arc::new(zustand))
+        .layer(middleware::from_fn_with_state(
+            protokoll,
+            anfrageprotokoll::schicht,
+        ))
         .layer(middleware::from_fn_with_state(
             grenzschutz,
             grenzschutz::schicht,
@@ -143,7 +149,14 @@ pub(crate) mod testserver {
             pflege_aus(Duration::from_secs(5)),
             Arc::new(crate::protokoll::Protokoll::ohne_ablage()),
         );
-        tokio::spawn(ausliefern(listener, app, Ende::nie(), grenzen, pflege));
+        tokio::spawn(ausliefern(
+            listener,
+            app,
+            Ende::nie(),
+            grenzen,
+            pflege,
+            Arc::new(crate::protokoll::Protokoll::ohne_ablage()),
+        ));
         format!("http://{adresse}/")
     }
 

@@ -23,6 +23,7 @@ use ende::Ende;
 use startfehler::Startfehler;
 use verbindungen::Verbindungsgrenzen;
 
+use crate::anwesenheit::status::Status;
 use crate::anwesenheit::{Anwesenheit, gnadenfrist};
 use crate::gespraeche::{Dateiablage, Gespraeche};
 use crate::http::{self, Grenzschutz, Zustand};
@@ -210,7 +211,7 @@ async fn nach_der_sperre(
             Arc::new(Betriebssystemzufall),
             gnadenfrist,
         )
-        .mit_veroeffentlichen(bus::anwesenheit_veroeffentlichen(&bus)),
+        .mit_veroeffentlichen(anwesenheit_veroeffentlichen(&bus, &protokoll)),
     );
     let listener = port::listener_binden(&auftrag.host, auftrag.port).await?;
     let adresse = listener.local_addr().map_err(|fehler| Startfehler::Port {
@@ -276,6 +277,7 @@ async fn nach_der_sperre(
         ende,
         Verbindungsgrenzen::fuer_diesen_prozess(),
         Pflege::kernel(pflege_aus(herzschlag), Arc::clone(&protokoll)),
+        Arc::clone(&protokoll),
     )
     .await;
     protokoll.eintragen(
@@ -309,6 +311,31 @@ fn verlauf_laden(
         );
     }
     Ok(gespraeche)
+}
+
+/// Wechsel an den Bus; online/offline zusätzlich als DEBUG `sitzung` (ADR-0042 Regel 2).
+fn anwesenheit_veroeffentlichen(
+    bus: &Arc<Bus>,
+    protokoll: &Arc<Protokoll>,
+) -> crate::anwesenheit::Veroeffentlichen {
+    let an_den_bus = bus::anwesenheit_veroeffentlichen(bus);
+    let protokoll = Arc::clone(protokoll);
+    Arc::new(move |wechsel: &crate::anwesenheit::Wechsel| {
+        let text = match wechsel.teilnehmer.status {
+            Status::Online => Some("Sitzung online"),
+            Status::Offline => Some("Sitzung offline"),
+            Status::Weg => None,
+        };
+        if let Some(text) = text {
+            protokoll.eintragen(
+                Stufe::Debug,
+                Bereich::Sitzung,
+                text,
+                Kontext::neu().mit(Schluessel::Kennung, wechsel.teilnehmer.kennung.als_text()),
+            );
+        }
+        an_den_bus(wechsel);
+    })
 }
 
 /// Die einzige Zeile auf stdout; Tests und Director lesen die Adresse daraus (X00001).

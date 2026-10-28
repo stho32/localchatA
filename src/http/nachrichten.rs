@@ -42,19 +42,31 @@ pub async fn beantworten(
     let gespraeche = Arc::clone(&zustand.gespraeche);
     let gefragt = name.clone();
     let testpanik = zustand.testpanik.clone();
+    let beginn = std::time::Instant::now();
     let ergebnis = zustand
         .werkbank
         .ausfuehren(move || {
             testpanik.verlauf();
             gespraeche
                 .verlauf(&gefragt, &abfrage, VERLAUF_BUDGET)
-                .map(|block| block_als_bytes(&gefragt, &block))
+                .map(|block| (block.nachrichten.len(), block_als_bytes(&gefragt, &block)))
         })
         .await;
     match ergebnis {
-        Ok(Ok(Ok(bytes))) => ([(CONTENT_TYPE, "application/json")], bytes).into_response(),
+        Ok(Ok((anzahl, Ok(bytes)))) => {
+            zustand.protokoll.eintragen(
+                Stufe::Debug,
+                Bereich::Verlauf,
+                "Verlaufsblock gelesen",
+                Kontext::neu()
+                    .mit(Schluessel::Channel, &name)
+                    .mit(Schluessel::Anzahl, anzahl)
+                    .mit(Schluessel::DauerMs, beginn.elapsed().as_millis()),
+            );
+            ([(CONTENT_TYPE, "application/json")], bytes).into_response()
+        }
         Ok(Err(Unbekannt)) => unbekannt(&name),
-        Ok(Ok(Err(fehler))) => nicht_gelesen(&zustand, &fehler.to_string()),
+        Ok(Ok((_, Err(fehler)))) => nicht_gelesen(&zustand, &fehler.to_string()),
         Err(abbruch) => abbruch_beantworten(
             &zustand.protokoll,
             &abbruch,
