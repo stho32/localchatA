@@ -63,3 +63,17 @@ export async function verlaufAbrufen(name, cursor, { token, signal }, holen = ho
     return { art: 'fehler', status: 0 };
   }
 }
+
+// Eine Nachricht senden (ADR-0034, ADR-0037 Regel 2): POST {text} mit Sitzung und Wiederholschlüssel.
+// → { art: 'antwort', status, daten } | { art: 'netzfehler' }
+export async function nachrichtSenden(channel, text, schluessel, { token }, holen = holenImBrowser) {
+  const pfad = `/api/channels/${encodeURIComponent(channel)}/nachrichten`;
+  const headers = { [SITZUNGS_HEADER]: token, 'Content-Type': 'application/json', 'Idempotency-Key': schluessel };
+  try {
+    const antwort = await holen(pfad, { method: 'POST', headers, body: JSON.stringify({ text }) });
+    const inhalt = await antwort.text();
+    return { art: 'antwort', status: antwort.status, daten: alsJson(inhalt) };
+  } catch (ausnahme) {
+    return { art: 'netzfehler' };
+  }
+}

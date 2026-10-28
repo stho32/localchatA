@@ -1,7 +1,7 @@
 // Unit-Tests des API-Aufrufs der Oberfläche (R00003 F0010, node --test) mit einem Ersatz für fetch.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { rufen } from '../../web/api.js';
+import { rufen, nachrichtSenden } from '../../web/api.js';
 
 function antwortenMit(status, text) {
   const aufrufe = [];
@@ -83,4 +83,27 @@ test('fristSetzen: ein unerreichbarer Server ist serverWeg', async () => {
   };
 
   assert.deepEqual(await fristSetzen('allgemein', 30, false, { token: 'abc' }, holen), { serverWeg: true, status: 0, daten: null });
+});
+
+// R00011 B0219: POST …/nachrichten mit Sitzung, JSON {text} und Idempotency-Key; Antwort oder Netzfehler.
+test('Nachricht senden schickt text, Sitzung und Schlüssel und liefert Status und Daten', async () => {
+  const { holen, aufrufe } = antwortenMit(201, '{"channel":"a-b","nachricht":{"zeit":"z"}}');
+
+  const ergebnis = await nachrichtSenden('a-b', 'Hallo\nWelt', 'u-1', { token: 't' }, holen);
+
+  assert.deepEqual(ergebnis, { art: 'antwort', status: 201, daten: { channel: 'a-b', nachricht: { zeit: 'z' } } });
+  assert.equal(aufrufe[0].pfad, '/api/channels/a-b/nachrichten');
+  assert.equal(aufrufe[0].optionen.method, 'POST');
+  assert.equal(aufrufe[0].optionen.headers['X-LocalchatA-Sitzung'], 't');
+  assert.equal(aufrufe[0].optionen.headers['Content-Type'], 'application/json');
+  assert.equal(aufrufe[0].optionen.headers['Idempotency-Key'], 'u-1');
+  assert.deepEqual(JSON.parse(aufrufe[0].optionen.body), { text: 'Hallo\nWelt' });
+});
+
+test('Nachricht senden: eine Fehlerantwort ist eine Antwort, ein unerreichbarer Server ein Netzfehler', async () => {
+  const abgewiesen = await nachrichtSenden('a', 'x', 'u', { token: 't' }, antwortenMit(422, '{"fehler":"leer"}').holen);
+  const weg = await nachrichtSenden('a', 'x', 'u', { token: 't' }, async () => { throw new TypeError('Failed to fetch'); });
+
+  assert.deepEqual(abgewiesen, { art: 'antwort', status: 422, daten: { fehler: 'leer' } });
+  assert.deepEqual(weg, { art: 'netzfehler' });
 });
