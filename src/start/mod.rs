@@ -11,6 +11,7 @@ mod ladedefekte;
 pub mod laufzeit;
 mod ordner;
 mod port;
+mod protokollstufe;
 mod rechnername;
 mod sperre;
 mod startfehler;
@@ -76,6 +77,17 @@ pub async fn ausfuehren<I: IntoIterator<Item = String>>(argumente: I) -> ExitCod
                     return ExitCode::from(2);
                 }
             };
+            let stufe_wert = std::env::var_os(protokollstufe::VARIABLE);
+            let stufe = match protokollstufe::wirksame_stufe(
+                auftrag.protokoll_stufe,
+                stufe_wert.as_deref(),
+            ) {
+                Ok(stufe) => stufe,
+                Err(fehler) => {
+                    eprintln!("{fehler}");
+                    return ExitCode::from(2);
+                }
+            };
             let testpanik = match Testpanik::aus_umgebung() {
                 Ok(testpanik) => testpanik,
                 Err(fehler) => {
@@ -83,7 +95,7 @@ pub async fn ausfuehren<I: IntoIterator<Item = String>>(argumente: I) -> ExitCod
                     return ExitCode::from(2);
                 }
             };
-            match starten(auftrag, uhr, gnadenfrist, herzschlag, testpanik).await {
+            match starten(auftrag, uhr, gnadenfrist, herzschlag, testpanik, stufe).await {
                 Ok(()) => ExitCode::SUCCESS,
                 Err(Startabbruch::VorDerSperre(fehler)) => {
                     eprintln!("{fehler}");
@@ -111,16 +123,13 @@ async fn starten(
     gnadenfrist: Duration,
     herzschlag: Duration,
     testpanik: Testpanik,
+    (stufe, stufe_herkunft): (Stufe, &'static str),
 ) -> Result<(), Startabbruch> {
     let uhr: Arc<dyn Uhr> = Arc::from(uhr);
     let ordner = ordner::ordner_vorbereiten(&auftrag.ordner).map_err(Startabbruch::VorDerSperre)?;
     let _sperre = sperre::ordner_sperren(&ordner).map_err(Startabbruch::VorDerSperre)?;
     let beginn = Instant::now();
-    let protokoll = Arc::new(Protokoll::oeffnen(
-        &ordner,
-        Arc::clone(&uhr),
-        Stufe::Information,
-    ));
+    let protokoll = Arc::new(Protokoll::oeffnen(&ordner, Arc::clone(&uhr), stufe));
     crate::protokoll::haken_setzen(Arc::clone(&protokoll));
     let bereinigt_am = uhr.jetzt().date_naive();
     protokoll.bereinigen(bereinigt_am, Anlass::Start);
@@ -135,6 +144,7 @@ async fn starten(
             beginn,
             bereinigt_am,
             testpanik,
+            stufe_herkunft,
         },
     );
     laufen.await.map_err(|fehler| {
@@ -153,6 +163,8 @@ struct Startlaeufe {
     beginn: Instant,
     bereinigt_am: chrono::NaiveDate,
     testpanik: Testpanik,
+    /// Woher die Mindeststufe kommt (`option=` im Start-Eintrag).
+    stufe_herkunft: &'static str,
 }
 
 /// Der Tagestakt mit der Bereinigung als erster Tagesaufgabe; `zuletzt` = Datum der Start-Bereinigung
@@ -187,6 +199,7 @@ async fn nach_der_sperre(
         beginn,
         bereinigt_am,
         testpanik,
+        stufe_herkunft,
     } = startlaeufe;
     let bus = Arc::new(Bus::neu(live::KAPAZITAET));
     let gespraeche = verlauf_laden(&ordner, Arc::clone(&uhr), &protokoll)?
@@ -236,8 +249,8 @@ async fn nach_der_sperre(
             .mit(Schluessel::Version, env!("CARGO_PKG_VERSION"))
             .mit(Schluessel::Adresse, format!("http://{adresse}/"))
             .mit(Schluessel::Ordner, ordner.display())
-            .mit(Schluessel::Stufe, "information")
-            .mit(Schluessel::Option, "standard")
+            .mit(Schluessel::Stufe, protokoll.mindeststufe().als_wert())
+            .mit(Schluessel::Option, stufe_herkunft)
             .mit(Schluessel::Anzahl, kennzahlen.nachrichten)
             .mit(Schluessel::DauerMs, kennzahlen.ladezeit_ms),
     );

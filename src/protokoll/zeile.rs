@@ -15,6 +15,17 @@ pub enum Stufe {
 }
 
 impl Stufe {
+    /// Klein geschrieben, wie sie gewählt wird (`stufe=`, `protokoll_stufe`).
+    pub fn als_wert(self) -> &'static str {
+        match self {
+            Stufe::Debug => "debug",
+            Stufe::Information => "information",
+            Stufe::Warning => "warning",
+            Stufe::Error => "error",
+            Stufe::Exception => "exception",
+        }
+    }
+
     pub fn als_text(self) -> &'static str {
         match self {
             Stufe::Debug => "DEBUG",
