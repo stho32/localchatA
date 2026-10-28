@@ -13,6 +13,10 @@ pub trait Senke: Send {
     fn anhaengen(&mut self, tag: NaiveDate, zeile: &str) -> io::Result<u64>;
     /// Die Datei, in die ein Eintrag des Tages gehen würde (für Meldungen, relativ zum Ordner).
     fn datei(&self, tag: NaiveDate) -> String;
+    /// Der Ordner `logs/` der Tagesdateien; eine Speicher-Senke hat keinen.
+    fn ordner(&self) -> Option<PathBuf> {
+        None
+    }
 }
 
 /// Die Tagesdateien `logs/JJJJ-MM-TT.log`; die Datei des zuletzt geschriebenen Tages bleibt offen.
@@ -92,6 +96,10 @@ impl Senke for Tagesdateien {
 
     fn datei(&self, tag: NaiveDate) -> String {
         format!("{LOGS}/{}", dateiname(tag))
+    }
+
+    fn ordner(&self) -> Option<PathBuf> {
+        Some(self.logs.clone())
     }
 }
 

@@ -8,6 +8,7 @@ pub mod zeile;
 pub use zeile::{Bereich, Eintrag, Kontext, Schluessel, Stufe};
 
 use crate::uhr::{Uhr, Zeit};
+use bereinigung::{Anlass, Bereinigung};
 use chrono::NaiveDate;
 use senke::{Senke, Tagesdateien};
 use std::io::{self, Write};
@@ -113,6 +114,54 @@ impl Protokoll {
         let eintrag = Eintrag::neu(stufe, bereich, text, kontext);
         let mut inneres = self.sperren();
         self.ablegen(&mut inneres, &eintrag, jetzt);
+    }
+
+    /// Löscht die Protokolldateien, die älter als 14 Kalendertage sind, und trägt das Ergebnis ein: eine
+    /// INFORMATION, wenn etwas entfiel, je gescheiterter Datei ein ERROR (ADR-0041 Regel 7).
+    pub fn bereinigen(&self, heute: NaiveDate, anlass: Anlass) -> Bereinigung {
+        let Some(logs) = self.sperren().senke.ordner() else {
+            return Bereinigung::default();
+        };
+        let bereinigung = match bereinigung::bereinigen_im_ordner(&logs, heute) {
+            Ok(bereinigung) => bereinigung,
+            Err(fehler) => {
+                self.eintragen(
+                    Stufe::Error,
+                    Bereich::Protokoll,
+                    "Protokollordner nicht lesbar — alte Protokolldateien bleiben liegen",
+                    Kontext::neu()
+                        .mit(Schluessel::Datei, senke::LOGS)
+                        .mit(Schluessel::Grund, fehler),
+                );
+                return Bereinigung::default();
+            }
+        };
+        if let (Some(aelteste), Some(juengste)) =
+            (bereinigung.entfallen.first(), bereinigung.entfallen.last())
+        {
+            self.eintragen(
+                Stufe::Information,
+                Bereich::Protokoll,
+                format!(
+                    "{} Protokolldateien entfallen ({aelteste} bis {juengste}; Aufbewahrung {} Tage; {})",
+                    bereinigung.entfallen.len(),
+                    bereinigung::AUFBEWAHRUNG_TAGE,
+                    anlass.als_text()
+                ),
+                Kontext::neu(),
+            );
+        }
+        for (datei, grund) in &bereinigung.gescheitert {
+            self.eintragen(
+                Stufe::Error,
+                Bereich::Protokoll,
+                "Protokolldatei nicht entfallen",
+                Kontext::neu()
+                    .mit(Schluessel::Datei, datei)
+                    .mit(Schluessel::Grund, grund),
+            );
+        }
+        bereinigung
     }
 
     fn sperren(&self) -> MutexGuard<'_, Inneres> {
@@ -240,6 +289,7 @@ mod tests {
     use super::testhilfe::*;
     use super::*;
     use crate::uhr::GestellteUhr;
+    use bereinigung::Anlass;
 
     struct InDateien {
         _wurzel: tempfile::TempDir,
@@ -481,6 +531,70 @@ mod tests {
             std::fs::read_to_string(wurzel.path().join("logs")).expect("logs"),
             "keine Ablage",
             "eine Datei namens logs wird nie ersetzt"
+        );
+    }
+
+    #[test]
+    fn die_bereinigung_berichtet_eine_information_mit_anzahl_spanne_und_anlass() {
+        let p = in_dateien("2026-10-28T12:00:00+01:00", Stufe::Information);
+        let logs = p.ordner.join("logs");
+        std::fs::create_dir_all(&logs).expect("logs");
+        for name in [
+            "2026-10-13.log",
+            "2026-10-14.log",
+            "2026-10-15.log",
+            "notizen.txt",
+        ] {
+            std::fs::write(logs.join(name), "x").expect("Datei");
+        }
+
+        p.protokoll.bereinigen(
+            zeit("2026-10-28T12:00:00+01:00").date_naive(),
+            Anlass::Start,
+        );
+        p.protokoll.bereinigen(
+            zeit("2026-10-28T12:00:00+01:00").date_naive(),
+            Anlass::Start,
+        );
+
+        assert_eq!(
+            p.datei("2026-10-28.log"),
+            [
+                "2026-10-28T12:00:00.000+01:00 INFORMATION protokoll 2 Protokolldateien entfallen (2026-10-13 bis 2026-10-14; Aufbewahrung 14 Tage; Start)"
+            ],
+            "der zweite Lauf ohne Entfallendes schreibt nichts"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn je_nicht_loeschbarer_datei_steht_ein_error_mit_datei_und_grund() {
+        use std::os::unix::fs::PermissionsExt;
+        let p = in_dateien("2026-10-28T12:00:00+01:00", Stufe::Information);
+        let logs = p.ordner.join("logs");
+        std::fs::create_dir_all(&logs).expect("logs");
+        for name in ["2026-10-13.log", "2026-10-14.log", "2026-10-28.log"] {
+            std::fs::write(logs.join(name), "").expect("Datei");
+        }
+        std::fs::set_permissions(&logs, std::fs::Permissions::from_mode(0o555)).expect("chmod");
+
+        p.protokoll.bereinigen(
+            zeit("2026-10-28T12:00:00+01:00").date_naive(),
+            Anlass::Tageswechsel,
+        );
+        std::fs::set_permissions(&logs, std::fs::Permissions::from_mode(0o755)).expect("chmod");
+
+        let datei = p.datei("2026-10-28.log");
+        assert_eq!(datei.len(), 2, "{datei:#?}");
+        assert!(
+            datei[0].contains(
+                " ERROR protokoll Protokolldatei nicht entfallen | datei=logs/2026-10-13.log grund="
+            ),
+            "{datei:#?}"
+        );
+        assert!(
+            datei[1].contains("datei=logs/2026-10-14.log grund="),
+            "{datei:#?}"
         );
     }
 }
