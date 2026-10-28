@@ -77,6 +77,7 @@ mod tests {
     fn wechsel(stand: u64) -> Ereignis {
         Ereignis::Anwesenheit(Wechsel {
             stand,
+            jetzt: Zeit::parse_from_rfc3339("2026-10-28T09:00:00+01:00").expect("Zeit"),
             teilnehmer: Teilnehmerzeile {
                 kennung: Kennung::bilden("alpha@127.0.0.2").expect("Kennung"),
                 name: Name::bilden("alpha").expect("Name"),

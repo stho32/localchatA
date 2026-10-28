@@ -138,6 +138,7 @@ impl Bestand {
                 self.stand += 1;
                 Wechsel {
                     stand: self.stand,
+                    jetzt,
                     teilnehmer: Teilnehmerzeile {
                         status: Status::Weg,
                         seit: jetzt,
@@ -170,7 +171,9 @@ impl Bestand {
         geaendert.sort_by(|links, rechts| links.3.cmp(&rechts.3));
         geaendert
             .into_iter()
-            .filter_map(|(token, status, seit, _)| self.melden(&token, status, seit, gnadenfrist))
+            .filter_map(|(token, status, seit, _)| {
+                self.melden(&token, status, seit, jetzt, gnadenfrist)
+            })
             .collect()
     }
 
@@ -180,6 +183,7 @@ impl Bestand {
         token: &Token,
         status: Status,
         seit: Zeit,
+        jetzt: Zeit,
         gnadenfrist: Duration,
     ) -> Option<Wechsel> {
         let eintrag = self.eintraege.get_mut(token)?;
@@ -187,6 +191,7 @@ impl Bestand {
         self.stand += 1;
         Some(Wechsel {
             stand: self.stand,
+            jetzt,
             teilnehmer: eintrag.zeile(gnadenfrist),
         })
     }
@@ -255,7 +260,7 @@ impl Anwesenheit {
         };
         let mut wechsel = bestand.abgelaufene_melden(jetzt, self.gnadenfrist);
         bestand.eintraege.insert(token.clone(), eintrag);
-        wechsel.extend(bestand.melden(&token, Status::Online, jetzt, self.gnadenfrist));
+        wechsel.extend(bestand.melden(&token, Status::Online, jetzt, jetzt, self.gnadenfrist));
         self.melden_unter_der_sperre(&bestand, &wechsel);
         Ok(Beitritt { sitzung, wechsel })
     }
@@ -363,6 +368,7 @@ impl Anwesenheit {
         liste.sort_by(|links, rechts| links.kennung.als_text().cmp(rechts.kennung.als_text()));
         let stand = Stand {
             stand: bestand.stand,
+            jetzt,
             liste,
         };
         (stand, ergebnis)
@@ -762,6 +768,7 @@ mod tests {
             beta.wechsel,
             vec![Wechsel {
                 stand: 1,
+                jetzt: nach_ms(0),
                 teilnehmer: beta_online.clone()
             }]
         );
@@ -769,6 +776,7 @@ mod tests {
             alpha.wechsel,
             vec![Wechsel {
                 stand: 2,
+                jetzt: nach_ms(200),
                 teilnehmer: alpha_online.clone()
             }]
         );
@@ -777,6 +785,7 @@ mod tests {
             stand,
             Stand {
                 stand: 2,
+                jetzt: nach_ms(200),
                 liste: vec![alpha_online, beta_online]
             },
             "nach Kennung sortiert, ein abgewiesener Beitritt zählt nicht"

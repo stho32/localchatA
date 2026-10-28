@@ -5,7 +5,7 @@
 
 use super::Zustand;
 use super::teilnehmer::{gemeldetes_token, nicht_erkannt};
-use super::teilnehmerliste::{stand_als_json, zeile_als_json};
+use super::teilnehmerliste::{stand_als_json, zeile_als_json, zeit_als_text};
 use crate::anwesenheit::{Anwesenheit, Halter, Stand, Wechsel};
 use crate::live::bus::{Abonnement, Empfang, Ereignis};
 use crate::start::ende::Ende;
@@ -113,6 +113,7 @@ fn wechsel_ereignis(wechsel: &Wechsel) -> Event {
     let ereignis = json!({
         "art": "anwesenheit",
         "stand": wechsel.stand,
+        "jetzt": zeit_als_text(&wechsel.jetzt),
         "teilnehmer": zeile_als_json(&wechsel.teilnehmer),
     });
     Event::default().data(ereignis.to_string())

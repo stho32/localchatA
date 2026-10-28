@@ -23,16 +23,20 @@ pub struct Teilnehmerzeile {
     pub weg_um: Option<Zeit>,
 }
 
-/// Eine Statusänderung; `stand` wächst unter der Sperre der Anwesenheit mit jedem Wechsel.
+/// Eine Statusänderung; `stand` wächst unter der Sperre der Anwesenheit mit jedem Wechsel. `jetzt` ist die
+/// Serverzeit, unter der Sperre gelesen und nie fallend (ADR-0019 Regel 2).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Wechsel {
     pub stand: u64,
+    pub jetzt: Zeit,
     pub teilnehmer: Teilnehmerzeile,
 }
 
-/// Alle lebenden Sitzungen nach Kennung sortiert, mit dem Stand des zuletzt gemeldeten Wechsels.
+/// Alle lebenden Sitzungen nach Kennung sortiert, mit dem Stand des zuletzt gemeldeten Wechsels und der
+/// Serverzeit, zu der die Liste galt.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Stand {
     pub stand: u64,
+    pub jetzt: Zeit,
     pub liste: Vec<Teilnehmerzeile>,
 }
