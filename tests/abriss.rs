@@ -188,6 +188,7 @@ async fn nacharbeit1_b1_der_start_pflegt_mit_dem_herzschlag_aus_dem_knopf() {
 
     let (aktiv, wann) = timer_nach_einer_anfrage(&instanz).await;
 
+    eprintln!("messung b1_when_2000_ticks={wann}");
     assert_eq!(aktiv, 2, "Keepalive-Timer, when {wann}");
     assert!(wann <= 200, "when {wann} Ticks");
 }
@@ -199,6 +200,7 @@ async fn nacharbeit1_b1_ohne_knopf_pflegt_der_start_mit_5_s() {
 
     let (aktiv, wann) = timer_nach_einer_anfrage(&instanz).await;
 
+    eprintln!("messung b1_when_standard_ticks={wann}");
     assert_eq!(aktiv, 2, "Keepalive-Timer, when {wann}");
     assert!(wann <= 500, "when {wann} Ticks");
 }
