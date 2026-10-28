@@ -189,8 +189,13 @@ test('dauerhaft 401 bei sofortigem Wiederbeitritt: höchstens 3 Abrufe in 1 s (N
   let abrufe = 0;
   let nummer = 0;
   let halter = null;
+  // Ohne Untergrenze dreht die Schleife nur über Mikrotasks und ließe den Zeitgeber nie laufen — ab 10
+  // Abrufen beendet der Ersatz den Halter selbst, damit der Test rot wird statt zu hängen.
   const holen = async () => {
     abrufe += 1;
+    if (abrufe > 10) {
+      halter.beenden();
+    }
     return new Response('{"fehler":"x"}', { status: 401 });
   };
   halter = halten({
