@@ -11,7 +11,9 @@ use super::nachrichten::NachrichtAntwort;
 use super::teilnehmer::Teilnehmer;
 use crate::gespraeche::textregel::{TEXT_HOECHSTENS_BYTES, Textfehler, text_pruefen};
 use crate::gespraeche::{Gespraech, Nachricht, Sendefehler};
+use crate::protokoll::episoden::Auftreten;
 use crate::protokoll::{Bereich, Kontext, Schluessel, Stufe};
+use crate::uhr::{vorlauf_melden, vorlauf_text};
 use axum::Json;
 use axum::body::Body;
 use axum::extract::{Path, State};
@@ -65,7 +67,10 @@ pub async fn senden(
     let ergebnis =
         tokio::task::spawn_blocking(move || gespraeche.senden(&gespraech, &von, art, &text)).await;
     match ergebnis {
-        Ok(Ok(nachricht)) => gesendet(&name, &nachricht),
+        Ok(Ok(nachricht)) => {
+            vorlauf_eintragen(&zustand.protokoll, zustand.gespraeche.zeit_vorlauf_ms());
+            gesendet(&name, &nachricht)
+        }
         Ok(Err(Sendefehler::Unbekannt)) => unbekannt(&name),
         Ok(Err(Sendefehler::Ablage { datei, grund })) => {
             nicht_gespeichert(&zustand, &name, &wer, &datei, &grund)
@@ -197,6 +202,24 @@ fn text_abgewiesen(fehler: Textfehler) -> Response {
     (StatusCode::UNPROCESSABLE_ENTITY, Json(antwort)).into_response()
 }
 
+/// Meldet einen Vorlauf über 60 s als Episode `WARNING zeit` der Instanz (R00016, ADR-0035 Regel 4 mit Ergänzung).
+fn vorlauf_eintragen(protokoll: &crate::protokoll::Protokoll, vorlauf_ms: u64) {
+    if !vorlauf_melden(vorlauf_ms) {
+        return;
+    }
+    protokoll.episode(Auftreten {
+        stufe: Stufe::Warning,
+        bereich: Bereich::Zeit,
+        text: "Nachrichtenzeit läuft der Systemuhr voraus",
+        quelle: "instanz".to_string(),
+        kontext: Kontext::neu().mit(Schluessel::DauerMs, vorlauf_ms),
+        art: None,
+        verworfen: None,
+        bytes: None,
+        anzeige: Some(vorlauf_text(vorlauf_ms)),
+    });
+}
+
 /// `17020` → `17.020`.
 fn mit_tausenderpunkt(zahl: usize) -> String {
     let ziffern = zahl.to_string();
@@ -236,6 +259,57 @@ pub fn sendekoerper_lesen(wert: &Value) -> Result<&str, Sendekoerperfehler> {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    /// R00011 F0042 „Vorlauf“ mit der Episode des Betriebsprotokolls (R00016): über 60 s eine Zeile `WARNING zeit`
+    /// mit Stunden und Minuten und `dauer_ms`; die zweite Nachricht keine; nach der Ruhe endet die Episode; ein neuer
+    /// Vorlauf beginnt eine neue. 60.000 ms gibt keine Zeile.
+    #[test]
+    fn ein_vorlauf_ueber_60_s_ist_eine_episode_des_protokolls() {
+        use crate::protokoll::Stufe;
+        use crate::protokoll::testhilfe::{im_speicher, zeit};
+        let (protokoll, speicher, uhr, stderr) =
+            im_speicher("2026-10-28T11:58:59+01:00", Stufe::Information);
+        let zeit_zeilen = || {
+            speicher
+                .zeilen()
+                .into_iter()
+                .filter(|zeile| zeile.contains(" WARNING zeit "))
+                .collect::<Vec<_>>()
+        };
+
+        vorlauf_eintragen(&protokoll, 60_000);
+        let bei_60_000 = zeit_zeilen().len();
+        vorlauf_eintragen(&protokoll, 61_001);
+        vorlauf_eintragen(&protokoll, 61_002);
+        let nach_zweien = zeit_zeilen();
+        uhr.stellen(zeit("2026-10-28T12:01:00+01:00"));
+        protokoll.episoden_schliessen();
+        let nach_der_ruhe = zeit_zeilen().len();
+        vorlauf_eintragen(&protokoll, 7_410_002);
+
+        assert_eq!(bei_60_000, 0);
+        assert_eq!(nach_zweien.len(), 1, "{nach_zweien:#?}");
+        assert!(
+            nach_zweien[0].contains(
+                "Nachrichtenzeit läuft der Systemuhr 0 h 01 min voraus (Uhr zurückgestellt?) — Zeiten bleiben streng steigend, bis die Uhr aufholt. — Episode beginnt | "
+            ),
+            "{nach_zweien:#?}"
+        );
+        assert!(
+            nach_zweien[0].contains("dauer_ms=61001"),
+            "{nach_zweien:#?}"
+        );
+        assert_eq!(nach_der_ruhe, 2, "Ende nach der Ruhe");
+        let alle = zeit_zeilen();
+        assert_eq!(alle.len(), 3);
+        assert!(alle[2].contains(" 2 h 03 min voraus") && alle[2].contains("Episode beginnt"));
+        assert!(
+            stderr
+                .zeilen()
+                .iter()
+                .any(|zeile| zeile.contains(" 2 h 03 min voraus"))
+        );
+    }
 
     #[test]
     fn zahlen_mit_tausenderpunkt() {

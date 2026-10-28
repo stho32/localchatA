@@ -133,6 +133,7 @@ fn abweisung_eintragen<T>(
         art: Some(art),
         verworfen: gelesen.verworfen.map(Verworfen::als_text),
         bytes: Some(gelesen.bytes as u64),
+        anzeige: None,
     };
     match fehler {
         Koerperfehler::ZuGross | Koerperfehler::Kaputt | Koerperfehler::ZuLangsam => {

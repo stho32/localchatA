@@ -91,6 +91,7 @@ fn abweisung_eintragen(protokoll: &Protokoll, herkunft: IpAddr, grenze: usize) {
         art: None,
         verworfen: None,
         bytes: None,
+        anzeige: None,
     });
 }
 

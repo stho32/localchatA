@@ -171,6 +171,7 @@ pub(super) fn grenze_eintragen(
         art: None,
         verworfen: None,
         bytes: None,
+        anzeige: None,
     });
 }
 

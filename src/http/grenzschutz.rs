@@ -70,6 +70,7 @@ fn abweisung_eintragen(
         art: None,
         verworfen: None,
         bytes: None,
+        anzeige: None,
     });
 }
 

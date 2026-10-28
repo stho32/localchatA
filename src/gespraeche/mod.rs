@@ -29,6 +29,7 @@ use crate::name::Channelname;
 use crate::uhr::{Uhr, Zeit};
 use chrono::NaiveDate;
 use std::fmt;
+use std::sync::atomic::{AtomicI64, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::{Duration, Instant};
 use verlaufsindex::Verlauf;
@@ -81,6 +82,8 @@ pub struct Gespraeche {
     verzeichnis: RwLock<Verzeichnis>,
     /// Schreibsperre über alle Gespräche (ADR-0035 Regel 1); hält die zuletzt vergebene Zeit.
     schreiben: Mutex<Option<Zeit>>,
+    /// Die zuletzt vergebene Zeit in ms seit 1970 — gesetzt unter `schreiben`, gelesen ohne sie (ADR-0035 Regel 4).
+    letzte_ms: AtomicI64,
     defekte: Vec<Ladedefekt>,
     ladezeit: Duration,
     veroeffentlichen: ChannelVeroeffentlichen,
@@ -197,6 +200,11 @@ impl Gespraeche {
             ablage,
             uhr,
             verzeichnis: RwLock::new(geladen.verzeichnis),
+            letzte_ms: AtomicI64::new(
+                geladen
+                    .juengste
+                    .map_or(i64::MIN, |zeit| zeit.timestamp_millis()),
+            ),
             schreiben: Mutex::new(geladen.juengste),
             defekte: geladen.defekte,
             ladezeit: beginn.elapsed(),
@@ -226,6 +234,8 @@ impl Gespraeche {
         let mut letzte = sperren(&self.schreiben);
         let zeit = crate::uhr::naechste_zeit(self.uhr.jetzt(), *letzte);
         *letzte = Some(zeit);
+        self.letzte_ms
+            .store(zeit.timestamp_millis(), Ordering::Relaxed);
         let mut nachricht = Nachricht {
             zeit,
             von: von.clone(),
@@ -250,6 +260,14 @@ impl Gespraeche {
     /// Die jüngste Nachrichtenzeit im Ordner (als Zeitpunkt); an ihr setzt die nächste vergebene Zeit an.
     pub fn letzte_zeit(&self) -> Option<Zeit> {
         *sperren(&self.schreiben)
+    }
+
+    /// Wie weit die zuletzt vergebene Zeit vor der Uhr liegt, in ms, 0 ohne Vorlauf — ohne die Schreibsperre, damit
+    /// ein hängendes Plattenschreiben den Health-Check nicht anhält (ADR-0035 Regel 4).
+    pub fn zeit_vorlauf_ms(&self) -> u64 {
+        let letzte = self.letzte_ms.load(Ordering::Relaxed);
+        let jetzt = self.uhr.jetzt().timestamp_millis();
+        u64::try_from(letzte.saturating_sub(jetzt)).unwrap_or(0)
     }
 
     pub fn defekte(&self) -> &[Ladedefekt] {

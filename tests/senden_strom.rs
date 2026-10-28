@@ -207,3 +207,61 @@ async fn us9_eine_folge_ueber_alle_channels() {
         assert_eq!(im_strom, im_log, "{channel}");
     }
 }
+
+/// US-10 „Vorlauf im echten Programm“: Uhr 12:00, im Log ein Satz um 14:03:30 → zwei Nachrichten um .001 und
+/// .002; genau eine Zeile „… 2 h 03 min voraus“ (`WARNING zeit` mit `dauer_ms`); die Gesundheit nennt
+/// `zeit_vorlauf_ms` zwischen 7 410 002 − (ms seit der Startzeile + 1 000) und 7 410 002. Ohne Satz aus der
+/// Zukunft 0.
+#[tokio::test]
+async fn us10_eine_falsch_gestellte_uhr_wird_sichtbar() {
+    let wurzel = ordner();
+    std::fs::write(
+        gemeinsam::senden::tagesdatei(wurzel.path(), "allgemein"),
+        "@ 2026-10-28T14:03:30.000+01:00 claude@10.0.0.1\n  aus der Zukunft\n\n",
+    )
+    .expect("Tagesdatei");
+    let mut instanz = starten(wurzel.path(), &[]);
+    let gestartet = Instant::now();
+    let stderr = instanz.stderr_mitschreiben();
+    let beta = Absender::von("127.0.0.1");
+    let token = beitreten(&beta, &instanz.adresse, "beta", None).await;
+
+    let erste = senden(&beta, &instanz.adresse, &token, "allgemein", "eins").await;
+    let zweite = senden(&beta, &instanz.adresse, &token, "allgemein", "zwei").await;
+    let (_, gesundheit) = gemeinsam::gesundheit(&instanz.adresse).await;
+    let seit_start = u64::try_from(gestartet.elapsed().as_millis()).expect("ms");
+    tokio::time::sleep(Duration::from_millis(300)).await;
+
+    assert_eq!(
+        erste.json["nachricht"]["zeit"],
+        "2026-10-28T14:03:30.001+01:00"
+    );
+    assert_eq!(
+        zweite.json["nachricht"]["zeit"],
+        "2026-10-28T14:03:30.002+01:00"
+    );
+    let vorlauf = gesundheit["zeit_vorlauf_ms"]
+        .as_u64()
+        .expect("zeit_vorlauf_ms");
+    assert!(
+        vorlauf <= 7_410_002 && vorlauf >= 7_410_002 - (seit_start + 1_000),
+        "{vorlauf} nach {seit_start} ms"
+    );
+    let zeilen: Vec<String> = stderr
+        .lock()
+        .expect("stderr")
+        .iter()
+        .filter(|zeile| zeile.contains("Nachrichtenzeit läuft der Systemuhr 2 h 03 min voraus"))
+        .cloned()
+        .collect();
+    assert_eq!(zeilen.len(), 1, "{zeilen:#?}");
+    assert!(
+        zeilen[0].contains(" WARNING zeit ") && zeilen[0].contains("dauer_ms="),
+        "{zeilen:#?}"
+    );
+
+    let ohne = ordner();
+    let ohne_instanz = starten(ohne.path(), &[]);
+    let (_, ohne_gesundheit) = gemeinsam::gesundheit(&ohne_instanz.adresse).await;
+    assert_eq!(ohne_gesundheit["zeit_vorlauf_ms"], 0);
+}

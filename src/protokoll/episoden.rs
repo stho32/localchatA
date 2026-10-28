@@ -26,6 +26,8 @@ pub struct Auftreten {
     pub art: Option<&'static str>,
     pub verworfen: Option<&'static str>,
     pub bytes: Option<u64>,
+    /// Text der Zeilen statt `text`, wenn er einen Wert trägt (Vorlauf „2 h 03 min“); der Schlüssel bleibt `text`.
+    pub anzeige: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -38,7 +40,7 @@ struct Schluessel3 {
 struct Episode {
     stufe: Stufe,
     bereich: Bereich,
-    text: &'static str,
+    text: String,
     sammel: bool,
     kontext: Kontext,
     erst: Zeit,
@@ -128,7 +130,10 @@ impl Episode {
         let mut episode = Episode {
             stufe: auftreten.stufe,
             bereich: auftreten.bereich,
-            text: auftreten.text,
+            text: auftreten
+                .anzeige
+                .clone()
+                .unwrap_or_else(|| auftreten.text.to_string()),
             sammel,
             kontext: if sammel {
                 Kontext::neu()
@@ -240,6 +245,8 @@ mod tests {
             art: None,
             verworfen: None,
             bytes: None,
+
+            anzeige: None,
         }
     }
 
@@ -368,6 +375,8 @@ mod tests {
                     art: Some(art),
                     verworfen: (art == "zu_gross").then_some("vollständig"),
                     bytes: Some(bytes),
+
+                    anzeige: None,
                 },
                 t(0.0),
             );
