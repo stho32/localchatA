@@ -34,6 +34,7 @@ body { background: var(--kd-bg); color: var(--kd-ink); font-family: var(--font-s
 .lc-head :focus-visible { outline-color: var(--lc-focus-header); }
 .lc-head-ort { display: flex; align-items: baseline; gap: var(--kd-space-8); white-space: nowrap; min-width: 0; overflow: hidden; }
 .lc-head-inst { font-family: var(--font-mono); font-size: 12px; color: var(--kd-header-muted); min-width: 0; overflow: hidden; text-overflow: ellipsis; flex: 0 1 auto; }
+.lc-head-chan { font-size: 14px; line-height: 20px; font-weight: 600; min-width: 0; overflow: hidden; text-overflow: ellipsis; flex: 0 1 auto; }
 .lc-head-bed { white-space: nowrap; display: flex; align-items: center; gap: var(--kd-space-8); }
 .lc-me { font-family: var(--font-mono); font-size: 12px; color: var(--kd-header-ink); }
 .lc-me i { font-style: normal; color: var(--kd-header-muted); }

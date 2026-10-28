@@ -1,6 +1,7 @@
 // Eigene Kennung in der Kopfzeile (Designsystem: Bausteine Kopfzeile und Kennung): dunkle 40-px-Leiste,
 // rechts Kürzel-Kachel und `name@herkunft`, Herkunft gedämpft, Farbe und Marke nach Art, danach die Schalter
-// der Bedienung (z. B. „Teilnehmer“).
+// der Bedienung (z. B. „Teilnehmer“). Zone „Ort“: nach dem Instanznamen der gewählte Channel `# name` in lc-title
+// (ADR-0027 Regel 5); der Tab heißt dann „# name — localchatA“.
 
 export function zeichnen(wurzel, teilnehmer, { kennungFokussieren = false, schalter = [] } = {}) {
   const art = artDes(teilnehmer);
@@ -16,8 +17,9 @@ export function zeichnen(wurzel, teilnehmer, { kennungFokussieren = false, schal
     bedienung.append(element('span', { className: 'lc-tag', textContent: 'Agent' }));
   }
   bedienung.append(...schalter);
+  const ort = element('div', { className: 'lc-head-ort' }, [element('span', { className: 'lc-head-inst', textContent: 'localchatA' })]);
   const kopf = element('header', { className: 'lc-head' }, [
-    element('div', { className: 'lc-head-ort' }, [element('span', { className: 'lc-head-inst', textContent: 'localchatA' })]),
+    ort,
     element('div', { className: 'lc-head-nav' }),
     bedienung,
   ]);
@@ -26,6 +28,19 @@ export function zeichnen(wurzel, teilnehmer, { kennungFokussieren = false, schal
   if (kennungFokussieren) {
     kennung.focus();
   }
+  return { ortZeigen: (channel) => ortZeigen(ort, channel) };
+}
+
+// channel: { name, beschreibung } des gewählten bekannten Channels oder null.
+function ortZeigen(ort, channel) {
+  const inst = ort.querySelector('.lc-head-inst');
+  if (channel === null) {
+    ort.replaceChildren(inst);
+    document.title = 'localchatA';
+    return;
+  }
+  ort.replaceChildren(inst, element('span', { className: 'lc-head-chan', textContent: `# ${channel.name}` }));
+  document.title = `# ${channel.name} — localchatA`;
 }
 
 export function kuerzel(name) {
