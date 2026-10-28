@@ -359,8 +359,8 @@ impl Protokoll {
                 Stufe::Information,
                 Bereich::Protokoll,
                 format!(
-                    "{} Protokolldateien entfallen ({aelteste} bis {juengste}; Aufbewahrung {} Tage; {})",
-                    bereinigung.entfallen.len(),
+                    "{} ({aelteste} bis {juengste}; Aufbewahrung {} Tage; {})",
+                    entfallen_als_text(bereinigung.entfallen.len()),
                     bereinigung::AUFBEWAHRUNG_TAGE,
                     anlass.als_text()
                 ),
@@ -473,6 +473,15 @@ impl Protokoll {
             inneres.rueckfall = false;
             self.ok.store(true, Ordering::SeqCst);
         }
+    }
+}
+
+/// „1 Protokolldatei entfällt“, ab zwei „n Protokolldateien entfallen“ (Rechtschreib-Review #24).
+fn entfallen_als_text(anzahl: usize) -> String {
+    if anzahl == 1 {
+        "1 Protokolldatei entfällt".to_string()
+    } else {
+        format!("{anzahl} Protokolldateien entfallen")
     }
 }
 
@@ -813,6 +822,26 @@ mod tests {
                 "2026-10-28T12:00:00.000+01:00 INFORMATION protokoll 2 Protokolldateien entfallen (2026-10-13 bis 2026-10-14; Aufbewahrung 14 Tage; Start)"
             ],
             "der zweite Lauf ohne Entfallendes schreibt nichts"
+        );
+    }
+
+    #[test]
+    fn entfaellt_genau_eine_datei_steht_die_zeile_in_der_einzahl() {
+        let p = in_dateien("2026-10-28T12:00:00+01:00", Stufe::Information);
+        let logs = p.ordner.join("logs");
+        std::fs::create_dir_all(&logs).expect("logs");
+        std::fs::write(logs.join("2026-10-14.log"), "x").expect("Datei");
+
+        p.protokoll.bereinigen(
+            zeit("2026-10-28T12:00:00+01:00").date_naive(),
+            Anlass::Start,
+        );
+
+        assert_eq!(
+            p.datei("2026-10-28.log"),
+            [
+                "2026-10-28T12:00:00.000+01:00 INFORMATION protokoll 1 Protokolldatei entfällt (2026-10-14 bis 2026-10-14; Aufbewahrung 14 Tage; Start)"
+            ]
         );
     }
 

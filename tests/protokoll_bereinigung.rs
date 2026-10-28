@@ -106,7 +106,7 @@ async fn us7_um_mitternacht_entfaellt_der_naechste_tag_ohne_neustart() {
     );
     assert!(
         neu.iter().any(|zeile| zeile.ends_with(
-            "1 Protokolldateien entfallen (2026-10-15 bis 2026-10-15; Aufbewahrung 14 Tage; Tageswechsel)"
+            "1 Protokolldatei entfällt (2026-10-15 bis 2026-10-15; Aufbewahrung 14 Tage; Tageswechsel)"
         )),
         "{neu:#?}"
     );
