@@ -36,8 +36,12 @@ body { background: var(--kd-bg); color: var(--kd-ink); font-family: var(--font-s
 .lc-head-ort { display: flex; align-items: baseline; gap: var(--kd-space-8); white-space: nowrap; min-width: 0; overflow: hidden; }
 .lc-head-inst { font-family: var(--font-mono); font-size: 12px; color: var(--kd-header-muted); min-width: 0; overflow: hidden; text-overflow: ellipsis; flex: 0 1 auto; }
 .lc-head-desc { font-size: 12px; line-height: 16px; color: var(--kd-header-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; flex: 0 100 auto; }
-@media (max-width: 719px) { .lc-head-desc { display: none; } }
+@media (max-width: 719px) { .lc-head-desc, .lc-head-frist { display: none; } }
 .lc-head-chan { font-size: 14px; line-height: 20px; font-weight: 600; min-width: 0; overflow: hidden; text-overflow: ellipsis; flex: 0 1 auto; }
+.lc-head-schalter { display: inline-flex; align-items: baseline; gap: 0; min-width: 0; flex: 0 1 auto; height: 28px; padding: 0 var(--kd-space-4); background: transparent; border: 0; color: var(--kd-header-ink); cursor: pointer; font: inherit; white-space: nowrap; }
+.lc-head-schalter:hover { background: var(--kd-header-surface); }
+.lc-head-pfeil { color: var(--kd-header-muted); flex: 0 0 auto; }
+.lc-head-frist { font-size: 12px; line-height: 16px; color: var(--kd-header-muted); white-space: nowrap; flex: 0 0 auto; }
 .lc-head-bed { display: flex; align-items: center; gap: var(--kd-space-8); }
 .lc-head-bed > :not(.lc-me) { white-space: nowrap; }
 .lc-me { font-family: var(--font-mono); font-size: 12px; color: var(--kd-header-ink); overflow-wrap: anywhere; }
@@ -134,6 +138,11 @@ body { background: var(--kd-bg); color: var(--kd-ink); font-family: var(--font-s
 .lc-dialog .lc-feld-text { font-family: var(--font-sans); }
 .lc-dialog .lc-meldung[hidden] { display: none; }
 .lc-dialog .lc-meldung > span:first-child { overflow-wrap: anywhere; }
+.lc-frist-zeile { display: flex; align-items: center; gap: var(--kd-space-8); }
+.lc-dialog .lc-frist-zeile .lc-feld-zahl { width: auto; flex: 1 1 auto; }
+.lc-bestaetigung { margin: 0; color: var(--kd-ink); }
+.lc-bestaetigung[hidden] { display: none; }
+.lc-gesperrt code { font-family: var(--font-mono); overflow-wrap: anywhere; }
 .lc-dialog-schalter { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: var(--kd-space-8); margin-top: var(--kd-space-8); }
 
 /* Teilnehmerliste (Baustein Teilnehmerliste, Status nach components/bundle.css) */

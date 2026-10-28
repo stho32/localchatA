@@ -4,6 +4,8 @@
 // Verbindung steht in Fehlergestalt (⚠ und Wort, kd-danger) unter der Kopfzeile über die ganze Breite. `Strg .` und der Schalter
 // „Teilnehmer“ blenden die Liste ein und aus (1-tastatur.md). `+` und `Strg Alt N` öffnen „Channel anlegen“; die
 // Statuszeile meldet den angelegten Channel (ADR-0024 Regeln 4, 5). optionen.channelAnlegen: async (name, beschreibung) → Antwort.
+// `# name` in der Kopfzeile öffnet die Channel-Einstellungen (ADR-0033); optionen.fristSetzen: async (name, tage,
+// bestaetigt) → Antwort.
 // Die Auswahl folgt allein Adresse und Channel-Liste (ADR-0027): Start, hashchange und jede neue Liste leiten sie
 // neu ab — Seitenleiste, Kopfzeile und Mitte zeigen sie.
 import * as kopfzeile from './kopfzeile.js';
@@ -11,6 +13,7 @@ import { auswahl, auswahlMerken, startadresse, MERKER, nachbarChannel, kuerzelRi
 import { verlaufAnlegen } from './verlauf.js';
 import * as seitenleiste from './seitenleiste.js';
 import { dialogEinrichten } from './channel-anlegen.js';
+import { einstellungenEinrichten } from './channel-einstellungen.js';
 import { onlineBenennen } from './teilnehmerliste.js';
 
 const UNTERBROCHEN = '⚠ Verbindung unterbrochen — localchatA verbindet neu.';
@@ -23,7 +26,18 @@ export function zeichnen(wurzel, teilnehmer, optionen) {
   const anzahl = element('span', { className: 'lc-count', textContent: '0' });
   const schalter = element('button', { type: 'button', className: 'lc-hbtn' }, ['Teilnehmer ', anzahl]);
   schalter.setAttribute('aria-controls', 'lc-teilnehmer');
-  const kopf = kopfzeile.zeichnen(wurzel, teilnehmer, { ...optionen, schalter: [schalter] });
+  let gewaehlterChannel = null;
+  const einstellungen = einstellungenEinrichten({
+    wurzel,
+    setzen: optionen.fristSetzen,
+    statusZeigen: (text) => statusZeigen(statuszeile, text),
+    neuOeffnen: (name) => verlauf.oeffnen(name),
+  });
+  const kopf = kopfzeile.zeichnen(wurzel, teilnehmer, {
+    ...optionen,
+    schalter: [schalter],
+    einstellungenOeffnen: (ausloeser) => einstellungen.oeffnen(gewaehlterChannel, ausloeser),
+  });
   const hinweis = element('p', { id: 'lc-verbindung', className: 'lc-meldung lc-fehler lc-verbindung', hidden: true });
   hinweis.setAttribute('role', 'alert');
   const standUnbekannt = element('p', { className: 'lc-stand', hidden: true });
@@ -48,7 +62,13 @@ export function zeichnen(wurzel, teilnehmer, optionen) {
   let letzterZustand = 'verbunden';
   channels.channelsZeigen([]);
   const verlauf = verlaufAnlegen({ abrufen: optionen.verlaufAbrufen });
-  const auswahlFolgen = auswahlEinrichten({ seitenleiste: channels, kopf, mitte, verlauf }, vorigeAnsichtAbmelden.signal);
+  const beiAuswahl = (channel) => {
+    gewaehlterChannel = channel;
+    if (channel !== null) {
+      einstellungen.channelGeaendert(channel);
+    }
+  };
+  const auswahlFolgen = auswahlEinrichten({ seitenleiste: channels, kopf, mitte, verlauf, beiAuswahl }, vorigeAnsichtAbmelden.signal);
   return {
     region: zeilen,
     channelsZeigen: auswahlFolgen,
@@ -65,7 +85,7 @@ export function zeichnen(wurzel, teilnehmer, optionen) {
 
 // Liefert channelsZeigen(liste): die Liste ist erst mit dem ersten Stand bekannt — bis dahin bleibt ein
 // gewählter Name ohne Urteil, damit „gibt es nicht“ nie vor dem Stand erscheint.
-function auswahlEinrichten({ seitenleiste, kopf, mitte, verlauf }, signal) {
+function auswahlEinrichten({ seitenleiste, kopf, mitte, verlauf, beiAuswahl }, signal) {
   const adresse = startadresse(window.location.hash, window.sessionStorage.getItem(MERKER));
   if (adresse !== null) {
     window.history.replaceState(null, '', adresse);
@@ -82,6 +102,7 @@ function auswahlEinrichten({ seitenleiste, kopf, mitte, verlauf }, signal) {
     }
     seitenleiste.auswahlZeigen(bekannt && bekannt.name);
     kopf.ortZeigen(bekannt);
+    beiAuswahl(bekannt);
     if (bekannt === null) {
       offen = null;
       verlaufSchliessen(verlauf, seitenleiste);

@@ -58,7 +58,7 @@ test('Kopfzeile (US-23): nach # security-entwicklung steht die Beschreibung in <
   await expect(beschreibung(page)).toHaveAttribute('title', SATZ);
   await expect(beschreibung(page)).toBeVisible();
   const reihenfolge = await kopf(page).locator('.lc-head-ort > *').evaluateAll((teile) => teile.map((teil) => teil.className));
-  expect(reihenfolge).toEqual(['lc-head-inst', 'lc-head-chan', 'lc-head-desc']);
+  expect(reihenfolge).toEqual(['lc-head-inst', 'lc-head-schalter', 'lc-head-frist', 'lc-head-desc']);
   expect(fehler).toEqual([]);
 });
 
