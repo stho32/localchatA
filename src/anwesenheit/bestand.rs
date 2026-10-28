@@ -342,6 +342,31 @@ impl Anwesenheit {
         Some((halter, wechsel))
     }
 
+    /// Verlassen (B0113, ADR-0018 Regeln 2–5): gültiges Token derselben Herkunft → die Sitzung ist entfernt,
+    /// `weg` (seit = jetzt) unter der Sperre veröffentlicht, der Name frei; sonst nichts (unbekannt, abgelaufen,
+    /// fremde Herkunft, schon verlassen). Kein Lebenszeichen, kein Nachlauf — offene Halter ändern danach nichts.
+    pub fn verlassen(&self, token: &Token, herkunft: IpAddr) -> Vec<Wechsel> {
+        let (mut bestand, jetzt) = self.bestand_und_jetzt();
+        let Some(eintrag) = self.lebender_eintrag(&mut bestand, token, herkunft, jetzt) else {
+            return Vec::new();
+        };
+        let zeile = Teilnehmerzeile {
+            status: Status::Weg,
+            seit: jetzt,
+            weg_um: None,
+            ..eintrag.zeile(self.gnadenfrist)
+        };
+        bestand.eintraege.remove(token);
+        bestand.stand += 1;
+        let wechsel = vec![Wechsel {
+            stand: bestand.stand,
+            jetzt,
+            teilnehmer: zeile,
+        }];
+        self.melden_unter_der_sperre(&bestand, &wechsel);
+        wechsel
+    }
+
     /// Der Takt (ADR-0016 Regel 4): Gnadenfrist ohne Lebenszeichen und ohne Halter vorbei → `weg` (Sitzung
     /// entfernt, Name frei); Nachlauf vorbei ohne Halter → `offline`. Je Sitzung nur echte Wechsel.
     pub fn pflegen(&self, jetzt: Zeit) -> Vec<Wechsel> {
@@ -1278,6 +1303,98 @@ mod tests {
             stand_davor,
             "online, kein weg_um"
         );
+    }
+
+    /// Kriterium „Unit (Anwesenheit)“ zu F0019 (ADR-0018 Regeln 2–5): `verlassen` mit eigenem Token und eigener
+    /// Herkunft → `weg` (stand + 1, seit = jetzt) unter der Sperre, der Name sofort frei, ein späterer Halter-Drop
+    /// ohne Wirkung.
+    #[test]
+    fn verlassen_meldet_weg_unter_der_sperre_und_gibt_den_namen_sofort_frei() {
+        let uhr = Arc::new(GestellteUhr::neu(zeit(T0)));
+        let selbst: Arc<std::sync::OnceLock<std::sync::Weak<Anwesenheit>>> = Arc::default();
+        let veroeffentlicht: Arc<Mutex<Vec<(u64, Status, bool)>>> = Arc::default();
+        let (selbst_im_aufruf, notiert) = (Arc::clone(&selbst), Arc::clone(&veroeffentlicht));
+        let anwesenheit = Arc::new(
+            Anwesenheit::neu(
+                Arc::clone(&uhr) as Arc<dyn Uhr>,
+                Arc::new(FesteFolge::neu(1..=10)),
+                Duration::from_secs(60),
+            )
+            .mit_veroeffentlichen(Arc::new(move |wechsel: &Wechsel| {
+                let anwesenheit = selbst_im_aufruf.get().and_then(std::sync::Weak::upgrade);
+                let unter_sperre =
+                    anwesenheit.is_some_and(|anwesenheit| anwesenheit.bestand.try_lock().is_err());
+                notiert.lock().expect("Liste").push((
+                    wechsel.stand,
+                    wechsel.teilnehmer.status,
+                    unter_sperre,
+                ));
+            })),
+        );
+        selbst
+            .set(Arc::downgrade(&anwesenheit))
+            .expect("einmal gesetzt");
+        let token = anwesenheit
+            .beitreten(&wunsch("alpha", Art::Agent), ip("127.0.0.2"))
+            .expect("alpha")
+            .sitzung
+            .token;
+        let (halter, _) = anwesenheit
+            .verbunden(&token, ip("127.0.0.2"))
+            .expect("Halter");
+        uhr.stellen(nach_ms(4000));
+
+        let wechsel = anwesenheit.verlassen(&token, ip("127.0.0.2"));
+        let liste = anwesenheit.teilnehmer().liste;
+        let neu = anwesenheit.beitreten(&wunsch("alpha", Art::Agent), ip("127.0.0.4"));
+        let stand_nach_dem_neuen = anwesenheit.bestand().stand;
+        drop(halter);
+        let nach_dem_drop = anwesenheit.pflegen(nach_ms(4500));
+
+        assert_eq!(
+            kurz(&wechsel),
+            [(2, "alpha@127.0.0.2".into(), Status::Weg, nach_ms(4000))]
+        );
+        assert_eq!(wechsel[0].jetzt, nach_ms(4000));
+        assert_eq!(wechsel[0].teilnehmer.weg_um, None);
+        assert_eq!(liste, vec![]);
+        assert!(neu.is_ok(), "{neu:?}");
+        assert_eq!(nach_dem_drop, vec![]);
+        assert_eq!(anwesenheit.bestand().stand, stand_nach_dem_neuen);
+        assert_eq!(
+            anwesenheit.verbunden(&token, ip("127.0.0.2")).map(|_| ()),
+            None
+        );
+        assert_eq!(
+            *veroeffentlicht.lock().expect("Liste"),
+            vec![
+                (1, Status::Online, true),
+                (2, Status::Weg, true),
+                (3, Status::Online, true)
+            ]
+        );
+    }
+
+    #[test]
+    fn verlassen_mit_fremder_herkunft_unbekanntem_token_oder_zum_zweiten_mal_bewirkt_nichts() {
+        let (_, anwesenheit) = mit_gestellter_uhr();
+        let token = anwesenheit
+            .beitreten(&wunsch("alpha", Art::Agent), ip("127.0.0.2"))
+            .expect("alpha")
+            .sitzung
+            .token;
+        let unbekannt = Token::lesen("00000000000000000000000000000000").expect("Token");
+
+        let fremd = anwesenheit.verlassen(&token, ip("127.0.0.3"));
+        let ohne_sitzung = anwesenheit.verlassen(&unbekannt, ip("127.0.0.2"));
+        let stand_davor = anwesenheit.bestand().stand;
+        let erstes = anwesenheit.verlassen(&token, ip("127.0.0.2"));
+        let zweites = anwesenheit.verlassen(&token, ip("127.0.0.2"));
+
+        assert_eq!((fremd, ohne_sitzung), (vec![], vec![]));
+        assert_eq!(erstes.len(), 1);
+        assert_eq!(zweites, vec![]);
+        assert_eq!(anwesenheit.bestand().stand, stand_davor + 1);
     }
 
     #[test]
