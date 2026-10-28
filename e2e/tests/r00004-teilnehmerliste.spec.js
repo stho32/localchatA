@@ -66,13 +66,18 @@ test('US-15: Browser B zu → A zeigt mia in < 2 s offline, nach der Gnadenfrist
   await beitreten(b.page, 'mia');
   await istOnline(zeileVon(a.page, 'mia@127.0.0.1'));
 
-  const geschlossen = Date.now();
+  // Die Uhr startet erst, wenn close() zurückgekehrt ist, weil die Story „nach dem Schließen“ misst und close() unter Last selbst Zeit braucht.
+  const schliessenBeginnt = Date.now();
   await b.kontext.close();
-  await istOffline(zeileVon(a.page, 'mia@127.0.0.1'), 2000);
+  const geschlossen = Date.now();
+  const closeMs = geschlossen - schliessenBeginnt;
+  await istOffline(zeileVon(a.page, 'mia@127.0.0.1'), 5000);
   const offlineNach = Date.now() - geschlossen;
-  await expect(zeileVon(a.page, 'mia@127.0.0.1')).toHaveCount(0, { timeout: 5000 - (Date.now() - geschlossen) });
+  await expect(zeileVon(a.page, 'mia@127.0.0.1')).toHaveCount(0, { timeout: 10000 });
+  const wegNach = Date.now() - geschlossen;
 
-  expect(offlineNach).toBeLessThan(2000);
+  expect(offlineNach, `close ${closeMs} ms, offline nach ${offlineNach} ms`).toBeLessThan(2000);
+  expect(wegNach, `close ${closeMs} ms, Zeile weg nach ${wegNach} ms`).toBeLessThan(5000);
   await expect(region(a.page).locator('.lc-id')).toHaveText(['shoff@127.0.0.1']);
   expect(a.fehler).toEqual([]);
 });
