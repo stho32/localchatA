@@ -4,6 +4,7 @@
 pub mod frist;
 pub mod langsam;
 pub mod protokoll;
+pub mod senden;
 pub mod strom;
 
 use std::io::{BufRead, BufReader, Read};

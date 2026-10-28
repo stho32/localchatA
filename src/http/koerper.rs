@@ -167,7 +167,6 @@ fn json_parsen(roh: &[u8]) -> Result<Value, Koerperfehler> {
 
 /// Wie `json_lesen` für Routen mit einer Grenze über 16 KiB (ADR-0010 Ergänzung Regel 2): gelesen wird auf dem
 /// Worker, geparst auf der Werkbank. `Err(Abgebrochen)`, wenn die Werkbank die Arbeit nicht zu Ende bringt.
-#[allow(dead_code)] // bis B0212 die Senderoute ihn nutzt
 pub async fn json_lesen_auf_werkbank(
     kopf: &HeaderMap,
     koerper: Body,

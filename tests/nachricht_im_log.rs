@@ -7,9 +7,10 @@ mod gemeinsam;
 
 use chrono::{DateTime, NaiveDate};
 use gemeinsam::{gesundheit, starten_mit};
-use localchata::fehler::Fehler;
 use localchata::gespraeche::logformat::saetze;
-use localchata::gespraeche::{Art, Dateiablage, Gespraech, Gespraeche, Kennung, Speicherablage};
+use localchata::gespraeche::{
+    Art, Dateiablage, Gespraech, Gespraeche, Kennung, Sendefehler, Speicherablage,
+};
 use localchata::uhr::{GestellteUhr, Zeit};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -254,7 +255,7 @@ fn us8_schreibfehler_hinterlaesst_nichts() {
     let gescheitert = gespraeche.senden(&allgemein(), &claude(), Art::Agent, "verloren");
 
     assert!(
-        matches!(gescheitert, Err(Fehler::Ablage(_))),
+        matches!(gescheitert, Err(Sendefehler::Ablage { .. })),
         "{gescheitert:?}"
     );
     let danach = ablage.inhalt(&allgemein(), tag("2026-10-27")).expect("Tag");
@@ -310,7 +311,7 @@ fn unbekanntes_gespraech_legt_weder_ordner_noch_datei_an() {
     );
 
     assert!(
-        matches!(ergebnis, Err(Fehler::Unbekannt(_))),
+        matches!(ergebnis, Err(Sendefehler::Unbekannt)),
         "{ergebnis:?}"
     );
     assert!(!wurzel.path().join("channels/gibtsnicht").exists());

@@ -1,6 +1,214 @@
-//! Nachricht senden (F0041; ADR-0034): `POST /api/channels/{name}/nachrichten {text}` mit Sitzung.
+//! Nachricht senden (F0041; ADR-0034): `POST /api/channels/{name}/nachrichten {text}` mit Sitzung → 201
+//! `{channel, nachricht}`. Prüfreihenfolge (abgewiesen, nie umgeformt): Grenzschutz 403 · Sitzung 401 · Körper zu
+//! groß 413 · kein JSON-Typ 415 · kein JSON 400 · Channel 404 · Sendekörper 422 `text`/`feld` · Textregel 422
+//! `leer`/`laenge`/`zeichen` · Plattenfehler 500. Der Körper wird auf der Werkbank geparst (Grenze über 16 KiB).
 
-use serde_json::Value;
+use super::Zustand;
+use super::abbruch::{Abgebrochen, Grenzort, abbruch_beantworten};
+use super::anfrageprotokoll::Eingetragen;
+use super::koerper::{Koerperfehler, Koerperort, ZU_LANGSAM, json_lesen_auf_werkbank};
+use super::nachrichten::NachrichtAntwort;
+use super::teilnehmer::Teilnehmer;
+use crate::gespraeche::textregel::{TEXT_HOECHSTENS_BYTES, Textfehler, text_pruefen};
+use crate::gespraeche::{Gespraech, Nachricht, Sendefehler};
+use crate::protokoll::{Bereich, Kontext, Schluessel, Stufe};
+use axum::Json;
+use axum::body::Body;
+use axum::extract::{Path, State};
+use axum::http::header::CONNECTION;
+use axum::http::{HeaderMap, StatusCode};
+use axum::response::{IntoResponse, Response};
+use serde_json::{Value, json};
+use std::sync::Arc;
+
+const ROUTE: &str = "POST /api/channels/{name}/nachrichten";
+
+/// Körpergrenze des Sendens (ADR-0034 Regel 2): der größte gültige Körper in der längsten Schreibweise hat
+/// 98.315 Bytes (`{"text":"` + 16.384 × `\u0061` + `"}`); mit 30 % Reserve 127.810, gerundet auf 128 KiB.
+pub const SENDEN_GRENZE: usize = 131_072;
+
+pub async fn senden(
+    teilnehmer: Teilnehmer,
+    State(zustand): State<Arc<Zustand>>,
+    Path(name): Path<String>,
+    kopf: HeaderMap,
+    koerper: Body,
+) -> Response {
+    let wer = teilnehmer.kennung.als_text().to_string();
+    let ort = Koerperort {
+        protokoll: &zustand.protokoll,
+        route: ROUTE,
+        herkunft: teilnehmer.herkunft,
+        kennung: Some(&wer),
+    };
+    let wert = match json_lesen_auf_werkbank(&kopf, koerper, SENDEN_GRENZE, &ort, &zustand.werkbank)
+        .await
+    {
+        Ok(Ok(wert)) => wert,
+        Ok(Err(fehler)) => return kein_json(fehler),
+        Err(abbruch) => return abgebrochen(&zustand, &abbruch, &wer, &name),
+    };
+    if !zustand.gespraeche.channel_bekannt(&name) {
+        return unbekannt(&name);
+    }
+    let text = match sendekoerper_lesen(&wert) {
+        Ok(text) => text.to_string(),
+        Err(fehler) => return sendekoerper_abgewiesen(fehler),
+    };
+    if let Err(fehler) = text_pruefen(&text) {
+        return text_abgewiesen(fehler);
+    }
+    let gespraeche = Arc::clone(&zustand.gespraeche);
+    let gespraech = Gespraech::channel(&name);
+    let von = teilnehmer.kennung.clone();
+    let art = teilnehmer.art;
+    let ergebnis =
+        tokio::task::spawn_blocking(move || gespraeche.senden(&gespraech, &von, art, &text)).await;
+    match ergebnis {
+        Ok(Ok(nachricht)) => gesendet(&name, &nachricht),
+        Ok(Err(Sendefehler::Unbekannt)) => unbekannt(&name),
+        Ok(Err(Sendefehler::Ablage { datei, grund })) => {
+            nicht_gespeichert(&zustand, &name, &wer, &datei, &grund)
+        }
+        Err(abbruch) => abgebrochen(&zustand, &Abgebrochen::from(abbruch), &wer, &name),
+    }
+}
+
+/// 404 „# name gibt es nicht.“ — auch für ungültige Namen (R00011 F0041); der Name steht nur im JSON-Text.
+fn unbekannt(name: &str) -> Response {
+    let fehler = format!("# {name} gibt es nicht.");
+    (StatusCode::NOT_FOUND, Json(json!({ "fehler": fehler }))).into_response()
+}
+
+fn gesendet(channel: &str, nachricht: &Nachricht) -> Response {
+    let antwort = json!({ "channel": channel, "nachricht": NachrichtAntwort::aus(nachricht) });
+    (StatusCode::CREATED, Json(antwort)).into_response()
+}
+
+/// 500 mit deutschem Satz; Datei und Grund stehen im Betriebsprotokoll (ab ERROR auch auf stderr), nie der Text.
+fn nicht_gespeichert(
+    zustand: &Zustand,
+    channel: &str,
+    wer: &str,
+    datei: &str,
+    grund: &str,
+) -> Response {
+    zustand.protokoll.eintragen(
+        Stufe::Error,
+        Bereich::Senden,
+        "Nachricht nicht gespeichert",
+        Kontext::neu()
+            .mit(Schluessel::Channel, channel)
+            .mit(Schluessel::Kennung, wer)
+            .mit(Schluessel::Datei, datei)
+            .mit(Schluessel::Grund, grund),
+    );
+    let fehler = "Nicht gespeichert — der Server konnte nicht schreiben.";
+    (
+        StatusCode::INTERNAL_SERVER_ERROR,
+        Json(json!({ "fehler": fehler })),
+    )
+        .into_response()
+}
+
+fn abgebrochen(zustand: &Zustand, abbruch: &Abgebrochen, wer: &str, channel: &str) -> Response {
+    abbruch_beantworten(
+        &zustand.protokoll,
+        abbruch,
+        &Grenzort {
+            route: ROUTE,
+            operation: "senden",
+            kennung: Some(wer),
+            channel: Some(channel),
+        },
+        "Nachricht nicht gesendet",
+    )
+}
+
+const BEISPIEL: &str = r#"{"text":"Hallo"}"#;
+
+/// Wie beim Anlegen: deutsche `{fehler}`-Antwort mit Grund und Ausweg; nach 413 und 408 schließt die Verbindung.
+fn kein_json(fehler: Koerperfehler) -> Response {
+    let mit_beispiel = |grund: &str| format!("{grund}, zum Beispiel {BEISPIEL}.");
+    let (status, text) = match fehler {
+        Koerperfehler::KeinJson => (
+            StatusCode::UNSUPPORTED_MEDIA_TYPE,
+            mit_beispiel("Der Körper muss JSON sein — mit Content-Type: application/json schicken"),
+        ),
+        Koerperfehler::Kaputt | Koerperfehler::Abgebrochen => (
+            StatusCode::BAD_REQUEST,
+            mit_beispiel("Der Körper ist kein gültiges JSON — ein JSON-Objekt schicken"),
+        ),
+        Koerperfehler::ZuGross => (
+            StatusCode::PAYLOAD_TOO_LARGE,
+            mit_beispiel(&format!(
+                "Der Körper ist zu groß — höchstens {SENDEN_GRENZE} Bytes, längere Texte teilen"
+            )),
+        ),
+        Koerperfehler::ZuLangsam => (StatusCode::REQUEST_TIMEOUT, ZU_LANGSAM.to_string()),
+    };
+    let antwort = (status, Json(json!({ "fehler": text })));
+    let schliessen = matches!(fehler, Koerperfehler::ZuGross | Koerperfehler::ZuLangsam);
+    let mut antwort = if schliessen {
+        ([(CONNECTION, "close")], antwort).into_response()
+    } else {
+        antwort.into_response()
+    };
+    antwort.extensions_mut().insert(Eingetragen);
+    antwort
+}
+
+fn sendekoerper_abgewiesen(fehler: Sendekoerperfehler) -> Response {
+    let antwort = match fehler {
+        Sendekoerperfehler::Text => json!({
+            "fehler": "Der Körper braucht text als Zeichenkette.",
+            "regel": "text",
+        }),
+        Sendekoerperfehler::Feld { feld } => json!({
+            "fehler": format!("Unbekanntes Feld {feld} — erlaubt ist nur text."),
+            "regel": "feld",
+            "feld": feld,
+        }),
+    };
+    (StatusCode::UNPROCESSABLE_ENTITY, Json(antwort)).into_response()
+}
+
+/// Texte der Abweisung, die der Browser wörtlich zeigt (R00011 F0041); die Stelle für Menschen ab 1.
+fn text_abgewiesen(fehler: Textfehler) -> Response {
+    let antwort = match fehler {
+        Textfehler::Leer => json!({ "fehler": "Die Nachricht ist leer.", "regel": "leer" }),
+        Textfehler::Laenge { bytes } => json!({
+            "fehler": format!(
+                "Zu lang: {} von höchstens {} Byte — bitte teilen.",
+                mit_tausenderpunkt(bytes),
+                mit_tausenderpunkt(TEXT_HOECHSTENS_BYTES)
+            ),
+            "regel": "laenge",
+            "hoechstens": TEXT_HOECHSTENS_BYTES,
+            "bytes": bytes,
+        }),
+        Textfehler::Zeichen { stelle, zeichen } => json!({
+            "fehler": format!("Steuerzeichen {zeichen} an Stelle {} — bitte entfernen.", stelle + 1),
+            "regel": "zeichen",
+            "stelle": stelle,
+            "zeichen": zeichen,
+        }),
+    };
+    (StatusCode::UNPROCESSABLE_ENTITY, Json(antwort)).into_response()
+}
+
+/// `17020` → `17.020`.
+fn mit_tausenderpunkt(zahl: usize) -> String {
+    let ziffern = zahl.to_string();
+    let mut text = String::new();
+    for (stelle, ziffer) in ziffern.chars().enumerate() {
+        if stelle > 0 && (ziffern.len() - stelle).is_multiple_of(3) {
+            text.push('.');
+        }
+        text.push(ziffer);
+    }
+    text
+}
 
 /// Warum ein Sendekörper keinen Text liefert (422 `text` bzw. `feld`).
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -28,6 +236,14 @@ pub fn sendekoerper_lesen(wert: &Value) -> Result<&str, Sendekoerperfehler> {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn zahlen_mit_tausenderpunkt() {
+        assert_eq!(mit_tausenderpunkt(5), "5");
+        assert_eq!(mit_tausenderpunkt(999), "999");
+        assert_eq!(mit_tausenderpunkt(16_384), "16.384");
+        assert_eq!(mit_tausenderpunkt(1_234_567), "1.234.567");
+    }
 
     #[test]
     fn ein_objekt_mit_text_liefert_den_text() {

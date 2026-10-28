@@ -52,6 +52,24 @@ pub struct Nachrichtenblock {
     pub neuer: bool,
 }
 
+/// Warum `senden` nichts angehängt hat.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Sendefehler {
+    /// Das Gespräch ist weder geladen noch angelegt.
+    Unbekannt,
+    /// Die Tagesdatei (relativ zum Ordner) nahm den Satz nicht an; nichts steht im Log oder Index.
+    Ablage { datei: String, grund: String },
+}
+
+impl fmt::Display for Sendefehler {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Sendefehler::Unbekannt => write!(f, "Gespräch unbekannt"),
+            Sendefehler::Ablage { datei, grund } => write!(f, "{datei} nicht geschrieben: {grund}"),
+        }
+    }
+}
+
 /// Den Channel gibt es nicht — unbekannt oder kein gültiger Name.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Unbekannt;
@@ -190,12 +208,12 @@ impl Gespraeche {
         von: &Kennung,
         art: Art,
         text: &str,
-    ) -> Result<Nachricht, Fehler> {
+    ) -> Result<Nachricht, Sendefehler> {
         let verlauf = lesend(&self.verzeichnis)
             .verlaeufe
             .get(gespraech)
             .cloned()
-            .ok_or_else(|| Fehler::Unbekannt(format!("Gespräch {gespraech} unbekannt")))?;
+            .ok_or(Sendefehler::Unbekannt)?;
         let mut verlauf = sperren(&verlauf);
         let mut nachricht = Nachricht {
             zeit: self.zeit_vergeben(),
@@ -209,11 +227,9 @@ impl Gespraeche {
         let angehaengt = self
             .ablage
             .anhaengen(gespraech, tag, &satz)
-            .map_err(|fehler| {
-                Fehler::Ablage(format!(
-                    "{} nicht geschrieben: {fehler}",
-                    gespraech.tagesdatei(tag)
-                ))
+            .map_err(|fehler| Sendefehler::Ablage {
+                datei: gespraech.tagesdatei(tag),
+                grund: fehler.to_string(),
             })?;
         verlauf.anhaengen(tag, &satz, angehaengt.zeilenende_ergaenzt);
         Ok(nachricht)
@@ -637,7 +653,7 @@ mod tests {
         );
 
         assert!(
-            matches!(ergebnis, Err(Fehler::Unbekannt(ref text)) if text.contains("gibtsnicht")),
+            matches!(ergebnis, Err(Sendefehler::Unbekannt)),
             "{ergebnis:?}"
         );
         assert_eq!(
@@ -661,7 +677,7 @@ mod tests {
         let gescheitert = gespraeche.senden(&allgemein, &claude(), Art::Agent, "zwei");
 
         assert!(
-            matches!(gescheitert, Err(Fehler::Ablage(_))),
+            matches!(gescheitert, Err(Sendefehler::Ablage { ref datei, .. }) if datei == "channels/allgemein/2026-10-27.log"),
             "{gescheitert:?}"
         );
         assert_eq!(

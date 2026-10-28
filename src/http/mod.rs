@@ -15,7 +15,6 @@ mod ich;
 mod koerper;
 mod nachrichten;
 mod oberflaeche;
-#[allow(dead_code)] // bis B0212 die Route ihn nutzt
 mod senden;
 mod teilnehmer;
 mod teilnehmerliste;
@@ -77,7 +76,7 @@ pub fn router(zustand: Zustand) -> Router {
         )
         .route(
             "/api/channels/{name}/nachrichten",
-            get(nachrichten::beantworten),
+            get(nachrichten::beantworten).post(senden::senden),
         )
         .route("/api/channels/{name}/frist", put(frist::setzen))
         .route("/api/ich", get(ich::beantworten))
