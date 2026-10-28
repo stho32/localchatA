@@ -13,6 +13,7 @@ use toml::{Spanned, Table, Value};
 pub struct Einstellungen {
     pub angelegt: Option<Zeit>,
     pub angelegt_von: Option<Kennung>,
+    pub beschreibung: Option<Beschreibung>,
 }
 
 /// Höchstens so viele Unicode-Zeichen hat eine Beschreibung (ADR-0022 Regel 5).
@@ -56,9 +57,10 @@ pub struct Defekt {
 
 const ANGELEGT: &str = "angelegt";
 const ANGELEGT_VON: &str = "angelegt_von";
+const BESCHREIBUNG: &str = "beschreibung";
 
 /// Liest die Datei; jeder Defekt nennt seine Zeile: kein UTF-8, kein TOML (auch doppelter Schlüssel), `angelegt`
-/// keine Zeit nach RFC 3339 als Text, `angelegt_von` keine Kennung. Unbekannte Schlüssel sind kein Defekt.
+/// keine Zeit nach RFC 3339 als Text, `angelegt_von` keine Kennung, `beschreibung` gegen die Regel (`""` ist keine). Unbekannte Schlüssel sind kein Defekt.
 pub fn lesen(bytes: &[u8]) -> Result<Einstellungen, Defekt> {
     let text = std::str::from_utf8(bytes).map_err(|fehler| Defekt {
         zeile: zeile_bei(bytes, fehler.valid_up_to()),
@@ -75,6 +77,10 @@ pub fn lesen(bytes: &[u8]) -> Result<Einstellungen, Defekt> {
         angelegt_von: deuten(bytes, roh.angelegt_von, ANGELEGT_VON, |text| {
             Kennung::bilden(text).ok()
         })?,
+        beschreibung: deuten(bytes, roh.beschreibung, BESCHREIBUNG, |text| {
+            Beschreibung::bilden(text).ok()
+        })?
+        .flatten(),
     })
 }
 
@@ -83,6 +89,7 @@ pub fn lesen(bytes: &[u8]) -> Result<Einstellungen, Defekt> {
 struct Roh {
     angelegt: Option<Spanned<Value>>,
     angelegt_von: Option<Spanned<Value>>,
+    beschreibung: Option<Spanned<Value>>,
 }
 
 /// Ein Text, den `wert_aus` versteht — sonst ein Defekt in der Zeile des Werts.
@@ -130,6 +137,14 @@ pub fn schreiben(einstellungen: &Einstellungen, vorher: Option<&[u8]>) -> String
             .as_ref()
             .map(|kennung| kennung.als_text().to_string()),
     );
+    setzen(
+        &mut tabelle,
+        BESCHREIBUNG,
+        einstellungen
+            .beschreibung
+            .as_ref()
+            .map(|beschreibung| beschreibung.als_text().to_string()),
+    );
     tabelle.to_string()
 }
 
@@ -161,6 +176,7 @@ mod tests {
         Einstellungen {
             angelegt: Some(zeit("2026-10-28T10:15:00.123+01:00")),
             angelegt_von: Some(Kennung::bilden("alpha@127.0.0.2").expect("Kennung")),
+            beschreibung: None,
         }
     }
 
@@ -193,19 +209,21 @@ mod tests {
             Ok(Einstellungen {
                 angelegt: Some(zeit("2026-10-28T10:15:00.123+01:00")),
                 angelegt_von: Some(Kennung::bilden("shoff@127.0.0.1").expect("Kennung")),
+                beschreibung: None,
             })
         );
     }
 
     #[test]
     fn unbekannte_schluessel_bleiben_beim_zurueckschreiben_erhalten() {
-        let vorher = b"farbe = \"rot\"\nbeschreibung = \"Absprachen\"\nangelegt = \"2020-01-01T00:00:00.000+01:00\"\n";
+        // Seit R00007 ist beschreibung ein bekannter Schlüssel (eigener Test oben); notiz steht für die unbekannten.
+        let vorher = b"farbe = \"rot\"\nnotiz = \"Absprachen\"\nangelegt = \"2020-01-01T00:00:00.000+01:00\"\n";
 
         let text = schreiben(&alpha(), Some(vorher));
         let tabelle: toml::Table = text.parse().expect("TOML");
 
         assert_eq!(tabelle["farbe"].as_str(), Some("rot"));
-        assert_eq!(tabelle["beschreibung"].as_str(), Some("Absprachen"));
+        assert_eq!(tabelle["notiz"].as_str(), Some("Absprachen"));
         assert_eq!(lesen(text.as_bytes()), Ok(alpha()));
     }
 
@@ -273,6 +291,62 @@ mod tests {
         assert_eq!(
             beschreibung("  Absprachen  "),
             Ok(Some("  Absprachen  ".to_string()))
+        );
+    }
+    fn mit_beschreibung(text: &str) -> Einstellungen {
+        Einstellungen {
+            beschreibung: Beschreibung::bilden(text).expect("Regel"),
+            ..alpha()
+        }
+    }
+
+    #[test]
+    fn rundweg_mit_beschreibung_samt_formatzeichen() {
+        for text in [
+            "Absprachen zwischen Security- und Entwicklungs-Factory",
+            "\u{202e}abc \"zitiert\" \\",
+        ] {
+            let einstellungen = mit_beschreibung(text);
+
+            let geschrieben = schreiben(&einstellungen, None);
+
+            assert_eq!(
+                lesen(geschrieben.as_bytes()),
+                Ok(einstellungen),
+                "{geschrieben}"
+            );
+            let tabelle: toml::Table = geschrieben.parse().expect("TOML");
+            assert_eq!(tabelle["beschreibung"].as_str(), Some(text));
+        }
+    }
+
+    #[test]
+    fn ohne_beschreibung_steht_kein_schluessel_und_leer_ist_keine() {
+        let geschrieben = schreiben(&alpha(), Some(b"beschreibung = \"alt\"\n"));
+
+        assert!(!geschrieben.contains("beschreibung"), "{geschrieben}");
+        assert_eq!(
+            lesen(b"beschreibung = \"\"\n").map(|gelesen| gelesen.beschreibung),
+            Ok(None)
+        );
+    }
+
+    #[test]
+    fn eine_beschreibung_gegen_die_regel_ist_ein_defekt_ihrer_zeile() {
+        let zu_lang = format!(
+            "angelegt_von = \"a@1\"\nbeschreibung = \"{}\"\n",
+            "ä".repeat(201)
+        );
+        assert_eq!(
+            defekt_in_zeile(b"angelegt_von = \"alpha@127.0.0.2\"\nbeschreibung = \"a\\nb\"\n"),
+            2
+        );
+        assert_eq!(defekt_in_zeile(zu_lang.as_bytes()), 2);
+        assert_eq!(defekt_in_zeile(b"beschreibung = 5\n"), 1);
+        assert_eq!(
+            lesen(format!("beschreibung = \"{}\"\n", "ä".repeat(200)).as_bytes())
+                .map(|gelesen| gelesen.beschreibung.map(|b| b.als_text().chars().count())),
+            Ok(Some(200))
         );
     }
 }
