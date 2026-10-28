@@ -25,8 +25,8 @@ use std::sync::Arc;
 ///   Testdaten-Erzeuger) — das Budget liegt 3,2-fach darüber, realistische Blöcke bleiben vollständig.
 /// - Größte Nachricht: 16 384 Bytes Text (ADR-0034); ein Satz ist höchstens ≈ 32 768 Bytes + Kopf (eine Zeile
 ///   je Zeichen) — also mindestens 7 Höchstgrößen je Block, bei einzeiligen 16-KiB-Texten 15.
-/// - Speicher: JSON ≤ 2 × Budget + 60 Bytes je Nachricht ≈ 0,5 MiB je Antwort; 64 Verbindungen einer Herkunft
-///   ≤ 32 MiB (Rechnung Q8 in ADR-0039).
+/// - Speicher: JSON ≤ 2 × Budget + 60 Bytes je Nachricht ≈ 0,5 MiB je Antwort; 160 Verbindungen einer Herkunft
+///   ≤ 80 MiB (Rechnung Q8 in ADR-0039, Ergänzung R00015).
 pub const VERLAUF_BUDGET: usize = 262_144;
 
 pub async fn beantworten(

@@ -1,11 +1,13 @@
 //! B0258 Langsame Leser messen (R00013 K4, US-1, US-2; Abnahme der Befundkarte #23): nicht lesende Abrufe aus
 //! `riesig` treiben den Speicher der Instanz nicht, und jede dieser Verbindungen ist nach der Sendefrist
-//! server-seitig zu. Leistungstest im Release-Build, nicht im Gate:
+//! server-seitig zu. Seit B0285 (R00015 G5) mit G = 160 Verbindungen je Herkunft (`JE_GEGENSTELLE`) statt 64.
+//! Leistungstest im Release-Build, nicht im Gate:
 //! `cargo test --release --test langsame_leser -- --ignored langsame_leser`.
 //!
 //! Je Lauf eine frische Instanz mit Standard-Herzschlag (Sendefrist 10 s). `r0` und die Threads `t0` nach den
 //! Beitritten und einem ersten gelesenen Abruf `?n=1` von `127.0.0.9`; die Uhr startet, wenn alle Anfragen der
-//! Rohverbindungen gesendet sind. Die Grenzen stehen in R00013 und werden hier übernommen, nie verschärft.
+//! Rohverbindungen gesendet sind. Die Grenzen stehen in R00015 G5 (vorher R00013 K4) und werden hier
+//! übernommen, nie verschärft.
 #![cfg(target_os = "linux")]
 
 mod gemeinsam;
@@ -17,10 +19,13 @@ use std::time::Duration;
 use tokio::time::Instant;
 
 const MB: u64 = 1_000_000;
-/// R00013 K4: 64 × 2 × 256 KiB + 50 MB (ADR-0039 „Rechnung Q8“).
-const GRENZE_EINE_HERKUNFT: u64 = 84 * MB;
-const GRENZE_ZWEI_HERKUENFTE: u64 = 117 * MB;
-/// Nach dem Schließen, 15 s später.
+/// Nicht lesende Abrufe je Herkunft: so viele, wie die Instanz einer Herkunft an Plätzen gibt (R00015 G5).
+const JE_HERKUNFT: usize = localchata::start::verbindungen::JE_GEGENSTELLE;
+/// R00015 G5: 160 × 2 × 256 KiB + 50 MB ≈ 134 MB, zwei Herkünfte 320 × 0,5 MiB + 50 MB ≈ 218 MB
+/// (ADR-0039 „Rechnung Q8“, Ergänzung R00015).
+const GRENZE_EINE_HERKUNFT: u64 = 134 * MB;
+const GRENZE_ZWEI_HERKUENFTE: u64 = 218 * MB;
+/// Nach dem Schließen, 15 s später (R00013 K4, unverändert in R00015 G5).
 const GRENZE_RUECKGABE: u64 = 50 * MB;
 const THREADS_HOECHSTENS_MEHR: u64 = 64;
 const ABTASTUNG: Duration = Duration::from_millis(250);
@@ -76,6 +81,8 @@ struct Ergebnis {
     threads0: u64,
     threads_spitze: u64,
     zu_ab: Option<Duration>,
+    /// Server-seitig offene der eigenen Verbindungen bei `t0 + 1 s` — alle angenommen, keine abgewiesen.
+    offen_nach_1_s: usize,
     offen_bei_15_s: usize,
     gesundheit: Vec<(u16, Duration)>,
     nach_dem_schliessen: u64,
@@ -92,13 +99,14 @@ impl Ergebnis {
 
     fn zeile(&self) -> String {
         format!(
-            "{:<32} r0 {:>6.1} MB · Zuwachs {:>6.1} MB (≤ {} MB) · Threads {} → {} · server-seitig zu ab {} · offen bei 15 s {} · Gesundheit {:?} · nach dem Schließen {:>+6.1} MB",
+            "{:<32} r0 {:>6.1} MB · Zuwachs {:>6.1} MB (≤ {} MB) · Threads {} → {} · offen bei 1 s {} · server-seitig zu ab {} · offen bei 15 s {} · Gesundheit {:?} · nach dem Schließen {:>+6.1} MB",
             self.lauf.name,
             mb(self.r0),
             mb(self.spitze.saturating_sub(self.r0)),
             self.grenze() / MB,
             self.threads0,
             self.threads_spitze,
+            self.offen_nach_1_s,
             self.zu_ab
                 .map_or("—".to_string(), |d| format!("{:.2} s", d.as_secs_f64())),
             self.offen_bei_15_s,
@@ -118,6 +126,13 @@ impl Ergebnis {
         }
         if self.threads_spitze > self.threads0 + THREADS_HOECHSTENS_MEHR {
             verstoesse.push(format!("Threads {}", self.threads_spitze));
+        }
+        let erwartet = JE_HERKUNFT * self.lauf.herkuenfte.len();
+        if self.offen_nach_1_s != erwartet {
+            verstoesse.push(format!(
+                "{} von {erwartet} angenommen bei t0 + 1 s",
+                self.offen_nach_1_s
+            ));
         }
         if self.offen_bei_15_s > 0 {
             verstoesse.push(format!("{} offen bei t0 + 15 s", self.offen_bei_15_s));
@@ -220,7 +235,7 @@ async fn fahren(lauf: Lauf) -> Ergebnis {
     let pfad = format!("/api/channels/riesig/nachrichten{}", lauf.abfrage);
     let mut offen: Vec<NichtLesend> = Vec::new();
     for (herkunft, token) in lauf.herkuenfte.iter().zip(&tokens) {
-        for _ in 0..64 {
+        for _ in 0..JE_HERKUNFT {
             offen.push(nicht_lesend_oeffnen(port, herkunft, &pfad, token).await);
         }
     }
@@ -236,6 +251,7 @@ async fn fahren(lauf: Lauf) -> Ergebnis {
         }));
     }
     let (mut spitze, mut threads_spitze, mut zu_ab) = (r0, threads0, None);
+    let mut offen_nach_1_s = None;
     let mut abtastung = tokio::time::interval_at(t0, ABTASTUNG);
     loop {
         abtastung.tick().await;
@@ -244,6 +260,9 @@ async fn fahren(lauf: Lauf) -> Ergebnis {
             let (rss, threads) = speicher_und_threads(&instanz);
             spitze = spitze.max(rss);
             threads_spitze = threads_spitze.max(threads);
+        }
+        if offen_nach_1_s.is_none() && seit >= Duration::from_secs(1) {
+            offen_nach_1_s = Some(server_seitig_offen(port, &gegenstellen).len());
         }
         if zu_ab.is_none() && server_seitig_offen(port, &gegenstellen).is_empty() {
             zu_ab = Some(seit);
@@ -267,6 +286,7 @@ async fn fahren(lauf: Lauf) -> Ergebnis {
         threads0,
         threads_spitze,
         zu_ab,
+        offen_nach_1_s: offen_nach_1_s.unwrap_or(0),
         offen_bei_15_s,
         gesundheit: gemessen,
         nach_dem_schliessen,
@@ -290,8 +310,9 @@ fn gemischt() -> Vec<Lauf> {
     laeufe
 }
 
-/// K4 — Abnahme der Befundkarte #23: bei 64 nicht lesenden Verbindungen einer Herkunft (`?n=200` aus `riesig`)
-/// ist der RSS-Zuwachs ≤ 84 MB (2 Herkünfte: ≤ 117 MB) **und** jede dieser Verbindungen ist bei `t0 + 15 s`
+/// K4 mit G = 160 (R00015 G5; vorher Abnahme der Befundkarte #23 mit 64): bei 160 nicht lesenden Verbindungen
+/// einer Herkunft (`?n=200` aus `riesig`) ist der RSS-Zuwachs ≤ 134 MB (2 Herkünfte: ≤ 218 MB) **und** jede
+/// dieser Verbindungen ist bei `t0 + 15 s`
 /// server-seitig zu; Threads ≤ `t0` + 64, Gesundheit von `127.0.0.9` 200 innerhalb 1 s bei `t0 + 2 s` und
 /// `t0 + 5 s`, 15 s nach dem Schließen ≤ 50 MB über `r0`. Alle Läufe, dann ein Urteil.
 #[tokio::test(flavor = "multi_thread")]
