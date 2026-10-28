@@ -84,7 +84,11 @@ mod tests {
         );
         assert_eq!(teilen(&auf_der_platte, tag("2026-10-28"), 3650).1, vec![]);
         assert_eq!(
-            teilen(&tage(&["2016-10-30", "2016-10-31"]), tag("2026-10-28"), 3650),
+            teilen(
+                &tage(&["2016-10-30", "2016-10-31"]),
+                tag("2026-10-28"),
+                3650
+            ),
             (tage(&["2016-10-31"]), tage(&["2016-10-30"]))
         );
     }
@@ -110,11 +114,12 @@ mod tests {
         for n in [1, 2, 7, 30, 31, 59, 60, 3650] {
             let (behalten, entfallen) = teilen(&auf_der_platte, tag("2026-11-10"), n);
 
-            assert_eq!(behalten.len() + entfallen.len(), auf_der_platte.len(), "{n}");
-            assert!(
-                behalten.iter().all(|tag| !entfallen.contains(tag)),
+            assert_eq!(
+                behalten.len() + entfallen.len(),
+                auf_der_platte.len(),
                 "{n}"
             );
+            assert!(behalten.iter().all(|tag| !entfallen.contains(tag)), "{n}");
         }
     }
 }

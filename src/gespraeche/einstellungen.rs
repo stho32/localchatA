@@ -402,7 +402,11 @@ mod tests {
         let geschrieben = schreiben(&einstellungen, Some(vorher));
 
         let tabelle: toml::Table = geschrieben.parse().expect("TOML");
-        assert_eq!(tabelle["frist_tage"].as_integer(), Some(30), "{geschrieben}");
+        assert_eq!(
+            tabelle["frist_tage"].as_integer(),
+            Some(30),
+            "{geschrieben}"
+        );
         assert_eq!(tabelle["farbe"].as_str(), Some("blau"));
         assert_eq!(
             tabelle["angelegt"].as_str(),

@@ -117,7 +117,10 @@ mod tests {
         assert_eq!(gesetzt.geaendert_von, Some(7));
         assert_eq!(gesetzt.channel.frist, Frist::Tage(30));
         let datei = einstellungen_von(&ablage, "allgemein").expect("Datei");
-        let tabelle: toml::Table = String::from_utf8(datei).expect("UTF-8").parse().expect("TOML");
+        let tabelle: toml::Table = String::from_utf8(datei)
+            .expect("UTF-8")
+            .parse()
+            .expect("TOML");
         assert_eq!(tabelle["frist_tage"].as_integer(), Some(30));
         assert_eq!(tabelle["farbe"].as_str(), Some("blau"));
         assert_eq!(tabelle["angelegt_von"].as_str(), Some("alpha@127.0.0.2"));
@@ -160,7 +163,11 @@ mod tests {
         let gespraeche = geladen(&ablage);
 
         for name in ["fehlt", "Allgemein", "../allgemein", ""] {
-            assert_eq!(gespraeche.frist_setzen(name, 30), Err(Fristfehler::Unbekannt), "{name}");
+            assert_eq!(
+                gespraeche.frist_setzen(name, 30),
+                Err(Fristfehler::Unbekannt),
+                "{name}"
+            );
         }
         assert_eq!(
             gespraeche.frist_setzen("kaputt", 30),
