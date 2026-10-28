@@ -84,3 +84,4 @@ Nie vom User erfragen.
 | 2026-10-28 | R00003 Namen wählen und beitreten | B0067 Schrift und Zweck des Bildschirms | Nacharbeit | 0,4h | 0,05h | 0,05h | autonom |
 | 2026-10-28 | R00003 Namen wählen und beitreten | B0068 Fokus nach dem Beitritt, ruhiger Hinweis | Nacharbeit | 0,4h | 0,1h | 0,1h | autonom |
 | 2026-10-28 | R00003 Namen wählen und beitreten | B0069 Kaputtes JSON und falscher Content-Type als {fehler} | Nacharbeit | 0,4h | 0,1h | 0,1h | autonom |
+| 2026-10-28 | R00003 Namen wählen und beitreten | Nacharbeit 1 Mutationsprobe und Gate | Nacharbeit | — | — | 0,15h | autonom |
