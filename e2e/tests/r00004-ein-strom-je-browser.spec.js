@@ -2,7 +2,7 @@
 // R00004 F0014 Ein Strom je Browser (US-20 bis US-24, ADR-0015): alle Tabs eines Browser-Kontexts teilen einen
 // Strom über einen SharedWorker; ohne SharedWorker hält jeder Tab seinen eigenen.
 const { test, expect } = require('@playwright/test');
-const { instanzStarten, freierPort, fehlerSammeln } = require('./hilfen');
+const { instanzStarten, freierPort, fehlerSammeln, sichtbarNach, zeigtStatus } = require('./hilfen');
 
 let instanz;
 test.afterEach(async () => {
@@ -47,6 +47,17 @@ async function kontextMitTabs(browser, name, anzahl, { ohneSharedWorker = false 
   return { kontext, tabs, fehler };
 }
 
+// Prüfungen für sichtbarNach — sie laufen im Browser und kennen nur ihr Argument und das DOM.
+function zeigtKennungen(erwartet) {
+  const kennungen = [...document.querySelectorAll('#lc-teilnehmer .lc-id')].map((id) => id.textContent.replace(/\s+/g, ' ').trim());
+  return kennungen.join('|') === erwartet.join('|');
+}
+
+function verbindungshinweisVerborgen() {
+  const hinweis = document.getElementById('lc-verbindung');
+  return hinweis === null || hinweis.getClientRects().length === 0;
+}
+
 function ohneFehler(fehlerJeTab) {
   for (const gesammelt of fehlerJeTab) {
     expect(gesammelt).toEqual([]);
@@ -75,13 +86,15 @@ test('US-21: ein neuer Tab zeigt die Liste in < 2 s, ohne dass sich etwas änder
   const a = await kontextMitTabs(browser, 'shoff', 1);
   await expect(region(a.tabs[0]).locator('.lc-id')).toHaveText(['mia@127.0.0.1', 'shoff@127.0.0.1']);
 
-  const geoeffnet = Date.now();
   const zweiter = await a.kontext.newPage();
   const fehler = fehlerSammeln(zweiter);
+  const geoeffnet = Date.now();
   await zweiter.goto(instanz.adresse);
-  await expect(region(zweiter).locator('.lc-id')).toHaveText(['mia@127.0.0.1', 'shoff@127.0.0.1'], { timeout: 2000 });
+  const listeNach = await sichtbarNach(zweiter, zeigtKennungen, { argument: ['mia@127.0.0.1', 'shoff@127.0.0.1'], ab: geoeffnet });
+  test.info().annotations.push({ type: 'messung', description: `listeNach ${listeNach} ms` });
 
-  expect(Date.now() - geoeffnet).toBeLessThan(2000);
+  expect(listeNach).toBeLessThan(2000);
+  await expect(region(zweiter).locator('.lc-id')).toHaveText(['mia@127.0.0.1', 'shoff@127.0.0.1']);
   expect(fehler).toEqual([]);
   ohneFehler([...a.fehler, ...b.fehler]);
 });
@@ -97,12 +110,14 @@ test('US-22: offline erst, wenn der letzte Tab zu ist', async ({ browser }) => {
   await b.tabs[1].close();
   await a.tabs[0].waitForTimeout(2500);
   const nachZweien = await mia.locator('.lc-status').count();
-  const geschlossen = Date.now();
   await b.tabs[2].close();
-  await expect(mia.locator('.lc-status')).toHaveText('offline', { timeout: 2000 });
+  const geschlossen = Date.now();
+  const offlineNach = await sichtbarNach(a.tabs[0], zeigtStatus, { argument: { kennung: 'mia@127.0.0.1', status: 'offline' }, ab: geschlossen, timeout: 10000 });
+  test.info().annotations.push({ type: 'messung', description: `offlineNach ${offlineNach} ms` });
 
   expect(nachZweien).toBe(0);
-  expect(Date.now() - geschlossen).toBeLessThan(2000);
+  expect(offlineNach).toBeLessThan(2000);
+  await expect(mia.locator('.lc-status')).toHaveText('offline');
   ohneFehler(a.fehler);
 });
 
@@ -250,9 +265,10 @@ test('A1: Neustart, Tab a tritt bei und geht, zweiter Neustart — Tab b ist in 
   await b.waitForTimeout(500);
   await instanz.starten();
   const neu = Date.now();
-  await expect(b.locator('#lc-verbindung')).toBeHidden({ timeout: 15000 });
-  const zurueckNach = Date.now() - neu;
+  const zurueckNach = await sichtbarNach(b, verbindungshinweisVerborgen, { ab: neu, timeout: 15000 });
+  test.info().annotations.push({ type: 'messung', description: `zurueckNach ${zurueckNach} ms` });
 
+  await expect(b.locator('#lc-verbindung')).toBeHidden();
   await zeigtSichSelbst(b);
   expect(zurueckNach).toBeLessThan(2000);
 });

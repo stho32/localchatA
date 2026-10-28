@@ -2,7 +2,7 @@
 // R00004 F0013 Teilnehmerliste im Browser (US-14 bis US-19): gegen das echte Programm, Chromium, je Kontext
 // ein Browser; in jedem Szenario keine Konsolenfehler.
 const { test, expect } = require('@playwright/test');
-const { instanzStarten, freierPort, lanAdresse, fehlerSammeln, beitretenPerApi, fokusImBrowser } = require('./hilfen');
+const { instanzStarten, freierPort, lanAdresse, fehlerSammeln, beitretenPerApi, fokusImBrowser, sichtbarNach, zeigtStatus } = require('./hilfen');
 
 let instanz;
 test.afterEach(async () => {
@@ -30,6 +30,11 @@ async function istOnline(zeile) {
 async function istOffline(zeile, hoechstensMs) {
   await expect(zeile.locator('.lc-status')).toHaveText('offline', { timeout: hoechstensMs });
   await expect(zeile.locator('.lc-dot')).toHaveClass(/\boff\b/);
+}
+
+// Prüfungen für sichtbarNach — sie laufen im Browser und kennen nur ihr Argument und das DOM.
+function zeileFehlt(kennung) {
+  return ![...document.querySelectorAll('#lc-teilnehmer .lc-person .lc-id')].some((id) => id.textContent.includes(kennung));
 }
 
 async function seiteMitFehlern(browser) {
@@ -71,10 +76,10 @@ test('US-15: Browser B zu → A zeigt mia in < 2 s offline, nach der Gnadenfrist
   await b.kontext.close();
   const geschlossen = Date.now();
   const closeMs = geschlossen - schliessenBeginnt;
-  await istOffline(zeileVon(a.page, 'mia@127.0.0.1'), 5000);
-  const offlineNach = Date.now() - geschlossen;
-  await expect(zeileVon(a.page, 'mia@127.0.0.1')).toHaveCount(0, { timeout: 10000 });
-  const wegNach = Date.now() - geschlossen;
+  const offlineNach = await sichtbarNach(a.page, zeigtStatus, { argument: { kennung: 'mia@127.0.0.1', status: 'offline' }, ab: geschlossen });
+  await istOffline(zeileVon(a.page, 'mia@127.0.0.1'), 1000);
+  const wegNach = await sichtbarNach(a.page, zeileFehlt, { argument: 'mia@127.0.0.1', ab: geschlossen, timeout: 10000 });
+  test.info().annotations.push({ type: 'messung', description: `close ${closeMs} ms, offlineNach ${offlineNach} ms, wegNach ${wegNach} ms` });
 
   expect(offlineNach, `close ${closeMs} ms, offline nach ${offlineNach} ms`).toBeLessThan(2000);
   expect(wegNach, `close ${closeMs} ms, Zeile weg nach ${wegNach} ms`).toBeLessThan(5000);

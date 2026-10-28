@@ -197,4 +197,27 @@ function stromOeffnen(adresse, token, herkunft = '127.0.0.1') {
   });
 }
 
-module.exports = { instanzStarten, freierPort, lanAdresse, fehlerSammeln, beitretenPerApi, fokusImBrowser, stromOeffnen };
+/// Wartet ereignisgenau, bis `pruefung(argument)` im Browser wahr ist — geprüft vor jedem Bildaufbau
+/// (requestAnimationFrame), nicht im Pollraster von expect (0,1 / 0,25 / 0,5 / 1 s, bis zu 1 s zu spät) —, und
+/// liefert die Millisekunden seit `ab`, dem Ende des auslösenden Schritts. `pruefung` läuft im Browser und
+/// darf nur `argument` und das DOM benutzen.
+async function sichtbarNach(seite, pruefung, { argument, ab, timeout = 5000 }) {
+  await seite.waitForFunction(pruefung, argument, { polling: 'raf', timeout });
+  return Date.now() - ab;
+}
+
+/// Prüfung für sichtbarNach: die Zeile mit `kennung` in der Teilnehmerliste zeigt den Status `status`.
+function zeigtStatus({ kennung, status }) {
+  const zeile = [...document.querySelectorAll('#lc-teilnehmer .lc-person')]
+    .find((person) => person.querySelector('.lc-id').textContent.includes(kennung));
+  if (zeile === undefined) {
+    return false;
+  }
+  const anzeige = zeile.querySelector('.lc-status');
+  return anzeige !== null && anzeige.textContent.trim() === status;
+}
+
+module.exports = {
+  instanzStarten, freierPort, lanAdresse, fehlerSammeln, beitretenPerApi, fokusImBrowser, stromOeffnen, sichtbarNach,
+  zeigtStatus,
+};
