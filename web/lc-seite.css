@@ -31,18 +31,21 @@ body { background: var(--kd-bg); color: var(--kd-ink); font-family: var(--font-s
 /* Kopfzeile und Kennung (Bausteine Kopfzeile, Kennung) */
 #app { min-height: 100%; }
 /* Die Zone „Ort“ nimmt den freien Platz und kürzt zuerst die Beschreibung; die Navigation ist leer, bis die Suche kommt (I0011) */
-.lc-head { height: var(--kd-header); background: var(--kd-header-bg); color: var(--kd-header-ink); display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; gap: var(--kd-space-16); padding: 0 var(--kd-space-8) 0 var(--kd-space-12); }
+.lc-head { min-height: var(--kd-header); background: var(--kd-header-bg); color: var(--kd-header-ink); display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; gap: var(--kd-space-16); padding: 0 var(--kd-space-8) 0 var(--kd-space-12); }
 .lc-head :focus-visible { outline-color: var(--lc-focus-header); }
 .lc-head-ort { display: flex; align-items: baseline; gap: var(--kd-space-8); white-space: nowrap; min-width: 0; overflow: hidden; }
 .lc-head-inst { font-family: var(--font-mono); font-size: 12px; color: var(--kd-header-muted); min-width: 0; overflow: hidden; text-overflow: ellipsis; flex: 0 1 auto; }
 .lc-head-desc { font-size: 12px; line-height: 16px; color: var(--kd-header-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; flex: 0 100 auto; }
 @media (max-width: 719px) { .lc-head-desc { display: none; } }
 .lc-head-chan { font-size: 14px; line-height: 20px; font-weight: 600; min-width: 0; overflow: hidden; text-overflow: ellipsis; flex: 0 1 auto; }
-.lc-head-bed { white-space: nowrap; display: flex; align-items: center; gap: var(--kd-space-8); }
-.lc-me { font-family: var(--font-mono); font-size: 12px; color: var(--kd-header-ink); }
+.lc-head-bed { display: flex; align-items: center; gap: var(--kd-space-8); }
+.lc-head-bed > :not(.lc-me) { white-space: nowrap; }
+.lc-me { font-family: var(--font-mono); font-size: 12px; color: var(--kd-header-ink); overflow-wrap: anywhere; }
 .lc-me i { font-style: normal; color: var(--kd-header-muted); }
 /* Unter 480 px hat die Kopfzeile keinen Platz für alles: die Navigation entfällt, der Instanzname kürzt sich
-   mit Auslassung — die eigene Kennung und der Schalter „Teilnehmer“ bleiben ganz (Baustein Kopfzeile, schmal) */
+   mit Auslassung — die eigene Kennung und der Schalter „Teilnehmer“ bleiben ganz (Baustein Kopfzeile, schmal).
+   Ergänzung zum Baustein (R00009): passt die Kennung nicht in eine Zeile, bricht sie an beliebiger Stelle um und
+   die Kopfzeile wächst über 40 px (kd-header ist Mindesthöhe) — gekürzt wird die Kennung nie */
 @media (max-width: 479px) {
   .lc-head { grid-template-columns: minmax(0, 1fr) auto; gap: var(--kd-space-8); }
   .lc-head-nav { display: none; }
@@ -60,7 +63,7 @@ body { background: var(--kd-bg); color: var(--kd-ink); font-family: var(--font-s
 :root { --lc-members: 264px; }
 
 /* Hauptansicht (Bildschirm 4.2): Kopfzeile, Mitte, rechts die Teilnehmer; nur die Mitte und die Liste scrollen */
-.lc-app { height: 100%; display: grid; grid-template-rows: var(--kd-header) auto minmax(0, 1fr); }
+.lc-app { height: 100%; display: grid; grid-template-rows: minmax(var(--kd-header), auto) auto minmax(0, 1fr); }
 .lc-verbindung[hidden] { display: none; }
 .lc-verbindung { grid-row: 2; margin: 0; padding: var(--kd-space-8) var(--kd-space-12); background: var(--kd-surface); border-bottom: 1px solid var(--kd-line); }
 .lc-main { grid-row: 3; display: grid; grid-template-columns: var(--lc-sidebar) minmax(0, 1fr) var(--lc-members); min-height: 0; }

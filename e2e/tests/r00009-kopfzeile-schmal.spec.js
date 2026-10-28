@@ -56,10 +56,14 @@ function vermessen() {
   const kennungStil = getComputedStyle(kennungElement);
   const kopfzeileRect = document.querySelector('.lc-head').getBoundingClientRect();
   return {
+    kopfzeile: { oben: kopfzeileRect.top, unten: kopfzeileRect.bottom },
+    hauptOben: document.querySelector('.lc-main').getBoundingClientRect().top,
     seite: document.documentElement.scrollWidth,
     fenster: window.innerWidth,
     kopfzeileHoehe: kopfzeileRect.height,
     kennung: {
+      oben: kennungRect.top,
+      unten: kennungRect.bottom,
       links: kennungRect.left,
       rechts: kennungRect.right,
       hoehe: kennungRect.height,
@@ -90,6 +94,9 @@ async function kennungVollstaendigOhneQuerscrollen(page) {
   expect(mass.seite, 'scrollWidth der Seite').toBeLessThanOrEqual(mass.fenster);
   expect(mass.kennung.links, 'Kennung links im Fenster').toBeGreaterThanOrEqual(0);
   expect(mass.kennung.rechts, 'Kennung rechts im Fenster').toBeLessThanOrEqual(mass.fenster);
+  expect(mass.kennung.oben, 'Kennung oben in der Kopfzeile').toBeGreaterThanOrEqual(mass.kopfzeile.oben);
+  expect(mass.kennung.unten, 'Kennung unten in der Kopfzeile').toBeLessThanOrEqual(mass.kopfzeile.unten);
+  expect(mass.hauptOben, 'Hauptansicht unter der Kopfzeile').toBeGreaterThanOrEqual(mass.kopfzeile.unten);
   expect(mass.kennung.noetig, 'Kennung nicht abgeschnitten').toBeLessThanOrEqual(mass.kennung.sichtbar);
   expect(mass.kennung.auslassung).not.toBe('ellipsis');
   expect(mass.kennung.herkunftFarbe, 'Herkunft gedämpft').toBe(mass.kennung.gedaempft);
@@ -101,6 +108,11 @@ async function teilnehmerSchalterPerTabErreichbar(page) {
   const schalter = teilnehmerSchalter(page);
   await expect(schalter).toBeVisible();
   expect(ganzImFenster(await rechteckImFenster(schalter), page.viewportSize().width), 'Schalter ganz im Fenster').toBe(true);
+  const beschriftung = await schalter.evaluate((element) => ({
+    breiteNoetig: element.scrollWidth, breite: element.clientWidth, hoeheNoetig: element.scrollHeight, hoehe: element.clientHeight,
+  }));
+  expect(beschriftung.breiteNoetig, 'Schalter nicht gekürzt').toBeLessThanOrEqual(beschriftung.breite);
+  expect(beschriftung.hoeheNoetig, 'Schalter einzeilig').toBeLessThanOrEqual(beschriftung.hoehe);
   await kennung(page).focus();
   await page.keyboard.press('Tab');
   await expect(schalter).toBeFocused();
@@ -139,6 +151,19 @@ for (const breite of [320, 360, 375]) {
       expect(fehler).toEqual([]);
     });
   }
+}
+
+// Ab 480 px kehrt die Navigation als dritte Spalte zurück, die Lücke wächst auf 16 px — ohne Fix 491 px breit.
+for (const schema of ['light', 'dark']) {
+  test(`Grenze der Media-Query 480 px: Name 32 Zeichen ohne Querscrollen — ${schema}`, async ({ page }) => {
+    instanz = await instanzStarten();
+    await fensterOeffnen(page, { breite: 480, hoehe: 640, schema });
+
+    await beitreten(page, NAME_32);
+
+    await kennungVollstaendigOhneQuerscrollen(page);
+    await teilnehmerSchalterPerTabErreichbar(page);
+  });
 }
 
 for (const schema of ['light', 'dark']) {
