@@ -120,3 +120,4 @@ Eine Zeile je Auftrag an eine Rolle und je Retrospektive.
 | 2026-10-28 | #25 Befund | Detailplanung → Entwicklung | entwickler | läuft | — | F0056 Grenzen Team-LAN (R00015) |
 | 2026-10-28 | #23 Befund | Entwicklertest → Abnahme | entwicklertester | bestanden | 0:13 | US-1–US-8 bestanden (+10 MB statt +760 MB); Demo auf 2e0004a |
 | 2026-10-28 | #24 | Auto-Reviews | code-, observability-, rechtschreib-reviewer | befund | — | Muss: gelöschte Tagesdatei bleibt offen, 8 Einträge ohne Test, 2 Pluralfehler; security bestanden; architekt entscheidet M1 im Vorlauf |
+| 2026-10-28 | #24 | Auto-Reviews | architekt, planer | bestanden | 0:18 | 13 Entscheidungen (ADR-0039–0043, 2c7c80e); Nacharbeit B0292–B0299 und R00014 nachgezogen; Härtung R00018 F0059–F0062 als Karte #26 in Detailplanung |
