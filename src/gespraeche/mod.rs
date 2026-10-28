@@ -6,6 +6,7 @@ mod frist;
 mod kennung;
 mod logablage;
 pub mod logformat;
+mod pflege;
 mod speicherablage;
 mod verlaufsindex;
 mod verzeichnis;
@@ -13,6 +14,7 @@ mod verzeichnis;
 pub use frist::{FRIST_MAX, FRIST_MIN, Frist, STANDARD_FRIST_TAGE, frist_in_spanne};
 pub use kennung::Kennung;
 pub use logablage::{Angehaengt, Dateiablage, Gespraech, Logablage};
+pub use pflege::{FristGesetzt, Fristfehler};
 pub use speicherablage::Speicherablage;
 pub use verzeichnis::{
     Anlegefehler, Channel, ChannelStand, ChannelVeroeffentlichen, ChannelWechsel, GESAMT, Grenzart,
