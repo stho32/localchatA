@@ -54,6 +54,22 @@ impl Verlauf {
     pub fn bytes(&self) -> u64 {
         self.tage.values().map(|tag| tag.rohtext.len() as u64).sum()
     }
+
+    /// Nimmt den Tag aus dem Index (ADR-0006: Eintrag fallen lassen, kein Umbau) und nennt seine Sätze und Bytes;
+    /// stand er nicht darin, nichts.
+    pub fn tag_entfernen(&mut self, tag: NaiveDate) -> Option<(usize, u64)> {
+        self.tage
+            .remove(&tag)
+            .map(|tag| (tag.satzanfaenge.len(), tag.rohtext.len() as u64))
+    }
+
+    /// Wie viele Sätze die Tage echt vor `grenze` im Index haben.
+    pub fn saetze_vor(&self, grenze: NaiveDate) -> usize {
+        self.tage
+            .range(..grenze)
+            .map(|(_, tag)| tag.satzanfaenge.len())
+            .sum()
+    }
 }
 
 /// Ein Block des Verlaufs: Kopien der Sätze, älteste zuerst, und ob es davor bzw. danach noch Sätze gibt.
@@ -640,5 +656,37 @@ mod tests {
         assert_eq!(verlauf.tage[&tag("2026-10-28")].rohtext, b"@ zwei\n\n");
         assert_eq!(verlauf.tage[&tag("2026-10-28")].satzanfaenge, vec![0]);
         assert_eq!(verlauf.nachrichten(), 2);
+    }
+
+    /// Je Tag `anzahl` Sätze à 10 Bytes.
+    fn mit_tagen(tage: &[(&str, usize)]) -> Verlauf {
+        let mut verlauf = Verlauf::default();
+        for (text, anzahl) in tage {
+            for _ in 0..*anzahl {
+                verlauf.anhaengen(tag(text), "@ x\n  y\n\n\n", false);
+            }
+        }
+        verlauf
+    }
+
+    /// R00008 B0182: der Tag geht mit seinen Sätzen und Bytes; die übrigen bleiben.
+    #[test]
+    fn tag_entfernen_nennt_saetze_und_bytes_und_laesst_die_uebrigen() {
+        let mut verlauf = mit_tagen(&[("2026-10-21", 3), ("2026-10-22", 1)]);
+
+        assert_eq!(verlauf.tag_entfernen(tag("2026-10-21")), Some((3, 30)));
+        assert_eq!(verlauf.tag_entfernen(tag("2026-10-21")), None);
+        assert_eq!(verlauf.tag_entfernen(tag("2026-10-20")), None);
+        assert_eq!((verlauf.nachrichten(), verlauf.bytes()), (1, 10));
+    }
+
+    #[test]
+    fn saetze_vor_zaehlt_nur_die_tage_echt_vor_der_grenze() {
+        let verlauf = mit_tagen(&[("2026-10-20", 2), ("2026-10-21", 3), ("2026-10-22", 1)]);
+
+        assert_eq!(verlauf.saetze_vor(tag("2026-10-22")), 5);
+        assert_eq!(verlauf.saetze_vor(tag("2026-10-21")), 2);
+        assert_eq!(verlauf.saetze_vor(tag("2026-10-20")), 0);
+        assert_eq!(verlauf.saetze_vor(tag("2026-10-29")), 6);
     }
 }
