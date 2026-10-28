@@ -98,3 +98,4 @@ Eine Zeile je Auftrag an eine Rolle und je Retrospektive.
 | 2026-10-28 | #20 Befund | Auto-Reviews | code-, ux-reviewer | bestanden | 0:10 | Sollte → #18; weiter Entwicklertest |
 | 2026-10-28 | #23 Befund | Architektur | architekt | bestanden | 0:16 | ADR-0039 Byte-Budget, Werkbank, Abrissgrenze als Sendefrist (4c61389) |
 | 2026-10-28 | #20 Befund | Entwicklertest + Abnahme | entwicklertester, director | bestanden / Zug | 0:20 | 22 Fälle grün, Demo auf f867195 |
+| 2026-10-28 | #23 Befund | Detailplanung | planer | bestanden | 0:15 | R00013, F0050 B0253–B0258; F0041 braucht F0050 (aus vorlauf/23b) |
