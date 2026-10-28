@@ -133,3 +133,113 @@ async fn ladedefekte_zehn_einzeln_und_der_rest_als_eine_zeile_in_datei_und_auf_s
     }
     assert_eq!(stdout, "");
 }
+
+/// Alle Protokolldateien als ein Text (wie `grep … logs/*.log`).
+fn alle_protokolle(ordner: &Path) -> String {
+    let mut text = String::new();
+    for eintrag in std::fs::read_dir(ordner.join("logs")).expect("logs/") {
+        text.push_str(&std::fs::read_to_string(eintrag.expect("Eintrag").path()).expect("lesbar"));
+    }
+    text
+}
+
+#[tokio::test]
+async fn betriebsereignisse_mit_kennung_und_channel_aber_nie_token_beschreibung_oder_kopf() {
+    let wurzel = tempfile::tempdir().expect("Wegwerf-Ordner");
+    let instanz = starten_um(
+        wurzel.path(),
+        "2026-10-28T12:00:00+01:00",
+        &[("LOCALCHATA_PROTOKOLL_STUFE", "debug")],
+    );
+    let absender = Absender::von("127.0.0.1");
+    let beitritt = absender
+        .beitreten(&instanz.adresse, json!({"name": "beta"}), None)
+        .await;
+    let token = beitritt.json["token"].as_str().expect("Token").to_string();
+    let angelegt = absender
+        .channel_anlegen(
+            &instanz.adresse,
+            &token,
+            json!({"name": "planung", "beschreibung": "GEHEIM-BESCHREIBUNG-41"}),
+        )
+        .await;
+    let fremd = absender
+        .ich(&instanz.adresse, Some("0123456789abcdef0123456789abcdef"))
+        .await;
+    let verlassen = absender
+        .anfrage(
+            reqwest::Method::POST,
+            format!("{}api/verlassen", instanz.adresse),
+        )
+        .header("X-LocalchatA-Sitzung", &token)
+        .send()
+        .await
+        .expect("Antwort");
+
+    assert_eq!(angelegt.status, 201);
+    assert_eq!(fremd.status, 401);
+    assert_eq!(verlassen.status(), 204);
+    let datei = zeilen(wurzel.path(), "2026-10-28");
+    let sitzung = mit(&datei, "INFORMATION", "sitzung");
+    assert_eq!(sitzung.len(), 2, "{datei:#?}");
+    assert!(sitzung[0].contains("beigetreten"), "{sitzung:#?}");
+    assert!(sitzung[1].contains("verlassen"), "{sitzung:#?}");
+    for zeile in &sitzung {
+        assert_eq!(wert(zeile, "kennung").as_deref(), Some("beta@127.0.0.1"));
+    }
+    let channels = mit(&datei, "INFORMATION", "channels");
+    assert_eq!(channels.len(), 1, "{datei:#?}");
+    assert_eq!(wert(&channels[0], "channel").as_deref(), Some("planung"));
+    assert_eq!(
+        wert(&channels[0], "kennung").as_deref(),
+        Some("beta@127.0.0.1")
+    );
+    let alles = alle_protokolle(wurzel.path());
+    assert_eq!(alles.matches(&token).count(), 0);
+    assert_eq!(alles.matches("0123456789abcdef0123456789abcdef").count(), 0);
+    assert_eq!(alles.matches("GEHEIM-BESCHREIBUNG-41").count(), 0);
+    assert_eq!(
+        alles.to_lowercase().matches("x-localchata-sitzung").count(),
+        0
+    );
+}
+
+#[tokio::test]
+async fn rueckfall_ist_logs_eine_datei_startet_die_instanz_und_schreibt_nach_dem_entfernen_wieder()
+{
+    let wurzel = tempfile::tempdir().expect("Wegwerf-Ordner");
+    std::fs::write(wurzel.path().join("logs"), "keine Ablage").expect("Datei logs");
+    let mut instanz = starten_um(wurzel.path(), "2026-10-28T12:00:00+01:00", &[]);
+    let (status, _) = gemeinsam::gesundheit(&instanz.adresse).await;
+    assert_eq!(status, 200);
+
+    std::fs::remove_file(wurzel.path().join("logs")).expect("Datei logs entfernt");
+    let beitritt = Absender::von("127.0.0.1")
+        .beitreten(&instanz.adresse, json!({"name": "beta"}), None)
+        .await;
+    assert_eq!(beitritt.status, 201);
+    assert!(instanz.signal_und_warten("TERM").success());
+    let stderr = instanz.stderr_bis_zum_ende();
+
+    let stderr_zeilen: Vec<&str> = stderr.lines().collect();
+    let warnungen: Vec<&&str> = stderr_zeilen
+        .iter()
+        .filter(|zeile| zeile.contains(" WARNING protokoll ") && zeile.contains("nicht schreibbar"))
+        .collect();
+    assert_eq!(warnungen.len(), 1, "{stderr}");
+    assert!(wert(warnungen[0], "datei").is_some(), "{stderr}");
+    assert!(wert(warnungen[0], "grund").is_some(), "{stderr}");
+    assert_eq!(
+        stderr_zeilen
+            .iter()
+            .filter(|zeile| zeile.contains(" INFORMATION start "))
+            .count(),
+        1,
+        "{stderr}"
+    );
+    let datei = zeilen(wurzel.path(), "2026-10-28");
+    let protokoll = mit(&datei, "INFORMATION", "protokoll");
+    assert_eq!(protokoll.len(), 1, "{datei:#?}");
+    assert!(protokoll[0].contains("wieder schreibbar"), "{datei:#?}");
+    assert_eq!(mit(&datei, "INFORMATION", "sitzung").len(), 1, "{datei:#?}");
+}

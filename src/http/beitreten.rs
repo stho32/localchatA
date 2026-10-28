@@ -9,6 +9,7 @@ use super::teilnehmer::gemeldete_sitzung;
 use crate::anwesenheit::{
     Abweisung, Beitrittsfehler, Beitrittswunsch, GESAMT, JE_HERKUNFT, Sitzung,
 };
+use crate::protokoll::{Bereich, Kontext, Schluessel, Stufe};
 use axum::Json;
 use axum::body::Body;
 use axum::extract::{ConnectInfo, State};
@@ -40,6 +41,12 @@ pub async fn beantworten(
     }
     match anwesenheit.beitreten(&wunsch, gegenstelle.ip()) {
         Ok(beitritt) => {
+            zustand.protokoll.eintragen(
+                Stufe::Information,
+                Bereich::Sitzung,
+                "Sitzung beigetreten",
+                Kontext::neu().mit(Schluessel::Kennung, beitritt.sitzung.kennung.als_text()),
+            );
             let gnadenfrist_s = anwesenheit.gnadenfrist().as_secs();
             (
                 StatusCode::CREATED,

@@ -6,6 +6,7 @@
 
 use super::Zustand;
 use super::teilnehmer::{gemeldetes_token, nicht_erkannt, sitzung_gemeldet};
+use crate::protokoll::{Bereich, Kontext, Schluessel, Stufe};
 use axum::extract::{ConnectInfo, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
@@ -21,7 +22,14 @@ pub async fn beantworten(
         return nicht_erkannt();
     }
     if let Some(token) = gemeldetes_token(&kopf) {
-        zustand.anwesenheit.verlassen(&token, gegenstelle.ip());
+        for wechsel in zustand.anwesenheit.verlassen(&token, gegenstelle.ip()) {
+            zustand.protokoll.eintragen(
+                Stufe::Information,
+                Bereich::Sitzung,
+                "Sitzung verlassen — der Name ist frei",
+                Kontext::neu().mit(Schluessel::Kennung, wechsel.teilnehmer.kennung.als_text()),
+            );
+        }
     }
     StatusCode::NO_CONTENT.into_response()
 }

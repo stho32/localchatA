@@ -45,11 +45,21 @@ pub async fn anlegen(
     })
     .await;
     match ergebnis {
-        Ok(Ok(channel)) => (
-            StatusCode::CREATED,
-            Json(json!({ "channel": channel_als_json(&channel) })),
-        )
-            .into_response(),
+        Ok(Ok(channel)) => {
+            zustand.protokoll.eintragen(
+                Stufe::Information,
+                Bereich::Channels,
+                "Channel angelegt",
+                Kontext::neu()
+                    .mit(Schluessel::Channel, channel.name.als_text())
+                    .mit(Schluessel::Kennung, &wer),
+            );
+            (
+                StatusCode::CREATED,
+                Json(json!({ "channel": channel_als_json(&channel) })),
+            )
+                .into_response()
+        }
         Ok(Err(Anlegefehler::Ablage(grund))) => {
             zustand.protokoll.eintragen(
                 Stufe::Error,

@@ -160,6 +160,7 @@ async fn nach_der_sperre(
     tokio::spawn(takt::takten(
         Arc::clone(&anwesenheit),
         uhr,
+        Arc::clone(&protokoll),
         ende.clone(),
         takt::PERIODE,
     ));
