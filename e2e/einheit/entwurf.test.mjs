@@ -58,7 +58,7 @@ test('beim Verlassen sofort geschrieben, beim Öffnen zurückgegeben, je Channel
   const entwurf = entwurfAnlegen(welt);
 
   entwurf.eingabe('allgemein', 'halb');
-  entwurf.verlassen('allgemein', 'halb');
+  entwurf.weggehen('allgemein', 'halb');
   const sofort = welt.daten.get(SCHLUESSEL);
 
   assert.equal(sofort, 'halb');
@@ -74,7 +74,7 @@ test('ein leeres Feld und das Senden löschen den Entwurf; ein ausstehendes Schr
   entwurf.eingabe('allgemein', '');
   welt.vorstellen(1000);
   const nachLeeren = welt.daten.has(SCHLUESSEL);
-  entwurf.verlassen('allgemein', 'halb');
+  entwurf.weggehen('allgemein', 'halb');
   entwurf.eingabe('allgemein', 'halb!');
   entwurf.gesendet('allgemein');
   welt.vorstellen(1000);
@@ -88,7 +88,7 @@ test('ein Speicher, der nichts annimmt, lässt das Tippen weiterlaufen', () => {
   welt.speicher.setItem = () => { throw new Error('QuotaExceededError'); };
   const entwurf = entwurfAnlegen(welt);
 
-  entwurf.verlassen('allgemein', 'halb');
+  entwurf.weggehen('allgemein', 'halb');
 
   assert.equal(entwurf.oeffnen('allgemein'), '');
 });

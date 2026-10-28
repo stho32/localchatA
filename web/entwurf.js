@@ -43,7 +43,7 @@ export function entwurfAnlegen({ speicher, zeitgeber = ECHTE_ZEITGEBER }) {
       ausstehend = { channel, text, zeitgeber: null };
       ausstehend.zeitgeber = zeitgeber.stellen(SCHREIBEN_HOECHSTENS_ALLE_MS, () => schreiben(channel, ausstehend.text));
     },
-    verlassen: (channel, text) => schreiben(channel, text),
+    weggehen: (channel, text) => schreiben(channel, text),
     oeffnen: (channel) => speicher.getItem(schluessel(channel)) || '',
     gesendet: (channel) => schreiben(channel, ''),
   };
