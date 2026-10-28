@@ -4,6 +4,8 @@
 //! er antwortet — schlösse er mit ungelesenen Bytes, setzte das Betriebssystem die Verbindung zurück, und der
 //! Client sähe einen Abbruch statt der 413. Die Obergrenzen halten Großlast und Tröpfeln aus (ADR-0010).
 
+use crate::protokoll::Protokoll;
+use crate::protokoll::zaehler::Abweisungsart;
 use axum::body::Body;
 use axum::http::HeaderMap;
 use axum::http::header::CONTENT_TYPE;
@@ -18,19 +20,42 @@ const VERWERFEN_FRIST: Duration = Duration::from_secs(2);
 pub enum Koerperfehler {
     /// Kein `Content-Type: application/json` (oder `…+json`).
     KeinJson,
-    /// Kein gültiges JSON oder ein Lesefehler.
+    /// Gelesen, aber kein gültiges JSON.
     Kaputt,
+    /// Lesefehler im Strom: der Client ist weg (ADR-0042, Ergänzung 2).
+    Abgebrochen,
     /// Größer als die Grenze der Route — erkannt vor jedem Parse.
     ZuGross,
 }
 
-/// Erst den Körper lesen (höchstens `grenze` Bytes), dann Typ und Inhalt prüfen — so ist er in jedem Fall
-/// gelesen, bevor die Antwort geht, und über der Grenze wird nichts geparst.
+/// Wo ein Körper gelesen wird: das Protokoll, das Abweisungen zählt.
+pub struct Koerperort<'a> {
+    pub protokoll: &'a Protokoll,
+}
+
+/// Liest den JSON-Körper wie `lesen`; jede Abweisung zählt in `abgewiesen` (ADR-0043, Ergänzung) — zentral
+/// hier, nicht je Handler.
 pub async fn json_lesen(
     kopf: &HeaderMap,
     koerper: Body,
     grenze: usize,
+    ort: &Koerperort<'_>,
 ) -> Result<Value, Koerperfehler> {
+    let ergebnis = lesen(kopf, koerper, grenze).await;
+    if let Err(fehler) = ergebnis {
+        ort.protokoll.abgewiesen(match fehler {
+            Koerperfehler::ZuGross => Abweisungsart::ZuGross,
+            Koerperfehler::KeinJson => Abweisungsart::KeinJson,
+            Koerperfehler::Kaputt => Abweisungsart::Kaputt,
+            Koerperfehler::Abgebrochen => Abweisungsart::Abgebrochen,
+        });
+    }
+    ergebnis
+}
+
+/// Erst den Körper lesen (höchstens `grenze` Bytes), dann Typ und Inhalt prüfen — so ist er in jedem Fall
+/// gelesen, bevor die Antwort geht, und über der Grenze wird nichts geparst.
+async fn lesen(kopf: &HeaderMap, koerper: Body, grenze: usize) -> Result<Value, Koerperfehler> {
     let bytes = begrenzt_lesen(koerper, grenze).await?;
     if !json_angekuendigt(kopf) {
         return Err(Koerperfehler::KeinJson);
@@ -42,7 +67,7 @@ async fn begrenzt_lesen(koerper: Body, grenze: usize) -> Result<Vec<u8>, Koerper
     let mut strom = koerper.into_data_stream();
     let mut gelesen = Vec::new();
     while let Some(stueck) = strom.next().await {
-        let stueck = stueck.map_err(|_| Koerperfehler::Kaputt)?;
+        let stueck = stueck.map_err(|_| Koerperfehler::Abgebrochen)?;
         let gesamt = gelesen.len() + stueck.len();
         if gesamt > grenze {
             let _ = tokio::time::timeout(VERWERFEN_FRIST, rest_verwerfen(&mut strom, gesamt)).await;
@@ -122,14 +147,14 @@ mod tests {
 
         for grenze in [4096, 64] {
             assert!(
-                json_lesen(&kopf, Body::from(gueltig(grenze)), grenze)
+                lesen(&kopf, Body::from(gueltig(grenze)), grenze)
                     .await
                     .is_ok(),
                 "{grenze} Bytes an der Grenze {grenze}"
             );
             for koerper in [gueltig(grenze + 1), kaputt(grenze + 1)] {
                 assert_eq!(
-                    json_lesen(&kopf, Body::from(koerper), grenze).await,
+                    lesen(&kopf, Body::from(koerper), grenze).await,
                     Err(Koerperfehler::ZuGross),
                     "{} Bytes an der Grenze {grenze}",
                     grenze + 1
@@ -137,7 +162,7 @@ mod tests {
             }
         }
         assert_eq!(
-            json_lesen(&kopf, Body::from(kaputt(4096)), 4096).await,
+            lesen(&kopf, Body::from(kaputt(4096)), 4096).await,
             Err(Koerperfehler::Kaputt)
         );
     }

@@ -4,7 +4,7 @@
 //! Token derselben Herkunft im Header ist es eine Wiederkehr: 200 dieselbe Sitzung, anderer Name 422.
 
 use super::Zustand;
-use super::koerper::{Koerperfehler, json_lesen};
+use super::koerper::{Koerperfehler, Koerperort, json_lesen};
 use super::teilnehmer::gemeldete_sitzung;
 use crate::anwesenheit::{
     Abweisung, Beitrittsfehler, Beitrittswunsch, GESAMT, JE_HERKUNFT, Sitzung,
@@ -27,7 +27,10 @@ pub async fn beantworten(
     kopf: HeaderMap,
     koerper: Body,
 ) -> Response {
-    let koerper = match json_lesen(&kopf, koerper, BEITRETEN_GRENZE).await {
+    let ort = Koerperort {
+        protokoll: &zustand.protokoll,
+    };
+    let koerper = match json_lesen(&kopf, koerper, BEITRETEN_GRENZE, &ort).await {
         Ok(koerper) => koerper,
         Err(fehler) => return kein_json(fehler),
     };
@@ -101,7 +104,7 @@ fn kein_json(fehler: Koerperfehler) -> Response {
             StatusCode::UNSUPPORTED_MEDIA_TYPE,
             "Der Körper muss JSON sein — mit Content-Type: application/json schicken".into(),
         ),
-        Koerperfehler::Kaputt => (
+        Koerperfehler::Kaputt | Koerperfehler::Abgebrochen => (
             StatusCode::BAD_REQUEST,
             "Der Körper ist kein gültiges JSON — ein JSON-Objekt schicken".into(),
         ),

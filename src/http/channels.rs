@@ -7,7 +7,7 @@
 
 use super::Zustand;
 use super::abbruch::{Abgebrochen, Grenzort, abbruch_beantworten};
-use super::koerper::{Koerperfehler, json_lesen};
+use super::koerper::{Koerperfehler, Koerperort, json_lesen};
 use super::teilnehmer::Teilnehmer;
 use super::teilnehmerliste::zeit_als_text;
 use crate::gespraeche::einstellungen::{Beschreibung, Beschreibungsfehler};
@@ -29,7 +29,10 @@ pub async fn anlegen(
     kopf: HeaderMap,
     koerper: Body,
 ) -> Response {
-    let koerper = match json_lesen(&kopf, koerper, CHANNEL_ANLEGEN_GRENZE).await {
+    let ort = Koerperort {
+        protokoll: &zustand.protokoll,
+    };
+    let koerper = match json_lesen(&kopf, koerper, CHANNEL_ANLEGEN_GRENZE, &ort).await {
         Ok(koerper) => koerper,
         Err(fehler) => return kein_json(fehler),
     };
@@ -236,7 +239,7 @@ fn kein_json(fehler: Koerperfehler) -> Response {
             StatusCode::UNSUPPORTED_MEDIA_TYPE,
             "Der Körper muss JSON sein — mit Content-Type: application/json schicken".into(),
         ),
-        Koerperfehler::Kaputt => (
+        Koerperfehler::Kaputt | Koerperfehler::Abgebrochen => (
             StatusCode::BAD_REQUEST,
             "Der Körper ist kein gültiges JSON — ein JSON-Objekt schicken".into(),
         ),
