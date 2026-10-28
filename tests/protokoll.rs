@@ -210,14 +210,17 @@ async fn rueckfall_ist_logs_eine_datei_startet_die_instanz_und_schreibt_nach_dem
     let wurzel = tempfile::tempdir().expect("Wegwerf-Ordner");
     std::fs::write(wurzel.path().join("logs"), "keine Ablage").expect("Datei logs");
     let mut instanz = starten_um(wurzel.path(), "2026-10-28T12:00:00+01:00", &[]);
-    let (status, _) = gemeinsam::gesundheit(&instanz.adresse).await;
+    let (status, vorher) = gemeinsam::gesundheit(&instanz.adresse).await;
     assert_eq!(status, 200);
+    assert_eq!(vorher["protokoll_ok"], false, "{vorher}");
 
     std::fs::remove_file(wurzel.path().join("logs")).expect("Datei logs entfernt");
     let beitritt = Absender::von("127.0.0.1")
         .beitreten(&instanz.adresse, json!({"name": "beta"}), None)
         .await;
     assert_eq!(beitritt.status, 201);
+    let (_, nachher) = gemeinsam::gesundheit(&instanz.adresse).await;
+    assert_eq!(nachher["protokoll_ok"], true, "{nachher}");
     assert!(instanz.signal_und_warten("TERM").success());
     let stderr = instanz.stderr_bis_zum_ende();
 

@@ -55,7 +55,7 @@ async fn us8_panik_im_verlauf_wird_exception_und_error_an_der_grenze_die_instanz
     let erster_status = erste.status().as_u16();
     let erster_text = erste.text().await.expect("Text");
     let zweite = verlauf().await.expect("Antwort").status().as_u16();
-    let (gesund, _) = gesundheit(&instanz.adresse).await;
+    let (gesund, kennzahlen) = gesundheit(&instanz.adresse).await;
     assert!(instanz.signal_und_warten("TERM").success());
     let stderr = instanz.stderr_bis_zum_ende();
 
@@ -101,6 +101,12 @@ async fn us8_panik_im_verlauf_wird_exception_und_error_an_der_grenze_die_instanz
     }
     assert_eq!(zweite, 200);
     assert_eq!(gesund, 200);
+    // Health-Check nach Exception (F0054): Zeiten der Zeilen im Protokoll.
+    let zeit = |zeile: &str| zeile.split(' ').next().unwrap_or_default().to_string();
+    assert_eq!(kennzahlen["exceptions"], 1, "{kennzahlen}");
+    assert_eq!(kennzahlen["errors"], 1, "{kennzahlen}");
+    assert_eq!(kennzahlen["letzte_exception"], json!(zeit(&exceptions[0])));
+    assert_eq!(kennzahlen["letzter_error"], json!(zeit(&errors[0])));
     assert_eq!(alle_protokolle(wurzel.path()).matches(&token).count(), 0);
 }
 
@@ -127,7 +133,7 @@ async fn us9_ein_ausgefallener_takt_wird_sichtbar() {
         tokio::time::sleep(Duration::from_millis(100)).await;
     }
     let dauer = startzeile.elapsed();
-    let (status, _) = gesundheit(&instanz.adresse).await;
+    let (status, inhalt) = gesundheit(&instanz.adresse).await;
 
     assert!(dauer <= Duration::from_secs(2), "{dauer:?}");
     let datei = zeilen(wurzel.path(), "2026-10-28");
@@ -142,6 +148,8 @@ async fn us9_ein_ausgefallener_takt_wird_sichtbar() {
         "{datei:#?}"
     );
     assert_eq!(status, 200);
+    assert_eq!(inhalt["aufgaben_ausgefallen"], json!(["takt"]), "{inhalt}");
+    assert_eq!(inhalt["exceptions"], 1, "{inhalt}");
 }
 
 #[test]

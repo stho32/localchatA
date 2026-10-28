@@ -17,9 +17,21 @@ use chrono::NaiveDate;
 use senke::{Senke, Tagesdateien};
 use std::io::{self, Write};
 use std::path::Path;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
-use zaehler::{Zaehler, Zaehlerstand};
+use zaehler::{Abgewiesen, AbgewiesenStand, Abweisungsart, Zaehler, Zaehlerstand};
+
+/// Kennzahlen des Protokolls (DTO für den Health-Check).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Protokollkennzahlen {
+    pub stufe: Stufe,
+    pub ok: bool,
+    pub bytes_heute: u64,
+    pub verworfen: u64,
+    pub zaehler: Zaehlerstand,
+    pub ausgefallen: Vec<&'static str>,
+    pub abgewiesen: AbgewiesenStand,
+}
 
 /// Eine Panik, wie der Haken sie sieht: Ort (Datei:Zeile), Name des Threads, Text.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -68,12 +80,17 @@ pub struct Protokoll {
     inneres: Mutex<Inneres>,
     ok: AtomicBool,
     zaehler: Zaehler,
+    abgewiesen: Abgewiesen,
+    /// Über dem Tagesbudget verworfene Einträge seit dem Start (ADR-0042 Regel 6).
+    verworfen: AtomicU64,
     /// Namen beendeter Hintergrundaufgaben (ADR-0042 Regel 4) — für `aufgaben_ausgefallen`.
     ausgefallen: Mutex<Vec<&'static str>>,
 }
 
 struct Inneres {
     senke: Box<dyn Senke>,
+    /// Größe der zuletzt beschriebenen Tagesdatei laut Senke.
+    groesse: Option<(NaiveDate, u64)>,
     /// Im Rückfall auf stderr (ADR-0040 Regel 8): die Episode hat ihre Warning schon geschrieben.
     rueckfall: bool,
 }
@@ -116,11 +133,14 @@ impl Protokoll {
             spiegel,
             inneres: Mutex::new(Inneres {
                 senke,
+                groesse: None,
                 rueckfall: false,
             }),
             ok: AtomicBool::new(true),
             ausgefallen: Mutex::new(Vec::new()),
             zaehler: Zaehler::default(),
+            abgewiesen: Abgewiesen::default(),
+            verworfen: AtomicU64::new(0),
         }
     }
 
@@ -218,6 +238,29 @@ impl Protokoll {
         self.zaehler.stand()
     }
 
+    /// Zählt einen abgewiesenen Körper (unabhängig von Stufe, Episode und Budget).
+    pub fn abgewiesen(&self, art: Abweisungsart) {
+        self.abgewiesen.zaehlen(art);
+    }
+
+    /// Kennzahlen für `/api/gesundheit` (ADR-0043 Regel 5).
+    pub fn kennzahlen(&self) -> Protokollkennzahlen {
+        let heute = self.uhr.jetzt().date_naive();
+        let bytes_heute = match self.sperren().groesse {
+            Some((tag, groesse)) if tag == heute => groesse,
+            _ => 0,
+        };
+        Protokollkennzahlen {
+            stufe: self.mindeststufe,
+            ok: self.ok(),
+            bytes_heute,
+            verworfen: self.verworfen.load(Ordering::SeqCst),
+            zaehler: self.zaehler.stand(),
+            ausgefallen: self.ausgefallen(),
+            abgewiesen: self.abgewiesen.stand(),
+        }
+    }
+
     /// Hält die Sperre des Protokolls, solange das Ergebnis lebt — nur für Proben des Panik-Hakens.
     #[doc(hidden)]
     pub fn sperre_halten(&self) -> impl Drop + '_ {
@@ -284,7 +327,8 @@ impl Protokoll {
         }
         let zeile = zeile::zeile(eintrag, jetzt);
         match inneres.senke.anhaengen(tag, &zeile) {
-            Ok(_) => {
+            Ok(groesse) => {
+                inneres.groesse = Some((tag, groesse));
                 inneres.rueckfall = false;
                 self.ok.store(true, Ordering::SeqCst);
                 if eintrag.stufe >= Stufe::Warning {

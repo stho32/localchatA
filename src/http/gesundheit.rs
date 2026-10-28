@@ -1,6 +1,8 @@
 //! Health-Check: `GET /api/gesundheit` meldet Bereitschaft und Kennzahlen des Ordners (ADR-0009).
 
 use super::Zustand;
+use super::teilnehmerliste::zeit_als_text;
+use crate::protokoll::zaehler::AbgewiesenStand;
 use crate::start::abrisspflege::pflege_aus;
 use axum::Json;
 use axum::extract::State;
@@ -21,6 +23,17 @@ pub struct Gesundheit {
     halter: usize,
     herzschlag_ms: u128,
     abrissgrenze_ms: u128,
+    protokoll_stufe: &'static str,
+    protokoll_ok: bool,
+    protokoll_bytes_heute: u64,
+    protokoll_verworfen: u64,
+    warnings: u64,
+    errors: u64,
+    exceptions: u64,
+    letzter_error: Option<String>,
+    letzte_exception: Option<String>,
+    aufgaben_ausgefallen: Vec<&'static str>,
+    abgewiesen: AbgewiesenStand,
 }
 
 /// Antwortet der Port, ist die Instanz bereit: geladen wird vor dem Binden (A00003).
@@ -31,6 +44,7 @@ pub struct Gesundheit {
 pub async fn beantworten(State(zustand): State<Arc<Zustand>>) -> Json<Gesundheit> {
     let kennzahlen = zustand.gespraeche.kennzahlen();
     let betrieb = zustand.anwesenheit.betrieb();
+    let protokoll = zustand.protokoll.kennzahlen();
     Json(Gesundheit {
         status: "bereit",
         version: env!("CARGO_PKG_VERSION"),
@@ -44,6 +58,21 @@ pub async fn beantworten(State(zustand): State<Arc<Zustand>>) -> Json<Gesundheit
         halter: betrieb.halter,
         herzschlag_ms: zustand.herzschlag.as_millis(),
         abrissgrenze_ms: pflege_aus(zustand.herzschlag).user_timeout.as_millis(),
+        protokoll_stufe: protokoll.stufe.als_wert(),
+        protokoll_ok: protokoll.ok,
+        protokoll_bytes_heute: protokoll.bytes_heute,
+        protokoll_verworfen: protokoll.verworfen,
+        warnings: protokoll.zaehler.warnings,
+        errors: protokoll.zaehler.errors,
+        exceptions: protokoll.zaehler.exceptions,
+        letzter_error: protokoll.zaehler.letzter_error.as_ref().map(zeit_als_text),
+        letzte_exception: protokoll
+            .zaehler
+            .letzte_exception
+            .as_ref()
+            .map(zeit_als_text),
+        aufgaben_ausgefallen: protokoll.ausgefallen,
+        abgewiesen: protokoll.abgewiesen,
     })
 }
 
@@ -96,7 +125,18 @@ mod tests {
                 "sitzungen": 0,
                 "halter": 0,
                 "herzschlag_ms": 5000,
-                "abrissgrenze_ms": 10_000
+                "abrissgrenze_ms": 10_000,
+                "protokoll_stufe": "information",
+                "protokoll_ok": true,
+                "protokoll_bytes_heute": 0,
+                "protokoll_verworfen": 0,
+                "warnings": 0,
+                "errors": 0,
+                "exceptions": 0,
+                "letzter_error": null,
+                "letzte_exception": null,
+                "aufgaben_ausgefallen": [],
+                "abgewiesen": {"zu_gross": 0, "kein_json": 0, "kaputt": 0, "abgebrochen": 0}
             })
         );
     }

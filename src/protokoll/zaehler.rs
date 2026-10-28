@@ -67,3 +67,50 @@ impl Zaehler {
         }
     }
 }
+
+/// Arten abgewiesener JSON-Körper (ADR-0043, Ergänzung).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Abweisungsart {
+    ZuGross,
+    KeinJson,
+    Kaputt,
+    Abgebrochen,
+}
+
+/// Abgewiesene Körper aller JSON-Routen seit dem Start, gezählt beim Entstehen.
+#[derive(Default)]
+pub struct Abgewiesen {
+    zu_gross: AtomicU64,
+    kein_json: AtomicU64,
+    kaputt: AtomicU64,
+    abgebrochen: AtomicU64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+pub struct AbgewiesenStand {
+    pub zu_gross: u64,
+    pub kein_json: u64,
+    pub kaputt: u64,
+    pub abgebrochen: u64,
+}
+
+impl Abgewiesen {
+    pub fn zaehlen(&self, art: Abweisungsart) {
+        let zaehler = match art {
+            Abweisungsart::ZuGross => &self.zu_gross,
+            Abweisungsart::KeinJson => &self.kein_json,
+            Abweisungsart::Kaputt => &self.kaputt,
+            Abweisungsart::Abgebrochen => &self.abgebrochen,
+        };
+        zaehler.fetch_add(1, Ordering::SeqCst);
+    }
+
+    pub fn stand(&self) -> AbgewiesenStand {
+        AbgewiesenStand {
+            zu_gross: self.zu_gross.load(Ordering::SeqCst),
+            kein_json: self.kein_json.load(Ordering::SeqCst),
+            kaputt: self.kaputt.load(Ordering::SeqCst),
+            abgebrochen: self.abgebrochen.load(Ordering::SeqCst),
+        }
+    }
+}
