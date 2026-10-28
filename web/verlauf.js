@@ -3,7 +3,7 @@
 // wenn Höhen sich nachträglich ändern (Schrift, Fenster). Ein Wechsel bricht den laufenden Abruf ab, eine Antwort
 // für einen verlassenen Channel wird verworfen, Daten des vorigen Channels fallen weg. Der Verlauf ist die einzige
 // scrollende Fläche der Mitte: role="log", aria-live="off", mit der Tastatur fokussierbar.
-import { nachrichtZeichnen, kopfSetzen, trennerZeichnen } from './nachricht.js';
+import { nachrichtZeichnen, kopfSetzen, trennerZeichnen, langeEinklappen, langeUmschalten } from './nachricht.js';
 import { gliederung, datumBenennen } from './gliederung.js';
 
 // abrufen: async (name, cursor, signal) → { art: 'block' | 'fehler' | 'abgebrochen', … } (api.js verlaufAbrufen).
@@ -32,6 +32,19 @@ export function verlaufAnlegen({ abrufen }) {
   hoehen.observe(inhalt);
   hoehen.observe(log);
 
+  // Aufklappen erweitert an Ort und Stelle; der Kopf der Nachricht bleibt an seiner Bildschirmstelle.
+  inhalt.addEventListener('click', (ereignis) => {
+    const schalter = ereignis.target.closest('.lc-foldbar button');
+    if (schalter === null) {
+      return;
+    }
+    const artikel = schalter.closest('.lc-msg');
+    const vorher = artikel.getBoundingClientRect().top;
+    langeUmschalten(schalter);
+    log.scrollTop += artikel.getBoundingClientRect().top - vorher;
+    amEnde = log.scrollHeight - log.scrollTop - log.clientHeight <= 1;
+  });
+
   async function oeffnen(name) {
     laufend.abort();
     laufend = new AbortController();
@@ -52,7 +65,9 @@ export function verlaufAnlegen({ abrufen }) {
       inhalt.replaceChildren(hinweis(`Noch keine Nachrichten in # ${name}.`, 'lc-mitte-hinweis'));
       return;
     }
-    inhalt.replaceChildren(...gegliedertZeichnen(ergebnis.block.nachrichten, null, heute));
+    const knoten = gegliedertZeichnen(ergebnis.block.nachrichten, null, heute);
+    inhalt.replaceChildren(...knoten);
+    langeEinklappen(nurNachrichten(knoten));
     ansEnde();
   }
 
@@ -73,6 +88,10 @@ export function verlaufAnlegen({ abrufen }) {
   }
 
   return { element: log, oeffnen, schliessen, heuteSetzen };
+}
+
+function nurNachrichten(knoten) {
+  return knoten.filter((einzeln) => einzeln.classList.contains('lc-msg'));
 }
 
 // Nachrichten nach der vorigen (oder null) gegliedert: Tagestrenner vor dem ersten des Tages, Kopf nur bei neuer

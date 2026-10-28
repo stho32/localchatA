@@ -11,7 +11,7 @@ export function nachrichtZeichnen(nachricht) {
   artikel.dataset.zeit = nachricht.zeit;
   artikel.dataset.von = nachricht.von;
   const inhalt = element('div', { className: 'lc-msg-inhalt' }, [
-    element('div', { className: 'lc-body', textContent: nachricht.text }),
+    element('div', { className: 'lc-body lc-fold', id: `lc-text-${nachricht.zeit}`, textContent: nachricht.text }),
   ]);
   artikel.append(element('div', { className: 'g' }), inhalt);
   kopfSetzen(artikel, true);
@@ -39,6 +39,40 @@ export function kopfSetzen(artikel, mitKopf) {
   gutter.replaceChildren(kachel);
   const kennung = element('span', { className: 'lc-id' }, [name, element('i', { textContent: `@${herkunft}` })]);
   inhalt.prepend(element('div', { className: 'lc-meta' }, [kennung, zeitElement(zeit)]));
+}
+
+// Lange Nachricht (Designsystem LangeNachricht): jeder Inhalt ist per CSS auf lc-collapse begrenzt; läuft er über,
+// steht darunter die Leiste „Ganze Nachricht anzeigen · n Zeilen“. Gemessen wird erst, wenn alle Nachrichten eines
+// Blocks im DOM stehen — einmal lesen, dann schreiben (ADR-0026 Regel 4).
+export function langeEinklappen(artikel) {
+  const ueberlang = artikel.filter((einzeln) => {
+    const text = einzeln.querySelector('.lc-body');
+    return text.scrollHeight > text.clientHeight;
+  });
+  for (const einzeln of ueberlang) {
+    const text = einzeln.querySelector('.lc-body');
+    const schalter = element('button', { type: 'button' });
+    schalter.setAttribute('aria-controls', text.id);
+    schalter.dataset.zeilen = String(text.textContent.split('\n').length);
+    leisteBeschriften(schalter, false);
+    einzeln.querySelector('.lc-msg-inhalt').append(element('div', { className: 'lc-foldbar' }, [schalter]));
+  }
+}
+
+// Auf- oder zuklappen an Ort und Stelle; den Kopf hält der Aufrufer an seiner Bildschirmstelle.
+export function langeUmschalten(schalter) {
+  const offen = schalter.getAttribute('aria-expanded') !== 'true';
+  document.getElementById(schalter.getAttribute('aria-controls')).classList.toggle('lc-offen', offen);
+  leisteBeschriften(schalter, offen);
+}
+
+function leisteBeschriften(schalter, offen) {
+  schalter.setAttribute('aria-expanded', String(offen));
+  if (offen) {
+    schalter.textContent = 'Einklappen';
+    return;
+  }
+  schalter.textContent = `Ganze Nachricht anzeigen · ${schalter.dataset.zeilen} Zeilen`;
 }
 
 // Tagestrenner (Designsystem VerlaufsMarken): Datum zentriert zwischen zwei Haarlinien, klebt oben.

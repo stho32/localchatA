@@ -84,6 +84,11 @@ body { background: var(--kd-bg); color: var(--kd-ink); font-family: var(--font-s
 .lc-meta .lc-id i { font-style: normal; color: var(--kd-ink-muted); }
 .lc-time { font-family: var(--font-mono); font-size: 11px; line-height: 20px; color: var(--kd-ink-muted); font-variant-numeric: tabular-nums; }
 .lc-body { white-space: pre-wrap; overflow-wrap: anywhere; }
+/* Lange Nachricht (Baustein LangeNachricht): harter Schnitt bei lc-collapse, aufgeklappt ganz */
+.lc-fold { max-height: var(--lc-collapse); overflow: hidden; }
+.lc-fold.lc-offen { max-height: none; }
+.lc-foldbar { display: flex; align-items: center; gap: var(--kd-space-8); height: var(--kd-row); border-top: 1px solid var(--kd-line); margin-top: var(--kd-space-4); }
+.lc-foldbar button { border: 0; background: none; color: var(--kd-accent); font-weight: 600; cursor: pointer; padding: 0 var(--kd-space-2); }
 .lc-tile:not(.mensch):not(.agent) { background: var(--kd-surface-2); color: var(--kd-ink-muted); }
 
 /* Seitenleiste (Baustein Seitenleiste, ADR-0024 Regeln 1–3): Kopf in lc-label mit „+“, Einträge in 28-px-Zeilen */
