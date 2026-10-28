@@ -17,6 +17,8 @@ import { einstellungenEinrichten } from './channel-einstellungen.js';
 import { onlineBenennen } from './teilnehmerliste.js';
 import { eingabeAnlegen } from './eingabe.js';
 import { sendenEinrichten } from './senden.js';
+import { entwurfAnlegen } from './entwurf.js';
+import { fokusTaste } from './fokus.js';
 import { VERBINDUNG_ANFANG, verbindung } from './wiederverbinden.js';
 import { nachholen } from './nachholen.js';
 import { wiederVerbundenText, leisteInhalt } from './verbindungsleiste.js';
@@ -82,8 +84,9 @@ export function zeichnen(wurzel, teilnehmer, optionen) {
     netzAus: () => navigator.onLine === false,
     ansagen: () => {},
   });
-  const eingabe = eingabeAnlegen({ senden: senden.senden });
+  const eingabe = eingabeAnlegen({ senden: senden.senden, entwurf: entwurfAnlegen({ speicher: window.sessionStorage }) });
   const wieder = wiederverbindenEinrichten({ verlauf, senden, abrufen: optionen.verlaufAbrufen }, vorigeAnsichtAbmelden.signal);
+  fokusTastenBedienen({ verlauf, eingabe }, vorigeAnsichtAbmelden.signal);
   const beiAuswahl = (channel) => {
     gewaehlterChannel = channel;
     if (channel !== null) {
@@ -200,7 +203,33 @@ function meldungAus(ergebnis) {
   return { art: 'nachgeholt', zahl: 0 };
 }
 
+// `/` außerhalb von Textfeldern und `Esc` im Verlauf holen den Fokus in die Eingabe (ADR-0038 Regel 8, fokus.js).
+function fokusTastenBedienen({ verlauf, eingabe }, signal) {
+  document.addEventListener('keydown', (ereignis) => {
+    if (!eingabe.element.isConnected || ereignis.defaultPrevented) {
+      return;
+    }
+    if (fokusTaste(ereignis, fokusOrt(verlauf)) === 'ins-feld') {
+      ereignis.preventDefault();
+      eingabe.fokussieren();
+    }
+  }, { signal });
+}
 
+function fokusOrt(verlauf) {
+  const aktiv = document.activeElement;
+  if (document.querySelector('dialog[open]') !== null) {
+    return 'dialog';
+  }
+  const textfeld = aktiv !== null && (aktiv.matches('input, textarea, select') || aktiv.isContentEditable);
+  if (textfeld) {
+    return 'textfeld';
+  }
+  if (verlauf.element.contains(aktiv)) {
+    return 'verlauf';
+  }
+  return 'sonst';
+}
 
 // Liefert channelsZeigen(liste): die Liste ist erst mit dem ersten Stand bekannt — bis dahin bleibt ein
 // gewählter Name ohne Urteil, damit „gibt es nicht“ nie vor dem Stand erscheint.
