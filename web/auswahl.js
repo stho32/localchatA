@@ -15,3 +15,26 @@ export function auswahl(hash, namen) {
   }
   return { name, bekannt: namen.includes(name) };
 }
+
+// Zuletzt gewählt je Tab (ADR-0027 Regel 3): sessionStorage unter diesem Schlüssel.
+export const MERKER = 'localchatA.channel';
+
+// Startet die Seite ohne Adresse, wird der gemerkte Channel zur Adresse (per replaceState); sonst bleibt sie.
+// → Adresse | null
+export function startadresse(hash, merker) {
+  const ohneAdresse = hash === '' || hash === '#';
+  if (!ohneAdresse || merker === null) {
+    return null;
+  }
+  const adresse = PRAEFIX + merker;
+  if (auswahl(adresse, []) === null) {
+    return null;
+  }
+  return adresse;
+}
+
+export function auswahlMerken(speicher, gewaehlt) {
+  if (gewaehlt !== null) {
+    speicher.setItem(MERKER, gewaehlt.name);
+  }
+}

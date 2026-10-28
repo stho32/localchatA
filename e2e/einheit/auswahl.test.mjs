@@ -1,7 +1,7 @@
 // Unit-Tests der Channel-Auswahl (R00007 F0028 B0148, B0149; F0032 B0168, B0169; ADR-0027; node --test).
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { auswahl } from '../../web/auswahl.js';
+import { auswahl, startadresse, auswahlMerken, MERKER } from '../../web/auswahl.js';
 
 const LISTE = ['allgemein', 'test'];
 
@@ -19,4 +19,25 @@ test('ungültige Namen und andere Adressen wählen nichts', () => {
   for (const hash of ['#/c/Neu', '#/x', '', '#', '#/c/', '#/c/allgemein/', '#/c/a b', '#c/allgemein', '#/c/-a', '#/c/con']) {
     assert.equal(auswahl(hash, LISTE), null, hash);
   }
+});
+
+test('Start ohne Adresse mit Merker setzt die Adresse des Merkers, sonst nichts', () => {
+  assert.equal(startadresse('', 'test'), '#/c/test');
+  assert.equal(startadresse('#', 'test'), '#/c/test');
+  assert.equal(startadresse('', null), null);
+  assert.equal(startadresse('', 'Kaputt'), null);
+  assert.equal(startadresse('#/c/allgemein', 'test'), null);
+});
+
+test('jede Auswahl wird je Tab gemerkt, keine Auswahl ändert den Merker nicht', () => {
+  const gespeichert = new Map();
+  const speicher = { setItem: (schluessel, wert) => gespeichert.set(schluessel, wert) };
+
+  auswahlMerken(speicher, { name: 'test', bekannt: true });
+  assert.equal(gespeichert.get(MERKER), 'test');
+  auswahlMerken(speicher, { name: 'spaeter', bekannt: false });
+  assert.equal(gespeichert.get(MERKER), 'spaeter');
+  auswahlMerken(speicher, null);
+  assert.equal(gespeichert.get(MERKER), 'spaeter');
+  assert.equal(MERKER, 'localchatA.channel');
 });
