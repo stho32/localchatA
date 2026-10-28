@@ -139,3 +139,4 @@ Nie vom User erfragen.
 | 2026-10-28 | R00006 Channel anlegen | B0116 Channelname prüfen | Standard | 0,4h | 0,15h | 0,15h | autonom |
 | 2026-10-28 | R00006 Channel anlegen | B0117 Einstellungen schreiben und gültige lesen | Standard | 0,4h | 0,1h | 0,1h | autonom |
 | 2026-10-28 | R00006 Channel anlegen | B0118 Channel-Ordner und Einstellungsdatei ablegen | Standard | 0,4h | 0,1h | 0,1h | autonom |
+| 2026-10-28 | R00006 Channel anlegen | B0119 Channel im Verzeichnis anlegen | unklar | 2-4h | 0,2h | 0,2h | autonom |

@@ -124,13 +124,6 @@ pub const AKZENTE: &[(&str, &str)] = &[
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct Channelname(String);
 
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "Brücke bis B0119: das Verzeichnis nutzt den Channelnamen"
-    )
-)]
 impl Channelname {
     pub fn bilden(text: &str) -> Result<Channelname, Namensfehler> {
         match Name::bilden(text) {

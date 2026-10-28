@@ -7,19 +7,22 @@ mod logablage;
 pub mod logformat;
 mod speicherablage;
 mod verlaufsindex;
+mod verzeichnis;
 
 pub use kennung::Kennung;
 pub use logablage::{Angehaengt, Dateiablage, Gespraech, Logablage};
 pub use speicherablage::Speicherablage;
+pub use verzeichnis::{Anlegefehler, Channel, ChannelStand};
 
 use crate::fehler::Fehler;
+use crate::name::Channelname;
 use crate::uhr::{Uhr, Zeit};
 use chrono::NaiveDate;
-use std::collections::BTreeMap;
 use std::fmt;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, RwLock};
 use std::time::{Duration, Instant};
 use verlaufsindex::Verlauf;
+use verzeichnis::Verzeichnis;
 
 /// Eine Nachricht, wie sie im Log steht; die Zeit ist zugleich ihre ID (ADR-0005).
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -33,7 +36,7 @@ pub struct Nachricht {
 pub struct Gespraeche {
     ablage: Arc<dyn Logablage>,
     uhr: Arc<dyn Uhr>,
-    verlaeufe: BTreeMap<Gespraech, Mutex<Verlauf>>,
+    verzeichnis: RwLock<Verzeichnis>,
     letzte: Mutex<Option<Zeit>>,
     defekte: Vec<Ladedefekt>,
     ladezeit: Duration,
@@ -96,12 +99,16 @@ impl Gespraeche {
             for tag in frist::tage_in_frist(&tage, heute, frist::STANDARD_FRIST_TAGE) {
                 geladen.tag_laden(ablage.as_ref(), &gespraech, tag, &mut verlauf);
             }
-            geladen.verlaeufe.insert(gespraech, Mutex::new(verlauf));
+            geladen.channel_aufnehmen(&gespraech);
+            geladen
+                .verzeichnis
+                .verlaeufe
+                .insert(gespraech, Arc::new(Mutex::new(verlauf)));
         }
         Ok(Gespraeche {
             ablage,
             uhr,
-            verlaeufe: geladen.verlaeufe,
+            verzeichnis: RwLock::new(geladen.verzeichnis),
             letzte: Mutex::new(geladen.juengste),
             defekte: geladen.defekte,
             ladezeit: beginn.elapsed(),
@@ -117,11 +124,12 @@ impl Gespraeche {
         von: &Kennung,
         text: &str,
     ) -> Result<Nachricht, Fehler> {
-        let verlauf = self
+        let verlauf = lesend(&self.verzeichnis)
             .verlaeufe
             .get(gespraech)
+            .cloned()
             .ok_or_else(|| Fehler::Unbekannt(format!("Gespräch {gespraech} unbekannt")))?;
-        let mut verlauf = sperren(verlauf);
+        let mut verlauf = sperren(&verlauf);
         let nachricht = Nachricht {
             zeit: self.zeit_vergeben(),
             von: von.clone(),
@@ -163,7 +171,7 @@ impl Gespraeche {
     pub fn kennzahlen(&self) -> Kennzahlen {
         let mut nachrichten = 0;
         let mut log_bytes = 0;
-        for verlauf in self.verlaeufe.values() {
+        for verlauf in lesend(&self.verzeichnis).verlaeufe.values() {
             let verlauf = sperren(verlauf);
             nachrichten += verlauf.nachrichten();
             log_bytes += verlauf.bytes();
@@ -177,15 +185,81 @@ impl Gespraeche {
     }
 }
 
+impl Gespraeche {
+    /// Legt einen Channel an, unter der Sperre des Verzeichnisses (ADR-0021 Regel 5): Namensregel → vorhanden →
+    /// Ordner → Einstellungen → eintragen, `stand` + 1.
+    pub fn channel_anlegen(&self, name: &str, von: &Kennung) -> Result<Channel, Anlegefehler> {
+        let name = Channelname::bilden(name).map_err(Anlegefehler::Regel)?;
+        let mut verzeichnis = schreibend(&self.verzeichnis);
+        if let Some(vorhanden) = verzeichnis.channels.get(&name) {
+            return Err(Anlegefehler::Vorhanden(vorhanden.clone()));
+        }
+        let gespraech = Gespraech::channel(name.als_text());
+        let channel = Channel {
+            name,
+            angelegt: Some(crate::uhr::auf_millisekunden(self.uhr.jetzt())),
+            angelegt_von: Some(von.clone()),
+        };
+        self.ablegen(&gespraech, &channel)?;
+        verzeichnis
+            .verlaeufe
+            .insert(gespraech, Arc::new(Mutex::new(Verlauf::default())));
+        verzeichnis
+            .channels
+            .insert(channel.name.clone(), channel.clone());
+        verzeichnis.stand += 1;
+        Ok(channel)
+    }
+
+    /// Ordner und Einstellungsdatei des neuen Channels (ADR-0020 Regel 5, ADR-0022 Regel 2).
+    fn ablegen(&self, gespraech: &Gespraech, channel: &Channel) -> Result<(), Anlegefehler> {
+        let einstellungen = einstellungen::Einstellungen {
+            angelegt: channel.angelegt,
+            angelegt_von: channel.angelegt_von.clone(),
+        };
+        let text = einstellungen::schreiben(&einstellungen, None);
+        self.ablage
+            .channel_ordner_anlegen(gespraech)
+            .map_err(|fehler| Anlegefehler::Ablage(format!("{gespraech}: {fehler}")))?;
+        self.ablage
+            .einstellungen_schreiben(gespraech, text.as_bytes())
+            .map_err(|fehler| {
+                Anlegefehler::Ablage(format!("{}: {fehler}", gespraech.einstellungsdatei()))
+            })
+    }
+
+    /// Alle Channels nach Name mit `stand`.
+    pub fn channels(&self) -> ChannelStand {
+        lesend(&self.verzeichnis).stand()
+    }
+}
+
 /// Was das Laden sammelt, bis alle Gespräche durch sind.
 #[derive(Default)]
 struct Geladen {
-    verlaeufe: BTreeMap<Gespraech, Mutex<Verlauf>>,
+    verzeichnis: Verzeichnis,
     defekte: Vec<Ladedefekt>,
     juengste: Option<Zeit>,
 }
 
 impl Geladen {
+    /// Ein Ordner unter `channels/` mit gültigem Namen ist ein Channel.
+    fn channel_aufnehmen(&mut self, gespraech: &Gespraech) {
+        let Gespraech::Channel(ordner) = gespraech else {
+            return;
+        };
+        if let Ok(name) = Channelname::bilden(ordner) {
+            self.verzeichnis.channels.insert(
+                name.clone(),
+                Channel {
+                    name,
+                    angelegt: None,
+                    angelegt_von: None,
+                },
+            );
+        }
+    }
+
     /// Liest einen Tag, nimmt seine gültigen Sätze in den Verlauf und merkt Defekte und jüngste Zeit.
     fn tag_laden(
         &mut self,
@@ -220,6 +294,19 @@ impl Geladen {
         }
         verlauf.tag_aufnehmen(tag, rohtext, satzanfaenge);
     }
+}
+
+/// Lesend: wie `sperren` — das Verzeichnis wird erst nach erfolgreichem Schreiben verändert.
+fn lesend<T>(sperre: &RwLock<T>) -> std::sync::RwLockReadGuard<'_, T> {
+    sperre
+        .read()
+        .unwrap_or_else(|vergiftet| vergiftet.into_inner())
+}
+
+fn schreibend<T>(sperre: &RwLock<T>) -> std::sync::RwLockWriteGuard<'_, T> {
+    sperre
+        .write()
+        .unwrap_or_else(|vergiftet| vergiftet.into_inner())
 }
 
 /// Eine vergiftete Sperre heißt nur, dass ein anderer Aufruf abbrach; der Verlauf selbst bleibt gültig,
@@ -444,7 +531,7 @@ mod tests {
             Some(zeit("2026-10-27T11:00:00+01:00"))
         );
         assert!(
-            gespraeche
+            lesend(&gespraeche.verzeichnis)
                 .verlaeufe
                 .contains_key(&Gespraech::channel("allgemein"))
         );
@@ -560,5 +647,108 @@ mod tests {
         );
         assert!(gespraeche.defekte().is_empty());
         assert_eq!(gespraeche.letzte_zeit(), None);
+    }
+
+    fn alpha() -> Kennung {
+        Kennung::bilden("alpha@127.0.0.2").expect("Kennung")
+    }
+
+    fn leer_im_speicher(jetzt: &str) -> (Gespraeche, Arc<Speicherablage>) {
+        let ablage = Arc::new(Speicherablage::neu());
+        let uhr = Arc::new(GestellteUhr::neu(zeit(jetzt)));
+        let gespraeche = Gespraeche::laden(ablage.clone(), uhr).expect("geladen");
+        (gespraeche, ablage)
+    }
+
+    #[test]
+    fn anlegen_traegt_serverzeit_und_anleger_ein_und_zaehlt_den_stand() {
+        let (gespraeche, ablage) = leer_im_speicher("2026-10-28T10:15:00.123456+01:00");
+
+        let channel = gespraeche
+            .channel_anlegen("allgemein", &alpha())
+            .expect("angelegt");
+
+        assert_eq!(channel.name.als_text(), "allgemein");
+        assert_eq!(
+            channel.angelegt,
+            Some(zeit("2026-10-28T10:15:00.123+01:00"))
+        );
+        assert_eq!(channel.angelegt_von, Some(alpha()));
+        assert_eq!(
+            gespraeche.channels(),
+            ChannelStand {
+                stand: 1,
+                liste: vec![channel.clone()],
+            }
+        );
+        let allgemein = Gespraech::channel("allgemein");
+        let datei = ablage
+            .einstellungen_lesen(&allgemein)
+            .expect("lesbar")
+            .expect("Einstellungsdatei");
+        assert_eq!(
+            einstellungen::lesen(&datei),
+            Ok(einstellungen::Einstellungen {
+                angelegt: channel.angelegt,
+                angelegt_von: channel.angelegt_von.clone(),
+            })
+        );
+        gespraeche
+            .senden(&allgemein, &claude(), "erste Nachricht")
+            .expect("im neuen Channel gesendet");
+    }
+
+    #[test]
+    fn derselbe_name_noch_einmal_ist_vorhanden_ohne_schreibvorgang_und_ohne_neuen_stand() {
+        let (gespraeche, ablage) = leer_im_speicher("2026-10-28T10:15:00.123+01:00");
+        let erster = gespraeche
+            .channel_anlegen("allgemein", &alpha())
+            .expect("angelegt");
+        let geschrieben = ablage.schreibvorgaenge();
+
+        let zweiter = gespraeche.channel_anlegen("allgemein", &claude());
+
+        assert_eq!(zweiter, Err(Anlegefehler::Vorhanden(erster)));
+        assert_eq!(ablage.schreibvorgaenge(), geschrieben);
+        assert_eq!(gespraeche.channels().stand, 1);
+    }
+
+    #[test]
+    fn ungueltiger_name_ist_ein_regelverstoss_und_legt_nichts_an() {
+        let (gespraeche, ablage) = leer_im_speicher("2026-10-28T10:15:00.123+01:00");
+
+        let ergebnis = gespraeche.channel_anlegen("Allgemein", &alpha());
+
+        let Err(Anlegefehler::Regel(fehler)) = ergebnis else {
+            panic!("{ergebnis:?}");
+        };
+        assert_eq!(
+            fehler.vorschlag.map(|name| name.to_string()),
+            Some("allgemein".to_string())
+        );
+        assert_eq!(ablage.schreibvorgaenge(), 0);
+        assert_eq!(gespraeche.channels().stand, 0);
+    }
+
+    #[test]
+    fn die_liste_steht_nach_name_nicht_nach_anlage() {
+        let (gespraeche, _) = leer_im_speicher("2026-10-28T10:15:00.123+01:00");
+        for name in ["security-entwicklung", "allgemein", "b"] {
+            gespraeche
+                .channel_anlegen(name, &alpha())
+                .expect("angelegt");
+        }
+
+        let stand = gespraeche.channels();
+
+        assert_eq!(stand.stand, 3);
+        assert_eq!(
+            stand
+                .liste
+                .iter()
+                .map(|channel| channel.name.to_string())
+                .collect::<Vec<_>>(),
+            vec!["allgemein", "b", "security-entwicklung"]
+        );
     }
 }
