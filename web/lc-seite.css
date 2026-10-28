@@ -64,21 +64,25 @@ body { background: var(--kd-bg); color: var(--kd-ink); font-family: var(--font-s
 .lc-sect { font-size: 11px; line-height: 16px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--kd-ink-muted); padding: var(--kd-space-8) var(--kd-space-12) var(--kd-space-4); }
 .lc-sect.lc-unterkopf { padding-top: var(--kd-space-4); text-transform: none; letter-spacing: 0; font-weight: 400; }
 /* Volle Kennung statt Auslassung: „Agent“ und „(du)“ hinter der Kennung, umbrochen erst bei Platzmangel (vor
-   dem @ per wbr); der Status steht in einer festen Spalte so breit wie „○ offline“ */
-.lc-person { min-height: var(--kd-row); display: grid; grid-template-columns: var(--lc-tile) minmax(0, 1fr) 52px; align-items: center; column-gap: var(--kd-space-8); padding: var(--kd-space-4) var(--kd-space-12); }
+   dem @ per wbr); der Status steht in einer festen Spalte, die „weg in 1:00“ samt Punkt fasst (ADR-0019 Regel 7) —
+   ein Wechsel online ↔ offline ↔ gleich weg ändert weder Spaltenbreite noch Zeilenhöhe */
+.lc-person { min-height: var(--kd-row); display: grid; grid-template-columns: var(--lc-tile) minmax(0, 1fr) 80px; align-items: center; column-gap: var(--kd-space-8); padding: var(--kd-space-4) var(--kd-space-12); }
 .lc-person-text { min-width: 0; display: flex; flex-wrap: wrap; align-items: center; column-gap: var(--kd-space-8); }
 .lc-person .lc-id { min-width: 0; overflow-wrap: anywhere; }
 .lc-person .lc-id i { font-style: normal; color: var(--kd-ink-muted); }
 .lc-person.off .lc-id { color: var(--kd-ink-muted); }
 .lc-person-status { display: inline-flex; align-items: center; gap: var(--kd-space-4); }
-/* Verbindung unterbrochen: Stand unbekannt — Kennungen gedämpft (ohne Deckkraft, Kontrast bleibt), ● nicht mehr gefüllt */
+/* Verbindung unterbrochen: Stand unbekannt — Kennungen gedämpft (ohne Deckkraft, Kontrast bleibt), ● „zuletzt
+   online“ gefüllt in lc-offline; gestrichelt bleibt allein „gleich weg“ (ADR-0019 Regel 6) */
 .lc-stand { margin: 0; padding: 0 var(--kd-space-12) var(--kd-space-4); font-size: 12px; color: var(--kd-ink-muted); }
 .lc-unbekannt .lc-id { color: var(--kd-ink-muted); }
-.lc-unbekannt .lc-dot.on { background: transparent; border: 1.5px dashed var(--lc-offline); }
+.lc-unbekannt .lc-dot.on { background: var(--lc-offline); }
 .lc-dot { width: 8px; height: 8px; border-radius: 50%; flex: none; display: inline-block; }
 .lc-dot.on { background: var(--lc-online); }
 .lc-dot.off { border: 1.5px solid var(--lc-offline); }
+.lc-dot.gleich { border: 1.5px dashed var(--lc-offline); }
 .lc-status, .lc-du { font-size: 12px; color: var(--kd-ink-muted); white-space: nowrap; }
+.lc-status { font-variant-numeric: tabular-nums; }
 
 /* Unter 720 px legt sich die eingeblendete Liste als Fläche über die Mitte */
 @media (max-width: 719px) {

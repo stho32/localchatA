@@ -1,5 +1,6 @@
-// Teilnehmerliste (A00005, ADR-0016 Regel 5, Designsystem components/Teilnehmerliste).
+// Teilnehmerliste (A00005, ADR-0016 Regel 5, ADR-0019 Regeln 5–7, Designsystem components/Teilnehmerliste).
 import { kuerzel } from './kopfzeile.js';
+import { restzeit } from './restzeit.js';
 //
 // Liste: { stand, eintraege: [{ kennung, name, herkunft, art, status, seit, stand }], entfernt: { kennung: stand } }
 
@@ -77,11 +78,12 @@ function natuerlich(links, rechts) {
 }
 
 // Zeichnet die Gruppen in die Region: Überschrift je Art mit Anzahl, Unterkopf je Herkunft, je Zeile Kachel,
-// Kennung in Mono, „Agent“, Status als Form (● online, ○ offline) und bei offline als Wort, die eigene Zeile
-// mit „(du)“. Text nur über textContent; keine Animation, keine Ansage (die Region hat kein aria-live).
-export function zeichnen(region, gruppen) {
-  const standUnbekannt = region.closest('.lc-unbekannt') !== null;
-  const zeileFuer = (zeile) => zeileZeichnen(zeile, standUnbekannt);
+// Kennung in Mono, „Agent“, Status als Form und Wort (statusform), die eigene Zeile mit „(du)“. Text nur über
+// textContent; keine Animation, keine Ansage (die Region hat kein aria-live). Die Restzeit rechnet mit der Uhr
+// des Browsers und dem Versatz zur Serverzeit.
+export function zeichnen(region, gruppen, { versatz = 0, jetzt = Date.now() } = {}) {
+  const uhr = { versatz, jetzt, standUnbekannt: region.closest('.lc-unbekannt') !== null };
+  const zeileFuer = (zeile) => zeileZeichnen(zeile, uhr);
   const inhalt = [];
   if (gruppen.menschen.length > 0) {
     inhalt.push(ueberschrift(`Menschen · ${gruppen.menschen.length}`));
@@ -100,6 +102,23 @@ export function zeichnen(region, gruppen) {
   region.replaceChildren(...inhalt);
 }
 
+// Die Form einer Zeile (rein): ● online — bei unbekanntem Stand „zuletzt online“ —, ○ „offline“, oder bis 60 s
+// vor dem Verschwinden gestrichelt mit „weg in m:ss“; der Name „offline, gleich weg“ bleibt statisch, damit
+// nichts sekündlich angesagt wird. Eine Zeile „gleich weg“ zählt auch bei unbekanntem Stand weiter herunter.
+export function statusform(zeile, { versatz, jetzt, standUnbekannt }) {
+  if (zeile.status !== 'offline') {
+    if (standUnbekannt) {
+      return { form: 'zuletzt-online', name: 'zuletzt online', text: null };
+    }
+    return { form: 'online', name: 'online', text: null };
+  }
+  const rest = restzeit({ wegUm: zeile.weg_um, versatz, uhr: jetzt });
+  if (rest.art === 'gleich-weg') {
+    return { form: 'gleich-weg', name: 'offline, gleich weg', text: rest.text };
+  }
+  return { form: 'offline', name: 'offline', text: 'offline' };
+}
+
 function ueberschrift(text) {
   return element('div', { className: 'lc-sect' }, [element('span', { textContent: text })]);
 }
@@ -109,10 +128,10 @@ function unterkopf(herkunft) {
 }
 
 // Kachel, dann Kennung mit „Agent“ und „(du)“ dahinter (umbrochen erst bei Platzmangel, die Kennung vor dem @),
-// rechts der Status in einer festen Spalte — so verschiebt ein Wechsel nach offline keine Zeile.
-function zeileZeichnen(zeile, standUnbekannt) {
+// rechts der Status in einer festen Spalte — so verschiebt ein Wechsel nach offline oder „gleich weg“ keine Zeile.
+function zeileZeichnen(zeile, uhr) {
   const art = artDer(zeile);
-  const istOffline = zeile.status === 'offline';
+  const form = statusform(zeile, uhr);
   const kachel = element('span', { className: `lc-tile ${art}`, textContent: kuerzel(zeile.name) });
   kachel.setAttribute('aria-hidden', 'true');
   const kennung = element('span', { className: 'lc-id' }, [
@@ -125,43 +144,44 @@ function zeileZeichnen(zeile, standUnbekannt) {
   if (zeile.eigene) {
     text.append(element('span', { className: 'lc-du', textContent: '(du)' }));
   }
-  const status = element('span', { className: 'lc-person-status' }, [punkt(istOffline, standUnbekannt)]);
-  if (istOffline) {
-    status.append(element('span', { className: 'lc-status', textContent: 'offline' }));
+  const status = element('span', { className: 'lc-person-status' }, [punkt(form)]);
+  if (form.text !== null) {
+    status.append(statuswort(form));
   }
   let klassen = 'lc-person';
-  if (istOffline) {
+  if (zeile.status === 'offline') {
     klassen += ' off';
   }
-  return element('div', { className: klassen }, [kachel, text, status]);
+  const zeilenElement = element('div', { className: klassen }, [kachel, text, status]);
+  zeilenElement.dataset.kennung = zeile.kennung;
+  return zeilenElement;
 }
 
-function punkt(istOffline, standUnbekannt) {
-  let form = 'on';
-  let wort = onlineWort(standUnbekannt);
-  if (istOffline) {
-    form = 'off';
-    wort = 'offline';
+// Die Restzeit ist für Screenreader verborgen: der Punkt trägt den statischen Namen (ADR-0019 Regel 5).
+function statuswort(form) {
+  const wort = element('span', { className: 'lc-status', textContent: form.text });
+  if (form.form === 'gleich-weg') {
+    wort.setAttribute('aria-hidden', 'true');
   }
-  const punktElement = element('span', { className: `lc-dot ${form}` });
+  return wort;
+}
+
+const PUNKT_KLASSE = { online: 'on', 'zuletzt-online': 'on', offline: 'off', 'gleich-weg': 'gleich' };
+
+function punkt(form) {
+  const punktElement = element('span', { className: `lc-dot ${PUNKT_KLASSE[form.form]}` });
   punktElement.setAttribute('role', 'img');
-  punktElement.setAttribute('aria-label', wort);
+  punktElement.setAttribute('aria-label', form.name);
   return punktElement;
 }
 
 // Solange die Verbindung fehlt, weiß niemand, ob ein Teilnehmer noch online ist: der Punkt heißt dann
 // „zuletzt online“ (Nacharbeit 2).
 export function onlineBenennen(bereich, standUnbekannt) {
+  const { name } = statusform({ status: 'online' }, { standUnbekannt });
   bereich.querySelectorAll('.lc-dot.on').forEach((punktElement) => {
-    punktElement.setAttribute('aria-label', onlineWort(standUnbekannt));
+    punktElement.setAttribute('aria-label', name);
   });
-}
-
-function onlineWort(standUnbekannt) {
-  if (standUnbekannt) {
-    return 'zuletzt online';
-  }
-  return 'online';
 }
 
 function artDer(zeile) {

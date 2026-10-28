@@ -1,7 +1,7 @@
 // Unit-Tests der Teilnehmerliste (R00004 F0013, ADR-0016 Regel 5; node --test): Zusammenführung nach `stand`.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { LEER, ordnen, zusammenfuehren } from '../../web/teilnehmerliste.js';
+import { LEER, ordnen, statusform, zusammenfuehren } from '../../web/teilnehmerliste.js';
 
 function zeile(name, status, art = 'agent', herkunft = '127.0.0.1') {
   return { kennung: `${name}@${herkunft}`, name, herkunft, art, status, seit: '2026-10-28T09:00:00.000+01:00' };
@@ -98,4 +98,27 @@ test('Herkünfte in natürlicher Reihenfolge: 127.0.0.2 vor 127.0.0.10', () => {
   const gruppen = ordnen(listeAus([...agenten, zeile('c1', 'online', 'agent', '127.0.0.2')]), '');
 
   assert.deepEqual(gruppen.agenten.map((gruppe) => gruppe.herkunft), ['127.0.0.2', '127.0.0.10']);
+});
+
+// R00005 F0018, B0111 (ADR-0019 Regeln 5 und 6): die Form je Zeile — rein, gestellte Uhr.
+const T = Date.parse('2026-10-28T09:00:00.000+01:00');
+const offlineBis = (millisekundenNachT) => ({ status: 'offline', weg_um: new Date(T + millisekundenNachT).toISOString() });
+const ONLINE = { status: 'online', weg_um: null };
+
+test('Statusformen: ● online, ○ offline über 60 s, gestrichelt „weg in m:ss“ bis 60 s mit statischem Namen', () => {
+  const uhr = { versatz: 0, jetzt: T, standUnbekannt: false };
+
+  assert.deepEqual(statusform(ONLINE, uhr), { form: 'online', name: 'online', text: null });
+  assert.deepEqual(statusform(offlineBis(90000), uhr), { form: 'offline', name: 'offline', text: 'offline' });
+  assert.deepEqual(statusform(offlineBis(40000), uhr), { form: 'gleich-weg', name: 'offline, gleich weg', text: 'weg in 0:40' });
+  assert.deepEqual(statusform({ status: 'offline' }, uhr), { form: 'offline', name: 'offline', text: 'offline' });
+});
+
+test('Gleich weg im unbekannten Stand: die Zeile bleibt gestrichelt und zählt herunter, online heißt „zuletzt online“', () => {
+  const unbekannt = { versatz: 0, jetzt: T, standUnbekannt: true };
+  const eineSekundeSpaeter = { ...unbekannt, jetzt: T + 1000 };
+
+  assert.deepEqual(statusform(ONLINE, unbekannt), { form: 'zuletzt-online', name: 'zuletzt online', text: null });
+  assert.deepEqual(statusform(offlineBis(40000), unbekannt), { form: 'gleich-weg', name: 'offline, gleich weg', text: 'weg in 0:40' });
+  assert.deepEqual(statusform(offlineBis(40000), eineSekundeSpaeter), { form: 'gleich-weg', name: 'offline, gleich weg', text: 'weg in 0:39' });
 });
