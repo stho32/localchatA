@@ -1,11 +1,12 @@
-//! Herzschlag aus der Umgebung (B0079): Standard 15 s, Testknopf `LOCALCHATA_HERZSCHLAG_MS` (ADR-0007, ADR-0015).
+//! Herzschlag aus der Umgebung (B0079, B0102): Standard 5 s, Testknopf `LOCALCHATA_HERZSCHLAG_MS` (ADR-0007,
+//! ADR-0015, ADR-0017 Regel 1 — er erzeugt die unbestätigten Daten, an denen der Kernel den Abriss erkennt).
 
 use std::ffi::OsStr;
 use std::fmt;
 use std::time::Duration;
 
 pub const VARIABLE: &str = "LOCALCHATA_HERZSCHLAG_MS";
-const STANDARD: Duration = Duration::from_secs(15);
+const STANDARD: Duration = Duration::from_secs(5);
 
 /// `LOCALCHATA_HERZSCHLAG_MS` ist gesetzt, aber keine ganze Zahl von Millisekunden ab 1.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -53,8 +54,8 @@ mod tests {
     }
 
     #[test]
-    fn ohne_wert_alle_15_sekunden() {
-        assert_eq!(aus_umgebung(None), Ok(Duration::from_secs(15)));
+    fn ohne_wert_alle_5_sekunden() {
+        assert_eq!(aus_umgebung(None), Ok(Duration::from_secs(5)));
     }
 
     #[test]
