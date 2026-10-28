@@ -8,6 +8,7 @@ mod gesundheit;
 mod grenzschutz;
 mod ich;
 mod koerper;
+mod nachrichten;
 mod oberflaeche;
 mod teilnehmer;
 mod teilnehmerliste;
