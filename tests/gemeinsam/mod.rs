@@ -358,6 +358,30 @@ impl Absender {
         api_antwort(anfrage).await
     }
 
+    /// `POST <basis>api/channels` mit JSON-Körper und dem Sitzungs-Header (R00006).
+    pub async fn channel_anlegen(
+        &self,
+        basis: &str,
+        token: &str,
+        koerper: serde_json::Value,
+    ) -> ApiAntwort {
+        let anfrage = self
+            .client
+            .post(format!("{basis}api/channels"))
+            .header("X-LocalchatA-Sitzung", token)
+            .json(&koerper);
+        api_antwort(anfrage).await
+    }
+
+    /// `GET <basis>api/channels` mit optional dem Sitzungs-Header.
+    pub async fn channels(&self, basis: &str, token: Option<&str>) -> ApiAntwort {
+        let mut anfrage = self.client.get(format!("{basis}api/channels"));
+        if let Some(token) = token {
+            anfrage = anfrage.header("X-LocalchatA-Sitzung", token);
+        }
+        api_antwort(anfrage).await
+    }
+
     /// Eine beliebig zusammengesetzte Anfrage dieses Absenders.
     pub fn anfrage(&self, methode: reqwest::Method, url: String) -> reqwest::RequestBuilder {
         self.client.request(methode, url)
