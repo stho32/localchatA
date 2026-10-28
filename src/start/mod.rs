@@ -189,15 +189,27 @@ struct Startlaeufe {
     stufe_herkunft: &'static str,
 }
 
-/// Der Tagestakt mit der Bereinigung als erster Tagesaufgabe; `zuletzt` = Datum der Start-Bereinigung
-/// (ADR-0041, Ergänzung „Vertrag des Tagestakts“).
+/// Die Gespräche und das Datum ihrer Pflege beim Start — der Startwert der Tagesaufgabe `fristpflege`.
+struct Fristpflege {
+    gespraeche: Arc<Gespraeche>,
+    gepflegt_am: chrono::NaiveDate,
+}
+
+/// Der Tagestakt mit der Bereinigung und der Fristpflege als Tagesaufgaben, in dieser Reihenfolge; `zuletzt` je
+/// Aufgabe = Datum ihres Start-Laufs (ADR-0041, Ergänzung „Vertrag des Tagestakts“, ADR-0030 Ergänzung).
 fn tagestakt(
     uhr: &Arc<dyn Uhr>,
     protokoll: &Arc<Protokoll>,
     bereinigt_am: chrono::NaiveDate,
+    fristpflege: Fristpflege,
 ) -> Tagestakt {
     let bereinigen = Arc::clone(protokoll);
     let episoden = Arc::clone(protokoll);
+    let frist_protokoll = Arc::clone(protokoll);
+    let Fristpflege {
+        gespraeche,
+        gepflegt_am,
+    } = fristpflege;
     Tagestakt::neu(Arc::clone(uhr), Arc::clone(protokoll))
         .tagesaufgabe(
             "bereinigen",
@@ -205,6 +217,19 @@ fn tagestakt(
             bereinigt_am,
             Arc::new(move |heute| {
                 bereinigen.bereinigen(heute, Anlass::Tageswechsel);
+            }),
+        )
+        .tagesaufgabe(
+            "fristpflege",
+            "Tage jenseits der Frist bleiben bis dahin liegen",
+            gepflegt_am,
+            Arc::new(move |heute| {
+                frist_pflegen(
+                    &gespraeche,
+                    heute,
+                    Pflegeanlass::Tageswechsel,
+                    &frist_protokoll,
+                );
             }),
         )
         .sekundenaufgabe(
@@ -231,8 +256,10 @@ async fn nach_der_sperre(
         stufe_herkunft,
     } = startlaeufe;
     let bus = Arc::new(Bus::neu(live::KAPAZITAET));
-    let gespraeche = verlauf_laden(&ordner, Arc::clone(&uhr), &protokoll)?
-        .mit_veroeffentlichen(bus::channels_veroeffentlichen(&bus));
+    let gespraeche = Arc::new(
+        verlauf_laden(&ordner, Arc::clone(&uhr), &protokoll)?
+            .mit_veroeffentlichen(bus::channels_veroeffentlichen(&bus)),
+    );
     let gepflegt_am = uhr.jetzt().date_naive();
     frist_pflegen(&gespraeche, gepflegt_am, Pflegeanlass::Start, &protokoll);
     let anwesenheit = Arc::new(
@@ -253,9 +280,18 @@ async fn nach_der_sperre(
     bewacht(
         Arc::clone(&protokoll),
         "tagestakt",
-        "alte Protokolldateien bleiben liegen und Episoden enden nicht mehr",
+        "alte Protokolldateien und Tage jenseits der Frist bleiben liegen, Episoden enden nicht mehr",
         ende.clone(),
-        tagestakt(&uhr, &protokoll, bereinigt_am).takten(ende.clone(), tagestakt::PERIODE),
+        tagestakt(
+            &uhr,
+            &protokoll,
+            bereinigt_am,
+            Fristpflege {
+                gespraeche: Arc::clone(&gespraeche),
+                gepflegt_am,
+            },
+        )
+        .takten(ende.clone(), tagestakt::PERIODE),
     );
     bewacht(
         Arc::clone(&protokoll),
@@ -291,7 +327,7 @@ async fn nach_der_sperre(
     }
     let app = http::router(Zustand {
         ordner,
-        gespraeche: Arc::new(gespraeche),
+        gespraeche,
         anwesenheit,
         bus,
         herzschlag,
