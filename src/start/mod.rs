@@ -1,6 +1,6 @@
 //! Start: vom Aufruf bis zum lauschenden Server (A00003).
 //!
-//! Reihenfolge: Aufruf lesen → Uhr → Gnadenfrist → Ordner vorbereiten → sperren → Verlauf laden → Anwesenheit → binden → Startzeile → Browser → ausliefern bis zum Signal.
+//! Reihenfolge: Aufruf lesen → Uhr → Gnadenfrist → Herzschlag → Ordner vorbereiten → sperren → Verlauf laden → Anwesenheit → binden → Startzeile → Browser → ausliefern bis zum Signal.
 
 mod aufruf;
 pub(crate) mod ausliefern;
@@ -21,6 +21,7 @@ use verbindungen::Verbindungsgrenzen;
 use crate::anwesenheit::{Anwesenheit, gnadenfrist};
 use crate::gespraeche::{Dateiablage, Gespraeche};
 use crate::http::{self, Grenzschutz, Zustand};
+use crate::live::herzschlag;
 use crate::uhr::{self, Uhr};
 use crate::zufall::Betriebssystemzufall;
 use aufruf::HILFE;
@@ -32,7 +33,8 @@ use std::time::Duration;
 
 /// Führt einen Aufruf (Argumente ohne Programmnamen) bis zum Ende aus und liefert den Exit-Code:
 /// 0 geordnet beendet oder Hilfe, 1 Ordner, Port oder Sperre scheitert, 2 falscher Aufruf oder
-/// unlesbare Startzeit in `LOCALCHATA_JETZT` bzw. Gnadenfrist in `LOCALCHATA_GNADENFRIST_MS`.
+/// unlesbare Startzeit in `LOCALCHATA_JETZT`, Gnadenfrist in `LOCALCHATA_GNADENFRIST_MS` bzw. Herzschlag in
+/// `LOCALCHATA_HERZSCHLAG_MS`.
 pub async fn ausfuehren<I: IntoIterator<Item = String>>(argumente: I) -> ExitCode {
     match Startauftrag::aus_argumenten(argumente) {
         Ok(Aufruf::Hilfe) => {
@@ -56,7 +58,15 @@ pub async fn ausfuehren<I: IntoIterator<Item = String>>(argumente: I) -> ExitCod
                     return ExitCode::from(2);
                 }
             };
-            match starten(auftrag, uhr, gnadenfrist).await {
+            let herzschlag_wert = std::env::var_os(herzschlag::VARIABLE);
+            let herzschlag = match herzschlag::aus_umgebung(herzschlag_wert.as_deref()) {
+                Ok(herzschlag) => herzschlag,
+                Err(fehler) => {
+                    eprintln!("{fehler}");
+                    return ExitCode::from(2);
+                }
+            };
+            match starten(auftrag, uhr, gnadenfrist, herzschlag).await {
                 Ok(()) => ExitCode::SUCCESS,
                 Err(fehler) => {
                     eprintln!("{fehler}");
@@ -75,6 +85,7 @@ async fn starten(
     auftrag: Startauftrag,
     uhr: Box<dyn Uhr>,
     gnadenfrist: Duration,
+    _herzschlag: Duration,
 ) -> Result<(), Startfehler> {
     let uhr: Arc<dyn Uhr> = Arc::from(uhr);
     let ordner = ordner::ordner_vorbereiten(&auftrag.ordner)?;
