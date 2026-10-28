@@ -117,6 +117,7 @@ test('401: genau ein Tab soll still beitreten; bleibt sein Token aus, übernimmt
   zeit.ablaufen();
 
   assert.deepEqual(erste, [true, false, false]);
+  assert.deepEqual([eins, zwei, drei].map((einPort) => zustaendeIn(einPort)[0].token), ['alt', 'alt', 'alt']);
   assert.deepEqual(zweite, [false, true, false]);
   assert.deepEqual(halter.angelegt[0].tokens, ['alt', 'neu'], 'das abgelehnte Token wird nicht wieder gesetzt');
   assert.equal(zustaendeIn(drei).length, 2, 'nach dem neuen Token keine weitere Übernahme');

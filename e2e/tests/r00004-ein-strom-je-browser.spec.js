@@ -225,3 +225,34 @@ for (const { tabs: anzahl, ohneWebLocks } of [
     expect((await request.post(instanz.adresse + 'api/beitreten', { data: { name: 'shoff' } })).status()).toBe(409);
   });
 }
+
+// Nacharbeit 3, Code-Review A1: der Worker meldet das abgelehnte Token mit — ein Tab, dessen eigenes Token
+// veraltet ist, erkennt so das Token aus dem Speicher als abgelehnt und tritt sofort bei.
+test('A1: Neustart, Tab a tritt bei und geht, zweiter Neustart — Tab b ist in < 2 s zurück', async ({ browser }) => {
+  instanz = await instanzStarten({ port: await freierPort() });
+  const kontext = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+  const a = await kontext.newPage();
+  await a.goto(instanz.adresse);
+  await a.getByLabel('Name').fill('shoff');
+  await a.getByLabel('Name').press('Enter');
+  await zeigtSichSelbst(a);
+  const b = await kontext.newPage();
+  await b.goto(instanz.adresse);
+  await zeigtSichSelbst(b);
+
+  await instanz.beenden();
+  await instanz.starten();
+  await expect(a.locator('#lc-verbindung')).toBeHidden({ timeout: 15000 });
+  await expect(b.locator('#lc-verbindung')).toBeHidden({ timeout: 15000 });
+  await a.close();
+  await instanz.beenden();
+  await expect(b.locator('#lc-verbindung')).toBeVisible();
+  await b.waitForTimeout(500);
+  await instanz.starten();
+  const neu = Date.now();
+  await expect(b.locator('#lc-verbindung')).toBeHidden({ timeout: 15000 });
+  const zurueckNach = Date.now() - neu;
+
+  await zeigtSichSelbst(b);
+  expect(zurueckNach).toBeLessThan(2000);
+});

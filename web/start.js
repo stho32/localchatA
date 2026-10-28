@@ -14,7 +14,6 @@ const api = {
 const speicher = window.localStorage;
 const wurzel = document.getElementById('app');
 let laufenderStrom = null;
-let tokenDesStroms = null;
 
 farbschemaFolgen();
 zeigen(await sitzungBeimLaden());
@@ -38,19 +37,18 @@ function hauptansichtZeigen(teilnehmer, nachEingabe) {
   const ansicht = hauptansicht.zeichnen(wurzel, teilnehmer, { kennungFokussieren: nachEingabe });
   let liste = teilnehmerliste.LEER;
   stromBeenden();
-  tokenDesStroms = speicher.getItem(sitzung.SITZUNG);
   laufenderStrom = verbinden({
-    token: tokenDesStroms,
+    token: speicher.getItem(sitzung.SITZUNG),
     version: document.querySelector('meta[name="lc-version"]').content,
     beiEreignis: (ereignis) => {
       liste = teilnehmerliste.zusammenfuehren(liste, ereignis);
       teilnehmerliste.zeichnen(ansicht.region, teilnehmerliste.ordnen(liste, teilnehmer.kennung));
       ansicht.anzahlZeigen(liste.eintraege.length);
     },
-    beiZustand: (zustand, { beitreten }) => {
+    beiZustand: (zustand, { beitreten, token }) => {
       ansicht.verbindungZeigen(zustand);
       if (zustand === 'abgelehnt' && beitreten) {
-        stillWiederBeitreten();
+        stillWiederBeitreten(token);
       }
     },
   });
@@ -58,8 +56,8 @@ function hauptansichtZeigen(teilnehmer, nachEingabe) {
 
 // Ohne GET /api/ich: dessen 401 stünde als Konsolenfehler (AK F0013); mit Web Lock tritt auch im Rückfall
 // je Tab nur einer bei, die anderen lesen dessen Token.
-async function stillWiederBeitreten() {
-  const abgelehntesToken = tokenDesStroms;
+// Das abgelehnte Token kommt vom Strom (im Worker auch für Tabs, deren eigenes Token längst veraltet ist).
+async function stillWiederBeitreten(abgelehntesToken) {
   const wiederBeitreten = (geschwister) => sitzung.nachAblehnung(speicher, api, abgelehntesToken, geschwister);
   let zustand;
   if (navigator.locks === undefined) {
@@ -68,8 +66,7 @@ async function stillWiederBeitreten() {
     zustand = await navigator.locks.request(sitzung.SITZUNG, () => wiederBeitreten());
   }
   if (zustand.art === 'kopfzeile') {
-    tokenDesStroms = speicher.getItem(sitzung.SITZUNG);
-    laufenderStrom.tokenSetzen(tokenDesStroms);
+    laufenderStrom.tokenSetzen(speicher.getItem(sitzung.SITZUNG));
     return;
   }
   stromBeenden();

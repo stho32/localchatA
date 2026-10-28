@@ -4,7 +4,8 @@
 // der nächste. Geht der letzte Tab, endet der Strom.
 //
 // Tab → Worker: { art: 'token', token } · { art: 'tschuess' }
-// Worker → Tab: { art: 'ereignis', ereignis } · { art: 'zustand', zustand, beitreten }
+// Worker → Tab: { art: 'ereignis', ereignis } · { art: 'zustand', zustand, beitreten, token } (token: das
+// abgelehnte, nur bei 'abgelehnt')
 import { LEER, zusammenfuehren } from './teilnehmerliste.js';
 
 const UEBERNAHME_NACH_MS = 5000;
@@ -82,7 +83,9 @@ export function verteilerAnlegen({
 
   function beitretenLassen() {
     const zustaendig = ports[0];
-    ports.forEach((port) => port.postMessage({ art: 'zustand', zustand: 'abgelehnt', beitreten: port === zustaendig }));
+    ports.forEach((port) => port.postMessage({
+      art: 'zustand', zustand: 'abgelehnt', beitreten: port === zustaendig, token: abgelehntesToken,
+    }));
     uebernahme = warten(UEBERNAHME_NACH_MS, () => {
       ports = [...ports.slice(1), ...ports.slice(0, 1)];
       beitretenLassen();
