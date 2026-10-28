@@ -75,17 +75,20 @@ async fn das_format_des_schluessels_wird_geprueft_nichts_geschrieben() {
         .await;
         ungueltig.push((schluessel.to_string(), antwort));
     }
-    let doppelt = api_antwort(
-        beta.anfrage(
-            reqwest::Method::POST,
-            format!("{basis}api/channels/allgemein/nachrichten"),
-        )
-        .header("X-LocalchatA-Sitzung", &token)
-        .header("Idempotency-Key", "a")
-        .header("Idempotency-Key", "b")
-        .json(&json!({ "text": "schlecht" })),
-    )
-    .await;
+    // Zwei Kopfzeilen roh über TCP — ein HTTP-Client könnte sie zusammenfassen.
+    let doppelt = gemeinsam::roh_anfragen(
+        std::net::SocketAddr::from(([127, 0, 0, 1], instanz.port())),
+        &format!(
+            "POST /api/channels/allgemein/nachrichten HTTP/1.1\r\nHost: 127.0.0.1:{}\r\nX-LocalchatA-Sitzung: {token}\r\nContent-Type: application/json\r\nIdempotency-Key: a\r\nIdempotency-Key: b",
+            instanz.port()
+        ),
+        r#"{"text":"schlecht"}"#,
+    );
+    let doppelt = ApiAntwort {
+        status: doppelt.status,
+        kopf: reqwest::header::HeaderMap::new(),
+        json: serde_json::from_str(&doppelt.inhalt).unwrap_or_default(),
+    };
     ungueltig.push(("a, b (zwei Köpfe)".to_string(), doppelt));
 
     assert_eq!(
