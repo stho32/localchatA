@@ -509,7 +509,8 @@ async fn b0071_ungueltige_eingaben_jeder_laenge_kommen_nur_gekuerzt_zurueck() {
 /// 413-Antwort, auch wenn der Server antwortet, bevor der Client fertig gesendet hat — nie einen
 /// Verbindungsabbruch. Der Client sendet wie über ein langsames Netz in Stücken: schließt der Server, bevor
 /// der Körper gelesen ist, scheitert das Schreiben (Broken pipe, Reset) — ein Client wie hyper/reqwest meldet
-/// dann den Abbruch statt der 413. Mehrere Durchläufe, damit der Wettlauf sicher auffällt.
+/// dann den Abbruch statt der 413. Danach kündigt der Server das Schließen an und schließt (Ende der Antwort
+/// statt Warten auf die Lesegrenze). Mehrere Durchläufe, damit der Wettlauf sicher auffällt.
 #[test]
 fn zu_grosser_koerper_ergibt_413_auch_bei_langsamem_senden() {
     use std::io::{Read, Write};
@@ -545,7 +546,11 @@ fn zu_grosser_koerper_ergibt_413_auch_bei_langsamem_senden() {
         let gelesen = verbindung.read_to_end(&mut antwort);
         let text = String::from_utf8_lossy(&antwort);
         let mit_413 = text.starts_with("HTTP/1.1 413") && text.contains("zu groß");
-        if !mit_413 || schreibfehler.is_some() {
+        let schliessen_angekuendigt = text
+            .to_ascii_lowercase()
+            .contains("\r\nconnection: close\r\n");
+        let geschlossen = gelesen.is_ok();
+        if !mit_413 || schreibfehler.is_some() || !schliessen_angekuendigt || !geschlossen {
             abbrueche.push(format!(
                 "{durchlauf}: Schreiben {schreibfehler:?}, Lesen {gelesen:?} {:.60}",
                 text
