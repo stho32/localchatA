@@ -38,6 +38,13 @@ pub struct Beitritt {
     pub wechsel: Vec<Wechsel>,
 }
 
+/// Kennzahlen der Anwesenheit für `/api/gesundheit`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Betrieb {
+    pub sitzungen: usize,
+    pub halter: usize,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Beitrittsfehler {
     NameVergeben {
@@ -300,6 +307,20 @@ impl Anwesenheit {
             stand: bestand.stand,
             liste,
         }
+    }
+
+    /// Für den Betrieb: wie viele Sitzungen leben und wie viele Halter (offene Ströme) sie zusammen haben.
+    pub fn betrieb(&self) -> Betrieb {
+        let jetzt = self.uhr.jetzt();
+        let bestand = self.bestand();
+        let lebende = bestand
+            .eintraege
+            .values()
+            .filter(|eintrag| eintrag.lebt(jetzt, self.gnadenfrist));
+        let (sitzungen, halter) = lebende.fold((0, 0), |(sitzungen, halter), eintrag| {
+            (sitzungen + 1, halter + eintrag.haltung.halter)
+        });
+        Betrieb { sitzungen, halter }
     }
 
     /// Der Eintrag zum Token, wenn er lebt und von derselben Herkunft kommt.

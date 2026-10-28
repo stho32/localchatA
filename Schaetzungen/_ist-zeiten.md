@@ -101,3 +101,4 @@ Nie vom User erfragen.
 | 2026-10-28 | R00004 Teilnehmer mit Online-Status sehen | B0082 Ereignisbus | Standard | 0,4h | 0,01h | 0,01h | autonom |
 | 2026-10-28 | R00004 Teilnehmer mit Online-Status sehen | B0083 Takt und Veröffentlichen verdrahten | Standard | 0,4h | 0,02h | 0,02h | autonom |
 | 2026-10-28 | R00004 Teilnehmer mit Online-Status sehen | B0084 Ereignisse beantworten | unklar | 2-4h | 0,05h | 0,05h | autonom |
+| 2026-10-28 | R00004 Teilnehmer mit Online-Status sehen | B0085 Gesundheit nennt Sitzungen und Halter | Standard | 0,4h | 0,01h | 0,01h | autonom |

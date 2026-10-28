@@ -387,3 +387,33 @@ async fn us13_das_programm_endet_sofort_auch_mit_offenem_strom() {
         gesendet.elapsed()
     );
 }
+
+/// US-12: alpha und beta beigetreten, nur beta liest den Strom → sitzungen 2, halter 1; danach halter 0.
+#[tokio::test]
+async fn us12_gesundheit_zaehlt_sitzungen_und_offene_stroeme() {
+    let instanz = wegwerf_starten();
+    let (zwei, drei) = (Absender::von("127.0.0.2"), Absender::von("127.0.0.3"));
+    beitreten(&zwei, &instanz, "alpha").await;
+    let beta = beitreten(&drei, &instanz, "beta").await;
+    let mut strom = Strom::oeffnen(&drei, &instanz.adresse, &beta).await;
+    strom.bis(Duration::from_secs(2), |_| true).await;
+
+    let (_, offen) = gemeinsam::gesundheit(&instanz.adresse).await;
+    drop(strom);
+    let mut geschlossen = Value::Null;
+    for _ in 0..50 {
+        tokio::time::sleep(Duration::from_millis(20)).await;
+        geschlossen = gemeinsam::gesundheit(&instanz.adresse).await.1;
+        if geschlossen["halter"] == 0 {
+            break;
+        }
+    }
+
+    assert_eq!(
+        (&offen["sitzungen"], &offen["halter"]),
+        (&json!(2), &json!(1)),
+        "{offen}"
+    );
+    assert_eq!(geschlossen["halter"], 0, "{geschlossen}");
+    assert_eq!(geschlossen["sitzungen"], 2, "{geschlossen}");
+}
