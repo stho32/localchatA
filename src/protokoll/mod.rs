@@ -2,6 +2,7 @@
 //! ab Warning dieselbe Zeile auf stderr.
 
 pub mod bereinigung;
+pub mod budget;
 pub mod episoden;
 pub mod episodenruhe;
 pub mod senke;
@@ -15,6 +16,7 @@ pub use zeile::{Bereich, Eintrag, Kontext, Schluessel, Stufe};
 
 use crate::uhr::{Uhr, Zeit};
 use bereinigung::{Anlass, Bereinigung};
+use budget::{Klasse, Tagesbudget, Urteil};
 use chrono::NaiveDate;
 use episoden::{Auftreten, Episoden};
 use senke::{Senke, Tagesdateien};
@@ -93,6 +95,7 @@ pub struct Protokoll {
 
 struct Inneres {
     senke: Box<dyn Senke>,
+    budget: Tagesbudget,
     /// Größe der zuletzt beschriebenen Tagesdatei laut Senke.
     groesse: Option<(NaiveDate, u64)>,
     /// Im Rückfall auf stderr (ADR-0040 Regel 8): die Episode hat ihre Warning schon geschrieben.
@@ -137,6 +140,7 @@ impl Protokoll {
             spiegel,
             inneres: Mutex::new(Inneres {
                 senke,
+                budget: Tagesbudget::neu(budget::BUDGETS),
                 groesse: None,
                 rueckfall: false,
             }),
@@ -241,6 +245,12 @@ impl Protokoll {
     /// Stand der Zähler (Health-Check).
     pub fn zaehlerstand(&self) -> Zaehlerstand {
         self.zaehler.stand()
+    }
+
+    /// Andere Budgets je Stufenklasse (Tests).
+    pub fn mit_budgets(self, budgets: budget::Budgets) -> Protokoll {
+        self.sperren().budget = Tagesbudget::neu(budgets);
+        self
     }
 
     /// Stellt die Ruhe bis zum Ende einer Episode ein (`LOCALCHATA_EPISODE_RUHE_MS`).
@@ -381,6 +391,19 @@ impl Protokoll {
             self.rueckfall_beenden(inneres, jetzt);
         }
         let zeile = zeile::zeile(eintrag, jetzt);
+        let klasse = Klasse::von(eintrag.stufe);
+        match inneres.budget.pruefen(tag, klasse, zeile.len() as u64) {
+            Urteil::Schreiben => {}
+            Urteil::ErstmalsVerworfen => {
+                self.verworfen.fetch_add(1, Ordering::SeqCst);
+                self.budget_erreicht(inneres, klasse, jetzt);
+                return;
+            }
+            Urteil::Verworfen => {
+                self.verworfen.fetch_add(1, Ordering::SeqCst);
+                return;
+            }
+        }
         match inneres.senke.anhaengen(tag, &zeile) {
             Ok(groesse) => {
                 inneres.groesse = Some((tag, groesse));
@@ -397,6 +420,25 @@ impl Protokoll {
                 (self.spiegel)(&zeile);
             }
         }
+    }
+
+    /// Eine WARNING je Klasse und Tag, außerhalb des Budgets geschrieben (ADR-0042 Regel 6).
+    fn budget_erreicht(&self, inneres: &mut Inneres, klasse: Klasse, jetzt: Zeit) {
+        self.zaehler.zaehlen(Stufe::Warning, jetzt);
+        let meldung = Eintrag::neu(
+            Stufe::Warning,
+            Bereich::Protokoll,
+            format!(
+                "Tagesbudget {} erreicht — weitere Einträge bis Mitternacht nur gezählt",
+                klasse.als_text()
+            ),
+            Kontext::neu(),
+        );
+        let zeile = zeile::zeile(&meldung, jetzt);
+        if let Ok(groesse) = inneres.senke.anhaengen(jetzt.date_naive(), &zeile) {
+            inneres.groesse = Some((jetzt.date_naive(), groesse));
+        }
+        (self.spiegel)(&zeile);
     }
 
     /// Eine Warning je Episode, nur auf stderr; das Protokoll gilt als nicht schreibbar.
