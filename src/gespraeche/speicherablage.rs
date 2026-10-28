@@ -17,6 +17,9 @@ pub struct Speicherablage {
 struct Innen {
     gespraeche: BTreeMap<Gespraech, BTreeMap<NaiveDate, String>>,
     fehler_nach: Option<usize>,
+    einstellungen: BTreeMap<Gespraech, Vec<u8>>,
+    einstellungen_scheitert: bool,
+    schreibvorgaenge: usize,
 }
 
 impl Speicherablage {
@@ -44,6 +47,25 @@ impl Speicherablage {
     /// Das nächste `anhaengen` schreibt `bytes` Bytes, liefert dann einen Fehler und baut zurück.
     pub fn fehler_nach(&self, bytes: usize) {
         self.innen().fehler_nach = Some(bytes);
+    }
+
+    /// Das nächste `einstellungen_schreiben` scheitert, ohne etwas abzulegen.
+    pub fn einstellungen_scheitern(&self) {
+        self.innen().einstellungen_scheitert = true;
+    }
+
+    /// Legt Einstellungsbytes ab, als läge die Datei schon da.
+    pub fn einstellungen_setzen(&self, gespraech: &Gespraech, bytes: &[u8]) {
+        let mut innen = self.innen();
+        innen.gespraeche.entry(gespraech.clone()).or_default();
+        innen
+            .einstellungen
+            .insert(gespraech.clone(), bytes.to_vec());
+    }
+
+    /// Wie oft Ordner angelegt oder Einstellungen geschrieben wurden.
+    pub fn schreibvorgaenge(&self) -> usize {
+        self.innen().schreibvorgaenge
     }
 
     pub fn inhalt(&self, gespraech: &Gespraech, tag: NaiveDate) -> Option<String> {
@@ -102,6 +124,50 @@ impl Logablage for Speicherablage {
         Ok(Angehaengt {
             zeilenende_ergaenzt,
         })
+    }
+
+    fn channel_ordner_anlegen(&self, gespraech: &Gespraech) -> io::Result<()> {
+        let mut innen = self.innen();
+        if innen.gespraeche.contains_key(gespraech) {
+            return Err(io::Error::new(
+                io::ErrorKind::AlreadyExists,
+                "Ordner besteht schon (Speicher-Logablage)",
+            ));
+        }
+        innen.gespraeche.insert(gespraech.clone(), BTreeMap::new());
+        innen.schreibvorgaenge += 1;
+        Ok(())
+    }
+
+    fn einstellungen_schreiben(&self, gespraech: &Gespraech, bytes: &[u8]) -> io::Result<()> {
+        let mut innen = self.innen();
+        if std::mem::take(&mut innen.einstellungen_scheitert) {
+            return Err(io::Error::other(
+                "Einstellungen schreiben scheitert (Speicher-Logablage)",
+            ));
+        }
+        if !innen.gespraeche.contains_key(gespraech) {
+            return Err(unbekannt());
+        }
+        innen
+            .einstellungen
+            .insert(gespraech.clone(), bytes.to_vec());
+        innen.schreibvorgaenge += 1;
+        Ok(())
+    }
+
+    fn einstellungen_lesen(&self, gespraech: &Gespraech) -> io::Result<Option<Vec<u8>>> {
+        Ok(self.innen().einstellungen.get(gespraech).cloned())
+    }
+
+    fn ordner_entfernen(&self, gespraech: &Gespraech) -> io::Result<()> {
+        let mut innen = self.innen();
+        innen.einstellungen.remove(gespraech);
+        innen
+            .gespraeche
+            .remove(gespraech)
+            .map(|_| ())
+            .ok_or_else(unbekannt)
     }
 }
 
@@ -219,5 +285,58 @@ mod tests {
                 .unwrap_or_default(),
             ""
         );
+    }
+
+    #[test]
+    fn channel_ordner_und_einstellungen_im_speicher_mit_zaehler_und_rueckbau() {
+        let ablage = Speicherablage::neu();
+        let allgemein = Gespraech::channel("allgemein");
+
+        ablage.channel_ordner_anlegen(&allgemein).expect("angelegt");
+        let zweites = ablage.channel_ordner_anlegen(&allgemein);
+        ablage
+            .einstellungen_schreiben(&allgemein, b"a = 1\n")
+            .expect("geschrieben");
+
+        assert_eq!(
+            zweites.map_err(|fehler| fehler.kind()),
+            Err(io::ErrorKind::AlreadyExists)
+        );
+        assert_eq!(
+            ablage.gespraeche().expect("Gespräche"),
+            vec![allgemein.clone()]
+        );
+        assert_eq!(
+            ablage.einstellungen_lesen(&allgemein).expect("lesbar"),
+            Some(b"a = 1\n".to_vec())
+        );
+        assert_eq!(ablage.schreibvorgaenge(), 2);
+
+        ablage.ordner_entfernen(&allgemein).expect("entfernt");
+
+        assert!(ablage.gespraeche().expect("Gespräche").is_empty());
+        assert_eq!(
+            ablage.einstellungen_lesen(&allgemein).expect("lesbar"),
+            None
+        );
+    }
+
+    #[test]
+    fn einstellungen_schreiben_kann_einmal_scheitern() {
+        let (ablage, allgemein) = mit_allgemein();
+        ablage.einstellungen_scheitern();
+
+        assert!(
+            ablage
+                .einstellungen_schreiben(&allgemein, b"a = 1\n")
+                .is_err()
+        );
+        assert_eq!(
+            ablage.einstellungen_lesen(&allgemein).expect("lesbar"),
+            None
+        );
+        ablage
+            .einstellungen_schreiben(&allgemein, b"a = 1\n")
+            .expect("das nächste gelingt");
     }
 }

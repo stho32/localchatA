@@ -28,6 +28,11 @@ impl Gespraech {
         }
     }
 
+    /// Einstellungsdatei relativ zum Ordner, z. B. `channels/allgemein/einstellungen.toml` (ADR-0022).
+    pub fn einstellungsdatei(&self) -> String {
+        format!("{}/{EINSTELLUNGEN}", self.pfad())
+    }
+
     /// Tagesdatei relativ zum Ordner, z. B. `channels/allgemein/2026-10-27.log`.
     pub fn tagesdatei(&self, tag: NaiveDate) -> String {
         format!("{}/{}.log", self.pfad(), tag.format("%Y-%m-%d"))
@@ -55,7 +60,23 @@ pub trait Logablage: Send + Sync {
         tag: NaiveDate,
         satz: &str,
     ) -> io::Result<Angehaengt>;
+
+    /// Legt den Ordner des Gesprächs an (`channels/` bei Bedarf mit); gibt es ihn schon, scheitert es mit
+    /// `AlreadyExists` und lässt ihn unberührt (ADR-0020 Regel 5).
+    fn channel_ordner_anlegen(&self, gespraech: &Gespraech) -> io::Result<()>;
+
+    /// Schreibt die Einstellungen nie halb: erst `einstellungen.toml.neu`, dann Umbenennen (ADR-0022 Regel 2).
+    fn einstellungen_schreiben(&self, gespraech: &Gespraech, bytes: &[u8]) -> io::Result<()>;
+
+    /// Die Bytes der Einstellungsdatei; fehlt sie, `None`.
+    fn einstellungen_lesen(&self, gespraech: &Gespraech) -> io::Result<Option<Vec<u8>>>;
+
+    /// Entfernt den Ordner des Gesprächs samt Inhalt — nur für den Rückbau eines eben angelegten.
+    fn ordner_entfernen(&self, gespraech: &Gespraech) -> io::Result<()>;
 }
+
+const EINSTELLUNGEN: &str = "einstellungen.toml";
+const EINSTELLUNGEN_NEU: &str = "einstellungen.toml.neu";
 
 /// Was beim Anhängen geschrieben wurde: der Satz, davor womöglich ein ergänztes `\n`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -136,6 +157,33 @@ impl Logablage for Dateiablage {
         Ok(Angehaengt {
             zeilenende_ergaenzt,
         })
+    }
+
+    fn channel_ordner_anlegen(&self, gespraech: &Gespraech) -> io::Result<()> {
+        let ordner = self.ordner.join(gespraech.pfad());
+        if let Some(eltern) = ordner.parent() {
+            std::fs::create_dir_all(eltern)?;
+        }
+        std::fs::create_dir(ordner)
+    }
+
+    fn einstellungen_schreiben(&self, gespraech: &Gespraech, bytes: &[u8]) -> io::Result<()> {
+        let ordner = self.ordner.join(gespraech.pfad());
+        let neu = ordner.join(EINSTELLUNGEN_NEU);
+        std::fs::write(&neu, bytes)?;
+        std::fs::rename(neu, ordner.join(EINSTELLUNGEN))
+    }
+
+    fn einstellungen_lesen(&self, gespraech: &Gespraech) -> io::Result<Option<Vec<u8>>> {
+        match std::fs::read(self.ordner.join(gespraech.einstellungsdatei())) {
+            Ok(bytes) => Ok(Some(bytes)),
+            Err(fehler) if fehler.kind() == io::ErrorKind::NotFound => Ok(None),
+            Err(fehler) => Err(fehler),
+        }
+    }
+
+    fn ordner_entfernen(&self, gespraech: &Gespraech) -> io::Result<()> {
+        std::fs::remove_dir_all(self.ordner.join(gespraech.pfad()))
     }
 }
 
@@ -421,5 +469,73 @@ mod tests {
             Gespraech::Direkt("a@b+c@d".into()).tagesdatei(tag("2026-01-02")),
             "direkt/a@b+c@d/2026-01-02.log"
         );
+    }
+
+    #[test]
+    fn channel_ordner_entsteht_auch_ohne_channels_und_ein_zweites_mal_scheitert_unberuehrt() {
+        let wurzel = tempfile::tempdir().expect("Wegwerf-Ordner");
+        let ablage = Dateiablage::neu(wurzel.path());
+        let allgemein = Gespraech::channel("allgemein");
+
+        ablage.channel_ordner_anlegen(&allgemein).expect("angelegt");
+        fs::write(wurzel.path().join("channels/allgemein/zettel.txt"), "hallo").expect("Zettel");
+        let zweites = ablage.channel_ordner_anlegen(&allgemein);
+
+        assert!(wurzel.path().join("channels/allgemein").is_dir());
+        assert_eq!(
+            zweites.map_err(|fehler| fehler.kind()),
+            Err(io::ErrorKind::AlreadyExists)
+        );
+        assert_eq!(
+            fs::read_to_string(wurzel.path().join("channels/allgemein/zettel.txt"))
+                .expect("Zettel"),
+            "hallo"
+        );
+    }
+
+    #[test]
+    fn einstellungen_werden_ueber_neu_und_umbenennen_geschrieben_und_ersetzt() {
+        let wurzel = tempfile::tempdir().expect("Wegwerf-Ordner");
+        let (ablage, allgemein) = allgemein(wurzel.path());
+        let ordner = wurzel.path().join("channels/allgemein");
+
+        assert_eq!(
+            ablage.einstellungen_lesen(&allgemein).expect("lesbar"),
+            None
+        );
+        ablage
+            .einstellungen_schreiben(&allgemein, b"a = 1\n")
+            .expect("geschrieben");
+        ablage
+            .einstellungen_schreiben(&allgemein, b"a = 2\n")
+            .expect("ersetzt");
+
+        assert_eq!(
+            fs::read(ordner.join("einstellungen.toml")).expect("Datei"),
+            b"a = 2\n"
+        );
+        assert!(!ordner.join("einstellungen.toml.neu").exists());
+        assert_eq!(
+            ablage.einstellungen_lesen(&allgemein).expect("lesbar"),
+            Some(b"a = 2\n".to_vec())
+        );
+        assert_eq!(
+            allgemein.einstellungsdatei(),
+            "channels/allgemein/einstellungen.toml"
+        );
+    }
+
+    #[test]
+    fn ordner_entfernen_nimmt_den_ordner_samt_inhalt() {
+        let wurzel = tempfile::tempdir().expect("Wegwerf-Ordner");
+        let (ablage, allgemein) = allgemein(wurzel.path());
+        ablage
+            .einstellungen_schreiben(&allgemein, b"a = 1\n")
+            .expect("geschrieben");
+
+        ablage.ordner_entfernen(&allgemein).expect("entfernt");
+
+        assert!(!wurzel.path().join("channels/allgemein").exists());
+        assert!(wurzel.path().join("channels").is_dir());
     }
 }
