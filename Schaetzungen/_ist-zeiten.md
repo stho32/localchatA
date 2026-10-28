@@ -235,3 +235,12 @@ Nie vom User erfragen.
 | 2026-10-28 | R00015 Grenzen Team-LAN | B0288 Lesefrist für den Körper | Standard | 0,4h | 0,27h | 0,27h | autonom |
 | 2026-10-28 | R00015 Grenzen Team-LAN | B0285 Langsame Leser bei 160 messen | Standard | 2-4h | 0,12h | 0,12h | autonom |
 | 2026-10-28 | R00015 Grenzen Team-LAN | Mutanten, 20 Wiederholungen, Gate, E2E-Nachtrag | Konsolidierung | — | 0,25h | 0,25h | autonom |
+| 2026-10-28 | R00014 Betriebsprotokoll | B0294 Rest der Ladedefekte in Einzahl und Mehrzahl | Nacharbeit | 0,4h | 0,01h | 0,01h | autonom |
+| 2026-10-28 | R00014 Betriebsprotokoll | B0297 Bereinigungszeile in Einzahl und Mehrzahl | Nacharbeit | 0,4h | 0,01h | 0,01h | autonom |
+| 2026-10-28 | R00014 Betriebsprotokoll | B0296 Strich und U+061C escapen | Nacharbeit | 0,4h | 0,01h | 0,01h | autonom |
+| 2026-10-28 | R00014 Betriebsprotokoll | B0295 An der Quelle kürzen | Nacharbeit | 0,4h | 0,04h | 0,04h | autonom |
+| 2026-10-28 | R00014 Betriebsprotokoll | B0292 Tagesdatei je Eintrag öffnen | Nacharbeit | 0,4h | 0,02h | 0,02h | autonom |
+| 2026-10-28 | R00014 Betriebsprotokoll | B0293 Umgestellte Meldungen belegt | Nacharbeit | 2-4h | 0,02h | 0,02h | autonom |
+| 2026-10-28 | R00014 Betriebsprotokoll | B0298 Debug-Abläufe belegt | Nacharbeit | 0,4h | 0,02h | 0,02h | autonom |
+| 2026-10-28 | R00014 Betriebsprotokoll | B0299 Grenz-Episoden belegt | Nacharbeit | 2-4h | 0,02h | 0,02h | autonom |
+| 2026-10-28 | R00014 Betriebsprotokoll | Nacharbeit #24: Mutanten, Gate, Release-Probe | Nacharbeit | — | 0,15h | 0,15h | autonom |
