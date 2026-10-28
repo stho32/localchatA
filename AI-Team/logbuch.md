@@ -115,3 +115,6 @@ Eine Zeile je Auftrag an eine Rolle und je Retrospektive.
 | 2026-10-28 | — | Tagestakt-Vertrag | architekt, planer | bestanden | 0:20 | ADR-0041 (a)–(e); R00014/R00008/R00017 nachgezogen; #24 baufertig |
 | 2026-10-28 | #23 Befund | Entwicklung → Auto-Reviews | entwickler | bestanden | 0:45 | F0050 grün; K4 +795 MB → +8 MB; 5 Reviews parallel |
 | 2026-10-28 | #24 | Entwicklung | entwickler | läuft | — | I0021 Betriebsprotokoll, 24 Bubbles (R00014) |
+| 2026-10-28 | #24 | Entwicklung → Auto-Reviews | entwickler | bestanden | 1:25 | I0021 grün, 24 Bubbles, Gate 675/0 nachgefahren; UX entfällt (keine Oberfläche); 4 Reviews parallel |
+| 2026-10-28 | #23 Befund | Auto-Reviews → Entwicklertest | entwickler, rechtschreib-reviewer | bestanden | 0:07 | Nacharbeit 1 (Gegenstelle IP+Port, Hilfetext Sendefrist); enge Wiederholung per grep-Probe |
+| 2026-10-28 | #25 Befund | Detailplanung → Entwicklung | entwickler | läuft | — | F0056 Grenzen Team-LAN (R00015) |
