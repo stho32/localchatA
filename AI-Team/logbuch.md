@@ -104,3 +104,6 @@ Eine Zeile je Auftrag an eine Rolle und je Retrospektive.
 | 2026-10-28 | #21 Befund | Entwicklung → Auto-Reviews | entwickler | bestanden | 0:30 | B0204, B0205 grün; Reviews code, security, rechtschreib, observability (erster Einsatz) parallel; UX entfällt |
 | 2026-10-28 | #7 | Nacharbeit 2 | entwickler | läuft | — | nur Muss „1 Zeile“ aus dem Rechtschreib-Review |
 | 2026-10-28 | — | Architektur Betriebsprotokoll | architekt | bestanden | 0:15 | ADR-0040–0043, A00015, eigenes Modul (tracing-appender per Probe verworfen), Abgleich Lastprofil: 3 Grenzen zu niedrig; Detailplanung läuft |
+| 2026-10-28 | #7 | Nacharbeit 2 → Entwicklertest | entwickler | bestanden | 0:20 | „1 Zeile“; Auto-Reviews vollständig; Entwicklertest auf dc65faf läuft |
+| 2026-10-28 | #23 Befund | Entwicklung | entwickler | läuft | — | F0050 B0253–B0258 (R00013) |
+| 2026-10-28 | #21 Befund | Auto-Reviews | rechtschreib-reviewer, observability-reviewer, planer | befund → behoben / bestanden | 0:15 | R00010 Text korrigiert (172e376); Observability-Anbindung → Betriebsprotokoll |
