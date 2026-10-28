@@ -62,6 +62,13 @@ async fn us13_us14_die_neue_frist_kommt_im_strom_an_derselbe_wert_nicht() {
     assert_eq!(ereignis.data["stand"], s + 1);
     assert_eq!(ereignis.data["channel"]["name"], "allgemein");
     assert_eq!(ereignis.data["channel"]["frist_tage"], 30);
+    println!(
+        "Z1 gemessen: {} µs",
+        ereignis
+            .ankunft
+            .saturating_duration_since(antwort_da)
+            .as_micros()
+    );
     assert!(
         ereignis.ankunft.saturating_duration_since(antwort_da) <= Z1,
         "{:?}",

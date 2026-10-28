@@ -159,6 +159,7 @@ test('Setzen (US-15, B0197): Dialog mit 7, 30 + Enter → zu, Statuszeile, A und
   const ab = (await antwort, Date.now());
   const ms = await sichtbarNach(b.page, () => document.querySelector('.lc-head-frist')?.textContent === '· 30 Tage', { ab, timeout: 10000 });
 
+  console.log(`messung z2_ms: ${ms}`);
   expect(ms).toBeLessThanOrEqual(Z2_MS);
   await expect(dialog(a.page)).toHaveCount(0);
   await expect(statuszeile(a.page)).toHaveText('Frist für # allgemein: 30 Tage.');
