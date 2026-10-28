@@ -10,6 +10,8 @@ body { background: var(--kd-bg); color: var(--kd-ink); font-family: var(--font-s
 .lc-label { font-size: 11px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--kd-ink-muted); }
 .lc-btn { height: var(--kd-row); padding: 0 var(--kd-space-12); border: 1px solid var(--kd-line-strong); background: var(--kd-surface); color: var(--kd-ink); cursor: pointer; font-weight: 600; }
 .lc-btn.primary { background: var(--kd-accent); border-color: var(--kd-accent); color: var(--kd-on-accent); }
+/* Innen läge der Rahmen auf kd-accent (1,1:1) — auf gefüllten Schaltern nach außen, gegen die Fläche darunter */
+.lc-btn.primary:focus-visible { outline-offset: 2px; }
 .lc-btn:disabled { cursor: progress; opacity: .7; }
 
 /* Beitreten-Bildschirm (4.1) */
