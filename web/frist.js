@@ -12,3 +12,64 @@ export function fristPruefen(text) {
   }
   return { gueltig: true, tage };
 }
+
+// Kopfzeile ab 720 px (ADR-0033 Regel 2); null heißt: Einstellungen defekt, nichts entfällt.
+export function fristText(tage) {
+  if (tage === null) {
+    return '· ⚠ Frist gesperrt';
+  }
+  return `· ${tageText(tage)}`;
+}
+
+// Zweiter Schritt des Dialogs (ADR-0033 Regel 4) mit den Zahlen der 409 `bestaetigen`.
+export function bestaetigungText(tage, entfaellt) {
+  let beiFrist = `${zahl(tage)} Tagen`;
+  if (tage === 1) {
+    beiFrist = '1 Tag';
+  }
+  return `Bei ${beiFrist} entfallen sofort ${tageText(entfaellt.tage)} bis einschließlich ${datumAusgeschrieben(entfaellt.bis)} `
+    + `mit ${nachrichtenText(entfaellt.nachrichten)}. Das lässt sich nicht rückgängig machen.`;
+}
+
+// Statuszeile nach dem Speichern; entfallen { tage, nachrichten } aus der 200.
+export function statusText(name, tage, entfallen) {
+  if (entfallen.tage === 0) {
+    return `Frist für # ${name}: ${tageText(tage)}.`;
+  }
+  return `Frist für # ${name}: ${tageText(tage)} — ${tageText(entfallen.tage)} mit ${nachrichtenText(entfallen.nachrichten)} entfallen.`;
+}
+
+// Hinweis im offenen Dialog, wenn jemand anders die Frist geändert hat (ADR-0033 Regel 5).
+export function inzwischenText(tage) {
+  if (tage === null) {
+    return 'Inzwischen geändert: Frist gesperrt.';
+  }
+  return `Inzwischen geändert: ${tageText(tage)}.`;
+}
+
+function tageText(anzahl) {
+  if (anzahl === 1) {
+    return '1 Tag';
+  }
+  return `${zahl(anzahl)} Tage`;
+}
+
+function nachrichtenText(anzahl) {
+  if (anzahl === 1) {
+    return '1 Nachricht';
+  }
+  return `${zahl(anzahl)} Nachrichten`;
+}
+
+// Tausenderpunkt wie im Designsystem („4.210“).
+function zahl(wert) {
+  return new Intl.NumberFormat('de-DE').format(wert);
+}
+
+const MONATE = ['Januar', 'Februar', 'März', 'April', 'Mai', 'Juni', 'Juli', 'August', 'September', 'Oktober', 'November', 'Dezember'];
+
+// `JJJJ-MM-TT` → „21. Oktober 2026“, ohne Zeitzone (der Tag ist schon das Datum des Servers).
+function datumAusgeschrieben(tag) {
+  const [jahr, monat, tagImMonat] = tag.split('-').map(Number);
+  return `${tagImMonat}. ${MONATE[monat - 1]} ${jahr}`;
+}
