@@ -86,3 +86,7 @@ Regeln:
 - [A00004 HTTP-Schnittstelle](../Architektur/A00004-http-schnittstelle.md), [A00012 Channelverzeichnis](../Architektur/A00012-channelverzeichnis.md), [A00013 Einstellungsformat](../Architektur/A00013-einstellungsformat.md), [A00011 Live-Kanal](../Architektur/A00011-live-kanal.md); Aspekte [X00002 Benutzerrechte](../Architektur/Aspekte/X00002-benutzerrechte.md), [X00004 Fehlerbehandlung](../Architektur/Aspekte/X00004-fehlerbehandlung.md)
 - ADR-0012, ADR-0013, ADR-0014, ADR-0021, ADR-0022, ADR-0023, ADR-0025, ADR-0029, ADR-0030; `src/http/channels.rs`, `src/http/koerper.rs`, `src/gespraeche/einstellungen.rs`
 - Vision R00000 (Frist wählbar, gleichberechtigt, keine Rechte); WBS I0018; Geschwister kanbanD `PUT /api/einstellungen` (`web/app.js:1043`) als Vorbild für Einstellungen per `PUT`
+
+## Ergänzungen
+
+- **2026-10-28 (Karte #8 I0009) — Empfehlung zur Wechsel-Flut (Pre-Mortem 2, M3):** Mit I0009 entsteht das [Schreibkonto](0036-schreibkonto-token-eimer-je-kennung-und-je-herkunft.md). Empfohlen ist, dass `PUT …/frist` nach allen 4xx-Prüfungen pauschal 10 Einheiten bucht (höchstens 3 Wechsel in Folge, dann einer je 10 s je Kennung bzw. 0,8/s je Herkunft). Das ist die Richtungsfrage aus I0018 an den Betreiber; bis zu seiner Freigabe gilt diese ADR unverändert. Die Körpergrenze dieser Route nennt der Bau nach [ADR-0010](0010-eigene-annahmeschleife-hyper-http1.md), Ergänzung (R00010).

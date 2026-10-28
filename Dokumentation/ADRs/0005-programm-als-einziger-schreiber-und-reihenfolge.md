@@ -50,3 +50,7 @@ Ein Schreiber hält die Invariante „gleiche Reihenfolge überall“ ohne Absti
 
 - [A00006 Gespräche](../Architektur/A00006-gespraeche.md), [A00011 Live-Kanal](../Architektur/A00011-live-kanal.md), [A00003 Start](../Architektur/A00003-start.md)
 - Vision, Zielbild „Mensch und KI sind gleichberechtigt“; WBS I0003 (verworfen); ADR-0003, ADR-0004
+
+## Ergänzungen
+
+- **2026-10-28 (Karte #8 I0009):** Die Sperre je Gespräch genügt für die Ordnung **je Channel**, nicht für einen Wartezeiger über Gespräche. Ab I0009 laufen Zeitvergabe, Anhängen, Index und Veröffentlichen unter einer zusätzlichen Schreibsperre über alle Gespräche ([ADR-0035](0035-nachrichtenzeit-eine-schreibsperre-ueber-alle-gespraeche.md)); Option C (Aktor je Gespräch) entfällt damit als Ausweg. Die Richtungsfrage „an den Dateien“ bleibt offen und unverändert.

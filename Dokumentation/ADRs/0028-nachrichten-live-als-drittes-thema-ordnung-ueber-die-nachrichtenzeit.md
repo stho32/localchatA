@@ -80,3 +80,7 @@ Regeln (gebaut mit I0009):
 - [A00011 Live-Kanal](../Architektur/A00011-live-kanal.md), [A00006 Gespräche](../Architektur/A00006-gespraeche.md), [A00005 Weboberfläche](../Architektur/A00005-weboberflaeche.md)
 - ADR-0005, ADR-0007, ADR-0011, ADR-0015, ADR-0016 (samt Ergänzungen #4), ADR-0023, ADR-0025, ADR-0026, ADR-0027
 - Vision R00000 „Live überall“, „Agenten können warten und reagieren“; WBS I0009, I0016; Designsystem `components/VerlaufsMarken/README.md`
+
+## Ergänzungen
+
+- **2026-10-28 (Karte #8 I0009) — Berichtigung zu Regel 8:** Die Annahme „die Busreihenfolge über Channels spielt für `warten` keine Rolle“ trägt nicht: mit einer Sperre je Gespräch kann Channel B eine jüngere Zeit veröffentlichen, bevor Channel A seine ältere angehängt hat; ein Agent, der danach mit `seit` = Zeit von B wartet, verliert die Nachricht aus A. Abhilfe: Veröffentlichen unter einer Schreibsperre über alle Gespräche ([ADR-0035](0035-nachrichtenzeit-eine-schreibsperre-ueber-alle-gespraeche.md)) — Regel 2 gilt damit verschärft; die Regeln 1, 3–7 bleiben. Die Gestalt im Tab (vorläufig, Bündeln je Frame, Pille, Lücken vor gepufferten eigenen) steht in [ADR-0037](0037-zustellung-im-tab-vorlaeufig-bestaetigt-zeichnen-je-frame.md); die Nachricht trägt zusätzlich `art` (ADR-0034).

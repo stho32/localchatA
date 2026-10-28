@@ -92,3 +92,7 @@ Regeln:
 - [A00009 Verlaufsindex](../Architektur/A00009-verlaufsindex.md), [A00006 Gespräche](../Architektur/A00006-gespraeche.md), [A00004 HTTP-Schnittstelle](../Architektur/A00004-http-schnittstelle.md); Aspekte [X00002](../Architektur/Aspekte/X00002-benutzerrechte.md), [X00007](../Architektur/Aspekte/X00007-zeit.md)
 - ADR-0003, ADR-0004, ADR-0005, ADR-0006, ADR-0007 (`seit`), ADR-0013 (abweisen statt umformen), ADR-0020
 - Vision R00000 „Schnell, auch bei großem Verlauf“; WBS I0008; Designsystem `README.md` („Leistung als Gestaltung“), `components/VerlaufsMarken/README.md`, `components/Nachricht/README.md`, `1-tastatur.md`; `design-prompt.md` Abschnitt 5
+
+## Ergänzungen
+
+- **2026-10-28 (Karte #8 I0009):** Regel 3 wächst um `art` (`"mensch"` | `"agent"` | `null`) aus der Metazeile `+ art:` ([ADR-0034](0034-nachricht-senden-post-nachrichten-text-hoechstens-16-kib-steuerzeichen-abweisen-wiederholschluessel.md) Regel 5); ältere Sätze und Testdaten ohne Metazeile liefern `null`. `POST` auf dieselbe Ressource: ADR-0034.

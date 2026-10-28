@@ -42,6 +42,7 @@ Kinder:
 - [Gespräche](A00006-gespraeche.md) (geplant)
 - [Anwesenheit](A00010-anwesenheit.md) (geplant)
 - [Live-Kanal](A00011-live-kanal.md) (geplant)
+- [Schreibkonto](A00014-schreibkonto.md) (geplant, I0009)
 
 Crates (ADR-0001): `axum` 0.8 (mit `multipart`), `tokio`, `tokio-stream`, `futures-util`, `serde`, `serde_json`, `chrono` (Lokalzeit mit Versatz), `toml` (Einstellungen je Gespräch), `utoipa`/`utoipa-axum` (API-Beschreibung für Agenten); Test: `tempfile`, `reqwest`.
 
@@ -50,6 +51,7 @@ Crates (ADR-0001): `axum` 0.8 (mit `multipart`), `tokio`, `tokio-stream`, `futur
 - [ADR-0001: Ein Programm in Rust mit axum und tokio, Bibliothek plus Binärprogramm](../ADRs/0001-ein-programm-rust-axum-tokio.md) — Akzeptiert, 2026-10-27
 - [ADR-0009: Teststrategie, Gate und Health-Check](../ADRs/0009-teststrategie-gate-und-health-check.md) — Akzeptiert, 2026-10-27
 - [ADR-0010: Eigene Annahmeschleife mit hyper http1 statt `axum::serve`](../ADRs/0010-eigene-annahmeschleife-hyper-http1.md) — Akzeptiert, 2026-10-27
+- [ADR-0036: Schreibkonto gegen Flut — Token-Eimer je Kennung und je Herkunft](../ADRs/0036-schreibkonto-token-eimer-je-kennung-und-je-herkunft.md) — Akzeptiert, 2026-10-28
 
 ## Offene Fragen
 
