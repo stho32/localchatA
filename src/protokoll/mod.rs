@@ -2,6 +2,7 @@
 //! ab Warning dieselbe Zeile auf stderr.
 
 pub mod bereinigung;
+pub mod episoden;
 pub mod senke;
 pub mod tagestakt;
 pub mod testpanik;
@@ -14,6 +15,7 @@ pub use zeile::{Bereich, Eintrag, Kontext, Schluessel, Stufe};
 use crate::uhr::{Uhr, Zeit};
 use bereinigung::{Anlass, Bereinigung};
 use chrono::NaiveDate;
+use episoden::{Auftreten, Episoden};
 use senke::{Senke, Tagesdateien};
 use std::io::{self, Write};
 use std::path::Path;
@@ -80,6 +82,7 @@ pub struct Protokoll {
     inneres: Mutex<Inneres>,
     ok: AtomicBool,
     zaehler: Zaehler,
+    episoden: Mutex<Episoden>,
     abgewiesen: Abgewiesen,
     /// Über dem Tagesbudget verworfene Einträge seit dem Start (ADR-0042 Regel 6).
     verworfen: AtomicU64,
@@ -139,6 +142,7 @@ impl Protokoll {
             ok: AtomicBool::new(true),
             ausgefallen: Mutex::new(Vec::new()),
             zaehler: Zaehler::default(),
+            episoden: Mutex::new(Episoden::neu(episoden::RUHE)),
             abgewiesen: Abgewiesen::default(),
             verworfen: AtomicU64::new(0),
         }
@@ -236,6 +240,47 @@ impl Protokoll {
     /// Stand der Zähler (Health-Check).
     pub fn zaehlerstand(&self) -> Zaehlerstand {
         self.zaehler.stand()
+    }
+
+    /// Stellt die Ruhe bis zum Ende einer Episode ein (`LOCALCHATA_EPISODE_RUHE_MS`).
+    pub fn mit_episodenruhe(self, ruhe: std::time::Duration) -> Protokoll {
+        Protokoll {
+            episoden: Mutex::new(Episoden::neu(ruhe)),
+            ..self
+        }
+    }
+
+    /// Ein Auftreten einer Episode (ADR-0042 Regel 5): zählt jedes Auftreten, schreibt Beginn und Zwischenzeile.
+    pub fn episode(&self, auftreten: Auftreten) {
+        let jetzt = self.uhr.jetzt();
+        self.zaehler.zaehlen(auftreten.stufe, jetzt);
+        let zeilen = self
+            .episoden
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .auftreten(auftreten, jetzt);
+        self.ohne_zaehlen_schreiben(zeilen, jetzt);
+    }
+
+    /// Schließt ruhende Episoden (Sekundenaufgabe des Tagestakts).
+    pub fn episoden_schliessen(&self) {
+        let jetzt = self.uhr.jetzt();
+        let zeilen = self
+            .episoden
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .schliessen(jetzt);
+        self.ohne_zaehlen_schreiben(zeilen, jetzt);
+    }
+
+    /// Zeilen einer Episode: gezählt ist schon das Auftreten, nicht die Zeile.
+    fn ohne_zaehlen_schreiben(&self, eintraege: Vec<Eintrag>, jetzt: Zeit) {
+        for eintrag in eintraege {
+            if eintrag.stufe >= self.mindeststufe {
+                let mut inneres = self.sperren();
+                self.ablegen(&mut inneres, &eintrag, jetzt);
+            }
+        }
     }
 
     /// Zählt einen abgewiesenen Körper (unabhängig von Stufe, Episode und Budget).
