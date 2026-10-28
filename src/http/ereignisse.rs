@@ -391,7 +391,7 @@ mod tests {
         let alpha = Kennung::bilden("alpha@127.0.0.2").expect("Kennung");
         for nummer in 0..5 {
             gespraeche
-                .channel_anlegen(&format!("c{nummer}"), &alpha)
+                .channel_anlegen(&format!("c{nummer}"), None, &alpha)
                 .expect("angelegt");
         }
 
@@ -410,7 +410,7 @@ mod tests {
         let gepuffert =
             tokio::time::timeout(Duration::from_millis(100), strom.naechste_ausgabe()).await;
         gespraeche
-            .channel_anlegen("danach", &alpha)
+            .channel_anlegen("danach", None, &alpha)
             .expect("angelegt");
         let danach = tokio::time::timeout(Duration::from_secs(1), strom.naechste_ausgabe())
             .await

@@ -1,5 +1,5 @@
 //! Channels beantworten (B0121, B0122; ADR-0021 Regeln 1, 2, 7): `POST /api/channels {name}` mit Sitzung →
-//! 201 `{channel}` | 409 `{fehler, channel}` oder `{fehler, regel: "ordner-vorhanden"}` | 422 `{fehler, regel, vorschlag?}` | 429 `{fehler, grenze,
+//! 201 `{channel}` (Beschreibung optional, R00007 F0026) | 409 `{fehler, channel}` oder `{fehler, regel: "ordner-vorhanden"}` | 422 `{fehler, regel, vorschlag?}` | 429 `{fehler, grenze,
 //! hoechstens}`; `GET /api/channels` → 200
 //! `{stand, liste}` nach Name. Ohne Sitzung 401 (Extraktor `Teilnehmer`), fremder `Origin` 403 (Grenzschutz),
 //! ohne JSON 415, kaputtes JSON 400, zu großer Körper 413; Plattenfehler 500 `{fehler}` und eine Zeile auf
@@ -9,6 +9,7 @@ use super::Zustand;
 use super::koerper::{Koerperfehler, json_lesen};
 use super::teilnehmer::Teilnehmer;
 use super::teilnehmerliste::zeit_als_text;
+use crate::gespraeche::einstellungen::{Beschreibung, Beschreibungsfehler};
 use crate::gespraeche::{Anlegefehler, Channel, ChannelStand, Grenzart, Grenze};
 use crate::name::{NAMENSREGEL, Namensfehler, RESERVIERT};
 use axum::Json;
@@ -30,16 +31,17 @@ pub async fn anlegen(
         Ok(koerper) => koerper,
         Err(fehler) => return kein_json(fehler),
     };
-    let name = match gewuenschter_name(&koerper) {
-        Ok(name) => name,
+    let (name, beschreibung) = match gewuenscht(&koerper) {
+        Ok(gewuenscht) => gewuenscht,
         Err(abweisung) => return unverarbeitbar(abweisung),
     };
     let gespraeche = Arc::clone(&zustand.gespraeche);
     let kennung = teilnehmer.kennung;
     let gewuenscht = name.clone();
-    let ergebnis =
-        tokio::task::spawn_blocking(move || gespraeche.channel_anlegen(&gewuenscht, &kennung))
-            .await;
+    let ergebnis = tokio::task::spawn_blocking(move || {
+        gespraeche.channel_anlegen(&gewuenscht, beschreibung, &kennung)
+    })
+    .await;
     match ergebnis {
         Ok(Ok(channel)) => (
             StatusCode::CREATED,
@@ -65,32 +67,40 @@ pub fn stand_als_json(stand: &ChannelStand) -> Value {
     json!({ "stand": stand.stand, "liste": liste })
 }
 
-/// `{name, angelegt, angelegt_von, beschreibung}`; unbekannte Werte `null`, die Beschreibung bis F0026 immer.
+/// `{name, angelegt, angelegt_von, beschreibung}`; unbekannte Werte und keine Beschreibung `null`.
 pub fn channel_als_json(channel: &Channel) -> Value {
     json!({
         "name": channel.name.als_text(),
         "angelegt": channel.angelegt.as_ref().map(zeit_als_text),
         "angelegt_von": channel.angelegt_von.as_ref().map(|kennung| kennung.als_text()),
-        "beschreibung": null,
+        "beschreibung": channel.beschreibung.as_ref().map(Beschreibung::als_text),
     })
 }
 
-/// Der Name aus dem Körper; eine Beschreibung, die weder fehlt noch `null` noch `""` ist, wird abgewiesen
-/// statt still verworfen (R00006, Ausbaustufe 2 bringt sie). Abgewiesen wird mit dem Inhalt einer 422.
-fn gewuenschter_name(koerper: &Value) -> Result<String, Value> {
-    let beschreibung = koerper.get("beschreibung").unwrap_or(&Value::Null);
-    if !(beschreibung.is_null() || beschreibung == "") {
-        return Err(json!({
-            "fehler": "Eine Beschreibung gibt es noch nicht — den Channel ohne beschreibung anlegen.",
+/// Name und Beschreibung aus dem Körper; die Beschreibung fehlt, ist `null` oder `""` (keine) oder ein Text nach
+/// der Regel (ADR-0022 Regel 5) — sonst abgewiesen mit dem Inhalt einer 422, nichts angelegt.
+fn gewuenscht(koerper: &Value) -> Result<(String, Option<Beschreibung>), Value> {
+    let beschreibung = beschreibung_lesen(koerper.get("beschreibung")).map_err(|_| {
+        json!({
+            "fehler": "Eine Beschreibung ist ein Satz aus 1 bis 200 Zeichen ohne Zeilenumbruch und Tabulator.",
             "regel": REGEL_BESCHREIBUNG,
-        }));
-    }
+        })
+    })?;
     match koerper.get("name").and_then(Value::as_str) {
-        Some(name) => Ok(name.to_string()),
+        Some(name) => Ok((name.to_string(), beschreibung)),
         None => Err(json!({
             "fehler": format!("Der Name fehlt oder ist kein Text — zum Beispiel {BEISPIEL} schicken."),
             "regel": NAMENSREGEL,
         })),
+    }
+}
+
+/// Fehlt, `null` oder `""` → keine; ein Text → nach der Regel; alles andere ist kein Text und verstößt.
+fn beschreibung_lesen(wert: Option<&Value>) -> Result<Option<Beschreibung>, Beschreibungsfehler> {
+    match wert {
+        None | Some(Value::Null) => Ok(None),
+        Some(Value::String(text)) => Beschreibung::bilden(text),
+        Some(_) => Err(Beschreibungsfehler),
     }
 }
 

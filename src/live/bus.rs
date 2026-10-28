@@ -175,6 +175,7 @@ mod tests {
                 name: Channelname::bilden("allgemein").expect("Name"),
                 angelegt: None,
                 angelegt_von: None,
+                beschreibung: None,
             },
         };
 

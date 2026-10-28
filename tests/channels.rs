@@ -152,7 +152,9 @@ async fn us5_zwanzig_gleichzeitige_anlagen_ergeben_genau_einen_channel() {
 }
 
 #[tokio::test]
-async fn us6_eine_beschreibung_wird_abgewiesen_statt_still_verworfen_null_und_leer_gehen() {
+async fn us6_eine_gueltige_beschreibung_wird_angelegt_ein_verstoss_abgewiesen_null_und_leer_sind_keine()
+ {
+    // R00007 F0026: die Abweisung jeder gesetzten Beschreibung aus R00006 entfällt — gültig → 201, Verstoß → 422.
     let wurzel = tempfile::tempdir().expect("Wegwerf-Ordner");
     let instanz = lokal_starten(wurzel.path());
     let zwei = Absender::von("127.0.0.2");
@@ -166,6 +168,9 @@ async fn us6_eine_beschreibung_wird_abgewiesen_statt_still_verworfen_null_und_le
     let zahl = zwei
         .channel_anlegen(&instanz.adresse, &alpha, mit("x4", json!(5)))
         .await;
+    let umbruch = zwei
+        .channel_anlegen(&instanz.adresse, &alpha, mit("x5", json!("a\nb")))
+        .await;
     let null = zwei
         .channel_anlegen(&instanz.adresse, &alpha, mit("x2", Value::Null))
         .await;
@@ -173,7 +178,9 @@ async fn us6_eine_beschreibung_wird_abgewiesen_statt_still_verworfen_null_und_le
         .channel_anlegen(&instanz.adresse, &alpha, mit("x3", json!("")))
         .await;
 
-    for abgewiesen in [&gesetzt, &zahl] {
+    assert_eq!(gesetzt.status, 201, "{}", gesetzt.json);
+    assert_eq!(gesetzt.json["channel"]["beschreibung"], "Absprachen");
+    for abgewiesen in [&zahl, &umbruch] {
         assert_eq!(abgewiesen.status, 422, "{}", abgewiesen.json);
         assert_eq!(abgewiesen.json["regel"], "beschreibung");
         assert!(abgewiesen.json["fehler"].is_string());
@@ -182,7 +189,7 @@ async fn us6_eine_beschreibung_wird_abgewiesen_statt_still_verworfen_null_und_le
         assert_eq!(angelegt.status, 201, "{}", angelegt.json);
         assert_eq!(angelegt.json["channel"]["beschreibung"], Value::Null);
     }
-    assert_eq!(channel_ordner(&instanz.ordner), vec!["x2", "x3"]);
+    assert_eq!(channel_ordner(&instanz.ordner), vec!["x1", "x2", "x3"]);
 }
 
 #[tokio::test]

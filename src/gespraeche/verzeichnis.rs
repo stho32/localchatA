@@ -2,6 +2,7 @@
 //! unter der Sperre des Verzeichnisses ändert (ADR-0021, ADR-0023).
 
 use super::Kennung;
+use super::einstellungen::Beschreibung;
 use super::logablage::Gespraech;
 use super::verlaufsindex::Verlauf;
 use crate::name::{Channelname, Namensfehler};
@@ -16,6 +17,7 @@ pub struct Channel {
     pub name: Channelname,
     pub angelegt: Option<Zeit>,
     pub angelegt_von: Option<Kennung>,
+    pub beschreibung: Option<Beschreibung>,
 }
 
 /// Alle Channels nach Name mit der Nummer des letzten Wechsels.
@@ -122,6 +124,7 @@ mod tests {
             name: Channelname::bilden(name).expect("Name"),
             angelegt: None,
             angelegt_von: anleger.map(|text| Kennung::bilden(text).expect("Kennung")),
+            beschreibung: None,
         }
     }
 

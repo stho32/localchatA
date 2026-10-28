@@ -244,7 +244,12 @@ impl Gespraeche {
 
     /// Legt einen Channel an, unter der Sperre des Verzeichnisses (ADR-0021 Regel 5): Namensregel → vorhanden →
     /// Grenzen (gesamt, je Herkunft) → Ordner → Einstellungen → eintragen, `stand` + 1 → veröffentlichen, noch unter der Sperre (ADR-0023 Regel 2).
-    pub fn channel_anlegen(&self, name: &str, von: &Kennung) -> Result<Channel, Anlegefehler> {
+    pub fn channel_anlegen(
+        &self,
+        name: &str,
+        beschreibung: Option<einstellungen::Beschreibung>,
+        von: &Kennung,
+    ) -> Result<Channel, Anlegefehler> {
         let name = Channelname::bilden(name).map_err(Anlegefehler::Regel)?;
         let mut verzeichnis = schreibend(&self.verzeichnis);
         if let Some(vorhanden) = verzeichnis.channels.get(&name) {
@@ -257,6 +262,7 @@ impl Gespraeche {
             name,
             angelegt: Some(crate::uhr::auf_millisekunden(self.uhr.jetzt())),
             angelegt_von: Some(von.clone()),
+            beschreibung,
         };
         self.ablegen(&gespraech, &channel)?;
         verzeichnis
@@ -279,7 +285,7 @@ impl Gespraeche {
         let einstellungen = einstellungen::Einstellungen {
             angelegt: channel.angelegt,
             angelegt_von: channel.angelegt_von.clone(),
-            beschreibung: None,
+            beschreibung: channel.beschreibung.clone(),
         };
         let text = einstellungen::schreiben(&einstellungen, None);
         self.ablage
@@ -376,6 +382,7 @@ impl Geladen {
                 name,
                 angelegt: gelesen.angelegt,
                 angelegt_von: gelesen.angelegt_von,
+                beschreibung: gelesen.beschreibung,
             },
         );
     }
@@ -810,7 +817,7 @@ mod tests {
         let (gespraeche, ablage) = leer_im_speicher("2026-10-28T10:15:00.123456+01:00");
 
         let channel = gespraeche
-            .channel_anlegen("allgemein", &alpha())
+            .channel_anlegen("allgemein", None, &alpha())
             .expect("angelegt");
 
         assert_eq!(channel.name.als_text(), "allgemein");
@@ -848,11 +855,11 @@ mod tests {
     fn derselbe_name_noch_einmal_ist_vorhanden_ohne_schreibvorgang_und_ohne_neuen_stand() {
         let (gespraeche, ablage) = leer_im_speicher("2026-10-28T10:15:00.123+01:00");
         let erster = gespraeche
-            .channel_anlegen("allgemein", &alpha())
+            .channel_anlegen("allgemein", None, &alpha())
             .expect("angelegt");
         let geschrieben = ablage.schreibvorgaenge();
 
-        let zweiter = gespraeche.channel_anlegen("allgemein", &claude());
+        let zweiter = gespraeche.channel_anlegen("allgemein", None, &claude());
 
         assert_eq!(zweiter, Err(Anlegefehler::Vorhanden(erster)));
         assert_eq!(ablage.schreibvorgaenge(), geschrieben);
@@ -863,7 +870,7 @@ mod tests {
     fn ungueltiger_name_ist_ein_regelverstoss_und_legt_nichts_an() {
         let (gespraeche, ablage) = leer_im_speicher("2026-10-28T10:15:00.123+01:00");
 
-        let ergebnis = gespraeche.channel_anlegen("Allgemein", &alpha());
+        let ergebnis = gespraeche.channel_anlegen("Allgemein", None, &alpha());
 
         let Err(Anlegefehler::Regel(fehler)) = ergebnis else {
             panic!("{ergebnis:?}");
@@ -881,7 +888,7 @@ mod tests {
         let (gespraeche, _) = leer_im_speicher("2026-10-28T10:15:00.123+01:00");
         for name in ["security-entwicklung", "allgemein", "b"] {
             gespraeche
-                .channel_anlegen(name, &alpha())
+                .channel_anlegen(name, None, &alpha())
                 .expect("angelegt");
         }
 
@@ -904,7 +911,7 @@ mod tests {
         let uhr = Arc::new(GestellteUhr::neu(zeit("2026-10-28T10:15:00.123+01:00")));
         let vorher = Gespraeche::laden(ablage.clone(), uhr.clone()).expect("geladen");
         let angelegt = vorher
-            .channel_anlegen("allgemein", &alpha())
+            .channel_anlegen("allgemein", None, &alpha())
             .expect("angelegt");
         ablage.gespraech_anlegen(&Gespraech::channel("notizen"));
 
@@ -920,6 +927,7 @@ mod tests {
                         name: Channelname::bilden("notizen").expect("Name"),
                         angelegt: None,
                         angelegt_von: None,
+                        beschreibung: None,
                     },
                 ],
             }
@@ -960,11 +968,11 @@ mod tests {
 
         for name in ["c", "a", "b"] {
             gespraeche
-                .channel_anlegen(name, &alpha())
+                .channel_anlegen(name, None, &alpha())
                 .expect("angelegt");
         }
-        let _ = gespraeche.channel_anlegen("a", &alpha());
-        let _ = gespraeche.channel_anlegen("Ungueltig", &alpha());
+        let _ = gespraeche.channel_anlegen("a", None, &alpha());
+        let _ = gespraeche.channel_anlegen("Ungueltig", None, &alpha());
 
         assert_eq!(
             *sperren(&aufgezeichnet),
@@ -990,7 +998,7 @@ mod tests {
     fn viele_anlegen(gespraeche: &Gespraeche, herkunft: &str, anzahl: usize, vorsilbe: &str) {
         for nummer in 0..anzahl {
             gespraeche
-                .channel_anlegen(&format!("{vorsilbe}{nummer}"), &von(herkunft))
+                .channel_anlegen(&format!("{vorsilbe}{nummer}"), None, &von(herkunft))
                 .unwrap_or_else(|fehler| panic!("{vorsilbe}{nummer} von {herkunft}: {fehler:?}"));
         }
     }
@@ -1012,15 +1020,19 @@ mod tests {
         viele_anlegen(&gespraeche, "10.0.0.1", 32, "c");
         let geschrieben = ablage.schreibvorgaenge();
 
-        let dreiunddreissigste = gespraeche.channel_anlegen("c32", &von("10.0.0.1"));
+        let dreiunddreissigste = gespraeche.channel_anlegen("c32", None, &von("10.0.0.1"));
 
         assert_eq!(dreiunddreissigste, Err(HERKUNFT_32));
         assert_eq!(ablage.schreibvorgaenge(), geschrieben);
         assert_eq!(gespraeche.channels().stand, 32);
-        assert!(gespraeche.channel_anlegen("d0", &von("10.0.0.2")).is_ok());
+        assert!(
+            gespraeche
+                .channel_anlegen("d0", None, &von("10.0.0.2"))
+                .is_ok()
+        );
         let neu_geladen = Gespraeche::laden(ablage, uhr).expect("neu geladen");
         assert_eq!(
-            neu_geladen.channel_anlegen("c32", &von("10.0.0.1")),
+            neu_geladen.channel_anlegen("c32", None, &von("10.0.0.1")),
             Err(HERKUNFT_32)
         );
     }
@@ -1037,8 +1049,9 @@ mod tests {
             );
         }
 
-        let zweihundertsiebenundfuenfzigste = gespraeche.channel_anlegen("neu", &von("10.0.0.9"));
-        let vorhanden = gespraeche.channel_anlegen("h1-0", &von("10.0.0.9"));
+        let zweihundertsiebenundfuenfzigste =
+            gespraeche.channel_anlegen("neu", None, &von("10.0.0.9"));
+        let vorhanden = gespraeche.channel_anlegen("h1-0", None, &von("10.0.0.9"));
 
         assert_eq!(zweihundertsiebenundfuenfzigste, Err(GESAMT_256));
         assert!(
@@ -1069,7 +1082,7 @@ mod tests {
         viele_anlegen(&gespraeche, "10.0.0.8", 22, "h8-");
 
         assert_eq!(
-            gespraeche.channel_anlegen("zu-viel", &von("10.0.0.9")),
+            gespraeche.channel_anlegen("zu-viel", None, &von("10.0.0.9")),
             Err(GESAMT_256)
         );
     }
@@ -1188,7 +1201,7 @@ mod tests {
         let notizen = Gespraech::channel("notizen");
         ablage.tag_setzen(&notizen, tag("2026-10-28"), "von Hand\n");
 
-        let ergebnis = gespraeche.channel_anlegen("notizen", &alpha());
+        let ergebnis = gespraeche.channel_anlegen("notizen", None, &alpha());
 
         assert_eq!(ergebnis, Err(Anlegefehler::OrdnerVorhanden));
         assert_eq!(gespraeche.channels().stand, 0);
@@ -1214,7 +1227,7 @@ mod tests {
             });
         ablage.einstellungen_scheitern();
 
-        let gescheitert = gespraeche.channel_anlegen("neu", &alpha());
+        let gescheitert = gespraeche.channel_anlegen("neu", None, &alpha());
 
         let Err(Anlegefehler::Ablage(grund)) = gescheitert else {
             panic!("{gescheitert:?}");
@@ -1223,7 +1236,7 @@ mod tests {
         assert!(ablage.gespraeche().expect("Gespräche").is_empty());
         assert_eq!(gespraeche.channels().stand, 0);
         assert!(sperren(&veroeffentlicht).is_empty());
-        let danach = gespraeche.channel_anlegen("neu", &alpha());
+        let danach = gespraeche.channel_anlegen("neu", None, &alpha());
         assert!(danach.is_ok(), "{danach:?}");
         assert_eq!(*sperren(&veroeffentlicht), vec![1]);
     }

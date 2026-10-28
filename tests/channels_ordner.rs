@@ -112,6 +112,35 @@ async fn us14_eine_defekte_einstellungsdatei_wird_als_unbekannt_gelesen_und_nie_
 }
 
 #[tokio::test]
+async fn r00007_eine_beschreibung_gegen_die_regel_macht_die_einstellungen_defekt_die_datei_bleibt()
+{
+    let wurzel = tempfile::tempdir().expect("Wegwerf-Ordner");
+    let ordner = wurzel.path();
+    let inhalt = b"angelegt_von = \"alpha@127.0.0.2\"\nbeschreibung = \"a\\nb\"\n";
+    datei(ordner, "channels/kaputt/einstellungen.toml", inhalt);
+    let instanz = starten_mit(ordner, LOKAL, &[]);
+
+    let namen = liste(&instanz).await;
+    let (_, gesundheit) = gemeinsam::gesundheit(&instanz.adresse).await;
+
+    assert_eq!(
+        namen,
+        json!([{ "name": "kaputt", "angelegt": null, "angelegt_von": null, "beschreibung": null }])
+    );
+    assert_eq!(gesundheit["defekte_zeilen"], 1);
+    let zeilen = stderr_zeilen(instanz, "channels/kaputt/einstellungen.toml");
+    assert_eq!(zeilen.len(), 1, "{zeilen:?}");
+    assert!(
+        zeilen[0].starts_with("channels/kaputt/einstellungen.toml:2: "),
+        "{zeilen:?}"
+    );
+    assert_eq!(
+        fs::read(ordner.join("channels/kaputt/einstellungen.toml")).expect("Datei"),
+        inhalt
+    );
+}
+
+#[tokio::test]
 async fn us14_ungueltiger_ordner_und_defekte_datei_zaehlen_zusammen_zwei_defekte() {
     let wurzel = tempfile::tempdir().expect("Wegwerf-Ordner");
     let ordner = wurzel.path();
