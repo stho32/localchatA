@@ -167,9 +167,15 @@ test('US-18: Neuladen, neuer Tab, Neustart auf demselben Port — derselbe Teiln
 });
 
 // Seit R00004 hält ein offener Tab die Sitzung über seinen Ereignisstrom am Leben (Halter, ADR-0012) — untätig
-// über die Gnadenfrist heißt deshalb: keine Seite der Instanz offen, kein Strom, keine Anfrage.
+// über die Gnadenfrist heißt deshalb: keine Seite der Instanz offen, kein Strom, keine Anfrage. Die Frist
+// läuft erst, wenn der Strom am Server geschlossen ist (der SharedWorker endet nach dem letzten Tab, unter
+// Last spürbar später) — darum zuerst auf „halter: 0“ warten, dann die Dauer.
 async function untaetigOhneOffeneSeite(page, dauerMs) {
   await page.goto('about:blank');
+  await expect.poll(async () => {
+    const antwort = await fetch(instanz.adresse + 'api/gesundheit');
+    return (await antwort.json()).halter;
+  }, { timeout: 10000 }).toBe(0);
   await page.waitForTimeout(dauerMs);
 }
 
