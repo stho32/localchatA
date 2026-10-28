@@ -13,6 +13,7 @@ pub mod textregel;
 mod verlaufsindex;
 mod verzeichnis;
 
+pub use crate::anwesenheit::Art;
 pub use frist::{FRIST_MAX, FRIST_MIN, Frist, STANDARD_FRIST_TAGE, frist_in_spanne};
 pub use kennung::Kennung;
 pub use logablage::{Angehaengt, Dateiablage, Gespraech, Logablage};
@@ -38,6 +39,8 @@ use verzeichnis::Verzeichnis;
 pub struct Nachricht {
     pub zeit: Zeit,
     pub von: Kennung,
+    /// Art des Absenders aus der Metazeile `+ art:`; ohne sie (von Hand, ältere Sätze) keine (ADR-0034 Regel 5).
+    pub art: Option<Art>,
     pub text: String,
 }
 
@@ -196,6 +199,7 @@ impl Gespraeche {
         let nachricht = Nachricht {
             zeit: self.zeit_vergeben(),
             von: von.clone(),
+            art: None,
             text: text.to_string(),
         };
         let satz = logformat::satz(&nachricht);

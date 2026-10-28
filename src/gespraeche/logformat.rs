@@ -2,7 +2,7 @@
 //!
 //! Rein, ohne Platte: übersetzt zwischen Rohtext einer Tagesdatei und Sätzen.
 
-use super::{Kennung, Nachricht};
+use super::{Art, Kennung, Nachricht};
 use crate::uhr::Zeit;
 use chrono::DateTime;
 use std::borrow::Cow;
@@ -30,6 +30,9 @@ pub fn satz(nachricht: &Nachricht) -> String {
         nachricht.zeit.format("%Y-%m-%dT%H:%M:%S%.3f%:z"),
         nachricht.von
     );
+    if let Some(art) = nachricht.art {
+        satz.push_str(&format!("{ART_METAZEILE}{}\n", art_als_text(art)));
+    }
     let text = nachricht.text.replace("\r\n", "\n");
     for zeile in text.trim_end_matches('\n').split('\n') {
         if !zeile.is_empty() {
@@ -66,8 +69,33 @@ pub fn satz_als_nachricht(satz: &[u8]) -> Option<Nachricht> {
     Some(Nachricht {
         zeit: bereich.zeit,
         von: bereich.von,
+        art: art_lesen(&roh),
         text: text(&roh),
     })
+}
+
+/// Metazeile der Art des Absenders (ADR-0034 Regel 5).
+const ART_METAZEILE: &str = "+ art: ";
+
+fn art_als_text(art: Art) -> &'static str {
+    match art {
+        Art::Mensch => "mensch",
+        Art::Agent => "agent",
+    }
+}
+
+/// Die Art aus den Metazeilen direkt nach dem Kopf; ein unbekannter Wert ist keine Art.
+fn art_lesen(satz: &str) -> Option<Art> {
+    let wert = satz
+        .split('\n')
+        .skip(1)
+        .take_while(|zeile| zeile.starts_with("+ "))
+        .find_map(|zeile| zeile.strip_prefix(ART_METAZEILE))?;
+    match wert {
+        "mensch" => Some(Art::Mensch),
+        "agent" => Some(Art::Agent),
+        _ => None,
+    }
 }
 
 /// Die Zeit aus der Kopfzeile am Anfang von `satz` — nur die erste Zeile wird gelesen.
@@ -245,8 +273,61 @@ mod tests {
         Nachricht {
             zeit: DateTime::parse_from_rfc3339(zeit).expect("Zeit"),
             von: Kennung::bilden(von).expect("Kennung"),
+            art: None,
             text: text.to_string(),
         }
+    }
+
+    /// B0208: die Art steht als Metazeile direkt nach dem Kopf, vor dem Text.
+    #[test]
+    fn satz_mit_art_traegt_die_metazeile_nach_dem_kopf() {
+        for (art, zeile) in [(Art::Agent, "+ art: agent"), (Art::Mensch, "+ art: mensch")] {
+            let mut gesendet = nachricht(
+                "2026-10-28T12:00:00.000+01:00",
+                "beta@127.0.0.1",
+                "Hallo\r\nWelt\n\n",
+            );
+            gesendet.art = Some(art);
+
+            assert_eq!(
+                satz(&gesendet),
+                format!(
+                    "@ 2026-10-28T12:00:00.000+01:00 beta@127.0.0.1\n{zeile}\n  Hallo\n  Welt\n\n"
+                )
+            );
+        }
+    }
+
+    /// B0208 Rückweg: der Satz liefert Art und Text; ohne Metazeile oder mit unbekanntem Wert keine Art.
+    #[test]
+    fn die_art_wird_aus_der_metazeile_gelesen_ohne_sie_keine() {
+        for (roh, art) in [
+            (
+                "@ 2026-10-28T12:00:00.000+01:00 a@b\n+ art: agent\n  Hallo\n\n",
+                Some(Art::Agent),
+            ),
+            (
+                "@ 2026-10-28T12:00:00.000+01:00 a@b\n+ art: mensch\n  Hallo\n\n",
+                Some(Art::Mensch),
+            ),
+            ("@ 2026-10-28T12:00:00.000+01:00 a@b\n  Hallo\n\n", None),
+            (
+                "@ 2026-10-28T12:00:00.000+01:00 a@b\n+ art: roboter\n  Hallo\n\n",
+                None,
+            ),
+            (
+                "@ 2026-10-28T12:00:00.000+01:00 a@b\n  + art: agent\n\n",
+                None,
+            ),
+        ] {
+            let gelesen = satz_als_nachricht(roh.as_bytes()).expect("Nachricht");
+
+            assert_eq!(gelesen.art, art, "{roh:?}");
+        }
+        let mit_art =
+            satz_als_nachricht(b"@ 2026-10-28T12:00:00.000+01:00 a@b\n+ art: agent\n  Hallo\n\n")
+                .expect("Nachricht");
+        assert_eq!(mit_art.text, "Hallo");
     }
 
     #[test]
@@ -383,6 +464,7 @@ mod tests {
             Some(Nachricht {
                 zeit: DateTime::parse_from_rfc3339("2026-10-28T14:01:00+01:00").expect("Zeit"),
                 von: Kennung::bilden("alpha@127.0.0.2").expect("Kennung"),
+                art: None,
                 text: "zwei\ndrei".to_string(),
             })
         );

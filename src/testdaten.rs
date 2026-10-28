@@ -99,5 +99,10 @@ fn nachricht(nummer: usize, zeit: Zeit) -> io::Result<Nachricht> {
         }
         text.push_str("```");
     }
-    Ok(Nachricht { zeit, von, text })
+    Ok(Nachricht {
+        zeit,
+        von,
+        art: None,
+        text,
+    })
 }
