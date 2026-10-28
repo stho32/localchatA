@@ -229,7 +229,12 @@ async fn k2_unter_dem_budget_gilt_n_und_die_antwort_behaelt_ihre_form() {
             .expect("Nachricht");
         let mut felder: Vec<&str> = nachricht.keys().map(String::as_str).collect();
         felder.sort_unstable();
-        assert_eq!(felder, ["text", "von", "zeit"]);
+        assert_eq!(felder, ["art", "text", "von", "zeit"], "R00011 ergänzt art");
+        assert_eq!(
+            nachricht["art"],
+            serde_json::Value::Null,
+            "Satz ohne Metazeile"
+        );
         assert_eq!(nachricht["von"], "alpha@127.0.0.2");
         assert_eq!(nachricht["text"], json!("x".repeat(16_384)));
     }

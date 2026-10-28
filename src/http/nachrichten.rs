@@ -7,7 +7,7 @@ use super::abbruch::{Grenzort, abbruch_beantworten, interner_fehler};
 use super::teilnehmer::Teilnehmer;
 use super::teilnehmerliste::zeit_als_text;
 use crate::gespraeche::abfrage::{Abfrage, Abschnitt, Blockgroesse};
-use crate::gespraeche::{Nachricht, Nachrichtenblock, Unbekannt};
+use crate::gespraeche::{Art, Nachricht, Nachrichtenblock, Unbekannt};
 use crate::name::Channelname;
 use crate::protokoll::{Bereich, Kontext, Schluessel, Stufe};
 use crate::uhr::Zeit;
@@ -103,19 +103,22 @@ struct BlockAntwort<'a> {
     neuer: bool,
 }
 
-/// `{zeit, von, text}` — die eine Form einer Nachricht an der Grenze (ab I0009 auch im Strom).
+/// `{zeit, von, art, text}` — die eine Form einer Nachricht an der Grenze: Verlauf, 201 des Sendens und Ereignis im
+/// Strom (ADR-0034 Regel 4); `art` ist `null` ohne Metazeile.
 #[derive(Serialize)]
-struct NachrichtAntwort<'a> {
+pub struct NachrichtAntwort<'a> {
     zeit: String,
     von: &'a str,
+    art: Option<Art>,
     text: &'a str,
 }
 
 impl<'a> NachrichtAntwort<'a> {
-    fn aus(nachricht: &'a Nachricht) -> NachrichtAntwort<'a> {
+    pub fn aus(nachricht: &'a Nachricht) -> NachrichtAntwort<'a> {
         NachrichtAntwort {
             zeit: zeit_als_text(&nachricht.zeit),
             von: nachricht.von.als_text(),
+            art: nachricht.art,
             text: &nachricht.text,
         }
     }
@@ -349,6 +352,30 @@ mod tests {
             .expect("Körper");
         let text = String::from_utf8_lossy(&koerper);
         assert!(!text.contains("key must be"), "{text}");
+    }
+
+    /// B0210: Verlauf, Antwort und Ereignis serialisieren dieselbe Form `{zeit, von, art, text}`; ohne Metazeile
+    /// ist `art` `null`.
+    #[test]
+    fn die_eine_form_einer_nachricht_traegt_die_art_ohne_metazeile_null() {
+        use crate::gespraeche::Kennung;
+        let mut nachricht = Nachricht {
+            zeit: crate::uhr::Zeit::parse_from_rfc3339("2026-10-28T12:00:00.001+01:00")
+                .expect("Zeit"),
+            von: Kennung::bilden("beta@127.0.0.1").expect("Kennung"),
+            art: Some(Art::Agent),
+            text: "Hallo\nWelt".into(),
+        };
+
+        let agent = serde_json::to_value(NachrichtAntwort::aus(&nachricht)).expect("JSON");
+        nachricht.art = None;
+        let ohne = serde_json::to_value(NachrichtAntwort::aus(&nachricht)).expect("JSON");
+
+        assert_eq!(
+            agent,
+            json!({"zeit": "2026-10-28T12:00:00.001+01:00", "von": "beta@127.0.0.1", "art": "agent", "text": "Hallo\nWelt"})
+        );
+        assert_eq!(ohne["art"], serde_json::Value::Null);
     }
 
     #[test]
