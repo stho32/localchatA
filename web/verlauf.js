@@ -1,10 +1,13 @@
-// Der Verlauf eines Channels in der Mitte (ADR-0026 Regeln 5, 8, 9): Öffnen holt die neuesten 100 mit einem Abruf,
-// zeichnet sie älteste oben und steht am Ende; solange der Blick dort steht, hält ein ResizeObserver ihn dort, auch
-// wenn Höhen sich nachträglich ändern (Schrift, Fenster). Ein Wechsel bricht den laufenden Abruf ab, eine Antwort
-// für einen verlassenen Channel wird verworfen, Daten des vorigen Channels fallen weg. Der Verlauf ist die einzige
-// scrollende Fläche der Mitte: role="log", aria-live="off", mit der Tastatur fokussierbar.
+// Der Verlauf eines Channels in der Mitte (ADR-0026): Öffnen holt die neuesten 100 mit einem Abruf, zeichnet sie
+// älteste oben und steht am Ende; solange der Blick dort steht, hält ein ResizeObserver ihn dort, auch wenn Höhen
+// sich nachträglich ändern (Schrift, Fenster). Beim Scrollen lädt das Fenster an beiden Enden je 100 nach und hält
+// höchstens fünf Blöcke; die oberste sichtbare Nachricht bleibt dabei an ihrer Stelle (Anker von Hand, in einem
+// Zug). Ein Wechsel bricht laufende Abrufe ab, eine Antwort für einen verlassenen Channel wird verworfen, Daten des
+// vorigen Channels fallen weg. Der Verlauf ist die einzige scrollende Fläche der Mitte: role="log",
+// aria-live="off", mit der Tastatur fokussierbar; Nachladen wird nie angesagt.
 import { nachrichtZeichnen, kopfSetzen, trennerZeichnen, langeEinklappen, langeUmschalten } from './nachricht.js';
 import { gliederung, datumBenennen } from './gliederung.js';
+import { nachladen, einfuegen } from './fenster.js';
 
 // abrufen: async (name, cursor, signal) → { art: 'block' | 'fehler' | 'abgebrochen', … } (api.js verlaufAbrufen).
 export function verlaufAnlegen({ abrufen }) {
@@ -12,22 +15,37 @@ export function verlaufAnlegen({ abrufen }) {
   const log = element('div', { className: 'lc-log', tabIndex: 0 }, [inhalt]);
   log.setAttribute('role', 'log');
   log.setAttribute('aria-live', 'off');
+  const ladezeile = element('div', { className: 'lc-loadmore', textContent: 'Ältere Nachrichten werden geladen …', hidden: true });
+  const rahmen = element('div', { className: 'lc-verlauf' }, [ladezeile, log]);
   let laufend = new AbortController();
+  let offenerName = null;
   let amEnde = true;
   let heute = null;
+  let fenster = null;
+  let bloeckeKnoten = [];
+
+  function abstandUnten() {
+    return log.scrollHeight - log.scrollTop - log.clientHeight;
+  }
 
   function ansEnde() {
     log.scrollTop = log.scrollHeight;
     amEnde = true;
   }
 
+  function lageMerken() {
+    amEnde = abstandUnten() <= 1 && fenster !== null && !fenster.neuer;
+  }
+
   log.addEventListener('scroll', () => {
-    amEnde = log.scrollHeight - log.scrollTop - log.clientHeight <= 1;
+    lageMerken();
+    pruefen();
   }, { passive: true });
   const hoehen = new ResizeObserver(() => {
     if (amEnde) {
       ansEnde();
     }
+    lageMerken();
   });
   hoehen.observe(inhalt);
   hoehen.observe(log);
@@ -41,15 +59,20 @@ export function verlaufAnlegen({ abrufen }) {
     const anker = ankerVon(schalter.closest('.lc-msg'));
     langeUmschalten(schalter);
     ankerHalten(log, anker);
-    amEnde = log.scrollHeight - log.scrollTop - log.clientHeight <= 1;
+    lageMerken();
   });
 
   async function oeffnen(name) {
     laufend.abort();
     laufend = new AbortController();
     const dieser = laufend;
+    offenerName = name;
+    fenster = null;
+    bloeckeKnoten = [];
+    ladenBeendet();
     log.setAttribute('aria-label', `Verlauf # ${name}`);
     inhalt.replaceChildren();
+    lageMerken();
     const ergebnis = await abrufen(name, {}, dieser.signal);
     if (dieser !== laufend || ergebnis.art === 'abgebrochen') {
       return;
@@ -64,10 +87,112 @@ export function verlaufAnlegen({ abrufen }) {
       inhalt.replaceChildren(hinweis(`Noch keine Nachrichten in # ${name}.`, 'lc-mitte-hinweis'));
       return;
     }
+    fenster = { bloecke: [ergebnis.block.nachrichten], aelter: ergebnis.block.aelter, neuer: false };
     const knoten = gegliedertZeichnen(ergebnis.block.nachrichten, null, heute);
+    bloeckeKnoten = [knoten];
     inhalt.replaceChildren(...knoten);
     langeEinklappen(nurNachrichten(knoten));
     ansEnde();
+    lageMerken();
+    pruefen();
+  }
+
+  // Höchstens ein Abruf zugleich; danach wird erneut geprüft — so holt auch ein Sprung an den Rand des Scrollbalkens
+  // Block für Block nach, ohne Kaskade (ADR-0026 Regel 2).
+  async function pruefen() {
+    if (fenster === null) {
+      return;
+    }
+    const richtung = nachladen({
+      bloecke: fenster.bloecke.length,
+      aelter: fenster.aelter,
+      neuer: fenster.neuer,
+      abstandOben: log.scrollTop,
+      abstandUnten: abstandUnten(),
+      sicht: log.clientHeight,
+      laeuft: log.dataset.laedt !== undefined,
+    });
+    if (richtung === null) {
+      return;
+    }
+    const dieser = laufend;
+    log.dataset.laedt = richtung;
+    ladezeile.hidden = richtung !== 'aelter';
+    const ergebnis = await abrufen(offenerName, cursorFuer(fenster, richtung), dieser.signal);
+    if (dieser !== laufend) {
+      return;
+    }
+    ladenBeendet();
+    if (ergebnis.art !== 'block') {
+      return;
+    }
+    blockEinfuegen(ergebnis.block, richtung);
+    pruefen();
+  }
+
+  function ladenBeendet() {
+    delete log.dataset.laedt;
+    ladezeile.hidden = true;
+  }
+
+  // Einfügen, am anderen Ende abwerfen, Kopf und Trenner an den Grenzen neu — dann den Anker korrigieren, alles im
+  // selben Task vor dem nächsten Bild (ADR-0026 Regel 3).
+  function blockEinfuegen(block, richtung) {
+    const anker = ankerMerken(log, inhalt);
+    const ergebnis = einfuegen(fenster, block, richtung);
+    if (block.nachrichten.length > 0) {
+      knotenEinfuegen(block.nachrichten, richtung);
+    }
+    if (ergebnis.abgeworfen !== null) {
+      knotenAbwerfen(richtung);
+    }
+    fenster = ergebnis.fenster;
+    ankerHalten(log, anker);
+    lageMerken();
+  }
+
+  function knotenEinfuegen(nachrichten, richtung) {
+    if (richtung === 'aelter') {
+      const knoten = gegliedertZeichnen(nachrichten, null, heute);
+      inhalt.prepend(...knoten);
+      bloeckeKnoten.unshift(knoten);
+      grenzeGliedern(nachrichten[nachrichten.length - 1], 1);
+      langeEinklappen(nurNachrichten(knoten));
+      return;
+    }
+    const letzte = fenster.bloecke[fenster.bloecke.length - 1];
+    const knoten = gegliedertZeichnen(nachrichten, letzte[letzte.length - 1], heute);
+    inhalt.append(...knoten);
+    bloeckeKnoten.push(knoten);
+    langeEinklappen(nurNachrichten(knoten));
+  }
+
+  function knotenAbwerfen(richtung) {
+    if (richtung === 'aelter') {
+      bloeckeKnoten.pop().forEach((einzeln) => einzeln.remove());
+      return;
+    }
+    bloeckeKnoten.shift().forEach((einzeln) => einzeln.remove());
+    grenzeGliedern(null, 0);
+  }
+
+  // Die erste Nachricht des Blocks `index` steht jetzt nach `vorige` (oder ganz oben): Kopf und Tagestrenner neu.
+  function grenzeGliedern(vorige, index) {
+    const knoten = bloeckeKnoten[index];
+    const artikel = knoten.find((einzeln) => einzeln.classList.contains('lc-msg'));
+    const { kopf, tagestrenner } = gliederung(vorige, { zeit: artikel.dataset.zeit, von: artikel.dataset.von });
+    kopfSetzen(artikel, kopf);
+    const trenner = artikel.previousElementSibling;
+    const hatTrenner = trenner !== null && trenner.classList.contains('lc-day');
+    if (tagestrenner === null && hatTrenner) {
+      trenner.remove();
+      knoten.splice(knoten.indexOf(trenner), 1);
+    }
+    if (tagestrenner !== null && !hatTrenner) {
+      const neuerTrenner = trennerZeichnen(tagestrenner, heute);
+      artikel.before(neuerTrenner);
+      knoten.splice(knoten.indexOf(artikel), 0, neuerTrenner);
+    }
   }
 
   // Das heutige Datum des Servers ('JJJJ-MM-TT') benennt die Tagestrenner neu — gleiche Höhe, nichts springt.
@@ -83,10 +208,23 @@ export function verlaufAnlegen({ abrufen }) {
 
   function schliessen() {
     laufend.abort();
+    offenerName = null;
+    fenster = null;
+    bloeckeKnoten = [];
+    ladenBeendet();
     inhalt.replaceChildren();
+    lageMerken();
   }
 
-  return { element: log, oeffnen, schliessen, heuteSetzen };
+  return { element: rahmen, oeffnen, schliessen, heuteSetzen };
+}
+
+function cursorFuer(fenster, richtung) {
+  if (richtung === 'aelter') {
+    return { vor: fenster.bloecke[0][0].zeit };
+  }
+  const letzte = fenster.bloecke[fenster.bloecke.length - 1];
+  return { nach: letzte[letzte.length - 1].zeit };
 }
 
 // Anker (ADR-0026 Regel 3): die oberste sichtbare Nachricht und ihr Abstand zum oberen Rand vor einer Änderung;

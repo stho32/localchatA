@@ -49,4 +49,90 @@ async function neuesteSichtbarNachKlick(page, name, zeit) {
   return Math.round(await ergebnis.jsonValue());
 }
 
-module.exports = { juengsteZeit, neuesteSichtbarNachKlick };
+/// Die Zeiten eines Channels blockweise rückwärts über die API (Blöcke zu 100, der neueste zuerst), je Block
+/// älteste zuerst — die Erwartung für Fenster und Lückenlosigkeit.
+async function bloeckeRueckwaerts(adresse, channel, anzahl) {
+  const beitritt = await beitretenPerApi(adresse, 'zaehler', '127.0.0.8');
+  const bloecke = [];
+  let cursor = '';
+  for (let nummer = 0; nummer < anzahl; nummer += 1) {
+    const block = await apiBlock(adresse, channel, cursor, beitritt.daten.token);
+    const zeiten = block.nachrichten.map((nachricht) => nachricht.zeit);
+    bloecke.push(zeiten);
+    cursor = `vor=${encodeURIComponent(zeiten[0])}&`;
+  }
+  return bloecke;
+}
+
+function apiBlock(adresse, channel, cursor, token) {
+  const ziel = new URL(`api/channels/${channel}/nachrichten?${cursor}n=100`, adresse);
+  return new Promise((fertig, gescheitert) => {
+    http.get({
+      host: ziel.hostname, port: ziel.port, path: `${ziel.pathname}${ziel.search}`, localAddress: '127.0.0.8',
+      headers: { 'X-LocalchatA-Sitzung': token },
+    }, (antwort) => {
+      let text = '';
+      antwort.on('data', (teil) => { text += teil; });
+      antwort.on('end', () => fertig(JSON.parse(text)));
+    }).once('error', gescheitert);
+  });
+}
+
+/// Beobachtet im Browser den Anker (ADR-0026 Regel 3): die oberste sichtbare Nachricht wird bei jedem Scrollen
+/// gemerkt; bei jeder Änderung im Verlauf und bei jedem Ein- und Ausblenden der Ladezeile wird ihre Verschiebung
+/// festgehalten (window.lcSpruenge), dazu jede gesehene Zeit (window.lcGesehen) und ob die Zeiten im DOM je
+/// streng steigend waren (window.lcOrdnungVerletzt).
+async function ankerBeobachten(page) {
+  await page.evaluate(() => {
+    const log = document.querySelector('[role="log"]');
+    const inhalt = log.querySelector('.lc-log-inhalt');
+    function oberste() {
+      const rand = log.getBoundingClientRect().top;
+      const nachricht = [...inhalt.querySelectorAll('.lc-msg')].find((element) => element.getBoundingClientRect().bottom > rand);
+      if (nachricht === undefined) {
+        return null;
+      }
+      return { element: nachricht, top: nachricht.getBoundingClientRect().top };
+    }
+    function zeitenPruefen() {
+      const zeiten = [...inhalt.querySelectorAll('.lc-msg')].map((element) => element.dataset.zeit);
+      zeiten.forEach((zeit) => window.lcGesehen.add(zeit));
+      for (let index = 1; index < zeiten.length; index += 1) {
+        if (!(Date.parse(zeiten[index - 1]) < Date.parse(zeiten[index]))) {
+          window.lcOrdnungVerletzt = true;
+        }
+      }
+    }
+    window.lcSpruenge = [];
+    window.lcGesehen = new Set();
+    window.lcOrdnungVerletzt = false;
+    let letzte = oberste();
+    zeitenPruefen();
+    // Im Einfangen, also vor den Zuhörern des Verlaufs selbst: sonst sähe eine Änderung, die das Scrollen auslöst
+    // (Ladezeile), noch die Lage vor dem Scrollen.
+    document.addEventListener('scroll', (ereignis) => {
+      if (ereignis.target === log) {
+        letzte = oberste();
+      }
+    }, { passive: true, capture: true });
+    const messen = () => {
+      if (letzte !== null && letzte.element.isConnected) {
+        window.lcSpruenge.push(letzte.element.getBoundingClientRect().top - letzte.top);
+      }
+      zeitenPruefen();
+      letzte = oberste();
+    };
+    new MutationObserver(messen).observe(inhalt, { childList: true, subtree: true });
+    const ladezeile = document.querySelector('.lc-loadmore');
+    new MutationObserver(messen).observe(ladezeile, { attributes: true });
+  });
+}
+
+/// Wartet, bis die Seite ausgeladen hat: keine laufende Anfrage auf /nachrichten und zwei Bilder Ruhe.
+async function ruhig(page) {
+  await page.waitForFunction(() => document.querySelector('.lc-loadmore').hidden && !document.querySelector('[role="log"]').dataset.laedt,
+    null, { polling: 'raf', timeout: 10000 });
+  await page.evaluate(() => new Promise((weiter) => requestAnimationFrame(() => requestAnimationFrame(weiter))));
+}
+
+module.exports = { juengsteZeit, neuesteSichtbarNachKlick, bloeckeRueckwaerts, ankerBeobachten, ruhig };
