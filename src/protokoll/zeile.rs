@@ -3,6 +3,7 @@
 
 /// Höchstens so viele Zeichen hat ein Wert im Kontext (ADR-0040 Regel 4).
 use crate::uhr::Zeit;
+use std::fmt::Write;
 
 /// Stufe eines Eintrags, aufsteigend (ADR-0042 Regel 1).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -151,13 +152,17 @@ impl Kontext {
         Kontext::default()
     }
 
-    /// Setzt einen Wert; der Wert wird erst in der Zeile neutralisiert.
+    /// Setzt einen Wert, roh gekürzt auf `WERT_HOECHSTENS + 1` Zeichen (an der Quelle, ADR-0040 Ergänzung
+    /// CWE-770: eine offene Episode hält nie mehr); neutralisiert wird erst in der Zeile.
     pub fn mit(mut self, schluessel: Schluessel, wert: impl ToString) -> Kontext {
-        self.0.push((schluessel, wert.to_string()));
+        self.0.push((
+            schluessel,
+            roh_gekuerzt(wert.to_string(), WERT_HOECHSTENS + 1),
+        ));
         self
     }
 
-    /// Der Wert zu einem Schlüssel, falls gesetzt (roh).
+    /// Der Wert zu einem Schlüssel, falls gesetzt (roh, an der Quelle gekürzt).
     pub fn wert(&self, schluessel: Schluessel) -> Option<&str> {
         self.0
             .iter()
@@ -185,9 +190,18 @@ impl Eintrag {
         Eintrag {
             stufe,
             bereich,
-            text: text.into(),
+            text: roh_gekuerzt(text.into(), TEXT_HOECHSTENS + 1),
             kontext,
         }
+    }
+}
+
+/// Höchstens `zeichen` Zeichen, in einem String genau dieser Größe; das eine Zeichen über der Grenze bleibt, damit
+/// der Formatierer erkennt, dass gekürzt wurde, und `…` setzt.
+fn roh_gekuerzt(text: String, zeichen: usize) -> String {
+    match text.char_indices().nth(zeichen) {
+        Some((stelle, _)) => text[..stelle].to_string(),
+        None => text,
     }
 }
 
@@ -238,35 +252,39 @@ pub fn neutralisieren(roh: &str, hoechstens: usize) -> String {
     neutralisieren_mit(roh, hoechstens, |_| false)
 }
 
-/// `neutralisieren` mit weiteren Zeichen, die als `\u{…}` stehen.
+/// `neutralisieren` mit weiteren Zeichen, die als `\u{…}` stehen. Zeichenweise in einen Puffer, ohne Zwischenstring
+/// je Zeichen; hört auf, sobald die Grenze überschritten ist, und schneidet hinter dem letzten ganzen Stück, das
+/// mit `…` noch passt (ADR-0040, Ergänzung „an der Quelle kürzen“).
 fn neutralisieren_mit(roh: &str, hoechstens: usize, auch: impl Fn(char) -> bool) -> String {
-    let stuecke: Vec<String> = roh.chars().map(|zeichen| stueck(zeichen, &auch)).collect();
-    let laenge: usize = stuecke.iter().map(|s| s.chars().count()).sum();
-    if laenge <= hoechstens {
-        return stuecke.concat();
-    }
-    let mut gekuerzt = String::new();
+    let mut ergebnis = String::new();
     let mut zeichen = 0;
-    for stueck in &stuecke {
-        let dazu = stueck.chars().count();
-        if zeichen + dazu > hoechstens.saturating_sub(1) {
-            break;
+    let mut schnitt = 0;
+    for roh_zeichen in roh.chars() {
+        zeichen += stueck_anhaengen(&mut ergebnis, roh_zeichen, &auch);
+        if zeichen > hoechstens {
+            ergebnis.truncate(schnitt);
+            ergebnis.push('…');
+            return ergebnis;
         }
-        gekuerzt.push_str(stueck);
-        zeichen += dazu;
+        if zeichen < hoechstens {
+            schnitt = ergebnis.len();
+        }
     }
-    gekuerzt.push('…');
-    gekuerzt
+    ergebnis
 }
 
-/// Ein Zeichen in seiner Form im Protokoll.
-fn stueck(zeichen: char, auch: impl Fn(char) -> bool) -> String {
+/// Hängt ein Zeichen in seiner Form im Protokoll an; liefert, wie viele Zeichen das sind.
+fn stueck_anhaengen(ziel: &mut String, zeichen: char, auch: impl Fn(char) -> bool) -> usize {
     if zeichen == '\\' {
-        "\\\\".to_string()
+        ziel.push_str("\\\\");
+        2
     } else if zu_escapen(zeichen) || auch(zeichen) {
-        format!("\\u{{{:x}}}", u32::from(zeichen))
+        let vorher = ziel.len();
+        let _ = write!(ziel, "\\u{{{:x}}}", u32::from(zeichen));
+        ziel.len() - vorher
     } else {
-        zeichen.to_string()
+        ziel.push(zeichen);
+        1
     }
 }
 
@@ -453,6 +471,64 @@ mod tests {
         let gekuerzt = neutralisieren(&"ä".repeat(1100), TEXT_HOECHSTENS);
         assert_eq!(gekuerzt.chars().count(), 1024);
         assert!(gekuerzt.ends_with("ä…"), "{gekuerzt}");
+    }
+
+    /// ADR-0040, Ergänzung „an der Quelle kürzen“ (Security-Review #24, O1, CWE-770): der Kontext hält einen
+    /// riesigen Wert nie ganz — auch nicht in seiner Kapazität —, die Zeile bleibt wie zuvor.
+    #[test]
+    fn ein_riesiger_wert_wird_schon_beim_eintritt_in_den_kontext_gekuerzt() {
+        let kontext = Kontext::neu().mit(Schluessel::Grund, "x".repeat(400_000));
+
+        let gehalten = &kontext.0[0].1;
+        assert!(
+            gehalten.chars().count() <= WERT_HOECHSTENS + 1,
+            "{}",
+            gehalten.len()
+        );
+        assert!(
+            gehalten.capacity() <= 4 * (WERT_HOECHSTENS + 1),
+            "{}",
+            gehalten.capacity()
+        );
+        let eintrag = Eintrag::neu(Stufe::Warning, Bereich::Grenzschutz, "Host", kontext);
+        assert!(
+            zeile(&eintrag, zeit("2026-10-28T14:03:07.123+01:00"))
+                .ends_with(&format!(" | grund={}…\n", "x".repeat(255)))
+        );
+    }
+
+    #[test]
+    fn ein_riesiger_text_wird_schon_beim_eintritt_in_den_eintrag_gekuerzt() {
+        let eintrag = Eintrag::neu(
+            Stufe::Exception,
+            Bereich::Programmfehler,
+            "ä".repeat(400_000),
+            Kontext::neu(),
+        );
+
+        assert!(eintrag.text.chars().count() <= TEXT_HOECHSTENS + 1);
+        assert!(eintrag.text.capacity() <= 4 * (TEXT_HOECHSTENS + 1));
+        assert!(
+            zeile(&eintrag, zeit("2026-10-28T14:03:07.123+01:00"))
+                .ends_with(&format!(" programmfehler {}…\n", "ä".repeat(1023)))
+        );
+    }
+
+    #[test]
+    fn genau_an_der_grenze_bleibt_ein_wert_ungekuerzt_eins_darueber_nicht() {
+        for (laenge, erwartet) in [
+            (256, "y".repeat(256)),
+            (257, format!("{}…", "y".repeat(255))),
+            (258, format!("{}…", "y".repeat(255))),
+        ] {
+            let kontext = Kontext::neu().mit(Schluessel::Name, "y".repeat(laenge));
+            let eintrag = Eintrag::neu(Stufe::Debug, Bereich::Start, "t", kontext);
+            assert!(
+                zeile(&eintrag, zeit("2026-10-28T14:03:07.123+01:00"))
+                    .ends_with(&format!("name={erwartet}\n")),
+                "{laenge}"
+            );
+        }
     }
 
     #[test]
