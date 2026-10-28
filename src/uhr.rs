@@ -133,6 +133,30 @@ pub fn naechste_zeit(jetzt: Zeit, letzte: Option<Zeit>) -> Zeit {
     }
 }
 
+/// Ab mehr als so viel Vorlauf der Nachrichtenzeit vor der Uhr wird gemeldet (ADR-0035 Regel 4).
+pub const VORLAUF_MELDEN_AB_MS: u64 = 60_000;
+
+/// Wie weit die zuletzt vergebene Zeit vor `jetzt` liegt, in ms; 0, wenn sie nicht vorausläuft (B0215).
+pub fn vorlauf_ms(letzte: Zeit, jetzt: Zeit) -> u64 {
+    u64::try_from((letzte - jetzt).num_milliseconds()).unwrap_or(0)
+}
+
+/// Ob ein Vorlauf zu melden ist: mehr als 60 s.
+pub fn vorlauf_melden(vorlauf_ms: u64) -> bool {
+    vorlauf_ms > VORLAUF_MELDEN_AB_MS
+}
+
+/// „Nachrichtenzeit läuft der Systemuhr 2 h 03 min voraus (Uhr zurückgestellt?) — …“; Stunden und Minuten
+/// abgerundet.
+pub fn vorlauf_text(vorlauf_ms: u64) -> String {
+    let minuten = vorlauf_ms / 60_000;
+    format!(
+        "Nachrichtenzeit läuft der Systemuhr {} h {:02} min voraus (Uhr zurückgestellt?) — Zeiten bleiben streng steigend, bis die Uhr aufholt.",
+        minuten / 60,
+        minuten % 60
+    )
+}
+
 /// Kürzt auf ganze Millisekunden — feiner steht keine Zeit im Log.
 pub fn auf_millisekunden(zeit: Zeit) -> Zeit {
     let millis = zeit.nanosecond() / 1_000_000 * 1_000_000;
@@ -141,6 +165,39 @@ pub fn auf_millisekunden(zeit: Zeit) -> Zeit {
 
 #[cfg(test)]
 mod tests {
+
+    /// R00011 F0042 „Vorlauf“ (B0215): letzte 12:00:00.000, Uhr 11:58:59.000 → vergeben 12:00:00.001, Vorlauf
+    /// 61.001 ms, zu melden.
+    #[test]
+    fn vorlauf_der_vergebenen_zeit_vor_der_uhr() {
+        let letzte = DateTime::parse_from_rfc3339("2026-10-28T12:00:00.000+01:00").expect("Zeit");
+        let jetzt = DateTime::parse_from_rfc3339("2026-10-28T11:58:59.000+01:00").expect("Zeit");
+
+        let vergeben = naechste_zeit(jetzt, Some(letzte));
+
+        assert_eq!(vergeben.to_rfc3339(), "2026-10-28T12:00:00.001+01:00");
+        assert_eq!(vorlauf_ms(vergeben, jetzt), 61_001);
+        assert!(vorlauf_melden(61_001));
+        assert_eq!(vorlauf_ms(jetzt, vergeben), 0, "Uhr voraus: kein Vorlauf");
+    }
+
+    /// Schwelle als Spanne: 60.000 ms keine Meldung, 60.001 ms eine.
+    #[test]
+    fn gemeldet_wird_erst_ueber_60_s() {
+        assert!(!vorlauf_melden(0));
+        assert!(!vorlauf_melden(60_000));
+        assert!(vorlauf_melden(60_001));
+    }
+
+    #[test]
+    fn der_text_nennt_stunden_und_minuten_abgerundet() {
+        assert_eq!(
+            vorlauf_text(7_410_002),
+            "Nachrichtenzeit läuft der Systemuhr 2 h 03 min voraus (Uhr zurückgestellt?) — Zeiten bleiben streng steigend, bis die Uhr aufholt."
+        );
+        assert!(vorlauf_text(61_001).contains(" 0 h 01 min voraus"));
+    }
+
     use super::*;
 
     fn zeit(text: &str) -> Zeit {
