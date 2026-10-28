@@ -3,9 +3,9 @@
 //! regel}`. Die Abfrage wird vor jeder Arbeit begrenzt und geprüft, abgewiesen statt umgeformt.
 
 use super::Zustand;
+use super::abbruch::{Grenzort, abbruch_beantworten, interner_fehler};
 use super::teilnehmer::Teilnehmer;
 use super::teilnehmerliste::zeit_als_text;
-use super::werkbank::Abgebrochen;
 use crate::gespraeche::abfrage::{Abfrage, Abschnitt, Blockgroesse};
 use crate::gespraeche::{Nachricht, Nachrichtenblock, Unbekannt};
 use crate::name::Channelname;
@@ -30,7 +30,7 @@ use std::sync::Arc;
 pub const VERLAUF_BUDGET: usize = 262_144;
 
 pub async fn beantworten(
-    _: Teilnehmer,
+    teilnehmer: Teilnehmer,
     State(zustand): State<Arc<Zustand>>,
     Path(name): Path<String>,
     RawQuery(query): RawQuery,
@@ -53,11 +53,23 @@ pub async fn beantworten(
         Ok(Ok(Ok(bytes))) => ([(CONTENT_TYPE, "application/json")], bytes).into_response(),
         Ok(Err(Unbekannt)) => unbekannt(&name),
         Ok(Ok(Err(fehler))) => nicht_gelesen(&zustand, &fehler.to_string()),
-        Err(Abgebrochen(grund)) => nicht_gelesen(&zustand, &grund),
+        Err(abbruch) => abbruch_beantworten(
+            &zustand.protokoll,
+            &abbruch,
+            &Grenzort {
+                route: "GET /api/channels/{name}/nachrichten",
+                operation: "verlauf",
+                kennung: Some(teilnehmer.kennung.als_text()),
+                channel: Some(&name),
+            },
+            NICHT_GELESEN,
+        ),
     }
 }
 
-/// 500 — mit einem ERROR im Betriebsprotokoll (ADR-0042 Regel 2).
+const NICHT_GELESEN: &str = "Verlauf nicht gelesen";
+
+/// 500 mit deutschem Satz — die Ursache (oft englisch) steht nur im Betriebsprotokoll (ADR-0042 Ergänzung 6).
 fn nicht_gelesen(zustand: &Zustand, grund: &str) -> Response {
     zustand.protokoll.eintragen(
         Stufe::Error,
@@ -65,11 +77,7 @@ fn nicht_gelesen(zustand: &Zustand, grund: &str) -> Response {
         "Verlauf nicht gelesen",
         Kontext::neu().mit(Schluessel::Grund, grund),
     );
-    (
-        StatusCode::INTERNAL_SERVER_ERROR,
-        Json(json!({ "fehler": format!("Verlauf nicht gelesen — {grund}") })),
-    )
-        .into_response()
+    interner_fehler(NICHT_GELESEN)
 }
 
 /// `{channel, nachrichten, aelter, neuer}`, Nachrichten älteste zuerst (ADR-0025 Regel 3).
@@ -300,7 +308,7 @@ mod tests {
         let json: serde_json::Value = serde_json::from_slice(&koerper).expect("JSON");
         assert_eq!(
             json["fehler"],
-            "Verlauf nicht gelesen — Werkbank geschlossen"
+            "Interner Fehler — Verlauf nicht gelesen; bitte erneut versuchen"
         );
     }
 

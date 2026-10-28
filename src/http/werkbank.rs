@@ -3,6 +3,7 @@
 //! mindestens 2. Die Erlaubnis wird vor `spawn_blocking` erworben und lebt bis zum Ende des Blocking-Teils;
 //! so entstehen höchstens so viele Arbeitsspitzen (und Arenen des Allokators) zugleich, wie es Plätze gibt.
 
+use super::abbruch::{Abbruchart, Abgebrochen};
 use std::sync::Arc;
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 
@@ -19,10 +20,6 @@ pub fn erlaubnisse_aus_kernen(kerne: usize) -> usize {
 pub struct Werkbank {
     erlaubnisse: Arc<Semaphore>,
 }
-
-/// Die Arbeit lief nicht zu Ende: die Werkbank ist geschlossen oder der Blocking-Teil brach ab.
-#[derive(Debug)]
-pub struct Abgebrochen(pub String);
 
 impl Werkbank {
     /// So viele Erlaubnisse, wie der Prozess Kerne nutzen darf (`available_parallelism`), mindestens 2.
@@ -43,7 +40,10 @@ impl Werkbank {
         Arc::clone(&self.erlaubnisse)
             .acquire_owned()
             .await
-            .map_err(|fehler| Abgebrochen(format!("Werkbank geschlossen — {fehler}")))
+            .map_err(|fehler| Abgebrochen {
+                art: Abbruchart::Geschlossen,
+                ursache: format!("Werkbank geschlossen — {fehler}"),
+            })
     }
 
     /// Erwirbt eine Erlaubnis und führt `arbeit` mit ihr auf einem Blocking-Thread aus.
@@ -59,7 +59,7 @@ impl Werkbank {
             ergebnis
         })
         .await
-        .map_err(|fehler| Abgebrochen(fehler.to_string()))
+        .map_err(Abgebrochen::from)
     }
 }
 

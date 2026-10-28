@@ -1,5 +1,6 @@
 //! HTTP-Schnittstelle: Router an der Systemgrenze (A00004).
 
+mod abbruch;
 mod beitreten;
 mod channels;
 mod eingebettet;

@@ -6,6 +6,7 @@
 //! stderr mit Pfad und Grund. Die Arbeit am Verzeichnis läuft über `spawn_blocking`.
 
 use super::Zustand;
+use super::abbruch::{Abgebrochen, Grenzort, abbruch_beantworten};
 use super::koerper::{Koerperfehler, json_lesen};
 use super::teilnehmer::Teilnehmer;
 use super::teilnehmerliste::zeit_als_text;
@@ -73,15 +74,35 @@ pub async fn anlegen(
             ablagefehler(&grund)
         }
         Ok(Err(fehler)) => anlegefehler(fehler, &name),
-        Err(abgebrochen) => ablagefehler(&format!("Anlegen abgebrochen: {abgebrochen}")),
+        Err(abgebrochen) => abbruch_beantworten(
+            &zustand.protokoll,
+            &Abgebrochen::from(abgebrochen),
+            &Grenzort {
+                route: "POST /api/channels",
+                operation: "channel_anlegen",
+                kennung: Some(&wer),
+                channel: Some(&name),
+            },
+            "Channel nicht angelegt",
+        ),
     }
 }
 
-pub async fn auflisten(_: Teilnehmer, State(zustand): State<Arc<Zustand>>) -> Response {
+pub async fn auflisten(teilnehmer: Teilnehmer, State(zustand): State<Arc<Zustand>>) -> Response {
     let gespraeche = Arc::clone(&zustand.gespraeche);
     match tokio::task::spawn_blocking(move || gespraeche.channels()).await {
         Ok(stand) => Json(stand_als_json(&stand)).into_response(),
-        Err(abgebrochen) => ablagefehler(&format!("Liste abgebrochen: {abgebrochen}")),
+        Err(abgebrochen) => abbruch_beantworten(
+            &zustand.protokoll,
+            &Abgebrochen::from(abgebrochen),
+            &Grenzort {
+                route: "GET /api/channels",
+                operation: "channels",
+                kennung: Some(teilnehmer.kennung.als_text()),
+                channel: None,
+            },
+            "Channels nicht gelesen",
+        ),
     }
 }
 
