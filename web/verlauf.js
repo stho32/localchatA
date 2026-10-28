@@ -2,7 +2,7 @@
 // älteste oben und steht am Ende; solange der Blick dort steht, hält ein ResizeObserver ihn dort, auch wenn Höhen
 // sich nachträglich ändern (Schrift, Fenster). Beim Scrollen lädt das Fenster an beiden Enden je 100 nach und hält
 // höchstens fünf Blöcke; die oberste sichtbare Nachricht bleibt dabei an ihrer Stelle (Anker von Hand, in einem
-// Zug). Ein Wechsel bricht laufende Abrufe ab, eine Antwort für einen verlassenen Channel wird verworfen, Daten des
+// Zug). Ein Wechsel bricht laufende Abrufe ab, eine Antwort für einen nicht mehr gewählten Channel wird verworfen, Daten des
 // vorigen Channels fallen weg. Der Verlauf ist die einzige scrollende Fläche der Mitte: role="log",
 // aria-live="off", mit der Tastatur fokussierbar; Nachladen wird nie angesagt.
 import { nachrichtZeichnen, kopfSetzen, trennerZeichnen, langeEinklappen, langeUmschalten } from './nachricht.js';
