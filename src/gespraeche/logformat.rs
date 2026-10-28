@@ -55,6 +55,16 @@ pub fn text(satz: &str) -> String {
     zeilen.join("\n").trim_end_matches('\n').to_string()
 }
 
+/// Die Zeit aus der Kopfzeile am Anfang von `satz` — nur die erste Zeile wird gelesen.
+pub fn kopfzeit(satz: &[u8]) -> Option<Zeit> {
+    let kopf = satz.strip_prefix(b"@ ")?;
+    let ende = kopf
+        .iter()
+        .position(|&byte| byte == b' ' || byte == b'\n')?;
+    let zeit = std::str::from_utf8(&kopf[..ende]).ok()?;
+    DateTime::parse_from_rfc3339(zeit).ok()
+}
+
 /// Zerlegt die Bytes einer Tagesdatei in Sätze und Defekte, in der Reihenfolge, in der sie abgeschlossen werden.
 /// Die Bytespannen beziehen sich auf die Rohbytes. Eine Zeile, die kein gültiges UTF-8 ist, ist ein Defekt
 /// ihrer Zeile — als Kopfzeile ein Defekt des ganzen Satzes —, nie des ganzen Tages (ADR-0011).

@@ -3,6 +3,8 @@
 //! Der Rohtext sind die Bytes der Tagesdatei, auch ungültiges UTF-8 darin; er bleibt byte-gleich mit ihr,
 //! solange nur nach erfolgreichem Schreiben angehängt wird.
 
+use super::logformat;
+use crate::uhr::Zeit;
 use chrono::NaiveDate;
 use std::collections::BTreeMap;
 
@@ -53,9 +55,82 @@ impl Verlauf {
     }
 }
 
+/// Auf welcher Seite einer Zeit die Sätze liegen sollen: echt davor oder echt danach (ADR-0025 Regel 2).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Seite {
+    Vor,
+    Nach,
+}
+
+/// Index des ersten Satzes im Tag, der nicht mehr echt vor (`Vor`) bzw. der echt nach (`Nach`) der Zeit liegt —
+/// binäre Suche über die Kopfzeiten, verglichen als Zeitpunkt (ADR-0025 Regel 4).
+/// Ein Kopf ohne lesbare Zeit kommt nicht vor (der Index nimmt nur gültige Sätze auf); er zählt als älter.
+fn grenze_im_tag(rohtext: &[u8], satzanfaenge: &[usize], zeit: &Zeit, seite: Seite) -> usize {
+    satzanfaenge.partition_point(|&anfang| {
+        let Some(kopfzeit) = rohtext.get(anfang..).and_then(logformat::kopfzeit) else {
+            return true;
+        };
+        match seite {
+            Seite::Vor => kopfzeit < *zeit,
+            Seite::Nach => kopfzeit <= *zeit,
+        }
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn zeit(text: &str) -> Zeit {
+        Zeit::parse_from_rfc3339(text).expect("Testzeit")
+    }
+
+    /// Rohtext und Satzanfänge eines Tages aus Sätzen mit diesen Zeiten.
+    fn tag_mit(zeiten: &[&str]) -> (Vec<u8>, Vec<usize>) {
+        let mut rohtext = Vec::new();
+        let mut anfaenge = Vec::new();
+        for zeit in zeiten {
+            anfaenge.push(rohtext.len());
+            rohtext.extend_from_slice(format!("@ {zeit} a@127.0.0.2\n  x\n\n").as_bytes());
+        }
+        (rohtext, anfaenge)
+    }
+
+    #[test]
+    fn die_grenze_im_tag_ist_exklusiv_in_beide_richtungen() {
+        let (rohtext, anfaenge) = tag_mit(&[
+            "2026-10-28T10:00:00.000+01:00",
+            "2026-10-28T10:00:02.000+01:00",
+        ]);
+        let grenze =
+            |zeitpunkt: &str, seite| grenze_im_tag(&rohtext, &anfaenge, &zeit(zeitpunkt), seite);
+
+        assert_eq!(grenze("2026-10-28T10:00:02.000+01:00", Seite::Vor), 1);
+        assert_eq!(grenze("2026-10-28T10:00:00.000+01:00", Seite::Vor), 0);
+        assert_eq!(grenze("2026-10-28T10:00:01.000+01:00", Seite::Vor), 1);
+        assert_eq!(grenze("2026-10-28T11:00:00.000+01:00", Seite::Vor), 2);
+        assert_eq!(grenze("2026-10-28T10:00:01.000+01:00", Seite::Nach), 1);
+        assert_eq!(grenze("2026-10-28T10:00:00.000+01:00", Seite::Nach), 1);
+        assert_eq!(grenze("2026-10-28T10:00:02.000+01:00", Seite::Nach), 2);
+        assert_eq!(grenze("2026-10-28T09:00:00.000+01:00", Seite::Nach), 0);
+    }
+
+    #[test]
+    fn die_grenze_vergleicht_zeitpunkte_nicht_zeichenketten() {
+        let (rohtext, anfaenge) = tag_mit(&["2026-10-25T02:45:00.000+02:00"]);
+
+        let vor = grenze_im_tag(
+            &rohtext,
+            &anfaenge,
+            &zeit("2026-10-25T02:30:00.000+01:00"),
+            Seite::Vor,
+        );
+
+        assert_eq!(
+            vor, 1,
+            "02:45+02:00 (00:45 UTC) liegt vor 02:30+01:00 (01:30 UTC)"
+        );
+    }
 
     fn tag(text: &str) -> NaiveDate {
         NaiveDate::parse_from_str(text, "%Y-%m-%d").expect("Testtag")
