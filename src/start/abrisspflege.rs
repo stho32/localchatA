@@ -1,7 +1,9 @@
 //! Abrisspflege (B0099, ADR-0017 Regel 2): aus dem Herzschlag `H` die Werte, mit denen der Kernel eine tote
 //! Verbindung selbst abbricht — `TCP_USER_TIMEOUT` = 2H (die Abrissgrenze), Keepalive nach H, alle H, 2 Proben.
-//! Rein: der Herzschlag kommt als Argument, gesetzt wird anderswo.
+//! `pflege_aus` ist rein; `kernel_pflegen` setzt die Werte am Socket (B0100, über `rustix::net::sockopt`).
 
+use std::fmt;
+use std::io;
 use std::time::Duration;
 
 /// Proben ohne Antwort, nach denen Keepalive die Verbindung aufgibt.
@@ -42,6 +44,59 @@ fn ganze_millisekunden_aufgerundet(dauer: Duration) -> Duration {
     Duration::from_millis(u64::try_from(millisekunden).unwrap_or(u64::MAX))
 }
 
+/// Eine Option ließ sich nicht setzen — welche und warum.
+#[derive(Debug)]
+pub struct Pflegefehler {
+    pub option: &'static str,
+    pub fehler: io::Error,
+}
+
+impl fmt::Display for Pflegefehler {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "Abrisspflege: {} lässt sich nicht setzen ({}) — Verbindungen werden ohne Pflege bedient",
+            self.option, self.fehler
+        )
+    }
+}
+
+/// Setzt die Pflege am Socket: `TCP_USER_TIMEOUT` (nur Linux), dann Keepalive an mit Ruhezeit, Abstand und
+/// Proben. Bricht beim ersten Fehler ab und nennt die Option.
+#[cfg(unix)]
+pub fn kernel_pflegen(
+    socket: impl std::os::fd::AsFd,
+    pflege: &Verbindungspflege,
+) -> Result<(), Pflegefehler> {
+    use rustix::net::sockopt;
+    let socket = socket.as_fd();
+    let mit = |option: &'static str| {
+        move |fehler: rustix::io::Errno| Pflegefehler {
+            option,
+            fehler: fehler.into(),
+        }
+    };
+    #[cfg(any(target_os = "linux", target_os = "android"))]
+    {
+        let millisekunden = u32::try_from(pflege.user_timeout.as_millis()).unwrap_or(u32::MAX);
+        sockopt::set_tcp_user_timeout(socket, millisekunden).map_err(mit("TCP_USER_TIMEOUT"))?;
+    }
+    sockopt::set_socket_keepalive(socket, true).map_err(mit("SO_KEEPALIVE"))?;
+    sockopt::set_tcp_keepidle(socket, pflege.keepidle).map_err(mit("TCP_KEEPIDLE"))?;
+    sockopt::set_tcp_keepintvl(socket, pflege.keepintvl).map_err(mit("TCP_KEEPINTVL"))?;
+    sockopt::set_tcp_keepcnt(socket, pflege.keepcnt).map_err(mit("TCP_KEEPCNT"))?;
+    Ok(())
+}
+
+/// Ohne Unix gibt es hier keine Kernel-Fassung (ADR-0017: Projektumgebung Linux) — sichtbar als Fehler.
+#[cfg(not(unix))]
+pub fn kernel_pflegen<S>(_socket: S, _pflege: &Verbindungspflege) -> Result<(), Pflegefehler> {
+    Err(Pflegefehler {
+        option: "SO_KEEPALIVE",
+        fehler: io::Error::from(io::ErrorKind::Unsupported),
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -69,5 +124,59 @@ mod tests {
     fn angebrochene_sekunden_werden_aufgerundet_nie_abgerundet() {
         assert_eq!(pflege_aus(Duration::from_millis(5_001)), pflege(10_002, 6));
         assert_eq!(pflege_aus(Duration::from_millis(1)), pflege(2, 1));
+    }
+}
+
+/// Probe der Kernel-Fassung am echten Loopback-Socket (B0100, dependency-probe für `rustix::net::sockopt`):
+/// gesetzt wird, was `getsockopt` genau so zurückliest; ein Deskriptor, der kein Socket ist, ergibt einen
+/// Fehler, der die Option nennt.
+#[cfg(all(test, target_os = "linux"))]
+mod kernel {
+    use super::*;
+    use rustix::net::sockopt;
+
+    #[tokio::test]
+    async fn die_pflege_aus_5_s_liest_getsockopt_am_angenommenen_socket_genau_zurueck() {
+        let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0))
+            .await
+            .expect("gebunden");
+        let adresse = listener.local_addr().expect("Adresse");
+        let _client = tokio::net::TcpStream::connect(adresse)
+            .await
+            .expect("verbunden");
+        let (angenommen, _) = listener.accept().await.expect("angenommen");
+
+        kernel_pflegen(&angenommen, &pflege_aus(Duration::from_secs(5))).expect("gesetzt");
+
+        assert_eq!(
+            sockopt::tcp_user_timeout(&angenommen).expect("lesen"),
+            10_000
+        );
+        assert!(sockopt::socket_keepalive(&angenommen).expect("lesen"));
+        assert_eq!(
+            sockopt::tcp_keepidle(&angenommen).expect("lesen"),
+            Duration::from_secs(5)
+        );
+        assert_eq!(
+            sockopt::tcp_keepintvl(&angenommen).expect("lesen"),
+            Duration::from_secs(5)
+        );
+        assert_eq!(sockopt::tcp_keepcnt(&angenommen).expect("lesen"), 2);
+    }
+
+    #[test]
+    fn auf_einem_deskriptor_der_kein_socket_ist_nennt_der_fehler_option_und_grund() {
+        let datei = tempfile::tempfile().expect("Datei");
+
+        let fehler =
+            kernel_pflegen(&datei, &pflege_aus(Duration::from_secs(5))).expect_err("kein Socket");
+
+        assert_eq!(fehler.option, "TCP_USER_TIMEOUT");
+        assert_eq!(
+            fehler.fehler.raw_os_error(),
+            Some(rustix::io::Errno::NOTSOCK.raw_os_error())
+        );
+        let text = fehler.to_string();
+        assert!(text.contains("TCP_USER_TIMEOUT"), "{text}");
     }
 }
