@@ -99,7 +99,7 @@ Gemeinsam für alle Kriterien, wenn nicht anders genannt: Start und Gegeben wie 
 Die Bubbles aus der WBS als Datenfluss — **Vorplanung**: welche es am Ende werden, entscheidet der Entwickler beim Bauen.
 
 - B0289 Frist-Meldungen als Einträge (rein): Pflegebericht | Friständerung | Schreibfehler → `Eintrag` nach der Tabelle in ADR-0030.
-- B0290 Frist-Einträge eintragen (Integration): Pflege beim Start, Fristpflege am Tageswechsel, `frist_setzen` → `protokoll.eintragen` statt `eprintln!`.
+- B0290 Frist-Einträge eintragen (Integration): Pflege beim Start, Tagesaufgabe `fristpflege` am Tagestakt (B0291, R00008), `frist_setzen` → `protokoll.eintragen` statt `eprintln!`.
 
 **Elemente** (nach A00015 und R00008):
 
@@ -129,7 +129,7 @@ Nach Skill `test-pyramide`; die Szenarien der User Story werden Tests.
 ## Offene Fragen
 
 - Keine für den Bau dieses Slice.
-- An den architekt über den Director, blockiert R00017 nicht: wie sich die Fristpflege am Tagestakt aus F0052 anmeldet (Startwert des Takts, Pflege beim Start um Mitternacht, Uhr rückwärts, eigener Takt in F0035). Stand und Empfehlungen: WBS, „Offene Fragen“, Punkt „I0018 gegen den Tagestakt aus F0052“.
+- **Geklärt 2026-10-28 — Anmeldung am Tagestakt**: entschieden in ADR-0041, Ergänzung „Vertrag des Tagestakts“. Die Fristpflege ist die Tagesaufgabe `fristpflege` des Tagestakts aus F0052 (kein eigener Takt), `zuletzt` = Datum der Pflege beim Start, fällig bei Ungleichheit, eine Panik beendet den Takt nicht. Nachgezogen in R00008 F0035 und R00014 F0052; der Punkt in der WBS unter „Offene Fragen“ ist geschlossen.
 
 ## Manuelle Vorbereitungstätigkeiten
 
@@ -181,5 +181,5 @@ Optionen und Wahl: ADR-0030, Ergänzung „wie I0018 an das Betriebsprotokoll an
 
 - Der Rückfall auf stderr bei nicht schreibbarem `logs/` (R00014 F0051).
 - Die Stufe einstellen und die Spur bei `--protokoll-stufe warning` (R00014 F0054).
-- Die Anmeldung der Fristpflege am Tagestakt (R00008 F0035, offene Frage oben).
+- Die Anmeldung der Fristpflege am Tagestakt (R00008 F0035, B0291; geklärt, siehe Offene Fragen).
 - Die Warnung beim Laden defekter Einstellungen (`WARNING laden`, R00014 F0051).
