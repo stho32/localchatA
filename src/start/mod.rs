@@ -13,6 +13,11 @@ pub(crate) mod ende;
 mod ladedefekte;
 pub mod laufzeit;
 mod ordner;
+#[cfg_attr(
+    not(test),
+    expect(dead_code, reason = "B0353 verdrahtet die Quote im Start")
+)]
+mod plattenquote;
 mod port;
 mod protokollstufe;
 mod rechnername;
