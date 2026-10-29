@@ -133,3 +133,50 @@ async fn eine_gueltige_option_uebersteuert_eine_falsche_umgebung() {
     assert_eq!(ende.exit, Some(2), "{}", ende.stderr);
     assert!(!ohne.path().join("logs").exists());
 }
+
+/// B0386, Abnahme-Probe der engen Wiederholung des Code-Reviews #24 (A8, wörtlich): „Integrationstest
+/// online/offline mit LOCALCHATA_PROTOKOLL_STUFE=debug und kleiner LOCALCHATA_GNADENFRIST_MS → je eine „DEBUG
+/// sitzung Sitzung online“/„… offline“ mit kennung=; Mutant start/mod.rs:271 mit_veroeffentlichen ohne Protokoll
+/// muss rot werden.“ — `beta` tritt bei und öffnet den Ereignisstrom (online), schließt ihn und schweigt (offline).
+#[tokio::test]
+async fn online_und_offline_sind_je_eine_debug_zeile_mit_kennung() {
+    let wurzel = tempfile::tempdir().expect("Wegwerf-Ordner");
+    let instanz = starten_mit(
+        wurzel.path(),
+        &LOKAL,
+        &[
+            ("LOCALCHATA_PROTOKOLL_STUFE", "debug"),
+            ("LOCALCHATA_GNADENFRIST_MS", "3000"),
+        ],
+    );
+    let beta = gemeinsam::Absender::von("127.0.0.1");
+    let token = beta
+        .beitreten(&instanz.adresse, serde_json::json!({"name": "beta"}), None)
+        .await
+        .json["token"]
+        .as_str()
+        .expect("Token")
+        .to_string();
+    let mut strom = gemeinsam::strom::Strom::oeffnen(&beta, &instanz.adresse, &token).await;
+    strom.bis(std::time::Duration::from_secs(2), |_| true).await;
+    drop(strom);
+
+    let sitzung = |text: &str| {
+        alle_zeilen(wurzel.path())
+            .into_iter()
+            .filter(|zeile| zeile.contains(&format!(" DEBUG sitzung {text} | ")))
+            .collect::<Vec<_>>()
+    };
+    let bis = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    while sitzung("Sitzung offline").is_empty() && std::time::Instant::now() < bis {
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    }
+
+    let online = sitzung("Sitzung online");
+    let offline = sitzung("Sitzung offline");
+    assert_eq!(online.len(), 1, "{online:#?}");
+    assert_eq!(offline.len(), 1, "{offline:#?}");
+    for zeile in online.iter().chain(&offline) {
+        assert!(zeile.ends_with(" | kennung=beta@127.0.0.1"), "{zeile}");
+    }
+}
