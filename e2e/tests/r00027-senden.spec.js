@@ -45,16 +45,23 @@ async function tippen(page, text) {
 }
 
 for (const geraet of ['telefon', 'tablet']) {
-  test(`Tippen sendet (${geraet}): ein POST, erst vorläufig, dann bestätigt, Feld leer mit Fokus, Entwurf gelöscht`, async ({ browser }) => {
+  test(`Tippen sendet (${geraet}): ein POST, erst vorläufig, dann bestätigt, Feld leer mit Fokus, der nie wich, Entwurf gelöscht`, async ({ browser }) => {
     const { page, fehler } = await seiteAuf(browser, geraet);
     const sendungen = sendungenMitschreiben(page);
     await postVerzoegern(page, 1000);
     const hoeheLeer = await eingabe(page).evaluate((feld) => feld.getBoundingClientRect().height);
 
     await tippen(page, 'Hallo');
+    await eingabe(page).evaluate((feld) => {
+      window.lcFeldVerlassen = 0;
+      feld.addEventListener('blur', () => {
+        window.lcFeldVerlassen += 1;
+      });
+    });
     await knopf(page).tap();
 
     await expect(vorlaeufige(page).locator('.lc-send')).toHaveText('◌ wird gesendet …');
+    expect(await page.evaluate(() => window.lcFeldVerlassen)).toBe(0);
     await expect(bestaetigt(page, 'Hallo')).toHaveCount(1, { timeout: 10000 });
     await expect(vorlaeufige(page)).toHaveCount(0);
     await expect(bestaetigt(page, 'Hallo').locator('.lc-id')).toHaveText('shoff@127.0.0.1');
