@@ -27,6 +27,7 @@ pub const HOECHSTENS_EINTRAEGE: usize = 256;
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Abfrage {
     Rueckwaerts(IpAddr),
+    #[cfg_attr(not(test), allow(dead_code))] // vorübergehend: verdrahtet mit B0373
     Vorwaerts(String),
 }
 
@@ -117,6 +118,7 @@ impl Auskunft {
     }
 
     /// Das Urteil über einen Namen; `urteilen` fragt die Namensauskunft (vorwärts, eigen?) und entscheidet.
+    #[cfg_attr(not(test), allow(dead_code))] // vorübergehend: verdrahtet mit B0373
     pub async fn urteil_ueber(
         &self,
         name: &str,
@@ -132,8 +134,28 @@ impl Auskunft {
         }
     }
 
+    /// Information „Host-Name über … erlaubt“ mit Name und lokaler Adresse — einmal je Cache-Eintrag und Name
+    /// (ADR-0045 Regel 8).
+    pub fn erlaubt_melden(&self, abfrage: &Abfrage, name: &str, lokal: IpAddr) {
+        if !self.erstmals_gemeldet(abfrage, name) {
+            return;
+        }
+        let text = match abfrage {
+            Abfrage::Rueckwaerts(_) => "Host-Name über Rückwärtsauflösung erlaubt",
+            Abfrage::Vorwaerts(_) => "Host-Name über lokalen Namensraum erlaubt",
+        };
+        self.innen.protokoll.eintragen(
+            Stufe::Information,
+            Bereich::Grenzschutz,
+            text,
+            Kontext::neu()
+                .mit(Schluessel::Name, name)
+                .mit(Schluessel::Adresse, lokal),
+        );
+    }
+
     /// `true` genau beim ersten Mal je gültigem Cache-Eintrag und Name — für die Information „… erlaubt“.
-    pub fn erstmals_gemeldet(&self, abfrage: &Abfrage, name: &str) -> bool {
+    fn erstmals_gemeldet(&self, abfrage: &Abfrage, name: &str) -> bool {
         let mut cache = self
             .innen
             .cache
@@ -482,7 +504,6 @@ mod tests {
 
     struct Aufbau {
         auskunft: Arc<Auskunft>,
-        test: Arc<Testauskunft>,
         uhr: Arc<GestellteUhr>,
         speicher: Speicher,
     }
@@ -496,7 +517,6 @@ mod tests {
         ));
         Aufbau {
             auskunft,
-            test,
             uhr,
             speicher,
         }

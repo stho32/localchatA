@@ -1,8 +1,11 @@
 //! Grenzschutz (ADR-0014): welche Host-Namen die Instanz anspricht (gegen DNS-Rebinding) und von welchem
 //! Ursprung sie Wirkung annimmt (gegen CSRF).
 
+use super::auskunft::{Abfrage, Auskunft};
+use super::hostnamen::{FesteNamen, Grund, host_urteil, normalform};
 use crate::protokoll::episoden::Auftreten;
 use crate::protokoll::{Bereich, Kontext, Protokoll, Schluessel, Stufe};
+use crate::start::ausliefern::LokaleAdresse;
 use axum::Json;
 use axum::extract::{ConnectInfo, Request, State};
 use axum::http::header::{
@@ -14,7 +17,7 @@ use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
 use serde_json::json;
 use std::fmt;
-use std::net::{Ipv4Addr, Ipv6Addr, SocketAddr};
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 use std::sync::Arc;
 
 /// Die äußerste Schicht vor jeder Route (auch 404 und 405): Host prüfen (403 mit Ausweg als Text),
@@ -26,7 +29,11 @@ pub async fn schicht(
 ) -> Response {
     let pfad = anfrage.uri().path().to_string();
     let host = einziger_wert(anfrage.headers(), &HOST).map(str::to_string);
-    let mut antwort = match abweisung(&schutz, anfrage.method(), anfrage.headers()) {
+    let lokal = anfrage
+        .extensions()
+        .get::<LokaleAdresse>()
+        .map(|LokaleAdresse(lokal)| lokal.ip());
+    let mut antwort = match abweisung(&schutz, anfrage.method(), anfrage.headers(), lokal).await {
         Some((abweisung, ereignis, kopf)) => {
             abweisung_eintragen(&protokoll, &anfrage, ereignis, &kopf);
             abweisung
@@ -75,13 +82,14 @@ fn abweisung_eintragen(
 }
 
 /// Die Antwort auf eine Abweisung, dazu Ereignis und Kopf, an dem sie hing.
-fn abweisung(
+async fn abweisung(
     schutz: &Grenzschutz,
     methode: &Method,
     kopf: &HeaderMap,
+    lokal: Option<IpAddr>,
 ) -> Option<(Response, &'static str, HeaderName)> {
     let host = einziger_wert(kopf, &HOST);
-    if let Err(abgewiesen) = schutz.host_erlaubt(host) {
+    if let Err(abgewiesen) = schutz.host_pruefen(host, lokal).await {
         let text = [(CONTENT_TYPE, "text/plain; charset=utf-8")];
         return Some((
             (StatusCode::FORBIDDEN, text, abgewiesen.to_string()).into_response(),
@@ -120,11 +128,12 @@ pub(super) fn einziger_wert<'a>(kopf: &'a HeaderMap, name: &HeaderName) -> Optio
     Some(erster.to_str().unwrap_or_default())
 }
 
-/// Die beim Start festgelegten Namen, unter denen die Instanz außer IP-Literalen und `localhost` antwortet.
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// Welche Host-Namen gelten (ADR-0045): die beim Start festgelegten Namen und, über die Auskunft mit Cache, der
+/// Rückwärtsname der angesprochenen Adresse.
+#[derive(Clone)]
 pub struct Grenzschutz {
-    rechnername: Option<String>,
-    erreichbar_als: Vec<String>,
+    feste: FesteNamen,
+    auskunft: Option<Arc<Auskunft>>,
 }
 
 /// Der Host ist nicht freigegeben; `name` ist der Host-Anteil ohne Port, `None` heißt: kein Host-Header.
@@ -134,39 +143,57 @@ pub struct HostAbgewiesen {
 }
 
 impl Grenzschutz {
+    /// Nur die festen Namen; ohne Auskunft wird nichts aufgelöst.
     pub fn neu(rechnername: Option<String>, erreichbar_als: Vec<String>) -> Self {
         Grenzschutz {
-            rechnername,
-            erreichbar_als,
+            feste: FesteNamen::neu(rechnername.as_deref(), &erreichbar_als),
+            auskunft: None,
         }
     }
 
-    /// Erlaubt ist der Host-Anteil (ohne Port), wenn er ein IP-Literal, `localhost`, der Rechnername,
-    /// `<rechnername>.local` oder ein mit `--erreichbar-als` freigegebener Name ist — Namen ohne Beachtung
-    /// der Groß-/Kleinschreibung. Ein Wert, der sich nicht als Host mit optionalem Port lesen lässt, nie.
-    pub fn host_erlaubt(&self, host: Option<&str>) -> Result<(), HostAbgewiesen> {
+    pub fn mit_auskunft(mut self, auskunft: Arc<Auskunft>) -> Self {
+        self.auskunft = Some(auskunft);
+        self
+    }
+
+    /// Urteil über den `Host` einer Anfrage, die über die lokale Adresse `lokal` kam: IP-Literal erlaubt; ein
+    /// Name nur in Normalform (Regel 1), dann fest (Regel 2) oder als Rückwärtsname von `lokal` (Regel 3); alles
+    /// andere abgewiesen (Regel 5). Ein Wert, der sich nicht als Host mit optionalem Port lesen lässt, nie.
+    pub async fn host_pruefen(
+        &self,
+        host: Option<&str>,
+        lokal: Option<IpAddr>,
+    ) -> Result<Grund, HostAbgewiesen> {
         let Some(wert) = host else {
             return Err(HostAbgewiesen { name: None });
         };
-        match host_anteil(wert) {
-            Some(Hostanteil::IpLiteral) => Ok(()),
-            Some(Hostanteil::Name(name)) if self.name_freigegeben(name) => Ok(()),
-            Some(Hostanteil::Name(name)) => Err(HostAbgewiesen {
-                name: Some(name.to_string()),
-            }),
-            None => Err(HostAbgewiesen {
-                name: Some(wert.to_string()),
-            }),
+        let name = match host_anteil(wert) {
+            Some(Hostanteil::IpLiteral) => return Ok(Grund::Fest),
+            Some(Hostanteil::Name(name)) => name,
+            None => {
+                return Err(HostAbgewiesen {
+                    name: Some(wert.to_string()),
+                });
+            }
+        };
+        let abgewiesen = || HostAbgewiesen {
+            name: Some(name.to_string()),
+        };
+        let normal = normalform(name).ok_or_else(abgewiesen)?;
+        if let Some(grund) = host_urteil(&normal, &self.feste, Vec::new) {
+            return Ok(grund);
         }
-    }
-
-    fn name_freigegeben(&self, name: &str) -> bool {
-        let ist = |frei: &str| !frei.is_empty() && frei.eq_ignore_ascii_case(name);
-        let rechnername = self.rechnername.as_deref().unwrap_or_default();
-        ist("localhost")
-            || ist(rechnername)
-            || (!rechnername.is_empty() && ist(&format!("{rechnername}.local")))
-            || self.erreichbar_als.iter().any(|frei| ist(frei))
+        let (Some(auskunft), Some(lokal)) = (&self.auskunft, lokal) else {
+            return Err(abgewiesen());
+        };
+        let namen = auskunft.namen_der_adresse(lokal).await.unwrap_or_default();
+        let grund = host_urteil(&normal, &self.feste, || namen).ok_or_else(abgewiesen)?;
+        auskunft.erlaubt_melden(
+            &Abfrage::Rueckwaerts(lokal.to_canonical()),
+            &normal,
+            lokal.to_canonical(),
+        );
+        Ok(grund)
     }
 }
 
@@ -333,6 +360,17 @@ impl fmt::Display for HostAbgewiesen {
 mod tests {
     use super::*;
 
+    impl Grenzschutz {
+        /// Das Urteil ohne Auskunft und ohne lokale Adresse — nur Normalform und feste Namen.
+        fn host_erlaubt(&self, host: Option<&str>) -> Result<(), HostAbgewiesen> {
+            tokio::runtime::Builder::new_current_thread()
+                .build()
+                .expect("Laufzeit")
+                .block_on(self.host_pruefen(host, None))
+                .map(|_| ())
+        }
+    }
+
     fn schutz() -> Grenzschutz {
         Grenzschutz::neu(Some("nuc5".into()), vec!["chat.lan".into(), "nuc".into()])
     }
@@ -349,6 +387,8 @@ mod tests {
             "localhost:7430",
             "localhost",
             "LocalHost:1",
+            // ADR-0045 Regel 1: ein abschließender Punkt fällt in der Normalform.
+            "localhost.:1",
             "nuc5:7430",
             "NUC5:7430",
             "nuc5.local:7430",
@@ -369,7 +409,6 @@ mod tests {
             ("127.0.0.1.evil.example:7430", "127.0.0.1.evil.example"),
             ("localhost.evil.example", "localhost.evil.example"),
             ("xlocalhost:1", "xlocalhost"),
-            ("localhost.:1", "localhost."),
             ("nuc5.evil:1", "nuc5.evil"),
             ("nuc5.local.evil", "nuc5.local.evil"),
             ("chat.lan.evil:80", "chat.lan.evil"),

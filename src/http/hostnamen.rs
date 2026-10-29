@@ -37,6 +37,7 @@ fn ist_zahl(label: &str) -> bool {
 
 /// Endet `name` (in Normalform) auf `suffix`, und zwar an einer Label-Grenze? `evil-local` und
 /// `local.evil.example` enden nicht auf `local`.
+#[cfg_attr(not(test), allow(dead_code))] // vorübergehend: verdrahtet mit B0372
 pub fn endet_auf_label(name: &str, suffix: &str) -> bool {
     name.strip_suffix(suffix)
         .is_some_and(|davor| davor.ends_with('.'))
@@ -44,6 +45,7 @@ pub fn endet_auf_label(name: &str, suffix: &str) -> bool {
 
 /// Warum ein Host-Name erlaubt ist.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[allow(dead_code)] // vorübergehend: LokalerNamensraum und AlleNamen entstehen mit B0373 und B0377
 pub enum Grund {
     /// Regel 2: `localhost`, Rechnername samt `.local`, `--erreichbar-als`.
     Fest,

@@ -26,7 +26,7 @@ use verbindungen::Verbindungsgrenzen;
 use crate::anwesenheit::status::Status;
 use crate::anwesenheit::{Anwesenheit, gnadenfrist};
 use crate::gespraeche::{Dateiablage, Gespraeche, Pflegeanlass, fristeintrag};
-use crate::http::{self, Grenzschutz, Zustand};
+use crate::http::{self, Auskunft, Echt, Grenzschutz, Namensauskunft, Tabelle, Zustand};
 use crate::live::bus::{self, Bus};
 use crate::live::{self, herzschlag, takt};
 use crate::protokoll::bereinigung::Anlass;
@@ -106,12 +106,23 @@ pub async fn ausfuehren<I: IntoIterator<Item = String>>(argumente: I) -> ExitCod
                     return ExitCode::from(2);
                 }
             };
+            let namensauskunft: Arc<dyn Namensauskunft> = match Tabelle::aus_umgebung() {
+                Ok(Some(tabelle)) => Arc::new(tabelle),
+                Ok(None) => Arc::new(Echt),
+                Err(fehler) => {
+                    eprintln!("{fehler}");
+                    return ExitCode::from(2);
+                }
+            };
             match starten(
                 auftrag,
                 uhr,
                 gnadenfrist,
                 herzschlag,
-                testpanik,
+                Knoepfe {
+                    testpanik,
+                    namensauskunft,
+                },
                 stufe,
                 ruhe,
             )
@@ -143,7 +154,7 @@ async fn starten(
     uhr: Box<dyn Uhr>,
     gnadenfrist: Duration,
     herzschlag: Duration,
-    testpanik: Testpanik,
+    knoepfe: Knoepfe,
     (stufe, stufe_herkunft): (Stufe, &'static str),
     ruhe: Duration,
 ) -> Result<(), Startabbruch> {
@@ -166,7 +177,7 @@ async fn starten(
         Startlaeufe {
             beginn,
             bereinigt_am,
-            testpanik,
+            knoepfe,
             stufe_herkunft,
         },
     );
@@ -185,9 +196,16 @@ async fn starten(
 struct Startlaeufe {
     beginn: Instant,
     bereinigt_am: chrono::NaiveDate,
-    testpanik: Testpanik,
+    knoepfe: Knoepfe,
     /// Woher die Mindeststufe kommt (`option=` im Start-Eintrag).
     stufe_herkunft: &'static str,
+}
+
+/// Was von außen in den Lauf eingreift: der Testknopf für Panik und die Namensauskunft (echt oder, im
+/// Debug-Build, die Tabelle aus `LOCALCHATA_TESTNAMEN`).
+struct Knoepfe {
+    testpanik: Testpanik,
+    namensauskunft: Arc<dyn Namensauskunft>,
 }
 
 /// Die Gespräche und das Datum ihrer Pflege beim Start — der Startwert der Tagesaufgabe `fristpflege`.
@@ -253,7 +271,10 @@ async fn nach_der_sperre(
     let Startlaeufe {
         beginn,
         bereinigt_am,
-        testpanik,
+        knoepfe: Knoepfe {
+            testpanik,
+            namensauskunft,
+        },
         stufe_herkunft,
     } = startlaeufe;
     let bus = Arc::new(Bus::neu(live::KAPAZITAET));
@@ -334,7 +355,13 @@ async fn nach_der_sperre(
         bus,
         herzschlag,
         ende: ende.clone(),
-        grenzschutz: Grenzschutz::neu(rechnername::lesen(), auftrag.erreichbar_als),
+        grenzschutz: Grenzschutz::neu(rechnername::lesen(), auftrag.erreichbar_als).mit_auskunft(
+            Arc::new(Auskunft::neu(
+                namensauskunft,
+                Arc::clone(&uhr),
+                Arc::clone(&protokoll),
+            )),
+        ),
         werkbank: http::Werkbank::aus_kernen(),
         schreibkonto: Arc::new(Schreibkonto::neu(Arc::clone(&uhr))),
         protokoll: Arc::clone(&protokoll),

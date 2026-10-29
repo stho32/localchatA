@@ -24,7 +24,9 @@ mod teilnehmerliste;
 mod verlassen;
 mod werkbank;
 
+pub use auskunft::Auskunft;
 pub use grenzschutz::Grenzschutz;
+pub use namensauskunft::{Echt, Namensauskunft, Tabelle};
 pub use werkbank::Werkbank;
 
 use crate::anwesenheit::Anwesenheit;
