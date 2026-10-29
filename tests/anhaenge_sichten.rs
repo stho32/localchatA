@@ -96,6 +96,62 @@ async fn zustand_in_verlauf_und_senden() {
         "vorhanden"
     );
 }
+/// Befund #55 S2: die Wiederholung eines Sendens (gleicher Schlüssel, gleicher Körper) antwortet 200 mit dem
+/// heutigen `zustand` je Anhang — vor dem Löschen `vorhanden`, danach `geloescht` (Name, Bytes, URL bleiben).
+#[tokio::test]
+async fn zustand_nach_einer_wiederholung() {
+    let wurzel = ordner();
+    let instanz = starten(wurzel.path(), &[], &[]);
+    let basis = instanz.adresse.as_str();
+    let beta = Absender::von("127.0.0.1");
+    let token = beitreten(&beta, basis, "beta", Some("agent")).await;
+    let a = ablegen(&beta, basis, &token, "a.bin", vec![0; 100]).await;
+    let senden = || {
+        let (beta, token, a) = (&beta, &token, &a);
+        async move {
+            api_antwort(
+                beta.anfrage(
+                    reqwest::Method::POST,
+                    format!("{basis}api/channels/allgemein/nachrichten"),
+                )
+                .header("X-LocalchatA-Sitzung", token)
+                .header("Idempotency-Key", "w1")
+                .json(&json!({"text": "x", "anhaenge": [a]})),
+            )
+            .await
+        }
+    };
+    assert_eq!(senden().await.status, 201);
+    let vorher = senden().await;
+    assert_eq!(vorher.status, 200, "{}", vorher.json);
+    assert_eq!(
+        vorher.json["nachricht"]["anhaenge"][0]["zustand"],
+        "vorhanden"
+    );
+    assert_eq!(
+        loeschen(
+            &beta,
+            basis,
+            &token,
+            json!({"ids": [a], "bestaetigt": true})
+        )
+        .await
+        .status,
+        200
+    );
+
+    let danach = senden().await;
+
+    assert_eq!(danach.status, 200, "{}", danach.json);
+    assert_eq!(
+        danach.json["nachricht"]["anhaenge"][0],
+        json!({
+            "id": a, "name": "a.bin", "bytes": 100, "art": "application/octet-stream", "breite": null,
+            "hoehe": null, "url": format!("/anhaenge/{a}"), "zustand": "geloescht",
+        })
+    );
+}
+
 /// Ereignis live (B0514, QA7′): `alpha` liest den Strom; `gamma` löscht `a` (allgemein) und `b` (technik) bestätigt
 /// → genau zwei Ereignisse `anhaenge` mit ID und Satzzeit, je < 1 s nach der 200; die 409-Vorschau und ein
 /// `schon_geloescht` erzeugen keines.
