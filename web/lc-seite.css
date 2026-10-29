@@ -40,7 +40,9 @@ body { background: var(--kd-bg); color: var(--kd-ink); font-family: var(--font-s
 .lc-head-desc { font-size: 12px; line-height: 16px; color: var(--kd-header-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; flex: 0 100 auto; }
 @media (max-width: 719px) { .lc-head-desc, .lc-head-frist { display: none; } }
 .lc-head-chan { font-size: 14px; line-height: 20px; font-weight: 600; min-width: 0; overflow: hidden; text-overflow: ellipsis; flex: 0 1 auto; }
-.lc-head-schalter { display: inline-flex; align-items: baseline; gap: 0; min-width: 0; flex: 0 1 auto; height: 28px; padding: 0 var(--kd-space-4); background: transparent; border: 0; color: var(--kd-header-ink); cursor: pointer; font: inherit; white-space: nowrap; }
+/* Der Schalter schrumpft nicht mit: erst geben Beschreibung und Instanzname Platz ab; passt der Name allein nicht,
+   begrenzt die Zone ihn (abzüglich der Lücke zum Instanzname), und er endet auf … (R00019 F0065) */
+.lc-head-schalter { display: inline-flex; align-items: baseline; gap: 0; min-width: 0; flex: 0 0 auto; max-width: calc(100% - var(--kd-space-8)); height: 28px; padding: 0 var(--kd-space-4); background: transparent; border: 0; color: var(--kd-header-ink); cursor: pointer; font: inherit; white-space: nowrap; }
 .lc-head-schalter:hover { background: var(--kd-header-surface); }
 .lc-head-pfeil { color: var(--kd-header-muted); flex: 0 0 auto; }
 .lc-head-frist { font-size: 12px; line-height: 16px; color: var(--kd-header-muted); white-space: nowrap; flex: 0 0 auto; }
