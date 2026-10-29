@@ -54,7 +54,7 @@ Mit R00021 sinkt die Flut auf 3 Wechsel in Folge und dann einen je 10 s je Kennu
 - **Nichts geändert**: eine 429 schreibt keine Einstellungsdatei, löscht keinen Tag, schickt kein Ereignis `channel` und schreibt keine `INFORMATION frist`-Zeile.
 - **Betriebsprotokoll**: jede 429 der Frist ist ein Auftreten der Episode `WARNING schreibkonto` „Frist gebremst: zu viele Änderungen“ je Kennung. Der Schlüssel enthält den Text, deshalb ist sie getrennt von der Episode „Senden gebremst: zu viele Nachrichten“ derselben Kennung. Beginn-Zeile mit `kennung=` und `grenze=` des ersten Auftretens; Ende-Zeile nach R00016 und — sobald R00020 F0070 gebaut ist — mit der Zählung je Grenze und nur dem Kontext der Quelle.
 - **Kennzahl**: `gebremst` in `/api/gesundheit` zählt jede 429, auch die der Frist. Kein neues Feld (ADR-0043, Ergänzung Karte #31).
-- **Oberfläche**: der Dialog „Channel-Einstellungen“ (R00008) zeigt bei einer 429 den `fehler` der Antwort in der Fehlerzeile mit ⚠. Der Dialog bleibt offen, die Frist in der Kopfzeile unverändert. Ob das Feld dabei `aria-invalid` trägt, regelt R00019 F0066 (Server- gegen Eingabefehler).
+- **Oberfläche**: der Dialog „Channel-Einstellungen“ (R00008) zeigt bei einer 429 in der Fehlerzeile mit ⚠ den Teil des `fehler` vor „ — “ und die Uhrzeit „wieder möglich ab HH:MM:SS“ statt der Sekunden (R00019 F0066 „429 mit Uhrzeit“; die Antwort an Agenten bleibt wörtlich). Der Dialog bleibt offen, die Frist in der Kopfzeile unverändert. Ob das Feld dabei `aria-invalid` trägt, regelt R00019 F0066 (Server- gegen Eingabefehler).
 
 ### Rechenbeispiele
 
@@ -88,7 +88,7 @@ Gemeinsam für alle Kriterien, wenn nicht anders genannt: Start, `S(<name>)`, Br
 - [ ] **Verkürzen bleibt ungebremst** (Integration): `allgemein` hat Tage, die beim Verkürzen auf 1 entfielen; `beta` setzt 1 → 409; bestätigt → 200; setzt dann 5 → 200; setzt 6 → 429. Die Integrations- und E2E-Tests aus R00008, R00017 und R00019 laufen grün — wo einer mehr als drei Änderungen je Kennung in rund 10 s macht, verteilt er sie auf Kennungen oder wartet `Retry-After` ab (Teständerung, keine Grenze im Test schärfer als hier).
 - [ ] **Episode getrennt vom Senden** (Integration, `LOCALCHATA_EPISODE_RUHE_MS=2000`): `beta` sendet 31 kleine Nachrichten so schnell wie möglich (die 31. → 429, Eimer leer) und setzt gleich danach die Frist → 429 „Zu viele Änderungen von beta@127.0.0.1 — wieder möglich in 10 s.“ (`Retry-After` 9 oder 10). `heute.log` hat für `beta` genau eine Beginn-Zeile „Senden gebremst: zu viele Nachrichten“ und genau eine Beginn-Zeile „Frist gebremst: zu viele Änderungen“, obwohl die Episode des Sendens noch offen ist; nach der Ruhe je eine Ende-Zeile, die der Frist mit `Episode endet: 1 in 0 s`. Die Mutante „Frist im selben Schlüssel wie das Senden“ (dann nur eine Beginn-Zeile) wird rot.
 - [ ] **`gebremst` zählt mit** (Integration): `/api/gesundheit` → `gebremst` vor dem Kriterium „Kennung im echten Programm“ = g; danach g + 1.
-- [ ] **Bremse im Dialog** (E2E): A hat „# allgemein — Einstellungen“ offen; über die Sitzung von A drei Änderungen per `PUT` (8, 9, 8); A setzt im Feld 9 und klickt „Speichern“ → die Fehlerzeile zeigt „⚠ Zu viele Änderungen von <Kennung von A> — wieder möglich in <s> s.“ mit `<s>` 9 oder 10; der Dialog bleibt offen; die Kopfzeile zeigt weiter `· 8 Tage`. Die Mutante „Fehlerzeile zeigt bei 429 den Status statt `fehler`“ wird rot.
+- [ ] **Bremse im Dialog** (E2E): A hat „# allgemein — Einstellungen“ offen; über die Sitzung von A drei Änderungen per `PUT` (8, 9, 8); A setzt im Feld 9 und klickt „Speichern“ → die Fehlerzeile zeigt „⚠ Zu viele Änderungen von <Kennung von A> — wieder möglich ab HH:MM:SS.“ (Uhrzeit nach R00019 F0066 „429 mit Uhrzeit“: Ortszeit des Browsers, Eintreffen plus `wieder_in_ms` aus der Antwort auf die volle Sekunde aufgerundet, geprüft als Bereich zwischen der Uhr vor dem Senden und der Uhr nach der Anzeige, nicht „in <s> s“); der Dialog bleibt offen; die Kopfzeile zeigt weiter `· 8 Tage`. Die Mutante „Fehlerzeile zeigt bei 429 den Status statt `fehler`“ wird rot.
 - [ ] Konsole bei A: keine unbehandelte Ausnahme, kein CSP-Verstoß, keine Konsolenzeile außer „Failed to load resource“ zu der einen 429, die das Kriterium „Bremse im Dialog“ herbeiführt.
 
 ## Betroffene Verzeichnisstruktur
@@ -144,7 +144,7 @@ Entschieden vom planer (Rückfragen mit Empfehlung beantwortet):
 
 - **404 kostet 10, ohne die Reihenfolge „Channel vor Wert“ zu ändern**: ADR-0036 nennt die 404 bei den vollen Kosten, ADR-0031 prüft den Channel vor dem Wert. Beides hält, wenn der 404-Zweig den Rest bucht, bevor er antwortet.
 - **Herkunft als Unit, nicht als Integration**: im echten Programm füllt der Nachschub (8 je Sekunde) den Eimer der Herkunft schneller, als 13 Anfragen sicher laufen; mit gestellter Uhr ist das Ergebnis exakt.
-- **Oberfläche ohne Programmcode**: die Fehlerzeile zeigt den `fehler` jeder Antwort schon; nur der Beleg fehlt.
+- **Oberfläche ohne Programmcode**: die Fehlerzeile zeigt die Antwort der 429 schon; nur der Beleg fehlt. Die Uhrzeit statt der Sekunden kommt aus R00019 F0066 (B0543), nicht aus dieser Anforderung.
 
 ## Manuelle Vorbereitungstätigkeiten
 
@@ -180,6 +180,7 @@ Die Wirkungskette:
 - **Änderung von Zusagen** (R00008 und R00011 bleiben an diesen Stellen unverändert, R00021 nennt die Änderung):
   - R00008 „Prüfreihenfolge“ der Frist-Route: nach der Sitzung steht die Vorab-Buchung, vor dem Setzen die Rest-Buchung; eine Anfrage kann 429 antworten.
   - R00008 M3 „Wechsel-Flut“ (Messwert im Entwicklertest): misst danach höchstens 3 Wechsel in Folge und dann einen je 10 s je Kennung; die Testhilfe B0192 verteilt ihre Schleife auf Kennungen, wenn sie die alte Last messen soll.
+  - Oberfläche (seit R00019 F0066, Karte #27): die Fehlerzeile des Dialogs nennt bei der 429 die Uhrzeit „wieder möglich ab HH:MM:SS“, nicht „in <s> s“; der `fehler` der Antwort an Agenten bleibt wörtlich „… wieder möglich in <s> s.“.
   - R00011 „Schreibkonto“: das Konto bucht auch die Frist (ADR-0036 Regel 8 liest sich: Senden in Channels, Direktnachrichten und Setzen der Frist).
 - Verworfen (Optionen des architekt in ADR-0036, Ergänzung Karte #31 (b)): eigener Eimer nur für die Frist (zweites Eimerpaar mit eigenen Konstanten, Tests und Zählung für eine Route, die ein Mensch einmal im Monat nutzt); 1 Einheit wie eine kleine Nachricht (8 Wechsel je Sekunde je Herkunft, Tagesbudget in rund 6 h erschöpft); keine Rate (Flut trifft alle anderen).
 
