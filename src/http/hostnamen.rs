@@ -1,5 +1,7 @@
 //! Host-Namen nach ADR-0045 — rein, ohne Netz: Normalform (Regel 1 mit Ergänzung E2) und Urteil über einen
-//! Namen (Regeln 2, 3, 5).
+//! Namen (Regeln 2, 3, 5) und im lokalen Namensraum (Regel 4 mit Ergänzung E1).
+
+use std::net::{IpAddr, Ipv4Addr};
 
 /// Längste Länge eines Labels und eines ganzen Namens (ohne abschließenden Punkt), RFC 1035.
 const LABEL_HOECHSTENS: usize = 63;
@@ -37,10 +39,44 @@ fn ist_zahl(label: &str) -> bool {
 
 /// Endet `name` (in Normalform) auf `suffix`, und zwar an einer Label-Grenze? `evil-local` und
 /// `local.evil.example` enden nicht auf `local`.
-#[cfg_attr(not(test), allow(dead_code))] // vorübergehend: verdrahtet mit B0372
+#[cfg_attr(not(test), allow(dead_code))] // vorübergehend: verdrahtet mit B0373
 pub fn endet_auf_label(name: &str, suffix: &str) -> bool {
     name.strip_suffix(suffix)
         .is_some_and(|davor| davor.ends_with('.'))
+}
+
+/// Suffixe des lokalen Namensraums (ADR-0045 Regel 4): mDNS, RFC 8375, ICANN 2024.
+#[cfg_attr(not(test), allow(dead_code))] // vorübergehend: verdrahtet mit B0373
+const LOKALE_SUFFIXE: [&str; 3] = ["local", "home.arpa", "internal"];
+
+/// Liegt der Name (in Normalform) im lokalen Namensraum — einteilig oder unter `.local`, `.home.arpa`,
+/// `.internal` an einer Label-Grenze? Nur dann wird er vorwärts aufgelöst; kein abgeleitetes Suffix.
+#[cfg_attr(not(test), allow(dead_code))] // vorübergehend: verdrahtet mit B0373
+pub fn im_lokalen_namensraum(name: &str) -> bool {
+    !name.contains('.')
+        || LOKALE_SUFFIXE
+            .iter()
+            .any(|suffix| endet_auf_label(name, suffix))
+}
+
+/// Zeigt die Antwort der Vorwärtsauflösung auf eine eigene Adresse? Jede Adresse wird kanonisch; unspezifizierte,
+/// Multicast und `255.255.255.255` sind nie eigen, ohne dass `eigen` gefragt wird (E1).
+#[cfg_attr(not(test), allow(dead_code))] // vorübergehend: verdrahtet mit B0373
+pub fn zeigt_auf_eigene(adressen: &[IpAddr], eigen: &mut dyn FnMut(IpAddr) -> bool) -> bool {
+    adressen
+        .iter()
+        .map(|adresse| adresse.to_canonical())
+        .filter(|adresse| !nie_eigen(adresse))
+        .any(eigen)
+}
+
+/// Unspezifiziert (`0.0.0.0`, `::`), Multicast (`224.0.0.0/4`, `ff00::/8`) und der Broadcast — `bind` gelänge
+/// für sie, und eine Sinkhole-Antwort `0.0.0.0` hieße sonst „zeigt auf mich“ (E1).
+#[cfg_attr(not(test), allow(dead_code))] // vorübergehend: verdrahtet mit B0373
+fn nie_eigen(adresse: &IpAddr) -> bool {
+    adresse.is_unspecified()
+        || adresse.is_multicast()
+        || *adresse == IpAddr::V4(Ipv4Addr::BROADCAST)
 }
 
 /// Warum ein Host-Name erlaubt ist.
@@ -111,7 +147,6 @@ pub fn host_urteil(
 mod tests {
     use super::*;
     use crate::http::namensauskunft::{Namensauskunft, Tabelle};
-    use std::net::IpAddr;
 
     #[test]
     fn grossbuchstaben_werden_klein_und_ein_abschliessender_punkt_faellt() {
@@ -328,5 +363,82 @@ mod tests {
         assert_eq!(host_urteil("localhost", &feste, keine), Some(Grund::Fest));
         assert_eq!(host_urteil("local", &feste, keine), None);
         assert_eq!(host_urteil("nuc5", &feste, keine), None);
+    }
+
+    /// Matrix C3, C11, C12, D1: einteilig und die drei Suffixe an Label-Grenzen; nichts anderes.
+    #[test]
+    fn lokaler_namensraum_einteilig_und_drei_suffixe() {
+        for name in [
+            "chat",
+            "evil-local",
+            "x.local",
+            "nas.home.arpa",
+            "dienst.internal",
+        ] {
+            assert!(im_lokalen_namensraum(name), "{name}");
+        }
+        for name in [
+            "local.boese.example",
+            "nuc5.local.boese.example",
+            "boese.local.example",
+            "x.localhost",
+            "chat.lan",
+            "chat.fritz.box",
+            "home.arpa",
+            "x.arpa",
+            "boese.example",
+        ] {
+            assert!(!im_lokalen_namensraum(name), "{name}");
+        }
+    }
+
+    /// Rest des ersten Tests aus A00004 (Kriterium F0078 „Urteil“), Matrix C1, C4, C5.
+    #[test]
+    fn eigener_lokaler_name_erlaubt_fremder_nicht() {
+        let mut eigen = |adresse: IpAddr| adresse == ip("192.168.178.65");
+
+        assert!(zeigt_auf_eigene(&[ip("192.168.178.65")], &mut eigen));
+        assert!(!zeigt_auf_eigene(&[ip("192.168.178.99")], &mut eigen));
+        assert!(zeigt_auf_eigene(
+            &[ip("192.0.2.1"), ip("192.168.178.65")],
+            &mut eigen
+        ));
+        assert!(!zeigt_auf_eigene(&[], &mut eigen));
+    }
+
+    /// E1, Matrix C6–C9: kanonisch; unspezifiziert, Multicast, Broadcast nie eigen und nie gefragt.
+    #[test]
+    fn unspezifiziert_multicast_broadcast_nie_eigen_ohne_frage() {
+        let gefragt = std::cell::RefCell::new(Vec::new());
+        let mut eigen = |adresse: IpAddr| {
+            gefragt.borrow_mut().push(adresse);
+            true
+        };
+        for adresse in [
+            "0.0.0.0",
+            "::",
+            "224.0.0.251",
+            "239.255.255.250",
+            "ff02::fb",
+            "255.255.255.255",
+            "::ffff:0.0.0.0",
+            "::ffff:224.0.0.251",
+        ] {
+            assert!(!zeigt_auf_eigene(&[ip(adresse)], &mut eigen), "{adresse}");
+        }
+        assert!(gefragt.borrow().is_empty(), "{gefragt:?}");
+
+        assert!(zeigt_auf_eigene(&[ip("::ffff:127.0.0.1")], &mut eigen));
+        assert_eq!(*gefragt.borrow(), [ip("127.0.0.1")]);
+    }
+
+    /// Matrix C9: Link-local ohne Zone ist „eigen?“ zu fragen (bind scheitert dort, Probe des security-reviewer).
+    #[test]
+    fn link_local_wird_gefragt_und_ist_echt_nicht_eigen() {
+        let tabelle = Tabelle::default();
+        let mut eigen = |adresse| tabelle.ist_eigene_adresse(adresse);
+
+        assert!(!zeigt_auf_eigene(&[ip("fe80::1")], &mut eigen));
+        assert_eq!(tabelle.fragen("eigen", "fe80::1"), 1);
     }
 }
