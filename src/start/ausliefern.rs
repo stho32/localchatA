@@ -7,7 +7,7 @@ use super::abrisspflege::Pflege;
 use super::annahmefehler::annahmefehler_eintragen;
 use super::ende::Ende;
 use super::verbindungen::{Belegung, Platz, Verbindungsgrenzen};
-use crate::protokoll::episoden::Auftreten;
+use crate::protokoll::grenze::{Gegriffen, grenzauftreten};
 use crate::protokoll::{Bereich, Kontext, Protokoll, Schluessel, Stufe};
 use axum::extract::ConnectInfo;
 use axum::{Extension, Router};
@@ -57,10 +57,10 @@ pub async fn ausliefern(
                     let gegenstelle = kanonisch(gegenstelle);
                     // Ohne Platz fällt der Strom hier und die Verbindung ist sofort geschlossen.
                     let platz = belegung.zulassen(gegenstelle.ip());
-                    if platz.is_none() {
-                        abweisung_eintragen(&protokoll, gegenstelle.ip(), belegung.erreichte_grenze());
+                    if let Err(gegriffen) = platz {
+                        abweisung_eintragen(&protokoll, gegenstelle.ip(), gegriffen);
                     }
-                    if let Some(platz) = platz {
+                    if let Ok(platz) = platz {
                         pflege.anwenden(&strom);
                         let mut app = app.clone().layer(Extension(ConnectInfo(gegenstelle)));
                         // Ohne lesbare lokale Adresse fehlt die Extension: dann kein Rückwärtsname, Abweisung ohne Adresse.
@@ -101,21 +101,15 @@ pub async fn ausliefern(
     }
 }
 
-/// Episode `verbindung` je Herkunft an der Platzgrenze (ADR-0042 Regel 2) — heute nicht mehr still.
-fn abweisung_eintragen(protokoll: &Protokoll, herkunft: IpAddr, grenze: usize) {
-    protokoll.episode(Auftreten {
-        stufe: Stufe::Warning,
-        bereich: Bereich::Verbindung,
-        text: "Verbindung an der Platzgrenze abgewiesen",
-        quelle: herkunft.to_string(),
-        kontext: Kontext::neu()
-            .mit(Schluessel::Herkunft, herkunft)
-            .mit(Schluessel::Grenze, grenze),
-        art: None,
-        verworfen: None,
-        bytes: None,
-        anzeige: None,
-    });
+/// Episode `verbindung` je Herkunft an der Platzgrenze (ADR-0042 Regel 2) mit der Art und Zahl der Grenze, die
+/// gegriffen hat (ADR-0042 Ergänzung Karte #26 Punkt 1).
+fn abweisung_eintragen(protokoll: &Protokoll, herkunft: IpAddr, gegriffen: Gegriffen) {
+    protokoll.episode(grenzauftreten(
+        Bereich::Verbindung,
+        "Verbindung an der Platzgrenze abgewiesen",
+        herkunft,
+        gegriffen,
+    ));
 }
 
 /// DEBUG `verbindung` je zugelassener Verbindung: angenommen, und beendet mit der Dauer (ADR-0042 Regel 2).

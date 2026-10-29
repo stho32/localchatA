@@ -5,6 +5,7 @@ pub mod bereinigung;
 pub mod budget;
 pub mod episoden;
 pub mod episodenruhe;
+pub mod grenze;
 pub mod senke;
 pub mod tagestakt;
 pub mod testpanik;

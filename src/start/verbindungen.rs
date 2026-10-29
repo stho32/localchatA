@@ -3,6 +3,7 @@
 //! fehlenden Deskriptoren scheitert; die Grenze je Gegenstelle hält einen einzelnen Rechner davon ab,
 //! die Gesamtgrenze allein zu füllen.
 
+use crate::protokoll::grenze::{Gegriffen, Grenzart};
 use std::collections::HashMap;
 use std::net::IpAddr;
 use std::sync::{Arc, Mutex, PoisonError};
@@ -59,15 +60,25 @@ struct Zaehlung {
 }
 
 impl Zaehlung {
-    /// Belegt einen Platz, wenn beide Grenzen es erlauben; sonst bleibt alles, wie es war.
-    fn belegen(&mut self, gegenstelle: IpAddr) -> bool {
+    /// Belegt einen Platz, wenn beide Grenzen es erlauben; sonst bleibt alles, wie es war, und die gegriffene
+    /// Grenze kommt zurück — gesamt vor je Herkunft.
+    fn belegen(&mut self, gegenstelle: IpAddr) -> Result<(), Gegriffen> {
         let offen = self.je_gegenstelle.get(&gegenstelle).copied().unwrap_or(0);
-        if self.gesamt >= self.grenzen.gesamt || offen >= self.grenzen.je_gegenstelle {
-            return false;
+        if self.gesamt >= self.grenzen.gesamt {
+            return Err(Gegriffen {
+                art: Grenzart::Gesamt,
+                hoechstens: self.grenzen.gesamt,
+            });
+        }
+        if offen >= self.grenzen.je_gegenstelle {
+            return Err(Gegriffen {
+                art: Grenzart::Herkunft,
+                hoechstens: self.grenzen.je_gegenstelle,
+            });
         }
         self.je_gegenstelle.insert(gegenstelle, offen + 1);
         self.gesamt += 1;
-        true
+        Ok(())
     }
 
     fn freigeben(&mut self, gegenstelle: IpAddr) {
@@ -101,22 +112,14 @@ impl Belegung {
         })))
     }
 
-    /// Ein Platz für die Gegenstelle oder keiner, wenn eine Grenze erreicht ist.
-    pub fn zulassen(&self, gegenstelle: IpAddr) -> Option<Platz> {
-        self.zaehlung().belegen(gegenstelle).then(|| Platz {
+    /// Ein Platz für die Gegenstelle, oder die Grenze, die gegriffen hat — im selben Schritt unter derselben
+    /// Sperre, damit kein frei werdender Platz dazwischen die Art verfälscht (Observability #25 O2).
+    pub fn zulassen(&self, gegenstelle: IpAddr) -> Result<Platz, Gegriffen> {
+        self.zaehlung().belegen(gegenstelle)?;
+        Ok(Platz {
             belegung: self.clone(),
             gegenstelle,
         })
-    }
-
-    /// Die Grenze, die eine Gegenstelle gerade abweist: gesamt, wenn sie voll ist, sonst die je Gegenstelle.
-    pub fn erreichte_grenze(&self) -> usize {
-        let zaehlung = self.zaehlung();
-        if zaehlung.gesamt >= zaehlung.grenzen.gesamt {
-            zaehlung.grenzen.gesamt
-        } else {
-            zaehlung.grenzen.je_gegenstelle
-        }
     }
 
     fn zaehlung(&self) -> std::sync::MutexGuard<'_, Zaehlung> {
@@ -144,13 +147,44 @@ mod tests {
         })
     }
 
+    const C: IpAddr = IpAddr::V4(std::net::Ipv4Addr::new(192, 168, 1, 22));
+
+    /// R00018 F0081 (Observability #25 O2): `zulassen` nennt die gegriffene Grenze im selben Schritt.
+    #[test]
+    fn zulassen_nennt_art_und_zahl_der_gegriffenen_grenze() {
+        let belegung = belegung(1, 2);
+        let _a = belegung.zulassen(A).expect("A");
+
+        let zweite_von_a = belegung.zulassen(A).map(|_| ()).expect_err("A voll");
+        let _b = belegung.zulassen(B).expect("B");
+        let c_voll = belegung.zulassen(C).map(|_| ()).expect_err("gesamt voll");
+        drop(_a);
+        let c_danach = belegung.zulassen(C);
+
+        assert_eq!(
+            zweite_von_a,
+            Gegriffen {
+                art: Grenzart::Herkunft,
+                hoechstens: 1
+            }
+        );
+        assert_eq!(
+            c_voll,
+            Gegriffen {
+                art: Grenzart::Gesamt,
+                hoechstens: 2
+            }
+        );
+        assert!(c_danach.is_ok());
+    }
+
     #[test]
     fn eine_gegenstelle_bekommt_genau_ihre_grenze_und_eine_andere_trotzdem_einen_platz() {
         let belegung = belegung(2, 10);
         let plaetze: Vec<_> = (0..3).map(|_| belegung.zulassen(A)).collect();
 
-        assert_eq!(plaetze.iter().filter(|platz| platz.is_some()).count(), 2);
-        assert!(belegung.zulassen(B).is_some());
+        assert_eq!(plaetze.iter().filter(|platz| platz.is_ok()).count(), 2);
+        assert!(belegung.zulassen(B).is_ok());
     }
 
     #[test]
@@ -159,21 +193,21 @@ mod tests {
         let _a = [belegung.zulassen(A), belegung.zulassen(A)];
         let _b = belegung.zulassen(B);
 
-        assert!(belegung.zulassen(B).is_none());
+        assert!(belegung.zulassen(B).is_err());
     }
 
     #[test]
     fn ein_freigegebener_platz_steht_wieder_zur_verfuegung() {
         let belegung = belegung(1, 1);
         let platz = belegung.zulassen(A);
-        assert!(belegung.zulassen(A).is_none());
+        assert!(belegung.zulassen(A).is_err());
 
         drop(platz);
 
         assert_eq!(belegung.zaehlung().gesamt, 0);
         assert!(belegung.zaehlung().je_gegenstelle.is_empty());
         let neuer = belegung.zulassen(A);
-        assert!(neuer.is_some());
+        assert!(neuer.is_ok());
         assert_eq!(belegung.zaehlung().gesamt, 1);
     }
 
