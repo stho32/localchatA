@@ -15,6 +15,26 @@ export function einordnen(juengste, nachrichten) {
   return { neue, juengste: bisher };
 }
 
+// Nachgeholtes und live Angenommenes über die Zeit zusammenführen (ADR-0037 Ergänzung Karte #22/#36, 7f): jede Zeit
+// (als Zeitpunkt) genau einmal, in der Folge der Zeiten — auch Nachrichten, die älter sind als eine schon gezeigte.
+// bekannt: Folge nach Zeit → { folge, neue } (neue: was aus `dazu` hinzukam, nach Zeit)
+export function zusammenfuehren(bekannt, dazu) {
+  const bekannteZeitpunkte = new Set(bekannt.map((nachricht) => Date.parse(nachricht.zeit)));
+  const neueNachZeitpunkt = new Map();
+  for (const nachricht of dazu) {
+    const zeitpunkt = Date.parse(nachricht.zeit);
+    if (!bekannteZeitpunkte.has(zeitpunkt)) {
+      neueNachZeitpunkt.set(zeitpunkt, nachricht);
+    }
+  }
+  const neue = nachZeitpunkt([...neueNachZeitpunkt.values()]);
+  return { folge: nachZeitpunkt([...bekannt, ...neue]), neue };
+}
+
+function nachZeitpunkt(nachrichten) {
+  return nachrichten.sort((links, rechts) => Date.parse(links.zeit) - Date.parse(rechts.zeit));
+}
+
 // Sammelt angenommene Nachrichten und fügt sie einmal je Frame ein (ADR-0037 Regel 6).
 export function buendlerAnlegen({ einfuegen, naechsterFrame = (rueckruf) => globalThis.requestAnimationFrame(rueckruf) }) {
   let gesammelt = [];

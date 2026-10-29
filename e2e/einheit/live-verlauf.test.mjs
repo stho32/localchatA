@@ -2,7 +2,7 @@
 // node --test).
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { einordnen, buendlerAnlegen, folgenOderZaehlen, pillenText, auslaufNach } from '../../web/live-verlauf.js';
+import { einordnen, zusammenfuehren, buendlerAnlegen, folgenOderZaehlen, pillenText, auslaufNach } from '../../web/live-verlauf.js';
 
 const t = (sekunde) => `2026-10-28T12:00:${String(sekunde).padStart(2, '0')}.000+01:00`;
 const n = (sekunde) => ({ zeit: t(sekunde), von: 'beta@127.0.0.1', art: 'agent', text: `n${sekunde}` });
@@ -31,6 +31,48 @@ test('verglichen wird der Zeitpunkt, nicht der Text: 02:00+01:00 ist jünger als
   const winter = { ...n(0), zeit: '2026-10-25T02:00:00.000+01:00' };
 
   assert.deepEqual(zeiten(einordnen(sommer, [winter]).neue), [winter.zeit]);
+});
+
+// B0390 „Zusammenführen“ (R00012 F0047, Nacharbeit #22; ADR-0037 Ergänzung Karte #22/#36, 7f): bekannt 1–3, live
+// angenommen 6, nachgeholter Block 4, 5 → 1–6 je einmal. Die Mutante „nur Zeiten größer als die jüngste“ (einordnen)
+// verlöre 4 und 5.
+test('Lücke und Live-Strom: der nachgeholte Block kommt vor eine schon gezeigte jüngere Nachricht', () => {
+  const bekannt = [n(1), n(2), n(3), n(6)];
+
+  const { folge, neue } = zusammenfuehren(bekannt, [n(4), n(5)]);
+
+  assert.deepEqual(zeiten(folge), [1, 2, 3, 4, 5, 6].map(t));
+  assert.deepEqual(zeiten(neue), [4, 5].map(t));
+});
+
+test('enthält der Block die live angenommene 6 schon, steht sie einmal da', () => {
+  const { folge, neue } = zusammenfuehren([n(1), n(2), n(3), n(6)], [n(4), n(5), n(6)]);
+
+  assert.deepEqual(zeiten(folge), [1, 2, 3, 4, 5, 6].map(t));
+  assert.deepEqual(zeiten(neue), [4, 5].map(t));
+});
+
+test('ein leerer Block lässt die Folge unverändert', () => {
+  const bekannt = [n(1), n(2), n(3), n(6)];
+
+  const { folge, neue } = zusammenfuehren(bekannt, []);
+
+  assert.deepEqual(zeiten(folge), zeiten(bekannt));
+  assert.deepEqual(neue, []);
+});
+
+test('gleiche Zeiten im Block nur einmal; ohne Bekanntes (leerer Channel) die Folge nach Zeit', () => {
+  const { folge, neue } = zusammenfuehren([], [n(5), n(4), n(5)]);
+
+  assert.deepEqual(zeiten(folge), [4, 5].map(t));
+  assert.deepEqual(zeiten(neue), [4, 5].map(t));
+});
+
+test('zusammengeführt wird nach dem Zeitpunkt, nicht nach dem Text: 02:00+01:00 nach 02:59+02:00', () => {
+  const sommer = { ...n(0), zeit: '2026-10-25T02:59:59.999+02:00' };
+  const winter = { ...n(1), zeit: '2026-10-25T02:00:00.000+01:00' };
+
+  assert.deepEqual(zeiten(zusammenfuehren([winter], [sommer]).folge), [sommer.zeit, winter.zeit]);
 });
 
 // Ein gestellter requestAnimationFrame: Rückrufe warten, bis der Test einen Frame auslöst.
