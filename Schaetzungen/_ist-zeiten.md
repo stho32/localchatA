@@ -424,3 +424,8 @@ Nie vom User erfragen.
 | 2026-10-29 | R00027 Senden-Knopf | B0416 Designsystem | Standard | 0,4h | 0,02h | 0,02h | autonom |
 | 2026-10-29 | R00027 Senden-Knopf | Mutanten, Gate 1, Fix Tab-Reihenfolge, Gate 2 | Konsolidierung | — | 0,35h | 0,35h | autonom |
 | 2026-10-29 | R00027 Senden-Knopf | B0413/B0415 Nacharbeit: Tests Zustand nach dem Senden, Komposition, Strg Shift Enter | Nacharbeit | — | 0,25h | 0,25h | autonom |
+| 2026-10-29 | R00020 Senden gehärtet Teil 2 | B0334 Eine Antwort für Körperfehler (nachgebaut) | Standard | 0,4h | 0,13h | 0,13h | autonom |
+| 2026-10-29 | R00020 Senden gehärtet Teil 2 | B0335 413 des Sendens in der Schreibweise der Oberfläche | Standard | 0,4h | 0,07h | 0,07h | autonom |
+| 2026-10-29 | R00020 Senden gehärtet Teil 2 | B0336 Schreibkonto-Episode zählt je Grenze | Standard | 0,4h | 0,08h | 0,08h | autonom |
+| 2026-10-29 | R00020 Senden gehärtet Teil 2 | B0337 Episodentexte an einer Stelle, Gedankenstrich | Standard | 0,4h | 0,15h | 0,15h | autonom |
+| 2026-10-29 | R00020 Senden gehärtet Teil 2 | Mutanten, Gate, Gelerntes | Konsolidierung | — | 0,15h | 0,15h | autonom |
