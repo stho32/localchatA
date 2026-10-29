@@ -1,0 +1,270 @@
+// Unit-Tests des Nachhol-Laufs (R00012 F0047 „Neuversuch“, „Cursor“, „Trennung während des Wartens“, „Ein Lauf
+// zugleich“; Nacharbeit #22 B0393; ADR-0037 Ergänzung Karte #22/#36, 7b–7e; node --test) mit gestellter Zeit, einem
+// falschen Port statt der API und einem Ersatz für den Verlauf.
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { nachholLaufAnlegen } from '../../web/nachhollauf.js';
+import { zusammenfuehren } from '../../web/live-verlauf.js';
+import { wiederVerbundenText } from '../../web/verbindungsleiste.js';
+
+const t = (sekunde) => `2026-10-28T15:00:${String(sekunde).padStart(2, '0')}.000+01:00`;
+const n = (sekunde) => ({ zeit: t(sekunde), von: 'beta@127.0.0.1', art: 'agent', text: `n${sekunde}` });
+const zeiten = (nachrichten) => nachrichten.map((nachricht) => nachricht.zeit);
+const naechsteRunde = () => new Promise((weiter) => setImmediate(weiter));
+
+// Zeitgeber mit gestellter Uhr: laufenBis(ms) springt von Fälligkeit zu Fälligkeit und lässt dazwischen die
+// angestoßene Arbeit laufen — ein Neuversuch wird so ab dem Ende des gescheiterten Abrufs gestellt.
+function gestellteUhr() {
+  let jetzt = 0;
+  let wartende = [];
+  const uhr = {
+    jetzt: () => jetzt,
+    zeitgeber: {
+      stellen: (ms, rueckruf) => {
+        const eintrag = { faellig: jetzt + ms, rueckruf };
+        wartende.push(eintrag);
+        return eintrag;
+      },
+      loeschen: (eintrag) => { wartende = wartende.filter((wartend) => wartend !== eintrag); },
+    },
+    laufenBis: async (ziel) => {
+      await naechsteRunde();
+      while (wartende.some((wartend) => wartend.faellig <= ziel)) {
+        const naechster = wartende.reduce((frueh, wartend) => (wartend.faellig < frueh.faellig ? wartend : frueh));
+        jetzt = naechster.faellig;
+        wartende = wartende.filter((wartend) => wartend !== naechster);
+        naechster.rueckruf();
+        await naechsteRunde();
+      }
+      jetzt = ziel;
+      await naechsteRunde();
+    },
+  };
+  return uhr;
+}
+
+// Falscher Port: beantwortet die Abrufe der Reihe nach aus `antworten` — 'fehler' (500), 'haengt' (bis zum Abbruch),
+// ein Block { nachrichten, neuer } oder ein Promise darauf; ohne weitere Antwort scheitert er. Merkt sich Zeit, Cursor
+// und Signal.
+function falscherPort(uhr, antworten) {
+  const abrufe = [];
+  const abrufen = async (channel, cursor, signal, anzahl) => {
+    const geplant = antworten[abrufe.length];
+    abrufe.push({ um: uhr.jetzt(), channel, nach: cursor.nach, signal, anzahl });
+    const antwort = await geplant;
+    if (antwort === 'haengt') {
+      return new Promise((fertig) => signal.addEventListener('abort', () => fertig({ art: 'abgebrochen' })));
+    }
+    if (antwort === undefined || antwort === 'fehler') {
+      return { art: 'fehler', status: 500 };
+    }
+    return { art: 'block', block: { channel, nachrichten: antwort.nachrichten, aelter: true, neuer: antwort.neuer } };
+  };
+  return { abrufen, abrufe, zeitpunkte: () => abrufe.map((abruf) => abruf.um) };
+}
+
+// Verlauf mit einer Folge nach Zeit (zusammengeführt wie im Tab); live() nimmt eine Nachricht des Stroms an.
+function verlaufErsatz(bekannt) {
+  const verlauf = {
+    channel: 'allgemein',
+    folge: bekannt,
+    neuGeoeffnet: [],
+    stand: () => ({
+      channel: verlauf.channel, geladen: true, juengste: verlauf.folge[verlauf.folge.length - 1].zeit, neuesterImFenster: true,
+    }),
+    annehmen: (nachrichten) => { verlauf.folge = zusammenfuehren(verlauf.folge, nachrichten).folge; },
+    live: (nachricht) => verlauf.annehmen([nachricht]),
+  };
+  return verlauf;
+}
+
+function laufAnlegen({ antworten, geladen = true }) {
+  const uhr = gestellteUhr();
+  const port = falscherPort(uhr, antworten);
+  const verlauf = verlaufErsatz([n(1), n(2), n(3)]);
+  const fertig = [];
+  const lauf = nachholLaufAnlegen({
+    stand: () => ({ ...verlauf.stand(), geladen }),
+    abrufen: port.abrufen,
+    annehmen: verlauf.annehmen,
+    neuOeffnen: (channel) => verlauf.neuGeoeffnet.push(channel),
+    fertig: (ergebnis, mitLeiste) => fertig.push({ um: uhr.jetzt(), text: wiederVerbundenText(ergebnis), mitLeiste }),
+    zeitgeber: uhr.zeitgeber,
+  });
+  return { uhr, port, verlauf, fertig, lauf };
+}
+
+test('Neuversuch: scheitert das Nachholen immer → Versuche bei 0, 1 000, 3 000, 8 000, 18 000, 28 000 ms, keine Meldung', async () => {
+  const { uhr, port, fertig, lauf } = laufAnlegen({ antworten: [] });
+
+  lauf.getrennt();
+  lauf.wiederverbunden();
+  await uhr.laufenBis(28000);
+
+  assert.deepEqual(port.zeitpunkte(), [0, 1000, 3000, 8000, 18000, 28000]);
+  assert.deepEqual(fertig, []);
+});
+
+test('Neuversuch: gelingt der Versuch bei 8 000 ms mit 3 Nachrichten → „✓ Wieder verbunden · 3 nachgeladen“, Warteschlange weiter', async () => {
+  const { uhr, port, verlauf, fertig, lauf } = laufAnlegen({
+    antworten: ['fehler', 'fehler', 'fehler', { nachrichten: [n(4), n(5), n(6)], neuer: false }],
+  });
+
+  lauf.getrennt();
+  lauf.wiederverbunden();
+  await uhr.laufenBis(30000);
+
+  assert.deepEqual(port.zeitpunkte(), [0, 1000, 3000, 8000]);
+  assert.deepEqual(fertig, [{ um: 8000, text: '✓ Wieder verbunden · 3 nachgeladen', mitLeiste: true }]);
+  assert.deepEqual(zeiten(verlauf.folge), [1, 2, 3, 4, 5, 6].map(t));
+  assert.deepEqual(port.abrufe.map((abruf) => abruf.anzahl), [200, 200, 200, 200]);
+});
+
+// „Cursor“ (ADR-0037, erster Test, wörtlich): „bekannt 1–3, Trennung; live 6 angenommen; erster Abruf scheitert → der
+// zweite fragt `nach=3`, nicht `nach=6`; Block 4, 5 → Folge 1–6 je einmal, Meldung „· 2 nachgeladen“. Mutante „Cursor =
+// jüngste gezeigte Zeit“ → rot.“
+test('Cursor: nach live 6 und gescheitertem ersten Abruf fragt der zweite nach=3, die Folge wird 1–6', async () => {
+  let ersterAbrufScheitert = null;
+  const ersterAbruf = new Promise((fertig) => { ersterAbrufScheitert = () => fertig('fehler'); });
+  const { uhr, port, verlauf, fertig, lauf } = laufAnlegen({ antworten: [ersterAbruf, { nachrichten: [n(4), n(5)], neuer: false }] });
+
+  lauf.getrennt();
+  lauf.wiederverbunden();
+  verlauf.live(n(6));
+  ersterAbrufScheitert();
+  await uhr.laufenBis(5000);
+
+  assert.deepEqual(port.abrufe.map((abruf) => abruf.nach), [t(3), t(3)]);
+  assert.deepEqual(zeiten(verlauf.folge), [1, 2, 3, 4, 5, 6].map(t));
+  assert.deepEqual(fertig, [{ um: 1000, text: '✓ Wieder verbunden · 2 nachgeladen', mitLeiste: true }]);
+});
+
+test('gelungene Blöcke eines später gescheiterten Versuchs bleiben im Verlauf, der nächste fragt ab ihrem Ende', async () => {
+  const erster = Array.from({ length: 200 }, (_, stelle) => ({ ...n(4), zeit: `2026-10-28T15:01:00.${String(stelle).padStart(3, '0')}+01:00` }));
+  const { uhr, port, verlauf, fertig, lauf } = laufAnlegen({
+    antworten: [{ nachrichten: erster, neuer: true }, 'fehler', { nachrichten: [], neuer: false }],
+  });
+
+  lauf.getrennt();
+  lauf.wiederverbunden();
+  await uhr.laufenBis(500);
+  const nachDemFehlschlag = verlauf.folge.length;
+  await uhr.laufenBis(2000);
+
+  assert.equal(nachDemFehlschlag, 203);
+  assert.deepEqual(port.abrufe.map((abruf) => abruf.nach), [t(3), erster[199].zeit, erster[199].zeit]);
+  assert.deepEqual(port.zeitpunkte(), [0, 0, 1000]);
+  assert.deepEqual(fertig, [{ um: 1000, text: '✓ Wieder verbunden · 200 nachgeladen', mitLeiste: true }]);
+});
+
+// „Trennung während des Wartens“ (ADR-0037, erster Test, wörtlich): „Fehlschlag bei 0 ms, Trennung bei 500 ms,
+// Wiederverbinden bei 700 ms → kein Versuch bei 1 000 ms aus dem alten Lauf, ein Versuch bei 700 ms ab demselben
+// Cursor. Mutante „alter Zeitgeber läuft weiter“ → rot.“
+test('Trennung während des Wartens: kein Versuch bei 1 000 ms aus dem alten Lauf, einer bei 700 ms ab demselben Cursor', async () => {
+  const { uhr, port, verlauf, fertig, lauf } = laufAnlegen({ antworten: ['fehler', { nachrichten: [n(4)], neuer: false }] });
+
+  lauf.getrennt();
+  lauf.wiederverbunden();
+  await uhr.laufenBis(500);
+  lauf.getrennt();
+  verlauf.live(n(6));
+  await uhr.laufenBis(700);
+  lauf.wiederverbunden();
+  await uhr.laufenBis(5000);
+
+  assert.deepEqual(port.zeitpunkte(), [0, 700]);
+  assert.deepEqual(port.abrufe.map((abruf) => abruf.nach), [t(3), t(3)]);
+  assert.deepEqual(fertig, [{ um: 700, text: '✓ Wieder verbunden · 1 nachgeladen', mitLeiste: true }]);
+});
+
+test('eine Trennung bricht den laufenden Abruf ab; ohne Wiederverbinden kein Versuch und keine Meldung', async () => {
+  const { uhr, port, fertig, lauf } = laufAnlegen({ antworten: ['haengt'] });
+
+  lauf.getrennt();
+  lauf.wiederverbunden();
+  await uhr.laufenBis(500);
+  lauf.getrennt();
+  await uhr.laufenBis(60000);
+
+  assert.equal(port.abrufe[0].signal.aborted, true);
+  assert.deepEqual(port.zeitpunkte(), [0]);
+  assert.deepEqual(fertig, []);
+});
+
+// „Ein Lauf zugleich“ (R00012 F0047; ADR-0037 7e).
+test('NeuerStand während eines wartenden Laufs: kein zweiter Abruf, der Neuversuch bleibt bei 1 000 ms', async () => {
+  const { uhr, port, fertig, lauf } = laufAnlegen({ antworten: ['fehler', { nachrichten: [], neuer: false }] });
+
+  lauf.getrennt();
+  lauf.wiederverbunden();
+  await uhr.laufenBis(300);
+  lauf.neuerStand();
+  await uhr.laufenBis(2000);
+
+  assert.deepEqual(port.zeitpunkte(), [0, 1000]);
+  assert.deepEqual(fertig, [{ um: 1000, text: '✓ Wieder verbunden', mitLeiste: true }]);
+});
+
+test('Channelwechsel während des Wartens: kein Abruf bei 1 000 ms, „✓ Wieder verbunden“, Warteschlange weiter', async () => {
+  const { uhr, port, verlauf, fertig, lauf } = laufAnlegen({ antworten: ['fehler'] });
+
+  lauf.getrennt();
+  lauf.wiederverbunden();
+  await uhr.laufenBis(500);
+  verlauf.channel = 'technik';
+  lauf.channelGewechselt();
+  await uhr.laufenBis(30000);
+
+  assert.deepEqual(port.zeitpunkte(), [0]);
+  assert.deepEqual(fertig, [{ um: 500, text: '✓ Wieder verbunden', mitLeiste: true }]);
+});
+
+test('Channelwechsel während eines laufenden Abrufs bricht ihn ab', async () => {
+  const { uhr, port, fertig, lauf } = laufAnlegen({ antworten: ['haengt'] });
+
+  lauf.getrennt();
+  lauf.wiederverbunden();
+  await uhr.laufenBis(200);
+  lauf.channelGewechselt();
+  await uhr.laufenBis(30000);
+
+  assert.equal(port.abrufe[0].signal.aborted, true);
+  assert.deepEqual(port.zeitpunkte(), [0]);
+  assert.deepEqual(fertig, [{ um: 200, text: '✓ Wieder verbunden', mitLeiste: true }]);
+});
+
+test('NeuerStand bei verbundenem Strom: ein Lauf ohne Leiste, mit Neuversuch nach einem Fehlschlag', async () => {
+  const { uhr, port, verlauf, fertig, lauf } = laufAnlegen({ antworten: ['fehler', { nachrichten: [n(4), n(5)], neuer: false }] });
+
+  lauf.neuerStand();
+  await uhr.laufenBis(2000);
+
+  assert.deepEqual(port.zeitpunkte(), [0, 1000]);
+  assert.deepEqual(port.abrufe.map((abruf) => abruf.nach), [t(3), t(3)]);
+  assert.deepEqual(zeiten(verlauf.folge), [1, 2, 3, 4, 5].map(t));
+  assert.deepEqual(fertig, [{ um: 1000, text: '✓ Wieder verbunden · 2 nachgeladen', mitLeiste: false }]);
+});
+
+test('zu viel verpasst (immer neuer) → neu öffnen und „· neueste geladen“, nichts nachgeholt eingefügt', async () => {
+  const voll = (block) => ({ nachrichten: [{ ...n(4), zeit: `2026-10-28T15:0${block + 1}:00.000+01:00` }], neuer: true });
+  const { uhr, verlauf, fertig, lauf } = laufAnlegen({ antworten: [0, 1, 2, 3, 4].map(voll) });
+
+  lauf.getrennt();
+  lauf.wiederverbunden();
+  await uhr.laufenBis(100);
+
+  assert.deepEqual(verlauf.neuGeoeffnet, ['allgemein']);
+  assert.deepEqual(zeiten(verlauf.folge), [1, 2, 3].map(t));
+  assert.deepEqual(fertig, [{ um: 0, text: '✓ Wieder verbunden · neueste geladen', mitLeiste: true }]);
+});
+
+test('ohne nachholbaren Verlauf (Channel nicht geladen) kein Abruf, sofort „✓ Wieder verbunden“', async () => {
+  const { uhr, port, fertig, lauf } = laufAnlegen({ antworten: [], geladen: false });
+
+  lauf.getrennt();
+  lauf.wiederverbunden();
+  await uhr.laufenBis(100);
+
+  assert.deepEqual(port.abrufe, []);
+  assert.deepEqual(fertig, [{ um: 0, text: '✓ Wieder verbunden', mitLeiste: true }]);
+});

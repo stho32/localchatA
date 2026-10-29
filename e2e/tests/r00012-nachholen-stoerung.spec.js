@@ -132,3 +132,121 @@ test('B1 (3): ohne Halten unverändert — l1 nachgeholt, danach waehrend live, 
   await expect(nachrichten(b.page)).toHaveCount(7);
   expect(ohneGescheiterteAnfragen(b.fehler)).toEqual([]);
 });
+
+// Wacht je Bild über die Leiste: steht dort „✓ Wieder verbunden“, solange eine der Nachrichten fehlt, merkt sie sich
+// den Verstoß (window.lcVerstoesse).
+async function meldungOhneLueckeBewachen(page, texte) {
+  await page.evaluate((erwartet) => {
+    window.lcVerstoesse = [];
+    const pruefen = () => {
+      const meldung = document.querySelector('.lc-verlauf .lc-leiste');
+      const gezeigt = [...document.querySelectorAll('[role="log"] .lc-msg:not(.lc-vorlaeufig) .lc-body')].map((body) => body.textContent);
+      const fehlt = erwartet.filter((text) => !gezeigt.includes(text));
+      const wiederVerbunden = meldung !== null && !meldung.hidden && meldung.textContent.startsWith('✓ Wieder verbunden');
+      if (wiederVerbunden && fehlt.length > 0) {
+        window.lcVerstoesse.push(`${meldung.textContent} — es fehlen ${fehlt.join(', ')}`);
+      }
+      requestAnimationFrame(pruefen);
+    };
+    requestAnimationFrame(pruefen);
+  }, texte);
+}
+
+/// Konsolenfehler außer den gestellten: abgebrochene Anfragen und 500 auf den Nachhol-Abruf (R00012 F0047 „Konsole“).
+function ohneGestellteFehler(fehler) {
+  return ohneGescheiterteAnfragen(fehler).filter((zeile) => !/Failed to load resource: net::ERR_FAILED/.test(zeile));
+}
+
+// „Gescheitertes Nachholen“ (Abnahme-Probe Code-Review #22 B2, wörtlich): „B getrennt, beta g1–g3, erster nach=-Abruf
+// abort bzw. 500, danach Durchlass → nie „✓ Wieder verbunden“, solange g1–g3 fehlen; spätestens nach dem nächsten
+// erfolgreichen Abruf je 1×; Variante zweimal scheitern; ohne Störung US-6 grün.“
+const STOERUNGEN = [
+  { name: 'erster Abruf abgebrochen', scheitern: ['abort'] },
+  { name: 'erster Abruf 500', scheitern: [500] },
+  { name: 'zweimal gescheitert (abort, 500)', scheitern: ['abort', 500] },
+  { name: 'zweimal gescheitert (500, 500)', scheitern: [500, 500] },
+];
+for (const { name, scheitern } of STOERUNGEN) {
+  test(`B2: ${name} — nie „✓ Wieder verbunden“, solange g1–g3 fehlen, danach je einmal`, async ({ browser }) => {
+    instanz = await sendenStarten({ anzahl: 5 });
+    const b = await kontextOeffnen(browser, { zusaetzlich: { '/api/channels/allgemein/nachrichten': [500] } });
+    await imBrowserBeitreten(b.page, instanz.adresse, 'anna');
+    await expect(nachrichten(b.page)).toHaveCount(5);
+    const token = await beitreten(instanz.adresse, 'beta');
+    await netzAus(b);
+    for (const text of ['g1', 'g2', 'g3']) {
+      expect((await senden(instanz.adresse, token, 'allgemein', text)).status).toBe(201);
+    }
+    const abrufe = [];
+    await b.page.route(NACHHOLEN, async (route) => {
+      const stoerung = scheitern[abrufe.length];
+      abrufe.push(stoerung);
+      if (stoerung === 'abort') {
+        await route.abort();
+        return;
+      }
+      if (stoerung === 500) {
+        await route.fulfill({ status: 500, body: '' });
+        return;
+      }
+      await route.continue();
+    });
+    await meldungOhneLueckeBewachen(b.page, ['g1', 'g2', 'g3']);
+
+    await netzAn(b);
+
+    await expect(leiste(b.page)).toHaveText('✓ Wieder verbunden · 3 nachgeladen', { timeout: 20000 });
+    await expect(bestaetigt(b.page, 'g[123]').locator('.lc-body')).toHaveText(['g1', 'g2', 'g3']);
+    await expect(nachrichten(b.page)).toHaveCount(8);
+    expect(abrufe).toEqual([...scheitern, undefined]);
+    expect(await b.page.evaluate(() => window.lcVerstoesse)).toEqual([]);
+    expect(ohneGestellteFehler(b.fehler)).toEqual([]);
+  });
+}
+
+// „Nachhol-Abruf hängt“ (R00012 F0047, Z13; Code-Review A3): wie „Gescheitertes Nachholen“, aber die Route antwortet auf
+// den ersten Abruf nach= nie → 9 s nach seinem Beginn kein zweiter Abruf und kein „✓ Wieder verbunden“; spätestens
+// 15 s nach seinem Beginn läuft der zweite (10 s Zeitgrenze + 1 s Rückzug), danach „✓ Wieder verbunden · 3 nachgeladen“
+// und g1–g3 je einmal. Die Uhr startet am Beginn des ersten Abrufs (Ereignis request der Seite).
+const Z13_FRUEHESTENS_MS = 9000;
+const Z13_SPAETESTENS_MS = 15000;
+
+test('Z13: hängt der erste Nachhol-Abruf, läuft der zweite frühestens nach 9 s und spätestens nach 15 s', async ({ browser }) => {
+  test.setTimeout(60000);
+  instanz = await sendenStarten({ anzahl: 5 });
+  const b = await kontextOeffnen(browser);
+  await imBrowserBeitreten(b.page, instanz.adresse, 'anna');
+  await expect(nachrichten(b.page)).toHaveCount(5);
+  const token = await beitreten(instanz.adresse, 'beta');
+  await netzAus(b);
+  for (const text of ['g1', 'g2', 'g3']) {
+    expect((await senden(instanz.adresse, token, 'allgemein', text)).status).toBe(201);
+  }
+  const beginne = [];
+  b.page.on('request', (anfrage) => {
+    if (NACHHOLEN(new URL(anfrage.url()))) {
+      beginne.push(Date.now());
+    }
+  });
+  let ersterGehalten = false;
+  await b.page.route(NACHHOLEN, async (route) => {
+    if (!ersterGehalten) {
+      ersterGehalten = true;
+      return;
+    }
+    await route.continue();
+  });
+  await meldungOhneLueckeBewachen(b.page, ['g1', 'g2', 'g3']);
+
+  await netzAn(b);
+
+  await expect(leiste(b.page)).toHaveText('✓ Wieder verbunden · 3 nachgeladen', { timeout: 30000 });
+  const abstand = beginne[1] - beginne[0];
+  console.log(`Z13 gemessen: zweiter Abruf ${abstand} ms nach dem ersten (Grenzen ${Z13_FRUEHESTENS_MS}–${Z13_SPAETESTENS_MS})`);
+  expect(beginne).toHaveLength(2);
+  expect(abstand).toBeGreaterThanOrEqual(Z13_FRUEHESTENS_MS);
+  expect(abstand).toBeLessThanOrEqual(Z13_SPAETESTENS_MS);
+  await expect(bestaetigt(b.page, 'g[123]').locator('.lc-body')).toHaveText(['g1', 'g2', 'g3']);
+  expect(await b.page.evaluate(() => window.lcVerstoesse)).toEqual([]);
+  expect(ohneGestellteFehler(b.fehler)).toEqual([]);
+});

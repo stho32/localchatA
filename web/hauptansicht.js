@@ -20,7 +20,7 @@ import { sendenEinrichten } from './senden.js';
 import { entwurfAnlegen } from './entwurf.js';
 import { fokusTaste } from './fokus.js';
 import { VERBINDUNG_ANFANG, verbindung } from './wiederverbinden.js';
-import { nachholen } from './nachholen.js';
+import { nachholLaufAnlegen } from './nachhollauf.js';
 import { wiederVerbundenText, leisteInhalt } from './verbindungsleiste.js';
 import { ANSAGE_LEER, ansage } from './ansage.js';
 
@@ -96,6 +96,7 @@ export function zeichnen(wurzel, teilnehmer, optionen) {
     }
   };
   const beiOeffnen = (name) => {
+    wieder.channelGewechselt();
     eingabe.channelSetzen(name);
     senden.channelGeoeffnet(name);
     ansagen.melden({ art: 'gewechselt' });
@@ -122,15 +123,15 @@ export function zeichnen(wurzel, teilnehmer, optionen) {
 }
 
 // Getrennt heißt Strom unterbrochen oder Netz des Tabs aus (wiederverbinden.js): die Leiste oben im Verlauf sagt es,
-// die Warteschlange ruht. Wieder verbunden → für den offenen Channel nachholen, 4 s melden, dann weitersenden —
-// so stehen fremde Nachrichten aus der Trennung vor den eigenen gepufferten (ADR-0037 Regel 7).
+// die Warteschlange ruht. Wieder verbunden → Ereignisse wieder annehmen, für den offenen Channel nachholen
+// (nachhollauf.js), erst nach dem Gelingen 4 s melden und weitersenden — so stehen fremde Nachrichten aus der Trennung
+// vor den eigenen gepufferten (ADR-0037 Regel 7). Scheitert das Nachholen, bleibt die Leiste „Verbindung verloren“.
 function wiederverbindenEinrichten({ verlauf, senden, abrufen }, signal) {
   const leiste = element('div', { className: 'lc-leiste', hidden: true });
   verlauf.element.prepend(leiste);
   let zustand = VERBINDUNG_ANFANG;
   let anzeige = { getrennt: false, meldung: null, meldungSeitMs: 0 };
   let ausblenden = null;
-  let nachholenAbbrechen = new AbortController();
 
   function leisteZeigen() {
     const inhalt = leisteInhalt(anzeige, Date.now());
@@ -150,65 +151,51 @@ function wiederverbindenEinrichten({ verlauf, senden, abrufen }, signal) {
     ausblenden = setTimeout(leisteZeigen, STEHT_MS);
   }
 
-  async function nachholenUndWeiter(mitMeldung) {
-    const vorher = verlauf.stand();
-    const nachholbar = vorher.channel !== null && vorher.geladen && vorher.neuesterImFenster;
-    let ergebnis = { art: 'nachgeholt', nachrichten: [] };
-    if (nachholbar) {
-      const abbruch = nachholenAbbrechen.signal;
-      ergebnis = await nachholen(vorher.juengste, (cursor, n) => abrufen(vorher.channel, cursor, abbruch, n));
-    }
-    const nochDerselbe = verlauf.stand().channel === vorher.channel;
-    if (nochDerselbe && ergebnis.art === 'nachgeholt') {
-      ergebnis.nachrichten.forEach((nachricht) => verlauf.nachrichtAnnehmen(nachricht, false));
-    }
-    if (nochDerselbe && ergebnis.art === 'neu') {
-      verlauf.oeffnen(vorher.channel);
-    }
-    if (!mitMeldung || istGetrennt()) {
+  const lauf = nachholLaufAnlegen({
+    stand: () => verlauf.stand(),
+    abrufen,
+    annehmen: (nachrichten) => nachrichten.forEach((nachricht) => verlauf.nachrichtAnnehmen(nachricht, false)),
+    neuOeffnen: (channel) => verlauf.oeffnen(channel),
+    fertig: (ergebnis, mitLeiste) => {
+      if (!mitLeiste) {
+        return;
+      }
+      anzeige = { ...anzeige, getrennt: false };
+      senden.verbunden();
+      requestAnimationFrame(() => meldungNachDemEinfuegen(wiederVerbundenText(ergebnis)));
+    },
+  });
+
+  // Das Nachgeholte fügt der Verlauf im nächsten Bild ein (ADR-0037 Regel 6); die Meldung kommt erst danach, damit
+  // „✓ Wieder verbunden“ nie über einer Lücke steht — außer der Tab ist inzwischen wieder getrennt.
+  function meldungNachDemEinfuegen(text) {
+    if (anzeige.getrennt) {
       return;
     }
-    meldungSetzen(wiederVerbundenText(meldungAus(ergebnis)));
-    senden.verbunden();
-  }
-
-  function istGetrennt() {
-    return anzeige.getrennt;
+    meldungSetzen(text);
   }
 
   function melden(ereignis) {
     const ergebnis = verbindung(zustand, ereignis);
     zustand = ergebnis.zustand;
     if (ergebnis.aktion === 'trennen') {
-      nachholenAbbrechen.abort();
-      nachholenAbbrechen = new AbortController();
+      lauf.getrennt();
       anzeige = { ...anzeige, getrennt: true };
       leisteZeigen();
       senden.getrennt();
     }
     if (ergebnis.aktion === 'wiederverbinden') {
-      anzeige = { ...anzeige, getrennt: false, meldung: null };
       senden.stromWieder();
-      nachholenUndWeiter(true);
+      lauf.wiederverbunden();
     }
     if (ergebnis.aktion === 'nachholen') {
-      nachholenUndWeiter(false);
+      lauf.neuerStand();
     }
   }
 
   window.addEventListener('offline', () => melden({ art: 'netz', online: false }), { signal });
   window.addEventListener('online', () => melden({ art: 'netz', online: true }), { signal });
-  return { melden };
-}
-
-function meldungAus(ergebnis) {
-  if (ergebnis.art === 'neu') {
-    return { art: 'neu' };
-  }
-  if (ergebnis.art === 'nachgeholt') {
-    return { art: 'nachgeholt', zahl: ergebnis.nachrichten.length };
-  }
-  return { art: 'nachgeholt', zahl: 0 };
+  return { melden, channelGewechselt: lauf.channelGewechselt };
 }
 
 // Gebündelte Ansage (ADR-0038 Regel 10, ansage.js): eine Statusregion außerhalb des Verlaufs, visuell verborgen; ein

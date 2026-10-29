@@ -17,7 +17,8 @@ export function entscheiden({ verbunden, letzteAktivitaetMs, jetztMs, fehlversuc
   return { aktion: 'weiter', wartenMs: 0 };
 }
 
-function rueckzugInMs(fehlversuche) {
+// Auch der Neuversuch des Nachholens im Tab folgt diesem Rückzug (ADR-0037 Ergänzung Karte #22/#36, 7c).
+export function rueckzugInMs(fehlversuche) {
   const stufe = Math.min(fehlversuche, RUECKZUG_MS.length - 1);
   return RUECKZUG_MS[stufe];
 }

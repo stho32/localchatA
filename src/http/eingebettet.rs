@@ -43,6 +43,7 @@ pub fn nachschlagen(name: &str) -> Option<EingebetteteDatei> {
         "senden.js" => (include_bytes!("../../web/senden.js"), JS),
         "live-verlauf.js" => (include_bytes!("../../web/live-verlauf.js"), JS),
         "nachholen.js" => (include_bytes!("../../web/nachholen.js"), JS),
+        "nachhollauf.js" => (include_bytes!("../../web/nachhollauf.js"), JS),
         "verbindungsleiste.js" => (include_bytes!("../../web/verbindungsleiste.js"), JS),
         "textregel.js" => (include_bytes!("../../web/textregel.js"), JS),
         "hinweis.js" => (include_bytes!("../../web/hinweis.js"), JS),
