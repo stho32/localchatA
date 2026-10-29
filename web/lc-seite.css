@@ -200,7 +200,8 @@ body { background: var(--kd-bg); color: var(--kd-ink); font-family: var(--font-s
 .lc-dialog { width: min(calc(100vw - 2 * var(--kd-space-16)), 420px); max-width: none; padding: var(--kd-space-24); background: var(--kd-surface); color: var(--kd-ink); border: 1px solid var(--kd-line-strong); }
 .lc-dialog::backdrop { background: rgb(0 0 0 / 40%); }
 .lc-dialog-formular { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--kd-space-8); }
-.lc-dialog-titel { margin: 0 0 var(--kd-space-8); font-size: 14px; line-height: 20px; font-weight: 600; }
+/* Ein langer Channel-Name bricht an beliebiger Stelle um, statt den Dialog quer scrollen zu lassen (R00019 F0083) */
+.lc-dialog-titel { margin: 0 0 var(--kd-space-8); font-size: 14px; line-height: 20px; font-weight: 600; overflow-wrap: anywhere; }
 .lc-dialog .lc-feld { width: 100%; }
 .lc-dialog .lc-feld-text { font-family: var(--font-sans); }
 .lc-dialog .lc-meldung[hidden] { display: none; }

@@ -49,7 +49,9 @@ async function dialogOeffnen(browser, { kontext = { viewport: { width: 1280, hei
   await page.getByLabel('Name').fill('abcdefghijklm');
   await page.getByLabel('Name').press('Enter');
   await expect(page.getByRole('banner').locator('.lc-me')).toContainText('abcdefghijklm@');
-  await page.getByRole('banner').getByRole('button', { name: `# ${channel} — Channel-Einstellungen` }).click();
+  // Per Tastatur: den Schalter mit Finger treffen prüft die Kopfzeile (r00019-kopfzeile.spec.js).
+  await page.getByRole('banner').getByRole('button', { name: `# ${channel} — Channel-Einstellungen` }).focus();
+  await page.keyboard.press('Enter');
   await expect(dialog(page)).toBeVisible();
   return { page, fehler };
 }
@@ -152,3 +154,66 @@ for (const [art, vorbereiten, satz] of [
     expect(a.fehler).toEqual([]);
   });
 }
+
+const LANGER_NAME = 'm'.repeat(32);
+const telefon = (breite, hoehe) => ({ viewport: { width: breite, height: hoehe }, hasTouch: true, isMobile: true });
+
+// Liegt das Element ganz im Fenster (oben, unten, links, rechts)?
+function ganzImFenster(locator) {
+  return locator.evaluate((element) => {
+    const rand = element.getBoundingClientRect();
+    return rand.width > 0 && rand.top >= 0 && rand.left >= 0 && rand.bottom <= window.innerHeight && rand.right <= window.innerWidth;
+  });
+}
+
+test('Dialog am Telefon (US-15, B0544): Titel aus 32 × m bei 320 × 640 ganz im Dialog umbrochen, kein Querscrollen', async ({ browser }) => {
+  await starten((ordner) => channelAnlegen(ordner, LANGER_NAME));
+  const a = await dialogOeffnen(browser, { kontext: telefon(320, 640), channel: LANGER_NAME });
+
+  const titel = dialog(a.page).getByRole('heading');
+  await expect(titel).toHaveText(`# ${LANGER_NAME} — Einstellungen`);
+  const mass = await dialog(a.page).evaluate((fenster) => {
+    const titelRand = fenster.querySelector('.lc-dialog-titel').getBoundingClientRect();
+    const fensterRand = fenster.getBoundingClientRect();
+    return {
+      titelRechts: titelRand.right,
+      titelNoetig: fenster.querySelector('.lc-dialog-titel').scrollWidth,
+      titelBreite: fenster.querySelector('.lc-dialog-titel').clientWidth,
+      dialogRechts: fensterRand.right,
+      dialogNoetig: fenster.scrollWidth,
+      dialogBreite: fenster.clientWidth,
+      seite: document.documentElement.scrollWidth,
+      fenster: window.innerWidth,
+    };
+  });
+  expect(mass.titelRechts).toBeLessThanOrEqual(mass.dialogRechts);
+  expect(mass.titelNoetig, 'Titel nicht abgeschnitten').toBeLessThanOrEqual(mass.titelBreite);
+  expect(mass.dialogNoetig, 'Dialog scrollt nicht quer').toBeLessThanOrEqual(mass.dialogBreite);
+  expect(mass.seite, 'Seite scrollt nicht quer').toBeLessThanOrEqual(mass.fenster);
+  expect(a.fehler).toEqual([]);
+});
+
+// Bildschirmtastatur genähert (Playwright zeigt keine): Telefon 375 × 667 abzüglich rund 260 px → Fenster 375 × 400.
+test('Dialog mit Bildschirmtastatur (US-16, B0544): 0 + Enter → Fehlerzeile und „Speichern“ ganz im Fenster 375 × 400', async ({ browser }) => {
+  await starten(verkuerzbar);
+  const a = await dialogOeffnen(browser, { kontext: telefon(375, 400) });
+
+  await feld(a.page).fill('0');
+  await feld(a.page).press('Enter');
+
+  await expect(dialog(a.page).getByRole('alert')).toHaveText('⚠ Frist: ganze Zahl von 1 bis 3650 Tagen.');
+  expect(await ganzImFenster(dialog(a.page).getByRole('alert'))).toBe(true);
+  expect(await ganzImFenster(dialog(a.page).getByRole('button', { name: 'Speichern' }))).toBe(true);
+  expect(a.fehler).toEqual([]);
+});
+
+test('Dialog mit Bildschirmtastatur, zweiter Schritt (US-16, B0544): „Zurück“ und „Frist verkürzen“ ganz im Fenster 375 × 400', async ({ browser }) => {
+  await starten(verkuerzbar);
+  const a = await dialogOeffnen(browser, { kontext: telefon(375, 400) });
+
+  await zweiterSchritt(a.page);
+
+  expect(await ganzImFenster(zurueck(a.page))).toBe(true);
+  expect(await ganzImFenster(verkuerzen(a.page))).toBe(true);
+  expect(a.fehler).toEqual([]);
+});
