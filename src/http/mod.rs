@@ -15,6 +15,7 @@ mod hostnamen;
 mod ich;
 mod koerper;
 mod nachrichten;
+mod namensauskunft;
 mod oberflaeche;
 mod senden;
 mod teilnehmer;
