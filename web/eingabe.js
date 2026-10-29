@@ -33,20 +33,19 @@ export function taste(ereignis, text, zeiger) {
 // den Text; danach ist das Feld leer und wieder eine Zeile hoch, der Fokus bleibt (Regel 3). Gesperrt wird nie.
 // Rechts vom Feld die Gruppe der Schalter mit dem Knopf „Senden“ als letztem (Ergänzung Karte #41 K3, K7).
 // Darunter die Hinweiszeile (Regel 4): Länge und Steuerzeichen mit derselben Regel wie der Server — bei einem Fehler
-// sendet Enter nicht. Der Entwurf (entwurf.js) folgt dem Channel (Regel 7).
-export function eingabeAnlegen({ senden, entwurf }) {
+// sendet Enter nicht; was die Zeile ansagt, geht ohne ⚠ an die eine Ansage-Region (`ansagen`, R00025 F0084). Der
+// Entwurf (entwurf.js) folgt dem Channel (Regel 7).
+export function eingabeAnlegen({ senden, entwurf, ansagen }) {
   const feld = document.createElement('textarea');
   feld.rows = 1;
   feld.className = 'lc-comp-feld';
   const zeile = element('p', { id: 'lc-comp-hinweis', className: 'lc-comp-hinweis' });
   feld.setAttribute('aria-describedby', zeile.id);
-  const angesagt = element('span', { className: 'lc-unsichtbar' });
-  angesagt.setAttribute('aria-live', 'polite');
   const knopf = element('button', { type: 'button', className: 'lc-comp-senden', textContent: 'Senden' });
   knopf.setAttribute('aria-describedby', zeile.id);
   const aktionen = element('div', { className: 'lc-comp-aktionen' }, [knopf]);
   const kasten = element('div', { className: 'lc-comp-box' }, [feld, aktionen]);
-  const rahmen = element('div', { className: 'lc-comp' }, [kasten, zeile, angesagt]);
+  const rahmen = element('div', { className: 'lc-comp' }, [kasten, zeile]);
   let channel = null;
   let gezeigt = hinweis(textPruefen(''));
 
@@ -65,7 +64,7 @@ export function eingabeAnlegen({ senden, entwurf }) {
       feld.removeAttribute('aria-invalid');
     }
     if (hinweisAnsagen(gezeigt, neu)) {
-      angesagt.textContent = neu.text;
+      ansagen({ art: 'sofort', text: neu.text.replace(/^⚠ /, '') });
     }
     gezeigt = neu;
   }

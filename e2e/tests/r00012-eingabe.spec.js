@@ -82,15 +82,20 @@ test('US-11: eingefügte Farbcodes', async ({ browser }) => {
 });
 
 // „Ansagen der Hinweiszeile“: von 14 990 auf 16 390 Bytes, je 10 Zeichen auf einmal → der angesagte Inhalt ändert sich
-// genau zweimal: beim Überschreiten von 15 000 und beim Wechsel in „Zu lang“.
+// genau zweimal: beim Überschreiten von 15 000 und beim Wechsel in „Zu lang“. Seit R00025 F0084 (ändert F0048) sagt
+// die eine Ansage-Region an, ohne ⚠.
 test('Ansagen der Hinweiszeile: nur an der Schwelle und beim Wechsel in einen Fehler', async ({ browser }) => {
   const a = await mitA(browser);
   const feld = eingabe(a.page);
   await feld.fill('a'.repeat(14990));
   await a.page.evaluate(() => {
     window.angesagt = [];
-    const region = document.querySelector('.lc-comp [aria-live="polite"]');
-    new MutationObserver(() => window.angesagt.push(region.textContent)).observe(region, { childList: true, characterData: true, subtree: true });
+    const region = document.querySelector('[role="status"][aria-live="polite"]');
+    new MutationObserver(() => {
+      if (region.textContent !== '') {
+        window.angesagt.push(region.textContent);
+      }
+    }).observe(region, { childList: true, characterData: true, subtree: true });
   });
   await feld.press('End');
 
@@ -99,9 +104,9 @@ test('Ansagen der Hinweiszeile: nur an der Schwelle und beim Wechsel in einen Fe
   }
 
   await expect(hinweiszeile(a.page)).toHaveText('⚠ Zu lang: 16.390 von höchstens 16.384 Byte — bitte teilen.');
-  expect(await a.page.evaluate(() => window.angesagt)).toEqual([
+  await expect.poll(() => a.page.evaluate(() => window.angesagt)).toEqual([
     'noch 1.384 Zeichen',
-    '⚠ Zu lang: 16.390 von höchstens 16.384 Byte — bitte teilen.',
+    'Zu lang: 16.390 von höchstens 16.384 Byte — bitte teilen.',
   ]);
   expect(a.fehler).toEqual([]);
 });

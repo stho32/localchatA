@@ -86,7 +86,11 @@ export function zeichnen(wurzel, teilnehmer, optionen) {
     netzAus: () => navigator.onLine === false,
     ansagen: ansagen.melden,
   });
-  const eingabe = eingabeAnlegen({ senden: senden.senden, entwurf: entwurfAnlegen({ speicher: window.sessionStorage }) });
+  const eingabe = eingabeAnlegen({
+    senden: senden.senden,
+    entwurf: entwurfAnlegen({ speicher: window.sessionStorage }),
+    ansagen: ansagen.melden,
+  });
   const wieder = wiederverbindenEinrichten({ verlauf, senden, abrufen: optionen.verlaufNachholen }, vorigeAnsichtAbmelden.signal);
   fokusTastenBedienen({ verlauf, eingabe }, vorigeAnsichtAbmelden.signal);
   const beiAuswahl = (channel) => {
