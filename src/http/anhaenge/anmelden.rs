@@ -255,6 +255,19 @@ fn abweisung_melden(
     fehler: &Anmeldefehler,
     bytes: u64,
 ) {
+    if let Some(auftreten) = abweisung_auftreten(teilnehmer, fehler, bytes) {
+        zustand.protokoll.episode(auftreten);
+    }
+}
+
+/// Das Auftreten einer Abweisung am Platz. Quelle ist bei `voll` und `hochladungen` die Kennung (mit der Grenze),
+/// bei `platte` die Herkunft; `bytes`, `belegt`, `reserviert` und `frei` sind Werte der einzelnen Anmeldung und
+/// stehen nur in der Beginn-Zeile (ADR-0042 Ergänzung Karte #66).
+fn abweisung_auftreten(
+    teilnehmer: &Teilnehmer,
+    fehler: &Anmeldefehler,
+    bytes: u64,
+) -> Option<Auftreten> {
     let wer = teilnehmer.kennung.als_text();
     let (text, quelle, kontext) = match fehler {
         Anmeldefehler::Platz(Platzfehler::Voll(stand)) => (
@@ -262,8 +275,8 @@ fn abweisung_melden(
             wer.to_string(),
             Kontext::neu()
                 .mit(Schluessel::Kennung, wer)
-                .mit(Schluessel::Bytes, bytes)
-                .mit(Schluessel::Belegt, stand.belegt)
+                .mit_nur_beginn(Schluessel::Bytes, bytes)
+                .mit_nur_beginn(Schluessel::Belegt, stand.belegt)
                 .mit(Schluessel::Hoechstens, stand.hoechstens),
         ),
         Anmeldefehler::Platz(Platzfehler::Hochladungen(stand)) => (
@@ -271,7 +284,7 @@ fn abweisung_melden(
             wer.to_string(),
             Kontext::neu()
                 .mit(Schluessel::Kennung, wer)
-                .mit(Schluessel::Reserviert, stand.reserviert)
+                .mit_nur_beginn(Schluessel::Reserviert, stand.reserviert)
                 .mit(Schluessel::Hoechstens, stand.hoechstens),
         ),
         Anmeldefehler::Platz(Platzfehler::Platte { frei }) => (
@@ -279,12 +292,12 @@ fn abweisung_melden(
             teilnehmer.herkunft.to_string(),
             Kontext::neu()
                 .mit(Schluessel::Herkunft, teilnehmer.herkunft)
-                .mit(Schluessel::Bytes, bytes)
-                .mit(Schluessel::Frei, *frei),
+                .mit_nur_beginn(Schluessel::Bytes, bytes)
+                .mit_nur_beginn(Schluessel::Frei, *frei),
         ),
-        _ => return,
+        _ => return None,
     };
-    zustand.protokoll.episode(Auftreten {
+    Some(Auftreten {
         stufe: Stufe::Warning,
         bereich: Bereich::Anhang,
         text,
@@ -294,7 +307,7 @@ fn abweisung_melden(
         verworfen: None,
         bytes: None,
         anzeige: None,
-    });
+    })
 }
 
 /// Die Antwort auf eine abgewiesene Anmeldung und ihr Regelschlüssel.
@@ -492,6 +505,72 @@ mod tests {
             zeilen[1].ends_with("| kennung=beta@10.0.0.9 herkunft=10.0.0.9"),
             "{zeilen:#?}"
         );
+    }
+
+    /// R00038 B0591 (Bestandsaufnahme): `voll`, `hochladungen` und `platte` — je zwei Abweisungen mit verschiedenen
+    /// Werten; das Ende nennt nur die Quelle (und die Grenze), nie `bytes`, `belegt`, `reserviert`, `frei`.
+    #[test]
+    fn die_ende_zeilen_der_abweisungen_am_platz_nennen_nur_ihre_quelle() {
+        use crate::anwesenheit::Art;
+        use crate::gespraeche::Kennung;
+        use crate::gespraeche::anhangquote::{Platzfehler, Quotestand};
+        use crate::name::Name;
+        use crate::protokoll::Stufe;
+        use crate::protokoll::testhilfe::{im_speicher, zeit};
+        let teilnehmer = Teilnehmer {
+            kennung: Kennung::bilden("beta@10.0.0.9").expect("Kennung"),
+            name: Name::bilden("beta").expect("Name"),
+            herkunft: "10.0.0.9".parse().expect("IP"),
+            art: Art::Agent,
+        };
+        let stand = |zahl: u64| Quotestand {
+            belegt: 100 + zahl,
+            gebunden: 1,
+            reserviert: 10 + zahl,
+            hoechstens: 1000,
+            frei: 0,
+            braucht: 1,
+        };
+        let faelle: [(&str, Box<dyn Fn(u64) -> Anmeldefehler>, &str, &str); 3] = [
+            (
+                "Platz für Anhänge voll",
+                Box::new(move |n| Anmeldefehler::Platz(Platzfehler::Voll(stand(n)))),
+                "bytes=5 belegt=101 hoechstens=1000",
+                "| kennung=beta@10.0.0.9 hoechstens=1000",
+            ),
+            (
+                "laufende Hochladungen belegen den Platz",
+                Box::new(move |n| Anmeldefehler::Platz(Platzfehler::Hochladungen(stand(n)))),
+                "reserviert=11 hoechstens=1000",
+                "| kennung=beta@10.0.0.9 hoechstens=1000",
+            ),
+            (
+                "Platte fast voll",
+                Box::new(|n| Anmeldefehler::Platz(Platzfehler::Platte { frei: 7 + n })),
+                "bytes=5 frei=8",
+                "| herkunft=10.0.0.9",
+            ),
+        ];
+        for (name, fehler, beginn, ende) in faelle {
+            let (protokoll, speicher, uhr, _) =
+                im_speicher("2026-10-28T12:00:00+01:00", Stufe::Information);
+            for (n, bytes) in [(1, 5), (2, 6)] {
+                let auftreten =
+                    abweisung_auftreten(&teilnehmer, &fehler(n), bytes).expect("Episode");
+                protokoll.episode(auftreten);
+            }
+            uhr.stellen(zeit("2026-10-28T12:01:00+01:00"));
+            protokoll.episoden_schliessen();
+
+            let zeilen = speicher.zeilen();
+            assert_eq!(zeilen.len(), 2, "{name}: {zeilen:#?}");
+            assert!(zeilen[0].contains(beginn), "{name}: {zeilen:#?}");
+            assert!(
+                zeilen[1].contains("Episode endet: 2 in "),
+                "{name}: {zeilen:#?}"
+            );
+            assert!(zeilen[1].ends_with(ende), "{name}: {zeilen:#?}");
+        }
     }
 
     /// B0525 an der Grenze im Zählmaß (Q = 10 MiB): 2.617.345 Bytes (z = 640 × 4.096 = Q/4) → großer Anspruch,
