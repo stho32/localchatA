@@ -3,7 +3,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  einordnen, zusammenfuehren, buendlerAnlegen, folgenOderZaehlen, pillenText, auslaufNach, nichtGeladenText, hinweisTextNachziehen,
+  einordnen, zusammenfuehren, buendlerAnlegen, folgenOderZaehlen, pillenText, auslaufNach, nichtGeladenText, hinweisTextNachziehen, sprungZiel,
 } from '../../web/live-verlauf.js';
 
 const t = (sekunde) => `2026-10-28T12:00:${String(sekunde).padStart(2, '0')}.000+01:00`;
@@ -191,4 +191,21 @@ test('Hinweis nachziehen: gleicher Text → kein Schreibzugriff (nichts wird ern
   hinweisTextNachziehen(knoten, true);
 
   assert.equal(knoten.schreibzugriffe, 0);
+});
+
+// B0578 „Ziel des Sprungs“ (R00026 F0089, Rechenbeispiele wörtlich): Scrollstand 1.000, Platz der ersten neuen beginnt
+// 400 px unter dem oberen Rand, klebender Trenner endet bei 20 px, Zeilenhöhe 20 px. Alle Maße in px vom oberen Rand
+// des Verlaufs. Mutante „Zeilenhöhe im Rückfall nicht abgezogen“ → 1.380 statt 1.360 → rot.
+const lage = { scrollTop: 1000, oberkanteErste: 400, unterkanteKontext: null, trennerUnterkante: 20, zeilenhoehe: 20 };
+
+test('Sprungziel ohne Nachricht davor: Oberkante des Platzes, eine Zeilenhöhe unter den klebenden Trenner', () => {
+  assert.equal(sprungZiel(lage), 1360);
+});
+
+test('Sprungziel ohne Nachricht davor und ohne klebenden Trenner: eine Zeilenhöhe unter den oberen Rand', () => {
+  assert.equal(sprungZiel({ ...lage, trennerUnterkante: 0 }), 1380);
+});
+
+test('Sprungziel mit Nachricht davor: deren Unterkante kommt eine Zeilenhöhe unter den klebenden Trenner', () => {
+  assert.equal(sprungZiel({ ...lage, unterkanteKontext: 380 }), 1340);
 });

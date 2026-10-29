@@ -9,7 +9,7 @@
 import { nachrichtZeichnen, kopfSetzen, trennerZeichnen, langeEinklappen, langeUmschalten } from './nachricht.js';
 import { gliederung, folgeGliedern, datumBenennen } from './gliederung.js';
 import { nachladen, einfuegen } from './fenster.js';
-import { einordnen, zusammenfuehren, buendlerAnlegen, folgenOderZaehlen, pillenText, auslaufNach, nichtGeladenText, hinweisTextNachziehen } from './live-verlauf.js';
+import { einordnen, zusammenfuehren, buendlerAnlegen, folgenOderZaehlen, pillenText, auslaufNach, nichtGeladenText, hinweisTextNachziehen, sprungZiel as sprungZielBerechnen } from './live-verlauf.js';
 
 // abrufen: async (name, cursor, signal) → { art: 'block' | 'fehler' | 'abgebrochen', … } (api.js verlaufAbrufen);
 // das Ergebnis von `oeffnen` sagt, ob der Verlauf steht.
@@ -146,11 +146,14 @@ export function verlaufAnlegen({ abrufen, schalter = () => {}, fokusRueckgaengig
   // Nachricht davor kommt die Oberkante des Platzes der ersten neuen dorthin.
   function sprungZiel(erste) {
     const kontext = nachrichtDavor(erste);
-    if (kontext === null) {
-      return log.scrollTop + oberkanteImVerlauf(erste) - klebenderTrennerUnterkante(erste) - zeilenhoehe();
-    }
-    const unterkanteDesKontexts = kontext.getBoundingClientRect().bottom - log.getBoundingClientRect().top;
-    return log.scrollTop + unterkanteDesKontexts - klebenderTrennerUnterkante(kontext) - zeilenhoehe();
+    const bezug = kontext === null ? erste : kontext;
+    return sprungZielBerechnen({
+      scrollTop: log.scrollTop,
+      oberkanteErste: oberkanteImVerlauf(erste),
+      unterkanteKontext: kontext === null ? null : kontext.getBoundingClientRect().bottom - log.getBoundingClientRect().top,
+      trennerUnterkante: klebenderTrennerUnterkante(bezug),
+      zeilenhoehe: zeilenhoehe(),
+    });
   }
 
   // Die obere Kante des Platzes einer Nachricht, mit ihrem Abstand nach oben, gemessen vom oberen Rand des Verlaufs.

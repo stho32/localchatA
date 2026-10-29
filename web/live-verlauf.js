@@ -66,6 +66,15 @@ export function folgenOderZaehlen(abstandUnten, zeilenhoehe, neuesterImFenster) 
   return 'zaehlen';
 }
 
+// Wohin der Sprung zur ersten neuen scrollt (R00020 F0067, R00026 F0089): die Unterkante der Nachricht davor — ohne
+// sie die Oberkante des Platzes der ersten neuen — kommt eine Zeilenhöhe unter den klebenden Trenner. Alle Maße in px
+// vom oberen Rand des Verlaufs; unterkanteKontext: null, wenn keine Nachricht davor steht.
+// → Scrollstand in px
+export function sprungZiel({ scrollTop, oberkanteErste, unterkanteKontext, trennerUnterkante, zeilenhoehe }) {
+  const kante = unterkanteKontext === null ? oberkanteErste : unterkanteKontext;
+  return scrollTop + kante - trennerUnterkante - zeilenhoehe;
+}
+
 export function pillenText(anzahl) {
   if (anzahl === 1) {
     return '1 neue Nachricht';
