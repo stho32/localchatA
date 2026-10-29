@@ -194,3 +194,69 @@ Regeln:
 - ADR-0012, ADR-0014, ADR-0015, ADR-0025, ADR-0028, ADR-0039, ADR-0042, ADR-0045, ADR-0046
 - Vision R00000; WBS I0010, I0012; Betreiber-Antworten B1, B3, B4 (Karte #9, Kommentar 2026-10-29 07:40); Designsystem `components/Anhang/README.md`, `README.md` („Billig je Nachricht“); `src/http/grenzschutz.rs:368` (App-CSP heute)
 - CSP-Direktiven `sandbox`, `media-src` (CSP Level 2/3), `Content-Disposition` RFC 6266, `filename*` RFC 8187, Range/206/416/`If-Range` RFC 9110 Abschnitt 14, `X-Content-Type-Options` (Fetch Standard), Signaturen von MP4 (`ftyp`, ISO/IEC 14496-12), EBML/WebM, Ogg (RFC 3533), MPEG-Audio-Rahmenkopf — aus dem Gedächtnis, in diesem Auftrag nicht geöffnet; das Verhalten in Chromium ist geprobt (oben)
+
+## Ergänzungen
+
+- **2026-10-29 (Karte #9 Gate, `security-reviewer`) — Angriffsmatrix mit Linie und Bubble, M14–M39, und die Regeln, die daraus folgen:** Entscheider: Claude (autonom, architekt, Auftrag des Directors). Status der Ergänzung: Akzeptiert; zwei Lücken sind am heutigen Code geprobt (Regeln 1 und 2). Die Matrix oben bleibt stehen; diese Ergänzung ordnet ihr Linien und Bubbles zu, präzisiert M6, M7 und M9 und fügt Zeilen an. Die Matrix ist das Kriterium „Angriffsmatrix“ von R00029: jede Zeile außer L2r ein Test über die genannte Linie, jede Zeile mit Wächter rot unter dessen Mutante.
+
+  **Linien (Prüfebene):** L1 im Prozess — Unit und Integration mit Speicherablage, Testuhr, festem Zufall und Attrappen · L2 echtes Programm über die Annahmeschleife (Debug-Build, Wegwerf-Ordner, `LOCALCHATA_*`, `--port 0`), Browserzeilen mit Playwright/Chromium gegen dieses Programm · L2r von Hand im Entwicklertest (Firefox, Zielrechner, LAN).
+
+  **Kontrollpaar K:** K1 gutartiger Ablauf `alpha@127.0.0.1` — Anmelden 300 KiB PNG → 201, `PUT` → 200 `image/png`, Senden → 201, `GET /anhaenge/<id>` → 200 mit `sandbox`-CSP, `Range: bytes=0-99` → 206; K2 eine volle Herkunft — 127.0.0.2 mit 16 offenen Anmeldungen, die 17. → 429 `offen_herkunft`. Färbt eine Probe K1 rot, misst sie nichts; bleibt K2 ohne 429, misst M21 nichts. Beide laufen in jeder Linie mit, in der eine Probe läuft.
+
+  **M1–M13 ergänzt** (Linie, Bubble, Präzisierung, Lücke aus dem Gate):
+
+  | # | Linie | Bubble | Präzisierung / Lücke |
+  |---|---|---|---|
+  | M1 | L1, L2 (Chromium, direkte Navigation), L2r (Firefox) | B0433–B0436, B0446, Weiche (Regel 1) | `<img>`, `<video>` und „Öffnen“ aus der Oberfläche gehören zu R00030 (Karte #43, F0102); Firefox ist der Messwert oben (L2r) |
+  | M2 | L1, L2 (Chromium) | B0434, B0436, B0446 | Probe 13 im echten Programm |
+  | M3 | L1 | B0433, B0434, B0435 | Tabellentest plus Zufallsköpfe mit fester Saat; Maße nach Regel 4 (M27) |
+  | M4 | L1, L2 | B0444, B0446, B0447 | Erweiterungen in M31 |
+  | M5 | L2 | B0429 | Duplikate, `+`/`-`, TE+CL, Smuggling ausführlich in M32 |
+  | M6 | L1, L2 | B0428, B0429, B0425, B0427 | „32 gesamt aus zwei Adressen“ wird: 16 laufende je Herkunft aus vier Adressen (127.0.0.2–.5) → die 65. laufende → 429 `offen_gesamt` (ADR-0046 Ergänzung Karte #9 Gate Regel 3); Senden und Gesundheit von 127.0.0.1 unverändert |
+  | M7 | L1, L2 | B0426, B0427, B0425 | „Reservierung ≤ 60 s“ wird: eine Anmeldung ohne `PUT` ≤ 60 s, mit abgebrochenen `PUT`s ≤ Lebensende (ADR-0046 Ergänzung Regel 1, M20); wiederholtes Neu-Anmelden kostet je 1 Einheit und erscheint als Episode (M22) |
+  | M8 | L1, L2 | B0425, B0429, B0440, B0431 | `kill -9` in M25, Symlink in M26 |
+  | M9 | L2 | B0429, B0430, B0440 | **präzisiert**: kein Orakel für **ratbare** Werte. `PUT` auf eine fremde ID → 404 `unbekannt` (wie nie vergeben); `DELETE` fremd → 204 ohne Wirkung; Senden mit fremder ID → 422 `anhang`/`fremd` **bleibt** — die ID ist 128 Bit Zufall, wer sie nennt, kennt sie schon; die Antwort verrät nichts, was er nicht hat |
+  | M10 | L1, L2 | B0424, B0445, B0446 | Sonderzeichen in M28 |
+  | M11 | L2 | B0432, B0464 | verfehlte Pfade in M18, Warnungen in M19 |
+  | M12 | L2 | B0427, B0429, B0430, B0446 | `PUT`/`DELETE` und Vorabfrage in M34 |
+  | M13 | L2 | — (nicht in R00029) | gehört zum Arbeitspaket I0012 (Direktgespräche); Hinweis an den `planer` für die WBS-Zeile I0012 |
+
+  **Neue Zeilen** („heute“ nur, wo am Code von `20cea97` geprobt; die Routen selbst gibt es noch nicht):
+
+  | # | Fläche | Angriff | erwartet | Linie | Bubble | heute |
+  |---|---|---|---|---|---|---|
+  | M14 | Kopfzeilen | jede Antwort unter `/anhaenge/`: 200, 206, 304, 404 (Handler und Router, `/anhaenge/x/y`), 416, `HEAD`, 403 (fremder Host), 405 (`POST`) | `Content-Security-Policy: sandbox; default-src 'none'` genau so, `nosniff` | L2 | Weiche (neu, Regel 1), B0446 | ✗ `sicherheitsheader_setzen` (`src/http/grenzschutz.rs:341–361`) ersetzt jede CSP der Route durch die App-CSP |
+  | M15 | Skript-Gadget | Anhang (Text mit JS, Polyglot) in der App-Seite eingebunden als `<script src>`, `<script type=module>`/`import()`, `new Worker`, `new SharedWorker`, `navigator.serviceWorker.register`, `<link rel=stylesheet>` | nichts ausgeführt bzw. angewandt (MIME-Prüfung unter `nosniff`) | L2 (Chromium) | B0445, B0446 | — |
+  | M16 | Metazeile eingeschleust | Text mit Zeilen `+ anhang: <id> …` bzw. eine erfundene ID im Text | bleibt Text (ADR-0004: Textzeilen eingerückt), kein Eintrag im Anhangverzeichnis | L1, L2 | B0437, B0439, B0441 | — |
+  | M17 | Metazeile beim Laden | von Hand: ID falscher Form, `bytes` ≠ Datei, `<datei>` mit `/`, `..` oder ohne Präfix, zwei Zeilen mit derselben ID, Art außerhalb der Tabelle | kein Eintrag, `WARNING laden` (Datei nur als Präfix), nie ein Pfad außerhalb `anhaenge/<tag>/` | L1 | B0437, B0442 | — |
+  | M18 | ID im Anfrageprotokoll | verfehlte Route mit ID: `/anhaenge/<id>/x`, `/api/anhaenge/<id>/`, prozentkodiert, in Großbuchstaben | im Protokoll nur 6 Zeichen der ID (Regel 2) | L2 | B0432, B0464 | ✗ `src/http/anfrageprotokoll.rs:63` schreibt ohne Routenmuster den ganzen dekodierten Pfad |
+  | M19 | ID und Name in Meldungen | `WARNING anhang` (Datei fehlt), `ERROR senden`, `WARNING laden`, `ERROR anhang` | Datei nur als `<hhmmssmmm>-<n>`, nie ASCII-Teil, Anzeigename oder ID (Regel 3) | L1, L2 | B0440, B0442, B0446, B0464 | — |
+  | M20 | Reservierung halten | „Anmelden 9.437.184, 20 min alle 50 s PUT nach 1 Byte geschlossen“ | „spätestens nach der absoluten Lebensdauer 404 `abgelaufen`, reserviert 0“ (78 s) | L1, L2 | B0425, B0428, B0429 | — |
+  | M21 | Eingang sperren | „127.0.0.2 und .3 je 4 Kennungen × 4 Anmeldungen à 1 Byte erneuert“ | „beta@127.0.0.1 Anmelden 201, PUT 200; Kontrolle mit einer vollen Herkunft“ (K2) | L2 | B0425, B0427, B0429 | — |
+  | M22 | Halten sichtbar | wie M7/M20 | 507 `quote` nennt `reserviert`; Episode `Reservierung verfallen ohne Hochladen`; Health `reserviert` | L2 | B0427, B0432, B0463 | — |
+  | M23 | Wettläufe im Eingang | dieselbe ID in zwei Channels zugleich; `DELETE` gegen Senden; `DELETE` vor `rename`; Ablauf während Senden; zwei `PUT` | genau ein Gewinner, Verlierer 422/204/409 nach ADR-0046 Ergänzung Regel 5; Invariante hält; keine Waise im Eingang | L1, L2 | B0425, B0429, B0430, B0440 | — |
+  | M24 | Schreibfehler | `ENOSPC`/`EIO` beim Stück (Attrappe) | Abbruch, `.teil` weg, 507 `platte` bzw. 500 (ADR-0046 Ergänzung Regel 8) | L1 | B0429 | — |
+  | M25 | `kill -9` | während `PUT`, zwischen `rename` und Satz | nach dem Start `.eingang/` leer, kein Satz ohne Datei, Waise zählt an der Quote (QA2) | L2 | B0431, B0440, B0442 | — |
+  | M26 | `.eingang` | Symlink auf einen fremden Ordner, reguläre Datei | Exit 2, nichts gelöscht (ADR-0046 Ergänzung Regel 7) | L2 | B0431 | — |
+  | M27 | Maße-Täuschung, Dekompressionsbombe | JPEG mit `FF C0` in einem APPn-Segment, `SOFn` erst hinter falscher Segmentlänge, PNG ohne `IHDR` als ersten Chunk, Breite oder Höhe 0, 65.535 × 65.535 | Maße nur aus dem über die Längen erreichten Segment (Regel 4); 0 → keine Maße, keine Vorschau; über 50 MP → keine Vorschau | L1 | B0433 | — |
+  | M28 | `Content-Disposition` | Anzeigename mit `;`, `'`, `%`, `*`, Leerzeichen, Umlauten, Zeichen außerhalb der BMP | `filename*` nach RFC 8187 (alles außer `attr-char` prozentkodiert), `filename` ASCII-Ersatz in Anführungszeichen, Kopfzeile parsebar | L1, L2 | B0445, B0446 | — |
+  | M29 | Namens-Täuschung (optional) | Doppelendung, viele Leerzeichen vor `.exe`, Homoglyphen | Anzeigename bleibt (erlaubt); die Art entscheidet der Inhalt, nie inline außer Tabelle | L1 | B0424, B0436 | — |
+  | M30 | Entfallen und Cache | `If-None-Match: "<id>"` nach Entfallen des Tags | 404, nicht 304 (Regel 5) | L2 | B0446 | — |
+  | M31 | Range erweitert | `bytes=-n` mit n > Länge; Einheit `Bytes`/`items`; `If-Range` mit `W/"<id>"` und als Datum; zwei `Range`-Kopfzeilen; `Range` auf `HEAD` und 404; 1.000 Bereichsanfragen nacheinander auf einer Verbindung | 206 `0–(Länge−1)` bzw. 200 ganz bzw. 404 nach Regel 5; offene Deskriptoren danach wie davor | L1, L2 | B0444, B0446, B0447 | — |
+  | M32 | Rohkörper | `Content-Length` größer als gesendet; doppelt (gleich, ungleich); `+5`, `-5`; `Transfer-Encoding: chunked` + `Content-Length`; `Transfer-Encoding: identity`; HTTP/1.0; `Expect: 100-continue` bei Abweisung; Bytes nach dem Körper | Abweisung 400/411/422 **ohne** `100 Continue`, mit `Connection: close`; nie eine zweite Anfrage aus Körperbytes; zu wenig Bytes → Stückfrist | L2 | B0429 | — (hyper-Verhalten zu proben) |
+  | M33 | Methode und Pfad | `X-HTTP-Method-Override`, Methode klein geschrieben, `..%2f`, `%00`, ID mit Großbuchstaben | 405 bzw. 404; die ID ist nie ein Dateiname (nur Schlüssel des Verzeichnisses) | L2 | B0429, B0446 | — |
+  | M34 | CSRF und Rebinding | `POST`/`PUT`/`DELETE /api/anhaenge` mit fremdem `Origin`, `Sec-Fetch-Site: cross-site`, `text/plain`-Formular, fremdem Host; `OPTIONS`-Vorabfrage | 403 ohne Wirkung; `OPTIONS` ohne `Access-Control-Allow-*` | L2 | B0427, B0429, B0430, B0446 | — |
+  | M35–M37 | — | im Gate-Bericht auf der Karte nicht enthalten — Nummern frei | — | — | — | — |
+  | M38 | Gebundene ID | ein Dritter liest die gebundene ID im Channel und sendet, `PUT`et oder `DELETE`t sie | 422 `anhang`/`unbekannt`, 404 `unbekannt`, 204 ohne Wirkung; gebundene Datei unverändert | L2 | B0429, B0430, B0440 | — |
+  | M39 | Überschreiben | Ziel des `rename` existiert schon (Waise, untergeschobene Datei) in `anhaenge/<tag>/` oder `.eingang/` | nie überschrieben; Rückbau, 500 (ADR-0046 Ergänzung Regel 6) | L1, L2 | B0429, B0440 | — |
+
+  **Regeln, die daraus folgen:**
+
+  1. **CSP-Weiche nach Pfad in `sicherheitsheader_setzen`** (ersetzt in Regel 3 „zusätzlich zu ADR-0014 Regel 5“; M14): die eine Stelle, die heute jede Antwort mit der App-CSP überschreibt (`src/http/grenzschutz.rs:341–361`, `kopf.insert`), wählt die CSP nach dem Pfad — ist er, roh oder prozent-dekodiert, `/anhaenge` oder beginnt er mit `/anhaenge/`, gilt `sandbox; default-src 'none'`, sonst die App-CSP. Alle anderen Header des Satzes bleiben gleich. Der Handler der Route setzt keine CSP; die Weiche greift damit für jeden Status und jede Methode, auch für Antworten des Grenzschutzes (403) und des Routers (404, 405). Durchsetzung: M14 je Status; Mutante „Weiche fehlt“ rot (heute rot).
+  2. **ID kürzen nach dem Dekodieren, auch ohne Routenmuster** (ergänzt Regel 8; M18): das Anfrageprotokoll kürzt nach `prozent_dekodiert` in jedem Pfad jedes Segment, das mit 26 Zeichen aus `[A-Za-z2-7]` beginnt (Groß-/Kleinschreibung egal — eine groß geschriebene ID ist die ID), auf seine ersten 6 Zeichen und `…`. Gilt für jeden Pfad, nicht nur für erkannte Routen; ein langer Channelname aus diesen Zeichen erscheint auf Debug ebenfalls gekürzt — hingenommen.
+  3. **Datei im Protokoll nur als Präfix** (ergänzt Regel 1, Regel 8 und [ADR-0046](0046-anhaenge-ablegen-eingang-bindung-beim-senden-tag-der-nachricht-quote-und-eigenes-konto.md) Regel 6; M19): wo eine Meldung eine gespeicherte Anhangdatei nennt, steht nur `<hhmmssmmm>-<n>` mit Gespräch und Tag — der ASCII-Teil trägt den Anzeigenamen und bleibt draußen; Dateien des Eingangs (`.eingang/<id>`) erscheinen als ID-Präfix nach Regel 2.
+  4. **Maße aus dem dekodierten Segment** (ergänzt Frage 3 und A00018; M27): Maße stammen nur aus der Struktur, die der Erkenner über die Längenkette tatsächlich erreicht — PNG aus `IHDR` als erstem Chunk, JPEG aus dem ersten `SOFn`, das über die Segmentlängen ab `SOI` erreicht wird (nie eine Suche nach Markerbytes), GIF aus dem Kopf, WebP aus dem Chunk, den der Kopf nennt. Breite oder Höhe 0 → keine Maße; die Art bleibt, die Anzeige ist eine Datei-Zeile.
+  5. **Ausliefern: Existenz vor Cache, Range-Ränder** (ergänzt Regeln 3 und 4; M30, M31): erst `finden`, dann `If-None-Match` — eine entfallene ID antwortet 404, auch mit passendem ETag. `bytes=-n` mit n größer als die Länge → 206 über die ganze Datei (RFC 9110, Suffix länger als die Darstellung); `If-Range` mit schwachem ETag oder als Datum → 200 ganz; mehr als eine `Range`-Kopfzeile → übergangen, 200 ganz; `HEAD` übergeht `Range` → 200-Kopf; 404 bleibt 404.
+  6. **Härtung `script-src` — geprüft, nicht übernommen:** `script-src` auf die Pfade der App-Skripte zu begrenzen, bräuchte eine Quelle mit Host und Pfad je Anfrage statt `'self'`; die Schutzwirkung trägt heute `nosniff` mit Anhang-Arten, die nie Skript- oder Stilarten sind — M15 ist der Test dafür. Wird M15 rot, ist die Begrenzung (oder Hashes) die nächste Ergänzung.
+
+  **Offen, nicht entschieden — Fragen an den Betreiber** (Stellen markiert, es gilt bis zur Antwort diese ADR): **F2** direkt aufgerufener Medienlink spielt sofort (Frage 7, M1); **F3** Text über 16 MiB nur als Download (Frage 3); **F4 (neu, aus dem Gate)** Bilder und Videos werden unverändert ausgeliefert — EXIF-Daten wie GPS-Ort, Kameramodell und Aufnahmezeit gehen an jeden mit dem Link (B4); sollen sie beim Hochladen entfernt werden, oder genügt ein Hinweis in der Oberfläche (R00030)? Bis zur Antwort: unverändert, wie B3 („Vorschau aus dem Original“).
