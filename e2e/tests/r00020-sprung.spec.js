@@ -158,3 +158,35 @@ for (const zweiterZug of ['ein zweiter Klick auf die Pille', 'Ende im Verlauf'])
     expect(fehler).toEqual([]);
   });
 }
+
+// R00020 F0068 „Beschriftung“ (US-3, B0333): sichtbar „↓ n neue Nachrichten“ bzw. „↓ Zum Neuesten“, mit Leerraum vor
+// der Taste `Ende`; der zugängliche Name ist genau „n neue Nachrichten“ bzw. „Zum Neuesten“, die Taste nennt
+// aria-keyshortcuts.
+test('US-3: die Pille heißt „3 neue Nachrichten“ und zeigt „↓ … Ende“', async ({ browser }) => {
+  const { page, log, fehler, beta } = await bLiest(browser);
+  await zweiHoehenHoch(log);
+  await dreiNeue(page, beta);
+
+  const benannt = page.getByRole('button', { name: '3 neue Nachrichten', exact: true });
+  await expect(benannt).toBeVisible();
+  expect(await benannt.evaluate((schalter) => schalter.innerText)).toMatch(/^↓ 3 neue Nachrichten\s+Ende$/);
+  await expect(benannt).toHaveAttribute('aria-keyshortcuts', 'End');
+  expect(fehler).toEqual([]);
+});
+
+test('US-3: ohne neue heißt die Pille „Zum Neuesten“, nach einer neuen „1 neue Nachricht“', async ({ browser }) => {
+  const { page, log, fehler, beta } = await bLiest(browser);
+  await zweiHoehenHoch(log);
+
+  const zumNeuesten = page.getByRole('button', { name: 'Zum Neuesten', exact: true });
+  await expect(zumNeuesten).toBeVisible();
+  expect(await zumNeuesten.evaluate((schalter) => schalter.innerText)).toMatch(/^↓ Zum Neuesten\s+Ende$/);
+  await expect(zumNeuesten).toHaveAttribute('aria-keyshortcuts', 'End');
+
+  await senden(instanz.adresse, beta, 'allgemein', 'neu 1');
+
+  const eine = page.getByRole('button', { name: '1 neue Nachricht', exact: true });
+  await expect(eine).toBeVisible();
+  expect(await eine.evaluate((schalter) => schalter.innerText)).toMatch(/^↓ 1 neue Nachricht\s+Ende$/);
+  expect(fehler).toEqual([]);
+});

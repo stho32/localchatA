@@ -24,9 +24,12 @@ export function verlaufAnlegen({ abrufen, schalter = () => {} }) {
   log.setAttribute('role', 'log');
   log.setAttribute('aria-live', 'off');
   const ladezeile = element('div', { className: 'lc-loadmore', textContent: 'Ältere Nachrichten werden geladen …', hidden: true });
-  const pillenBeschriftung = element('span', { textContent: '↓ Zum Neuesten' });
+  // Pille (R00020 F0068): sichtbar „↓ Zum Neuesten“ bzw. „↓ n neue Nachrichten“, mit Leerraum vor der Taste Ende;
+  // Pfeil und Taste sind für Bildschirmleser verborgen, die Taste nennt aria-keyshortcuts.
+  const pillenBeschriftung = element('span', { textContent: 'Zum Neuesten' });
   const pille = element('button', { type: 'button', className: 'lc-pill', hidden: true }, [
-    pillenBeschriftung, element('kbd', { textContent: 'Ende' }),
+    element('span', {}, [element('span', { textContent: '↓', ariaHidden: 'true' }), ' ', pillenBeschriftung]),
+    element('kbd', { textContent: 'Ende', ariaHidden: 'true' }),
   ]);
   pille.setAttribute('aria-keyshortcuts', 'End');
   const rahmen = element('div', { className: 'lc-verlauf' }, [ladezeile, log, element('div', { className: 'lc-pillen' }, [pille])]);
@@ -64,7 +67,7 @@ export function verlaufAnlegen({ abrufen, schalter = () => {} }) {
     }
     const weitOben = abstandUnten() > log.clientHeight;
     pille.hidden = fenster === null || !(weitOben || fenster.neuer || neueGezaehlt > 0);
-    pillenBeschriftung.textContent = '↓ Zum Neuesten';
+    pillenBeschriftung.textContent = 'Zum Neuesten';
     if (neueGezaehlt > 0) {
       pillenBeschriftung.textContent = pillenText(neueGezaehlt);
     }

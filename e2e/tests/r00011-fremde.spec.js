@@ -133,7 +133,7 @@ test('US-19 (Z5): wer oben liest, bleibt oben', async ({ browser }) => {
     await senden(instanz.adresse, beta, 'allgemein', text);
   }
 
-  await expect(pille(b.page)).toHaveText(/^3 neue Nachrichten/);
+  await expect(pille(b.page)).toHaveText(/^↓ 3 neue Nachrichten/);
   const nachher = await log.evaluate((element) => element.scrollTop);
   expect(Math.abs(nachher - vorher)).toBeLessThanOrEqual(1);
   await pille(b.page).click();
@@ -170,7 +170,7 @@ test('US-20: ganz weit oben wird nur gezählt', async ({ browser }) => {
   await senden(instanz.adresse, beta, 'allgemein', 'weit weg 1');
   await senden(instanz.adresse, beta, 'allgemein', 'weit weg 2');
 
-  await expect(pille(b.page)).toHaveText(/^2 neue Nachrichten/);
+  await expect(pille(b.page)).toHaveText(/^↓ 2 neue Nachrichten/);
   await expect(mitText(b.page, /^weit weg/)).toHaveCount(0);
   await log.focus();
   await b.page.keyboard.press('End');

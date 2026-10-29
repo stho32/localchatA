@@ -62,7 +62,7 @@ async function nachDemSprung(browser, viewport) {
   for (const text of ['neu 1', 'neu 2', 'neu 3']) {
     await senden(instanz.adresse, beta, 'allgemein', text);
   }
-  await expect(pille(page)).toHaveText(/^3 neue Nachrichten/);
+  await expect(pille(page)).toHaveText(/^↓ 3 neue Nachrichten/);
   await pille(page).click();
   await expect(mitText(page, /^neu 1$/)).toBeInViewport();
   const oben = await ruhigeOberkante(page, 'neu 1');
@@ -108,14 +108,14 @@ for (const viewport of FENSTER) {
     await senden(instanz.adresse, beta, 'allgemein', 'neu 4');
     await expect(mitText(page, /^neu 4$/)).toHaveCount(1);
     expect(Math.abs(await ruhigeOberkante(page, 'neu 1') - oben)).toBeLessThanOrEqual(1);
-    await expect(pille(page)).toHaveText(/^4 neue Nachrichten/);
+    await expect(pille(page)).toHaveText(/^↓ 4 neue Nachrichten/);
     for (let nummer = 5; nummer <= 9; nummer += 1) {
       await senden(instanz.adresse, alpha, 'allgemein', `neu ${nummer}`);
     }
     await expect(mitText(page, /^neu 9$/)).toHaveCount(1);
 
     expect(Math.abs(await ruhigeOberkante(page, 'neu 1') - oben)).toBeLessThanOrEqual(1);
-    await expect(pille(page)).toHaveText(/^9 neue Nachrichten/);
+    await expect(pille(page)).toHaveText(/^↓ 9 neue Nachrichten/);
     expect(fehler).toEqual([]);
   });
 }

@@ -193,10 +193,10 @@ test('B1 Nachricht während des letzten Nachlade-Abrufs: nach Scrollen ans Ende 
   await nachUntenBis(log, async () => gehalten.istGehalten());
 
   await senden(instanz.adresse, beta, 'allgemein', 'während 1');
-  await expect(pille(b.page)).toHaveText(/^1 neue Nachricht/);
+  await expect(pille(b.page)).toHaveText(/^↓ 1 neue Nachricht/);
   gehalten.freigeben();
   await expect(log).not.toHaveAttribute('data-laedt');
-  await expect(pille(b.page)).toHaveText(/^1 neue Nachricht/);
+  await expect(pille(b.page)).toHaveText(/^↓ 1 neue Nachricht/);
   await nachUntenBis(log, () => amEndeDesInhalts(log));
 
   await expect(mitText(b.page, /^während 1$/)).toHaveCount(1);
@@ -212,7 +212,7 @@ test('B1 zwei Nachrichten während des letzten Nachlade-Abrufs: beide in Zeitfol
 
   await senden(instanz.adresse, beta, 'allgemein', 'während 1');
   await senden(instanz.adresse, alpha, 'allgemein', 'während 2');
-  await expect(pille(b.page)).toHaveText(/^2 neue Nachrichten/);
+  await expect(pille(b.page)).toHaveText(/^↓ 2 neue Nachrichten/);
   gehalten.freigeben();
   await expect(log).not.toHaveAttribute('data-laedt');
   await nachUntenBis(log, () => amEndeDesInhalts(log));
@@ -234,7 +234,7 @@ test('B1 Nachricht vor dem letzten Nachlade-Abruf gesendet: genau 1×', async ({
   const { b, log, beta, letzteZeit } = await obenMitAbgeworfenemNeuestenBlock(browser);
 
   await senden(instanz.adresse, beta, 'allgemein', 'vorher 1');
-  await expect(pille(b.page)).toHaveText(/^1 neue Nachricht/);
+  await expect(pille(b.page)).toHaveText(/^↓ 1 neue Nachricht/);
   await nachUntenBis(log, () => amEndeDesInhalts(log));
 
   await expect(mitText(b.page, /^vorher 1$/)).toHaveCount(1);
@@ -251,7 +251,7 @@ test('B1 Nachricht während eines früheren Nachlade-Abrufs: am Ende genau 1×, 
   await nachUntenBis(log, async () => gehalten.istGehalten());
 
   await senden(instanz.adresse, beta, 'allgemein', 'zwischendurch 1');
-  await expect(pille(b.page)).toHaveText(/^1 neue Nachricht/);
+  await expect(pille(b.page)).toHaveText(/^↓ 1 neue Nachricht/);
   gehalten.freigeben();
   await nachUntenBis(log, () => amEndeDesInhalts(log));
 
