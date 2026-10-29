@@ -153,6 +153,33 @@ pub fn tag_dateien(
     Ok(dateien)
 }
 
+/// Die Tage in `<gespräch>/anhaenge/`: Ordner und Symlinks, deren Name ein Tag in der Schreibweise der Ablage ist,
+/// aufsteigend; fehlt `anhaenge`, keine. Ein Symlink als `anhaenge` ist ein Fehler.
+pub fn anhang_tage(instanz: &OwnedFd, gespraech: &Gespraech) -> io::Result<Vec<NaiveDate>> {
+    let anhaenge = match anhaenge(instanz, gespraech) {
+        Err(fehler) if fehler.kind() == io::ErrorKind::NotFound => return Ok(Vec::new()),
+        anderes => anderes?,
+    };
+    let mut tage = Vec::new();
+    for eintrag in rustix::fs::Dir::read_from(&anhaenge)? {
+        let eintrag = eintrag?;
+        let Some(tag) = eintrag.file_name().to_str().ok().and_then(|name| {
+            NaiveDate::parse_from_str(name, "%Y-%m-%d")
+                .ok()
+                .filter(|tag| tagname(*tag) == name)
+        }) else {
+            continue;
+        };
+        let stand = rustix::fs::statat(&anhaenge, eintrag.file_name(), AtFlags::SYMLINK_NOFOLLOW)?;
+        let art = FileType::from_raw_mode(stand.st_mode);
+        if art.is_dir() || art.is_symlink() {
+            tage.push(tag);
+        }
+    }
+    tage.sort();
+    Ok(tage)
+}
+
 /// Entfallen der Anhänge eines Tags (Regel 4): `anhaenge` ein Symlink → Fehler, nichts gelöscht; `anhaenge/<tag>`
 /// ein Symlink → nur der Link; sonst den Tag-Ordner über seinen Deskriptor leeren (Symlinks als Einträge entfernt,
 /// nie verfolgt; Unterordner rekursiv) und entfernen. Fehlt etwas, ist es schon weg.

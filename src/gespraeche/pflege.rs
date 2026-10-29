@@ -128,7 +128,8 @@ impl Gespraeche {
                 }];
             }
         };
-        let (_, entfallend) = frist::teilen(&auf_der_platte, heute, frist_tage);
+        let mit_anhangtagen = self.mit_anhangtagen(&gespraech, &auf_der_platte);
+        let (_, entfallend) = frist::teilen(&mit_anhangtagen, heute, frist_tage);
         let mut entfallen = Vec::new();
         let mut nachrichten = 0;
         let mut fehler = Vec::new();
@@ -153,7 +154,9 @@ impl Gespraeche {
                             ursache: ursache.to_string(),
                         });
                     }
-                    entfallen.push(tag);
+                    if auf_der_platte.contains(&tag) {
+                        entfallen.push(tag);
+                    }
                 }
                 Err(ursache) => fehler.push(Pflegebericht::NichtEntfallen {
                     channel: name.clone(),

@@ -225,6 +225,18 @@ impl Anhangablage for Anhangspeicher {
             .collect())
     }
 
+    fn anhang_tage(&self, gespraech: &Gespraech) -> io::Result<Vec<NaiveDate>> {
+        let mut tage: Vec<NaiveDate> = self
+            .innen()
+            .anhaenge
+            .keys()
+            .filter(|(g, _, _)| g == gespraech)
+            .map(|(_, tag, _)| *tag)
+            .collect();
+        tage.dedup();
+        Ok(tage)
+    }
+
     fn zum_lesen(
         &self,
         gespraech: &Gespraech,

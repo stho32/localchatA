@@ -73,6 +73,9 @@ pub trait Anhangablage: Send + Sync {
     ) -> io::Result<()>;
     /// Die regulären Dateien in `anhaenge/<tag>/` mit ihrer Länge; ein Symlink im Pfad ist ein Fehler.
     fn tag_dateien(&self, gespraech: &Gespraech, tag: NaiveDate) -> io::Result<Vec<Tagesdatei>>;
+    /// Die Tage in `anhaenge/` (Ordner und Symlinks mit Tagesnamen), aufsteigend — auch Tage ohne Tagesdatei
+    /// (Befund #53 B1); fehlt `anhaenge`, keine.
+    fn anhang_tage(&self, gespraech: &Gespraech) -> io::Result<Vec<NaiveDate>>;
     /// Eine gebundene Datei zum Lesen, `O_NOFOLLOW` in jeder Komponente.
     fn zum_lesen(
         &self,
@@ -115,6 +118,10 @@ impl Anhangablage for KeineAnhangablage {
     }
 
     fn tag_dateien(&self, _: &Gespraech, _: NaiveDate) -> io::Result<Vec<Tagesdatei>> {
+        Ok(Vec::new())
+    }
+
+    fn anhang_tage(&self, _: &Gespraech) -> io::Result<Vec<NaiveDate>> {
         Ok(Vec::new())
     }
 
@@ -334,6 +341,10 @@ impl Anhangablage for Anhangdateien {
 
     fn tag_dateien(&self, gespraech: &Gespraech, tag: NaiveDate) -> io::Result<Vec<Tagesdatei>> {
         anhangpfade::tag_dateien(&self.instanz, gespraech, tag)
+    }
+
+    fn anhang_tage(&self, gespraech: &Gespraech) -> io::Result<Vec<NaiveDate>> {
+        anhangpfade::anhang_tage(&self.instanz, gespraech)
     }
 
     fn zum_lesen(
@@ -573,6 +584,39 @@ mod tests {
     }
 
     /// Teildatei: `O_EXCL` (zweimal anlegen scheitert), Abschluss ohne Überschreiben (M39), Löschen beider Namen.
+    /// Befund #53 B1: die Tage in `anhaenge/` — Ordner und Symlinks mit Tagesnamen, aufsteigend; eine Datei mit
+    /// Tagesnamen, ein anderer Name und eine andere Schreibweise zählen nicht; ohne `anhaenge` keine, als Symlink ein
+    /// Fehler.
+    #[test]
+    fn die_tage_in_anhaenge_auch_ohne_tagesdatei() {
+        let wurzel = tempfile::tempdir().expect("Wegwerf-Ordner");
+        let anhaenge = wurzel.path().join("channels/c/anhaenge");
+        std::fs::create_dir_all(wurzel.path().join("channels/d")).expect("d");
+        for ordner in ["2026-10-21", "2026-10-20", "notiz", "2026-1-5"] {
+            std::fs::create_dir_all(anhaenge.join(ordner)).expect("Ordner");
+        }
+        std::fs::write(anhaenge.join("2026-10-22"), b"x").expect("Datei");
+        let fremd = tempfile::tempdir().expect("fremd");
+        symlink(fremd.path(), anhaenge.join("2026-10-23")).expect("Symlink");
+        let (ablage, _) = Anhangdateien::oeffnen(wurzel.path()).expect("geöffnet");
+        let tag = |t: &str| NaiveDate::parse_from_str(t, "%Y-%m-%d").expect("Tag");
+
+        let tage = ablage
+            .anhang_tage(&Gespraech::channel("c"))
+            .expect("aufgelistet");
+
+        assert_eq!(
+            tage,
+            vec![tag("2026-10-20"), tag("2026-10-21"), tag("2026-10-23")]
+        );
+        assert_eq!(
+            ablage.anhang_tage(&Gespraech::channel("d")).expect("leer"),
+            Vec::<NaiveDate>::new()
+        );
+        symlink(&anhaenge, wurzel.path().join("channels/d/anhaenge")).expect("Symlink");
+        assert!(ablage.anhang_tage(&Gespraech::channel("d")).is_err());
+    }
+
     #[test]
     fn teil_anlegen_abschliessen_und_loeschen_ueberschreiben_nie() {
         let wurzel = tempfile::tempdir().expect("Wegwerf-Ordner");

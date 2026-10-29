@@ -271,9 +271,9 @@ impl Gespraeche {
     }
 
     /// Setzt die Ablage für Eingang und Anhänge (im Start: die Deskriptoren des Ordners) und lädt die Anhänge aller
-    /// Tage im Index (B0442, ADR-0046 Regel 8 „Laden“): je Tag die
+    /// Tage im Index und aller Tage in `anhaenge/` (B0442, ADR-0046 Regel 8 „Laden“; Befund #53 B1): je Tag die
     /// Metazeilen und die regulären Dateien in `anhaenge/<tag>/` — `G` zählt jede reguläre Datei im Zählmaß, auch
-    /// Waisen; Symlinks und Unterordner nie. Eine ID, die in mehr als einer Metazeile über
+    /// Waisen und Tage ohne Tagesdatei; Symlinks und Unterordner nie. Eine ID, die in mehr als einer Metazeile über
     /// alle Tage und Gespräche steht, ergibt keinen Eintrag (Befund #53 B2). Ist `anhaenge` oder der Tag nicht zu
     /// öffnen (Symlink, kein Ordner), bleiben die Anhänge des Tags ohne Eintrag.
     pub fn mit_anhangablage(
@@ -288,7 +288,10 @@ impl Gespraeche {
             let verzeichnis = super::lesend(&self.verzeichnis);
             for (gespraech, verlauf) in &verzeichnis.verlaeufe {
                 let verlauf = sperren(verlauf);
-                for (tag, rohtext) in verlauf.tage_roh() {
+                let roh: std::collections::BTreeMap<_, _> = verlauf.tage_roh().collect();
+                let tage: Vec<_> = roh.keys().copied().collect();
+                for tag in self.mit_anhangtagen(gespraech, &tage) {
+                    let rohtext = roh.get(&tag).copied().unwrap_or_default();
                     match self.anhangablage.tag_dateien(gespraech, tag) {
                         Ok(dateien) => {
                             gelesen.push((gespraech.clone(), tag, tag_lesen(rohtext), dateien));
@@ -329,6 +332,20 @@ impl Gespraeche {
         self.anhangbefunde = befunde;
         self.ladezeit += beginn.elapsed();
         self
+    }
+
+    /// Die Tage `tage` (mit Tagesdatei) und die Tage, die es nur in `anhaenge/` gibt (Befund #53 B1), aufsteigend.
+    /// Lässt sich `anhaenge/` nicht auflisten, nur `tage` — der Fehler zeigt sich am Tag selbst (Laden, Entfallen).
+    pub(super) fn mit_anhangtagen(
+        &self,
+        gespraech: &super::logablage::Gespraech,
+        tage: &[chrono::NaiveDate],
+    ) -> Vec<chrono::NaiveDate> {
+        let mut alle = tage.to_vec();
+        alle.extend(self.anhangablage.anhang_tage(gespraech).unwrap_or_default());
+        alle.sort();
+        alle.dedup();
+        alle
     }
 
     /// Was beim Laden der Anhänge übergangen wurde.

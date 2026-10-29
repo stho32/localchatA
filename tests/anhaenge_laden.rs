@@ -294,6 +294,64 @@ async fn beim_tageswechsel_entfallen_die_anhaenge() {
     assert!(!tagordner.exists());
 }
 
+/// Befund #53 B1: `anhaenge/<tag>/` ohne Tagesdatei (Waise nach `kill -9` vor der ersten Nachricht des Tages) zählt
+/// beim Start (1 Byte → 65.536) und entfällt mit der Frist (8 Tage später: Ordner weg, 0).
+#[tokio::test]
+async fn ein_tagordner_ohne_tagesdatei_zaehlt_und_entfaellt() {
+    let wurzel = ordner();
+    let tagordner = wurzel.path().join("channels/allgemein/anhaenge/2026-10-28");
+    std::fs::create_dir_all(&tagordner).expect("Tag");
+    std::fs::write(tagordner.join("120000000-1-waise.bin"), b"w").expect("Waise");
+
+    let instanz = starten(wurzel.path(), &[], &[("LOCALCHATA_JETZT", MITTAG)]);
+    assert_eq!(gesundheit(&instanz.adresse).await["anhang_belegt"], 65_536);
+    drop(instanz);
+    let instanz = starten(
+        wurzel.path(),
+        &[],
+        &[("LOCALCHATA_JETZT", "2026-11-05T12:00:00.000+01:00")],
+    );
+
+    assert_eq!(gesundheit(&instanz.adresse).await["anhang_belegt"], 0);
+    assert!(!tagordner.exists());
+}
+
+/// Befund #53 B1: die Tagesdatei entfällt, `anhaenge/<tag>/` nicht (Rechte) → `ERROR` „erneuter Versuch beim
+/// nächsten Anlass“; beim nächsten Anlass (Neustart, Rechte zurück) kommt der Versuch wirklich: Ordner weg, 0.
+#[cfg(target_os = "linux")]
+#[tokio::test]
+async fn ein_gescheitertes_entfallen_der_anhaenge_wird_wiederholt() {
+    use gemeinsam::frist::Rechte;
+    let wurzel = ordner();
+    let tag = am_tag_senden(wurzel.path(), "2026-10-20T12:00:00+02:00").await;
+    let tagordner = wurzel
+        .path()
+        .join(format!("channels/allgemein/anhaenge/{tag}"));
+    {
+        let _rechte = Rechte::setzen(&tagordner, 0o500);
+        let instanz = starten(wurzel.path(), &[], &[("LOCALCHATA_JETZT", MITTAG)]);
+        assert_eq!(gesundheit(&instanz.adresse).await["anhang_belegt"], 65_536);
+        drop(instanz);
+    }
+    assert!(
+        !wurzel
+            .path()
+            .join(format!("channels/allgemein/{tag}.log"))
+            .exists()
+    );
+    assert!(
+        alle_zeilen(wurzel.path())
+            .iter()
+            .any(|zeile| zeile.contains(" ERROR ") && zeile.contains("erneuter Versuch")),
+        "ERROR fehlt"
+    );
+
+    let instanz = starten(wurzel.path(), &[], &[("LOCALCHATA_JETZT", MITTAG)]);
+
+    assert_eq!(gesundheit(&instanz.adresse).await["anhang_belegt"], 0);
+    assert!(!tagordner.exists());
+}
+
 /// Befund #53 B2: dieselbe Metazeile (dieselbe ID) am 20. und am 25. → je `WARNING laden` „ID doppelt“, kein
 /// Eintrag, beide Dateien Waisen (131.072); Frist 3 → der 20. entfällt, 65.536 bleiben.
 #[tokio::test]
