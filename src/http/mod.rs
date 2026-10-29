@@ -9,6 +9,8 @@ mod beitreten;
 mod bremse;
 mod channels;
 mod eingebettet;
+#[cfg(test)]
+mod eingriffsbudget;
 mod ereignisse;
 mod felder;
 mod frist;
