@@ -516,3 +516,8 @@ Nie vom User erfragen.
 | 2026-10-29 | R00036 Tabs folgen dem Beitritt | B0569 Formular sperren und freigeben | Standard | 0,4h | 0,30h | 0,30h | autonom (entw2) |
 | 2026-10-29 | R00036 Tabs folgen dem Beitritt | B0570 Lauscher, Nachlese, Klick unter Sitzungssperre (inkl, Nacharbeit) | Standard | 0,4h | 3,00h | 3,00h | autonom (entw2) |
 | 2026-10-29 | R00036 Tabs folgen dem Beitritt | B0571 Abnahme-Probe, Mutanten, Zeitmessung | Standard | 0,4h | 3,00h | 3,00h | autonom (entw2) |
+| 2026-10-29 | R00037 Hinweis und Leiste nach Ausfall | B0572 Nachhol-Lauf meldet jeden Versuch | Standard | 0,4h | 0,42h | 0,42h | autonom (entw3) |
+| 2026-10-29 | R00037 Hinweis und Leiste nach Ausfall | B0573 Leiste zeigt Stand während eines Versuchs | Standard | 0,4h | 0,13h | 0,13h | autonom (entw3) |
+| 2026-10-29 | R00037 Hinweis und Leiste nach Ausfall | B0574+B0575 Hinweis sagt, was geschieht; Hauptansicht verdrahtet | Standard | 0,4h | 0,67h | 0,67h | autonom (entw3) |
+| 2026-10-29 | R00037 Hinweis und Leiste nach Ausfall | B0576 Abnahme-Probe | Standard | 0,4h | 0,75h | 0,75h | autonom (entw3) |
+| 2026-10-29 | R00037 Hinweis und Leiste nach Ausfall | Gate | Konsolidierung | — | 0,25h | 0,25h | autonom (entw3) |
