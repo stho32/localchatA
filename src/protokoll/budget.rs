@@ -2,6 +2,7 @@
 //! Error+Exception 32 MiB, Eingriff 16 MiB (ADR-0049). Rein: entscheidet, ob eine Zeile noch passt.
 
 use super::Stufe;
+use super::eingriffe::ist_eingriff;
 use chrono::NaiveDate;
 
 const MIB: u64 = 1024 * 1024;
@@ -39,6 +40,16 @@ impl Klasse {
             Stufe::Debug => Klasse::Debug,
             Stufe::Information | Stufe::Warning => Klasse::InformationWarning,
             Stufe::Error | Stufe::Exception => Klasse::ErrorException,
+        }
+    }
+
+    /// Klasse einer Zeile aus Stufe, Bereichsname und Text: Eingriffszeilen (ADR-0049) zählen in `Eingriff`, alles
+    /// andere nach der Stufe. Die eine Zuordnung beim Schreiben und beim Wiederlesen.
+    pub fn zuordnen(stufe: Stufe, bereich: &str, text: &str) -> Klasse {
+        if ist_eingriff(stufe, bereich, text) {
+            Klasse::Eingriff
+        } else {
+            Klasse::von(stufe)
         }
     }
 
@@ -255,6 +266,118 @@ mod tests {
             Urteil::ErstmalsVerworfen
         );
         assert_eq!(anders.pruefen(tag, Klasse::Eingriff, 1), Urteil::Schreiben);
+    }
+
+    fn protokoll_mit_kleinen_budgets(speicher: &Speicher) -> Protokoll {
+        let uhr = Arc::new(GestellteUhr::neu(zeit("2026-10-29T12:00:00+01:00")));
+        Protokoll::mit(
+            Box::new(speicher.clone()),
+            Aufzeichnung::default().spiegel(),
+            uhr as Arc<dyn Uhr>,
+            Stufe::Information,
+        )
+        .mit_budgets(Budgets {
+            debug: 1024,
+            information_warning: 1024,
+            error_exception: 1024,
+            eingriff: 1024,
+        })
+    }
+
+    /// R00034 F0125 (ADR-0049 Regel 3): eine Frist-Zeile zählt in EINGRIFF, nicht in INFORMATION+WARNING — sie
+    /// steht auch dann in der Datei, wenn das allgemeine Budget erschöpft ist. Mutante „Klasse nur aus der Stufe“
+    /// lässt sie verwerfen.
+    #[test]
+    fn eine_fristzeile_steht_auch_bei_erschoepftem_informationsbudget() {
+        let speicher = Speicher::neu();
+        let protokoll = protokoll_mit_kleinen_budgets(&speicher);
+        for _ in 0..30 {
+            protokoll.eintragen(
+                Stufe::Information,
+                Bereich::Sitzung,
+                "Sitzung beigetreten",
+                Kontext::neu(),
+            );
+        }
+        assert!(
+            protokoll.kennzahlen().verworfen > 0,
+            "Budget muss erschöpft sein"
+        );
+
+        protokoll.eintragen(
+            Stufe::Information,
+            Bereich::Frist,
+            "Frist 7 → 30 Tage gesetzt",
+            Kontext::neu(),
+        );
+
+        let zeilen = speicher.zeilen();
+        assert!(
+            zeilen
+                .last()
+                .is_some_and(|z| z.contains(" INFORMATION frist Frist 7 → 30 Tage gesetzt")),
+            "{zeilen:#?}"
+        );
+        assert!(
+            zeilen.iter().all(|z| !z.contains("Tagesbudget EINGRIFF")),
+            "{zeilen:#?}"
+        );
+    }
+
+    /// R00034 F0125: „Anhänge gelöscht“ ebenso; die Klassen sind in beide Richtungen getrennt.
+    #[test]
+    fn geloeschte_anhaenge_zaehlen_in_eingriff_und_sitzungszeilen_nicht() {
+        let speicher = Speicher::neu();
+        let protokoll = protokoll_mit_kleinen_budgets(&speicher);
+        for _ in 0..30 {
+            protokoll.eintragen(
+                Stufe::Information,
+                Bereich::Frist,
+                "Frist 7 → 30 Tage gesetzt",
+                Kontext::neu(),
+            );
+        }
+        let verworfen = protokoll.kennzahlen().verworfen;
+        assert!(verworfen > 0, "EINGRIFF muss erschöpft sein");
+        assert!(
+            speicher
+                .zeilen()
+                .iter()
+                .any(|z| z.contains("Tagesbudget EINGRIFF erreicht")),
+            "Budgetzeile der Klasse EINGRIFF"
+        );
+
+        protokoll.eintragen(
+            Stufe::Information,
+            Bereich::Sitzung,
+            "Sitzung beigetreten",
+            Kontext::neu(),
+        );
+        protokoll.eintragen(
+            Stufe::Information,
+            Bereich::Anhang,
+            "Anhänge gelöscht",
+            Kontext::neu(),
+        );
+
+        let zeilen = speicher.zeilen();
+        assert_eq!(
+            protokoll.kennzahlen().verworfen,
+            verworfen + 1,
+            "nur die Anhang-Zeile zählt in EINGRIFF"
+        );
+        assert!(
+            zeilen
+                .iter()
+                .any(|z| z.contains(" INFORMATION sitzung Sitzung beigetreten")),
+            "{zeilen:#?}"
+        );
+        assert!(
+            zeilen
+                .iter()
+                .all(|z| !z.contains("Tagesbudget INFORMATION+WARNING")),
+            "{zeilen:#?}"
+        );
     }
 
     #[test]

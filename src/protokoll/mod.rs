@@ -422,7 +422,7 @@ impl Protokoll {
             inneres.budget.anrechnen(tag, verbrauch);
         }
         let zeile = zeile::zeile(eintrag, jetzt);
-        let klasse = Klasse::von(eintrag.stufe);
+        let klasse = Klasse::zuordnen(eintrag.stufe, eintrag.bereich.als_text(), &eintrag.text);
         match inneres.budget.pruefen(tag, klasse, zeile.len() as u64) {
             Urteil::Schreiben => {}
             Urteil::ErstmalsVerworfen => {
