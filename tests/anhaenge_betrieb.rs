@@ -532,3 +532,149 @@ fn dateien(ordner: &Path) -> Vec<(String, u64)> {
     liste.sort();
     liste
 }
+
+/// Keine ID, kein Name (B0464; M11, M18, M19): auf Debug Anmelden, Hochladen, Senden, Abruf mit und ohne Range,
+/// 404, Abbruch, verfehlte Routen mit der ID, eine auf der Platte gelöschte Datei, eine unplausible Metazeile,
+/// 422 `metadaten`, Löschen (409, 200, `fehler`) mit dem Anzeigenamen `Geheimplan Q4.pdf` → keine ID und weder
+/// `Geheimplan` noch der ASCII-Teil im Protokoll; eine Datei nur als `<hhmmssmmm>-<n>`.
+#[tokio::test]
+async fn keine_id_und_kein_name_im_protokoll() {
+    use tokio::io::AsyncWriteExt;
+    let wurzel = ordner();
+    let mut ids: Vec<String> = Vec::new();
+    {
+        let instanz = starten(wurzel.path(), &["--protokoll-stufe", "debug"], &[]);
+        let basis = instanz.adresse.clone();
+        let beta = Absender::von("127.0.0.1");
+        let token = beitreten(&beta, &basis, "beta", Some("agent")).await;
+        let senden = async |id: &str| {
+            let koerper = serde_json::json!({"text": "", "anhaenge": [id]})
+                .to_string()
+                .into_bytes();
+            roh_senden(
+                &beta,
+                &basis,
+                Some(&token),
+                "allgemein",
+                "application/json",
+                koerper,
+            )
+            .await
+            .status
+        };
+        let a = ablegen(
+            &beta,
+            &basis,
+            &token,
+            "Geheimplan Q4.pdf",
+            b"%PDF-1.7 Geheimplan".to_vec(),
+        )
+        .await;
+        assert_eq!(senden(&a).await, 201);
+        let b = ablegen(&beta, &basis, &token, "Geheimplan Q4.pdf", vec![0u8; 100]).await;
+        assert_eq!(senden(&b).await, 201);
+        let c = ablegen(&beta, &basis, &token, "Geheimplan Q4.pdf", vec![0u8; 100]).await;
+        assert_eq!(senden(&c).await, 201);
+        let client = reqwest::Client::new();
+        for (pfad, range) in [
+            (format!("anhaenge/{a}"), None),
+            (format!("anhaenge/{a}"), Some("bytes=0-3")),
+            (format!("anhaenge/{a}/x"), None),
+            (format!("api/anhaenge/{a}/x"), None),
+            (format!("anhaenge/{}", a.to_uppercase()), None),
+        ] {
+            let mut anfrage = client.get(format!("{basis}{pfad}"));
+            if let Some(range) = range {
+                anfrage = anfrage.header("range", range);
+            }
+            let _ = anfrage.send().await.expect("Abruf");
+        }
+        let abbruch = id(&anmelden(&beta, &basis, &token, "Geheimplan Q4.pdf", 1000).await);
+        let mut verbindung = roh_oeffnen(
+            instanz.port(),
+            "127.0.0.1",
+            &put_kopf(&abbruch, &token, 1000),
+        )
+        .await;
+        verbindung.write_all(&[0u8; 10]).await.expect("Anfang");
+        drop(verbindung);
+        let kaputt = id(&anmelden(&beta, &basis, &token, "Geheimplan Q4.jpg", 20).await);
+        let mut jpeg = vec![0xFF, 0xD8, 0xFF, 0xE1, 0xFF, 0xF0];
+        jpeg.resize(20, 0);
+        let mut verbindung =
+            roh_oeffnen(instanz.port(), "127.0.0.1", &put_kopf(&kaputt, &token, 20)).await;
+        verbindung.write_all(&jpeg).await.expect("JPEG");
+        let antwort = roh_antwort(&mut verbindung, std::time::Duration::from_secs(5)).await;
+        assert!(antwort.starts_with("HTTP/1.1 422"), "{antwort}");
+        let anhaenge = wurzel.path().join("channels/allgemein/anhaenge");
+        let tag = std::fs::read_dir(&anhaenge)
+            .expect("anhaenge")
+            .next()
+            .expect("Tag")
+            .expect("Tag")
+            .path();
+        let mut namen: Vec<std::path::PathBuf> = std::fs::read_dir(&tag)
+            .expect("Tag")
+            .map(|e| e.expect("Eintrag").path())
+            .collect();
+        namen.sort();
+        std::fs::remove_file(&namen[1]).expect("Datei weg");
+        let _ = client.get(format!("{basis}anhaenge/{b}")).send().await;
+        let fremd = tempfile::NamedTempFile::new().expect("fremd");
+        std::fs::remove_file(&namen[2]).expect("weg");
+        std::os::unix::fs::symlink(fremd.path(), &namen[2]).expect("Symlink");
+        let loeschen = async |koerper: serde_json::Value| {
+            beta.anfrage(
+                reqwest::Method::POST,
+                format!("{basis}api/anhaenge/loeschen"),
+            )
+            .header("Content-Type", "application/json")
+            .header("X-LocalchatA-Sitzung", &token)
+            .body(koerper.to_string())
+            .send()
+            .await
+            .expect("Löschen")
+            .status()
+            .as_u16()
+        };
+        assert_eq!(loeschen(serde_json::json!({"ids": [a]})).await, 409);
+        assert_eq!(
+            loeschen(serde_json::json!({"ids": [a, c], "bestaetigt": true})).await,
+            200
+        );
+        ids.extend([a, b, c, abbruch, kaputt]);
+    }
+    let tagesdatei = std::fs::read_dir(wurzel.path().join("channels/allgemein"))
+        .expect("Channel")
+        .map(|e| e.expect("Eintrag").path())
+        .find(|p| p.extension().is_some_and(|e| e == "log"))
+        .expect("Tagesdatei");
+    let mut inhalt = std::fs::read_to_string(&tagesdatei).expect("Tag");
+    inhalt.push_str("@ 2026-10-29T23:59:00.000+01:00 beta@127.0.0.1\n+ anhang: zzzzzzzzzzzzzzzzzzzzzzzzzz 5 text/plain - ../Geheimplan_Q4.pdf Geheimplan Q4.pdf\n  x\n\n");
+    std::fs::write(&tagesdatei, inhalt).expect("unplausibel");
+    drop(starten(wurzel.path(), &["--protokoll-stufe", "debug"], &[]));
+
+    let zeilen = gemeinsam::protokoll::alle_zeilen(wurzel.path());
+    assert!(
+        zeilen.iter().any(|z| z.contains("WARNING laden")),
+        "unplausible Metazeile gemeldet"
+    );
+    assert!(
+        zeilen
+            .iter()
+            .any(|z| z.contains("WARNING anhang Anhang fehlt")),
+        "fehlende Datei gemeldet"
+    );
+    assert!(
+        zeilen
+            .iter()
+            .any(|z| z.contains("ERROR anhang Löschen gescheitert")),
+        "Löschen gescheitert gemeldet"
+    );
+    for zeile in &zeilen {
+        for id in &ids {
+            assert!(!zeile.contains(id.as_str()), "{id} in {zeile}");
+        }
+        assert!(!zeile.contains("Geheimplan"), "{zeile}");
+    }
+}
