@@ -143,3 +143,8 @@ Eine Zeile je Auftrag an eine Rolle und je Retrospektive.
 | 2026-10-28 | #12 | Retrospektive | director | — | — | Arbeit 0,78 h, Nacharbeit 0,25 h; Ursache: Fehler im Kriterium selbst (Plural in R00008), fehlende Barrierefreiheitsprüfung im Test, wackliger Test |
 | 2026-10-28 | #8 | Auto-Reviews | code-, ux-reviewer | befund | — | Muss: Nachricht geht beim letzten Nachladen verloren, Puffer und Sperrordnung ungetestet; UX S1 hochgestuft (Lesestelle springt nach Pillenklick) |
 | 2026-10-28 | #8 | Auto-Reviews → Nacharbeit | planer, entwickler (entw2) | läuft | 0:13 | Nacharbeit B0326–B0329 (R00011 nachgezogen); Härtung R00020 als #30 (Detailplanung) und #31 (Architektur); entw2 auf nacharbeit/8 |
+| 2026-10-29 | #22 | Entwicklung → Auto-Reviews | entwickler | bestanden | 0:50 | I0020 grün, Gate mit Nacharbeit #8 862/0, E2E 223/261; 5 Reviews |
+| 2026-10-29 | #8 | Nacharbeit → Auto-Reviews | entwickler (entw2) | bestanden | 0:30 | B0326–B0329, Rebase + Gate + Fast-Forward ed87d7e; Nacharbeit 0,45 h gegen 1,17 h; enge Wiederholung code, ux |
+| 2026-10-29 | #30 | Detailplanung → Entwicklung | entwickler | läuft | — | R00020 Teil 1 (9 Bubbles) |
+| 2026-10-29 | #34 | Architektur → Detailplanung | architekt | bestanden | 0:08 | Betreiber: Plattenquote als Quote; ADR-0044 (507, 4 GiB, nichts gelöscht); Betreiber: Frist gilt im Archiv; Vision ergänzt |
+| 2026-10-29 | #35 | Architektur → Detailplanung | architekt | bestanden | 0:15 | Vorrang (Betreiber: DNS-Namen); Betreiber nach Erklärung Rebinding: eigene Netznamen automatisch, HTML-Seite, --alle-namen; ADR-0045; Angriffsmatrix beim security-reviewer |
