@@ -381,7 +381,7 @@ async fn eine_sendung_an_der_quote_merkt_keinen_schluessel() {
 
 /// Angriffsmatrix Zeile 17 (Stufe Debug, Testknopf `=5`): Schlüssel `GEHEIM…`, Text `GEHEIMTEXT` — 201, 200, 422
 /// Format (Leerzeichen, 65 Zeichen, Umlaut, leer, doppelt), 422 anders und eine Verdrängung mit Episode bis zum
-/// Ende → kein `GEHEIM` in `logs/`, auch nicht in Episode-Beginn und -Ende.
+/// Ende → kein `GEHEIM` in `logs/`, auch nicht in Episodenbeginn und -ende.
 #[tokio::test]
 async fn weder_schluessel_noch_text_stehen_im_protokoll() {
     let wurzel = ordner();
