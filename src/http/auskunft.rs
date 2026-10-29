@@ -469,9 +469,16 @@ mod tests {
                 .push(format!("{art} {schluessel}"));
             let jetzt = self.laufend.fetch_add(1, Ordering::SeqCst) + 1;
             self.hoechstens.fetch_max(jetzt, Ordering::SeqCst);
+            // Höchstens 10 s gesperrt: bricht ein Test vorher ab, gibt der Faden trotzdem frei, sonst wartete das
+            // Ende der Laufzeit für immer auf ihn.
+            let ende = Instant::now() + Duration::from_secs(10);
             let mut gesperrt = self.gesperrt.lock().expect("Tor");
-            while gesperrt.contains(schluessel) {
-                gesperrt = self.tor.wait(gesperrt).expect("Tor");
+            while gesperrt.contains(schluessel) && Instant::now() < ende {
+                gesperrt = self
+                    .tor
+                    .wait_timeout(gesperrt, Duration::from_millis(100))
+                    .expect("Tor")
+                    .0;
             }
             self.laufend.fetch_sub(1, Ordering::SeqCst);
         }
