@@ -231,10 +231,13 @@ pub enum Ergebnis {
 }
 
 /// Räumt, wenn eine Übertragung ohne Abschluss endet — auch, wenn der Handler fallen gelassen wird (Client weg).
+/// Nach dem `rename` räumt er auch `.eingang/<id>` (Befund #9 B2): die Datei gehört dann diesem `PUT`, bis der
+/// Übergang `laeuft` → `fertig` gelingt.
 struct Raeumer {
     gespraeche: Arc<Gespraeche>,
     id: Anhangid,
     generation: u64,
+    umbenannt: bool,
     erledigt: bool,
 }
 
@@ -267,8 +270,14 @@ impl Drop for Raeumer {
         let gespraeche = Arc::clone(&self.gespraeche);
         let id = self.id.clone();
         let generation = self.generation;
+        let umbenannt = self.umbenannt;
         let raeumen = move || {
-            let _ = gespraeche.anhangablage().teil_loeschen(&id);
+            let ablage = gespraeche.anhangablage();
+            let _ = if umbenannt {
+                ablage.eingang_loeschen(&id)
+            } else {
+                ablage.teil_loeschen(&id)
+            };
             gespraeche.hochladen_abbrechen(&id, generation);
         };
         match tokio::runtime::Handle::try_current() {
@@ -295,6 +304,7 @@ where
         gespraeche: Arc::clone(&gespraeche),
         id: platz.id.clone(),
         generation: platz.generation,
+        umbenannt: false,
         erledigt: false,
     };
     let beginn = tokio::time::Instant::now();
@@ -399,7 +409,9 @@ async fn tilgen_unter_bank(
     .map_err(|fehler| Abbruch::Platte(std::io::Error::other(fehler.to_string())))?
 }
 
-/// `rename` ohne Überschreiben und der Übergang `laeuft` → `fertig`; wer verliert, räumt seine Datei.
+/// `rename` ohne Überschreiben und der Übergang `laeuft` → `fertig`; wer verliert, räumt seine Datei. Der Räumer
+/// geht mit in den Blocking-Thread des `rename` und kommt mit dem Ergebnis zurück: wird der Handler dabei fallen
+/// gelassen, fällt er erst nach dem `rename` und räumt dann `.eingang/<id>`.
 async fn abschliessen(
     gespraeche: Arc<Gespraeche>,
     raeumer: Raeumer,
@@ -410,23 +422,26 @@ async fn abschliessen(
     let umbenannt = {
         let gespraeche = Arc::clone(&gespraeche);
         let id = platz.id.clone();
-        tokio::task::spawn_blocking(move || gespraeche.anhangablage().teil_abschliessen(&id)).await
+        let mut raeumer = raeumer;
+        tokio::task::spawn_blocking(move || {
+            let umbenannt = gespraeche.anhangablage().teil_abschliessen(&id);
+            raeumer.umbenannt = umbenannt.is_ok();
+            (raeumer, umbenannt)
+        })
+        .await
     };
-    match umbenannt {
-        Ok(Ok(())) => {}
-        Ok(Err(fehler)) if fehler.kind() == std::io::ErrorKind::NotFound => {
+    let raeumer = match umbenannt {
+        Ok((raeumer, Ok(()))) => raeumer,
+        Ok((raeumer, Err(fehler))) if fehler.kind() == std::io::ErrorKind::NotFound => {
             raeumer.abbrechen();
             return Ergebnis::Verloren(Verloren::Unbekannt);
         }
-        Ok(Err(fehler)) => {
+        Ok((raeumer, Err(fehler))) => {
             raeumer.abbrechen();
             return Ergebnis::Fehler(fehler.to_string());
         }
-        Err(fehler) => {
-            raeumer.abbrechen();
-            return Ergebnis::Fehler(fehler.to_string());
-        }
-    }
+        Err(fehler) => return Ergebnis::Fehler(fehler.to_string()),
+    };
     match gespraeche.hochladen_abschliessen(&platz.id, platz.generation, art) {
         Ok(gueltig_bis) => {
             raeumer.erledigt();
@@ -1066,6 +1081,84 @@ mod tests {
             },
         );
         assert!(wieder.is_ok());
+    }
+
+    /// Befund #9 B2 (L1): fallen gelassen nach dem `rename`, vor dem Übergang `laeuft` → `fertig` (Client schließt
+    /// nach dem letzten Byte) → weder `<id>` noch `<id>.teil` bleiben, die Anmeldung gilt weiter, ein neuer `PUT`
+    /// wird fertig. Die Laufzeit hat einen Thread: solange der Test sie hält, wird die Übertragung nicht gepollt.
+    #[tokio::test(flavor = "current_thread")]
+    async fn fallen_gelassen_nach_dem_rename_bleibt_nichts_im_eingang() {
+        let aufbau = aufbauen(Some(10 * MIB));
+        let platz = beginnen(&aufbau, 4);
+        let id = platz.id.clone();
+        let schranke = Arc::new(Barrier::new(2));
+        aufbau.ablage.vor_abschluss_warten(Arc::clone(&schranke));
+        let uebertragung = tokio::spawn(uebertragen(
+            Arc::clone(&aufbau.gespraeche),
+            Arc::clone(&aufbau.bank),
+            platz,
+            stuecke(vec![b"abcd".to_vec()]),
+        ));
+        let vor_dem_rename = Arc::clone(&schranke);
+        tokio::task::spawn_blocking(move || vor_dem_rename.wait())
+            .await
+            .expect("vor dem rename");
+        schranke.wait();
+        for _ in 0..400 {
+            if aufbau.ablage.eingang().contains_key(id.als_text()) {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        assert!(
+            aufbau.ablage.eingang().contains_key(id.als_text()),
+            "rename gelaufen"
+        );
+
+        uebertragung.abort();
+        assert!(
+            uebertragung
+                .await
+                .is_err_and(|fehler| fehler.is_cancelled())
+        );
+        for _ in 0..400 {
+            if aufbau.ablage.eingang().is_empty() {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+
+        assert_eq!(
+            aufbau.ablage.eingang().keys().cloned().collect::<Vec<_>>(),
+            Vec::<String>::new()
+        );
+        let wieder = aufbau
+            .gespraeche
+            .hochladen_beginnen(
+                &beta(),
+                &id,
+                Kopf {
+                    typ_passt: true,
+                    laenge: Some(4),
+                },
+            )
+            .expect("wieder angemeldet");
+        let ergebnis = uebertragen(
+            Arc::clone(&aufbau.gespraeche),
+            Arc::clone(&aufbau.bank),
+            wieder,
+            stuecke(vec![b"efgh".to_vec()]),
+        )
+        .await;
+        assert!(matches!(ergebnis, Ergebnis::Fertig { .. }), "{ergebnis:?}");
+        assert_eq!(
+            aufbau
+                .ablage
+                .eingang()
+                .get(id.als_text())
+                .map(Vec::as_slice),
+            Some(&b"efgh"[..])
+        );
     }
 
     #[test]
