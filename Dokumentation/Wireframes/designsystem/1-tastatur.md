@@ -14,9 +14,9 @@ Gewohnte Konventionen (Slack/Discord, Browser), auf macOS `Strg` = `⌘`. Kürze
 | `Strg .` | Teilnehmerliste ein-/ausblenden (4.4) | überall |
 | `Esc` | Overlay/Dialog schließen; im Verlauf: zurück in die Eingabe; zweimal: Channel als gelesen markieren | überall |
 | `/` oder `Tab` vom Verlauf | in die Eingabe springen | außerhalb von Textfeldern |
-| `Enter` | senden | Eingabe |
+| `Enter` | senden; auf Touch-Geräten (grober Zeiger, je Tastendruck gefragt) neue Zeile — gesendet wird dort mit dem Knopf „Senden“ (ADR-0038 Ergänzung Karte #41) | Eingabe |
 | `Shift Enter` | neue Zeile | Eingabe |
-| `Strg Enter` | senden, auch innerhalb eines offenen Codeblocks | Eingabe |
+| `Strg Enter` | senden, auch innerhalb eines offenen Codeblocks und auf Touch-Geräten (etwa mit angesteckter Tastatur am Tablet) | Eingabe |
 | `↑` in leerer Eingabe | eigene letzte Nachricht in den Verlauf fokussieren | Eingabe |
 | `@` | Erwähnungs-Vorschlag; `↑ ↓` wählen, `Enter`/`Tab` einsetzen | Eingabe |
 | `Strg Shift U` | Datei anhängen | Eingabe |
