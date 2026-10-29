@@ -441,3 +441,29 @@ Nie vom User erfragen.
 | 2026-10-29 | R00021 Frist bucht am Schreibkonto | B0344 Bremse im Dialog belegt | Standard | 0,4h | 0,10h | 0,10h | autonom |
 | 2026-10-29 | R00021 Frist bucht am Schreibkonto | Mutanten, Gelerntes, Gate | Konsolidierung | — | 0,08h | 0,08h | autonom |
 | 2026-10-29 | R00021 Frist bucht am Schreibkonto | B0343 Nacharbeit: Vorab vor dem Körper belegt (400/415/413) | Nacharbeit | — | 0,13h | 0,13h | autonom |
+| 2026-10-29 | R00025 Senden bei Störungen gehärtet | B0406 Verdrängungsregel je Kennung und gesamt | Standard | 0,4h | 0,12h | 0,12h | autonom |
+| 2026-10-29 | R00025 Senden bei Störungen gehärtet | B0493 Speicher amortisiert konstant und begrenzt | Standard | 0,4h | 0,12h | 0,12h | autonom |
+| 2026-10-29 | R00025 Senden bei Störungen gehärtet | B0407 Verdrängung sichtbar | Standard | 0,4h | 0,10h | 0,10h | autonom |
+| 2026-10-29 | R00025 Senden bei Störungen gehärtet | B0408 Verdrängung über das echte Programm geprobt | Standard | 0,4h | 0,12h | 0,12h | autonom |
+| 2026-10-29 | R00025 Senden bei Störungen gehärtet | B0495 Regressionen der Geltung und des Protokolls | Standard | 0,4h | 0,03h | 0,03h | autonom |
+| 2026-10-29 | R00025 Senden bei Störungen gehärtet | B0494 Echte Grenzen über das Programm (`--ignored`) | Standard | 0,4h | 0,20h | 0,20h | autonom |
+| 2026-10-29 | R00025 Senden bei Störungen gehärtet | B0403 Steuerzeichen entfernen | Standard | 0,4h | 0,07h | 0,07h | autonom |
+| 2026-10-29 | R00025 Senden bei Störungen gehärtet | B0405 Leerraum ohne Hinweis | Standard | 0,4h | 0,08h | 0,08h | autonom |
+| 2026-10-29 | R00025 Senden bei Störungen gehärtet | B0488 Sofort-Ansagen gehen nicht verloren | Standard | 0,4h | 0,10h | 0,10h | autonom |
+| 2026-10-29 | R00025 Senden bei Störungen gehärtet | B0487 Hinweiszeile sagt über die Ansage-Region an | Standard | 0,4h | 0,12h | 0,12h | autonom |
+| 2026-10-29 | R00025 Senden bei Störungen gehärtet | B0411 Statuszeile ohne eigene Rolle, eine Live-Region | Standard | 0,4h | 0,05h | 0,05h | autonom |
+| 2026-10-29 | R00025 Senden bei Störungen gehärtet | B0404 Schalter „Steuerzeichen entfernen“ | Standard | 0,4h | 0,17h | 0,17h | autonom |
+| 2026-10-29 | R00025 Senden bei Störungen gehärtet | B0396 Warnung mit Countdown formen | Standard | 0,4h | 0,07h | 0,07h | autonom |
+| 2026-10-29 | R00025 Senden bei Störungen gehärtet | B0397 Nächster Versuch des Stroms im Tab | Standard | 0,4h | 0,10h | 0,10h | autonom |
+| 2026-10-29 | R00025 Senden bei Störungen gehärtet | B0398 Eine Warnung ohne Layoutsprung | Standard | 0,4h | 0,23h | 0,23h | autonom |
+| 2026-10-29 | R00025 Senden bei Störungen gehärtet | B0399 Trennen und Wiederverbinden ansagen | Standard | 0,4h | 0,08h | 0,08h | autonom |
+| 2026-10-29 | R00025 Senden bei Störungen gehärtet | B0490 Nur Nachgeholtes gezählt | Standard | 0,4h | 0,12h | 0,12h | autonom |
+| 2026-10-29 | R00025 Senden bei Störungen gehärtet | B0491 Abgleich gegen alle bekannten Zeiten | Standard | 0,4h | 0,17h | 0,17h | autonom |
+| 2026-10-29 | R00025 Senden bei Störungen gehärtet | B0410 Ein Weg zum Wiederbeitritt | Standard | 0,4h | 0,17h | 0,17h | autonom |
+| 2026-10-29 | R00025 Senden bei Störungen gehärtet | B0412 Zustellung gehört dem Tab, übersteht den Beitreten-Bildschirm | Standard | 0,4h | 0,12h | 0,12h | autonom |
+| 2026-10-29 | R00025 Senden bei Störungen gehärtet | B0492 Beitreten-Bildschirm nennt wartende Nachrichten | Standard | 0,4h | 0,10h | 0,10h | autonom |
+| 2026-10-29 | R00025 Senden bei Störungen gehärtet | B0400 Verworfen auf Zeit in der Zustellung | Standard | 0,4h | 0,10h | 0,10h | autonom |
+| 2026-10-29 | R00025 Senden bei Störungen gehärtet | B0401 Platzhalter „Verworfen · Rückgängig“ | Standard | 0,4h | 0,12h | 0,12h | autonom |
+| 2026-10-29 | R00025 Senden bei Störungen gehärtet | B0402 Rückgängig verdrahten | Standard | 0,4h | 0,10h | 0,10h | autonom |
+| 2026-10-29 | R00025 Senden bei Störungen gehärtet | B0489 Rückgängig angesagt und per Tastatur erreichbar | Standard | 0,4h | 0,12h | 0,12h | autonom |
+| 2026-10-29 | R00025 Senden bei Störungen gehärtet | Abschluss: Gate, Mutanten, Schärfen, Gelerntes | Konsolidierung | — | 0,27h | 0,27h | autonom |
