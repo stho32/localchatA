@@ -6,7 +6,7 @@
 
 use super::Werkbank;
 use super::abbruch::Abgebrochen;
-use super::anfrageprotokoll::Eingetragen;
+use super::anfrageprotokoll::{Eingetragen, mit_regel};
 use crate::protokoll::episoden::Auftreten;
 use crate::protokoll::zaehler::Abweisungsart;
 use crate::protokoll::{Bereich, Kontext, Protokoll, Schluessel, Stufe};
@@ -46,7 +46,7 @@ pub fn koerperfehler_beantworten(
     beispiel: &str,
 ) -> Response {
     let mit_beispiel = |grund: &str| format!("{grund}, zum Beispiel {beispiel}.");
-    let (status, text) = match fehler {
+    let (status, text) = match &fehler {
         Koerperfehler::KeinJson => (
             StatusCode::UNSUPPORTED_MEDIA_TYPE,
             mit_beispiel("Der Körper muss JSON sein — mit Content-Type: application/json schicken"),
@@ -57,6 +57,9 @@ pub fn koerperfehler_beantworten(
         ),
         Koerperfehler::ZuGross => (StatusCode::PAYLOAD_TOO_LARGE, zu_gross.to_string()),
         Koerperfehler::ZuLangsam => (StatusCode::REQUEST_TIMEOUT, zu_langsam(KOERPER_LESEFRIST)),
+        Koerperfehler::Doppelt(feld, kennung) => {
+            return doppelt_beantworten(feld, kennung.as_deref());
+        }
     };
     let antwort = (status, Json(json!({ "fehler": text })));
     let schliessen = matches!(fehler, Koerperfehler::ZuGross | Koerperfehler::ZuLangsam);
@@ -69,7 +72,22 @@ pub fn koerperfehler_beantworten(
     antwort
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// 422 für einen doppelten Schlüssel, derselbe Satz wie beim Anmelden. Keine Marke `Eingetragen`: die Zeile mit dem
+/// Grund `feld_doppelt` schreibt die Anfrageschicht aus der Abweisung — nie mit Feldname oder Wert.
+fn doppelt_beantworten(feld: &str, kennung: Option<&str>) -> Response {
+    let antwort = (
+        StatusCode::UNPROCESSABLE_ENTITY,
+        Json(json!({
+            "fehler": format!("Das Feld {feld} steht zweimal im Körper — jedes Feld nur einmal schicken."),
+            "regel": "feld",
+            "feld": feld,
+            "grund": "doppelt",
+        })),
+    );
+    mit_regel(antwort.into_response(), "feld_doppelt", kennung)
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Koerperfehler {
     /// Kein `Content-Type: application/json` (oder `…+json`).
     KeinJson,
@@ -81,6 +99,9 @@ pub enum Koerperfehler {
     ZuGross,
     /// Nicht vollständig innerhalb von `KOERPER_LESEFRIST` (R00015) — 408, kein Verwerfen.
     ZuLangsam,
+    /// Ein Schlüssel der obersten Ebene steht zweimal (ADR-0034 Ergänzung Karte #47): der Name des ersten, der ein
+    /// zweites Mal vorkommt, und die Kennung der Anfrage, falls bekannt — nur für das Protokoll, nie der Wert.
+    Doppelt(String, Option<String>),
 }
 
 /// Wo ein Körper gelesen wird: Protokoll, Routenmuster, Herkunft, Kennung falls bekannt.
@@ -119,19 +140,21 @@ pub async fn json_lesen(
     ort: &Koerperort<'_>,
 ) -> Result<Value, Koerperfehler> {
     let gelesen = lesen_mit_umstaenden(kopf, koerper, grenze, KOERPER_LESEFRIST).await;
-    if let Err(fehler) = gelesen.ergebnis {
+    if let Err(fehler) = &gelesen.ergebnis {
         abweisung_eintragen(kopf, ort, fehler, &gelesen);
     }
-    gelesen.ergebnis
+    gelesen.ergebnis.map_err(|fehler| mit_kennung(fehler, ort))
 }
 
 fn abweisung_eintragen<T>(
     kopf: &HeaderMap,
     ort: &Koerperort<'_>,
-    fehler: Koerperfehler,
+    fehler: &Koerperfehler,
     gelesen: &Gelesen<T>,
 ) {
     let (art, status, abweisungsart) = match fehler {
+        // Doppelt steht nicht hier, sondern als 422 in der Anfrageschicht (Grund `feld_doppelt`), ohne Zähler.
+        Koerperfehler::Doppelt(..) => return,
         Koerperfehler::ZuGross => ("zu_gross", Some(413), Abweisungsart::ZuGross),
         Koerperfehler::KeinJson => ("kein_json", Some(415), Abweisungsart::KeinJson),
         Koerperfehler::Kaputt => ("kaputt", Some(400), Abweisungsart::Kaputt),
@@ -156,7 +179,7 @@ fn abweisung_eintragen<T>(
     if let Some(verworfen) = gelesen.verworfen {
         kontext = kontext.mit(Schluessel::Verworfen, verworfen.als_text());
     }
-    if fehler == Koerperfehler::KeinJson {
+    if *fehler == Koerperfehler::KeinJson {
         let typ = kopf
             .get(CONTENT_TYPE)
             .map(|wert| String::from_utf8_lossy(wert.as_bytes()).into_owned())
@@ -187,7 +210,7 @@ fn abweisung_eintragen<T>(
             ort.protokoll.episode(auftreten);
         }
         Koerperfehler::Abgebrochen => ort.protokoll.episode_falls_offen(&auftreten),
-        Koerperfehler::KeinJson => {}
+        Koerperfehler::KeinJson | Koerperfehler::Doppelt(..) => {}
     }
 }
 
@@ -209,8 +232,27 @@ impl Gelesen<Vec<u8>> {
     }
 }
 
+/// Parst den Körper; ein Objekt, dessen oberste Ebene einen Schlüssel zweimal enthält, ist `Doppelt` — `Value`
+/// behielte still den letzten (ADR-0034 Ergänzung Karte #47). Der zweite Durchgang liest die Paare in Reihenfolge.
 fn json_parsen(roh: &[u8]) -> Result<Value, Koerperfehler> {
-    serde_json::from_slice(roh).map_err(|_| Koerperfehler::Kaputt)
+    let wert: Value = serde_json::from_slice(roh).map_err(|_| Koerperfehler::Kaputt)?;
+    if wert.is_object() {
+        let paare = super::felder::felder_lesen(roh).map_err(|_| Koerperfehler::Kaputt)?;
+        if let Some(feld) = paare.as_ref().and_then(super::felder::doppelt) {
+            return Err(Koerperfehler::Doppelt(feld.to_string(), None));
+        }
+    }
+    Ok(wert)
+}
+
+/// Trägt die Kennung der Anfrage in einen `Doppelt`-Fehler ein, damit die Anfrageschicht sie nennt.
+fn mit_kennung(fehler: Koerperfehler, ort: &Koerperort<'_>) -> Koerperfehler {
+    match fehler {
+        Koerperfehler::Doppelt(feld, _) => {
+            Koerperfehler::Doppelt(feld, ort.kennung.map(str::to_string))
+        }
+        anderer => anderer,
+    }
 }
 
 /// Wie `json_lesen`, liefert aber die Paare der obersten Ebene in Reihenfolge (Feldleser, ADR-0046 Ergänzung
@@ -230,7 +272,7 @@ pub async fn felder_lesen(
         bytes: roh.bytes,
         verworfen: roh.verworfen,
     };
-    if let Err(fehler) = gelesen.ergebnis {
+    if let Err(fehler) = &gelesen.ergebnis {
         abweisung_eintragen(kopf, ort, fehler, &gelesen);
     }
     gelesen.ergebnis
@@ -255,10 +297,10 @@ pub async fn json_lesen_auf_werkbank(
         bytes: roh.bytes,
         verworfen: roh.verworfen,
     };
-    if let Err(fehler) = gelesen.ergebnis {
+    if let Err(fehler) = &gelesen.ergebnis {
         abweisung_eintragen(kopf, ort, fehler, &gelesen);
     }
-    Ok(gelesen.ergebnis)
+    Ok(gelesen.ergebnis.map_err(|fehler| mit_kennung(fehler, ort)))
 }
 
 /// Erst den Körper lesen (höchstens `grenze` Bytes), dann Typ und Inhalt prüfen — so ist er in jedem Fall
@@ -446,7 +488,8 @@ mod tests {
             ),
         ];
         for (fehler, erwartet_status, erwartet_text) in faelle {
-            let (status, text, schliesst, eingetragen) = beantwortet(fehler, "unbenutzt").await;
+            let (status, text, schliesst, eingetragen) =
+                beantwortet(fehler.clone(), "unbenutzt").await;
 
             assert_eq!((status, text.as_str()), (erwartet_status, erwartet_text));
             assert!(!schliesst, "{fehler:?} hält die Verbindung");
@@ -466,6 +509,44 @@ mod tests {
         assert!(eingetragen);
     }
 
+    /// B0547 (ADR-0034 Ergänzung Karte #47): `Doppelt` → 422 `{fehler, regel: "feld", feld, grund: "doppelt"}` mit
+    /// dem Satz wörtlich wie Anmelden; die Verbindung bleibt, nichts ist eingetragen (die Anfrageschicht schreibt die
+    /// eine DEBUG-Zeile) und die Abweisung trägt den Regelschlüssel `feld_doppelt` samt Kennung. Zwei Felder, damit
+    /// kein fester Name besteht.
+    #[tokio::test]
+    async fn doppelt_wird_als_422_feld_doppelt_beantwortet_und_nicht_vorab_eingetragen() {
+        for feld in ["text", "tage"] {
+            let fehler =
+                Koerperfehler::Doppelt(feld.to_string(), Some("anna@127.0.0.1".to_string()));
+            let antwort = koerperfehler_beantworten(fehler, "unbenutzt", "{\"x\":1}");
+
+            assert_eq!(antwort.status(), 422);
+            assert!(antwort.headers().get(CONNECTION).is_none());
+            assert!(antwort.extensions().get::<Eingetragen>().is_none());
+            let regel = antwort
+                .extensions()
+                .get::<Abweisung>()
+                .cloned()
+                .expect("Abweisung");
+            assert_eq!(regel.regel, "feld_doppelt");
+            assert_eq!(regel.kennung.as_deref(), Some("anna@127.0.0.1"));
+            let koerper = axum::body::to_bytes(antwort.into_body(), 4096)
+                .await
+                .expect("Körper");
+            let json: Value = serde_json::from_slice(&koerper).expect("JSON");
+            assert_eq!(
+                json,
+                serde_json::json!({
+                    "fehler": format!("Das Feld {feld} steht zweimal im Körper — jedes Feld nur einmal schicken."),
+                    "regel": "feld",
+                    "feld": feld,
+                    "grund": "doppelt",
+                })
+            );
+        }
+    }
+
+    use super::super::anfrageprotokoll::Abweisung;
     use axum::http::HeaderValue;
 
     fn mit_typ(typ: &str) -> HeaderMap {
@@ -690,6 +771,33 @@ mod tests {
         );
         assert_eq!(zu_gross.ok(), Some(Err(Koerperfehler::ZuGross)));
         assert_eq!(zu_gross_ohne_json.ok(), Some(Err(Koerperfehler::ZuGross)));
+    }
+
+    /// B0546 (ADR-0034 Ergänzung Karte #47, erster Test): `{"a":1,"a":2}` → doppelt mit `a`; dekodiert verglichen
+    /// (`"a"` = `a`); `{"a":1,"b":2}` → `Value` wie bisher; `[1]` und kaputtes JSON wie bisher. Mutante „letzter
+    /// Wert gewinnt“ (Prüfung abgeschaltet) → die ersten beiden Fälle werden rot.
+    #[test]
+    fn der_leser_erkennt_den_ersten_doppelten_schluessel() {
+        let doppelt = |feld: &str| Err(Koerperfehler::Doppelt(feld.to_string(), None));
+
+        assert_eq!(json_parsen(br#"{"a":1,"a":2}"#), doppelt("a"));
+        assert_eq!(json_parsen(br#"{"a":1,"\u0061":2}"#), doppelt("a"));
+        assert_eq!(
+            json_parsen(br#"{"b":1,"a":1,"b":2,"a":2}"#),
+            doppelt("b"),
+            "gemeldet wird der erste, der ein zweites Mal vorkommt"
+        );
+        assert_eq!(
+            json_parsen(br#"{"a":1,"b":2}"#),
+            Ok(serde_json::json!({"a": 1, "b": 2}))
+        );
+        assert_eq!(json_parsen(b"[1]"), Ok(serde_json::json!([1])));
+        assert_eq!(json_parsen(br#"{"a":"#), Err(Koerperfehler::Kaputt));
+        assert_eq!(
+            json_parsen(br#"{"a":{"b":1,"b":2}}"#),
+            Ok(serde_json::json!({"a": {"b": 2}})),
+            "nur die oberste Ebene"
+        );
     }
 
     /// `json` mit Leerzeichen auf genau `laenge` Bytes aufgefüllt.
