@@ -17,7 +17,7 @@ const ansageRegion = (page) => page.locator('[role="status"][aria-live="polite"]
 /// „Strom getrennt“ (R00012): Netz des Kontexts aus, bis die Leiste „Verbindung verloren“ steht.
 async function netzAus(seite) {
   await seite.kontext.setOffline(true);
-  await expect(leiste(seite.page)).toHaveText('⚠ Verbindung verloren');
+  await expect(leiste(seite.page)).toHaveText(/^⚠ Verbindung verloren/);
 }
 
 async function netzAn(seite) {

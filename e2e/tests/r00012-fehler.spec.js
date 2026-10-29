@@ -98,7 +98,7 @@ test('US-3 (Z8): die Antwort ging verloren — trotzdem nur einmal', async ({ br
   await senden(a.page, 'einmal');
   await expect.poll(() => weitergeleitet !== null).toBe(true);
   await expect(vorlaeufige(a.page).locator('.lc-send')).toHaveText('◌ wird gesendet …');
-  await expect(a.page.locator('.lc-leiste')).toHaveText('⚠ Verbindung verloren');
+  await expect(a.page.locator('.lc-leiste')).toHaveText(/^⚠ Verbindung verloren/);
   await netzAn(a);
 
   await expect(vorlaeufige(a.page)).toHaveCount(0, { timeout: 10000 });

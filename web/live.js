@@ -15,7 +15,11 @@ const NICHT_AUTORISIERT = 401;
 export function verbinden({ token, version, beiEreignis, beiZustand }) {
   if (typeof globalThis.SharedWorker === 'undefined') {
     return halten({
-      token, beiEreignis, beiZustand: (zustand, abgelehnt) => beiZustand(zustand, { beitreten: true, token: abgelehnt }),
+      token,
+      beiEreignis,
+      beiZustand: (zustand, abgelehnt, naechsterVersuchUm) => beiZustand(zustand, {
+        beitreten: true, token: abgelehnt, naechsterVersuchUm: zeitpunktOderKeiner(naechsterVersuchUm),
+      }),
     });
   }
   const worker = new globalThis.SharedWorker(workerAdresse(version), { type: 'module', name: `localchatA ${version}` });
@@ -26,7 +30,9 @@ export function verbinden({ token, version, beiEreignis, beiZustand }) {
       beiEreignis(daten.ereignis, daten.versatz);
     }
     if (daten.art === 'zustand') {
-      beiZustand(daten.zustand, { beitreten: daten.beitreten, token: daten.token });
+      beiZustand(daten.zustand, {
+        beitreten: daten.beitreten, token: daten.token, naechsterVersuchUm: zeitpunktOderKeiner(daten.naechsterVersuchUm),
+      });
     }
   };
   worker.onerror = (fehler) => console.error(`localchatA: Fehler im Strom-Worker — ${fehler.message}`);
@@ -43,12 +49,20 @@ export function verbinden({ token, version, beiEreignis, beiZustand }) {
   };
 }
 
+function zeitpunktOderKeiner(naechsterVersuchUm) {
+  if (typeof naechsterVersuchUm === 'number') {
+    return naechsterVersuchUm;
+  }
+  return null;
+}
+
 // Die Programmversion in der Adresse des Workers: nach einem Update läuft kein alter Worker weiter (ADR-0015).
 export function workerAdresse(version) {
   return `/web/strom.js?v=${version}`;
 }
 
-// Zustände an beiZustand: 'verbunden' | 'unterbrochen' | 'abgelehnt' (mit dem abgelehnten Token).
+// Zustände an beiZustand: 'verbunden' | 'unterbrochen' (mit naechsterVersuchUm, ms seit der Epoche, als drittem Wert)
+// | 'abgelehnt' (mit dem abgelehnten Token).
 export function halten({
   token,
   beiEreignis,
@@ -68,17 +82,20 @@ export function halten({
   // sonst liefe die neue Sitzung ohne Halter in die Gnadenfrist (Nacharbeit 1, 3). Die Untergrenze gegen
   // dauerhaftes 401 liegt deshalb vor der Meldung „abgelehnt“, also vor dem Wiederbeitritt: die erste
   // Ablehnung sofort, jede weitere nach 1 s, 2 s, 5 s, 10 s; zurückgesetzt erst nach einem gelesenen Strom.
+  // Eine Rechnung für Schlaf und Meldung (ADR-0015 Ergänzung Karte #36): `unterbrochen` trägt den Zeitpunkt des
+  // nächsten Versuchs als absolute Zeit — jetzt plus die Wartezeit, die der kommende Schlaf bekommt.
   async function laufen() {
     let fehlversuche = 0;
     let ablehnungen = 0;
     let sofort = false;
+    let wartenMs = rueckzugInMs(fehlversuche);
     while (!beendet) {
       if (!aktuellesToken) {
         await aufNeuesTokenWarten();
         continue;
       }
       if (!sofort) {
-        await schlafen(rueckzugInMs(fehlversuche));
+        await schlafen(wartenMs);
       }
       sofort = false;
       const ergebnis = await einmalVerbinden(aktuellesToken);
@@ -102,7 +119,8 @@ export function halten({
       } else {
         fehlversuche += 1;
       }
-      beiZustand('unterbrochen');
+      wartenMs = rueckzugInMs(fehlversuche);
+      beiZustand('unterbrochen', null, jetzt() + wartenMs);
     }
   }
 

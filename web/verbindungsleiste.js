@@ -40,3 +40,13 @@ export function warnungText(naechsterVersuchUm, jetztMs) {
   }
   return `⚠ Verbindung verloren · neuer Versuch in ${Math.ceil(restMs / 1000)} s`;
 }
+
+// Welcher Zeitpunkt den Countdown trägt (ADR-0015 Ergänzung Karte #36 Regel 5): ist der Strom unterbrochen, der des
+// Stroms; ist er verbunden und das Nachholen gescheitert, der des nächsten Nachhol-Versuchs; sonst (nur das Netz des
+// Tabs ist aus, der Strom hat noch nicht gemeldet) keiner. → ms seit der Epoche | null
+export function geltenderZeitpunkt({ stromUnterbrochen, strom, nachholen }) {
+  if (stromUnterbrochen) {
+    return strom;
+  }
+  return nachholen;
+}

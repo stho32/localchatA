@@ -5,8 +5,8 @@
 // (ADR-0023 Regel 6) und gibt einem neuen Tab beide Stände.
 //
 // Tab → Worker: { art: 'token', token } · { art: 'tschuess' }
-// Worker → Tab: { art: 'ereignis', ereignis, versatz } · { art: 'zustand', zustand, beitreten, token } (token: das
-// abgelehnte, nur bei 'abgelehnt'). Der Versatz (Serverzeit − Uhr des Rechners, B0110) geht mit jedem Ereignis
+// Worker → Tab: { art: 'ereignis', ereignis, versatz } · { art: 'zustand', zustand, beitreten, token, naechsterVersuchUm }
+// (token: das abgelehnte, nur bei 'abgelehnt'; naechsterVersuchUm nur bei 'unterbrochen', sonst null). Der Versatz (Serverzeit − Uhr des Rechners, B0110) geht mit jedem Ereignis
 // und mit dem Stand für einen neuen Tab hinaus — auch der Herzschlag wird dafür weitergereicht.
 import { LEER, zusammenfuehren } from './teilnehmerliste.js';
 import { LEER as KEINE_CHANNELS, channelsZusammenfuehren } from './channels.js';
@@ -24,6 +24,7 @@ export function verteilerAnlegen({
   let channels = null;
   let versatz = 0;
   let zustand = null;
+  let naechsterVersuchUm = null;
   let abgelehntesToken = null;
   let uebernahme = null;
 
@@ -37,7 +38,7 @@ export function verteilerAnlegen({
       port.postMessage({ art: 'ereignis', ereignis: { art: 'channels', stand: channels.stand, liste: channels.channels }, versatz });
     }
     if (zustand === 'verbunden' || zustand === 'unterbrochen') {
-      port.postMessage({ art: 'zustand', zustand, beitreten: false });
+      port.postMessage({ art: 'zustand', zustand, beitreten: false, naechsterVersuchUm });
     }
   }
 
@@ -84,14 +85,19 @@ export function verteilerAnlegen({
     allen({ art: 'ereignis', ereignis, versatz });
   }
 
-  function beiZustand(neuerZustand, token) {
+  // `unterbrochen` trägt den Zeitpunkt des nächsten Versuchs; er wird gemerkt und neuen Tabs nachgereicht.
+  function beiZustand(neuerZustand, token, zeitpunkt) {
     zustand = neuerZustand;
+    naechsterVersuchUm = null;
     if (neuerZustand === 'abgelehnt') {
       abgelehntesToken = token;
       beitretenLassen();
       return;
     }
-    allen({ art: 'zustand', zustand: neuerZustand, beitreten: false });
+    if (neuerZustand === 'unterbrochen') {
+      naechsterVersuchUm = zeitpunkt;
+    }
+    allen({ art: 'zustand', zustand: neuerZustand, beitreten: false, naechsterVersuchUm });
   }
 
   function beitretenLassen() {

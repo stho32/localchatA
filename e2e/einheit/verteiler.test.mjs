@@ -184,3 +184,23 @@ test('401: genau ein Tab soll still beitreten; bleibt sein Token aus, übernimmt
   assert.deepEqual(halter.angelegt[0].tokens, ['alt', 'neu'], 'das abgelehnte Token wird nicht wieder gesetzt');
   assert.equal(zustaendeIn(drei).length, 2, 'nach dem neuen Token keine weitere Übernahme');
 });
+
+// R00025 F0084 „Zeitpunkt aus dem Strom“, Verteiler (ADR-0015 Ergänzung Karte #36, wörtlich): „Zustand `unterbrochen`
+// mit Zeitpunkt 7.000, danach verbindet ein neuer Tab → er bekommt denselben Zeitpunkt.“
+test('unterbrochen mit Zeitpunkt geht an alle Tabs, ein neuer Tab bekommt denselben Zeitpunkt', () => {
+  const ersatz = halterErsatz();
+  const verteiler = verteilerAnlegen({ halten: ersatz.halten });
+  const erster = port();
+  verteiler.verbinden(erster);
+  erster.senden({ art: 'token', token: 'abc' });
+
+  ersatz.angelegt[0].optionen.beiZustand('unterbrochen', null, 7000);
+  const zweiter = port();
+  verteiler.verbinden(zweiter);
+  ersatz.angelegt[0].optionen.beiZustand('verbunden');
+
+  const zustaende = (einPort) => einPort.erhalten.filter((n) => n.art === 'zustand');
+  assert.deepEqual(zustaende(erster)[0], { art: 'zustand', zustand: 'unterbrochen', beitreten: false, naechsterVersuchUm: 7000 });
+  assert.deepEqual(zustaende(zweiter)[0], { art: 'zustand', zustand: 'unterbrochen', beitreten: false, naechsterVersuchUm: 7000 });
+  assert.deepEqual(zustaende(zweiter)[1], { art: 'zustand', zustand: 'verbunden', beitreten: false, naechsterVersuchUm: null });
+});

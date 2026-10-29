@@ -90,8 +90,8 @@ function hauptansichtZeigen(teilnehmer, nachEingabe) {
       });
       ansicht.anzahlZeigen(liste.eintraege.length);
     },
-    beiZustand: (zustand, { beitreten, token }) => {
-      ansicht.verbindungZeigen(zustand);
+    beiZustand: (zustand, { beitreten, token, naechsterVersuchUm }) => {
+      ansicht.verbindungZeigen(zustand, naechsterVersuchUm);
       if (zustand === 'abgelehnt' && beitreten) {
         stillWiederBeitreten(token);
       }

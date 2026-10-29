@@ -1,7 +1,7 @@
 // Unit-Tests der Leiste oben im Verlauf (R00012 F0047 „Meldung“, B0244; Designsystem VerlaufsMarken; node --test).
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { wiederVerbundenText, leisteInhalt, warnungText } from '../../web/verbindungsleiste.js';
+import { wiederVerbundenText, leisteInhalt, warnungText, geltenderZeitpunkt } from '../../web/verbindungsleiste.js';
 
 test('Text nach dem Nachholen: Zahl mit Tausenderpunkt, ohne Zahl bei 0, „neueste geladen“ nach Neu-Öffnen', () => {
   assert.equal(wiederVerbundenText({ art: 'nachgeholt', zahl: 3 }), '✓ Wieder verbunden · 3 nachgeladen');
@@ -46,4 +46,13 @@ test('getrennt mit Zeitpunkt zeigt den Countdown als Fehler', () => {
   const zustand = { getrennt: true, naechsterVersuchUm: 7000, meldung: null, meldungSeitMs: 0 };
 
   assert.deepEqual(leisteInhalt(zustand, 5000), { text: '⚠ Verbindung verloren · neuer Versuch in 2 s', fehler: true });
+});
+
+// R00025 F0084 „Geltender Zeitpunkt“ (B0397, ADR-0015 Ergänzung Karte #36 Regel 5): Strom unterbrochen → der des
+// Stroms; Strom verbunden, Nachholen gescheitert → der des nächsten Nachhol-Versuchs; Netz des Tabs aus ohne
+// `unterbrochen` → keiner (Mutante „Quelle immer der Strom“ wird rot).
+test('geltender Zeitpunkt nach Quelle', () => {
+  assert.equal(geltenderZeitpunkt({ stromUnterbrochen: true, strom: 7000, nachholen: 3000 }), 7000);
+  assert.equal(geltenderZeitpunkt({ stromUnterbrochen: false, strom: 7000, nachholen: 3000 }), 3000);
+  assert.equal(geltenderZeitpunkt({ stromUnterbrochen: false, strom: null, nachholen: null }), null);
 });

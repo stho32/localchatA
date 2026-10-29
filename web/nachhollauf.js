@@ -10,7 +10,10 @@ import { rueckzugInMs } from './verbindung.js';
 // stand: () → { channel, geladen, juengste, neuesterImFenster } (Verlauf) · abrufen: async (channel, cursor, signal, n)
 // → Ergebnis wie api.js verlaufNachholen · annehmen: (nachrichten) · neuOeffnen: (channel) · fertig: (ergebnis, mitLeiste)
 // mit ergebnis { art: 'nachgeholt', zahl } | { art: 'neu' } · zeitgeber: { stellen(ms, rueckruf) → id, loeschen(id) }
-export function nachholLaufAnlegen({ stand, abrufen, annehmen, neuOeffnen, fertig, zeitgeber = ECHTE_ZEITGEBER }) {
+// · jetzt: () → ms seit der Epoche · gescheitert: (naechsterVersuchUm) nach jedem gescheiterten Versuch
+export function nachholLaufAnlegen({
+  stand, abrufen, annehmen, neuOeffnen, fertig, zeitgeber = ECHTE_ZEITGEBER, jetzt = () => Date.now(), gescheitert = () => {},
+}) {
   let lauf = null;
   let beiTrennung = null;
 
@@ -40,7 +43,9 @@ export function nachholLaufAnlegen({ stand, abrufen, annehmen, neuOeffnen, ferti
       return;
     }
     dieser.fehlversuche += 1;
-    dieser.neuversuch = zeitgeber.stellen(rueckzugInMs(dieser.fehlversuche), () => versuchen(dieser));
+    const wartenMs = rueckzugInMs(dieser.fehlversuche);
+    dieser.neuversuch = zeitgeber.stellen(wartenMs, () => versuchen(dieser));
+    gescheitert(jetzt() + wartenMs);
   }
 
   // Ein Versuch über höchstens 5 Blöcke (nachholen.js); was bis zu einem Fehlschlag kam, zählt mit seinem Ende als

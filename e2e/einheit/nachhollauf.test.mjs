@@ -268,3 +268,28 @@ test('ohne nachholbaren Verlauf (Channel nicht geladen) kein Abruf, sofort „�
   assert.deepEqual(port.abrufe, []);
   assert.deepEqual(fertig, [{ um: 0, text: '✓ Wieder verbunden', mitLeiste: true }]);
 });
+
+// R00025 F0084 „Geltender Zeitpunkt“ (B0397): scheitert ein Versuch, meldet der Lauf den Zeitpunkt des nächsten — Ende
+// des gescheiterten Abrufs plus Rückzug; ein gelungener Lauf meldet keinen mehr.
+test('gescheitert meldet den Zeitpunkt des nächsten Nachhol-Versuchs', async () => {
+  const uhr = gestellteUhr();
+  const port = falscherPort(uhr, ['fehler', 'fehler', { nachrichten: [n(4)], neuer: false }]);
+  const verlauf = verlaufErsatz([n(1), n(2), n(3)]);
+  const naechste = [];
+  const lauf = nachholLaufAnlegen({
+    stand: verlauf.stand,
+    abrufen: port.abrufen,
+    annehmen: verlauf.annehmen,
+    neuOeffnen: () => {},
+    fertig: () => naechste.push('fertig'),
+    zeitgeber: uhr.zeitgeber,
+    jetzt: uhr.jetzt,
+    gescheitert: (naechsterVersuchUm) => naechste.push(naechsterVersuchUm),
+  });
+
+  lauf.getrennt();
+  lauf.wiederverbunden();
+  await uhr.laufenBis(10000);
+
+  assert.deepEqual(naechste, [1000, 3000, 'fertig']);
+});

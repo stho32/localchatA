@@ -21,7 +21,7 @@ import { entwurfAnlegen } from './entwurf.js';
 import { fokusTaste } from './fokus.js';
 import { VERBINDUNG_ANFANG, verbindung } from './wiederverbinden.js';
 import { nachholLaufAnlegen } from './nachhollauf.js';
-import { wiederVerbundenText, leisteInhalt } from './verbindungsleiste.js';
+import { wiederVerbundenText, leisteInhalt, geltenderZeitpunkt } from './verbindungsleiste.js';
 import { ANSAGE_LEER, ansage, ansageSchreiberAnlegen } from './ansage.js';
 
 const UNTERBROCHEN = '⚠ Verbindung unterbrochen — localchatA verbindet neu.';
@@ -121,9 +121,9 @@ export function zeichnen(wurzel, teilnehmer, optionen) {
     anzahlZeigen: (wieViele) => {
       anzahl.textContent = String(wieViele);
     },
-    verbindungZeigen: (zustand) => {
+    verbindungZeigen: (zustand, naechsterVersuchUm) => {
       letzterZustand = verbindungZeigen({ hinweis, region, standUnbekannt }, letzterZustand, zustand);
-      wieder.melden({ art: 'strom', zustand });
+      wieder.melden({ art: 'strom', zustand, naechsterVersuchUm });
     },
     // Ein vollständiger Stand der Teilnehmer: am Anfang jedes Stroms und nach NeuerStand (ADR-0028 Regel 6).
     standEmpfangen: () => wieder.melden({ art: 'stand' }),
@@ -140,14 +140,31 @@ function wiederverbindenEinrichten({ verlauf, senden, abrufen }, signal) {
   let zustand = VERBINDUNG_ANFANG;
   let anzeige = { getrennt: false, meldung: null, meldungSeitMs: 0 };
   let ausblenden = null;
+  // Zeitpunkte des nächsten Versuchs (ms seit der Epoche): vom Strom bzw. vom gescheiterten Nachholen.
+  const naechsterVersuch = { strom: null, nachholen: null };
+  let countdown = null;
 
   function leisteZeigen() {
-    const inhalt = leisteInhalt(anzeige, Date.now());
+    const naechsterVersuchUm = geltenderZeitpunkt({ stromUnterbrochen: !zustand.strom, ...naechsterVersuch });
+    const inhalt = leisteInhalt({ ...anzeige, naechsterVersuchUm }, Date.now());
     leiste.hidden = inhalt === null;
     leiste.textContent = '';
     if (inhalt !== null) {
       leiste.textContent = inhalt.text;
       leiste.classList.toggle('lc-leiste-fehler', inhalt.fehler);
+    }
+    countdownStellen();
+  }
+
+  // Der Countdown zählt im Sekundentakt nur, solange die Warnung steht — ein Zeitgeber für die eine Leiste.
+  function countdownStellen() {
+    const SEKUNDE_MS = 1000;
+    if (anzeige.getrennt && countdown === null) {
+      countdown = setInterval(leisteZeigen, SEKUNDE_MS);
+    }
+    if (!anzeige.getrennt && countdown !== null) {
+      clearInterval(countdown);
+      countdown = null;
     }
   }
 
@@ -164,6 +181,10 @@ function wiederverbindenEinrichten({ verlauf, senden, abrufen }, signal) {
     abrufen,
     annehmen: (nachrichten) => nachrichten.forEach((nachricht) => verlauf.nachrichtAnnehmen(nachricht, false)),
     neuOeffnen: (channel) => verlauf.oeffnen(channel),
+    gescheitert: (naechsterVersuchUm) => {
+      naechsterVersuch.nachholen = naechsterVersuchUm;
+      leisteZeigen();
+    },
     fertig: (ergebnis, mitLeiste) => {
       if (!mitLeiste) {
         return;
@@ -186,11 +207,17 @@ function wiederverbindenEinrichten({ verlauf, senden, abrufen }, signal) {
   function melden(ereignis) {
     const ergebnis = verbindung(zustand, ereignis);
     zustand = ergebnis.zustand;
+    if (ereignis.art === 'strom') {
+      naechsterVersuch.strom = zeitpunktDesStroms(ereignis);
+    }
     if (ergebnis.aktion === 'trennen') {
       lauf.getrennt();
+      naechsterVersuch.nachholen = null;
       anzeige = { ...anzeige, getrennt: true };
-      leisteZeigen();
       senden.getrennt();
+    }
+    if (anzeige.getrennt) {
+      leisteZeigen();
     }
     if (ergebnis.aktion === 'wiederverbinden') {
       senden.stromWieder();
@@ -204,6 +231,13 @@ function wiederverbindenEinrichten({ verlauf, senden, abrufen }, signal) {
   window.addEventListener('offline', () => melden({ art: 'netz', online: false }), { signal });
   window.addEventListener('online', () => melden({ art: 'netz', online: true }), { signal });
   return { melden, channelGewechselt: lauf.channelGewechselt };
+}
+
+function zeitpunktDesStroms({ zustand, naechsterVersuchUm }) {
+  if (zustand === 'unterbrochen' && typeof naechsterVersuchUm === 'number') {
+    return naechsterVersuchUm;
+  }
+  return null;
 }
 
 // Gebündelte Ansage (ADR-0038 Regel 10, ansage.js): eine Statusregion außerhalb des Verlaufs, visuell verborgen; ein

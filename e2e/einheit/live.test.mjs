@@ -286,3 +286,63 @@ test('nach erfolgreichem Wiederbeitritt verbindet der Halter sofort — auch bei
   const zwischenMittel = verlauf.slice(ab('neues Token mittel') + 1, ab('holen mittel'));
   assert.deepEqual(zwischenMittel.filter((eintrag) => eintrag.startsWith('warten') && eintrag !== 'warten 0'), [], verlauf.join(' | '));
 });
+
+// R00025 F0084 „Zeitpunkt aus dem Strom“ (B0397; ADR-0015 Ergänzung Karte #36, erster Test, wörtlich): „`halten` mit
+// `holen`, das immer scheitert, `jetzt` bei 0 → `unterbrochen` mit `naechsterVersuchUm` 1.000, dann 2.000 nach dem
+// zweiten Versuch (relativ zu dessen Ende), 5.000, 10.000, 10.000; nach einem gelesenen Strom wieder 1.000 — jeweils
+// gleich der Zeit, die `schlafen` bekommt.“ Lesart: nach fünf Fehlschlägen liefert `holen` einen leeren Strom (gelesen),
+// danach einen offenen.
+function zeitpunkteMitschreiben({ startMs, uhrLaeuftMit }) {
+  let uhr = startMs;
+  const meldungen = [];
+  const wartezeiten = [];
+  let versuche = 0;
+  const offen = offenerStrom();
+  const halter = halten({
+    token: 'abc',
+    beiEreignis: () => {},
+    beiZustand: (zustand, token, naechsterVersuchUm) => meldungen.push({ zustand, naechsterVersuchUm }),
+    holen: async (pfad, optionen) => {
+      versuche += 1;
+      if (versuche <= 5) {
+        throw new TypeError('Failed to fetch');
+      }
+      if (versuche === 6) {
+        return new Response('', { status: 200 });
+      }
+      return offen.antwortFuer(optionen);
+    },
+    schlafen: async (ms) => {
+      wartezeiten.push(ms);
+      if (uhrLaeuftMit) {
+        uhr += ms;
+      }
+    },
+    jetzt: () => uhr,
+  });
+  return { meldungen, wartezeiten, halter };
+}
+
+test('Zeitpunkt aus dem Strom: unterbrochen mit naechsterVersuchUm gleich der Wartezeit des kommenden Schlafs', async () => {
+  const { meldungen, wartezeiten, halter } = zeitpunkteMitschreiben({ startMs: 0, uhrLaeuftMit: false });
+
+  await bis(() => meldungen.filter((m) => m.zustand === 'verbunden').length === 2);
+  halter.beenden();
+
+  const unterbrochen = meldungen.filter((m) => m.zustand === 'unterbrochen').map((m) => m.naechsterVersuchUm);
+  assert.deepEqual(unterbrochen, [1000, 2000, 5000, 10000, 10000, 1000]);
+  assert.deepEqual(wartezeiten.filter((ms) => ms > 0), unterbrochen);
+  assert.ok(meldungen.filter((m) => m.zustand === 'verbunden').every((m) => m.naechsterVersuchUm === undefined));
+});
+
+// Mutante „Wartezeit statt Zeitpunkt weitergereicht“ → rot: mit laufender Uhr ist der Zeitpunkt absolut — Ende des
+// gescheiterten Versuchs plus Wartezeit.
+test('Zeitpunkt aus dem Strom: absolut, ab dem Ende des gescheiterten Versuchs', async () => {
+  const { meldungen, halter } = zeitpunkteMitschreiben({ startMs: 100000, uhrLaeuftMit: true });
+
+  await bis(() => meldungen.filter((m) => m.zustand === 'verbunden').length === 2);
+  halter.beenden();
+
+  const unterbrochen = meldungen.filter((m) => m.zustand === 'unterbrochen').map((m) => m.naechsterVersuchUm);
+  assert.deepEqual(unterbrochen, [101000, 103000, 108000, 118000, 128000, 129000]);
+});
