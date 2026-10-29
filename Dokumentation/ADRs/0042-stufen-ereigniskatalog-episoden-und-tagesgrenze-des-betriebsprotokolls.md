@@ -282,3 +282,14 @@ Regeln:
      - Integration (echtes Programm, `LOCALCHATA_JETZT`): Ordner mit einer Nachricht von 12:00, Start mit Uhr 10:00 → binnen 1 s nach der Startzeile `WARNING zeit Nachrichtenzeit läuft der Systemuhr 2 h 00 min voraus … — Episode beginnt | dauer_ms=…`, ohne dass gesendet wurde. Mutante „nur beim Senden“ → rot.
      - Unit (Bus mit Kapazität 2): 5 Ereignisse veröffentlicht → `naechstes` liefert `NeuerStand { verpasst: 3 }`; Strom mit Speicher-Senke: zwei Überholungen derselben Kennung → genau eine `WARNING live … Episode beginnt | kennung=… anzahl=3`. Mutante „keine Zeile“ → rot.
      - Integration oder Unit auf Stufe Debug: ein gelungenes `POST …/nachrichten` → genau eine `DEBUG senden Nachricht gesendet | channel=allgemein kennung=beta@127.0.0.1 anzahl=5 dauer_ms=…`; der Text „Hallo“ steht nicht im Protokoll.
+- **2026-10-29 (Karte #34) — Bereich `quote` im Katalog** (Plattenquote, [ADR-0044](0044-plattenquote-gespraeche-im-index-gezaehlt-senden-507-nichts-wird-deswegen-geloescht.md) Regeln 7–8); Kontext nach ADR-0040 Regeln 3–5, Episodentexte ohne Satzzeichen am Ende:
+
+  | Bereich | Ereignis | Stufe | Kontext | Quelle |
+  |---|---|---|---|---|
+  | `quote` | Gespräche belegen 90 % der Quote (Wechsel nach oben beim Senden; beim Start, wenn schon darüber) | WARNING, einmal je Wechsel — keine zeitliche Episode | `belegt`, `hoechstens` | → Karte #34, ADR-0044 Regel 7 |
+  | `quote` | Gespräche wieder unter 90 % der Quote (Wechsel nach unten beim Entfallen) | INFORMATION, einmal je Wechsel | `belegt`, `hoechstens`, `grund` (Anlass `start` \| `tageswechsel` \| `frist_gesetzt`) | → Karte #34, ADR-0044 Regel 7 |
+  | `quote` | Gespräche belegen mehr als die Quote — Senden wird abgewiesen (nur beim Start) | WARNING | `belegt`, `hoechstens` | → Karte #34, ADR-0044 Regel 7 |
+  | `quote` | Senden abgewiesen: Quote erreicht (507) | WARNING, Episode je Kennung | `kennung`, `channel`, `belegt`, `hoechstens` | → Karte #34, ADR-0044 Regel 8 |
+  | `start` | Instanz bereit — zusätzlich | INFORMATION | `plattenquote` (Bytes oder `aus`), `belegt`, `option` (`--plattenquote` \| `LOCALCHATA_PLATTENQUOTE` \| `standard`) | → Karte #34, ADR-0044 Regel 7 |
+
+  Grund für den Zustandswechsel statt Episode: der Zustand „über 90 %“ hält Tage; eine Episode endete nach 60 s ohne Senden und begänne mit der nächsten Nachricht neu — Rauschen ohne neue Information. Über 90 % kommt man nur durch Senden, darunter nur durch Entfallen; ein Flattern ist ausgeschlossen. Erster Test: ADR-0044, „Folgeentscheidungen“, Integrationstest.
