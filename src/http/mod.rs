@@ -32,6 +32,7 @@ mod testauskunft;
 mod verlassen;
 mod werkbank;
 
+pub use anhaenge::hochladen::HOCHLADEBANK;
 pub use auskunft::Auskunft;
 pub use grenzschutz::Grenzschutz;
 pub use namensauskunft::{Echt, Namensauskunft, Tabelle};
@@ -72,6 +73,8 @@ pub struct Zustand {
     pub protokoll: Arc<Protokoll>,
     /// Testknopf `LOCALCHATA_TESTPANIK` (nur Debug-Build wirksam).
     pub testpanik: Testpanik,
+    /// Hochladebank: höchstens 8 Blocking-Threads schreiben Stücke von Anhängen (ADR-0046 Frage 7).
+    pub hochladebank: Arc<tokio::sync::Semaphore>,
 }
 
 /// Alle Routen unter der Schicht `grenzschutz` (ADR-0014) — sie ist die äußerste, auch für 404 und 405.
@@ -87,6 +90,7 @@ pub fn router(zustand: Zustand) -> Router {
         .route("/api/gesundheit", get(gesundheit::beantworten))
         .route("/api/beitreten", post(beitreten::beantworten))
         .route("/api/anhaenge", post(anhaenge::anmelden))
+        .route("/api/anhaenge/{id}", put(anhaenge::hochladen))
         .route(
             "/api/channels",
             get(channels::auflisten).post(channels::anlegen),
@@ -161,6 +165,9 @@ pub(crate) mod testserver {
             schreibkonto: Arc::new(crate::schreibkonto::Schreibkonto::neu(Arc::new(Systemuhr))),
             protokoll: Arc::new(crate::protokoll::Protokoll::ohne_ablage()),
             testpanik: crate::protokoll::testpanik::Testpanik::keine(),
+            hochladebank: Arc::new(tokio::sync::Semaphore::new(
+                super::anhaenge::hochladen::HOCHLADEBANK,
+            )),
         }
     }
 

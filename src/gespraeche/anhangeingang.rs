@@ -109,6 +109,8 @@ pub enum Beginnfehler {
 #[derive(Debug)]
 pub struct Platz {
     pub id: Anhangid,
+    /// Anzeigename aus der Anmeldung (für die 200).
+    pub name: String,
     pub generation: u64,
     pub bytes: u64,
     pub beginn: Zeit,
@@ -346,6 +348,7 @@ impl Eingang {
         };
         Ok(Platz {
             id: id.clone(),
+            name: eintrag.name.clone(),
             generation: self.generation,
             bytes: eintrag.bytes,
             beginn: jetzt,

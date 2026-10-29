@@ -5,11 +5,15 @@
 //! Regel 4).
 
 use super::anhangablage::Anhangablage;
-use super::anhangeingang::{Anmeldung, Offen, Verfallen};
+use super::anhangeingang::{
+    Anmeldung, Beginnfehler, Kopf, Offen, Platz, Verfallen, Verloren, Verworfen,
+};
 use super::anhangid::Anhangid;
+use super::anhangpruefung::Art;
 use super::anhangpruefung::{Namensfehler, name_pruefen};
 use super::anhangquote::{self, Platzfehler};
 use super::{Gespraeche, Kennung, sperren};
+use crate::uhr::Zeit;
 use std::net::IpAddr;
 use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -93,6 +97,68 @@ impl Gespraeche {
             .map_err(Anmeldefehler::Offen)?;
         self.eingang_spiegeln(&stand.eingang);
         Ok(anmeldung)
+    }
+
+    /// `PUT` beginnt (Regel 2.1/2.2, Ergänzung „Karte #9 Gate“ Regel 3): ein O(1)-Übergang unter der Schreibsperre.
+    pub fn hochladen_beginnen(
+        &self,
+        kennung: &Kennung,
+        id: &Anhangid,
+        kopf: Kopf,
+    ) -> Result<Platz, Beginnfehler> {
+        let mut stand = sperren(&self.schreiben);
+        let platz = stand
+            .eingang
+            .beginnen(kennung, id, kopf, self.uhr.jetzt())?;
+        self.eingang_spiegeln(&stand.eingang);
+        Ok(platz)
+    }
+
+    /// Alle Bytes liegen fertig im Eingang: `laeuft` → `fertig`; verloren, wenn der Eintrag nicht mehr diesem
+    /// `PUT` gehört (der räumt dann seine Datei selbst).
+    pub fn hochladen_abschliessen(
+        &self,
+        id: &Anhangid,
+        generation: u64,
+        art: Art,
+    ) -> Result<Zeit, Verloren> {
+        let mut stand = sperren(&self.schreiben);
+        let fertig = stand
+            .eingang
+            .abschliessen(id, generation, art, self.uhr.jetzt());
+        self.eingang_spiegeln(&stand.eingang);
+        fertig
+    }
+
+    /// Ein `PUT` bricht ab: `laeuft` → `angemeldet` mit Anlauffrist `min(jetzt + 60 s, lebensende)`.
+    pub fn hochladen_abbrechen(&self, id: &Anhangid, generation: u64) -> bool {
+        let mut stand = sperren(&self.schreiben);
+        let abgebrochen = stand.eingang.abbrechen(id, generation, self.uhr.jetzt());
+        self.eingang_spiegeln(&stand.eingang);
+        abgebrochen
+    }
+
+    /// `DELETE` der eigenen ID (Regel 3): Eintrag weg, Reservierung sofort frei, ein laufender `PUT` endet als
+    /// Abbruch; danach, ohne Sperre, Teil- und fertige Datei weg. Fremde, unbekannte, gebundene IDs: nichts.
+    pub fn anhang_verwerfen(&self, kennung: &Kennung, id: &Anhangid) -> Option<Verworfen> {
+        let verworfen = {
+            let mut stand = sperren(&self.schreiben);
+            let verworfen = stand.eingang.verwerfen(kennung, id);
+            self.eingang_spiegeln(&stand.eingang);
+            verworfen
+        }?;
+        let _ = self.anhangablage.eingang_loeschen(id);
+        Some(verworfen)
+    }
+
+    /// Die Ablage für Eingang und Anhänge.
+    pub fn anhangablage(&self) -> &std::sync::Arc<dyn Anhangablage> {
+        &self.anhangablage
+    }
+
+    /// Freier Platz der Platte (0, wenn die Auskunft scheitert).
+    pub fn platte_frei(&self) -> u64 {
+        self.plattenauskunft.frei().unwrap_or(0)
     }
 
     /// Der Stand der Anhang-Quote, ohne Sperre.

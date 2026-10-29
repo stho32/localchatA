@@ -32,6 +32,8 @@ pub trait Anhangablage: Send + Sync {
     fn teil_abschliessen(&self, id: &Anhangid) -> io::Result<()>;
     /// Löscht `.eingang/<id>.teil` und `.eingang/<id>`; was fehlt, gilt als gelöscht.
     fn eingang_loeschen(&self, id: &Anhangid) -> io::Result<()>;
+    /// Löscht nur `.eingang/<id>.teil` (Abbruch eines `PUT`); fehlt sie, gilt sie als gelöscht.
+    fn teil_loeschen(&self, id: &Anhangid) -> io::Result<()>;
 }
 
 /// Ohne Ablage für Anhänge (Gespräche ohne Start, Tests ohne Anhänge): jeder Zugriff scheitert.
@@ -47,6 +49,10 @@ impl Anhangablage for KeineAnhangablage {
     }
 
     fn eingang_loeschen(&self, _: &Anhangid) -> io::Result<()> {
+        Ok(())
+    }
+
+    fn teil_loeschen(&self, _: &Anhangid) -> io::Result<()> {
         Ok(())
     }
 }
@@ -212,13 +218,20 @@ impl Anhangablage for Anhangdateien {
     }
 
     fn eingang_loeschen(&self, id: &Anhangid) -> io::Result<()> {
-        for name in [teilname(id), id.als_text().to_string()] {
-            match rustix::fs::unlinkat(&self.eingang, name.as_str(), rustix::fs::AtFlags::empty()) {
-                Ok(()) | Err(rustix::io::Errno::NOENT) => {}
-                Err(fehler) => return Err(fehler.into()),
-            }
-        }
-        Ok(())
+        self.teil_loeschen(id)?;
+        loeschen_falls_da(&self.eingang, id.als_text())
+    }
+
+    fn teil_loeschen(&self, id: &Anhangid) -> io::Result<()> {
+        loeschen_falls_da(&self.eingang, &teilname(id))
+    }
+}
+
+/// `unlinkat`; was fehlt, gilt als gelöscht.
+fn loeschen_falls_da(ordner: &rustix::fd::OwnedFd, name: &str) -> io::Result<()> {
+    match rustix::fs::unlinkat(ordner, name, rustix::fs::AtFlags::empty()) {
+        Ok(()) | Err(rustix::io::Errno::NOENT) => Ok(()),
+        Err(fehler) => Err(fehler.into()),
     }
 }
 

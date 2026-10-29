@@ -504,6 +504,7 @@ async fn nach_der_sperre(
         schreibkonto: Arc::new(Schreibkonto::neu(Arc::clone(&uhr))),
         protokoll: Arc::clone(&protokoll),
         testpanik,
+        hochladebank: Arc::new(tokio::sync::Semaphore::new(http::HOCHLADEBANK)),
     });
     ausliefern::ausliefern(
         listener,

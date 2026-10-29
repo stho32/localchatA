@@ -74,3 +74,76 @@ pub async fn gesundheit(basis: &str) -> Value {
     assert_eq!(status, 200);
     json
 }
+
+/// `PUT <basis>api/anhaenge/<id>` mit allen Bytes als `application/octet-stream`.
+pub async fn hochladen(
+    absender: &Absender,
+    basis: &str,
+    token: &str,
+    id: &str,
+    bytes: Vec<u8>,
+) -> ApiAntwort {
+    api_antwort(
+        absender
+            .anfrage(reqwest::Method::PUT, format!("{basis}api/anhaenge/{id}"))
+            .header("Content-Type", "application/octet-stream")
+            .header("X-LocalchatA-Sitzung", token)
+            .body(bytes),
+    )
+    .await
+}
+
+/// Anmelden und hochladen in einem; liefert die ID.
+pub async fn ablegen(
+    absender: &Absender,
+    basis: &str,
+    token: &str,
+    name: &str,
+    bytes: Vec<u8>,
+) -> String {
+    let id = id(&anmelden(absender, basis, token, name, bytes.len() as u64).await);
+    let antwort = hochladen(absender, basis, token, &id, bytes).await;
+    assert_eq!(antwort.status, 200, "{}", antwort.json);
+    id
+}
+
+/// Eine Rohverbindung von `herkunft` zur Instanz; `kopf` sind die Kopfzeilen ohne Leerzeile.
+pub async fn roh_oeffnen(port: u16, herkunft: &str, kopf: &str) -> tokio::net::TcpStream {
+    use tokio::io::AsyncWriteExt;
+    let mut verbindung = super::herkunft::verbinden(port, herkunft).await;
+    verbindung
+        .write_all(format!("{kopf}\r\n\r\n").as_bytes())
+        .await
+        .expect("Kopf gesendet");
+    verbindung
+}
+
+/// Liest die Antwort einer Rohverbindung bis zum Ende oder höchstens `hoechstens`; Statuszeile und Rest.
+pub async fn roh_antwort(
+    verbindung: &mut tokio::net::TcpStream,
+    hoechstens: std::time::Duration,
+) -> String {
+    use tokio::io::AsyncReadExt;
+    let mut roh = Vec::new();
+    let _ = tokio::time::timeout(hoechstens, verbindung.read_to_end(&mut roh)).await;
+    String::from_utf8_lossy(&roh).into_owned()
+}
+
+/// Dateien im Eingang des Ordners (Namen).
+pub fn im_eingang(ordner: &Path) -> Vec<String> {
+    let mut namen: Vec<String> = std::fs::read_dir(ordner.join(".eingang"))
+        .map(|eintraege| {
+            eintraege
+                .map(|eintrag| {
+                    eintrag
+                        .expect("Eintrag")
+                        .file_name()
+                        .to_string_lossy()
+                        .into_owned()
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    namen.sort();
+    namen
+}

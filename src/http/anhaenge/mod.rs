@@ -2,5 +2,7 @@
 //! /api/anhaenge/{id}`), verwerfen (`DELETE /api/anhaenge/{id}`).
 
 mod anmelden;
+pub mod hochladen;
 
 pub use anmelden::anmelden;
+pub use hochladen::hochladen;

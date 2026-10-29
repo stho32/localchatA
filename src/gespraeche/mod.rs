@@ -7,6 +7,8 @@ pub mod anhangeingang;
 pub mod anhangid;
 pub mod anhangpruefung;
 pub mod anhangquote;
+#[cfg(test)]
+pub mod anhangspeicher;
 pub mod einstellungen;
 mod frist;
 pub mod fristeintrag;
