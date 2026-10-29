@@ -495,3 +495,7 @@ Nie vom User erfragen.
 | 2026-10-29 | R00019 Frist gehärtet (Teil 1, #27) | B0541 Schalter der Kopfzeile als Touch-Ziel | Standard | 0,4h | 0,03h | 0,03h | autonom (entw2) |
 | 2026-10-29 | R00019 Frist gehärtet (Teil 1, #27) | Lesen, Mutanten, Rebase, Gate | Konsolidierung | — | 0,40h | 0,40h | autonom (entw2) |
 | 2026-10-29 | R00019 Frist gehärtet (Teil 1, #27) | B0389 Frist-Feld weist Leerzeichen ab | Standard | 0,4h | 0,15h | 0,15h | autonom (entw3) |
+| 2026-10-29 | R00032 Doppelte Schlüssel abweisen | B0546+B0547 Körperleser erkennt doppelte Schlüssel, Antwort | Standard | 0,4h | 0,42h | 0,42h | autonom (entw3) |
+| 2026-10-29 | R00032 Doppelte Schlüssel abweisen | B0548 Senden nennt das weitere Feld vor text | Standard | 0,4h | 0,08h | 0,08h | autonom (entw3) |
+| 2026-10-29 | R00032 Doppelte Schlüssel abweisen | B0549 Doppelte Schlüssel über alle vier Routen geprobt (inkl. Mutanten) | Standard | 0,4h | 0,50h | 0,50h | autonom (entw3) |
+| 2026-10-29 | R00032 Doppelte Schlüssel abweisen | Gate und Rebase | Konsolidierung | — | 0,42h | 0,42h | autonom (entw3) |
