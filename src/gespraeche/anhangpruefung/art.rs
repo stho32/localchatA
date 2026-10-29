@@ -4,6 +4,12 @@
 /// Inhaltstyp für alles, was nicht dargestellt wird.
 pub const DATEI: &str = "application/octet-stream";
 
+/// Die eine Stelle der Disposition (R00029 „Disposition“, Befund #53 A1): `inline` für alle Arten der Tabelle außer
+/// `application/octet-stream` und Text über 16 MiB — gilt beim Erkennen wie beim Ausliefern.
+pub fn inline(typ: &str, bytes: u64) -> bool {
+    typ != DATEI && !(typ == super::erkenner::TEXT && bytes > super::text::TEXT_INLINE_HOECHSTENS)
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Art {
     /// Inhaltstyp aus der Tabelle der ADR-0047, z. B. `image/png` oder `text/plain; charset=utf-8`.

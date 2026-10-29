@@ -2,10 +2,10 @@
 //! aus den ersten höchstens 64 KiB, dann die Text-Prüfung über die ganze Datei, sonst `application/octet-stream`.
 //! Name und `Content-Type` des Senders zählen nie. Rein.
 
-use super::art::{Art, DATEI};
+use super::art::{Art, DATEI, inline};
 use super::bild::bild;
 use super::medien::medien;
-use super::text::{TEXT_INLINE_HOECHSTENS, Textpruefer};
+use super::text::Textpruefer;
 
 /// Für Signaturen werden höchstens so viele Bytes gelesen.
 pub const KOPF_HOECHSTENS: usize = 64 * 1024;
@@ -37,7 +37,7 @@ impl Erkenner {
             let (breite, hoehe) = bild.masse.unzip();
             return Art {
                 typ: bild.typ,
-                inline: true,
+                inline: inline(bild.typ, self.bytes),
                 breite,
                 hoehe,
             };
@@ -45,7 +45,7 @@ impl Erkenner {
         if let Some(typ) = medien(&self.kopf) {
             return Art {
                 typ,
-                inline: true,
+                inline: inline(typ, self.bytes),
                 breite: None,
                 hoehe: None,
             };
@@ -53,7 +53,7 @@ impl Erkenner {
         if self.text.ist_text() {
             return Art {
                 typ: TEXT,
-                inline: self.bytes <= TEXT_INLINE_HOECHSTENS,
+                inline: inline(TEXT, self.bytes),
                 breite: None,
                 hoehe: None,
             };

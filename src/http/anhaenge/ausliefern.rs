@@ -7,9 +7,6 @@ use super::kopfzeilen::{self, Datei};
 use super::strom::bereich_strom;
 use crate::gespraeche::anhangablage::Anhangdatei;
 use crate::gespraeche::anhangid::Anhangid;
-use crate::gespraeche::anhangpruefung::DATEI;
-use crate::gespraeche::anhangpruefung::erkenner::TEXT;
-use crate::gespraeche::anhangpruefung::text::TEXT_INLINE_HOECHSTENS;
 use crate::gespraeche::anhangverzeichnis::{Eintrag, Zustand as Anhangzustand, praefix};
 use crate::http::Zustand;
 use crate::protokoll::{Bereich as Protokollbereich, Kontext, Schluessel, Stufe};
@@ -64,7 +61,7 @@ pub async fn ausliefern(
     let beschrieben = Datei {
         id: eintrag.id.als_text(),
         typ: eintrag.art,
-        inline: inline(eintrag.art, eintrag.bytes),
+        inline: crate::gespraeche::anhangpruefung::inline(eintrag.art, eintrag.bytes),
         anzeigename: &eintrag.name,
         ascii: ascii_teil(&eintrag.datei),
         laenge: eintrag.bytes,
@@ -100,11 +97,6 @@ pub async fn ausliefern(
     let teil = matches!(bereich, Bereich::Teil(..)).then(|| (von, bis - 1));
     kopfzeilen::datei(antwort.headers_mut(), &beschrieben, teil);
     antwort
-}
-
-/// Inline nur Bilder, PDF, Text bis 16 MiB, Video und Audio — alles, was nicht `application/octet-stream` ist.
-fn inline(art: &str, bytes: u64) -> bool {
-    art != DATEI && !(art == TEXT && bytes > TEXT_INLINE_HOECHSTENS)
 }
 
 /// `<hhmmssmmm>-<n>-<ascii>` → `<ascii>`.
