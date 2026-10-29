@@ -2,19 +2,21 @@
 // Stroms bestätigen eigene oder kommen als fremde in den offenen Verlauf. Ein Sendeauftrag zugleich je Tab. Bei
 // getrennter Verbindung ruht die Warteschlange, Ereignisse fallen weg; ab dem Wiederverbinden des Stroms werden sie
 // wieder angenommen, die Warteschlange läuft erst nach dem Nachholen (ADR-0037 Ergänzung Karte #22/#36, 7f);
-// eine 401 tritt still wieder bei und versucht genau einmal neu; Fehlschläge und fremde Nachrichten gehen an die Ansage.
+// eine 401 tritt still wieder bei und versucht genau einmal neu; scheitert der Beitritt, wird nicht gesendet (R00025
+// F0088). Die Zustellung gehört dem Tab (`zustellung`), nicht der Hauptansicht: sie übersteht den Beitreten-Bildschirm.
+// Fehlschläge und fremde Nachrichten gehen an die Ansage.
 import { LEER, zustellen } from './zustellung.js';
 
 // abschicken: async (channel, text, schluessel) → { art: 'antwort', status, daten, token } | { art: 'zeitueberschreitung'
-// | 'netzfehler' } · wiederBeitreten: async (abgelehntesToken) · netzAus: () → bool · ansagen: (ereignis der Ansage)
-export function sendenEinrichten({ verlauf, kennung, abschicken, wiederBeitreten, netzAus, ansagen }) {
-  let zustand = LEER;
+// | 'netzfehler' } · wiederBeitreten: async (abgelehntesToken) → zustand der Sitzung · netzAus: () → bool · ansagen:
+// (ereignis der Ansage) · zustellung: { zustand } des Tabs
+export function sendenEinrichten({ verlauf, kennung, abschicken, wiederBeitreten, netzAus, ansagen, zustellung = { zustand: LEER } }) {
   let offenerChannel = null;
   let zuletztGesendetMitToken = null;
   let ereignisseRuhen = false;
 
   function anwenden(ergebnis) {
-    zustand = ergebnis.zustand;
+    zustellung.zustand = ergebnis.zustand;
     if (ergebnis.bestaetigt !== null && ergebnis.bestaetigt.channel === offenerChannel) {
       verlauf.nachrichtAnnehmen(ergebnis.bestaetigt.nachricht, true);
     }
@@ -27,7 +29,7 @@ export function sendenEinrichten({ verlauf, kennung, abschicken, wiederBeitreten
     if (ergebnis.fehlschlag !== null) {
       ansagen({ art: 'fehlschlag', grund: ergebnis.fehlschlag.grund });
     }
-    verlauf.vorlaeufigeZeigen(zustand.vorlaeufige);
+    verlauf.vorlaeufigeZeigen(zustellung.zustand.vorlaeufige);
     if (ergebnis.auftrag !== null) {
       auftragAusfuehren(ergebnis.auftrag, ergebnis.wiederbeitreten);
     }
@@ -35,45 +37,48 @@ export function sendenEinrichten({ verlauf, kennung, abschicken, wiederBeitreten
 
   async function auftragAusfuehren({ schluessel, channel, text }, nachAblehnung) {
     if (nachAblehnung) {
-      await wiederBeitreten(zuletztGesendetMitToken);
+      const sitzung = await wiederBeitreten(zuletztGesendetMitToken);
+      if (sitzung.art !== 'kopfzeile') {
+        return;
+      }
     }
     const antwort = await abschicken(channel, text, schluessel);
     zuletztGesendetMitToken = antwort.token;
     if (antwort.art === 'antwort') {
-      anwenden(zustellen(zustand, { art: 'antwort', schluessel, status: antwort.status, daten: antwort.daten }));
+      anwenden(zustellen(zustellung.zustand, { art: 'antwort', schluessel, status: antwort.status, daten: antwort.daten }));
       return;
     }
     if (netzAus()) {
-      anwenden(zustellen(zustand, { art: 'getrennt' }));
+      anwenden(zustellen(zustellung.zustand, { art: 'getrennt' }));
     }
-    anwenden(zustellen(zustand, { art: antwort.art, schluessel }));
+    anwenden(zustellen(zustellung.zustand, { art: antwort.art, schluessel }));
   }
 
   return {
     senden: (text) => {
-      anwenden(zustellen(zustand, { art: 'senden', channel: offenerChannel, text, schluessel: neuerSchluessel() }));
+      anwenden(zustellen(zustellung.zustand, { art: 'senden', channel: offenerChannel, text, schluessel: neuerSchluessel() }));
       verlauf.zumEndeFuerSenden();
     },
     empfangen: ({ channel, nachricht }) => {
       if (ereignisseRuhen) {
         return;
       }
-      anwenden(zustellen(zustand, { art: 'ereignis', kennung, channel, nachricht }));
+      anwenden(zustellen(zustellung.zustand, { art: 'ereignis', kennung, channel, nachricht }));
     },
     channelGeoeffnet: (channel) => {
       offenerChannel = channel;
-      verlauf.vorlaeufigeZeigen(zustand.vorlaeufige);
+      verlauf.vorlaeufigeZeigen(zustellung.zustand.vorlaeufige);
     },
     getrennt: () => {
       ereignisseRuhen = true;
-      anwenden(zustellen(zustand, { art: 'getrennt' }));
+      anwenden(zustellen(zustellung.zustand, { art: 'getrennt' }));
     },
     stromWieder: () => {
       ereignisseRuhen = false;
     },
-    verbunden: () => anwenden(zustellen(zustand, { art: 'verbunden' })),
+    verbunden: () => anwenden(zustellen(zustellung.zustand, { art: 'verbunden' })),
     // „Erneut senden“ | „Verwerfen“ an einer fehlgeschlagenen Nachricht.
-    schalter: (aktion, schluessel) => anwenden(zustellen(zustand, { art: aktion, schluessel })),
+    schalter: (aktion, schluessel) => anwenden(zustellen(zustellung.zustand, { art: aktion, schluessel })),
   };
 }
 

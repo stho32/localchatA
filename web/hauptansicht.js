@@ -84,6 +84,7 @@ export function zeichnen(wurzel, teilnehmer, optionen) {
     kennung: teilnehmer.kennung,
     abschicken: optionen.nachrichtSenden,
     wiederBeitreten: optionen.wiederBeitreten,
+    zustellung: optionen.zustellung,
     netzAus: () => navigator.onLine === false,
     ansagen: ansagen.melden,
   });
@@ -126,6 +127,8 @@ export function zeichnen(wurzel, teilnehmer, optionen) {
     },
     // Ein vollständiger Stand der Teilnehmer: am Anfang jedes Stroms und nach NeuerStand (ADR-0028 Regel 6).
     standEmpfangen: () => wieder.melden({ art: 'stand' }),
+    // Vor dem Wechsel zum Beitreten-Bildschirm.
+    entwurfSichern: () => eingabe.entwurfSichern(),
   };
 }
 

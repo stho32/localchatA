@@ -150,11 +150,12 @@ export function eingabeAnlegen({ senden, entwurf, ansagen }) {
     senden(text);
     feld.focus();
   }
-  window.addEventListener('pagehide', () => {
+  function entwurfSichern() {
     if (channel !== null) {
       entwurf.weggehen(channel, feld.value);
     }
-  });
+  }
+  window.addEventListener('pagehide', entwurfSichern);
   return {
     element: rahmen,
     // Beim Wechsel bleibt der Entwurf des alten Channels, der des neuen kommt ins Feld; der Fokus bleibt, wo er ist.
@@ -171,6 +172,8 @@ export function eingabeAnlegen({ senden, entwurf, ansagen }) {
       textBewerten();
     },
     fokussieren: () => feld.focus(),
+    // Die Hauptansicht weicht dem Beitreten-Bildschirm: der Entwurf wird sofort geschrieben (R00025 F0088).
+    entwurfSichern,
   };
 }
 

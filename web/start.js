@@ -9,6 +9,7 @@ import { LEER as KEINE_CHANNELS, channelsZusammenfuehren } from './channels.js';
 import { verbinden } from './live.js';
 import { sekundentaktAnlegen } from './sekundentakt.js';
 import { wiederbeitrittAnlegen } from './wiederbeitritt.js';
+import { LEER as KEINE_ZUSTELLUNG, zustellen } from './zustellung.js';
 
 const api = {
   ich: (token) => rufen('/api/ich', { token }),
@@ -18,6 +19,9 @@ const speicher = window.localStorage;
 const wurzel = document.getElementById('app');
 let laufenderStrom = null;
 const takten = sekundentaktAnlegen();
+// Die Zustellung gehört dem Tab, nicht der Hauptansicht (R00025 F0088): ungesendete Nachrichten überstehen den
+// Beitreten-Bildschirm; ein Neuladen verwirft sie.
+const zustellung = { zustand: KEINE_ZUSTELLUNG };
 
 farbschemaFolgen();
 zeigen(await sitzungBeimLaden());
@@ -50,6 +54,8 @@ function hauptansichtZeigen(teilnehmer, nachEingabe) {
       }
     },
     gescheitert: (zustand) => {
+      zustellung.zustand = zustellen(zustellung.zustand, { art: 'beitrittGescheitert' }).zustand;
+      ansicht.entwurfSichern();
       stromBeenden();
       zeigen(zustand);
     },
@@ -67,6 +73,7 @@ function hauptansichtZeigen(teilnehmer, nachEingabe) {
       return { ...await nachrichtSenden(channel, text, schluessel, { token }), token };
     },
     wiederBeitreten,
+    zustellung,
   });
   let liste = teilnehmerliste.LEER;
   let channels = KEINE_CHANNELS;

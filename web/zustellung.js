@@ -7,13 +7,14 @@
 //            wiederbeigetreten? }], laufend: schluessel | null, bestaetigt: [zeit…], getrennt }
 // ereignis: { art: 'senden', channel, text, schluessel } · { art: 'antwort', schluessel, status, daten }
 //         · { art: 'netzfehler' | 'zeitueberschreitung', schluessel } · { art: 'ereignis', kennung, channel, nachricht }
-//         · { art: 'getrennt' | 'verbunden' } · { art: 'erneut' | 'verwerfen', schluessel }
+//         · { art: 'getrennt' | 'verbunden' } · { art: 'erneut' | 'verwerfen', schluessel } · { art: 'beitrittGescheitert' }
 // → { zustand, auftrag: { schluessel, channel, text } | null, bestaetigt: { channel, nachricht } | null,
 //     fremd: { channel, nachricht } | null, wiederbeitreten, fehlschlag: { grund } | null }
 export const LEER = { vorlaeufige: [], laufend: null, bestaetigt: [], getrennt: false };
 
 const NICHT_GESPEICHERT = 'Nicht gespeichert — der Server konnte nicht schreiben.';
 const KEINE_ANTWORT = 'Keine Antwort vom Server.';
+const BEITRITT_ABGELAUFEN = 'Nicht gesendet — der Beitritt war abgelaufen.';
 const NICHT_ANGEMELDET = 401;
 
 export function zustellen(zustand, ereignis) {
@@ -35,6 +36,8 @@ export function zustellen(zustand, ereignis) {
       return erneutSenden(zustand, ereignis.schluessel);
     case 'verwerfen':
       return ergebnis({ ...zustand, vorlaeufige: ohne(zustand.vorlaeufige, ereignis.schluessel) });
+    case 'beitrittGescheitert':
+      return beitrittGescheitert(zustand);
     default:
       throw new Error(`Zustellung: unbekanntes Ereignis ${ereignis.art}`);
   }
@@ -59,9 +62,25 @@ function beantwortet(zustand, { schluessel, status, daten }) {
   return { ...weiter, bestaetigt: bestaetigung.bestaetigt };
 }
 
-// Die erste 401 eines Versuchs: still wieder beitreten und genau einmal mit demselben Schlüssel neu senden.
+// Scheitert der stille Wiederbeitritt (ADR-0012 Ergänzung Karte #36 Regel 4): die Warteschlange hält sofort an, jede
+// Nachricht „wird gesendet“ wird fehlgeschlagen; fehlgeschlagene bleiben, wie sie sind.
+function beitrittGescheitert(zustand) {
+  const vorlaeufige = zustand.vorlaeufige.map((vorlaeufig) => {
+    if (vorlaeufig.zustand !== 'wird gesendet') {
+      return vorlaeufig;
+    }
+    return { ...vorlaeufig, zustand: 'fehlgeschlagen', grund: BEITRITT_ABGELAUFEN };
+  });
+  return ergebnis({ ...zustand, vorlaeufige, laufend: null });
+}
+
+// Die erste 401 eines Versuchs: still wieder beitreten und genau einmal mit demselben Schlüssel neu senden — nur,
+// solange die Nachricht noch gesendet wird (nach einem gescheiterten Beitritt ist sie schon fehlgeschlagen).
 function nichtAngemeldet(zustand, schluessel, daten) {
   const betroffene = zustand.vorlaeufige.find((vorlaeufig) => vorlaeufig.schluessel === schluessel);
+  if (betroffene !== undefined && betroffene.zustand !== 'wird gesendet') {
+    return ergebnis(zustand);
+  }
   const schonWiederbeigetreten = betroffene === undefined || betroffene.wiederbeigetreten === true;
   if (schonWiederbeigetreten) {
     return fehlschlagen(zustand, schluessel, grundAus(NICHT_ANGEMELDET, daten));

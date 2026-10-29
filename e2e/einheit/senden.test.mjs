@@ -2,6 +2,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { sendenEinrichten } from '../../web/senden.js';
+import { LEER, zustellen } from '../../web/zustellung.js';
+import { wiederbeitrittAnlegen } from '../../web/wiederbeitritt.js';
+import { SITZUNG, NAME } from '../../web/sitzung.js';
 
 function verlaufErsatz() {
   const gezeigt = [];
@@ -24,7 +27,7 @@ test('ein Netzfehler bei ausgeschaltetem Netz lässt die Nachricht vorläufig, a
     verlauf,
     kennung: 'shoff@127.0.0.1',
     abschicken: async () => ({ art: 'netzfehler', token: 't' }),
-    wiederBeitreten: async () => {},
+    wiederBeitreten: async () => ({ art: 'kopfzeile' }),
     netzAus: () => true,
     ansagen: (ereignis) => ansagen.push(ereignis),
   });
@@ -45,7 +48,7 @@ test('ein Netzfehler bei eingeschaltetem Netz ist ein Fehlschlag und wird sofort
     verlauf,
     kennung: 'shoff@127.0.0.1',
     abschicken: async () => ({ art: 'netzfehler', token: 't' }),
-    wiederBeitreten: async () => {},
+    wiederBeitreten: async () => ({ art: 'kopfzeile' }),
     netzAus: () => false,
     ansagen: (ereignis) => ansagen.push(ereignis),
   });
@@ -72,7 +75,7 @@ test('ab dem Wiederverbinden des Stroms werden Ereignisse angenommen, die Wartes
       gesendet.push(text);
       return { art: 'antwort', status: 201, daten: { channel, nachricht: { zeit: 'z9', von: 'anna@127.0.0.1', text } }, token: 't' };
     },
-    wiederBeitreten: async () => {},
+    wiederBeitreten: async () => ({ art: 'kopfzeile' }),
     netzAus: () => false,
     ansagen: () => {},
   });
@@ -91,4 +94,90 @@ test('ab dem Wiederverbinden des Stroms werden Ereignisse angenommen, die Wartes
 
   assert.deepEqual(vorDemNachholen, { angenommen: ['waehrend'], gesendet: [] });
   assert.deepEqual(gesendet, ['eigen']);
+});
+
+// R00025 F0088 „Scheitern im Tab“ (B0412; ADR-0012 Ergänzung Karte #36, erster Test, wörtlich): „stiller Beitritt
+// scheitert (409 `vergeben`) nach einer 401 beim Senden, zwei vorläufige in der Warteschlange → kein weiterer
+// `POST …/nachrichten`, beide fehlgeschlagen mit dem Grund aus Regel 4, der Zustand `vergeben` geht an `zeigen`;
+// dasselbe, wenn der Strom die Ablehnung zuerst meldet. Mutante „Senden scheitert still wie heute“ → rot.“ Die
+// Zustellung gehört dem Tab; was start.js beim Scheitern tut, steht hier im Rückruf `gescheitert`.
+function tabMitScheiterndemBeitritt(abschicken) {
+  const zustellung = { zustand: LEER };
+  const gezeigt = [];
+  const werte = new Map([[SITZUNG, 'alt'], [NAME, 'shoff']]);
+  const speicher = {
+    getItem: (schluessel) => (werte.has(schluessel) ? werte.get(schluessel) : null),
+    setItem: (schluessel, wert) => werte.set(schluessel, wert),
+    removeItem: (schluessel) => werte.delete(schluessel),
+  };
+  const api = {
+    beitreten: async () => ({ status: 409, daten: { belegt_von: '127.0.0.9', seit: '2026-10-28T15:00:00+01:00', vorschlag: 'shoff-2' } }),
+    ich: async () => ({ status: 401 }),
+  };
+  const wiederBeitreten = wiederbeitrittAnlegen({
+    speicher,
+    api,
+    sperre: (arbeit) => arbeit({ neuesToken: async () => null }),
+    gelungen: () => {},
+    gescheitert: (zustand) => {
+      zustellung.zustand = zustellen(zustellung.zustand, { art: 'beitrittGescheitert' }).zustand;
+      gezeigt.push(zustand.art);
+    },
+  });
+  const senden = sendenEinrichten({
+    verlauf: verlaufErsatz(),
+    kennung: 'shoff@127.0.0.1',
+    abschicken,
+    wiederBeitreten,
+    netzAus: () => false,
+    ansagen: () => {},
+    zustellung,
+  });
+  senden.channelGeoeffnet('allgemein');
+  return { senden, zustellung, gezeigt, wiederBeitreten };
+}
+
+const ABGELEHNT = { art: 'antwort', status: 401, daten: { fehler: 'Sitzung unbekannt.' }, token: 'alt' };
+
+test('Scheitern im Tab (Senden zuerst): kein weiterer POST, beide fehlgeschlagen, vergeben an zeigen', async () => {
+  const gesendet = [];
+  const tab = tabMitScheiterndemBeitritt(async (channel, text) => {
+    gesendet.push(text);
+    return ABGELEHNT;
+  });
+
+  tab.senden.senden('eins');
+  tab.senden.senden('zwei');
+  for (let runde = 0; runde < 10; runde += 1) {
+    await naechsteRunde();
+  }
+
+  assert.deepEqual(gesendet, ['eins']);
+  assert.deepEqual(tab.zustellung.zustand.vorlaeufige.map((v) => [v.text, v.zustand, v.grund]), [
+    ['eins', 'fehlgeschlagen', 'Nicht gesendet — der Beitritt war abgelaufen.'],
+    ['zwei', 'fehlgeschlagen', 'Nicht gesendet — der Beitritt war abgelaufen.'],
+  ]);
+  assert.deepEqual(tab.gezeigt, ['vergeben']);
+});
+
+test('Scheitern im Tab (Strom zuerst): die spätere 401 des laufenden Versuchs sendet nicht noch einmal', async () => {
+  const gesendet = [];
+  let antworten = null;
+  const tab = tabMitScheiterndemBeitritt(async (channel, text) => {
+    gesendet.push(text);
+    return new Promise((liefern) => { antworten = liefern; });
+  });
+  tab.senden.senden('eins');
+  tab.senden.senden('zwei');
+  await naechsteRunde();
+
+  await tab.wiederBeitreten('alt');
+  antworten(ABGELEHNT);
+  for (let runde = 0; runde < 10; runde += 1) {
+    await naechsteRunde();
+  }
+
+  assert.deepEqual(gesendet, ['eins']);
+  assert.deepEqual(tab.zustellung.zustand.vorlaeufige.map((v) => v.zustand), ['fehlgeschlagen', 'fehlgeschlagen']);
+  assert.deepEqual(tab.gezeigt, ['vergeben']);
 });
