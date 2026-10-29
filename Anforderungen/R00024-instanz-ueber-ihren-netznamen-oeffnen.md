@@ -66,7 +66,7 @@ Im Heimnetz und im kleinen Büro ist der Name, den der Router vergibt, der norma
 
 - **Sicherheit** (DNS-Rebinding, CWE-350; Flut, CWE-400): kein Name, den ein Angreifer im öffentlichen DNS besitzt, wird automatisch erlaubt, und keiner löst eine Auflösung aus. Eine Flut frei gewählter Namen verdrängt keinen erlaubten Namen aus dem Cache und wird höchstens mit 10 neuen Auflösungen je Sekunde ins Netz weitergereicht. Mit `--alle-namen` ist der Rebinding-Weg bewusst offen, CSRF bleibt durch ADR-0014 Regel 2 geschlossen. Die Angriffsmatrix steht in ADR-0045 (Abschnitt „Angriffsmatrix“, vom `security-reviewer` vor dem Bau geschrieben, Entscheidungen E1–E8 in der Ergänzung „Angriffsmatrix Karte #35“); sie ist Teil dieser Anforderung (Kriterium „Angriffsmatrix“).
 - **Leistung**: der Laufzeit-Takt löst nie auf; eine Anfrage wartet höchstens 1 s auf alle Auflösungen zusammen (eine Frist je Anfrage). Zweck der Grenze: ein frei wählbarer `Host` darf die Instanz nicht blockieren, ein nicht vorhandener `.local`-Name kostet sonst 5 s (Probe in ADR-0045). Die Uhr startet beim Eingang der Anfrage im Grenzschutz. Erwartet sind im Heimnetz 4–141 ms (gemessen in der ADR-Probe); die Grenze liegt also weit über 130 % des erwarteten Werts. Geprüft wird die Regel exakt mit gestellter Uhr; im echten Programm gibt es kein Zeitkriterium.
-- **Ende**: eine hängende Namensauflösung verzögert das Ende nicht. Zweck: die Frist für das Ende aus ADR-0010 (5 s); erwartet ohne offene Verbindung 0,002 s (gemessen im Code-Review #35), heute 4,0 s. Die Grenze im Test (< 200 ms im Prozess, < 1 s im echten Programm ab dem Signal) liegt weit über 130 % des erwarteten Werts.
+- **Ende**: eine hängende Namensauflösung verzögert das Ende nicht. Zweck: die Frist für das Ende aus ADR-0010 (5 s); erwartet ohne offene Verbindung 0,002 s (gemessen im Code-Review #35), heute 4,0 s. Die Grenze im Test (< 200 ms im Prozess — B0421, < 1 s im echten Programm ab dem Signal — B0485) liegt weit über 130 % des erwarteten Werts. Das Prozessende im echten Programm hängt sonst am NSS-Modul: `exit()` der glibc wartet auf den Faden der Auflösung (ADR-0010 Ergänzung „Karte #35 Nacharbeit, Prozessende“).
 - **Plattform**: Rückwärtsauflösung über `dns-lookup` unter Linux, macOS und Windows; „eigene Adresse“ über `UdpSocket::bind((ip, 0))`.
 - **Zeit- und Konsolenkriterien** nach `AI-Team/planer.md`.
 
@@ -124,7 +124,8 @@ Gemeinsam für alle Integrationskriterien: Start im Debug-Build mit `localchatA 
 - [ ] **Nacharbeit Karte #35: Rate neuer Auflösungen** (Unit, Testuhr; ADR-0045 Ergänzung Punkt 2). Rechenbeispiel: die Testuhr steht, 25 neue Namen → genau 20 Fragen, 5 sofort abgewiesen ohne Frage und ohne Cache-Eintrag; Testuhr +1 s, 25 weitere neue Namen → 10 Fragen.
 - [ ] **Nacharbeit Karte #35: Gnadenfrist** (Unit, Testuhr, blockierende Testauskunft; Security-Review #35 Anmerkung 2, ADR-0045 Ergänzung Punkt 3). Rechenbeispiel: `x.local` erlaubt bei t = 0. Bei t = 5:01 min sind beide Erlaubnisse durch hängende Fragen belegt → `x.local` erlaubt nach < 100 ms, 0 neue Fragen. Sind die Erlaubnisse frei, ist die nächste Anfrage sofort erlaubt und startet genau eine Auffrischung, auch bei leerem Eimer; antwortet sie „fremd“, ist die folgende Anfrage abgewiesen. Ohne Auffrischung ist `x.local` bei t = 15:01 min nicht mehr aus der Gnadenfrist erlaubt.
 - [ ] **Nacharbeit Karte #35: Panik** (Unit; Code-Review #35 A2, ADR-0045 Ergänzung Punkt 3). Probe des `code-reviewer`, wörtlich: „Panik beim ersten Mal, +59 s abgewiesen ohne Frage, +61 s erlaubt“; die Panik steht als EXCEPTION mit Ort im Protokoll; eine Panik während einer Auffrischung → die folgende Anfrage ist abgewiesen.
-- [ ] **Nacharbeit Karte #35: Ende ohne Warten** (Unit und Integration; Code-Review #35 A3, ADR-0045 Ergänzung Punkt 3): eine Laufzeit mit hängender Frage (Testauskunft blockiert 10 s) wird fallen gelassen → nach < 200 ms zurück. Im echten Programm (L2r, Entwicklertest, US-14): SIGTERM, während `gibtsnicht.local` aufgelöst wird → Prozessende mit Exit 0 < 1 s nach dem Signal (heute 4,0 s).
+- [ ] **Nacharbeit Karte #35: Ende ohne Warten** (B0421; Unit und Integration; Code-Review #35 A3, ADR-0045 Ergänzung Punkt 3): eine Laufzeit mit hängender Frage (Testauskunft blockiert 10 s) wird fallen gelassen → nach < 200 ms zurück. Das Prozessende im echten Programm prüft das folgende Kriterium.
+- [ ] **Nacharbeit Karte #35: Prozessende** (B0485; Integration, echtes Programm; ADR-0010 Ergänzung „Karte #35 Nacharbeit, Prozessende“; US-14). L2r (nur Linux mit `nss-mdns`, `#[ignore]`, im Entwicklertest ausdrücklich gefahren, nicht im Standard-Gate): Wegwerf-Ordner, `--port 0`, ohne `LOCALCHATA_TESTNAMEN`. Vorbedingung: eine Auflösung von `gibtsnicht-<zufall>.local` dauert ≥ 2 s — sonst ist der Test rot mit „Vorbedingung fehlt: nss-mdns“, nicht übersprungen. `GET /api/gesundheit` mit `Host: gibtsnicht-<zufall>.local:<p>` (einmal auch wörtlich `gibtsnicht.local` wie US-14) → 403 nach ≈ 1 s; sofort SIGTERM → Prozessende < 1 s nach dem Signal, Exit 0, die letzte Zeile von `logs/<heute>.log` enthält `INFORMATION ende Instanz beendet`, stdout enthält die Startzeile vollständig (heute 4,0 s). Exit-Codes bleiben (Standard-Gate): SIGTERM ohne hängende Auflösung → Exit 0 mit letzter Zeile „Instanz beendet“; `--hilfe` in eine Pipe → stdout gleich dem Hilfetext, Exit 0; falsche Option → Exit 2 mit Meldung auf stderr; gesperrter Ordner → Exit 1.
 
 ### F0078 Name im lokalen Namensraum
 
@@ -206,7 +207,7 @@ Die Bubbles der WBS sind Vorplanung; welche Bubbles es am Ende werden, entscheid
 - F0078: B0372 Urteil im lokalen Namensraum · B0373 Vorwärtsauflösung im Grenzschutz
 - F0079: B0374 Abweisungsseite bilden · B0375 Seite oder Text ausliefern
 - F0080: B0376 Aufruf um `--alle-namen` · B0377 Alle Namen annehmen · B0378 Alle Namen sichtbar machen
-- Nacharbeit Karte #35 (in dieser Reihenfolge): F0077 B0417 Eine Frist je Anfrage, ein Weg je Name · B0418 Cache in vier Fächern · B0419 Rate neuer Auflösungen · B0420 Gnadenfrist mit Auffrischen im Hintergrund · B0421 Auflösung auf eigenem Faden · B0422 Panik in der Auflösung belegt; F0080 B0423 Risikosätze angeglichen
+- Nacharbeit Karte #35 (in dieser Reihenfolge): F0077 B0417 Eine Frist je Anfrage, ein Weg je Name · B0418 Cache in vier Fächern · B0419 Rate neuer Auflösungen · B0420 Gnadenfrist mit Auffrischen im Hintergrund · B0421 Auflösung auf eigenem Faden · B0422 Panik in der Auflösung belegt · B0485 Prozessende ohne Aufräumen der C-Bibliothek (braucht B0421); F0080 B0423 Risikosätze angeglichen
 
 Elemente nach ADR-0045, „Schnitt“:
 
@@ -226,13 +227,14 @@ Elemente nach ADR-0045, „Schnitt“:
 - `Startauftrag` + `alle_namen`; `HILFE` + Zeilen.
 - Gesundheitsantwort + `alle_namen`.
 - Annahmeschleife: zweite Extension.
+- `start::ausfuehren` liefert den Exit-Code als Zahl (`u8`) statt `ExitCode`; `main` endet auf Unix nach `drop(laufzeit)` und `flush` mit `_exit` (B0485, ADR-0010 Ergänzung „Karte #35 Nacharbeit, Prozessende“); `libc` direkte Abhängigkeit (nur Unix), `unsafe_code` in `Cargo.toml` `"deny"`, `src/lib.rs` `#![forbid(unsafe_code)]`.
 
 ## Tests
 
 Nach Skill `test-pyramide` und ADR-0009; die Szenarien der User Story werden Tests.
 
 - **Unit (rein)**: Normalform, Host-Urteil (Matrix aus A00004), Urteil im lokalen Namensraum, Cache/Semaphore/Zeitgrenze mit gestellter Uhr und blockierender Testauskunft, Testknopf-Parser, Abweisungsseite und Text, Aufruf `--alle-namen`.
-- **Integration (echtes Programm)**: Testnamen über `LOCALCHATA_TESTNAMEN`, Rückwärtsname im echten Netz (bedingt), Release-Probe, Seite und Text, `--alle-namen`, Protokollzeilen, Health-Check, Angriffsmatrix ADR-0045.
+- **Integration (echtes Programm)**: Testnamen über `LOCALCHATA_TESTNAMEN`, Rückwärtsname im echten Netz (bedingt), Release-Probe, Seite und Text, `--alle-namen`, Protokollzeilen, Health-Check, Angriffsmatrix ADR-0045; Prozessende bei hängender Auflösung als L2r (`#[ignore]`, Vorbedingung `nss-mdns` rot statt übersprungen) und Exit-Codes 0, 1, 2 im Standard-Gate (B0485).
 - **E2E**: Abweisungsseite unter `boese.example` mit Link zur Oberfläche; die bestehenden Playwright-Tests bleiben grün.
 - **Probe**: `dns-lookup` als erster Commit (Skill `dependency-probe`), danach als Regressionsschutz im Repo, soweit sie ohne Netz läuft.
 
@@ -268,7 +270,8 @@ Gezählt aus der WBS (Bubbles, 2026-10-29). 0,4 h ist die Untergrenze je Bubble 
 - F0078 Name im lokalen Namensraum: 2 Bubbles · 2 klar (0,8 h)
 - F0079 Abweisung als verständliche Seite: 2 Bubbles · 1 klar (0,4 h) · 1 unklar (2–4 h)
 - F0080 Schalter `--alle-namen`: 4 Bubbles · 4 klar (1,6 h); davon offen B0423 (0,4 h)
-- Zusammen: 22 Bubbles · 6,4 h klar + 12–24 h unklar; Wellen F0077 → F0078 ‖ F0079 ‖ F0080. Offen nach dem Bau (Nacharbeit Karte #35): 7 Bubbles · 5 klar (2,0 h) · 2 unklar (4–8 h); B0423 ist unabhängig und parallel baubar
+- Nachtrag 2026-10-29 (Prozessende, ADR-0010 Ergänzung): + B0485 unter F0077, unklar (2–4 h; Vorbedingung `nss-mdns` im Test ungemessen). F0077 damit 15 Bubbles · 9 klar (3,6 h) · 6 unklar (12–24 h); zusammen 23 Bubbles · 6,4 h klar + 14–28 h unklar; B0485 braucht B0421.
+- Zusammen (vor dem Nachtrag): 22 Bubbles · 6,4 h klar + 12–24 h unklar; Wellen F0077 → F0078 ‖ F0079 ‖ F0080. Offen nach dem Bau (Nacharbeit Karte #35): 7 Bubbles · 5 klar (2,0 h) · 2 unklar (4–8 h); B0423 ist unabhängig und parallel baubar
 
 ## Warum löst diese Anforderung das Problem? (Pflicht)
 
@@ -297,6 +300,8 @@ E1 → B0372 (kanonisch, Ausschluss), E2 → B0365 (numerische Namen), E3 → B0
 ### Nacharbeit Karte #35 (2026-10-29)
 
 Weiche nach den Auto-Reviews #35: Code-Review B1 (Wartezeit bis 2 s statt ≤ 1 s je Anfrage) und Rechtschreib-Review Muss (Risikosatz) halten Zusagen dieser Anforderung nicht — als Befund an einer Befundbehebung bzw. am eigenen Paket keine neue Interaction, sondern Nacharbeit unter derselben Anforderung (B0417, B0423). Security-Review W1 (Cache-Verdrängung) hält die Zusage aus F6 der Angriffsmatrix nicht → B0418, B0419. In dieselbe Nacharbeit genommen nach ADR-0045 Ergänzung Punkt 3 („dieselbe Stelle: mit hinein“): Gnadenfrist (Security Anmerkung 2, B0420), Ende ohne Warten (Code A3, B0421), Panik belegt (Code A2, B0422). Die übrigen Sollte und Optional der Reviews #35 sind Härtung in R00028.
+
+Nachtrag 2026-10-29 (Befund des `entwickler` zu B0421): der eigene Faden lässt die Laufzeit in < 200 ms enden, das echte Programm wartet beim Verlassen von `main` aber in `exit()` der glibc auf den Faden (4,0 s). Entschieden in ADR-0010 Ergänzung „Karte #35 Nacharbeit, Prozessende“ (`_exit` nach dem Abbau der Laufzeit). Das Kriterium „Ende ohne Warten“ ist geteilt: B0421 behält „Laufzeit < 200 ms“, das L2r-Kriterium „Prozessende < 1 s“ gehört zur neuen Bubble B0485 (eigene Dateien, eigene Mutante, eigene Vorbedingung). US-14 bleibt unverändert; sie prüft beide zusammen von außen.
 
 ### Verworfene Alternativen
 
