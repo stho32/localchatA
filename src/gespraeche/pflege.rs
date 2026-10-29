@@ -37,6 +37,14 @@ pub enum Pflegebericht {
         anlass: Pflegeanlass,
         ursache: String,
     },
+    /// Der Ordner des Channels ließ sich nicht auflisten; nichts entfällt bis zum nächsten Anlass (ADR-0042
+    /// Ergänzung R00019 Punkt 1). `ordner` ist `channels/<name>`, `ursache` der Text des Plattenfehlers.
+    TageNichtErmittelt {
+        channel: Channelname,
+        ordner: String,
+        anlass: Pflegeanlass,
+        ursache: String,
+    },
     /// Die Einstellungen sind defekt — in diesem Channel entfällt nichts (ADR-0032 Regel 5).
     Gesperrt {
         channel: Channelname,
@@ -112,9 +120,9 @@ impl Gespraeche {
         let auf_der_platte = match self.ablage.tage(&gespraech) {
             Ok(tage) => tage,
             Err(fehler) => {
-                return vec![Pflegebericht::NichtEntfallen {
+                return vec![Pflegebericht::TageNichtErmittelt {
                     channel: name.clone(),
-                    datei: gespraech.pfad(),
+                    ordner: gespraech.pfad(),
                     anlass: anlass.clone(),
                     ursache: fehler.to_string(),
                 }];
@@ -177,7 +185,9 @@ impl FristGesetzt {
                 Pflegebericht::Entfallen {
                     tage, nachrichten, ..
                 } => Some((tage.len(), *nachrichten)),
-                Pflegebericht::NichtEntfallen { .. } | Pflegebericht::Gesperrt { .. } => None,
+                Pflegebericht::NichtEntfallen { .. }
+                | Pflegebericht::TageNichtErmittelt { .. }
+                | Pflegebericht::Gesperrt { .. } => None,
             })
             .fold(
                 (0, 0),
@@ -821,6 +831,49 @@ mod tests {
         assert_eq!(
             crate::gespraeche::Logablage::tage(ablage.as_ref(), &gespraech).expect("Tage"),
             vec![tag("2026-10-19"), tag("2026-10-28")]
+        );
+    }
+
+    /// R00019 F0063 „Pflege“ (Speicherablage „Auflisten scheitert“): `allgemein` meldet „Tage nicht ermittelt“ mit
+    /// Ordner, Anlass und Plattenfehler, nicht „Tag nicht entfallen“; `zweiter` wird weiter gepflegt.
+    #[test]
+    fn ein_nicht_auflistbarer_ordner_meldet_tage_nicht_ermittelt_die_uebrigen_werden_gepflegt() {
+        let ablage = Arc::new(Speicherablage::neu());
+        let gespraech = Gespraech::channel("allgemein");
+        let zweiter = Gespraech::channel("zweiter");
+        for tag_text in ["2026-10-20", "2026-10-28"] {
+            ablage.tag_setzen(&gespraech, tag(tag_text), &satz(tag_text));
+        }
+        for tag_text in ["2026-10-20", "2026-10-22"] {
+            ablage.tag_setzen(&zweiter, tag(tag_text), &satz(tag_text));
+        }
+        let gespraeche = geladen(&ablage);
+        ablage.auflisten_scheitern(&gespraech);
+
+        let berichte = gespraeche.pflegen(tag("2026-10-29"), Pflegeanlass::Tageswechsel);
+
+        assert_eq!(berichte.len(), 2, "{berichte:?}");
+        assert_eq!(
+            berichte[0],
+            Pflegebericht::TageNichtErmittelt {
+                channel: allgemein(),
+                ordner: "channels/allgemein".into(),
+                anlass: Pflegeanlass::Tageswechsel,
+                ursache: "Auflisten scheitert (Speicher-Logablage)".into(),
+            }
+        );
+        assert!(
+            matches!(
+                &berichte[1],
+                Pflegebericht::Entfallen { channel, tage, anlass: Pflegeanlass::Tageswechsel, .. }
+                    if channel.als_text() == "zweiter"
+                        && *tage == vec![tag("2026-10-20"), tag("2026-10-22")]
+            ),
+            "{berichte:?}"
+        );
+        assert_eq!(
+            crate::gespraeche::Logablage::tage(ablage.as_ref(), &zweiter).expect("Tage"),
+            Vec::<NaiveDate>::new()
         );
     }
 }

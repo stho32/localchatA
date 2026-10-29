@@ -20,6 +20,7 @@ struct Innen {
     einstellungen: BTreeMap<Gespraech, Vec<u8>>,
     einstellungen_scheitert: bool,
     entfernen_scheitert: std::collections::BTreeSet<(Gespraech, NaiveDate)>,
+    auflisten_scheitert: std::collections::BTreeSet<Gespraech>,
     schreibvorgaenge: usize,
 }
 
@@ -62,6 +63,11 @@ impl Speicherablage {
             .insert((gespraech.clone(), tag));
     }
 
+    /// Jedes `tage` dieses Gesprächs scheitert (wie ein Ordner ohne Leserecht, `chmod a-r`).
+    pub fn auflisten_scheitern(&self, gespraech: &Gespraech) {
+        self.innen().auflisten_scheitert.insert(gespraech.clone());
+    }
+
     /// Legt Einstellungsbytes ab, als läge die Datei schon da.
     pub fn einstellungen_setzen(&self, gespraech: &Gespraech, bytes: &[u8]) {
         let mut innen = self.innen();
@@ -94,6 +100,12 @@ impl Logablage for Speicherablage {
 
     fn tage(&self, gespraech: &Gespraech) -> io::Result<Vec<NaiveDate>> {
         let innen = self.innen();
+        if innen.auflisten_scheitert.contains(gespraech) {
+            return Err(io::Error::new(
+                io::ErrorKind::PermissionDenied,
+                "Auflisten scheitert (Speicher-Logablage)",
+            ));
+        }
         let tage = innen.gespraeche.get(gespraech).ok_or_else(unbekannt)?;
         Ok(tage.keys().copied().collect())
     }

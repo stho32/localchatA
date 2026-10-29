@@ -6,9 +6,9 @@ use super::pflege::{Pflegeanlass, Pflegebericht};
 use crate::protokoll::{Bereich, Eintrag, Kontext, Schluessel, Stufe};
 use chrono::NaiveDate;
 
-/// Der Eintrag zu einem Pflegebericht: Entfallen als INFORMATION, ein nicht entfallener Tag als ERROR, defekte
-/// Einstellungen als WARNING (R00017, Abbildung Zeilen 2–5). Im Bereich `frist` ist `grund` immer der Anlass, ein
-/// Plattenfehler steht in `ursache` (R00019).
+/// Der Eintrag zu einem Pflegebericht: Entfallen als INFORMATION, ein nicht entfallener Tag und ein nicht
+/// auflistbarer Ordner als ERROR, defekte Einstellungen als WARNING (R00017, Abbildung Zeilen 2–5; R00019). Im
+/// Bereich `frist` ist `grund` immer der Anlass, ein Plattenfehler steht in `ursache` (R00019).
 pub fn pflege_eintrag(bericht: &Pflegebericht) -> Eintrag {
     match bericht {
         Pflegebericht::Entfallen {
@@ -49,6 +49,23 @@ pub fn pflege_eintrag(bericht: &Pflegebericht) -> Eintrag {
                 Kontext::neu()
                     .mit(Schluessel::Channel, channel)
                     .mit(Schluessel::Datei, datei),
+                anlass,
+            )
+            .mit(Schluessel::Ursache, ursache),
+        ),
+        Pflegebericht::TageNichtErmittelt {
+            channel,
+            ordner,
+            anlass,
+            ursache,
+        } => Eintrag::neu(
+            Stufe::Error,
+            Bereich::Frist,
+            "Tage nicht ermittelt — Ordner nicht lesbar; erneuter Versuch beim nächsten Anlass",
+            mit_anlass(
+                Kontext::neu()
+                    .mit(Schluessel::Channel, channel)
+                    .mit(Schluessel::Datei, ordner),
                 anlass,
             )
             .mit(Schluessel::Ursache, ursache),
@@ -253,6 +270,35 @@ mod tests {
         ] {
             assert_eq!(
                 ab_der_stufe(&pflege_eintrag(&nicht_entfallen(anlass))),
+                format!("{anfang} {kontext} {ursache}")
+            );
+        }
+    }
+
+    /// R00019 F0063 „Pflege“ und F0064 „Einträge mit Anlass“ (ADR-0042 Ergänzung R00019 Punkt 1): ein nicht
+    /// auflistbarer Ordner ist ein eigener ERROR mit dem Ordner als `datei`, dem Anlass in `grund` und `ursache`.
+    #[test]
+    fn tage_nicht_ermittelt_ist_error_mit_ordner_anlass_und_ursache() {
+        let anfang = "ERROR frist Tage nicht ermittelt — Ordner nicht lesbar; erneuter Versuch beim nächsten Anlass | channel=allgemein datei=channels/allgemein";
+        let ursache = "ursache=\"Permission denied (os error 13)\"";
+        for (anlass, kontext) in [
+            (Pflegeanlass::Start, "grund=start".to_string()),
+            (Pflegeanlass::Tageswechsel, "grund=tageswechsel".to_string()),
+            (
+                Pflegeanlass::FristGesetzt { von: beta() },
+                "grund=frist_gesetzt kennung=beta@127.0.0.1".to_string(),
+            ),
+        ] {
+            let bericht = Pflegebericht::TageNichtErmittelt {
+                channel: channel("allgemein"),
+                ordner: "channels/allgemein".into(),
+                anlass,
+                ursache: "Permission denied (os error 13)".into(),
+            };
+            let eintrag = pflege_eintrag(&bericht);
+            assert!(!eintrag.text.contains('@'), "{}", eintrag.text);
+            assert_eq!(
+                ab_der_stufe(&eintrag),
                 format!("{anfang} {kontext} {ursache}")
             );
         }

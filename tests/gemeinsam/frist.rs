@@ -102,3 +102,29 @@ pub async fn nachrichten(instanz: &Instanz) -> u64 {
     assert_eq!(status, 200);
     json["nachrichten"].as_u64().expect("nachrichten")
 }
+
+/// Setzt die Rechte eines Ordners (`chmod`) und beim Ende zurück auf 0755, damit der Wegwerf-Ordner sich entfernen
+/// lässt. Als root wirkt `chmod` nicht — der Test bricht dann ab.
+#[cfg(target_os = "linux")]
+pub struct Rechte(std::path::PathBuf);
+
+#[cfg(target_os = "linux")]
+impl Rechte {
+    pub fn setzen(ordner: &Path, modus: u32) -> Rechte {
+        use std::os::unix::fs::PermissionsExt;
+        assert!(
+            !rustix::process::geteuid().is_root(),
+            "chmod wirkt für root nicht — als normaler Benutzer fahren"
+        );
+        std::fs::set_permissions(ordner, std::fs::Permissions::from_mode(modus)).expect("chmod");
+        Rechte(ordner.to_path_buf())
+    }
+}
+
+#[cfg(target_os = "linux")]
+impl Drop for Rechte {
+    fn drop(&mut self) {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = std::fs::set_permissions(&self.0, std::fs::Permissions::from_mode(0o755));
+    }
+}
