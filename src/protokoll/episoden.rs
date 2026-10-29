@@ -223,13 +223,13 @@ impl Episode {
     }
 }
 
-/// Die Art eines Auftretens im Text der Ende-Zeile: Körperfehler in Worten (R00018 F0062), im Schlüssel `art=` und
-/// in `abgewiesen` bleibt der Schlüssel (`zu_gross` …); andere Arten (Grenzen) stehen, wie sie sind.
+/// Die Art eines Auftretens im Text der Ende-Zeile: die Körperfehler aus R00018 F0062 in Worten, im Schlüssel
+/// `art=` und in `abgewiesen` bleibt der Schlüssel (`zu_gross` …). `zu_langsam` bleibt, wie ADR-0042 Ergänzung
+/// R00015 es zusagt; andere Arten (Grenzen) stehen, wie sie sind.
 fn art_im_text(art: &str) -> &str {
     match art {
         "zu_gross" => "zu groß",
         "kein_json" => "kein JSON",
-        "zu_langsam" => "zu langsam",
         andere => andere,
     }
 }
