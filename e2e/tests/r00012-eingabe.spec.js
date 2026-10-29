@@ -193,3 +193,64 @@ test('Schmal: Fehler in der Hinweiszeile bei 320 px ohne Querscrollen', async ({
   expect(breiten[0]).toBeLessThanOrEqual(breiten[1]);
   expect(a.fehler).toEqual([]);
 });
+
+// Merkt im Browser die Zeit der letzten Taste im Feld und jeden Channelwechsel (hashchange) mit seiner Zeit.
+async function tasteUndWechselMerken(page) {
+  await page.evaluate(() => {
+    window.wechsel = [];
+    document.addEventListener('input', () => { window.letzteTasteUm = Date.now(); }, true);
+    window.addEventListener('hashchange', () => { window.wechsel.push({ nach: window.location.hash, um: Date.now() }); });
+  });
+}
+
+async function wechselNachDerTaste(page) {
+  return page.evaluate(() => window.wechsel.map(({ nach, um }) => ({ nach, nachMs: um - window.letzteTasteUm })));
+}
+
+// „Entwurf beim schnellen Wechsel“ (US-15; Abnahme-Probe Code-Review #22 B3 b, wörtlich): „A tippt x, wechselt < 200 ms
+// nach # technik und zurück → Feld zeigt x; Variante Wechsel + Neuladen.“ Beide Wechsel liegen vor dem Schreiben der
+// Drossel (500 ms) — so belegt der Test das Schreiben beim Wechsel (eingabe.js channelSetzen). Mutante „beim Wechsel
+// nicht geschrieben“ wird rot.
+const SCHNELL_MS = 200;
+
+test('US-15: x getippt, in weniger als 200 ms nach # technik und zurück — das Feld zeigt x', async ({ browser }) => {
+  const a = await mitA(browser);
+  const feld = eingabe(a.page);
+  await feld.click();
+  await tasteUndWechselMerken(a.page);
+
+  await a.page.keyboard.type('x');
+  await a.page.keyboard.press('Alt+ArrowDown');
+  await a.page.waitForFunction(() => window.wechsel.length === 1, null, { polling: 'raf' });
+  await a.page.keyboard.press('Alt+ArrowUp');
+
+  await expect(a.page.getByRole('log')).toHaveAttribute('aria-label', 'Verlauf # allgemein');
+  await expect(eingabe(a.page)).toHaveValue('x');
+  const wechsel = await wechselNachDerTaste(a.page);
+  console.log(`US-15 Wechsel nach der Taste: ${JSON.stringify(wechsel)}`);
+  expect(wechsel.map(({ nach }) => nach)).toEqual(['#/c/technik', '#/c/allgemein']);
+  expect(wechsel[1].nachMs).toBeLessThan(SCHNELL_MS);
+  expect(a.fehler).toEqual([]);
+});
+
+test('US-15: x getippt, in weniger als 200 ms nach # technik, Tab neu geladen, zurück — das Feld zeigt x', async ({ browser }) => {
+  const a = await mitA(browser);
+  const feld = eingabe(a.page);
+  await feld.click();
+  await tasteUndWechselMerken(a.page);
+
+  await a.page.keyboard.type('x');
+  await a.page.keyboard.press('Alt+ArrowDown');
+  await a.page.waitForFunction(() => window.wechsel.length === 1, null, { polling: 'raf' });
+  const wechsel = await wechselNachDerTaste(a.page);
+  await a.page.reload();
+  await expect(a.page.getByRole('log')).toHaveAttribute('aria-label', 'Verlauf # technik');
+  await expect(eingabe(a.page)).toHaveValue('');
+  await kanal(a.page, 'allgemein');
+
+  await expect(eingabe(a.page)).toHaveValue('x');
+  console.log(`US-15 Wechsel nach der Taste (vor dem Neuladen): ${JSON.stringify(wechsel)}`);
+  expect(wechsel.map(({ nach }) => nach)).toEqual(['#/c/technik']);
+  expect(wechsel[0].nachMs).toBeLessThan(SCHNELL_MS);
+  expect(a.fehler).toEqual([]);
+});
