@@ -310,3 +310,20 @@ Nie vom User erfragen.
 | 2026-10-28 | R00008 Aufbewahrungsfrist | B0317 Bestätigung und Sperre für Bildschirmleser | Nacharbeit | 0,4h | 0,03h | 0,03h | autonom |
 | 2026-10-28 | R00008 Aufbewahrungsfrist | B0318 Mitternachtstest wartet auf die Pflegezeile | Nacharbeit | 0,4h | 0,05h | 0,05h | autonom |
 | 2026-10-28 | R00008 Aufbewahrungsfrist | Nacharbeit #12: Mutanten, Gate | Nacharbeit | — | 0,12h | 0,12h | autonom |
+| 2026-10-28 | R00012 Senden bei Störungen | B0237 Wiederholschlüssel merken | Standard | 0,4h | 0,14h | 0,14h | autonom |
+| 2026-10-28 | R00012 Senden bei Störungen | B0238 Senden mit Schlüssel | Standard | 0,4h | 0,29h | 0,29h | autonom |
+| 2026-10-28 | R00012 Senden bei Störungen | B0239 Wiederholung im Tab | Standard | 2-4h | 0,02h | 0,02h | autonom |
+| 2026-10-28 | R00012 Senden bei Störungen | B0240 Zeitgrenze im Abruf | Standard | 0,4h | 0,01h | 0,01h | autonom |
+| 2026-10-28 | R00012 Senden bei Störungen | B0241 Schalter an der Nachricht | Standard | 0,4h | 0,02h | 0,02h | autonom |
+| 2026-10-28 | R00012 Senden bei Störungen | B0242 Fehlerwege verdrahten | Standard | 2-4h | 0,07h | 0,07h | autonom |
+| 2026-10-28 | R00012 Senden bei Störungen | B0243 Nachholen in Blöcken | Standard | 0,4h | 0,01h | 0,01h | autonom |
+| 2026-10-28 | R00012 Senden bei Störungen | B0244 Wieder-verbunden-Meldung | Standard | 0,4h | 0,01h | 0,01h | autonom |
+| 2026-10-28 | R00012 Senden bei Störungen | B0245 Nachholen verdrahten | Standard | 2-4h | 0,02h | 0,02h | autonom |
+| 2026-10-28 | R00012 Senden bei Störungen | B0246 Textregel im Browser | Standard | 0,4h | 0,01h | 0,01h | autonom |
+| 2026-10-28 | R00012 Senden bei Störungen | B0247 Hinweis formen | Standard | 0,4h | 0,01h | 0,01h | autonom |
+| 2026-10-28 | R00012 Senden bei Störungen | B0248 Hinweiszeile und Senden sperren | Standard | 0,4h | 0,00h | 0,00h | autonom |
+| 2026-10-28 | R00012 Senden bei Störungen | B0249 Entwurf je Channel | Standard | 0,4h | 0,14h | 0,14h | autonom |
+| 2026-10-28 | R00012 Senden bei Störungen | B0250 Fokus in die Eingabe | Standard | 0,4h | 0,00h | 0,00h | autonom |
+| 2026-10-28 | R00012 Senden bei Störungen | B0251 Ansage bündeln | Standard | 0,4h | 0,01h | 0,01h | autonom |
+| 2026-10-28 | R00012 Senden bei Störungen | B0252 Ansage verdrahten | Standard | 0,4h | 0,00h | 0,00h | autonom |
+| 2026-10-28 | R00012 Senden bei Störungen | Mutanten, Zeittests, Gate, Gelerntes | Konsolidierung | — | 0,33h | 0,33h | autonom |
