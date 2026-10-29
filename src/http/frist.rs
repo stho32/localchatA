@@ -5,6 +5,7 @@
 
 use super::Zustand;
 use super::abbruch::{Abgebrochen, Grenzort, abbruch_beantworten};
+use super::anfrageprotokoll::mit_regel;
 use super::channels::channel_als_json;
 use super::koerper::{Koerperfehler, Koerperort, json_lesen, koerperfehler_beantworten};
 use super::teilnehmer::Teilnehmer;
@@ -69,7 +70,14 @@ pub async fn setzen(
             );
             Abweisung::Frist(Fristfehler::Ablage { datei, grund }).beantworten(&name)
         }
-        Ok(Err(abweisung)) => abweisung.beantworten(&name),
+        Ok(Err(abweisung)) => {
+            let regel = abweisung.regelschluessel();
+            mit_regel(
+                abweisung.beantworten(&name),
+                regel,
+                Some(teilnehmer.kennung.als_text()),
+            )
+        }
         Err(abgebrochen) => abbruch_beantworten(
             &zustand.protokoll,
             &Abgebrochen::from(abgebrochen),
@@ -138,6 +146,18 @@ fn eintragen(protokoll: &Protokoll, eintrag: Eintrag) {
 }
 
 impl Abweisung {
+    /// Regelschlüssel fürs Protokoll (ADR-0042 Ergänzung #24 Punkt 3).
+    fn regelschluessel(&self) -> &'static str {
+        match self {
+            Abweisung::Unbekannt | Abweisung::Frist(Fristfehler::Unbekannt) => "channel_unbekannt",
+            Abweisung::Regel(REGEL_BESTAETIGT) => "bestaetigt_ungueltig",
+            Abweisung::Regel(_) => "frist_ungueltig",
+            Abweisung::Frist(Fristfehler::Bestaetigen(_)) => "bestaetigen",
+            Abweisung::Frist(Fristfehler::EinstellungenDefekt { .. }) => "einstellungen_defekt",
+            Abweisung::Frist(Fristfehler::Ablage { .. }) => "ablage",
+        }
+    }
+
     fn beantworten(self, name: &str) -> Response {
         match self {
             Abweisung::Unbekannt | Abweisung::Frist(Fristfehler::Unbekannt) => (

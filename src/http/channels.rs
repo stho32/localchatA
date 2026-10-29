@@ -7,6 +7,7 @@
 
 use super::Zustand;
 use super::abbruch::{Abgebrochen, Grenzort, abbruch_beantworten};
+use super::anfrageprotokoll::mit_regel;
 use super::koerper::{Koerperfehler, Koerperort, json_lesen, koerperfehler_beantworten};
 use super::teilnehmer::Teilnehmer;
 use super::teilnehmerliste::zeit_als_text;
@@ -40,7 +41,13 @@ pub async fn anlegen(
     };
     let (name, beschreibung) = match gewuenscht(&koerper) {
         Ok(gewuenscht) => gewuenscht,
-        Err(abweisung) => return unverarbeitbar(abweisung),
+        Err((abweisung, regel)) => {
+            return mit_regel(
+                unverarbeitbar(abweisung),
+                regel,
+                Some(teilnehmer.kennung.als_text()),
+            );
+        }
     };
     let gespraeche = Arc::clone(&zustand.gespraeche);
     let herkunft = teilnehmer.herkunft;
@@ -93,7 +100,10 @@ pub async fn anlegen(
             );
             grenze_erreicht(grenze)
         }
-        Ok(Err(fehler)) => anlegefehler(fehler, &name),
+        Ok(Err(fehler)) => {
+            let regel = anlegefehler_regel(&fehler);
+            mit_regel(anlegefehler(fehler, &name), regel, Some(&wer))
+        }
         Err(abgebrochen) => abbruch_beantworten(
             &zustand.protokoll,
             &Abgebrochen::from(abgebrochen),
@@ -150,19 +160,26 @@ pub fn channel_als_json(channel: &Channel) -> Value {
 
 /// Name und Beschreibung aus dem Körper; die Beschreibung fehlt, ist `null` oder `""` (keine) oder ein Text nach
 /// der Regel (ADR-0022 Regel 5) — sonst abgewiesen mit dem Inhalt einer 422, nichts angelegt.
-fn gewuenscht(koerper: &Value) -> Result<(String, Option<Beschreibung>), Value> {
+/// Im Fehler mit dem Regelschlüssel fürs Protokoll.
+fn gewuenscht(koerper: &Value) -> Result<(String, Option<Beschreibung>), (Value, &'static str)> {
     let beschreibung = beschreibung_lesen(koerper.get("beschreibung")).map_err(|_| {
-        json!({
-            "fehler": "Eine Beschreibung ist ein Satz aus 1 bis 200 Zeichen ohne Zeilenumbruch und Tabulator.",
-            "regel": REGEL_BESCHREIBUNG,
-        })
+        (
+            json!({
+                "fehler": "Eine Beschreibung ist ein Satz aus 1 bis 200 Zeichen ohne Zeilenumbruch und Tabulator.",
+                "regel": REGEL_BESCHREIBUNG,
+            }),
+            "beschreibung_ungueltig",
+        )
     })?;
     match koerper.get("name").and_then(Value::as_str) {
         Some(name) => Ok((name.to_string(), beschreibung)),
-        None => Err(json!({
-            "fehler": format!("Der Name fehlt oder ist kein Text — zum Beispiel {BEISPIEL} schicken."),
-            "regel": NAMENSREGEL,
-        })),
+        None => Err((
+            json!({
+                "fehler": format!("Der Name fehlt oder ist kein Text — zum Beispiel {BEISPIEL} schicken."),
+                "regel": NAMENSREGEL,
+            }),
+            "name_fehlt",
+        )),
     }
 }
 
@@ -179,6 +196,17 @@ const REGEL_BESCHREIBUNG: &str = "beschreibung";
 const BEISPIEL: &str = r#"{"name":"allgemein"}"#;
 
 const REGEL_ORDNER_VORHANDEN: &str = "ordner-vorhanden";
+
+/// Regelschlüssel einer abgewiesenen Anlage (ADR-0042 Ergänzung #24 Punkt 3).
+fn anlegefehler_regel(fehler: &Anlegefehler) -> &'static str {
+    match fehler {
+        Anlegefehler::Vorhanden(_) => "channel_existiert",
+        Anlegefehler::OrdnerVorhanden => "ordner_vorhanden",
+        Anlegefehler::Regel(_) => "name_ungueltig",
+        Anlegefehler::Grenze(_) => "channel_grenze",
+        Anlegefehler::Ablage(_) => "ablage",
+    }
+}
 
 fn anlegefehler(fehler: Anlegefehler, name: &str) -> Response {
     match fehler {

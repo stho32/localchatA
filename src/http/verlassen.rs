@@ -19,7 +19,7 @@ pub async fn beantworten(
     kopf: HeaderMap,
 ) -> Response {
     if !sitzung_gemeldet(&kopf) {
-        return nicht_erkannt();
+        return nicht_erkannt(&kopf);
     }
     if let Some(token) = gemeldetes_token(&kopf) {
         for wechsel in zustand.anwesenheit.verlassen(&token, gegenstelle.ip()) {

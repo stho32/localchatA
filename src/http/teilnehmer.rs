@@ -2,6 +2,7 @@
 //! Header `X-LocalchatA-Sitzung` mit gültigem Token derselben Herkunft, sonst 401 `{fehler}` (ADR-0012).
 
 use super::Zustand;
+use super::anfrageprotokoll::mit_regel;
 use super::grenzschutz::einziger_wert;
 use crate::anwesenheit::{Anwesenheit, Art, Sitzung};
 use crate::gespraeche::Kennung;
@@ -39,7 +40,7 @@ impl FromRequestParts<Arc<Zustand>> for Teilnehmer {
         let sitzung = herkunft
             .and_then(|herkunft| gemeldete_sitzung(&teile.headers, herkunft, &zustand.anwesenheit));
         let Some(sitzung) = sitzung else {
-            return Err(nicht_erkannt());
+            return Err(nicht_erkannt(&teile.headers));
         };
         Ok(Teilnehmer {
             kennung: sitzung.kennung,
@@ -76,9 +77,20 @@ pub fn sitzung_gemeldet(kopf: &HeaderMap) -> bool {
 /// Der Nachweis einer Sitzung bei jedem Aufruf (ADR-0012).
 const SITZUNG_HEADER: &str = "x-localchata-sitzung";
 
-pub fn nicht_erkannt() -> Response {
+/// 401 mit Ausweg; im Protokoll `sitzung_fehlt` ohne Kopf, sonst `sitzung_unbekannt` (Token unlesbar, unbekannt oder
+/// von anderer Herkunft).
+pub fn nicht_erkannt(kopf: &HeaderMap) -> Response {
     let fehler = "Keine gültige Sitzung — mit POST /api/beitreten beitreten und das Token im Header X-LocalchatA-Sitzung senden (gültig nur von derselben Herkunft).";
-    (StatusCode::UNAUTHORIZED, Json(json!({ "fehler": fehler }))).into_response()
+    let regel = if sitzung_gemeldet(kopf) {
+        "sitzung_unbekannt"
+    } else {
+        "sitzung_fehlt"
+    };
+    mit_regel(
+        (StatusCode::UNAUTHORIZED, Json(json!({ "fehler": fehler }))).into_response(),
+        regel,
+        None,
+    )
 }
 
 #[cfg(test)]

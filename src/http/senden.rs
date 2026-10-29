@@ -7,6 +7,7 @@
 
 use super::Zustand;
 use super::abbruch::{Abgebrochen, Grenzort, abbruch_beantworten};
+use super::anfrageprotokoll::mit_regel;
 use super::koerper::{
     Koerperfehler, Koerperort, json_lesen_auf_werkbank, koerperfehler_beantworten,
 };
@@ -63,17 +64,32 @@ pub async fn senden(
         Err(abbruch) => return abgebrochen(&zustand, &abbruch, &wer, &name),
     };
     if !zustand.gespraeche.channel_bekannt(&name) {
-        return unbekannt(&name);
+        return mit_regel(unbekannt(&name), "channel_unbekannt", Some(&wer));
     }
     let text = match sendekoerper_lesen(&wert) {
         Ok(text) => text.to_string(),
-        Err(fehler) => return sendekoerper_abgewiesen(fehler),
+        Err(fehler) => {
+            let regel = match fehler {
+                Sendekoerperfehler::Text => "text_fehlt",
+                Sendekoerperfehler::Feld { .. } => "feld_unbekannt",
+            };
+            return mit_regel(sendekoerper_abgewiesen(fehler), regel, Some(&wer));
+        }
     };
     if let Err(fehler) = text_pruefen(&text) {
-        return text_abgewiesen(fehler);
+        let regel = match fehler {
+            Textfehler::Leer => "text_leer",
+            Textfehler::Laenge { .. } => "text_zu_lang",
+            Textfehler::Zeichen { .. } => "text_zeichen",
+        };
+        return mit_regel(text_abgewiesen(fehler), regel, Some(&wer));
     }
     let Ok(schluessel) = schluessel_lesen(&kopf) else {
-        return schluessel_abgewiesen(SCHLUESSEL_FORMAT);
+        return mit_regel(
+            schluessel_abgewiesen(SCHLUESSEL_FORMAT),
+            "schluessel_ungueltig",
+            Some(&wer),
+        );
     };
     let kosten = kosten_senden(text.len());
     if let Err(gebremst) =
@@ -100,8 +116,14 @@ pub async fn senden(
             gesendet(StatusCode::CREATED, &name, &nachricht)
         }
         Ok(Ok(Gesendet::Wiederholt(nachricht))) => gesendet(StatusCode::OK, &name, &nachricht),
-        Ok(Err(Sendefehler::SchluesselAnders)) => schluessel_abgewiesen(SCHLUESSEL_ANDERS),
-        Ok(Err(Sendefehler::Unbekannt)) => unbekannt(&name),
+        Ok(Err(Sendefehler::SchluesselAnders)) => mit_regel(
+            schluessel_abgewiesen(SCHLUESSEL_ANDERS),
+            "schluessel_anders",
+            Some(&wer),
+        ),
+        Ok(Err(Sendefehler::Unbekannt)) => {
+            mit_regel(unbekannt(&name), "channel_unbekannt", Some(&wer))
+        }
         Ok(Err(Sendefehler::Ablage { datei, grund })) => {
             nicht_gespeichert(&zustand, &name, &wer, &datei, &grund)
         }

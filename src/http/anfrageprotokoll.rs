@@ -1,7 +1,8 @@
 //! Debug je Anfrage (ADR-0042 Regel 2, letzte Zeile): jede einzelne 400, 401, 404, 405, 409, 413, 415 und 422 als
 //! `DEBUG` mit Routenmuster, Status, Herkunft und Grund. Nur bei 404 auf unbekannte Pfade steht der Pfad selbst
 //! (dekodiert, im Protokoll escaped und gekürzt). Körperfehler trägt `json_lesen` selbst ein — ihre Antwort
-//! trägt die Marke `Eingetragen` und wird hier übergangen.
+//! trägt die Marke `Eingetragen` und wird hier übergangen. Der Grund ist ein Regelschlüssel (ADR-0042 Ergänzung
+//! #24 Punkt 3): aus der Erweiterung `Abweisung` des abweisenden Handlers, sonst einer je Status.
 
 use crate::protokoll::{Bereich, Kontext, Protokoll, Schluessel, Stufe};
 use axum::extract::{ConnectInfo, MatchedPath, Request, State};
@@ -13,6 +14,23 @@ use std::sync::Arc;
 /// Marke an einer Antwort, deren Abweisung schon im Protokoll steht.
 #[derive(Debug, Clone, Copy)]
 pub struct Eingetragen;
+
+/// Erweiterung an einer abweisenden Antwort: welche Regel griff (festes ASCII-Wort in `snake_case` aus dem Code,
+/// nie eine Eingabe) und, falls bekannt, wer anfragte.
+#[derive(Debug, Clone)]
+pub struct Abweisung {
+    pub regel: &'static str,
+    pub kennung: Option<String>,
+}
+
+/// Hängt die Regel und die Kennung an eine abweisende Antwort (ADR-0042 Ergänzung #24 Punkt 3).
+pub fn mit_regel(mut antwort: Response, regel: &'static str, kennung: Option<&str>) -> Response {
+    antwort.extensions_mut().insert(Abweisung {
+        regel,
+        kennung: kennung.map(str::to_string),
+    });
+    antwort
+}
 
 /// Die Schicht: lässt die Anfrage durch und trägt eine Abweisung aus der Liste ein.
 pub async fn schicht(
@@ -35,18 +53,25 @@ pub async fn schicht(
         .map(|ConnectInfo(gegenstelle)| gegenstelle.ip());
     let antwort = weiter.run(anfrage).await;
     let status = antwort.status().as_u16();
-    let Some(grund) = grund(status) else {
+    let Some(je_status) = grund(status) else {
         return antwort;
     };
     if antwort.extensions().get::<Eingetragen>().is_some() {
         return antwort;
     }
+    let abweisung = antwort.extensions().get::<Abweisung>();
+    let grund = abweisung.map_or(je_status, |abweisung| abweisung.regel);
     let ziel = muster.clone().unwrap_or_else(|| prozent_dekodiert(&pfad));
     let mut kontext = Kontext::neu()
         .mit(Schluessel::Route, format!("{methode} {ziel}"))
         .mit(Schluessel::Status, status);
-    if let Some(herkunft) = herkunft {
-        kontext = kontext.mit(Schluessel::Herkunft, herkunft);
+    match (
+        abweisung.and_then(|abweisung| abweisung.kennung.as_deref()),
+        herkunft,
+    ) {
+        (Some(kennung), _) => kontext = kontext.mit(Schluessel::Kennung, kennung),
+        (None, Some(herkunft)) => kontext = kontext.mit(Schluessel::Herkunft, herkunft),
+        (None, None) => {}
     }
     protokoll.eintragen(
         Stufe::Debug,
@@ -57,17 +82,18 @@ pub async fn schicht(
     antwort
 }
 
-/// Grund je Status aus der Liste; andere Status trägt die Schicht nicht ein.
+/// Regelschlüssel je Status aus der Liste, wenn der Handler keinen nennt (Router-404, -405); andere Status trägt
+/// die Schicht nicht ein.
 fn grund(status: u16) -> Option<&'static str> {
     Some(match status {
-        400 => "ungültige Anfrage",
-        401 => "nicht angemeldet",
+        400 => "ungueltig",
+        401 => "nicht_angemeldet",
         404 => "unbekannt",
-        405 => "Methode nicht erlaubt",
-        409 => "Konflikt",
-        413 => "zu groß",
-        415 => "kein JSON",
-        422 => "Regel verletzt",
+        405 => "methode",
+        409 => "konflikt",
+        413 => "zu_gross",
+        415 => "kein_json",
+        422 => "regel",
         _ => return None,
     })
 }
@@ -128,6 +154,20 @@ mod tests {
         );
         assert_eq!(prozent_dekodiert("/a%zz%4"), "/a%zz%4");
         assert_eq!(prozent_dekodiert("/%C3%A4"), "/ä");
+    }
+
+    /// R00018 F0059: die Schlüssel je Status sind feste ASCII-Wörter in `snake_case`.
+    #[test]
+    fn die_schluessel_je_status_sind_snake_case() {
+        for status in [400, 401, 404, 405, 409, 413, 415, 422] {
+            let grund = grund(status).expect("Grund");
+            assert!(
+                grund.bytes().all(|z| z.is_ascii_lowercase() || z == b'_'),
+                "{status}: {grund}"
+            );
+        }
+        assert_eq!(grund(405), Some("methode"));
+        assert_eq!(grund(401), Some("nicht_angemeldet"));
     }
 
     #[test]

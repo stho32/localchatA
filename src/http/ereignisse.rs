@@ -36,7 +36,7 @@ pub async fn beantworten(
     let verbunden = gemeldetes_token(&kopf)
         .and_then(|token| zustand.anwesenheit.verbunden(&token, gegenstelle.ip()));
     let Some((halter, _veroeffentlicht)) = verbunden else {
-        return nicht_erkannt();
+        return nicht_erkannt(&kopf);
     };
     let gespraeche = Arc::clone(&zustand.gespraeche);
     strom_beantworten(&zustand, halter, Arc::new(move || gespraeche.channels())).await

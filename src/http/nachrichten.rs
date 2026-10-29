@@ -4,6 +4,7 @@
 
 use super::Zustand;
 use super::abbruch::{Grenzort, abbruch_beantworten, interner_fehler};
+use super::anfrageprotokoll::mit_regel;
 use super::teilnehmer::Teilnehmer;
 use super::teilnehmerliste::zeit_als_text;
 use crate::gespraeche::abfrage::{Abfrage, Abschnitt, Blockgroesse};
@@ -37,7 +38,13 @@ pub async fn beantworten(
 ) -> Response {
     let abfrage = match abfrage_lesen(query.as_deref()) {
         Ok(abfrage) => abfrage,
-        Err(fehler) => return abgewiesen(fehler),
+        Err(fehler) => {
+            return mit_regel(
+                abgewiesen(fehler),
+                "abfrage_ungueltig",
+                Some(teilnehmer.kennung.als_text()),
+            );
+        }
     };
     let gespraeche = Arc::clone(&zustand.gespraeche);
     let gefragt = name.clone();
@@ -65,7 +72,11 @@ pub async fn beantworten(
             );
             ([(CONTENT_TYPE, "application/json")], bytes).into_response()
         }
-        Ok(Err(Unbekannt)) => unbekannt(&name),
+        Ok(Err(Unbekannt)) => mit_regel(
+            unbekannt(&name),
+            "channel_unbekannt",
+            Some(teilnehmer.kennung.als_text()),
+        ),
         Ok(Ok((_, Err(fehler)))) => nicht_gelesen(
             &zustand,
             teilnehmer.kennung.als_text(),

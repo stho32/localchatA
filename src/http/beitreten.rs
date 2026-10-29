@@ -4,6 +4,7 @@
 //! Token derselben Herkunft im Header ist es eine Wiederkehr: 200 dieselbe Sitzung, anderer Name 422.
 
 use super::Zustand;
+use super::anfrageprotokoll::mit_regel;
 use super::koerper::{Koerperfehler, Koerperort, json_lesen, koerperfehler_beantworten};
 use super::teilnehmer::gemeldete_sitzung;
 use crate::anwesenheit::{
@@ -87,6 +88,7 @@ fn wiederkehr(sitzung: &Sitzung, wunsch: &Beitrittswunsch, gnadenfrist_s: u64) -
         ),
         regel: REGEL_EIN_NAME,
         vorschlag: None,
+        schluessel: "name_wechsel",
     })
 }
 
@@ -126,7 +128,11 @@ fn regelverstoss(abweisung: Abweisung) -> Response {
     if let Some(vorschlag) = abweisung.vorschlag {
         antwort["vorschlag"] = json!(vorschlag.als_text());
     }
-    (StatusCode::UNPROCESSABLE_ENTITY, Json(antwort)).into_response()
+    mit_regel(
+        (StatusCode::UNPROCESSABLE_ENTITY, Json(antwort)).into_response(),
+        abweisung.schluessel,
+        None,
+    )
 }
 
 /// Episode je Herkunft an einer Grenze mit 429 (ADR-0042 Regel 2: Sitzungs- und Channel-Grenze).
@@ -174,7 +180,11 @@ fn beitrittsfehler(
                 "seit": seit.to_rfc3339_opts(SecondsFormat::Millis, false),
                 "vorschlag": vorschlag.als_text(),
             });
-            (StatusCode::CONFLICT, Json(antwort)).into_response()
+            mit_regel(
+                (StatusCode::CONFLICT, Json(antwort)).into_response(),
+                "name_vergeben",
+                None,
+            )
         }
         Beitrittsfehler::ZuVieleSitzungen => {
             let text = format!(

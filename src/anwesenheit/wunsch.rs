@@ -24,6 +24,8 @@ pub struct Abweisung {
     pub fehler: String,
     pub regel: &'static str,
     pub vorschlag: Option<Name>,
+    /// Regelschlüssel für das Betriebsprotokoll (ADR-0042 Ergänzung #24 Punkt 3).
+    pub schluessel: &'static str,
 }
 
 /// Für spätere Sammel-Erwähnungen (I0013) beim Beitreten nicht wählbar.
@@ -40,6 +42,7 @@ impl Beitrittswunsch {
                 fehler: "Der Beitritt braucht einen Namen als Text.".into(),
                 regel: REGEL_FORM,
                 vorschlag: None,
+                schluessel: "name_fehlt",
             });
         };
         let name = Name::bilden(text).map_err(|fehler| Abweisung {
@@ -50,12 +53,14 @@ impl Beitrittswunsch {
             ),
             regel: fehler.regel,
             vorschlag: fehler.vorschlag,
+            schluessel: "name_ungueltig",
         })?;
         if RESERVIERTE_NAMEN.contains(&name.als_text()) {
             return Err(Abweisung {
                 fehler: format!("Der Name {name} ist reserviert."),
                 regel: REGEL_RESERVIERT,
                 vorschlag: None,
+                schluessel: "name_reserviert",
             });
         }
         let art = match koerper.get("art") {
@@ -70,6 +75,7 @@ impl Beitrittswunsch {
                     ),
                     regel: REGEL_ART,
                     vorschlag: None,
+                    schluessel: "art_ungueltig",
                 });
             }
         };
