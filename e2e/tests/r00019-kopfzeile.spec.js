@@ -143,3 +143,96 @@ for (const breite of [480]) {
     expect(a.fehler).toEqual([]);
   });
 }
+
+// Kriterium „Kopfzeile bleibt flach“ (UX-Vorprüfung #27 M2, Betreiber F1, US-5b): unter 480 px zwei Zeilen — oben die
+// Zone „Ort“ über die Innenbreite ohne Instanzname, darunter Kennung und „Teilnehmer“ —, zusammen 80 px.
+function zweizeiligPruefen(mass, kennung) {
+  expect(mass.kopf.height, 'Kopfzeile 80 px').toBe(80);
+  expect(mass.instSichtbar, 'Instanzname nicht sichtbar').toBe(false);
+  expect(Math.abs(mass.ort.left - mass.kopf.innenLinks), 'Zone links an der Innenkante').toBeLessThanOrEqual(1);
+  expect(Math.abs(mass.ort.right - mass.kopf.innenRechts), 'Zone rechts an der Innenkante').toBeLessThanOrEqual(1);
+  expect(mass.ich.top, 'Kennung unter der Zone').toBeGreaterThanOrEqual(mass.ort.bottom);
+  expect(mass.teilnehmer.top, '„Teilnehmer“ unter der Zone').toBeGreaterThanOrEqual(mass.ort.bottom);
+  expect(mass.ich.text, 'Kennung ganz').toBe(kennung);
+  expect(imFenster(mass.ich, mass.fenster), 'Kennung im Fenster').toBe(true);
+  expect(mass.teilnehmer.sichtbar, '„Teilnehmer“ sichtbar').toBe(true);
+}
+
+async function teilnehmerNachDemSchalter(page) {
+  await schalter(page).focus();
+  await page.keyboard.press('Tab');
+  await expect(page.getByRole('banner').getByRole('button', { name: /^Teilnehmer/ })).toBeFocused();
+}
+
+for (const telefon of TELEFONE) {
+  for (const name of [NAME_13, NAME_32]) {
+    test(`Kopfzeile bleibt flach (B0540, Telefon ${telefon[0]} × ${telefon[1]}, Name ${name.length} Zeichen): zwei Zeilen, 80 px, Name ungekürzt und treffbar`, async ({ browser }) => {
+      const a = await geoeffnet(browser, mitTouch(telefon), { name });
+
+      const mass = await a.page.evaluate(vermessen);
+
+      breitenPruefen(mass);
+      zweizeiligPruefen(mass, `${name}@127.0.0.1`);
+      await teilnehmerNachDemSchalter(a.page);
+      expect(a.fehler).toEqual([]);
+    });
+  }
+}
+
+for (const desktop of [[480, 800], [1280, 800]]) {
+  test(`Kopfzeile bleibt flach, Kontrollpaar ${desktop[0]} × ${desktop[1]} (B0540): einzeilig, 40 px, Instanzname sichtbar`, async ({ browser }) => {
+    const a = await geoeffnet(browser, ohneTouch(desktop));
+
+    const mass = await a.page.evaluate(vermessen);
+
+    expect(mass.kopf.height).toBe(40);
+    expect(mass.instSichtbar).toBe(true);
+    expect(mass.ich.top, 'eine Zeile: Kennung neben der Zone').toBeLessThan(mass.ort.bottom);
+    expect(a.fehler).toEqual([]);
+  });
+}
+
+test('Langer Name (B0540, 320 px): 32 × m endet in Zeile 1 sichtbar auf …, ▾ und Schalter ganz im Fenster, zugänglicher Name ganz', async ({ browser }) => {
+  const a = await geoeffnet(browser, mitTouch([320, 640]), { channel: LANGER_NAME });
+
+  const mass = await a.page.evaluate(vermessen);
+
+  expect(mass.name.noetig, 'Name gekürzt').toBeGreaterThan(mass.name.breite);
+  expect(imFenster(mass.pfeil, mass.fenster), '▾ im Fenster').toBe(true);
+  expect(ganzIn(mass.schalter, mass.ort), 'Schalter ganz in .lc-head-ort').toBe(true);
+  expect(mass.trifftLinksRechts, 'elementFromPoint trifft den Schalter').toBe(true);
+  await expect(schalter(a.page, LANGER_NAME)).toHaveAccessibleName(`# ${LANGER_NAME} — Channel-Einstellungen`);
+  expect(mass.seite, 'ohne Querscrollen').toBeLessThanOrEqual(mass.fenster.breite);
+  expect(a.fehler).toEqual([]);
+});
+
+// Frage F2 (product-owner 2026-10-29): die Kennung gewinnt — braucht sie in Zeile 2 mehr als zwei Zeilen, wächst die
+// Kopfzeile über 80 px. Eine 48-Zeichen-Kennung mit IPv4 ist über 127.0.0.1 nicht herstellbar: die Kopfzeile wird für
+// diese Kennung neu gezeichnet (wie r00009-kopfzeile-schmal.spec.js).
+for (const [art, herkunft, laenge] of [['IPv4', '192.168.100.200', 48], ['IPv6, Agent', 'ffff:ffff:ffff:ffff:ffff:ffff:255.255.255.255', 78]]) {
+  test(`Kennung gewinnt (B0540, F2, 320 px, ${laenge} Zeichen ${art}): ganz, ohne Querscrollen, Zone oben 44 px`, async ({ browser }) => {
+    const a = await geoeffnet(browser, mitTouch([320, 640]), { name: NAME_32 });
+    await a.page.evaluate(async ({ name, herkunft, art: artDerKennung }) => {
+      const { zeichnen } = await import('/web/kopfzeile.js');
+      const echteKopfzeile = document.querySelector('#app > .lc-head');
+      const behaelter = document.createElement('div');
+      zeichnen(behaelter, { name, herkunft, art: artDerKennung }, { schalter: [echteKopfzeile.querySelector('.lc-hbtn')] });
+      echteKopfzeile.replaceWith(behaelter.firstElementChild);
+    }, { name: NAME_32, herkunft, art: art.includes('Agent') ? 'agent' : 'mensch' });
+    expect(`${NAME_32}@${herkunft}`).toHaveLength(laenge);
+
+    const mass = await a.page.evaluate(() => {
+      const kopf = document.querySelector('.lc-head').getBoundingClientRect();
+      const ort = document.querySelector('.lc-head-ort').getBoundingClientRect();
+      const ich = document.querySelector('.lc-me');
+      return { kopf: kopf.height, ortUnten: ort.bottom - kopf.top, ich: ich.textContent, noetig: ich.scrollWidth, breite: ich.clientWidth, seite: document.documentElement.scrollWidth };
+    });
+
+    expect(mass.ich).toBe(`${NAME_32}@${herkunft}`);
+    expect(mass.noetig).toBeLessThanOrEqual(mass.breite);
+    expect(mass.seite).toBeLessThanOrEqual(320);
+    expect(mass.kopf).toBeGreaterThanOrEqual(80);
+    expect(mass.ortUnten).toBeLessThanOrEqual(44);
+    expect(a.fehler).toEqual([]);
+  });
+}

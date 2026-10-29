@@ -50,13 +50,17 @@ body { background: var(--kd-bg); color: var(--kd-ink); font-family: var(--font-s
 .lc-head-bed > :not(.lc-me) { white-space: nowrap; }
 .lc-me { font-family: var(--font-mono); font-size: 12px; color: var(--kd-header-ink); overflow-wrap: anywhere; }
 .lc-me i { font-style: normal; color: var(--kd-header-muted); }
-/* Unter 480 px hat die Kopfzeile keinen Platz für alles: die Navigation entfällt, der Instanzname kürzt sich
-   mit Auslassung — die eigene Kennung und der Schalter „Teilnehmer“ bleiben ganz (Baustein Kopfzeile, schmal).
-   Ergänzung zum Baustein (R00009): passt die Kennung nicht in eine Zeile, bricht sie an beliebiger Stelle um und
-   die Kopfzeile wächst über 40 px (kd-header ist Mindesthöhe) — gekürzt wird die Kennung nie */
+/* Unter 480 px zwei Zeilen von zusammen 80 px (ADR-0027 Ergänzung Karte #27): oben die Zone „Ort“ über die ganze
+   Innenbreite ohne Instanzname (er steht im Tab-Titel), darunter Kachel, Kennung, Marke und „Teilnehmer“; platziert
+   nur über grid-row/grid-column, damit Lese- und Tab-Reihenfolge Ort → Bedienung bleiben. Die Kennung bricht in
+   16-px-Zeilen um und wird nie gekürzt — braucht sie mehr als zwei Zeilen, wächst Zeile 2 (Kennung gewinnt, F2) */
 @media (max-width: 479px) {
-  .lc-head { grid-template-columns: minmax(0, 1fr) auto; gap: var(--kd-space-8); }
-  .lc-head-nav { display: none; }
+  .lc-head { grid-template-columns: minmax(0, 1fr); grid-template-rows: 44px minmax(36px, auto); row-gap: 0; }
+  .lc-head-ort { grid-row: 1; grid-column: 1 / -1; }
+  .lc-head-bed { grid-row: 2; grid-column: 1; }
+  .lc-head-nav, .lc-head-inst { display: none; }
+  .lc-head-schalter { max-width: 100%; }
+  .lc-me { line-height: 16px; }
 }
 .lc-hbtn { height: 28px; padding: 0 var(--kd-space-8); background: transparent; border: 0; color: var(--kd-header-ink); cursor: pointer; font-weight: 600; }
 .lc-hbtn:hover, .lc-hbtn[aria-expanded="true"] { background: var(--kd-header-surface); }
