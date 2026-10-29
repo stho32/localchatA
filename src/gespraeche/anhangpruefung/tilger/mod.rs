@@ -2,6 +2,7 @@
 //! Leser nach Struktur, an Ort und Stelle bei gleicher Länge, über den Positionsport.
 
 pub mod bild;
+pub mod isobmff;
 pub mod minimal;
 pub mod port;
 
