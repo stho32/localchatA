@@ -397,3 +397,17 @@ Nie vom User erfragen.
 | 2026-10-29 | R00024 Netznamen | B0422 Nacharbeit: Panik belegt | Nacharbeit | — | 0,02h | 0,02h | autonom |
 | 2026-10-29 | R00024 Netznamen | B0423 Nacharbeit: Risikosätze | Nacharbeit | — | 0,02h | 0,02h | autonom |
 | 2026-10-29 | R00024 Netznamen | Nacharbeit: Lesen, Mutanten, Gate | Nacharbeit | — | 0,27h | 0,27h | autonom |
+| 2026-10-29 | R00023 Plattenquote | B0352 Größe lesen | Standard | 0,4h | 0,02h | 0,02h | autonom |
+| 2026-10-29 | R00023 Plattenquote | B0353 Wirksame Quote beim Start | Standard | 0,4h | 0,08h | 0,08h | autonom |
+| 2026-10-29 | R00023 Plattenquote | B0354 Quote im Health-Check | Standard | 0,4h | 0,05h | 0,05h | autonom |
+| 2026-10-29 | R00023 Plattenquote | B0355 Belegt beim Laden | Standard | 0,4h | 0,07h | 0,07h | autonom |
+| 2026-10-29 | R00023 Plattenquote | B0356 Quote vor dem Anhängen prüfen | Standard | 0,4h | 0,08h | 0,08h | autonom |
+| 2026-10-29 | R00023 Plattenquote | B0357 Entfallen zieht ab | Standard | 0,4h | 0,07h | 0,07h | autonom |
+| 2026-10-29 | R00023 Plattenquote | B0358 507 antworten | Standard | 0,4h | 0,07h | 0,07h | autonom |
+| 2026-10-29 | R00023 Plattenquote | B0359 Quote über das echte Programm belegt | Standard | 0,4h | 0,07h | 0,07h | autonom |
+| 2026-10-29 | R00023 Plattenquote | B0360 507 im Browser belegt | Standard | 0,4h | 0,02h | 0,02h | autonom |
+| 2026-10-29 | R00023 Plattenquote | B0361 Schwelle als Zustandswechsel | Standard | 0,4h | 0,02h | 0,02h | autonom |
+| 2026-10-29 | R00023 Plattenquote | B0362 Wechsel melden | Standard | 0,4h | 0,08h | 0,08h | autonom |
+| 2026-10-29 | R00023 Plattenquote | B0363 Abweisungen als Episode | Standard | 0,4h | 0,07h | 0,07h | autonom |
+| 2026-10-29 | R00023 Plattenquote | Hinweis #26 (Schlüssel, Hilfe) | Nacharbeit | — | 0,05h | 0,05h | autonom |
+| 2026-10-29 | R00023 Plattenquote | Lesen, Ausgangslauf, Mutanten, Gate, Gelerntes | Konsolidierung | — | 0,22h | 0,22h | autonom |
