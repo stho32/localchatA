@@ -284,8 +284,9 @@ test('Fokus: Tab von der Seitenleiste erreicht den Verlauf (role=log, aria-live=
   expect(a.fehler).toEqual([]);
 });
 
-// R00011 (ADR-0038 Regel 8) setzt die Eingabe zwischen Verlauf und Teilnehmerliste.
-test('Tab-Reihenfolge: Kopfzeile → Seitenleiste → Verlauf → Eingabe → Teilnehmerliste', async ({ browser }) => {
+// R00011 (ADR-0038 Regel 8) setzt die Eingabe zwischen Verlauf und Teilnehmerliste; R00027 (Ergänzung Karte #41 K7)
+// den Knopf „Senden“ hinter das Feld.
+test('Tab-Reihenfolge: Kopfzeile → Seitenleiste → Verlauf → Eingabe → Senden → Teilnehmerliste', async ({ browser }) => {
   await starten((ordner) => channelAnlegen(ordner, 'allgemein', US9));
   const a = await seiteMitFehlern(browser);
   await beitreten(a.page);
@@ -294,12 +295,12 @@ test('Tab-Reihenfolge: Kopfzeile → Seitenleiste → Verlauf → Eingabe → Te
   await a.page.getByRole('button', { name: /^Teilnehmer/ }).focus();
 
   const folge = [];
-  for (let schritt = 0; schritt < 5; schritt += 1) {
+  for (let schritt = 0; schritt < 6; schritt += 1) {
     await a.page.keyboard.press('Tab');
-    folge.push(await a.page.evaluate(() => document.activeElement.getAttribute('aria-label') || document.activeElement.tagName));
+    folge.push(await a.page.evaluate(() => document.activeElement.getAttribute('aria-label') || document.activeElement.textContent));
   }
 
-  expect(folge).toEqual(['Channel anlegen', 'allgemein', 'Verlauf # allgemein', 'Nachricht an # allgemein', 'Teilnehmer']);
+  expect(folge).toEqual(['Channel anlegen', 'allgemein', 'Verlauf # allgemein', 'Nachricht an # allgemein', 'Senden', 'Teilnehmer']);
   expect(a.fehler).toEqual([]);
 });
 
