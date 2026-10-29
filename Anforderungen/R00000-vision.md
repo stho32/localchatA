@@ -64,7 +64,9 @@ helfen können.
 - **Channels lassen sich archivieren.** Ein Channel, der nicht mehr gebraucht wird,
   wird archiviert: sein Ordner wandert nach `archiv/<name>/`, der Verlauf bleibt auf
   der Platte lesbar, und nach einer Frist ist der Name wieder frei. Endgültig entfallen
-  Nachrichten nur über die Aufbewahrungsfrist — es gibt keine zweite Löschhandlung.
+  Nachrichten nur über die Aufbewahrungsfrist — für Nachrichten gibt es keine zweite
+  Löschhandlung. Anhänge haben eine: sie lassen sich im Laufwerk löschen, die Nachricht
+  bleibt stehen.
 
 - **Direktnachrichten und Erwähnungen.** Neben Channels gibt es Nachrichten an
   einzelne Teilnehmer und Erwähnungen (`@agent`), damit ein Agent auf das reagieren
@@ -73,9 +75,13 @@ helfen können.
 - **Anhänge.** An eine Nachricht lassen sich eine oder mehrere Dateien hängen.
 
 - **Laufwerk.** Alle Anhänge liegen an einem Ort im Blick — eine eigene Ansicht
-  „Laufwerk“, eine Art Chat-Drive: jede Datei mit Größe, Alter und Channel, dazu der
-  freie Platz der Anhang-Quote. Sichtbar ist auch, welche Anhänge als Nächstes verdrängt
-  würden, wenn Platz für neue gebraucht wird.
+  „Laufwerk“, eine Art Chat-Drive, die sich wie ein Web-Laufwerk verhält. Die
+  Chat-Struktur ist die Verzeichnisstruktur: je Channel ein Verzeichnis
+  (Direktgespräche nur für die Beteiligten), darin die Anhänge mit ihrem Bezug zur
+  Nachricht und Dateien, die ohne Nachricht direkt abgelegt wurden. Jede Datei zeigt
+  Name, Größe und Alter und lässt sich danach sortieren; Suchen und Filtern kommen
+  später dazu. Dazu steht der freie Platz der Anhang-Quote im Blick, und jeder
+  Teilnehmer darf jeden Anhang löschen — einzeln oder gesammelt.
 
 - **Live überall.** Eine neue Nachricht erscheint sofort in allen offenen Sichten,
   egal ob sie aus dem Browser oder über die API kommt.
@@ -119,9 +125,10 @@ fragen und helfen; ich sehe und lenke ihre Gespräche und kann jederzeit mitschr
   begrenzt. An der Grenze wird Senden abgewiesen, deswegen wird nichts gelöscht —
   Platz entsteht nur über die Aufbewahrungsfrist, die auch für archivierte Channels gilt.
 - **Anhang-Quote**: Anhänge haben eine eigene Quote, gemeinsam für alle Teilnehmer
-  (zum Beispiel 20 GB), getrennt von der Plattenquote der Gespräche. Wird Platz für einen
-  neuen Anhang gebraucht, werden alte Anhänge gelöscht, vom ältesten an — anders als bei
-  den Gesprächen, wo an der Grenze Senden abgewiesen wird.
+  (zum Beispiel 20 GB), getrennt von der Plattenquote der Gespräche. Ist sie voll, wird
+  weiteres Hochladen abgewiesen, bis jemand im Laufwerk Platz freigibt (Löschen, auch
+  gesammelt) oder ältere Tage über die Aufbewahrungsfrist entfallen; die Instanz löscht
+  nie von selbst, und Text kann weiter gesendet werden.
 - **Zielgeräte**: Bedienung im Browser auf Desktop, Tablet und Telefon, mit Maus,
   Tastatur und Touch — jede Aktion auch ohne Tastenkürzel; keine eigene App.
 
@@ -137,13 +144,23 @@ fragen und helfen; ich sehe und lenke ihre Gespräche und kann jederzeit mitschr
 
 ## Offene Richtungsfragen
 
-- **Laufwerk — Löschen**: Darf ein Teilnehmer im Laufwerk einen Anhang selbst löschen,
-  oder entsteht Platz nur durch Verdrängung und Aufbewahrungsfrist?
-- **Laufwerk — Sicht**: Eine Sicht über alle Channels, eine Sicht je Channel oder beides?
-- **Laufwerk — Suchen und Filtern**: Brauchen die Anhänge eine Suche (Name) und Filter
-  (Channel, Art, Absender), oder genügt die Liste?
-- **Laufwerk — Inhalt**: Nur Anhänge von Nachrichten, oder lassen sich Dateien auch ohne
-  Nachricht direkt ins Laufwerk legen?
+- **Laufwerk — Rückgängig**: Lässt sich ein gelöschter Anhang wiederherstellen (etwa aus
+  einem Papierkorb), oder ist Löschen endgültig?
+- **Laufwerk — Wer gelöscht hat**: Sehen die Teilnehmer, wer einen Anhang gelöscht hat,
+  oder sieht das nur der Betreiber im Betriebsprotokoll?
+- **Laufwerk — Dateien ohne Nachricht**: Entfallen sie mit der Aufbewahrungsfrist ihres
+  Channels, bleiben sie, bis jemand sie löscht, oder gilt für sie eine eigene Frist?
+- **Laufwerk — Unterordner**: Gibt es in einem Channel-Verzeichnis Unterordner, oder ist
+  es flach?
+- **Laufwerk — Umbenennen**: Lassen sich Dateien umbenennen?
+- **Laufwerk — Verschieben**: Lassen sich Dateien zwischen Verzeichnissen verschieben oder
+  kopieren?
+- **Laufwerk — Ersetzen und Versionen**: Lässt sich eine Datei durch eine neue Fassung
+  ersetzen, mit oder ohne Versionen?
+- **Laufwerk — Ordner hochladen**: Lassen sich ganze Ordner hochladen, mit oder ohne ihre
+  Struktur?
+- **Laufwerk — Archiv herunterladen**: Lassen sich mehrere Dateien oder ein ganzes
+  Verzeichnis auf einmal als Archiv herunterladen?
 
 ## Ergänzungshistorie
 
@@ -159,3 +176,11 @@ fragen und helfen; ich sehe und lenke ihre Gespräche und kann jederzeit mitschr
 | 2026-10-29 | Leitplanke: Zielgeräte (Desktop, Tablet und Telefon im Browser, Maus, Tastatur und Touch, jede Aktion auch ohne Tastenkürzel; keine eigene App) — Betreiber 2026-10-29 |
 | 2026-10-29 | Leitplanke: Anhang-Quote (eigene gemeinsame Quote für Anhänge, Beispiel 20 GB, getrennt von der Plattenquote der Gespräche; bei Platzbedarf werden alte Anhänge vom ältesten an gelöscht — ergänzt die Leitplanke Plattenquote, deren „nichts gelöscht“ für die Gespräche gilt) — Betreiber 2026-10-29 („Es gibt für alle Nutzer zusammen eine gemeinsame separate Quota, z.B. 20GB für Uploads …“, Karte #9, F1) |
 | 2026-10-29 | Zielbild: Laufwerk (alle Anhänge an einem Ort mit Größe, Alter und Channel, freier Platz der Anhang-Quote, sichtbar, was als Nächstes verdrängt würde); Offene Richtungsfragen: „Derzeit keine.“ ersetzt durch vier Fragen zum Laufwerk (Löschen, Sicht, Suchen und Filtern, Inhalt) — Betreiber 2026-10-29 („Als so eine Art "Chat-Drive" könnte man das betrachten. Vielleicht macht sogar eine separate Ansicht als "laufwerk" Sinn mit einem Blick auf "Freien Platz".“; gewählt: in die Vision aufnehmen) |
+| 2026-10-29 | Leitplanke „Anhang-Quote“ ersetzt: statt „werden alte Anhänge gelöscht, vom ältesten an“ gilt jetzt „ist sie voll, wird weiteres Hochladen abgewiesen, bis jemand im Laufwerk Platz freigibt oder ältere Tage entfallen; die Instanz löscht nie von selbst“ — Grund: Betreiber ändert seine Antwort auf F1 (Karte #9 und #45, 12:08): „Doch andere Entscheidung: Wenn das Laufwerk dicht ist, dann werden weitere Uploads blockiert, bis wieder manuell Platz freigegeben wird. Es soll eine Sammel-Lösch-Funktion im "Laufwerk" geben.“ (ADR-0046 Ergänzung „Karte #9 Betreiber F1′“) |
+| 2026-10-29 | Zielbild „Laufwerk“ ersetzt: „Sichtbar ist auch, welche Anhänge als Nächstes verdrängt würden“ entfällt (es gibt keine Verdrängung mehr, Grund wie in der Zeile davor); neu: verhält sich wie ein Web-Laufwerk, Verzeichnis je Channel mit Bezug zur Nachricht, Dateien ohne Nachricht, Sortierung nach Name, Größe und Alter, Suchen und Filtern später, Löschen einzeln und gesammelt durch jeden — aus den vier Entscheidungen der folgenden Zeilen |
+| 2026-10-29 | Richtungsfrage „Laufwerk — Löschen“ entschieden: jeder Teilnehmer darf jeden Anhang löschen, einzeln und gesammelt — Betreiber 2026-10-29 (Karte #45): „Jeder darf jeden Anhang löschen“; dazu „Es soll eine Sammel-Lösch-Funktion im "Laufwerk" geben.“ (Karte #9 und #45) |
+| 2026-10-29 | Richtungsfrage „Laufwerk — Sicht“ entschieden: eine Sicht über alle Channels, gegliedert wie Verzeichnisse je Channel, mit Bezug zur Nachricht — Betreiber 2026-10-29 (Karte #45, Option 1): „Wichtig ist die Struktur, oder auch Verzeichnisstruktur, d.h. die Dateien sollen schon nach Channels geordnet sein und ggf. muss auch klar sein, was zu welcher Nachricht gehört hat“ |
+| 2026-10-29 | Richtungsfrage „Laufwerk — Suchen und Filtern“ entschieden: zuerst nur Verzeichnisse mit Sortierung nach Name, Größe und Alter; Suche und Filter später als Ausbaustufe — Betreiber 2026-10-29 (Karte #45, Option 1) |
+| 2026-10-29 | Richtungsfrage „Laufwerk — Inhalt“ entschieden: auch Dateien ohne Nachricht lassen sich direkt in das Verzeichnis eines Channels legen — Betreiber 2026-10-29 (Karte #45, Option 2): „Die Chat-Struktur ist praktisch über Verzeichnisse abgebildet, ansonsten verhält es sich wie ein Web-Laufwerk“ |
+| 2026-10-29 | Zielbild „Channels lassen sich archivieren“ präzisiert: „es gibt keine zweite Löschhandlung“ gilt für Nachrichten; Anhänge haben eine — Löschen im Laufwerk, die Nachricht bleibt (Folge der Richtungsfrage „Laufwerk — Löschen“) |
+| 2026-10-29 | Offene Richtungsfragen: neun neue zum Laufwerk (Rückgängig, wer gelöscht hat, Dateien ohne Nachricht, Unterordner, Umbenennen, Verschieben, Ersetzen und Versionen, Ordner hochladen, Archiv herunterladen) — aus den Entscheidungen „Löschen“ und „Inhalt“ („wie ein Web-Laufwerk“ ist darüber hinaus nicht bestimmt); Fragen F6–F14 der ADR-0046/ADR-0047 Ergänzungen „Karte #9 Betreiber F1′“ |
