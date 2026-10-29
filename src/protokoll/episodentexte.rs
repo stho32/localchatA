@@ -19,6 +19,13 @@ pub const FRIST_GEBREMST: &str = "Frist gebremst: zu viele Änderungen";
 pub const ANHAENGE_GEBREMST: &str = "Anhänge gebremst: zu viele Anmeldungen";
 pub const METADATEN_NICHT_TILGBAR: &str = "Hochladen abgewiesen: Metadaten nicht tilgbar";
 pub const LOESCHEN_GEBREMST: &str = "Löschen gebremst: zu viele Löschanfragen";
+pub const GROSSER_ANSPRUCH: &str = "Großer Anspruch";
+pub const HOCHLADEN_ZU_LANGSAM: &str = "Hochladen zu langsam abgebrochen";
+pub const ANHAENGE_VOLL: &str = "Hochladen abgewiesen: Platz für Anhänge voll";
+pub const HOCHLADUNGEN_BELEGEN: &str =
+    "Hochladen abgewiesen: laufende Hochladungen belegen den Platz";
+pub const PLATTE_FAST_VOLL: &str = "Hochladen abgewiesen: Platte fast voll";
+pub const RESERVIERUNG_VERFALLEN: &str = "Reservierung verfallen ohne Hochladen";
 pub const SCHLUESSEL_VERDRAENGT: &str =
     "Wiederholschlüssel vor Ablauf verdrängt — eine Wiederholung kann doppelt ankommen";
 
@@ -62,6 +69,12 @@ mod tests {
         anhaenge_gebremst: ANHAENGE_GEBREMST = "Anhänge gebremst: zu viele Anmeldungen";
         metadaten_nicht_tilgbar: METADATEN_NICHT_TILGBAR = "Hochladen abgewiesen: Metadaten nicht tilgbar";
         loeschen_gebremst: LOESCHEN_GEBREMST = "Löschen gebremst: zu viele Löschanfragen";
+        grosser_anspruch: GROSSER_ANSPRUCH = "Großer Anspruch";
+        hochladen_zu_langsam: HOCHLADEN_ZU_LANGSAM = "Hochladen zu langsam abgebrochen";
+        anhaenge_voll: ANHAENGE_VOLL = "Hochladen abgewiesen: Platz für Anhänge voll";
+        hochladungen_belegen: HOCHLADUNGEN_BELEGEN = "Hochladen abgewiesen: laufende Hochladungen belegen den Platz";
+        platte_fast_voll: PLATTE_FAST_VOLL = "Hochladen abgewiesen: Platte fast voll";
+        reservierung_verfallen: RESERVIERUNG_VERFALLEN = "Reservierung verfallen ohne Hochladen";
         schluessel_verdraengt: SCHLUESSEL_VERDRAENGT =
             "Wiederholschlüssel vor Ablauf verdrängt — eine Wiederholung kann doppelt ankommen";
     }

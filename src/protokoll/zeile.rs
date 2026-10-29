@@ -140,6 +140,12 @@ pub enum Schluessel {
     Ids,
     Unbekannt,
     SchonGeloescht,
+    /// Lebensende einer Anmeldung (RFC 3339).
+    HochladenBis,
+    /// Rate in MiB/s.
+    MibS,
+    /// Länge eines Teilabrufs.
+    Bereich,
     /// Eine gespeicherte Anhangdatei, nur als Präfix `<hhmmssmmm>-<n>` (ADR-0047 Ergänzung Gate Regel 3).
     Anhang,
 }
@@ -189,6 +195,9 @@ impl Schluessel {
             Schluessel::Ids => "ids",
             Schluessel::Unbekannt => "unbekannt",
             Schluessel::SchonGeloescht => "schon_geloescht",
+            Schluessel::HochladenBis => "hochladen_bis",
+            Schluessel::MibS => "mib_s",
+            Schluessel::Bereich => "bereich",
         }
     }
 }

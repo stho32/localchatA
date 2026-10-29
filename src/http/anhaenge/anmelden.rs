@@ -14,7 +14,10 @@ use super::super::teilnehmerliste::zeit_als_text;
 use crate::gespraeche::Anmeldefehler;
 use crate::gespraeche::anhangeingang::{Anmeldung, Offen};
 use crate::gespraeche::anhangpruefung::Namensfehler;
-use crate::gespraeche::anhangquote::{Platzfehler, Quotestand};
+use crate::gespraeche::anhangquote::{Platzfehler, Quotestand, zaehlmass};
+use crate::protokoll::episoden::Auftreten;
+use crate::protokoll::episodentexte;
+use crate::protokoll::{Bereich, Kontext, Schluessel, Stufe};
 use axum::Json;
 use axum::body::Body;
 use axum::extract::State;
@@ -81,7 +84,10 @@ pub async fn anmelden(
     })
     .await;
     match angemeldet {
-        Ok(Ok(anmeldung)) => angenommen(&anmeldung, &name, bytes),
+        Ok(Ok(anmeldung)) => {
+            anspruch_melden(&zustand, &teilnehmer, bytes, &anmeldung);
+            angenommen(&anmeldung, &name, bytes)
+        }
         Ok(Err(fehler)) => {
             let (antwort, regel) = abgewiesen(&fehler);
             mit_regel(antwort, regel, Some(&wer))
@@ -162,6 +168,38 @@ fn koerper_pruefen(felder: Option<&Felder>) -> Result<(String, u64), Abweisung> 
         ));
     };
     Ok((name.to_string(), bytes))
+}
+
+/// Ob eine angenommene Anmeldung ein großer Anspruch ist: `z(bytes) ≥ Q/4` bei gesetzter Anhang-Quote (B0525).
+pub fn grosser_anspruch(bytes: u64, anhangquote: Option<u64>) -> bool {
+    anhangquote.is_some_and(|quote| zaehlmass(bytes).saturating_mul(4) >= quote)
+}
+
+/// Episode je Kennung `INFORMATION anhang Großer Anspruch` (ADR-0042 und ADR-0046 Ergänzungen „Karte #9
+/// Security-Gate“, M42′ Bedingung 2): wer so viel beansprucht, kann mit leeren `PUT`s das Hochladen aller sperren.
+fn anspruch_melden(zustand: &Zustand, teilnehmer: &Teilnehmer, bytes: u64, anmeldung: &Anmeldung) {
+    if !grosser_anspruch(bytes, zustand.gespraeche.anhangkennzahlen().anhangquote) {
+        return;
+    }
+    let wer = teilnehmer.kennung.als_text();
+    zustand.protokoll.episode(Auftreten {
+        stufe: Stufe::Information,
+        bereich: Bereich::Anhang,
+        text: episodentexte::GROSSER_ANSPRUCH,
+        quelle: wer.to_string(),
+        kontext: Kontext::neu()
+            .mit(Schluessel::Kennung, wer)
+            .mit(Schluessel::Herkunft, teilnehmer.herkunft)
+            .mit(Schluessel::Bytes, bytes)
+            .mit(
+                Schluessel::HochladenBis,
+                zeit_als_text(&anmeldung.hochladen_bis),
+            ),
+        art: None,
+        verworfen: None,
+        bytes: None,
+        anzeige: None,
+    });
 }
 
 /// 201 `{anhang: {id, name, bytes, hochladen, anlauf_bis, hochladen_bis}}`.
@@ -331,6 +369,17 @@ fn koerper_abgewiesen(fehler: Koerperfehler) -> Response {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// B0525 an der Grenze im Zählmaß (Q = 10 MiB): 2.617.345 Bytes (z = 640 × 4.096 = Q/4) → großer Anspruch,
+    /// 2.617.344 (z = 639 × 4.096) → nicht; ohne Anhang-Quote nie (Mutanten „> statt ≥“, „bytes statt z“).
+    #[test]
+    fn grosser_anspruch_an_der_grenze() {
+        let quote = Some(10 * 1_048_576);
+        assert!(grosser_anspruch(2_617_345, quote));
+        assert!(!grosser_anspruch(2_617_344, quote));
+        assert!(grosser_anspruch(3 * 1_048_576, quote));
+        assert!(!grosser_anspruch(u64::MAX / 8, None));
+    }
 
     fn felder(roh: &str) -> Felder {
         super::super::super::felder::felder_lesen(roh.as_bytes())
