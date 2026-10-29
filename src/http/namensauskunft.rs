@@ -6,7 +6,7 @@
 use std::collections::HashMap;
 use std::ffi::OsStr;
 use std::fmt;
-use std::net::{IpAddr, UdpSocket};
+use std::net::{IpAddr, ToSocketAddrs, UdpSocket};
 use std::sync::{Mutex, PoisonError};
 
 /// Name des Testknopfs.
@@ -23,6 +23,28 @@ pub trait Namensauskunft: Send + Sync {
 /// Eine Adresse ist eigen, wenn sich ein UDP-Socket an sie binden lässt (Loopback zählt; ADR-0045 Regel 4).
 pub fn bind_gelingt(adresse: IpAddr) -> bool {
     UdpSocket::bind((adresse, 0)).is_ok()
+}
+
+/// Die echte Auflösung des Systems: rückwärts über `getnameinfo` (`dns-lookup`), vorwärts über `getaddrinfo`
+/// (`ToSocketAddrs`), „eigen?“ über `bind`. Probe B0364: Fehler und Zeitgrenzen kommen als Fehler, der Faden endet.
+#[derive(Debug, Default)]
+pub struct Echt;
+
+impl Namensauskunft for Echt {
+    fn namen_der_adresse(&self, adresse: IpAddr) -> Vec<String> {
+        dns_lookup::lookup_addr(&adresse).into_iter().collect()
+    }
+
+    fn adressen_des_namens(&self, name: &str) -> Vec<IpAddr> {
+        (name, 0)
+            .to_socket_addrs()
+            .map(|adressen| adressen.map(|adresse| adresse.ip()).collect())
+            .unwrap_or_default()
+    }
+
+    fn ist_eigene_adresse(&self, adresse: IpAddr) -> bool {
+        bind_gelingt(adresse)
+    }
 }
 
 /// Feste Namen statt Auflösung: `<name>=<ip>[,<ip>]` vorwärts, `<ip>><name>` rückwärts, Einträge mit `;`
@@ -206,6 +228,24 @@ mod tests {
         assert_eq!(tabelle.fragen("vorwaerts", "boese.example"), 0);
         assert_eq!(tabelle.fragen("rueckwaerts", "127.0.0.1"), 1);
         assert_eq!(tabelle.fragen("eigen", "127.0.0.1"), 1);
+    }
+
+    /// B0368, gegen das echte System: Loopback hat in jeder `hosts`-Datei seinen Namen; TEST-NET-1 ist nie vergeben.
+    #[test]
+    fn die_echte_auskunft_fragt_das_system_und_liefert_bei_fehlern_leer() {
+        let echt = Echt;
+
+        assert_eq!(echt.namen_der_adresse(ip("127.0.0.1")), ["localhost"]);
+        assert!(echt.namen_der_adresse(ip("192.0.2.1")).is_empty());
+        assert!(
+            echt.adressen_des_namens("localhost")
+                .contains(&ip("127.0.0.1")),
+            "{:?}",
+            echt.adressen_des_namens("localhost")
+        );
+        assert!(echt.adressen_des_namens("a_b.invalid").is_empty());
+        assert!(echt.ist_eigene_adresse(ip("127.0.0.1")));
+        assert!(!echt.ist_eigene_adresse(ip("192.0.2.1")));
     }
 
     /// Matrix H2: falscher Wert → Fehler, der die Variable nennt.
