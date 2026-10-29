@@ -29,6 +29,13 @@ pub struct LokaleAdresse(pub SocketAddr);
 /// Hyper startet die Uhr auch nach jeder Antwort neu: sie ist zugleich die Leerlaufgrenze zwischen Requests.
 /// Laufende Antworten (Live-Kanal) zählen nicht, die Uhr läuft erst, wenn der nächste Kopf erwartet wird.
 pub const KOPF_ZEITGRENZE: Duration = Duration::from_secs(10);
+/// Puffer je Verbindung (ADR-0010 Ergänzung „Karte #9 Nacharbeit“ Regel 1): hyper nimmt weitere Stücke einer Antwort
+/// erst an, wenn weniger als so viele Bytes warten — bei Stücken zu 64 KiB wartet je nicht lesender Verbindung
+/// höchstens eines (QS4); zugleich der Lesepuffer, in dem ein Kopf ganz liegen muss.
+pub const PUFFER_JE_VERBINDUNG: usize = 65_536;
+/// Kopfgrenze der Instanz: Anfragezeile und Kopffelder zusammen; ab 16 KiB eines unvollständigen Kopfes 431.
+pub const KOPF_GROESSE: usize = 16_384;
+const _: () = assert!(PUFFER_JE_VERBINDUNG >= 8_192 && PUFFER_JE_VERBINDUNG >= KOPF_GROESSE);
 /// So lange bekommen offene Verbindungen nach dem Signal, dann werden sie abgebrochen.
 pub const ENDE_FRIST: Duration = Duration::from_secs(5);
 /// Pause nach einem Fehler der Annahme, damit ein dauerhafter Fehler die Schleife nicht heiß laufen lässt.
@@ -164,6 +171,8 @@ async fn bedienen(
     let verbindung = http1::Builder::new()
         .timer(TokioTimer::new())
         .header_read_timeout(KOPF_ZEITGRENZE)
+        .max_buf_size(PUFFER_JE_VERBINDUNG)
+        .max_header_size(KOPF_GROESSE)
         .serve_connection(TokioIo::new(strom), TowerToHyperService::new(app));
     tokio::pin!(verbindung);
     tokio::select! {
