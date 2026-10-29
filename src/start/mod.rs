@@ -3,6 +3,7 @@
 //! Reihenfolge: Aufruf lesen → Uhr → Gnadenfrist → Herzschlag → Ordner vorbereiten → sperren → Bus → Verlauf laden (Channel-Wechsel an den Bus) → Fristpflege (Start) → Anwesenheit → binden → Ende-Signal → Takt → Startzeile → Browser → ausliefern bis zum Signal.
 
 pub(crate) mod abrisspflege;
+mod allenamen;
 mod aufruf;
 pub(crate) mod ausliefern;
 mod browser;
@@ -55,7 +56,15 @@ pub async fn ausfuehren<I: IntoIterator<Item = String>>(argumente: I) -> ExitCod
             println!("{HILFE}");
             ExitCode::SUCCESS
         }
-        Ok(Aufruf::Starten(auftrag)) => {
+        Ok(Aufruf::Starten(mut auftrag)) => {
+            let umgebung = || std::env::var_os(allenamen::VARIABLE);
+            auftrag.alle_namen = match allenamen::wirksam(auftrag.alle_namen, umgebung) {
+                Ok(alle_namen) => alle_namen,
+                Err(fehler) => {
+                    eprintln!("{fehler}");
+                    return ExitCode::from(2);
+                }
+            };
             let startzeit = std::env::var_os(uhr::STARTZEIT_VARIABLE);
             let uhr = match uhr::startzeit_lesen(startzeit.as_deref()).and_then(uhr::aus_umgebung) {
                 Ok(uhr) => uhr,

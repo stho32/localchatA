@@ -6,7 +6,7 @@ use std::path::PathBuf;
 
 /// Aufrufzeile mit allen Optionen, darunter je Option eine Erklärung.
 pub const HILFE: &str = concat!(
-    "Aufruf: localchatA [<ordner>] [--port <n>] [--host <adresse>] [--kein-browser] [--erreichbar-als <name>]… [--protokoll-stufe <stufe>] [--hilfe]\n",
+    "Aufruf: localchatA [<ordner>] [--port <n>] [--host <adresse>] [--kein-browser] [--erreichbar-als <name>]… [--protokoll-stufe <stufe>] [--alle-namen] [--hilfe]\n",
     "\n",
     "  <ordner>          Ordner der Instanz, wird angelegt (Standard: aktuelles Verzeichnis)\n",
     "  --port <n>        Port; ohne Angabe 7430 oder der nächste freie, 0 wählt das System\n",
@@ -14,9 +14,12 @@ pub const HILFE: &str = concat!(
     "  --kein-browser    nach dem Start keinen Browser öffnen\n",
     "  --erreichbar-als <name>\n",
     "                    Host-Name, unter dem die Instanz zusätzlich antwortet (mehrfach erlaubt);\n",
-    "                    IP-Adressen, localhost und der Rechnername gelten immer\n",
+    "                    IP-Adressen, localhost und der Rechnername gelten immer; Namen des eigenen Netzes\n",
+    "                    (Rückwärtsname der Adresse, .local, .home.arpa, .internal, einteilig) gelten automatisch\n",
     "  --protokoll-stufe <stufe>  Mindeststufe des Betriebsprotokolls unter <ordner>/logs/: debug, information (Standard), warning, error;\n",
     "                    auch über LOCALCHATA_PROTOKOLL_STUFE\n",
+    "  --alle-namen      jeden Host-Namen annehmen, ohne Namensauflösung; auch über LOCALCHATA_ALLE_NAMEN=1\n",
+    "                    Risiko: eine fremde Website, die ein Teilnehmer öffnet, kann über DNS-Rebinding Channels mitlesen, Nachrichten schreiben und über die Frist Verläufe löschen.\n",
     "  --hilfe           diese Hilfe zeigen\n",
     "\n",
     "Sendefrist: Das System schließt eine Verbindung, die 2 × Herzschlag (Standard: 10 s) lang nichts\n",
@@ -42,6 +45,8 @@ pub struct Startauftrag {
     pub erreichbar_als: Vec<String>,
     /// Mindeststufe des Betriebsprotokolls aus `--protokoll-stufe`, falls angegeben (ADR-0043).
     pub protokoll_stufe: Option<Stufe>,
+    /// `--alle-namen` steht im Aufruf (ADR-0045 Regel 9).
+    pub alle_namen: bool,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -90,6 +95,7 @@ impl Startauftrag {
             browser_oeffnen: true,
             erreichbar_als: Vec::new(),
             protokoll_stufe: None,
+            alle_namen: false,
         };
         let mut ordner_gelesen = false;
         let mut args = args.into_iter();
@@ -97,6 +103,7 @@ impl Startauftrag {
             match argument.as_str() {
                 "--hilfe" => return Ok(Aufruf::Hilfe),
                 "--kein-browser" => auftrag.browser_oeffnen = false,
+                "--alle-namen" => auftrag.alle_namen = true,
                 "--host" => auftrag.host = args.next().ok_or(Aufruffehler::WertFehlt(argument))?,
                 "--erreichbar-als" => {
                     let name = args.next().ok_or(Aufruffehler::WertFehlt(argument))?;
@@ -174,6 +181,7 @@ mod tests {
                 browser_oeffnen: false,
                 erreichbar_als: vec![],
                 protokoll_stufe: None,
+                alle_namen: false,
             }
         );
     }
@@ -189,6 +197,7 @@ mod tests {
                 browser_oeffnen: true,
                 erreichbar_als: vec![],
                 protokoll_stufe: None,
+                alle_namen: false,
             }
         );
     }
@@ -342,5 +351,45 @@ mod tests {
         );
         assert!(HILFE.contains("--protokoll-stufe <stufe>  Mindeststufe des Betriebsprotokolls unter <ordner>/logs/: debug, information (Standard), warning, error;"), "{HILFE}");
         assert!(HILFE.contains("LOCALCHATA_PROTOKOLL_STUFE"), "{HILFE}");
+    }
+
+    /// Erster Test aus A00003 (Kriterium F0080 „Aufruf“).
+    #[test]
+    fn alle_namen_wird_gelesen_ohne_ist_es_aus() {
+        assert!(auftrag(&["/tmp/x", "--alle-namen"]).alle_namen);
+        assert!(!auftrag(&["/tmp/x"]).alle_namen);
+        assert_eq!(
+            lies(&["/tmp/x", "--alle-namen=1"]),
+            Err(Aufruffehler::UnbekannteOption("--alle-namen=1".into()))
+        );
+    }
+
+    /// Matrix I16: Aufrufzeile, eigene Zeile mit dem Risikosatz, Namen des eigenen Netzes automatisch.
+    #[test]
+    fn die_hilfe_nennt_alle_namen_mit_dem_risiko_und_die_eigenen_namen() {
+        assert!(
+            HILFE
+                .lines()
+                .next()
+                .unwrap_or_default()
+                .contains("[--alle-namen]"),
+            "{HILFE}"
+        );
+        assert!(
+            HILFE
+                .lines()
+                .any(|zeile| zeile.trim_start().starts_with("--alle-namen")
+                    && zeile.contains("LOCALCHATA_ALLE_NAMEN")),
+            "{HILFE}"
+        );
+        let risiko = "eine fremde Website, die ein Teilnehmer öffnet, kann über DNS-Rebinding Channels mitlesen, Nachrichten schreiben und über die Frist Verläufe löschen.";
+        assert!(
+            HILFE
+                .lines()
+                .any(|zeile| zeile.trim_start() == format!("Risiko: {risiko}")),
+            "{HILFE}"
+        );
+        assert!(super::super::allenamen::RISIKO.ends_with(risiko));
+        assert!(HILFE.contains("gelten automatisch"), "{HILFE}");
     }
 }

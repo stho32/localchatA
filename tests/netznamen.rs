@@ -643,3 +643,28 @@ fn e4_e5_der_link_bei_ipv6_und_dual_stack() {
     ist_seite(&ueber_v4, &format!("http://127.0.0.1:{}/", v4.port()));
     assert!(!ueber_v4.inhalt.contains("::ffff:"), "{}", ueber_v4.inhalt);
 }
+
+// ---------------------------------------------------------------------------------------------------------
+// F0080 Schalter --alle-namen
+// ---------------------------------------------------------------------------------------------------------
+
+/// US-11, Matrix I12: ohne den Schalter ist ein falscher Wert Exit 2, nennt die Variable, kein Listener.
+#[test]
+fn f0080_ein_falscher_wert_ohne_schalter_ist_exit_2() {
+    for falsch in ["ja", "true", "2", " 1"] {
+        let wurzel = tempfile::tempdir().expect("Wegwerf-Ordner");
+        let ende = exit_code(wurzel.path(), &[("LOCALCHATA_ALLE_NAMEN", falsch)], &[]);
+
+        assert_eq!(ende.exit, Some(2), "{falsch:?}: {}", ende.stderr);
+        assert!(ende.stderr.contains("LOCALCHATA_ALLE_NAMEN"), "{}", ende.stderr);
+        assert!(ende.stdout.is_empty(), "{}", ende.stdout);
+    }
+}
+
+/// US-12, Matrix I14 (E7): der Schalter im Aufruf gilt neben einer falschen Umgebung.
+#[test]
+fn f0080_der_schalter_gilt_neben_einer_falschen_umgebung() {
+    let lauf = starten(&["--alle-namen"], &[("LOCALCHATA_ALLE_NAMEN", "ja")]);
+
+    assert!(erlaubt(&lauf.gesundheit("127.0.0.1")));
+}
