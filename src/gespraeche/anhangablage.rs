@@ -142,11 +142,14 @@ fn ohne_ablage() -> io::Error {
     io::Error::new(io::ErrorKind::Unsupported, "keine Ablage für Anhänge")
 }
 
-/// Warum der Eingang beim Start nicht taugt (ADR-0046 Ergänzung „Karte #9 Gate“ Regel 7): Exit 2, nichts gelöscht.
+/// Warum der Eingang oder eine Wurzel beim Start nicht taugt (ADR-0046 Ergänzungen „Karte #9 Gate“ Regel 7 und
+/// „`channels` muss ein echter Ordner sein“): Exit 2, nichts gelöscht.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Eingangsfehler {
     /// `.eingang` ist ein Symlink oder kein Ordner.
     KeinOrdner { pfad: PathBuf },
+    /// Die Wurzel `channels` ist ein Symlink (`art` „symbolischer Link“) oder kein Ordner.
+    Wurzel { pfad: PathBuf, art: &'static str },
     /// Anlegen, Leeren oder Öffnen scheiterte.
     Platte { pfad: PathBuf, grund: String },
 }
@@ -157,6 +160,11 @@ impl std::fmt::Display for Eingangsfehler {
             Eingangsfehler::KeinOrdner { pfad } => write!(
                 f,
                 "{} ist kein Ordner (Symlink oder Datei) — die Instanz startet nicht; den Eintrag entfernen oder einen Ordner daraus machen",
+                pfad.display()
+            ),
+            Eingangsfehler::Wurzel { pfad, art } => write!(
+                f,
+                "{} ist kein echter Ordner ({art}) — Anhänge brauchen einen Ordner auf derselben Platte wie .eingang. Den Instanzordner selbst an den Zielort legen; er darf ein Link sein.",
                 pfad.display()
             ),
             Eingangsfehler::Platte { pfad, grund } => {
@@ -174,12 +182,14 @@ pub struct Anhangdateien {
 }
 
 const EINGANG: &str = ".eingang";
+const CHANNELS: &str = "channels";
 
 impl Anhangdateien {
     /// Beim Start, nach der Sperre: `.eingang` per `symlink_metadata` prüfen — fehlt er, anlegen; Symlink oder kein
     /// Ordner → Fehler ohne Löschen; sonst leeren (nur reguläre Dateien) und mit `O_DIRECTORY | O_NOFOLLOW`
     /// öffnen. Ein später gegen einen Symlink getauschter `.eingang` ändert nichts mehr.
     pub fn oeffnen(ordner: &Path) -> Result<(Anhangdateien, Vec<Stehengeblieben>), Eingangsfehler> {
+        wurzel_pruefen(&ordner.join(CHANNELS))?;
         let pfad = ordner.join(EINGANG);
         let platte = |fehler: io::Error| Eingangsfehler::Platte {
             pfad: pfad.clone(),
@@ -213,6 +223,35 @@ impl Anhangdateien {
         .map_err(|fehler| platte(fehler.into()))?;
         Ok((Anhangdateien { instanz, eingang }, stehen))
     }
+}
+
+/// Eine Wurzel unter dem Instanzordner (`channels`, mit I0012 `direkt`): fehlt sie, legt das Laden sie an; ein echter
+/// Ordner taugt; Symlink (auch auf einen Ordner) oder etwas anderes → Fehler, vor jedem Anlegen.
+fn wurzel_pruefen(pfad: &Path) -> Result<(), Eingangsfehler> {
+    let art = match std::fs::symlink_metadata(pfad) {
+        Ok(art) => art.file_type(),
+        Err(fehler) if fehler.kind() == io::ErrorKind::NotFound => return Ok(()),
+        Err(fehler) => {
+            return Err(Eingangsfehler::Platte {
+                pfad: pfad.to_path_buf(),
+                grund: fehler.to_string(),
+            });
+        }
+    };
+    if art.is_dir() {
+        return Ok(());
+    }
+    let art = if art.is_symlink() {
+        "symbolischer Link"
+    } else if art.is_file() {
+        "Datei"
+    } else {
+        "kein Ordner"
+    };
+    Err(Eingangsfehler::Wurzel {
+        pfad: pfad.to_path_buf(),
+        art,
+    })
 }
 
 /// Nur reguläre Dateien; Symlinks und Unterordner bleiben und werden gemeldet.
