@@ -19,6 +19,7 @@ pub fn erlaubnisse_aus_kernen(kerne: usize) -> usize {
 #[derive(Debug, Clone)]
 pub struct Werkbank {
     erlaubnisse: Arc<Semaphore>,
+    plaetze: usize,
 }
 
 impl Werkbank {
@@ -32,7 +33,19 @@ impl Werkbank {
     pub fn mit(erlaubnisse: usize) -> Werkbank {
         Werkbank {
             erlaubnisse: Arc::new(Semaphore::new(erlaubnisse)),
+            plaetze: erlaubnisse,
         }
+    }
+
+    /// Plätze der Werkbank, fest seit dem Start (ADR-0043 Ergänzung #24).
+    pub fn plaetze(&self) -> usize {
+        self.plaetze
+    }
+
+    /// Belegte Plätze: Plätze minus freie Erlaubnisse — ein Lesen ohne Sperre, Momentwert.
+    pub fn belegt(&self) -> usize {
+        self.plaetze
+            .saturating_sub(self.erlaubnisse.available_permits())
     }
 
     /// Wartet auf eine Erlaubnis; sie gilt, bis sie fallen gelassen wird.

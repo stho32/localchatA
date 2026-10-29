@@ -138,9 +138,18 @@ async fn us10_frische_instanz_meldet_null_und_die_bytes_der_heutigen_datei() {
             "abgewiesen",
             serde_json::json!({"zu_gross":0,"kein_json":0,"kaputt":0,"abgebrochen":0,"zu_langsam":0}),
         ),
+        ("abgerissen", serde_json::json!(0)),
+        ("werkbank_belegt", serde_json::json!(0)),
     ] {
         assert_eq!(inhalt[feld], erwartet, "{feld}: {inhalt}");
     }
+    let plaetze = inhalt["werkbank_plaetze"]
+        .as_u64()
+        .expect("werkbank_plaetze");
+    assert!(
+        plaetze >= 2,
+        "R00018 F0060: Kerne, mindestens 2 — {plaetze}"
+    );
     let bytes = inhalt["protokoll_bytes_heute"].as_u64().expect("Zahl");
     let eine_zeile = zeilen(wurzel.path(), "2026-10-28")
         .iter()

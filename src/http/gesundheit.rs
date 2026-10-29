@@ -38,6 +38,12 @@ pub struct Gesundheit {
     letzte_exception: Option<String>,
     aufgaben_ausgefallen: Vec<&'static str>,
     abgewiesen: AbgewiesenStand,
+    /// Abrisse an der Abrissgrenze seit dem Start (ADR-0043 Ergänzung #24).
+    abgerissen: u64,
+    /// Plätze der Werkbank, fest seit dem Start.
+    werkbank_plaetze: usize,
+    /// Belegte Plätze der Werkbank, Momentwert.
+    werkbank_belegt: usize,
     /// `--alle-namen` an (ADR-0045 Regel 9).
     alle_namen: bool,
 }
@@ -81,18 +87,27 @@ pub async fn beantworten(State(zustand): State<Arc<Zustand>>) -> Json<Gesundheit
             .map(zeit_als_text),
         aufgaben_ausgefallen: protokoll.ausgefallen,
         abgewiesen: protokoll.abgewiesen,
+        abgerissen: protokoll.abgerissen,
+        werkbank_plaetze: zustand.werkbank.plaetze(),
+        werkbank_belegt: zustand.werkbank.belegt(),
         alle_namen: zustand.grenzschutz.alle_namen(),
     })
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::http::testserver;
+    use crate::http::{Werkbank, testserver};
     use serde_json::json;
     use std::path::Path;
 
     async fn gesundheit_fuer(ordner: &str) -> (u16, String, serde_json::Value) {
-        let adresse = testserver::starten(Path::new(ordner)).await;
+        let mut zustand = testserver::zustand(Path::new(ordner));
+        zustand.werkbank = Werkbank::mit(2);
+        gesundheit_von(zustand).await
+    }
+
+    async fn gesundheit_von(zustand: crate::http::Zustand) -> (u16, String, serde_json::Value) {
+        let adresse = testserver::app_starten(crate::http::router(zustand)).await;
         let antwort = reqwest::get(format!("{adresse}api/gesundheit"))
             .await
             .expect("Antwort");
@@ -148,9 +163,29 @@ mod tests {
                 "letzte_exception": null,
                 "aufgaben_ausgefallen": [],
                 "abgewiesen": {"zu_gross": 0, "kein_json": 0, "kaputt": 0, "abgebrochen": 0, "zu_langsam": 0},
+                "abgerissen": 0,
+                "werkbank_plaetze": 2,
+                "werkbank_belegt": 0,
                 "alle_namen": false
             })
         );
+    }
+
+    /// R00018 F0060 (ADR-0043 Ergänzung #24): hält der Test einen Platz der Werkbank, ist einer belegt; ein
+    /// Abriss zählt in `abgerissen`.
+    #[tokio::test]
+    async fn ein_gehaltener_platz_ist_belegt_und_ein_abriss_gezaehlt() {
+        let mut zustand = testserver::zustand(Path::new("/tmp/lc-r1"));
+        zustand.werkbank = Werkbank::mit(2);
+        let gehalten = zustand.werkbank.erwerben().await.expect("Erlaubnis");
+        zustand.protokoll.abriss_zaehlen();
+
+        let (_, _, inhalt) = gesundheit_von(zustand).await;
+
+        assert_eq!(inhalt["werkbank_plaetze"], 2);
+        assert_eq!(inhalt["werkbank_belegt"], 1);
+        assert_eq!(inhalt["abgerissen"], 1);
+        drop(gehalten);
     }
 
     #[tokio::test]

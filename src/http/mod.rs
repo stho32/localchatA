@@ -105,7 +105,7 @@ pub fn router(zustand: Zustand) -> Router {
 
 #[cfg(test)]
 pub(crate) mod testserver {
-    use super::{Grenzschutz, Werkbank, Zustand, router};
+    use super::{Grenzschutz, Werkbank, Zustand};
     use crate::anwesenheit::Anwesenheit;
     use crate::gespraeche::{Dateiablage, Gespraeche};
     use crate::start::abrisspflege::{Pflege, pflege_aus};
@@ -118,11 +118,6 @@ pub(crate) mod testserver {
     use std::path::Path;
     use std::sync::Arc;
     use std::time::Duration;
-
-    /// Startet den Router im Testprozess auf einem freien Port und liefert die Basisadresse.
-    pub async fn starten(ordner: &Path) -> String {
-        app_starten(router(zustand(ordner))).await
-    }
 
     /// Ein Zustand wie im Programm: Gespräche aus einem leeren Wegwerf-Ordner (`ordner` steht nur in den
     /// Antworten), Anwesenheit mit Systemuhr, Betriebssystem-Zufall und 60 s Gnadenfrist, Herzschlag 5 s wie das
