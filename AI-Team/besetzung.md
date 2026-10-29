@@ -8,7 +8,8 @@ Rollen dieses Projekts aus der Kollektion der Factory (`/factory rollen`). Das K
 | planer | plan | Spalte Bereit: Interaction bis Bubble verfeinern, Anforderung über `/anforderung aus-slice`; Befunde einplanen |
 | architekt | arch | Technikwahl vor dem ersten Bau (Rust-Stack, Ablage der rotierenden Logs, Live-Kanal, Suche bei 100.000 Nachrichten) als Architektur-Modell und ADRs; Umbauten |
 | entwickler | entw | Interactions bauen, Test zuerst, Gate; Befundkarten |
-| entwickler (zweiter) | entw2 | Nacharbeit aus den Auto-Reviews im Worktree `localchatA-entw2`, Zweig `nacharbeit/<nr>` |
+| entwickler (zweiter) | entw2 | Nacharbeit aus den Auto-Reviews (Vorrang) und unabhängige Karten aus dem Puffer im Worktree `localchatA-entw2`, Zweig `nacharbeit/<nr>` bzw. `karte/<nr>` (Betreiber 2026-10-29) |
+| entwickler (klein) | entw3 | nur kleine Härtungs- und Vorrang-Karten (≤ ≈ 5 Bausteine, keine Datei einer laufenden Karte), WIP 1, Worktree `localchatA-entw3`, Zweig `karte/<nr>`, kleineres Modell, Builds mit `nice`, je Commit betroffene Testdateien, volle Suite am Kartenende, wartet bei Last > 6 (Betreiber 2026-10-29) |
 | code-reviewer | crev | Korrektheit, Tests, Wartbarkeit je Arbeitspaket |
 | ux-reviewer | ux | Oberfläche gegen Designsystem, Tastaturbedienung, Barrierefreiheit, im Browser |
 | entwicklertester | etst | User Story wörtlich im echten Programm, Browser und API |
