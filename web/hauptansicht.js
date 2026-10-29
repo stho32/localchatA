@@ -92,7 +92,9 @@ export function zeichnen(wurzel, teilnehmer, optionen) {
     entwurf: entwurfAnlegen({ speicher: window.sessionStorage }),
     ansagen: ansagen.melden,
   });
-  const wieder = wiederverbindenEinrichten({ mitte, verlauf, senden, abrufen: optionen.verlaufNachholen }, vorigeAnsichtAbmelden.signal);
+  const wieder = wiederverbindenEinrichten({
+    mitte, verlauf, senden, abrufen: optionen.verlaufNachholen, ansagen: ansagen.melden,
+  }, vorigeAnsichtAbmelden.signal);
   fokusTastenBedienen({ verlauf, eingabe }, vorigeAnsichtAbmelden.signal);
   const beiAuswahl = (channel) => {
     gewaehlterChannel = channel;
@@ -133,7 +135,7 @@ export function zeichnen(wurzel, teilnehmer, optionen) {
 // vor den eigenen gepufferten (ADR-0037 Regel 7). Scheitert das Nachholen, bleibt die Leiste „Verbindung verloren“.
 // Die Leiste liegt über der Mitte, nicht im Verlauf — mit und ohne offenen Channel, einmal je Hauptansicht; Ein- und
 // Ausblenden verschiebt nichts (ADR-0038 Ergänzung Karte #36).
-function wiederverbindenEinrichten({ mitte, verlauf, senden, abrufen }, signal) {
+function wiederverbindenEinrichten({ mitte, verlauf, senden, abrufen, ansagen }, signal) {
   const leiste = element('div', { className: 'lc-leiste', hidden: true });
   mitte.prepend(leiste);
   let zustand = VERBINDUNG_ANFANG;
@@ -201,6 +203,7 @@ function wiederverbindenEinrichten({ mitte, verlauf, senden, abrufen }, signal) 
       return;
     }
     meldungSetzen(text);
+    ansagen({ art: 'wiederverbunden', text: text.replace(/^✓ /, '') });
   }
 
   function melden(ereignis) {
@@ -214,6 +217,7 @@ function wiederverbindenEinrichten({ mitte, verlauf, senden, abrufen }, signal) 
       naechsterVersuch.nachholen = null;
       anzeige = { ...anzeige, getrennt: true };
       senden.getrennt();
+      ansagen({ art: 'getrennt' });
     }
     if (anzeige.getrennt) {
       leisteZeigen();

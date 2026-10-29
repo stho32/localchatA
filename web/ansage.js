@@ -4,9 +4,10 @@
 //
 // ereignis: { art: 'fremd', von, channel, offenerChannel } · { art: 'eigen' | 'nachgeholt' | 'takt' | 'gewechselt' }
 //         · { art: 'fehlschlag', grund } · { art: 'sofort', text } (Verbindung, Statuszeile, Hinweis, Verworfen,
-//         Entfernt — sofort, der Takt der gesammelten bleibt; R00025 F0084)
+//         Entfernt — sofort, der Takt der gesammelten bleibt; R00025 F0084) · { art: 'getrennt' } · { art: 'wiederverbunden',
+//         text } (sofort; „Verbindung verloren“ einmal je Trennung, nicht je Versuch)
 // → { zustand, text: Ansage | null }
-export const ANSAGE_LEER = { letzteAnsageMs: null, gesammelt: 0, channel: null };
+export const ANSAGE_LEER = { letzteAnsageMs: null, gesammelt: 0, channel: null, getrennt: false };
 
 const ABSTAND_MS = 10000;
 
@@ -20,6 +21,10 @@ export function ansage(zustand, ereignis, jetztMs) {
       return { zustand, text: `Nachricht nicht gesendet: ${ereignis.grund}` };
     case 'sofort':
       return { zustand, text: ereignis.text };
+    case 'getrennt':
+      return getrenntAnsagen(zustand);
+    case 'wiederverbunden':
+      return { zustand: { ...zustand, getrennt: false }, text: ereignis.text };
     case 'gewechselt':
       return { zustand: { ...zustand, gesammelt: 0 }, text: null };
     case 'eigen':
@@ -28,6 +33,13 @@ export function ansage(zustand, ereignis, jetztMs) {
     default:
       throw new Error(`Ansage: unbekanntes Ereignis ${ereignis.art}`);
   }
+}
+
+function getrenntAnsagen(zustand) {
+  if (zustand.getrennt) {
+    return { zustand, text: null };
+  }
+  return { zustand: { ...zustand, getrennt: true }, text: 'Verbindung verloren' };
 }
 
 function fremdAnsagen(zustand, { von, channel, offenerChannel }, jetztMs) {

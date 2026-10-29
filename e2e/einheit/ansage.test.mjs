@@ -124,3 +124,33 @@ test('eine Sofort-Ansage mit Text geht unverändert und außerhalb der Bündelun
   assert.equal(ergebnis.text, 'Steuerzeichen U+001B an Stelle 5 — bitte entfernen.');
   assert.deepEqual(ergebnis.zustand, zweite);
 });
+
+// R00025 F0084 „Ansage unabhängig von der Bündelung“ (B0399): t = 0 fremd → sofort; t = 2 s fremd (gesammelt); t = 3 s
+// wieder verbunden mit 0 → sofort „Wieder verbunden“; t = 10 s → „1 neue Nachricht in # allgemein“ — der Takt der
+// gesammelten bleibt. Zwei Meldungen `unterbrochen` hintereinander → genau eine Ansage „Verbindung verloren“ (Mutanten
+// „durch die Bündelung“ und „je Versuch angesagt“ werden je rot).
+test('Trennen und Wiederverbinden sofort, außerhalb der Bündelung, „Verbindung verloren“ einmal je Trennung', () => {
+  const texte = ablauf([
+    [0, fremd()],
+    [2000, fremd()],
+    [2500, { art: 'getrennt' }],
+    [2600, { art: 'getrennt' }],
+    [3000, { art: 'wiederverbunden', text: 'Wieder verbunden' }],
+    [9999, TAKT],
+    [10000, TAKT],
+    [11000, { art: 'getrennt' }],
+    [12000, { art: 'wiederverbunden', text: 'Wieder verbunden · 3 nachgeladen' }],
+  ]);
+
+  assert.deepEqual(texte, [
+    [0, 'Neue Nachricht von claude@10.0.0.5 in # allgemein'],
+    [2000, null],
+    [2500, 'Verbindung verloren'],
+    [2600, null],
+    [3000, 'Wieder verbunden'],
+    [9999, null],
+    [10000, '1 neue Nachricht in # allgemein'],
+    [11000, 'Verbindung verloren'],
+    [12000, 'Wieder verbunden · 3 nachgeladen'],
+  ]);
+});

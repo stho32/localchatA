@@ -231,3 +231,66 @@ for (const [geraet, breite] of [['telefon', 320], ['telefon', 375], ['telefon', 
     expect(masse.scale).toBe(1);
   });
 }
+
+/// Z14 aus R00025: Netz von B wieder an → Ansage-Region enthält „Wieder verbunden“, Grenze < 2 s.
+const Z14_MS = 2000;
+
+/// Schreibt jeden nicht leeren Inhalt der Ansage-Region mit.
+async function ansagenMitschreiben(page) {
+  await page.evaluate(() => {
+    window.ansagen = [];
+    const region = document.querySelector('[role="status"][aria-live="polite"]');
+    new MutationObserver(() => {
+      if (region.textContent !== '') {
+        window.ansagen.push(region.textContent);
+      }
+    }).observe(region, { childList: true, characterData: true, subtree: true });
+  });
+  return () => page.evaluate(() => window.ansagen);
+}
+
+// „Ansage“ (Z14; Abnahme-Probe UX-Review #22 F2, wörtlich: „Statusregion enthält „Wieder verbunden“ binnen 2 s“): B
+// getrennt → die Region enthält „Verbindung verloren“; `beta` sendet 3; Strom wieder → binnen Z14 „Wieder verbunden · 3
+// nachgeladen“. Die Uhr startet beim Wiedereinschalten des Netzes; gemessen wird ereignisgenau.
+test('Ansage (Z14): „Verbindung verloren“, nach dem Wiederverbinden binnen 2 s „Wieder verbunden · 3 nachgeladen“', async ({ browser }) => {
+  instanz = await sendenStarten({ anzahl: 5 });
+  const b = await kontextOeffnen(browser);
+  await imBrowserBeitreten(b.page, instanz.adresse, 'anna');
+  await expect(b.page.getByRole('log').locator('.lc-msg')).toHaveCount(5);
+  const angesagt = await ansagenMitschreiben(b.page);
+  const token = await beitreten(instanz.adresse, 'beta');
+
+  await netzAus(b);
+  await expect.poll(angesagt, { intervals: [25] }).toContain('Verbindung verloren');
+  for (const text of ['g1', 'g2', 'g3']) {
+    expect((await senden(instanz.adresse, token, 'allgemein', text)).status).toBe(201);
+  }
+  const beginn = Date.now();
+  await b.kontext.setOffline(false);
+  await expect.poll(angesagt, { intervals: [25], timeout: 10000 }).toContain('Wieder verbunden · 3 nachgeladen');
+  const dauer = Date.now() - beginn;
+  test.info().annotations.push({ type: 'Z14 ms', description: String(dauer) });
+
+  expect(dauer).toBeLessThan(Z14_MS);
+  expect((await angesagt()).filter((text) => text === 'Verbindung verloren')).toHaveLength(1);
+  expect(unerwartet(b.fehler)).toEqual([]);
+});
+
+// „Gescheitertes Nachholen“ (wie R00012 „Gescheitertes Nachholen“): solange das Nachholen scheitert, enthält die
+// Ansage-Region kein „Wieder verbunden“; die Warnung zählt dann bis zum nächsten Nachhol-Versuch herunter.
+test('Gescheitertes Nachholen: keine Ansage „Wieder verbunden“, solange der Abruf scheitert', async ({ browser }) => {
+  instanz = await sendenStarten({ anzahl: 5 });
+  const b = await kontextOeffnen(browser, { zusaetzlich: { '/api/channels/allgemein/nachrichten': [500] } });
+  await imBrowserBeitreten(b.page, instanz.adresse, 'anna');
+  await expect(b.page.getByRole('log').locator('.lc-msg')).toHaveCount(5);
+  const angesagt = await ansagenMitschreiben(b.page);
+  await netzAus(b);
+  await b.page.route((adresse) => adresse.searchParams.has('nach'), (route) => route.fulfill({ status: 500, body: '' }));
+
+  await netzAn(b);
+  await expect(leiste(b.page)).toHaveText(/^⚠ Verbindung verloren · (neuer Versuch in \d+ s|wird verbunden …)$/, { timeout: 5000 });
+  await b.page.waitForTimeout(3500);
+
+  expect((await angesagt()).some((text) => text.includes('Wieder verbunden'))).toBe(false);
+  expect(unerwartet(b.fehler)).toEqual([]);
+});
