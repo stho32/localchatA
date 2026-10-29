@@ -538,6 +538,8 @@ async fn nach_der_sperre(
             anhang_belegt: gespraeche.anhangkennzahlen().gebunden,
             plattenquote: quote.hoechstens(),
             anhangquote: anhangquote.hoechstens(),
+            plattenquote_gesetzt: quote_herkunft != "standard",
+            anhangquote_gesetzt: anhangquote_herkunft != "standard",
         },
     );
     startzeile_schreiben(&ordner, adresse);
@@ -737,6 +739,9 @@ struct Startplatz {
     anhang_belegt: u64,
     plattenquote: Option<u64>,
     anhangquote: Option<u64>,
+    /// Aus Option oder Umgebung, auch mit `aus` (ADR-0043 Ergänzung „Karte #9 Nacharbeit F2“ Regel 1).
+    plattenquote_gesetzt: bool,
+    anhangquote_gesetzt: bool,
 }
 
 const GIB: u64 = 1_073_741_824;
@@ -752,14 +757,20 @@ fn platte_traegt(platz: &Startplatz) -> bool {
     vorhanden >= gebraucht
 }
 
-/// `WARNING start Platte trägt die Quoten nicht` und `WARNING start Anhänge belegen mehr als die Anhangquote`
-/// (gelöscht wird nichts; jede Anmeldung antwortet 507 `voll`, bis Platz entsteht).
+/// `start Platte trägt die Quoten nicht` — `INFORMATION`, solange beide Quoten aus dem Standard kommen, `WARNING`,
+/// sobald eine ausdrücklich gesetzt ist (ADR-0043 Ergänzung „Karte #9 Nacharbeit F2“) — und `WARNING start Anhänge
+/// belegen mehr als die Anhangquote` (gelöscht wird nichts; jede Anmeldung antwortet 507 `voll`, bis Platz entsteht).
 fn anhangquote_beim_start_melden(protokoll: &Protokoll, platz: &Startplatz) {
     if !platte_traegt(platz) {
+        let stufe = if platz.plattenquote_gesetzt || platz.anhangquote_gesetzt {
+            Stufe::Warning
+        } else {
+            Stufe::Information
+        };
         protokoll.eintragen(
-            Stufe::Warning,
+            stufe,
             Bereich::Start,
-            "Platte trägt die Quoten nicht",
+            "Platte trägt die Quoten nicht — --anhangquote bzw. --plattenquote kleiner setzen",
             Kontext::neu()
                 .mit(Schluessel::Frei, platz.frei)
                 .mit(Schluessel::Plattenquote, quote_als_text(platz.plattenquote))
@@ -959,6 +970,8 @@ mod tests {
             anhang_belegt: 200,
             plattenquote,
             anhangquote,
+            plattenquote_gesetzt: false,
+            anhangquote_gesetzt: false,
         };
         let gebraucht = 4 * GIB + 20 * GIB + GIB - 300;
         assert!(!platte_traegt(&platz(
@@ -1255,59 +1268,70 @@ mod tests {
         }
     }
 
-    /// Befund #55 B2 (ADR-0042 Katalog Z. 355, ADR-0043 Ergänzung „Karte #9 Nacharbeit F2“ Regeln 3 und 5): die
-    /// Startzeilen tragen die Schlüssel des Katalogs — `frei`, `plattenquote`, `anhangquote`, `anhang_belegt` (eine
-    /// Quote `aus` als `aus`; nicht `belegt`) bzw. `anhangquote`, `anhang_belegt` (nicht `hoechstens`). Die Stufe ist
-    /// nicht Gegenstand (Entscheidung offen für diese Nacharbeit).
+    /// ADR-0043 Ergänzung „Karte #9 Nacharbeit F2“, Erste Tests (Unit, wörtlich): `INFORMATION`, wenn beide Quoten aus
+    /// dem Standard kommen, `WARNING`, sobald eine ausdrücklich gesetzt ist (auch `aus`); Kontext genau `frei`,
+    /// `plattenquote`, `anhangquote`, `anhang_belegt`, der Ausweg im Text; „Anhänge belegen mehr als die Anhangquote“
+    /// immer `WARNING` mit `anhangquote`, `anhang_belegt` (Mutanten „Stufe immer WARNING“, „Herkunft der Text-Quote
+    /// übersehen“, „`belegt` statt `plattenquote`“).
     #[test]
-    fn die_startzeilen_zur_anhangquote_tragen_die_schluessel_des_katalogs() {
+    fn die_startzeilen_zur_anhangquote_nach_herkunft_der_quoten() {
         const GIB: u64 = 1_073_741_824;
-        for (platz, erwartet) in [
-            (
+        const TRAEGT_NICHT: &str = "start Platte trägt die Quoten nicht — --anhangquote bzw. --plattenquote kleiner setzen";
+        let platz =
+            |frei: u64, plattenquote: (Option<u64>, bool), anhangquote: (Option<u64>, bool)| {
                 Startplatz {
-                    frei: 10 * GIB,
+                    frei,
                     log_bytes: 0,
                     anhang_belegt: 0,
-                    plattenquote: Some(4 * GIB),
-                    anhangquote: Some(20 * GIB),
-                },
-                vec![
-                    "start Platte trägt die Quoten nicht | frei=10737418240 plattenquote=4294967296 anhangquote=21474836480 anhang_belegt=0",
-                ],
+                    plattenquote: plattenquote.0,
+                    anhangquote: anhangquote.0,
+                    plattenquote_gesetzt: plattenquote.1,
+                    anhangquote_gesetzt: anhangquote.1,
+                }
+            };
+        let standard_text = (Some(4 * GIB), false);
+        let standard_anhang = (Some(20 * GIB), false);
+        let kontext =
+            "frei=10737418240 plattenquote=4294967296 anhangquote=21474836480 anhang_belegt=0";
+        let mit_belegt = Startplatz {
+            anhang_belegt: 2_097_152,
+            ..platz(30 * GIB, standard_text, (Some(1_048_576), true))
+        };
+        for (fall, platz, erwartet) in [
+            (
+                "beide Standard",
+                platz(10 * GIB, standard_text, standard_anhang),
+                vec![format!("INFORMATION {TRAEGT_NICHT} | {kontext}")],
             ),
             (
-                Startplatz {
-                    frei: 10 * GIB,
-                    log_bytes: 5,
-                    anhang_belegt: 7,
-                    plattenquote: None,
-                    anhangquote: Some(20 * GIB),
-                },
-                vec![
-                    "start Platte trägt die Quoten nicht | frei=10737418240 plattenquote=aus anhangquote=21474836480 anhang_belegt=7",
-                ],
+                "Anhangquote aus der Option",
+                platz(10 * GIB, standard_text, (Some(20 * GIB), true)),
+                vec![format!("WARNING {TRAEGT_NICHT} | {kontext}")],
             ),
             (
-                Startplatz {
-                    frei: 30 * GIB,
-                    log_bytes: 0,
-                    anhang_belegt: 2_097_152,
-                    plattenquote: Some(4 * GIB),
-                    anhangquote: Some(1_048_576),
-                },
-                vec![
-                    "start Anhänge belegen mehr als die Anhangquote | anhangquote=1048576 anhang_belegt=2097152",
-                ],
+                "Text-Quote aus der Umgebung",
+                platz(10 * GIB, (Some(4 * GIB), true), standard_anhang),
+                vec![format!("WARNING {TRAEGT_NICHT} | {kontext}")],
             ),
             (
-                Startplatz {
-                    frei: 30 * GIB,
-                    log_bytes: 0,
-                    anhang_belegt: 0,
-                    plattenquote: Some(4 * GIB),
-                    anhangquote: Some(20 * GIB),
-                },
+                "--plattenquote aus",
+                platz(10 * GIB, (None, true), standard_anhang),
+                vec![format!(
+                    "WARNING {TRAEGT_NICHT} | frei=10737418240 plattenquote=aus anhangquote=21474836480 anhang_belegt=0"
+                )],
+            ),
+            (
+                "30 GiB frei",
+                platz(30 * GIB, standard_text, standard_anhang),
                 vec![],
+            ),
+            (
+                "über der Anhangquote",
+                mit_belegt,
+                vec![
+                    "WARNING start Anhänge belegen mehr als die Anhangquote | anhangquote=1048576 anhang_belegt=2097152"
+                        .to_string(),
+                ],
             ),
         ] {
             let (protokoll, speicher, _, _) =
@@ -1321,12 +1345,12 @@ mod tests {
                 .filter(|zeile| zeile.contains(" start "))
                 .map(|zeile| {
                     zeile
-                        .split_once(" start ")
-                        .map(|(_, rest)| format!("start {rest}"))
-                        .expect("start")
+                        .split_once(' ')
+                        .map(|(_, rest)| rest.to_string())
+                        .expect("Zeit")
                 })
                 .collect();
-            assert_eq!(zeilen, erwartet);
+            assert_eq!(zeilen, erwartet, "{fall}");
         }
     }
 

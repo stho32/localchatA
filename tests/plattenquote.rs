@@ -509,3 +509,62 @@ async fn die_abweisungen_einer_kennung_sind_eine_episode() {
         "{gespiegelt:#?}"
     );
 }
+
+/// Freier Platz der Platte unter `ordner` in Bytes (für Nicht-Root wie der Start: `f_bavail × f_frsize`).
+fn frei(ordner: &Path) -> u64 {
+    let stand = rustix::fs::statvfs(ordner).expect("statvfs");
+    stand.f_bavail * stand.f_frsize
+}
+
+/// ADR-0043 Ergänzung „Karte #9 Nacharbeit F2“, Erste Tests (Integration): Start ohne Quoten-Einstellung →
+/// `logs/<heute>.log` enthält `INFORMATION start Platte trägt die Quoten nicht`, stderr bleibt ohne diese Zeile; mit
+/// `LOCALCHATA_ANHANGQUOTE` ausdrücklich gesetzt → `WARNING …` auch auf stderr. Ob die Standards (4 + 20 GiB + 1 GiB
+/// Abstand) die Test-Platte übersteigen, hängt am Rechner: trägt sie, steht ohne Einstellung keine Zeile da — beide
+/// Ausgänge folgen aus derselben Regel. Die ausdrückliche Quote 16.384 GiB trägt keine Platte.
+#[test]
+fn die_stufe_der_startzeile_folgt_der_herkunft_der_quoten() {
+    const STANDARDS: u64 = 25 * 1_073_741_824;
+    let zeile =
+        "start Platte trägt die Quoten nicht — --anhangquote bzw. --plattenquote kleiner setzen";
+
+    let wurzel = tempfile::tempdir().expect("Wegwerf-Ordner");
+    let traegt = frei(wurzel.path()) >= STANDARDS;
+    let mut instanz = starten_um(wurzel.path(), &[], &[]);
+    instanz.signal_und_warten("TERM");
+    let stderr = instanz.stderr_bis_zum_ende();
+    drop(instanz);
+    let zeilen = alle_zeilen(wurzel.path());
+    let information = zeilen
+        .iter()
+        .filter(|z| z.contains(&format!("INFORMATION {zeile} | ")))
+        .count();
+    assert_eq!(information, usize::from(!traegt), "{zeilen:#?}");
+    assert!(
+        !zeilen
+            .iter()
+            .any(|z| z.contains(&format!("WARNING {zeile}"))),
+        "{zeilen:#?}"
+    );
+    assert!(
+        !stderr.contains("Platte trägt die Quoten nicht"),
+        "{stderr}"
+    );
+
+    let wurzel = tempfile::tempdir().expect("Wegwerf-Ordner");
+    let mut instanz = starten_um(
+        wurzel.path(),
+        &[],
+        &[("LOCALCHATA_ANHANGQUOTE", "16384GiB")],
+    );
+    instanz.signal_und_warten("TERM");
+    let stderr = instanz.stderr_bis_zum_ende();
+    drop(instanz);
+    assert!(stderr.contains(&format!("WARNING {zeile} | ")), "{stderr}");
+    let zeilen = alle_zeilen(wurzel.path());
+    assert!(
+        zeilen
+            .iter()
+            .any(|z| z.contains(&format!("WARNING {zeile} | "))),
+        "{zeilen:#?}"
+    );
+}
