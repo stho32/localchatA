@@ -49,7 +49,7 @@ pub async fn setzen(
     };
     let koerper = match json_lesen(&kopf, koerper, FRIST_GRENZE, &ort).await {
         Ok(koerper) => koerper,
-        Err(fehler) => return kein_json(fehler),
+        Err(fehler) => return koerper_abgewiesen(fehler),
     };
     let gespraeche = Arc::clone(&zustand.gespraeche);
     let gewuenscht = name.clone();
@@ -244,11 +244,14 @@ fn bestaetigen_text(entfaellt: &Entfaellt) -> String {
     )
 }
 
-/// Die eine Antwort für Körperfehler (`koerper::koerperfehler_beantworten`) mit dem 413-Grund und Beispiel der Route.
-fn kein_json(fehler: Koerperfehler) -> Response {
+/// Die eine Antwort für Körperfehler (`koerper::koerperfehler_beantworten`) mit dem vollständigen 413-Satz und
+/// dem Beispiel der Route.
+fn koerper_abgewiesen(fehler: Koerperfehler) -> Response {
     koerperfehler_beantworten(
         fehler,
-        &format!("Der Körper ist zu groß — höchstens {FRIST_GRENZE} Bytes, nur die Tage schicken"),
+        &format!(
+            "Der Körper ist zu groß — höchstens {FRIST_GRENZE} Bytes, nur die Tage schicken, zum Beispiel {BEISPIEL}."
+        ),
         BEISPIEL,
     )
 }

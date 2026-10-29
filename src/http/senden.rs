@@ -61,7 +61,7 @@ pub async fn senden(
         .await
     {
         Ok(Ok(wert)) => wert,
-        Ok(Err(fehler)) => return kein_json(fehler),
+        Ok(Err(fehler)) => return koerper_abgewiesen(fehler),
         Err(abbruch) => return abgebrochen(&zustand, &abbruch, &wer, &name),
     };
     if !zustand.gespraeche.channel_bekannt(&name) {
@@ -305,11 +305,14 @@ fn abgebrochen(zustand: &Zustand, abbruch: &Abgebrochen, wer: &str, channel: &st
 
 const BEISPIEL: &str = r#"{"text":"Hallo"}"#;
 
-/// Die eine Antwort für Körperfehler (`koerper::koerperfehler_beantworten`) mit dem 413-Grund und Beispiel der Route.
-fn kein_json(fehler: Koerperfehler) -> Response {
+/// Die eine Antwort für Körperfehler (`koerper::koerperfehler_beantworten`) mit dem vollständigen 413-Satz und
+/// dem Beispiel der Route.
+fn koerper_abgewiesen(fehler: Koerperfehler) -> Response {
     koerperfehler_beantworten(
         fehler,
-        &format!("Der Körper ist zu groß — höchstens {SENDEN_GRENZE} Bytes, längere Texte teilen"),
+        &format!(
+            "Der Körper ist zu groß — höchstens {SENDEN_GRENZE} Bytes, längere Texte teilen, zum Beispiel {BEISPIEL}."
+        ),
         BEISPIEL,
     )
 }

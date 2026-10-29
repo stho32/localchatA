@@ -36,7 +36,7 @@ pub async fn beantworten(
     };
     let koerper = match json_lesen(&kopf, koerper, BEITRETEN_GRENZE, &ort).await {
         Ok(koerper) => koerper,
-        Err(fehler) => return kein_json(fehler),
+        Err(fehler) => return koerper_abgewiesen(fehler),
     };
     let wunsch = match Beitrittswunsch::pruefen(&koerper) {
         Ok(wunsch) => wunsch,
@@ -111,12 +111,13 @@ const BEISPIEL: &str = r#"{"name":"shoff"}"#;
 /// `art` 6 Zeichen je als `\uXXXX`); dieselbe Grenze wie die Anlage eines Channels, 4 KiB.
 const BEITRETEN_GRENZE: usize = 4096;
 
-/// Die eine Antwort für Körperfehler (`koerper::koerperfehler_beantworten`) mit dem 413-Grund und Beispiel der Route.
-fn kein_json(fehler: Koerperfehler) -> Response {
+/// Die eine Antwort für Körperfehler (`koerper::koerperfehler_beantworten`) mit dem vollständigen 413-Satz und
+/// dem Beispiel der Route.
+fn koerper_abgewiesen(fehler: Koerperfehler) -> Response {
     koerperfehler_beantworten(
         fehler,
         &format!(
-            "Der Körper ist zu groß — höchstens {BEITRETEN_GRENZE} Bytes, nur Name und Art schicken"
+            "Der Körper ist zu groß — höchstens {BEITRETEN_GRENZE} Bytes, nur Name und Art schicken, zum Beispiel {BEISPIEL}."
         ),
         BEISPIEL,
     )

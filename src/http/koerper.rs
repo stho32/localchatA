@@ -35,8 +35,9 @@ pub fn zu_langsam(frist: Duration) -> String {
     )
 }
 
-/// Die eine Antwort für Körperfehler (ADR-0010 Ergänzung Karte #31): 413 | 415 | 400 | 408 mit deutschem
-/// `{fehler}` — Grund und Ausweg, bei 413, 415 und 400 mit dem Beispiel der Route; nach 413 und 408 schließt die
+/// Die eine Antwort für Körperfehler (ADR-0010 Ergänzung Karte #31, Option A): 413 | 415 | 400 | 408 mit deutschem
+/// `{fehler}` — bei 413 der vollständige Satz der Route (`zu_gross`) unverändert, bei 415 und 400 Grund und Ausweg
+/// mit dem Beispiel der Route, bei 408 der gemeinsame Text aus der Frist; nach 413 und 408 schließt die
 /// Verbindung (der Rest des Körpers ist höchstens bis zur Obergrenze gelesen bzw. kommt nicht). Hier, nicht je
 /// Handler, entsteht die Marke `Eingetragen`: `json_lesen` hat die Abweisung schon eingetragen.
 pub fn koerperfehler_beantworten(
@@ -54,7 +55,7 @@ pub fn koerperfehler_beantworten(
             StatusCode::BAD_REQUEST,
             mit_beispiel("Der Körper ist kein gültiges JSON — ein JSON-Objekt schicken"),
         ),
-        Koerperfehler::ZuGross => (StatusCode::PAYLOAD_TOO_LARGE, mit_beispiel(zu_gross)),
+        Koerperfehler::ZuGross => (StatusCode::PAYLOAD_TOO_LARGE, zu_gross.to_string()),
         Koerperfehler::ZuLangsam => (StatusCode::REQUEST_TIMEOUT, zu_langsam(KOERPER_LESEFRIST)),
     };
     let antwort = (status, Json(json!({ "fehler": text })));
@@ -366,6 +367,78 @@ mod tests {
             "Der Körper kam nicht innerhalb von 7 s vollständig an — Anfrage abgebrochen; den Körper ohne Pause senden."
         );
     }
+    /// Status, `fehler`, `Connection: close` und Marke einer Antwort auf einen Körperfehler.
+    async fn beantwortet(fehler: Koerperfehler, zu_gross: &str) -> (u16, String, bool, bool) {
+        let antwort = koerperfehler_beantworten(fehler, zu_gross, r#"{"x":1}"#);
+        let status = antwort.status().as_u16();
+        let schliesst = antwort.headers().get(CONNECTION).map(|w| w.as_bytes()) == Some(b"close");
+        let eingetragen = antwort.extensions().get::<Eingetragen>().is_some();
+        let koerper = axum::body::to_bytes(antwort.into_body(), 4096)
+            .await
+            .expect("Körper");
+        let json: Value = serde_json::from_slice(&koerper).expect("JSON");
+        let text = json["fehler"].as_str().expect("fehler").to_string();
+        (status, text, schliesst, eingetragen)
+    }
+
+    /// R00020 F0069 „Eine Antwort für Körperfehler“ (ADR-0010 Ergänzung Karte #31, Option A): 413 gibt den
+    /// vollständigen Satz der Route unverändert zurück — zwei verschiedene Sätze, damit kein fester Text besteht.
+    #[tokio::test]
+    async fn die_413_gibt_den_satz_der_route_unveraendert_und_schliesst() {
+        for satz in [
+            "Der Körper ist zu groß — höchstens 131.072 Byte; längere Texte teilen.",
+            "Der Körper ist zu groß — höchstens 4096 Bytes, nur die Tage schicken, zum Beispiel {\"tage\":7}.",
+        ] {
+            let (status, text, schliesst, eingetragen) =
+                beantwortet(Koerperfehler::ZuGross, satz).await;
+
+            assert_eq!((status, text.as_str()), (413, satz));
+            assert!(schliesst, "Connection: close nach 413");
+            assert!(eingetragen);
+        }
+    }
+
+    /// 415 und 400 (auch `Abgebrochen`) mit dem Beispiel der Route, ohne `Connection: close`.
+    #[tokio::test]
+    async fn die_415_und_400_nennen_das_beispiel_der_route_und_halten_die_verbindung() {
+        let faelle = [
+            (
+                Koerperfehler::KeinJson,
+                415,
+                "Der Körper muss JSON sein — mit Content-Type: application/json schicken, zum Beispiel {\"x\":1}.",
+            ),
+            (
+                Koerperfehler::Kaputt,
+                400,
+                "Der Körper ist kein gültiges JSON — ein JSON-Objekt schicken, zum Beispiel {\"x\":1}.",
+            ),
+            (
+                Koerperfehler::Abgebrochen,
+                400,
+                "Der Körper ist kein gültiges JSON — ein JSON-Objekt schicken, zum Beispiel {\"x\":1}.",
+            ),
+        ];
+        for (fehler, erwartet_status, erwartet_text) in faelle {
+            let (status, text, schliesst, eingetragen) = beantwortet(fehler, "unbenutzt").await;
+
+            assert_eq!((status, text.as_str()), (erwartet_status, erwartet_text));
+            assert!(!schliesst, "{fehler:?} hält die Verbindung");
+            assert!(eingetragen);
+        }
+    }
+
+    /// 408 mit dem gemeinsamen Text aus der Frist, nicht dem Satz der Route; schließt.
+    #[tokio::test]
+    async fn die_408_hat_den_gemeinsamen_text_und_schliesst() {
+        let (status, text, schliesst, eingetragen) =
+            beantwortet(Koerperfehler::ZuLangsam, "unbenutzt").await;
+
+        assert_eq!(status, 408);
+        assert_eq!(text, zu_langsam(KOERPER_LESEFRIST));
+        assert!(schliesst);
+        assert!(eingetragen);
+    }
+
     use axum::http::HeaderValue;
 
     fn mit_typ(typ: &str) -> HeaderMap {

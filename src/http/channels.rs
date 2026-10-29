@@ -39,7 +39,7 @@ pub async fn anlegen(
     };
     let koerper = match json_lesen(&kopf, koerper, CHANNEL_ANLEGEN_GRENZE, &ort).await {
         Ok(koerper) => koerper,
-        Err(fehler) => return kein_json(fehler),
+        Err(fehler) => return koerper_abgewiesen(fehler),
     };
     let (name, beschreibung) = match gewuenscht(&koerper) {
         Ok(gewuenscht) => gewuenscht,
@@ -287,12 +287,13 @@ fn ablagefehler(grund: &str) -> Response {
 /// Beschreibung 200 Ersatzpaare je 12 Bytes); mit 30 % Reserve 3 408, auf 4 KiB gerundet.
 const CHANNEL_ANLEGEN_GRENZE: usize = 4096;
 
-/// Die eine Antwort für Körperfehler (`koerper::koerperfehler_beantworten`) mit dem 413-Grund und Beispiel der Route.
-fn kein_json(fehler: Koerperfehler) -> Response {
+/// Die eine Antwort für Körperfehler (`koerper::koerperfehler_beantworten`) mit dem vollständigen 413-Satz und
+/// dem Beispiel der Route.
+fn koerper_abgewiesen(fehler: Koerperfehler) -> Response {
     koerperfehler_beantworten(
         fehler,
         &format!(
-            "Der Körper ist zu groß — höchstens {CHANNEL_ANLEGEN_GRENZE} Bytes, nur Name und Beschreibung schicken"
+            "Der Körper ist zu groß — höchstens {CHANNEL_ANLEGEN_GRENZE} Bytes, nur Name und Beschreibung schicken, zum Beispiel {BEISPIEL}."
         ),
         BEISPIEL,
     )
