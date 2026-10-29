@@ -167,7 +167,7 @@ async function meldungOhneLueckeBewachen(page, texte) {
   await page.evaluate((erwartet) => {
     window.lcVerstoesse = [];
     const pruefen = () => {
-      const meldung = document.querySelector('.lc-verlauf .lc-leiste');
+      const meldung = document.querySelector('.lc-center > .lc-leiste');
       const gezeigt = [...document.querySelectorAll('[role="log"] .lc-msg:not(.lc-vorlaeufig) .lc-body')].map((body) => body.textContent);
       const fehlt = erwartet.filter((text) => !gezeigt.includes(text));
       const wiederVerbunden = meldung !== null && !meldung.hidden && meldung.textContent.startsWith('✓ Wieder verbunden');

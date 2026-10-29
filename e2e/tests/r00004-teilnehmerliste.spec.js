@@ -114,14 +114,14 @@ test('US-17: Programm beendet → ⚠ in Fehlerfarbe; neu gestartet → ohne Neu
   const fehler = fehlerSammeln(page, { streng: true });
   await beitreten(page, 'shoff');
   await istOnline(zeileVon(page, 'shoff@127.0.0.1'));
-  const hinweis = page.locator('#lc-verbindung');
+  // Seit R00025 F0084 ist der Hinweis die Leiste oben über der Mitte (vorher #lc-verbindung).
+  const hinweis = page.locator('.lc-center > .lc-leiste.lc-leiste-fehler');
   await expect(hinweis).toBeHidden();
   await page.evaluate(() => { window.nichtNeuGeladen = true; });
 
   await instanz.beenden();
   await expect(hinweis).toBeVisible();
-  await expect(hinweis).toHaveText(/^⚠ Verbindung unterbrochen/);
-  await expect(hinweis).toHaveClass(/\blc-fehler\b/);
+  await expect(hinweis).toHaveText(/^⚠ Verbindung verloren/);
   const farbe = await hinweis.evaluate((element) => ({
     text: getComputedStyle(element).color,
     gefahr: getComputedStyle(element).getPropertyValue('--kd-danger').trim(),
@@ -242,7 +242,7 @@ test('verzögerter Strom: der erste Stand kommt 1 s später — die Seite steht,
 
   expect(verzoegert).toBe(1);
   expect(vorDemStand).toBe(0);
-  await expect(page.locator('#lc-verbindung')).toBeHidden();
+  await expect(page.locator('.lc-center > .lc-leiste.lc-leiste-fehler')).toBeHidden();
   expect(fehler).toEqual([]);
 });
 
@@ -282,17 +282,17 @@ test('Neustart mit Gnadenfrist 3 s: Hinweis binnen ca. 3 s weg, Strom hält die 
   await istOnline(zeileVon(page, 'shoff@127.0.0.1'));
 
   await instanz.beenden();
-  await expect(page.locator('#lc-verbindung')).toBeVisible();
+  await expect(page.locator('.lc-center > .lc-leiste.lc-leiste-fehler')).toBeVisible();
   await page.waitForTimeout(6000);
   await instanz.starten();
   const neu = Date.now();
-  await expect(page.locator('#lc-verbindung')).toBeHidden({ timeout: 3500 });
+  await expect(page.locator('.lc-center > .lc-leiste.lc-leiste-fehler')).toBeHidden({ timeout: 3500 });
   const wiederDa = Date.now() - neu;
   await page.waitForTimeout(4000);
 
   expect(wiederDa).toBeLessThan(3500);
   await istOnline(zeileVon(page, 'shoff@127.0.0.1'));
-  await expect(page.locator('#lc-verbindung')).toBeHidden();
+  await expect(page.locator('.lc-center > .lc-leiste.lc-leiste-fehler')).toBeHidden();
   expect((await (await request.get(instanz.adresse + 'api/gesundheit')).json()).halter).toBeGreaterThanOrEqual(1);
   expect(fehler).toEqual([]);
 });

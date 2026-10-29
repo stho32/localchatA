@@ -67,10 +67,8 @@ body { background: var(--kd-bg); color: var(--kd-ink); font-family: var(--font-s
 :root { --lc-members: 264px; }
 
 /* Hauptansicht (Bildschirm 4.2): Kopfzeile, Mitte, rechts die Teilnehmer; nur die Mitte und die Liste scrollen */
-.lc-app { height: 100%; display: grid; grid-template-rows: minmax(var(--kd-header), auto) auto minmax(0, 1fr); }
-.lc-verbindung[hidden] { display: none; }
-.lc-verbindung { grid-row: 2; margin: 0; padding: var(--kd-space-8) var(--kd-space-12); background: var(--kd-surface); border-bottom: 1px solid var(--kd-line); }
-.lc-main { grid-row: 3; display: grid; grid-template-columns: var(--lc-sidebar) minmax(0, 1fr) var(--lc-members); min-height: 0; }
+.lc-app { height: 100%; display: grid; grid-template-rows: minmax(var(--kd-header), auto) minmax(0, 1fr); }
+.lc-main { grid-row: 2; display: grid; grid-template-columns: var(--lc-sidebar) minmax(0, 1fr) var(--lc-members); min-height: 0; }
 .lc-main.ohne-teilnehmer { grid-template-columns: var(--lc-sidebar) minmax(0, 1fr); }
 .lc-center { position: relative; min-width: 0; min-height: 0; overflow: hidden; display: flex; flex-direction: column; background: var(--kd-surface); }
 .lc-mitte-hinweis { margin: var(--kd-space-12); }
@@ -156,11 +154,15 @@ body { background: var(--kd-bg); color: var(--kd-ink); font-family: var(--font-s
 .lc-comp-hinweisreihe .lc-comp-hinweis { flex: 1 1 12em; min-width: 0; }
 .lc-comp-bereinigen[hidden] { display: none; }
 .lc-comp-bereinigen button { touch-action: manipulation; }
-/* Leiste oben im Verlauf (Baustein VerlaufsMarken „Verbindung“): 28 px; verloren in kd-danger */
-.lc-leiste { flex: none; min-height: var(--kd-row); display: flex; align-items: center; padding: 0 var(--kd-space-12); font-size: 12px; font-weight: 600; color: var(--kd-ink-muted); background: var(--kd-surface); border-bottom: 1px solid var(--kd-line); overflow-wrap: anywhere; }
+/* Leiste oben über der Mitte (Baustein VerlaufsMarken „Verbindung“; R00025 F0084): überlagernd wie Ladezeile und Pille,
+   deckend, in jedem Text genau eine Zeile von 28 px — der Verlauf springt nicht; verloren in kd-danger */
+.lc-leiste { position: absolute; top: 0; left: 0; right: 0; z-index: 3; height: var(--kd-row); display: flex; align-items: center; padding: 0 var(--kd-space-12); font-size: 12px; font-weight: 600; color: var(--kd-ink-muted); background: var(--kd-surface); border-bottom: 1px solid var(--kd-line); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .lc-leiste.lc-leiste-fehler { color: var(--kd-danger); }
 .lc-leiste[hidden] { display: none; }
-/* Nur für Screenreader: sichtbar verborgen, nicht display:none (Ansage, ADR-0038 Regel 10) */
+/* Steht die Leiste, liegt die Ladezeile direkt darunter, und eine fokussierte Nachricht verschwindet nicht unter ihr */
+.lc-center:has(> .lc-leiste:not([hidden])) .lc-loadmore { top: var(--kd-row); }
+.lc-center:has(> .lc-leiste:not([hidden])) .lc-log { scroll-padding-top: var(--kd-row); }
+/* Nur für Screenreader: visuell verborgen, nicht display:none (Ansage, ADR-0038 Regel 10) */
 .lc-unsichtbar { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0; }
 
 /* Seitenleiste (Baustein Seitenleiste, ADR-0024 Regeln 1–3): Kopf in lc-label mit „+“, Einträge in 28-px-Zeilen */

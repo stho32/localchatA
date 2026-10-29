@@ -53,8 +53,9 @@ function zeigtKennungen(erwartet) {
   return kennungen.join('|') === erwartet.join('|');
 }
 
+// Seit R00025 F0084 ist die Warnung die Leiste oben über der Mitte (vorher #lc-verbindung).
 function verbindungshinweisVerborgen() {
-  const hinweis = document.getElementById('lc-verbindung');
+  const hinweis = document.querySelector('.lc-center > .lc-leiste.lc-leiste-fehler');
   return hinweis === null || hinweis.getClientRects().length === 0;
 }
 
@@ -182,11 +183,11 @@ for (const { ohneWebLocks, titel } of [{ ohneWebLocks: false, titel: '' }, { ohn
     });
 
     await instanz.beenden();
-    await expect(tabs[0].locator('#lc-verbindung')).toBeVisible();
+    await expect(tabs[0].locator('.lc-center > .lc-leiste.lc-leiste-fehler')).toBeVisible();
     await instanz.starten();
 
     for (const tab of tabs) {
-      await expect(tab.locator('#lc-verbindung')).toBeHidden({ timeout: 15000 });
+      await expect(tab.locator('.lc-center > .lc-leiste.lc-leiste-fehler')).toBeHidden({ timeout: 15000 });
       await zeigtSichSelbst(tab, 'shoff@127.0.0.1', 15000);
     }
     await tabs[0].waitForTimeout(1000);
@@ -229,11 +230,11 @@ for (const { tabs: anzahl, ohneWebLocks } of [
     }
 
     await instanz.beenden();
-    await expect(tabs[0].locator('#lc-verbindung')).toBeVisible();
+    await expect(tabs[0].locator('.lc-center > .lc-leiste.lc-leiste-fehler')).toBeVisible();
     await instanz.starten();
 
     for (const tab of tabs) {
-      await expect(tab.locator('#lc-verbindung')).toBeHidden({ timeout: 15000 });
+      await expect(tab.locator('.lc-center > .lc-leiste.lc-leiste-fehler')).toBeHidden({ timeout: 15000 });
       await zeigtSichSelbst(tab, 'shoff@127.0.0.1', 15000);
       await expect(tab.getByLabel('Name')).toHaveCount(0);
     }
@@ -257,18 +258,18 @@ test('A1: Neustart, Tab a tritt bei und geht, zweiter Neustart — Tab b ist in 
 
   await instanz.beenden();
   await instanz.starten();
-  await expect(a.locator('#lc-verbindung')).toBeHidden({ timeout: 15000 });
-  await expect(b.locator('#lc-verbindung')).toBeHidden({ timeout: 15000 });
+  await expect(a.locator('.lc-center > .lc-leiste.lc-leiste-fehler')).toBeHidden({ timeout: 15000 });
+  await expect(b.locator('.lc-center > .lc-leiste.lc-leiste-fehler')).toBeHidden({ timeout: 15000 });
   await a.close();
   await instanz.beenden();
-  await expect(b.locator('#lc-verbindung')).toBeVisible();
+  await expect(b.locator('.lc-center > .lc-leiste.lc-leiste-fehler')).toBeVisible();
   await b.waitForTimeout(500);
   await instanz.starten();
   const neu = Date.now();
   const zurueckNach = await sichtbarNach(b, verbindungshinweisVerborgen, { ab: neu, timeout: 15000 });
   test.info().annotations.push({ type: 'messung', description: `zurueckNach ${zurueckNach} ms` });
 
-  await expect(b.locator('#lc-verbindung')).toBeHidden();
+  await expect(b.locator('.lc-center > .lc-leiste.lc-leiste-fehler')).toBeHidden();
   await zeigtSichSelbst(b);
   // Rückzug 0/1/2 s plus Start; der Fehler aus 9d16f07 lag bei 5,9 s (Übernahme nach 5 s).
   expect(zurueckNach).toBeLessThan(4500);

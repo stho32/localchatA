@@ -1,7 +1,7 @@
 // Hauptansicht (Designsystem: Bildschirm 4.2, Baustein Hauptansicht): Kopfzeile, links die Seitenleiste
 // „Channels“, Mitte und rechts die Region „Teilnehmer“. Tab-Reihenfolge: Kopfzeile → Seitenleiste → Mitte →
-// Teilnehmer (ADR-0024 Regel 1). Der Hinweis auf eine unterbrochene
-// Verbindung steht in Fehlergestalt (⚠ und Wort, kd-danger) unter der Kopfzeile über die ganze Breite. `Strg .` und der Schalter
+// Teilnehmer (ADR-0024 Regel 1). Eine getrennte Verbindung zeigt genau eine Warnung: die Leiste oben über der Mitte
+// (R00025 F0084, ADR-0038 Ergänzung Karte #36). `Strg .` und der Schalter
 // „Teilnehmer“ blenden die Liste ein und aus (1-tastatur.md). `+` und `Strg Alt N` öffnen „Channel anlegen“; die
 // Statuszeile meldet den angelegten Channel (ADR-0024 Regeln 4, 5). optionen.channelAnlegen: async (name, beschreibung) → Antwort.
 // `# name` in der Kopfzeile öffnet die Channel-Einstellungen (ADR-0033); optionen.fristSetzen: async (name, tage,
@@ -24,7 +24,6 @@ import { nachholLaufAnlegen } from './nachhollauf.js';
 import { wiederVerbundenText, leisteInhalt, geltenderZeitpunkt } from './verbindungsleiste.js';
 import { ANSAGE_LEER, ansage, ansageSchreiberAnlegen } from './ansage.js';
 
-const UNTERBROCHEN = '⚠ Verbindung unterbrochen — localchatA verbindet neu.';
 const STAND_UNBEKANNT = 'Stand unbekannt — zuletzt bekannte Liste.';
 let vorigeAnsichtAbmelden = new AbortController();
 
@@ -46,8 +45,6 @@ export function zeichnen(wurzel, teilnehmer, optionen) {
     schalter: [schalter],
     einstellungenOeffnen: (ausloeser) => einstellungen.oeffnen(gewaehlterChannel, ausloeser),
   });
-  const hinweis = element('p', { id: 'lc-verbindung', className: 'lc-meldung lc-fehler lc-verbindung', hidden: true });
-  hinweis.setAttribute('role', 'alert');
   const standUnbekannt = element('p', { className: 'lc-stand', hidden: true });
   const zeilen = element('div', { className: 'lc-members-zeilen' });
   const region = element('aside', { id: 'lc-teilnehmer', className: 'lc-members', tabIndex: 0 }, [standUnbekannt, zeilen]);
@@ -63,7 +60,7 @@ export function zeichnen(wurzel, teilnehmer, optionen) {
     ansagen.melden({ art: 'sofort', text });
   }
   wurzel.classList.add('lc-app');
-  wurzel.append(hinweis, haupt, statuszeile, ansagen.region);
+  wurzel.append(haupt, statuszeile, ansagen.region);
   dialogEinrichten({
     wurzel,
     plus: channels.plus,
@@ -95,7 +92,7 @@ export function zeichnen(wurzel, teilnehmer, optionen) {
     entwurf: entwurfAnlegen({ speicher: window.sessionStorage }),
     ansagen: ansagen.melden,
   });
-  const wieder = wiederverbindenEinrichten({ verlauf, senden, abrufen: optionen.verlaufNachholen }, vorigeAnsichtAbmelden.signal);
+  const wieder = wiederverbindenEinrichten({ mitte, verlauf, senden, abrufen: optionen.verlaufNachholen }, vorigeAnsichtAbmelden.signal);
   fokusTastenBedienen({ verlauf, eingabe }, vorigeAnsichtAbmelden.signal);
   const beiAuswahl = (channel) => {
     gewaehlterChannel = channel;
@@ -122,7 +119,7 @@ export function zeichnen(wurzel, teilnehmer, optionen) {
       anzahl.textContent = String(wieViele);
     },
     verbindungZeigen: (zustand, naechsterVersuchUm) => {
-      letzterZustand = verbindungZeigen({ hinweis, region, standUnbekannt }, letzterZustand, zustand);
+      letzterZustand = verbindungZeigen({ region, standUnbekannt }, letzterZustand, zustand);
       wieder.melden({ art: 'strom', zustand, naechsterVersuchUm });
     },
     // Ein vollständiger Stand der Teilnehmer: am Anfang jedes Stroms und nach NeuerStand (ADR-0028 Regel 6).
@@ -134,9 +131,11 @@ export function zeichnen(wurzel, teilnehmer, optionen) {
 // die Warteschlange ruht. Wieder verbunden → Ereignisse wieder annehmen, für den offenen Channel nachholen
 // (nachhollauf.js), erst nach dem Gelingen 4 s melden und weitersenden — so stehen fremde Nachrichten aus der Trennung
 // vor den eigenen gepufferten (ADR-0037 Regel 7). Scheitert das Nachholen, bleibt die Leiste „Verbindung verloren“.
-function wiederverbindenEinrichten({ verlauf, senden, abrufen }, signal) {
+// Die Leiste liegt über der Mitte, nicht im Verlauf — mit und ohne offenen Channel, einmal je Hauptansicht; Ein- und
+// Ausblenden verschiebt nichts (ADR-0038 Ergänzung Karte #36).
+function wiederverbindenEinrichten({ mitte, verlauf, senden, abrufen }, signal) {
   const leiste = element('div', { className: 'lc-leiste', hidden: true });
-  verlauf.element.prepend(leiste);
+  mitte.prepend(leiste);
   let zustand = VERBINDUNG_ANFANG;
   let anzeige = { getrennt: false, meldung: null, meldungSeitMs: 0 };
   let ausblenden = null;
@@ -336,7 +335,7 @@ function auswahlEinrichten({ seitenleiste, kopf, mitte, verlauf, eingabe, beiAus
     if (offen !== bekannt.name) {
       offen = bekannt.name;
       if (verlauf.element.parentNode !== mitte) {
-        mitte.replaceChildren(verlauf.element, eingabe.element);
+        mitteFuellen(mitte, verlauf.element, eingabe.element);
       }
       beiOeffnen(bekannt.name);
       verlauf.oeffnen(bekannt.name);
@@ -386,14 +385,14 @@ function verlaufSchliessen(verlauf, eingabe, seitenleiste) {
 
 function mitteZeigen(mitte, gewaehlt, listeBekannt) {
   if (gewaehlt === null) {
-    mitte.replaceChildren(element('p', { className: 'lc-mitte-hinweis', textContent: 'Links einen Channel wählen.' }));
+    mitteFuellen(mitte, element('p', { className: 'lc-mitte-hinweis', textContent: 'Links einen Channel wählen.' }));
     return;
   }
   if (!listeBekannt) {
-    mitte.replaceChildren();
+    mitteFuellen(mitte);
     return;
   }
-  mitte.replaceChildren(element('p', { className: 'lc-mitte-hinweis', textContent: `# ${gewaehlt.name} gibt es nicht.` }));
+  mitteFuellen(mitte, element('p', { className: 'lc-mitte-hinweis', textContent: `# ${gewaehlt.name} gibt es nicht.` }));
 }
 
 // Die Meldung steht einige Sekunden und geht dann von selbst; eine neue ersetzt sie.
@@ -476,10 +475,8 @@ export function teilnehmerSichtbar(fensterbreite, wunsch) {
 // Der Alarmtext wird nur beim Wechsel gesetzt, damit ein Screenreader ihn nicht bei jedem Versuch neu ansagt.
 // Solange die Verbindung fehlt, ist die Liste als „Stand unbekannt“ markiert: gedämpft, mit einem Satz, und
 // kein ● gilt mehr als sicher online. Liefert den nun gültigen Zustand.
-function verbindungZeigen({ hinweis, region, standUnbekannt }, letzterZustand, zustand) {
+function verbindungZeigen({ region, standUnbekannt }, letzterZustand, zustand) {
   if (zustand === 'unterbrochen' && letzterZustand !== 'unterbrochen') {
-    hinweis.textContent = UNTERBROCHEN;
-    hinweis.hidden = false;
     standUnbekannt.textContent = STAND_UNBEKANNT;
     standUnbekannt.hidden = false;
     region.classList.add('lc-unbekannt');
@@ -487,14 +484,18 @@ function verbindungZeigen({ hinweis, region, standUnbekannt }, letzterZustand, z
     return 'unterbrochen';
   }
   if (zustand === 'verbunden' && letzterZustand !== 'verbunden') {
-    hinweis.textContent = '';
-    hinweis.hidden = true;
     standUnbekannt.hidden = true;
     region.classList.remove('lc-unbekannt');
     onlineBenennen(region, false);
     return 'verbunden';
   }
   return letzterZustand;
+}
+
+// Ersetzt den Inhalt der Mitte; die Leiste der Verbindung bleibt (sie gehört der Hauptansicht, nicht dem Channel).
+function mitteFuellen(mitte, ...kinder) {
+  const leiste = [...mitte.children].filter((kind) => kind.classList.contains('lc-leiste'));
+  mitte.replaceChildren(...leiste, ...kinder);
 }
 
 function element(tag, eigenschaften = {}, kinder = []) {

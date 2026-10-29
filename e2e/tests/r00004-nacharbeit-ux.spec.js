@@ -244,7 +244,8 @@ test('S4: bei 320 px mit eingeblendeter Liste ist der Hinweis bei unterbrochener
   await listeZeigen(page);
 
   await instanz.beenden();
-  const hinweis = page.locator('#lc-verbindung');
+  // Seit R00025 F0084 ist der Hinweis die Leiste oben über der Mitte (vorher #lc-verbindung).
+  const hinweis = page.locator('.lc-center > .lc-leiste.lc-leiste-fehler');
   await expect(hinweis).toBeVisible();
 
   const lage = await hinweis.evaluate((element) => {
@@ -284,27 +285,23 @@ test('S5: Server beendet — nach < 2 s ist die Liste als „Stand unbekannt“ 
   expect(punkt.rand).not.toBe('dashed');
 });
 
-test('S6: der Alarmtext ändert sich nur beim Wechsel — 1 Mutation beim Unterbrechen, 1 beim Wiederverbinden', async ({ page }) => {
-  test.setTimeout(60000);
+// S6 seit R00025 F0084: die Warnung ist die Leiste über der Mitte, deren Countdown sich je Sekunde ändert — sie ist darum
+// keine Live-Region (kein role, kein aria-live), und auf der Seite gibt es keinen Alarm (role="alert") mehr; angesagt
+// wird über die eine Ansage-Region (R00025 „Ansage“).
+test('S6: die Warnung bei unterbrochener Verbindung ist keine Live-Region, kein Alarm auf der Seite', async ({ page }) => {
   instanz = await instanzStarten({ port: await freierPort() });
   fehlerSammeln(page, { serverWegErwartet: true });
   await page.setViewportSize({ width: 1280, height: 800 });
   await beitreten(page);
   await expect(region(page).locator('.lc-dot.on')).toHaveCount(1);
-  await page.locator('#lc-verbindung').evaluate((hinweis) => {
-    window.alarmMutationen = [];
-    new MutationObserver((liste) => window.alarmMutationen.push(...liste.map(() => hinweis.textContent)))
-      .observe(hinweis, { childList: true, characterData: true, subtree: true });
-  });
 
   await instanz.beenden();
-  await page.waitForTimeout(9000);
-  const waehrendAus = await page.evaluate(() => window.alarmMutationen.length);
-  await instanz.starten();
-  await expect(page.locator('#lc-verbindung')).toBeHidden({ timeout: 15000 });
+  const warnung = page.locator('.lc-center > .lc-leiste.lc-leiste-fehler');
+  await expect(warnung).toBeVisible();
 
-  expect(waehrendAus).toBe(1);
-  expect(await page.evaluate(() => window.alarmMutationen.length)).toBe(2);
+  expect(await warnung.getAttribute('role')).toBeNull();
+  expect(await warnung.getAttribute('aria-live')).toBeNull();
+  await expect(page.locator('[role="alert"]')).toHaveCount(0);
 });
 
 test('O1: klappt die Liste durch Verkleinern ein, während der Fokus in ihr steht, geht der Fokus auf den Schalter', async ({ page }) => {

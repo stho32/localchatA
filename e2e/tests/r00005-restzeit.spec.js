@@ -213,8 +213,9 @@ test('US-13: „zuletzt online“ ist ein grau gefüllter Punkt, kein gestrichel
 
   await instanz.beenden();
 
-  await expect(page.locator('#lc-verbindung')).toBeVisible();
-  await expect(page.locator('#lc-verbindung')).toContainText('Verbindung unterbrochen');
+  // Seit R00025 F0084: die Leiste „⚠ Verbindung verloren“ statt des Hinweises „Verbindung unterbrochen“.
+  await expect(page.locator('.lc-center > .lc-leiste')).toHaveText(/^⚠ Verbindung verloren/);
+  await expect(page.locator('#lc-verbindung')).toHaveCount(0);
   const punkte = await region(page).locator('.lc-person').evaluateAll((zeilen) => {
     const probe = document.createElement('span');
     probe.style.color = 'var(--lc-offline)';

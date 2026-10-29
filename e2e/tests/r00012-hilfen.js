@@ -1,13 +1,13 @@
 'use strict';
-// Hilfen für R00012 (Senden bei Störungen und mit Komfort): Netz eines Browser-Kontexts aus und an, die Leiste oben im
-// Verlauf, Sätze in der Tagesdatei, die Statusregion der Ansage.
+// Hilfen für R00012 (Senden bei Störungen und mit Komfort): Netz eines Browser-Kontexts aus und an, die Leiste oben über
+// der Mitte (seit R00025), Sätze in der Tagesdatei, die Statusregion der Ansage.
 const fs = require('fs');
 const path = require('path');
 const { expect } = require('@playwright/test');
 
 const ROUTE = '**/api/channels/*/nachrichten';
 
-const leiste = (page) => page.locator('.lc-verlauf .lc-leiste');
+const leiste = (page) => page.locator('.lc-center > .lc-leiste');
 const vorlaeufige = (page) => page.getByRole('log').locator('.lc-msg.lc-vorlaeufig');
 /// Bestätigte (nicht vorläufige) Nachrichten, deren Text genau `text` ist.
 const bestaetigt = (page, text) => page.getByRole('log').locator('.lc-msg:not(.lc-vorlaeufig)')
