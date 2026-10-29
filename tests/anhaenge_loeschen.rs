@@ -555,3 +555,45 @@ async fn geloescht_antwortet_410_vor_etag_und_bereich() {
         }
     }
 }
+
+/// Neustart (B0510): nach dem Löschen bleiben `a` und `b` 410, `anhang_belegt` wie vorher, keine `WARNING laden`
+/// für die 0-Byte-Dateien (Mutante „Länge 0 ist Waise“).
+#[tokio::test]
+async fn geloescht_bleibt_nach_dem_neustart() {
+    let g = gegeben().await;
+    let (gamma, token) = &g.gamma;
+    assert_eq!(
+        loeschen(
+            gamma,
+            g.basis(),
+            token,
+            json!({"ids": [g.a, g.b], "bestaetigt": true})
+        )
+        .await
+        .status,
+        200
+    );
+    let belegt = gesundheit(g.basis()).await["anhang_belegt"].clone();
+    let Gegeben {
+        wurzel,
+        instanz,
+        a,
+        b,
+        ..
+    } = g;
+    drop(instanz);
+
+    let instanz = starten(wurzel.path(), &[], &[]);
+
+    let leser = Absender::von("127.0.0.1");
+    for id in [&a, &b] {
+        assert_eq!(abrufen(&leser, &instanz.adresse, id).await, 410);
+    }
+    assert_eq!(gesundheit(&instanz.adresse).await["anhang_belegt"], belegt);
+    drop(instanz);
+    let laden: Vec<String> = gemeinsam::protokoll::alle_zeilen(wurzel.path())
+        .into_iter()
+        .filter(|zeile| zeile.contains("WARNING laden"))
+        .collect();
+    assert!(laden.is_empty(), "{laden:#?}");
+}
