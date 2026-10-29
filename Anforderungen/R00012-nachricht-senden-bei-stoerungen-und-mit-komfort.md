@@ -38,6 +38,8 @@ Im LAN wackelt das WLAN, Laptops schlafen ein, die Instanz wird neu gestartet. O
 - Nach jedem Wiederverbinden des Stroms und nach `NeuerStand` holt der Tab für den offenen Channel `GET …/nachrichten?nach=<jüngste bestätigte Zeit>&n=200` in Blöcken, bis `neuer` falsch ist, höchstens **5** Blöcke; gilt danach noch `neuer`, öffnet er den Channel neu wie „Zum Neuesten“. Nachgeholte Nachrichten werden über die Zeit eingeordnet (R00011), jede genau einmal.
 - Die Leiste zeigt danach **4 s** lang „✓ Wieder verbunden · n nachgeladen“ (n = Zahl der nachgeholten Nachrichten, mit Tausenderpunkt), „✓ Wieder verbunden“ bei n = 0, „✓ Wieder verbunden · neueste geladen“ nach einem Neu-Öffnen.
 - Erst nach dem Nachholen läuft die Warteschlange weiter (F0046) — so stehen fremde Nachrichten aus der Zeit der Trennung vor den eigenen gepufferten, wie es ihre Zeiten verlangen.
+- **Nichts geht zwischen Nachholen und Strom verloren** (Nacharbeit #22): Ereignisse `nachricht` des offenen Channels werden ab dem ersten Ereignis des neuen Stroms angenommen, nicht erst nach dem Nachholen. Was nachgeholt und was live empfangen wird, steht genau einmal im Verlauf, in der Folge seiner Zeiten — auch wenn eine live empfangene Nachricht jünger ist als die nachgeholten, und ebenso nach `NeuerStand`.
+- **Scheitert das Nachholen** (Nacharbeit #22): jeder Abruf `nach=` bricht 10 s nach seinem Beginn ab (`AbortController`, wie die Zeitgrenze des Sendens). Scheitert ein Abruf (Netzfehler, Zeitgrenze, Status außer 200), zeigt die Leiste nie „✓ Wieder verbunden“, solange Nachrichten der Lücke fehlen: sie bleibt „⚠ Verbindung verloren“, die Warteschlange ruht, und der Tab versucht das Nachholen still erneut — 1 s, 2 s und 5 s nach dem ersten, zweiten und dritten gescheiterten Versuch, danach alle 10 s (der Rückzug des Stroms). Erst nach einem gelungenen Nachholen kommt die Meldung (n zählt alle nachgeholten Nachrichten) und läuft die Warteschlange weiter. Nach `NeuerStand` gilt dasselbe ohne Leiste und ohne Ruhen der Warteschlange. Eine erneute Trennung beendet die Versuche (das Wiederverbinden beginnt neu); ein Channelwechsel ebenso — der neue Channel wird vollständig geöffnet, die Leiste zeigt „✓ Wieder verbunden“, die Warteschlange läuft weiter.
 
 ### Entwurf, Längenanzeige und Textprüfung im Browser (F0048; ADR-0038 Regeln 2, 4, 7, 8)
 
@@ -64,8 +66,9 @@ Im LAN wackelt das WLAN, Laptops schlafen ein, die Instanz wird neu gestartet. O
   | Z8 | Antwort verloren, Wiederholung | Gate (E2E) — Regel | Antwort geht verloren; Wiederholung mit demselben Schlüssel | genau ein Satz im Log, eine Nachricht im Verlauf | exakt | Wiederholschlüssel |
   | Z11 | Zeitgrenze ohne Antwort | Gate (E2E) — Zustellung; Regel exakt im Node-Test | `Enter` → „Keine Antwort vom Server.“ sichtbar; Route antwortet nie | 10 s + ein Frame | 9 s nach `Enter` noch „wird gesendet …“, spätestens 13 s nach `Enter` fehlgeschlagen | ein toter Server lässt keine Nachricht ewig hängen |
   | Z12 | Entwurf gespeichert | Gate (E2E) | letzte Taste → Eintrag in `sessionStorage` | ≤ 500 ms | 1 s | Neuladen kurz nach dem Tippen verliert nichts |
+  | Z13 | Nachhol-Abruf ohne Antwort | Gate (E2E) — Zustellung; Regel exakt im Node-Test | Beginn des ersten Abrufs `nach=`; die Route antwortet auf ihn nie | 10 s Zeitgrenze + 1 s Rückzug = 11 s bis zum zweiten Abruf | 9 s nach Beginn noch kein zweiter Abruf, spätestens 15 s nach Beginn läuft er | ein hängender Abruf hält Lücke und Warteschlange nicht für immer fest (Nacharbeit #22) |
 
-  Reserve: Z6 > 10 × über dem erwarteten Wert; Z11 30 % über der Regel (10 s → 13 s); Z12 das Doppelte der Schreibgrenze.
+  Reserve: Z6 > 10 × über dem erwarteten Wert; Z11 30 % über der Regel (10 s → 13 s); Z12 das Doppelte der Schreibgrenze; Z13 36 % über dem erwarteten Wert (11 s → 15 s).
 - **Sicherheit**: der Wiederholschlüssel gilt je Kennung — ein fremder Absender kann ihn weder treffen noch auslesen; Speicher begrenzt (4 096 Einträge, 10 min); Format abgewiesen, nie umgeformt; eine Wiederholung bucht am Schreibkonto.
 - **Benutzerfreundlichkeit**: Fehler an der Nachricht mit ⚠ und Wort; Fokus nach „Erneut senden“, „Verwerfen“ und `/`/`Esc` im Feld; höchstens eine Ansage je 10 s außer bei Fehlschlägen; bei 320 px kein Querscrollen, auch mit Hinweiszeile und Schaltern.
 - **Testbarkeit**: Zustellung, Nachholen, Hinweis, Fokus-Tasten und Ansage als reine Funktionen mit Node-Tests und gestellter Zeit; Abrisse im E2E über `context.setOffline` und `page.route`.
@@ -99,7 +102,12 @@ Gemeinsam für alle Kriterien wie in R00011: Start mit `TZ=Europe/Berlin localch
 - [ ] Zu viel verpasst (E2E): wie oben, aber während der Trennung senden 44 Agenten auf den Herkünften `127.0.0.2` bis `127.0.0.12` je 25 Nachrichten (1 100 > 5 × 200; je Kennung 25, je Herkunft 100 — kein 429) → nach dem Wiederverbinden hat B neu geöffnet, die neueste der 1 100 ist sichtbar, die Leiste zeigt „✓ Wieder verbunden · neueste geladen“.
 - [ ] Fremde vor eigenen (E2E; Begründung: ADR-0037 Pre-Mortem 2, Designsystem „gepuffert“): Strom von A getrennt; A sendet `eigen` (gepuffert); `beta` sendet `f1` und `f2` über die API; Strom wieder → der Verlauf von A zeigt `f1`, `f2`, `eigen` in dieser Folge, je einmal; laut Netzprotokoll beginnt der `POST` von `eigen` erst nach dem Ende des Abrufs `nach=`.
 - [ ] `NeuerStand` (Node-Test): das Signal `NeuerStand` bei verbundenem Strom löst dasselbe Nachholen aus wie ein Wiederverbinden.
-- [ ] Konsole bei A und B: keine unbehandelte Ausnahme, kein CSP-Verstoß; Konsolenfehler höchstens „Failed to load resource“ zu Anfragen, die bei getrenntem Netz scheitern.
+- [ ] **Zusammenführen** (Node-Test, rein; Nacharbeit #22): bekannte Zeiten 1–3, live angenommen 6, nachgeholter Block 4, 5 → Folge 1, 2, 3, 4, 5, 6, je einmal; enthält der Block die 6 schon → 6 einmal; leerer Block → unverändert. Die Mutante „nur Zeiten größer als die jüngste“ (das heutige `einordnen`) wird rot.
+- [ ] **Während des Abrufs** (E2E, Nacharbeit #22; Zweck: „jede genau einmal“ auch im Wettlauf zwischen Nachholen und Strom; Abnahme-Probe aus dem Code-Review #22, Muss B1, wörtlich übernommen): „(1) B getrennt, beta sendet l1; Abruf nach= per route.fetch, danach beta „waehrend“, Antwort 0/300/1500 ms zurückgehalten → l1 und waehrend je 1× in Zeitfolge; (2) nachricht-Ereignisse verschluckt, beta s1, s2, dann NeuerStand, während des gehaltenen Abrufs beta „live“ → s1, s2, live je 1×; (3) ohne Halten unverändert. Mutante „Block nach Live-Ereignis verworfen“ rot.“ Vor der Nacharbeit rot (waehrend = 0 bei 300 und 1 500 ms; s1 = 0, s2 = 0).
+- [ ] **Neuversuch** (Node-Test, rein, gestellte Zeit; Nacharbeit #22): Nachholen scheitert bei 0 ms und danach immer → Versuche bei 1 000, 3 000, 8 000, 18 000 und 28 000 ms; keine Meldung, die Warteschlange ruht; gelingt der Versuch bei 8 000 ms mit 3 Nachrichten → „✓ Wieder verbunden · 3 nachgeladen“, die Warteschlange läuft weiter. Ein Abruf läuft bei 9 999 ms noch und ist bei 10 000 ms abgebrochen. Die Mutanten „Fehler als 0 nachgeholt“, „kein Neuversuch“, „Zeitgrenze 9 s“ und „Zeitgrenze 11 s“ werden je rot.
+- [ ] **Gescheitertes Nachholen** (E2E, Nacharbeit #22; Abnahme-Probe aus dem Code-Review #22, Muss B2, wörtlich übernommen): „B getrennt, beta g1–g3, erster nach=-Abruf abort bzw. 500, danach Durchlass → nie „✓ Wieder verbunden“, solange g1–g3 fehlen; spätestens nach dem nächsten erfolgreichen Abruf je 1×; Variante zweimal scheitern; ohne Störung US-6 grün.“ Vor der Nacharbeit rot („✓ Wieder verbunden“, die Lücke blieb still).
+- [ ] **Nachhol-Abruf hängt** (E2E, **Z13**; Nacharbeit #22, Code-Review A3): wie „Gescheitertes Nachholen“, aber die Route antwortet auf den ersten Abruf `nach=` nie → 9 s nach seinem Beginn kein zweiter Abruf und kein „✓ Wieder verbunden“; spätestens 15 s nach seinem Beginn läuft der zweite, danach „✓ Wieder verbunden · 3 nachgeladen“ und g1–g3 je einmal.
+- [ ] Konsole bei A und B: keine unbehandelte Ausnahme, kein CSP-Verstoß; Konsolenfehler höchstens „Failed to load resource“ zu Anfragen, die bei getrenntem Netz scheitern, und zu den gestellten Abbrüchen und 500 in „Gescheitertes Nachholen“ und „Nachhol-Abruf hängt“.
 
 ### F0048 Entwurf, Längenanzeige und Textprüfung im Browser
 
@@ -109,6 +117,7 @@ Gemeinsam für alle Kriterien wie in R00011: Start mit `TZ=Europe/Berlin localch
 - [ ] Steuerzeichen (E2E): A fügt `rot ` + `\u001b` + `[31m` ein → „⚠ Steuerzeichen U+001B an Stelle 5 — bitte entfernen.“, `Enter` sendet nicht.
 - [ ] Ansagen der Hinweiszeile (E2E): A tippt von 14 990 auf 16 390 Bytes, je 10 Zeichen auf einmal → der angesagte Inhalt (`aria-live`) ändert sich genau zweimal: beim Überschreiten von 15 000 und beim Wechsel in „Zu lang“.
 - [ ] Entwurf (E2E, **Z12**): A tippt `halb` in `# allgemein` → spätestens **Z12** nach der letzten Taste steht `halb` in `sessionStorage` unter `localchatA.entwurf.allgemein`; A wechselt nach `# technik` → das Feld ist leer; zurück → `halb` steht im Feld; A lädt neu → `halb` steht im Feld; ein neu geöffneter Tab (nicht dupliziert) in `# allgemein` → das Feld ist leer; A sendet `halb` → nach erneutem Neuladen ist das Feld leer; A tippt `x` und löscht es → kein Eintrag für `allgemein`; in `localStorage` steht nie ein Entwurf.
+- [ ] **Entwurf beim schnellen Wechsel** (E2E, Nacharbeit #22; Zweck: der Entwurf geht auch vor Ablauf der 500 ms nicht verloren; Abnahme-Probe aus dem Code-Review #22, Muss B3 b, wörtlich übernommen): „A tippt x, wechselt < 200 ms nach # technik und zurück → Feld zeigt x; Variante Wechsel + Neuladen.“ Die Mutante „beim Wechsel nicht geschrieben“ wird rot.
 - [ ] Fokus (Node-Test und E2E): Fokus auf der Seitenleiste, `/` → Fokus im Feld, kein `/` im Feld; im Feld `/` → wird getippt; Fokus im Verlauf, `Esc` → Fokus im Feld; Fokus im Feld mit Entwurf `a` in `# allgemein`, `Alt ↓` nach `# technik` mit Entwurf `b` → Fokus im Feld, Inhalt `b`.
 - [ ] Schmal (E2E): bei 320 px mit Fehler in der Hinweiszeile `scrollWidth <= innerWidth`.
 - [ ] Konsole bei A: keine unbehandelte Ausnahme, kein CSP-Verstoß, keine Konsolenfehler.
@@ -118,6 +127,7 @@ Gemeinsam für alle Kriterien wie in R00011: Start mit `TZ=Europe/Berlin localch
 - [ ] Bündeln (Node-Test, rein, gestellte Zeit; Channel `# allgemein`): t = 0 fremd von `claude@10.0.0.5` → „Neue Nachricht von claude@10.0.0.5 in # allgemein“; t = 1, 2, 3 s fremd → nichts; t = 9,999 s → nichts; t = 10 s → „3 neue Nachrichten in # allgemein“; t = 25 s fremd → sofort „Neue Nachricht von …“; t = 26 s fremd, t = 35 s → „1 neue Nachricht in # allgemein“; eigene, nachgeladene und nachgeholte Nachrichten → nie; Fehlschlag bei t = 36 s → sofort „Nachricht nicht gesendet: <Grund>“. Eine fremde Nachricht je Sekunde über 60 s → höchstens 7 Ansagen. Die Mutanten „9 s“ und „11 s“ werden je rot.
 - [ ] Region (E2E): die Seite hat genau eine Region `role="status"` mit `aria-live="polite"` außerhalb des Verlaufs, visuell verborgen (Größe 1 × 1 px oder kleiner, nicht `display:none`); der Verlauf bleibt `aria-live="off"`.
 - [ ] Ansage (E2E): B hat `# allgemein` gewählt; `beta` sendet `Hallo` → die Region enthält „Neue Nachricht von beta@127.0.0.1 in # allgemein“; `beta` sendet an `technik` → die Region ändert sich nicht; B sendet selbst → die Region ändert sich nicht.
+- [ ] **Takt der Sammelansage** (E2E, Nacharbeit #22; die Regel prüft „Bündeln“ exakt, hier die Zustellung; Uhr ab dem Erscheinen der ersten Ansage; Abnahme-Probe aus dem Code-Review #22, Muss B3 a, wörtlich übernommen): „Ruhe > 10 s, beta h1, dann h2–h4 in 3 s → zuerst „Neue Nachricht von beta@127.0.0.1 in # allgemein“, 10 s ± 1 s danach genau einmal „3 neue Nachrichten in # allgemein“.“ Die Mutante „Takt nicht gestellt“ wird rot.
 - [ ] Fehlschlag (E2E): die Route antwortet auf den `POST` von A 500 → die Region von A enthält „Nachricht nicht gesendet: Nicht gespeichert — der Server konnte nicht schreiben.“, auch wenn A in den 10 s davor schon eine Ansage bekam.
 - [ ] Konsole bei A und B: keine unbehandelte Ausnahme, kein CSP-Verstoß; Konsolenfehler höchstens „Failed to load resource“ zur gestellten 500 in „Fehlschlag“.
 
@@ -143,6 +153,7 @@ Die Bubbles aus der WBS als Datenfluss — **Vorplanung**: welche es am Ende wer
 - F0047: B0243 Nachholen in Blöcken · B0244 Wieder-verbunden-Meldung · B0245 Nachholen verdrahten (unklar)
 - F0048: B0246 Textregel im Browser (rein) · B0247 Hinweis formen (rein) · B0248 Hinweiszeile und Senden sperren · B0249 Entwurf je Channel · B0250 Fokus in die Eingabe
 - F0049: B0251 Ansage bündeln (rein) · B0252 Ansage verdrahten
+- Nacharbeit #22 (2026-10-29): F0047 B0390 Lücke und Live-Strom zusammenführen (rein) · B0391 Zusammenführen verdrahten (unklar) · B0392 Zeitgrenze im Nachhol-Abruf · B0393 Gescheitertes Nachholen hält die Lücke offen (unklar); F0048 B0394 Entwurf beim schnellen Channelwechsel belegt (nur Test); F0049 B0395 Takt der Sammelansage belegt (nur Test)
 
 **Elemente** (nur öffentliche Signaturen): `Wiederholung` (rein) — `fn pruefen(&mut self, kennung, schluessel, channel, pruefsumme, jetzt) -> Neu | Wiederholt { zeit } | Anders`, Konstanten `HOECHSTENS_EINTRAEGE = 4_096`, `HOECHSTENS_ALTER = 10 min`; Oberfläche rein: `nachholen(jungste, port) → {nachrichten, zahl} | "neu"`, `meldung(zahl | "neu")`, `textPruefen(text)`, `hinweis(ergebnis, bytes)`, `fokusTaste(ereignis, ort)`, `ansage(zustand, ereignis, jetzt) → {zustand, text?}`.
 
@@ -155,7 +166,7 @@ Wireframe: Artboard `D0003.dc.html` fehlt (Hinweis `/wireframe verfeinern D0003`
 
 ## Tests
 
-Nach Skill `test-pyramide` und ADR-0009; Tests sind nie schärfer als diese Anforderung und übernehmen Z6, Z11, Z12 wörtlich. **Unit:** Schlüssel (Spannen, Mutanten). **Integration:** Format, Wiederholung, 20 gleichzeitig, Wiederholung bucht. **Oberfläche rein:** Zustellung erweitert, Nachholen, Meldung, Textregel, Hinweis, Fokus, Ansage. **E2E:** Z7, Z8, Erneut senden, Verwerfen, Z11, 401, Z6, zu viel verpasst, fremde vor eigenen, Entwurf, Hinweis, Ansage — Abrisse über `setOffline` und `page.route`, Zeiten ereignisgenau, nie im Standardraster von `expect`.
+Nach Skill `test-pyramide` und ADR-0009; Tests sind nie schärfer als diese Anforderung und übernehmen Z6, Z11, Z12 wörtlich. **Unit:** Schlüssel (Spannen, Mutanten). **Integration:** Format, Wiederholung, 20 gleichzeitig, Wiederholung bucht. **Oberfläche rein:** Zustellung erweitert, Nachholen, Meldung, Textregel, Hinweis, Fokus, Ansage. **E2E:** Z7, Z8, Erneut senden, Verwerfen, Z11, 401, Z6, zu viel verpasst, fremde vor eigenen, Entwurf, Hinweis, Ansage — Abrisse über `setOffline` und `page.route`, Zeiten ereignisgenau, nie im Standardraster von `expect`. Seit der Nacharbeit #22 auch der Wettlauf zwischen Nachholen und Strom (zurückgehaltener Abruf `nach=`), gescheitertes und hängendes Nachholen (Z13), der Entwurf beim schnellen Wechsel und der Takt der Sammelansage; Zusammenführen und Neuversuch als reine Funktionen.
 
 ## Abhängigkeiten
 
@@ -174,6 +185,7 @@ Entschieden vom planer für R00012 (Rückfragen mit Empfehlung beantwortet):
 - **401 zweimal → Grund aus der zweiten Antwort**; ADR-0037 nennt für diesen Fall keinen Text.
 - **Text für einen fremden Schlüssel**: „Dieser Schlüssel gehört zu einer anderen Nachricht.“ (ADR-0034 nennt keinen).
 - **„Fremde vor eigenen“ als Kombination zweier Ausnahmewege**: begründet aus ADR-0037 Pre-Mortem 2 und dem Designsystem („gepuffert“); sonst keine Kombinationen.
+- **Gescheitertes Nachholen: stiller Neuversuch** (Nacharbeit #22, Code-Review B2 und A3): keine Meldung, Leiste bleibt „Verbindung verloren“, Warteschlange ruht, Neuversuch mit dem Rückzug des Stroms, Zeitgrenze 10 s je Abruf. Verworfen: eine Fehlerleiste mit Schalter (verlangt einen Klick, ließe eigene vor fremde ältere Nachrichten) und der Rückfall auf Neu-Öffnen (scheitert unter derselben Störung, die Lesestelle ginge verloren). Folge: scheitert jeder Abruf, bleiben eigene Nachrichten „wird gesendet …“ — sie gehen nicht verloren. Bestätigung des architekt als Ergänzung zu ADR-0037 Regel 7 (WBS, Offene Fragen #22 Punkt 1).
 - **Ansage-Regel „sofort“**: sofort heißt, seit der letzten Ansage sind mindestens 10 s vergangen und nichts ist gesammelt — so sind „erste nach Ruhe“ und „höchstens alle 10 s“ eine Regel.
 
 ## Manuelle Vorbereitungstätigkeiten
@@ -193,6 +205,7 @@ Aus der WBS gezählt (`/planung zaehlen` je Slice); Standard-Bubbles mit der Unt
 - F0048 Entwurf, Längenanzeige und Textprüfung im Browser = 5 Bubbles: 5 Standard (0,4h). Rest: 2,0h klar.
 - F0049 Gebündelte Ansage = 2 Bubbles: 2 Standard (0,4h). Rest: 0,8h klar.
 - I0020 gesamt = 16 Bubbles: 13 Standard, 3 unklar. Rest: 5,2h klar + 6–12h unklar (Richtwerte ungemessen).
+- Nacharbeit #22 (2026-10-29) = 6 Bubbles: 4 Standard (0,4h) — B0390, B0392, B0394, B0395; 2 unklar (2–4h) — B0391, B0393. Rest: 1,6h klar + 4–8h unklar (Richtwerte, ungemessen für den Typ Nacharbeit).
 - Nicht enthalten: Codeblock-Regel (I0017), Anhänge (I0010), Ansage von Erwähnungen und Direktnachrichten (I0013, I0012).
 
 ## Warum löst diese Anforderung das Problem? (Pflicht)
@@ -211,6 +224,12 @@ Auslöser: Im LAN bricht eine Verbindung genau dann ab, wenn jemand gerade sende
 - **Eine Anforderung je Slice**: verworfen — die vier Slices bilden das Arbeitspaket I0020 und durchlaufen gemeinsam Entwicklertest und Abnahme.
 - **Fehler nur ohne Wiederholschlüssel wiederholen** (Inhaltsgleichheit im Zeitfenster): in ADR-0034 verworfen — ein Agent, der zweimal „ok“ sagt, verlöre die zweite Nachricht.
 - **„noch n Zeichen“ in Zeichen statt Bytes**: verworfen — die Grenze ist in Bytes; eine Zahl in Zeichen könnte mehr versprechen, als passt.
+
+### Review 2026-10-29 (Nacharbeit #22, planer im Auftrag des Directors)
+
+- F0047: zwei Zusagen ausgeschrieben — „Nichts geht zwischen Nachholen und Strom verloren“ (Code-Review B1: Ereignisse während des Abrufs wurden verworfen, nach `NeuerStand` fiel der ältere Block weg) und „Scheitert das Nachholen“ (Code-Review B2: ein gescheiterter Abruf meldete „✓ Wieder verbunden“, die Lücke blieb still; A3: der Abruf hatte keine Zeitgrenze). Neu Z13 und die Kriterien „Zusammenführen“, „Während des Abrufs“, „Neuversuch“, „Gescheitertes Nachholen“, „Nachhol-Abruf hängt“, je mit der Abnahme-Probe wörtlich, wo es eine gibt.
+- F0048, F0049: Kriterien „Entwurf beim schnellen Wechsel“ und „Takt der Sammelansage“ (Code-Review B3: die Zusagen standen da, kein E2E belegte sie); neu US-15.
+- Nicht hier, sondern in R00025 (Härtung aus denselben Reviews): eine Warnung mit Countdown statt Leiste und R00005-Hinweis, Ansage von Trennen und Wiederverbinden (F0084); „Verwerfen“ entfernt erst nach 5 s mit „Rückgängig“ (F0085, ändert F0046 „Verwerfen“); Schalter „Steuerzeichen entfernen“ und kein Hinweis bei Text nur aus Leerraum (F0086; „Umgeformt wird nichts“ gilt weiter ohne Klick); Höchstzahl je Kennung im Wiederholspeicher, Verdrängung im Protokoll (F0087, ändert „höchstens die 4 096 jüngsten Einträge“); ein Weg zum Wiederbeitritt (F0088). Diese Stellen gelten hier, bis R00025 gebaut ist.
 
 ### Bewusst außerhalb
 
