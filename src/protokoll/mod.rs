@@ -687,6 +687,57 @@ mod tests {
         assert_eq!(protokoll.kennzahlen().verworfen, 1);
     }
 
+    /// R00034 F0125 (ADR-0049 Regel 3): ein neues Protokoll am selben Tag rechnet die vorhandene Tagesdatei mit der
+    /// Klasse EINGRIFF an — Budgets 2 KiB; 2.100 B Sitzungszeilen verwerfen die nächste Sitzungszeile, die
+    /// Frist-Zeile (100 B vorhanden) passt noch.
+    #[test]
+    fn ein_neustart_rechnet_fristzeilen_der_datei_in_eingriff_an() {
+        let p = in_dateien("2026-10-29T12:00:00+01:00", Stufe::Information);
+        let protokoll = Protokoll::mit(
+            Box::new(Tagesdateien::neu(&p.ordner)),
+            p.stderr.spiegel(),
+            Arc::clone(&p.uhr) as Arc<dyn Uhr>,
+            Stufe::Information,
+        )
+        .mit_budgets(budget::Budgets {
+            debug: 2048,
+            information_warning: 2048,
+            error_exception: 2048,
+            eingriff: 2048,
+        });
+        let zeile = |bereich: &str, laenge: usize| {
+            let anfang = format!("2026-10-29T11:00:00.000+01:00 INFORMATION {bereich} ");
+            format!("{anfang}{}\n", "x".repeat(laenge - anfang.len() - 1))
+        };
+        let mut vorhanden = zeile("sitzung", 1050).repeat(2);
+        vorhanden.push_str(&zeile("frist", 100));
+        std::fs::create_dir_all(p.ordner.join("logs")).expect("logs");
+        std::fs::write(p.ordner.join("logs/2026-10-29.log"), &vorhanden).expect("Tagesdatei");
+        let vorher = p.datei("2026-10-29.log").len();
+
+        protokoll.eintragen(
+            Stufe::Information,
+            Bereich::Sitzung,
+            "Sitzung beigetreten",
+            Kontext::neu(),
+        );
+        protokoll.eintragen(
+            Stufe::Information,
+            Bereich::Frist,
+            "Frist 7 → 30 Tage gesetzt",
+            Kontext::neu(),
+        );
+
+        let neu: Vec<String> = p.datei("2026-10-29.log")[vorher..].to_vec();
+        assert_eq!(neu.len(), 2, "{neu:#?}");
+        assert!(neu[0].ends_with(" WARNING protokoll Tagesbudget INFORMATION+WARNING erreicht — weitere Einträge bis Mitternacht nur gezählt"), "{neu:#?}");
+        assert!(
+            neu[1].ends_with(" INFORMATION frist Frist 7 → 30 Tage gesetzt"),
+            "{neu:#?}"
+        );
+        assert_eq!(protokoll.kennzahlen().verworfen, 1);
+    }
+
     /// Löscht die Betreiberin die Tagesdatei am selben Tag, bleibt der angerechnete Verbrauch (konservativ).
     #[test]
     fn eine_geloeschte_tagesdatei_senkt_den_angerechneten_verbrauch_nicht() {

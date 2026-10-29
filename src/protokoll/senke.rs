@@ -17,7 +17,7 @@ pub trait Senke: Send {
     fn ordner(&self) -> Option<PathBuf> {
         None
     }
-    /// Was die Datei des Tages schon je Stufenklasse verbraucht (ADR-0042 Ergänzung #24 Punkt 9); ohne Datei 0.
+    /// Was die Datei des Tages schon je Klasse verbraucht (ADR-0042 Ergänzung #24 Punkt 9, ADR-0049); ohne Datei 0.
     fn verbrauch(&self, _tag: NaiveDate) -> [u64; 4] {
         [0; 4]
     }

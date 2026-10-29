@@ -4,6 +4,7 @@
 use super::Stufe;
 use super::eingriffe::ist_eingriff;
 use chrono::NaiveDate;
+use std::borrow::Cow;
 
 const MIB: u64 = 1024 * 1024;
 
@@ -147,14 +148,25 @@ pub fn verbrauch_je_klasse<Z: AsRef<[u8]>>(zeilen: impl IntoIterator<Item = Z>) 
     let mut verbrauch = [0; 4];
     for zeile in zeilen {
         let zeile = zeile.as_ref();
-        let klasse = zeile
-            .split(|&byte| byte == b' ')
-            .nth(1)
-            .and_then(stufe_aus_wort)
-            .map_or(Klasse::Debug, Klasse::von);
-        verbrauch[klasse.stelle()] += zeile.len() as u64;
+        verbrauch[klasse_der_zeile(zeile).stelle()] += zeile.len() as u64;
     }
     verbrauch
+}
+
+/// Klasse einer Zeile der Tagesdatei: Stufe (zweites Wort), Bereich (drittes) und der Text danach durch dieselbe
+/// Zuordnung wie beim Schreiben; was keine erkennbare Stufe hat, ist DEBUG.
+fn klasse_der_zeile(zeile: &[u8]) -> Klasse {
+    let mut woerter = zeile.splitn(4, |&byte| byte == b' ').skip(1);
+    let Some(stufe) = woerter.next().and_then(stufe_aus_wort) else {
+        return Klasse::Debug;
+    };
+    let bereich = woerter.next().map_or(Cow::Borrowed(""), |wort| {
+        String::from_utf8_lossy(wort.trim_ascii_end())
+    });
+    let text = woerter
+        .next()
+        .map_or(Cow::Borrowed(""), String::from_utf8_lossy);
+    Klasse::zuordnen(stufe, &bereich, &text)
 }
 
 fn stufe_aus_wort(wort: &[u8]) -> Option<Stufe> {
@@ -201,6 +213,40 @@ mod tests {
 
         assert_eq!(verbrauch_je_klasse(zeilen), [19, 22, 20, 0]);
     }
+    /// R00034 F0125 (ADR-0049 Regel 3, Wiederlesen): 2.100 B `INFORMATION sitzung` und 100 B `INFORMATION frist` →
+    /// `[0, 2100, 0, 100]`. Mutante „Wiederlesen nur nach Stufe“ → `[0, 2200, 0, 0]`.
+    #[test]
+    fn wiederlesen_ordnet_fristzeilen_der_klasse_eingriff_zu() {
+        let zeile = |bereich: &str, text: &str, laenge: usize| {
+            let anfang = format!("2026-10-29T11:00:00.000+01:00 INFORMATION {bereich} {text}");
+            format!("{anfang}{}\n", "x".repeat(laenge - anfang.len() - 1))
+        };
+        let zeilen = [
+            zeile("sitzung", "Sitzung beigetreten ", 1050),
+            zeile("sitzung", "Sitzung verlassen ", 1050),
+            zeile("frist", "Frist 7 → 30 Tage gesetzt ", 100),
+        ];
+        assert_eq!(zeilen.iter().map(String::len).sum::<usize>(), 2200);
+
+        assert_eq!(verbrauch_je_klasse(&zeilen), [0, 2100, 0, 100]);
+    }
+
+    #[test]
+    fn wiederlesen_erkennt_geloeschte_anhaenge_nur_am_textanfang_und_nur_bei_information() {
+        let zeilen = [
+            "t INFORMATION anhang Anhänge gelöscht | anhaenge=1\n",
+            "t INFORMATION anhang Großes Hochladen abgeschlossen\n",
+            "t ERROR frist Tag nicht entfallen\n",
+            "t INFORMATION frist\n",
+        ];
+
+        let verbrauch = verbrauch_je_klasse(zeilen);
+
+        assert_eq!(verbrauch[3], (zeilen[0].len() + zeilen[3].len()) as u64);
+        assert_eq!(verbrauch[1], zeilen[1].len() as u64);
+        assert_eq!(verbrauch[2], zeilen[2].len() as u64);
+    }
+
     use crate::protokoll::senke::Speicher;
     use crate::protokoll::testhilfe::{Aufzeichnung, zeit};
     use crate::protokoll::{Bereich, Kontext, Protokoll};
