@@ -11,7 +11,8 @@ import { gliederung, folgeGliedern, datumBenennen } from './gliederung.js';
 import { nachladen, einfuegen } from './fenster.js';
 import { einordnen, zusammenfuehren, buendlerAnlegen, folgenOderZaehlen, pillenText, auslaufNach } from './live-verlauf.js';
 
-// abrufen: async (name, cursor, signal) → { art: 'block' | 'fehler' | 'abgebrochen', … } (api.js verlaufAbrufen).
+// abrufen: async (name, cursor, signal) → { art: 'block' | 'fehler' | 'abgebrochen', … } (api.js verlaufAbrufen);
+// das Ergebnis von `oeffnen` sagt, ob der Verlauf steht.
 // Live (ADR-0037 Regeln 1, 6): nachrichtAnnehmen(nachricht, eigen) ordnet über die Zeit ein und fügt je Frame ein —
 // am Ende folgt der Blick, sonst zählt die Pille „n neue Nachrichten“; vorlaeufigeZeigen(liste) zeichnet eigene
 // Nachrichten unterwegs oder fehlgeschlagen unter allen bestätigten; an fehlgeschlagenen rufen „Erneut senden“ und
@@ -210,10 +211,16 @@ export function verlaufAnlegen({ abrufen, schalter = () => {}, fokusRueckgaengig
     }
   });
 
-  async function oeffnen(name) {
+  // Öffnet den Channel mit den neuesten 100 (ADR-0037 Ergänzung „Karte #61“, 7h): → { art: 'geladen' | 'fehler' |
+  // 'abgebrochen' }. Bricht der Aufrufer über `signal` ab (Zeitgrenze, Ende des Laufs), gilt das als Fehlschlag;
+  // übernimmt ein anderes Öffnen oder schließt der Verlauf, ist es abgebrochen. Ein erneutes Öffnen nach „Verlauf nicht
+  // geladen“ lässt den Hinweis bis zum Ergebnis stehen (7k).
+  async function oeffnen(name, signal = new AbortController().signal) {
     laufend.abort();
     laufend = new AbortController();
     const dieser = laufend;
+    signal.addEventListener('abort', () => dieser.abort());
+    const hinweisBleibt = name === offenerName && nichtGeladenSteht();
     offenerName = name;
     fenster = null;
     bloeckeKnoten = [];
@@ -229,24 +236,24 @@ export function verlaufAnlegen({ abrufen, schalter = () => {}, fokusRueckgaengig
     auslauf.style.height = '';
     ladenBeendet();
     log.setAttribute('aria-label', `Verlauf # ${name}`);
-    inhalt.replaceChildren();
+    if (!hinweisBleibt) {
+      inhalt.replaceChildren();
+    }
     lageMerken();
     const ergebnis = await abrufen(name, {}, dieser.signal);
-    if (dieser !== laufend || ergebnis.art === 'abgebrochen') {
-      return;
+    const vomAufruferAbgebrochen = ergebnis.art === 'abgebrochen' && signal.aborted;
+    if (dieser !== laufend || (ergebnis.art === 'abgebrochen' && !vomAufruferAbgebrochen)) {
+      return { art: 'abgebrochen' };
     }
-    if (ergebnis.art === 'fehler') {
-      const fehler = hinweis('⚠ Verlauf nicht geladen — Verbindung prüfen.', 'lc-mitte-hinweis lc-fehler');
-      fehler.setAttribute('role', 'alert');
-      inhalt.replaceChildren(fehler);
-      gescheitert = true;
-      return;
+    if (ergebnis.art !== 'block') {
+      nichtGeladen();
+      return { art: 'fehler' };
     }
     geladen = true;
     if (ergebnis.block.nachrichten.length === 0) {
       inhalt.replaceChildren(...leerHinweis(name));
       gepuffertesAnnehmen();
-      return;
+      return { art: 'geladen' };
     }
     angenommenMerken(ergebnis.block.nachrichten);
     eingeordnetMerken(ergebnis.block.nachrichten);
@@ -260,6 +267,24 @@ export function verlaufAnlegen({ abrufen, schalter = () => {}, fokusRueckgaengig
     lageMerken();
     gepuffertesAnnehmen();
     pruefen();
+    return { art: 'geladen' };
+  }
+
+  // „Verlauf nicht geladen“: steht der Hinweis schon, bleibt er derselbe Knoten (kein zweiter Alarm). Was bis hier
+  // gepuffert war, fällt weg, und bis zum nächsten Öffnen wird nichts gepuffert — das nächste Laden bringt es (7j).
+  function nichtGeladen() {
+    gescheitert = true;
+    puffer = [];
+    if (nichtGeladenSteht()) {
+      return;
+    }
+    const fehler = hinweis('⚠ Verlauf nicht geladen — Verbindung prüfen.', 'lc-mitte-hinweis lc-fehler');
+    fehler.setAttribute('role', 'alert');
+    inhalt.replaceChildren(fehler);
+  }
+
+  function nichtGeladenSteht() {
+    return inhalt.querySelector('[role="alert"]') !== null;
   }
 
   // Was vor dem Block ankam, geht jetzt den Weg jeder neuen Nachricht (ADR-0028 Regel 5).
@@ -269,9 +294,10 @@ export function verlaufAnlegen({ abrufen, schalter = () => {}, fokusRueckgaengig
     gepuffert.forEach(({ nachricht, eigen }) => nachrichtAnnehmen(nachricht, eigen));
   }
 
-  // Eine Nachricht des offenen Channels, fremd oder eigen bestätigt; vor dem ersten Block gepuffert.
+  // Eine Nachricht des offenen Channels, fremd oder eigen bestätigt; vor dem ersten Block gepuffert, nach „Verlauf nicht
+  // geladen“ verworfen.
   function nachrichtAnnehmen(nachricht, eigen) {
-    if (offenerName === null) {
+    if (offenerName === null || gescheitert) {
       return;
     }
     angenommenMerken([nachricht]);
@@ -625,7 +651,8 @@ export function verlaufAnlegen({ abrufen, schalter = () => {}, fokusRueckgaengig
     }
   }
 
-  // Nach „Verlauf nicht geladen“ öffnet eine neue Wahl desselben Channels ihn neu; sonst bleibt der Verlauf, wie er ist.
+  // Nach „Verlauf nicht geladen“ öffnet eine neue Wahl desselben Channels ihn neu (R00007); läuft ein Laden-Lauf, zieht
+  // die Wahl stattdessen dessen Versuch vor (hauptansicht.js, ADR-0037 7i). Sonst bleibt der Verlauf, wie er ist.
   function erneutVersuchen() {
     if (gescheitert) {
       oeffnen(offenerName);
@@ -659,9 +686,11 @@ export function verlaufAnlegen({ abrufen, schalter = () => {}, fokusRueckgaengig
     nachRueckgaengigFokussieren: (schluessel) => { fokusAufErneut = schluessel; },
     zumEndeFuerSenden,
     kennungSetzen: (kennung) => { eigeneKennung = kennung; },
-    // Woran das Nachholen ansetzt (ADR-0037 Regel 7): der offene Channel, ob sein Verlauf steht, die jüngste
-    // bekannte Zeit und ob der neueste Block im Fenster ist.
-    stand: () => ({ channel: offenerName, geladen, juengste, neuesterImFenster: fenster === null || !fenster.neuer }),
+    // Woran das Nachholen ansetzt (ADR-0037 Regel 7, 7g): der offene Channel, ob sein Verlauf steht oder das Laden
+    // gescheitert ist, die jüngste bekannte Zeit und ob der neueste Block im Fenster ist.
+    stand: () => ({
+      channel: offenerName, geladen, gescheitert, juengste, neuesterImFenster: fenster === null || !fenster.neuer,
+    }),
   };
 }
 
