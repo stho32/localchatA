@@ -88,15 +88,43 @@ export function eingabeAnlegen({ senden, entwurf }) {
     if (enterOhneZeile) {
       ereignis.preventDefault();
     }
-    const text = feld.value;
-    if (wirkung === 'senden' && sendbar(text)) {
-      feld.value = '';
-      hoeheAnpassen(feld);
-      textBewerten();
-      entwurf.gesendet(channel);
-      senden(text);
+    if (wirkung === 'senden') {
+      absenden();
     }
   });
+  // Ein Tippen auf den Knopf nimmt dem Feld den Fokus nicht: die Bildschirmtastatur bleibt offen (K4).
+  knopf.addEventListener('pointerdown', (ereignis) => {
+    if (document.activeElement === feld) {
+      ereignis.preventDefault();
+    }
+  });
+  knopf.addEventListener('click', absenden);
+  let kompositionLaeuft = false;
+  feld.addEventListener('compositionstart', () => {
+    kompositionLaeuft = true;
+  });
+  feld.addEventListener('compositionend', () => {
+    kompositionLaeuft = false;
+  });
+
+  // Der eine Absendeweg für Taste und Knopf (K1). Ein offener Wortvorschlag wird vor dem Leeren beendet — gesendet
+  // wird der Text, den das Feld zeigt, und keine Tastatur schreibt das Wort danach ins leere Feld zurück (K4).
+  function absenden() {
+    if (!sendbar(feld.value)) {
+      return;
+    }
+    if (kompositionLaeuft) {
+      feld.blur();
+      feld.focus();
+    }
+    const text = feld.value;
+    feld.value = '';
+    hoeheAnpassen(feld);
+    textBewerten();
+    entwurf.gesendet(channel);
+    senden(text);
+    feld.focus();
+  }
   window.addEventListener('pagehide', () => {
     if (channel !== null) {
       entwurf.weggehen(channel, feld.value);
