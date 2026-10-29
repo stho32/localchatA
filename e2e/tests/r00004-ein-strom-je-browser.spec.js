@@ -274,3 +274,38 @@ test('A1: Neustart, Tab a tritt bei und geht, zweiter Neustart — Tab b ist in 
   // Rückzug 0/1/2 s plus Start; der Fehler aus 9d16f07 lag bei 5,9 s (Übernahme nach 5 s).
   expect(zurueckNach).toBeLessThan(4500);
 });
+
+// Befund #58, Muster-Suche: auch der erste Strom nach dem Beitritt bekommt das eben vergebene Token, nie neu aus dem
+// Speicher gelesen — nimmt der Speicher das Token nicht an (voll, gesperrt; A6), lief der Strom sonst mit null und
+// wartete ewig: die eigene Zeile wurde nie online. Mit und ohne SharedWorker.
+for (const ohneSharedWorker of [false, true]) {
+  let titel = '';
+  if (ohneSharedWorker) {
+    titel = ' — ohne SharedWorker';
+  }
+  test(`Befund #58: Speicher nimmt das Token nicht an — der Strom läuft mit dem vergebenen Token${titel}`, async ({ browser }) => {
+    instanz = await instanzStarten({ port: await freierPort() });
+    const kontext = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+    await kontext.addInitScript(() => {
+      const setzen = Storage.prototype.setItem;
+      Storage.prototype.setItem = function setItem(schluessel, wert) {
+        if (schluessel === 'localchatA.sitzung') {
+          throw new DOMException('Speicher voll', 'QuotaExceededError');
+        }
+        return setzen.call(this, schluessel, wert);
+      };
+    });
+    if (ohneSharedWorker) {
+      await kontext.addInitScript(() => { delete window.SharedWorker; });
+    }
+    const tab = await kontext.newPage();
+    const fehler = fehlerSammeln(tab);
+    await tab.goto(instanz.adresse);
+    await tab.getByLabel('Name').fill('shoff');
+    await tab.getByLabel('Name').press('Enter');
+
+    await zeigtSichSelbst(tab);
+    await expect(tab.locator('.lc-center > .lc-leiste.lc-leiste-fehler')).toBeHidden();
+    expect(fehler).toEqual([]);
+  });
+}

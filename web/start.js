@@ -30,7 +30,7 @@ zeigen(await sitzungBeimLaden());
 // des Formulars auf dem Dokument.
 function zeigen(zustand, nachEingabe = false) {
   if (zustand.art === 'kopfzeile') {
-    hauptansichtZeigen(zustand.teilnehmer, nachEingabe);
+    hauptansichtZeigen(zustand.teilnehmer, zustand.token, nachEingabe);
     return;
   }
   beitretenBildschirm.zeichnen(wurzel, zustand, {
@@ -44,7 +44,9 @@ function zeigen(zustand, nachEingabe = false) {
 // `stand` zusammengeführt, geordnet und mit dem Versatz zur Serverzeit gezeichnet, Zeilen „gleich weg“ zählt der
 // Sekundentakt herunter; der Herzschlag erneuert nur den Versatz. Lehnt der Strom (beim zuständigen Tab) oder das Senden
 // das Token ab (Neustart, Gnadenfrist), führt ein Weg zum Wiederbeitritt (wiederbeitritt.js, R00025 F0088).
-function hauptansichtZeigen(teilnehmer, nachEingabe) {
+// Der Strom beginnt mit dem eben geprüften bzw. vergebenen Token, nie neu aus dem Speicher gelesen: den kann ein
+// Nachbar-Tab ohne Web Locks geleert haben, oder er nimmt nichts an (Befund #58).
+function hauptansichtZeigen(teilnehmer, token, nachEingabe) {
   const wiederBeitreten = wiederbeitrittAnlegen({
     speicher,
     api,
@@ -81,7 +83,7 @@ function hauptansichtZeigen(teilnehmer, nachEingabe) {
   let versatz = 0;
   stromBeenden();
   laufenderStrom = verbinden({
-    token: speicher.getItem(sitzung.SITZUNG),
+    token,
     version: document.querySelector('meta[name="lc-version"]').content,
     beiEreignis: (ereignis, neuerVersatz) => {
       versatz = neuerVersatz;
