@@ -198,6 +198,10 @@ Belege: `src/http/grenzschutz.rs:265–279` (Rückwärtsfrage, danach Vorwärtsf
   - Ende: Eine Laufzeit mit hängender Frage (Testauskunft blockiert 10 s) wird fallen gelassen → nach < 200 ms zurück. L2r: SIGTERM während `gibtsnicht.local` aufgelöst wird → Prozessende < 1 s (heute 4,0 s).
 - **Punkt 5:** Probe des `rechtschreib-reviewer`. `cargo run -- --hilfe | grep -c 'Risiko: eine fremde'` = 0. Die Hilfe enthält genau einmal den vollständigen Satz „Risiko: Eine fremde Website, die ein Teilnehmer öffnet, kann über DNS-Rebinding Channels mitlesen, Nachrichten schreiben und über die Frist Verläufe löschen.“. Die WARNING beginnt mit „--alle-namen ist aktiv: Jeder Host-Name wird angenommen“. Der Unit-Test, der Hilfe und `RISIKO` vergleicht, prüft die Gleichheit ab „fremde Website“.
 
+### 2026-10-29 — Karte #35 Nacharbeit, Prozessende
+
+Der eigene Faden aus Punkt 3 („Ende ohne Warten auf hängende Auflösung“) reicht allein nicht: die Laufzeit endet in < 200 ms, aber `exit()` der glibc wartet beim Verlassen von `main` weiter auf den Faden in `getaddrinfo` (echtes Programm 4,0 s, Probe C und Rust 5,0 s). Entschieden in [ADR-0010](0010-eigene-annahmeschleife-hyper-http1.md), Ergänzung „Prozessende ohne das Aufräumen der C-Bibliothek“: auf Unix endet `main` nach dem Abbau der Laufzeit mit `_exit`. Punkt 3 gilt unverändert; der L2r-Test „Prozessende < 1 s“ aus „Durchsetzung, ergänzt“ gehört zu jener Ergänzung (neue Bubble), der Test „Laufzeit < 200 ms“ bleibt bei B0421.
+
 ## Angriffsmatrix
 
 Übernommen vom `security-reviewer` (Karte #35, vor dem Bau, geprobt an `b0aa2a0`), inhaltlich unverändert; nur die Überschriften sind um zwei Ebenen eingerückt. Die dort offenen Entscheidungen E1–E8 sind in der Ergänzung oben entschieden — alle wie empfohlen. Vorsicht beim Lesen: „E1“ bis „E8“ steht in der Matrix dreifach — als Endpunkt (Kopf), als Zeile (Abschnitt IPv6) und als Entscheidung; Verweise auf Entscheidungen heißen immer „Entscheidung E…“.
