@@ -580,7 +580,7 @@ mod tests {
     fn metadaten_nach_iend_bleiben_byte_gleich() {
         let png_teil = handy_png(1);
         let dahinter = [
-            chunk(b"tEXt", b"GPS\052.5200 13.4050"),
+            chunk(b"tEXt", b"GPS\0 52.5200 13.4050"),
             chunk(b"eXIf", &handy_tiff()),
         ]
         .concat();
