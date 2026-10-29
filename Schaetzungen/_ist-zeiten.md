@@ -577,3 +577,8 @@ Nie vom User erfragen.
 | 2026-10-29 | R00029 Anhänge über die API | B0516 Anhang-Quote beim Start: INFORMATION start Instanz bereit nennt zusätzlich | Standard | 0,4h | 0,04h | 0,04h | autonom (entw) |
 | 2026-10-29 | R00029 Anhänge über die API | B0464 Keine Anhang-ID im Protokoll belegt: über das echte Programm auf Debug Anme | Standard | 0,4h | 0,02h | 0,02h | autonom (entw) |
 | 2026-10-29 | R00029 Anhänge über die API | B0465 B0466 Messwerkzeug examples/anhang-messung: qa3 (zwei PUT à 1 GiB, Gesundhe | Standard | 0,4h | 0,04h | 0,04h | autonom (entw) |
+| 2026-10-29 | R00022 Betriebsprotokoll nach den Reviews #8 | B0345 Ende-Zeile mit dem Kontext der Quelle | Standard | 0,4h | 1,50h | 1,50h | autonom (entw2) |
+| 2026-10-29 | R00022 Betriebsprotokoll nach den Reviews #8 | B0346 Vorlauf beim Start prüfen | Standard | 0,4h | 0,50h | 0,50h | autonom (entw2) |
+| 2026-10-29 | R00022 Betriebsprotokoll nach den Reviews #8 | B0347 Gelungenes Senden auf Debug | Standard | 0,4h | 0,30h | 0,30h | autonom (entw2) |
+| 2026-10-29 | R00022 Betriebsprotokoll nach den Reviews #8 | B0348 Überholung mit Zahl | Standard | 0,4h | 0,20h | 0,20h | autonom (entw2) |
+| 2026-10-29 | R00022 Betriebsprotokoll nach den Reviews #8 | B0349 Überholten Ereignisstrom melden | Standard | 0,4h | 0,40h | 0,40h | autonom (entw2) |
