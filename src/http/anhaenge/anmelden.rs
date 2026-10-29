@@ -89,6 +89,7 @@ pub async fn anmelden(
             angenommen(&anmeldung, &name, bytes)
         }
         Ok(Err(fehler)) => {
+            abweisung_melden(&zustand, &teilnehmer, &fehler, bytes);
             let (antwort, regel) = abgewiesen(&fehler);
             mit_regel(antwort, regel, Some(&wer))
         }
@@ -219,6 +220,56 @@ fn angenommen(anmeldung: &Anmeldung, name: &str, bytes: u64) -> Response {
         })),
     )
         .into_response()
+}
+
+/// Episoden der Abweisungen am Platz (B0463, ADR-0042 Ergänzungen „F1 und F4“ und „F1′“): `voll` und
+/// `hochladungen` je Kennung, `platte` je Herkunft — alle unter `anhang`, nie unter `quote`.
+fn abweisung_melden(
+    zustand: &Zustand,
+    teilnehmer: &Teilnehmer,
+    fehler: &Anmeldefehler,
+    bytes: u64,
+) {
+    let wer = teilnehmer.kennung.als_text();
+    let (text, quelle, kontext) = match fehler {
+        Anmeldefehler::Platz(Platzfehler::Voll(stand)) => (
+            episodentexte::ANHAENGE_VOLL,
+            wer.to_string(),
+            Kontext::neu()
+                .mit(Schluessel::Kennung, wer)
+                .mit(Schluessel::Bytes, bytes)
+                .mit(Schluessel::Belegt, stand.belegt)
+                .mit(Schluessel::Hoechstens, stand.hoechstens),
+        ),
+        Anmeldefehler::Platz(Platzfehler::Hochladungen(stand)) => (
+            episodentexte::HOCHLADUNGEN_BELEGEN,
+            wer.to_string(),
+            Kontext::neu()
+                .mit(Schluessel::Kennung, wer)
+                .mit(Schluessel::Reserviert, stand.reserviert)
+                .mit(Schluessel::Hoechstens, stand.hoechstens),
+        ),
+        Anmeldefehler::Platz(Platzfehler::Platte { frei }) => (
+            episodentexte::PLATTE_FAST_VOLL,
+            teilnehmer.herkunft.to_string(),
+            Kontext::neu()
+                .mit(Schluessel::Herkunft, teilnehmer.herkunft)
+                .mit(Schluessel::Bytes, bytes)
+                .mit(Schluessel::Frei, *frei),
+        ),
+        _ => return,
+    };
+    zustand.protokoll.episode(Auftreten {
+        stufe: Stufe::Warning,
+        bereich: Bereich::Anhang,
+        text,
+        quelle,
+        kontext,
+        art: None,
+        verworfen: None,
+        bytes: None,
+        anzeige: None,
+    });
 }
 
 /// Die Antwort auf eine abgewiesene Anmeldung und ihr Regelschlüssel.

@@ -342,6 +342,7 @@ fn tagestakt(
         gepflegt_am,
     } = fristpflege;
     let anhaenge = Arc::clone(&gespraeche);
+    let verfall_protokoll = Arc::clone(protokoll);
     Tagestakt::neu(Arc::clone(uhr), Arc::clone(protokoll))
         .tagesaufgabe(
             "bereinigen",
@@ -373,7 +374,9 @@ fn tagestakt(
             "anhaenge",
             "Anmeldungen und Hochladungen verfallen nicht mehr, ihre Reservierung bleibt",
             Box::new(move |_| {
-                anhaenge.anhaenge_ablaufen();
+                for verfallen in anhaenge.anhaenge_ablaufen() {
+                    verfall_melden(&verfall_protokoll, &verfallen);
+                }
             }),
         )
 }
@@ -627,6 +630,34 @@ fn quote_beim_start_melden(gespraeche: &Gespraeche, protokoll: &Protokoll) {
             eintrag.kontext,
         );
     }
+}
+
+/// Eine Anmeldung, die verfiel, ohne je fertig geworden zu sein → Episode je Herkunft `WARNING anhang Reservierung
+/// verfallen ohne Hochladen` (B0463, M22; ADR-0046 Ergänzung Karte #9 Gate Regel 4); dazu `DEBUG anhang` je Ablauf.
+fn verfall_melden(protokoll: &Protokoll, verfallen: &crate::gespraeche::anhangeingang::Verfallen) {
+    let kontext = Kontext::neu()
+        .mit(Schluessel::Kennung, verfallen.kennung.als_text())
+        .mit(Schluessel::Herkunft, verfallen.herkunft)
+        .mit(Schluessel::Bytes, verfallen.bytes);
+    if verfallen.ohne_hochladen {
+        protokoll.episode(Auftreten {
+            stufe: Stufe::Warning,
+            bereich: Bereich::Anhang,
+            text: crate::protokoll::episodentexte::RESERVIERUNG_VERFALLEN,
+            quelle: verfallen.herkunft.to_string(),
+            kontext: kontext.clone(),
+            art: None,
+            verworfen: None,
+            bytes: None,
+            anzeige: None,
+        });
+    }
+    protokoll.eintragen(
+        Stufe::Debug,
+        Bereich::Anhang,
+        "Anmeldung verfallen",
+        kontext,
+    );
 }
 
 /// Pflegt alle Channels nach ihrer Frist und trägt jeden Bericht ins Protokoll ein (R00017: nie selbst auf stderr).

@@ -82,6 +82,22 @@ pub async fn hochladen(
                 .mit(Schluessel::Bloecke, getilgt.bloecke)
                 .mit(Schluessel::Ort, if getilgt.ort { "ja" } else { "nein" }),
         ),
+        Ergebnis::Frist(_) | Ergebnis::Lebensende => {
+            zustand
+                .protokoll
+                .abgewiesen(crate::protokoll::zaehler::Abweisungsart::ZuLangsam);
+            zustand.protokoll.episode(Auftreten {
+                stufe: Stufe::Warning,
+                bereich: Bereich::Anhang,
+                text: crate::protokoll::episodentexte::HOCHLADEN_ZU_LANGSAM,
+                quelle: teilnehmer.herkunft.to_string(),
+                kontext: Kontext::neu().mit(Schluessel::Herkunft, teilnehmer.herkunft),
+                art: None,
+                verworfen: None,
+                bytes: None,
+                anzeige: None,
+            });
+        }
         Ergebnis::Metadaten(grund) => zustand.protokoll.episode(Auftreten {
             stufe: Stufe::Warning,
             bereich: Bereich::Anhang,

@@ -146,6 +146,8 @@ pub enum Schluessel {
     MibS,
     /// Länge eines Teilabrufs.
     Bereich,
+    Reserviert,
+    Frei,
     /// Eine gespeicherte Anhangdatei, nur als Präfix `<hhmmssmmm>-<n>` (ADR-0047 Ergänzung Gate Regel 3).
     Anhang,
 }
@@ -198,6 +200,8 @@ impl Schluessel {
             Schluessel::HochladenBis => "hochladen_bis",
             Schluessel::MibS => "mib_s",
             Schluessel::Bereich => "bereich",
+            Schluessel::Reserviert => "reserviert",
+            Schluessel::Frei => "frei",
         }
     }
 }
