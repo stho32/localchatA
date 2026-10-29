@@ -6,6 +6,7 @@ use super::Zaehler;
 use super::minimal::{minimales_exif, traegt_ort};
 use super::port::{Abbruch, Ergebnis, Port, STUECK};
 use crate::gespraeche::anhangpruefung::exif::orientierung;
+use std::collections::{HashMap, HashSet};
 
 /// `moov` und `meta` sind höchstens so groß — nur als Längengrenze, nie als Puffer.
 pub const HOECHSTENS_MOOV: u64 = 64 * 1_048_576;
@@ -161,7 +162,7 @@ fn moov_meta(port: &Port<'_>, meta: Kiste, zaehler: &mut Zaehler) -> Ergebnis<()
     }
     let anfang = meta_kinder_ab(port, meta)?.min(meta.ende);
     let kinder = kinder(port, anfang, meta.ende, zaehler)?;
-    let mut orte = Vec::new();
+    let mut orte = HashSet::new();
     if let Some(keys) = kinder.iter().find(|kind| &kind.typ == b"keys") {
         orte = ortsschluessel(port, *keys)?;
     }
@@ -182,11 +183,11 @@ fn moov_meta(port: &Port<'_>, meta: Kiste, zaehler: &mut Zaehler) -> Ergebnis<()
 }
 
 /// Die Nummern (ab 1) der Schlüssel in `keys`, die `location` enthalten.
-fn ortsschluessel(port: &Port<'_>, keys: Kiste) -> Ergebnis<Vec<u32>> {
+fn ortsschluessel(port: &Port<'_>, keys: Kiste) -> Ergebnis<HashSet<u32>> {
     let bytes = port.lesen(keys.inhalt, keys.ende - keys.inhalt)?;
     let anzahl = lies_u32(&bytes, 4)?;
     let mut stelle = 8usize;
-    let mut orte = Vec::new();
+    let mut orte = HashSet::new();
     for nummer in 1..=anzahl {
         let groesse = lies_u32(&bytes, stelle)? as usize;
         if groesse < 8
@@ -199,7 +200,7 @@ fn ortsschluessel(port: &Port<'_>, keys: Kiste) -> Ergebnis<Vec<u32>> {
         let schluessel =
             String::from_utf8_lossy(&bytes[stelle + 8..stelle + groesse]).to_lowercase();
         if schluessel.contains("location") {
-            orte.push(nummer);
+            orte.insert(nummer);
         }
         stelle += groesse;
     }
@@ -241,13 +242,12 @@ fn oberstes_meta(port: &Port<'_>, meta: Kiste, zaehler: &mut Zaehler) -> Ergebni
     let Some(iloc) = kinder.iter().find(|kind| &kind.typ == b"iloc") else {
         return metadaten("Exif-Item ohne iloc");
     };
-    let orte = ausdehnungen(port, *iloc)?;
+    let mut orte = HashMap::new();
+    for (kennung, ort) in ausdehnungen(port, *iloc)? {
+        orte.entry(kennung).or_insert(ort);
+    }
     for (id, item) in items {
-        let Some(&(pos, laenge)) = orte
-            .iter()
-            .find(|(kennung, _)| *kennung == id)
-            .map(|(_, ort)| ort)
-        else {
+        let Some(&(pos, laenge)) = orte.get(&id) else {
             return metadaten("Exif-Item nicht als Bytebereich der Datei");
         };
         if !port.enthaelt(pos, laenge) {
@@ -342,13 +342,19 @@ fn ausdehnungen(port: &Port<'_>, iloc: Kiste) -> Ergebnis<Vec<(u32, (u64, u64))>
         let ausdehnungen = lies_zahl(&bytes, stelle, 2)?;
         stelle += 2;
         let mut erste = None;
-        for _ in 0..ausdehnungen {
+        if ausdehnungen > 0 {
             stelle += index;
             let ab = lies_zahl(&bytes, stelle, versatz)?;
             stelle += versatz;
             let lang = lies_zahl(&bytes, stelle, laenge)?;
             stelle += laenge;
-            erste.get_or_insert((ab, lang));
+            erste = Some((ab, lang));
+        }
+        // Die übrigen Ausdehnungen nur überspringen: die Arbeit hängt an den Bytes, nicht an `extent_count` — bei
+        // Feldbreite 0 belegen 0xFFFF Ausdehnungen kein Byte (Befund #51 B1).
+        stelle += (ausdehnungen.saturating_sub(1) as usize) * (index + versatz + laenge);
+        if stelle > bytes.len() {
+            return metadaten("Längen widersprechen sich");
         }
         if let (Some((ab, lang)), 0, 0, 1) = (erste, methode, referenz, ausdehnungen)
             && let Some(anfang) = basis_versatz.checked_add(ab)
@@ -641,6 +647,153 @@ mod tests {
             .position(|f| f == b"MM\0*")
             .expect("minimales EXIF");
         assert_eq!(orientierung(&getilgt[tiff..]), Some(6));
+    }
+
+    /// Eine HEIC aus Teilen: `ftyp heic`, oberstes `meta` mit `hdlr`, `iinf` (Version 0) aus `infe` und dem `iloc`,
+    /// das `iloc` aus dem Anfang des `mdat` gebaut wird; `mdat` mit `daten`.
+    fn heic_aus(infe: &[Vec<u8>], iloc: impl Fn(u64) -> Vec<u8>, daten: &[u8]) -> Vec<u8> {
+        let iinf = kiste(
+            b"iinf",
+            &[&[0u8, 0, 0, 0, 0, 0][..], &infe.concat()].concat(),
+        );
+        let bauen = |mdat_anfang: u64| {
+            let meta = kiste(
+                b"meta",
+                &[
+                    &[0u8, 0, 0, 0][..],
+                    &kiste(b"hdlr", &[0; 25]),
+                    &iinf,
+                    &iloc(mdat_anfang),
+                ]
+                .concat(),
+            );
+            [kiste(b"ftyp", b"heic\0\0\0\0mif1heic"), meta].concat()
+        };
+        let mdat_anfang = bauen(0).len() as u64 + 8;
+        [bauen(mdat_anfang), kiste(b"mdat", daten)].concat()
+    }
+
+    fn exif_infe(id: u16) -> Vec<u8> {
+        kiste(
+            b"infe",
+            &[&[2u8, 0, 0, 0][..], &id.to_be_bytes(), &[0, 0], b"Exif\0"].concat(),
+        )
+    }
+
+    /// `iloc` mit Feldbreiten 0 (Größenbytes `00 00`): je Item `extent_count` 0xFFFF, keine Ausdehnung belegt ein Byte.
+    fn iloc_ohne_breiten(version: u8, items: u32) -> Vec<u8> {
+        let id_breite = if version < 2 { 2 } else { 4 };
+        let mut inhalt = vec![version, 0, 0, 0, 0x00, 0x00];
+        inhalt.extend_from_slice(&items.to_be_bytes()[4 - id_breite..]);
+        for id in 1..=items {
+            inhalt.extend_from_slice(&id.to_be_bytes()[4 - id_breite..]);
+            inhalt.extend_from_slice(&[0, 0, 0, 0, 0xFF, 0xFF]);
+        }
+        kiste(b"iloc", &inhalt)
+    }
+
+    fn in_hoechstens_2_s<T>(
+        was: &str,
+        daten: Vec<u8>,
+        pruefen: impl Fn(&Ergebnis<Zaehler>) -> T,
+    ) -> T {
+        let start = std::time::Instant::now();
+        let (ergebnis, _) = tilgen(daten);
+        let dauer = start.elapsed();
+        assert!(dauer.as_secs_f64() <= 2.0, "{was}: {dauer:?}");
+        pruefen(&ergebnis)
+    }
+
+    /// Befund #51 B1: Feldbreite 0 und `extent_count` 0xFFFF — die Arbeit hängt an den Bytes, nicht an den Zählern.
+    #[test]
+    fn iloc_mit_feldbreite_0_und_vielen_ausdehnungen_endet_in_2_s() {
+        for (version, items) in [(2u8, 1_000u32), (2, 104_000), (1, 1_000), (1, 65_535)] {
+            let daten = heic_aus(&[exif_infe(1)], |_| iloc_ohne_breiten(version, items), b"");
+            assert!(daten.len() <= 1_100_000, "{}", daten.len());
+
+            in_hoechstens_2_s(
+                &format!("iloc v{version}, {items} Items"),
+                daten,
+                |ergebnis| {
+                    assert!(
+                        matches!(
+                            ergebnis,
+                            Err(Abbruch::Metadaten(
+                                "Exif-Item nicht als Bytebereich der Datei"
+                            ))
+                        ),
+                        "{ergebnis:?}"
+                    )
+                },
+            );
+        }
+    }
+
+    /// Befund #51 B1, gleiche Klasse: 50.000 Exif-Items gegen ein volles `iloc` (Items am Ende) — Suche je Item nicht
+    /// linear. 150.000 Einträge passen in kein `iloc` ≤ 1 MiB (Eintrag ≥ 10 Bytes ab Version 2, darunter 16-Bit-Zahl);
+    /// hier 69.000 Einträge zu 15 Bytes.
+    #[test]
+    fn viele_exif_items_gegen_ein_volles_iloc_enden_in_2_s() {
+        let exif = [
+            &0u32.to_be_bytes()[..],
+            &tiff(Ordnung::Intel, &[(0x0112, 3, 1, 6)], None),
+        ]
+        .concat();
+        let items = 50_000u32;
+        let fremde = 19_000u32;
+        let infe: Vec<_> = (1..=items).map(|id| exif_infe(id as u16)).collect();
+        let iloc = |mdat_anfang: u64| {
+            let mut inhalt = vec![2u8, 0, 0, 0, 0x01, 0x40];
+            inhalt.extend_from_slice(&(fremde + items).to_be_bytes());
+            let ids = (1..=fremde).map(|n| 1_000_000 + n).chain(1..=items);
+            for id in ids {
+                inhalt.extend_from_slice(&id.to_be_bytes());
+                inhalt.extend_from_slice(&[0, 0, 0, 0]);
+                inhalt.extend_from_slice(&(mdat_anfang as u32).to_be_bytes());
+                inhalt.extend_from_slice(&1u16.to_be_bytes());
+                inhalt.push(exif.len() as u8);
+            }
+            kiste(b"iloc", &inhalt)
+        };
+        let daten = heic_aus(&infe, iloc, &exif);
+
+        let zaehler = in_hoechstens_2_s("50.000 Items", daten, |ergebnis| {
+            ergebnis
+                .as_ref()
+                .map(|zaehler| *zaehler)
+                .map_err(|fehler| format!("{fehler:?}"))
+        });
+
+        assert!(zaehler.expect("getilgt").bloecke > 50_000);
+    }
+
+    /// Befund #51 B1, gleiche Klasse: 65.000 Ortsschlüssel in `keys` gegen 90.000 fremde `ilst`-Einträge.
+    #[test]
+    fn viele_ortsschluessel_gegen_viele_ilst_eintraege_enden_in_2_s() {
+        let schluessel = 65_000u32;
+        let mut keys = vec![0u8, 0, 0, 0];
+        keys.extend_from_slice(&schluessel.to_be_bytes());
+        for _ in 0..schluessel {
+            keys.extend_from_slice(&16u32.to_be_bytes());
+            keys.extend_from_slice(b"mdtalocation");
+        }
+        let ilst: Vec<u8> = (0..90_000)
+            .flat_map(|_| kiste(&u32::MAX.to_be_bytes(), b""))
+            .collect();
+        let meta = kiste(
+            b"meta",
+            &[
+                kiste(b"hdlr", &[0; 25]),
+                kiste(b"keys", &keys),
+                kiste(b"ilst", &ilst),
+            ]
+            .concat(),
+        );
+        let daten = [ftyp(), kiste(b"moov", &meta)].concat();
+
+        in_hoechstens_2_s("65.000 Schlüssel", daten, |ergebnis| {
+            assert!(ergebnis.is_ok(), "{ergebnis:?}")
+        });
     }
 
     #[test]
