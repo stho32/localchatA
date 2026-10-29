@@ -4,22 +4,33 @@
 // Nachrichten. Scheitert ein Versuch, gibt es keine Meldung, und der nächste folgt nach dem Rückzug des Stroms ab dem
 // Ende des gescheiterten Abrufs. Eine Trennung beendet den Lauf (das Wiederverbinden beginnt am selben Cursor neu), ein
 // Channelwechsel ebenso (der neue Channel ist vollständig geöffnet).
+// Ist der offene Channel nie geladen (erster Abruf gescheitert oder noch unterwegs), ist der Lauf einer der Art „laden“
+// (Ergänzung Karte #61, 7g–7i): er öffnet den Channel neu, ohne Cursor, mit Zeitgrenze 10 s und demselben Rückzug;
+// „abgebrochen“ (ein anderes Öffnen hat übernommen) beendet ihn still, und eine neue Wahl desselben Channels zieht
+// den nächsten Versuch vor.
 import { nachholen } from './nachholen.js';
 import { rueckzugInMs } from './verbindung.js';
 
-// stand: () → { channel, geladen, juengste, neuesterImFenster } (Verlauf) · abrufen: async (channel, cursor, signal, n)
-// → Ergebnis wie api.js verlaufNachholen · annehmen: (nachrichten) → Zahl der erst jetzt angenommenen · neuOeffnen: (channel) · fertig: (ergebnis, mitLeiste)
-// mit ergebnis { art: 'nachgeholt', zahl } | { art: 'neu' } · zeitgeber: { stellen(ms, rueckruf) → id, loeschen(id) }
-// · jetzt: () → ms seit der Epoche · gescheitert: (naechsterVersuchUm) nach jedem gescheiterten Versuch
+// stand: () → { channel, geladen, gescheitert, juengste, neuesterImFenster } (Verlauf) · abrufen: async (channel, cursor,
+// signal, n) → Ergebnis wie api.js verlaufNachholen · laden: async (channel, signal) → { art: 'geladen' | 'fehler' |
+// 'abgebrochen' } (verlauf.oeffnen) · annehmen: (nachrichten) → Zahl der erst jetzt angenommenen · neuOeffnen: (channel)
+// · fertig: (ergebnis, mitLeiste) mit ergebnis { art: 'nachgeholt', zahl } | { art: 'neu' } | { art: 'geladen' }
+// · zeitgeber: { stellen(ms, rueckruf) → id, loeschen(id) } · jetzt: () → ms seit der Epoche · gescheitert:
+// (naechsterVersuchUm) nach jedem gescheiterten Versuch
 export function nachholLaufAnlegen({
-  stand, abrufen, annehmen, neuOeffnen, fertig, zeitgeber = ECHTE_ZEITGEBER, jetzt = () => Date.now(), gescheitert = () => {},
+  stand, abrufen, laden, annehmen, neuOeffnen, fertig, zeitgeber = ECHTE_ZEITGEBER, jetzt = () => Date.now(), gescheitert = () => {},
 }) {
   let lauf = null;
   let beiTrennung = null;
 
   function beginnen(channel, cursor, mitLeiste) {
-    lauf = { channel, cursor, mitLeiste, fehlversuche: 0, zahl: 0, abbruch: null, neuversuch: null };
+    lauf = { art: 'nachholen', channel, cursor, mitLeiste, fehlversuche: 0, zahl: 0, abbruch: null, neuversuch: null };
     versuchen(lauf);
+  }
+
+  function ladenBeginnen(channel, mitLeiste) {
+    lauf = { art: 'laden', channel, mitLeiste, fehlversuche: 0, abbruch: null, neuversuch: null };
+    ladenVersuchen(lauf);
   }
 
   async function versuchen(dieser) {
@@ -41,9 +52,36 @@ export function nachholLaufAnlegen({
       fertig({ art: 'nachgeholt', zahl: dieser.zahl }, dieser.mitLeiste);
       return;
     }
+    neuversuchStellen(dieser, versuchen);
+  }
+
+  async function ladenVersuchen(dieser) {
+    const ZEITGRENZE_MS = 10000;
+    dieser.neuversuch = null;
+    const abbruch = new AbortController();
+    dieser.abbruch = abbruch;
+    const zeitgrenze = zeitgeber.stellen(ZEITGRENZE_MS, () => abbruch.abort());
+    const ergebnis = await laden(dieser.channel, abbruch.signal);
+    zeitgeber.loeschen(zeitgrenze);
+    if (dieser !== lauf) {
+      return;
+    }
+    if (ergebnis.art === 'abgebrochen') {
+      lauf = null;
+      return;
+    }
+    if (ergebnis.art === 'geladen') {
+      lauf = null;
+      fertig({ art: 'geladen' }, dieser.mitLeiste);
+      return;
+    }
+    neuversuchStellen(dieser, ladenVersuchen);
+  }
+
+  function neuversuchStellen(dieser, versuch) {
     dieser.fehlversuche += 1;
     const wartenMs = rueckzugInMs(dieser.fehlversuche);
-    dieser.neuversuch = zeitgeber.stellen(wartenMs, () => versuchen(dieser));
+    dieser.neuversuch = zeitgeber.stellen(wartenMs, () => versuch(dieser));
     gescheitert(jetzt() + wartenMs);
   }
 
@@ -73,10 +111,18 @@ export function nachholLaufAnlegen({
     return jetzt.channel !== null && jetzt.geladen && jetzt.neuesterImFenster;
   }
 
+  function nieGeladen(jetzt) {
+    return jetzt.channel !== null && !jetzt.geladen;
+  }
+
   return {
     getrennt: () => {
       const jetzt = stand();
       beiTrennung = null;
+      if (lauf !== null && lauf.art === 'laden') {
+        beenden();
+        return;
+      }
       if (lauf !== null) {
         beiTrennung = { channel: lauf.channel, cursor: lauf.cursor };
         beenden();
@@ -93,18 +139,39 @@ export function nachholLaufAnlegen({
         cursor = beiTrennung.cursor;
       }
       beiTrennung = null;
+      if (nieGeladen(jetzt)) {
+        ladenBeginnen(jetzt.channel, true);
+        return;
+      }
       if (!nachholbar(jetzt)) {
         fertig({ art: 'nachgeholt', zahl: 0 }, true);
         return;
       }
       beginnen(jetzt.channel, cursor, true);
     },
+    // Ein erster Abruf, der noch unterwegs ist, bringt den neuen Stand selbst — geladen wird nur nach einem Fehlschlag.
     neuerStand: () => {
       const jetzt = stand();
-      if (lauf !== null || !nachholbar(jetzt)) {
+      if (lauf !== null) {
+        return;
+      }
+      if (jetzt.channel !== null && jetzt.gescheitert) {
+        ladenBeginnen(jetzt.channel, false);
+        return;
+      }
+      if (!nachholbar(jetzt)) {
         return;
       }
       beginnen(jetzt.channel, jetzt.juengste, false);
+    },
+    laedt: () => lauf !== null && lauf.art === 'laden',
+    // Wartet ein Laden-Lauf auf seinen Neuversuch, versucht er es jetzt; läuft ein Versuch, bleibt es bei ihm (7i).
+    jetztVersuchen: () => {
+      if (lauf === null || lauf.art !== 'laden' || lauf.neuversuch === null) {
+        return;
+      }
+      zeitgeber.loeschen(lauf.neuversuch);
+      ladenVersuchen(lauf);
     },
     channelGewechselt: () => {
       beiTrennung = null;
