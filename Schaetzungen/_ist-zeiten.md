@@ -367,3 +367,25 @@ Nie vom User erfragen.
 | 2026-10-29 | R00012 Senden bei Störungen | B0394 Nacharbeit: Entwurf beim schnellen Channelwechsel belegt (mit Nachschärfung) | Nacharbeit | — | 0,33h | 0,33h | autonom |
 | 2026-10-29 | R00012 Senden bei Störungen | B0395 Nacharbeit: Takt der Sammelansage belegt | Nacharbeit | — | 0,02h | 0,02h | autonom |
 | 2026-10-29 | R00012 Senden bei Störungen | Nacharbeit: Lesen, Zeittests unter Last, Gate, US-14-Diagnose | Nacharbeit | — | 1,00h | 1,00h | autonom |
+| 2026-10-29 | R00018 Betriebsprotokoll gehärtet | B0300+B0301 Abbruch-Hilfe und Werkbank geschlossen | Standard | — | 0,10h | 0,10h | autonom |
+| 2026-10-29 | R00018 Betriebsprotokoll gehärtet | B0304 | Standard | — | 0,02h | 0,02h | autonom |
+| 2026-10-29 | R00018 Betriebsprotokoll gehärtet | B0302 | Standard | — | 0,02h | 0,02h | autonom |
+| 2026-10-29 | R00018 Betriebsprotokoll gehärtet | B0307+B0308 Abriss erkennen | Standard | — | 0,03h | 0,03h | autonom |
+| 2026-10-29 | R00018 Betriebsprotokoll gehärtet | B0309 | Standard | — | 0,02h | 0,02h | autonom |
+| 2026-10-29 | R00018 Betriebsprotokoll gehärtet | B0310 | Standard | — | 0,05h | 0,05h | autonom |
+| 2026-10-29 | R00018 Betriebsprotokoll gehärtet | B0311 Zählerregel (nur Mutante) | Standard | — | 0,01h | 0,01h | autonom |
+| 2026-10-29 | R00018 Betriebsprotokoll gehärtet | B0312 | Standard | — | 0,03h | 0,03h | autonom |
+| 2026-10-29 | R00018 Betriebsprotokoll gehärtet | B0313 | Standard | — | 0,02h | 0,02h | autonom |
+| 2026-10-29 | R00018 Betriebsprotokoll gehärtet | B0314 | Standard | — | 0,03h | 0,03h | autonom |
+| 2026-10-29 | R00018 Betriebsprotokoll gehärtet | B0380 | Standard | — | 0,02h | 0,02h | autonom |
+| 2026-10-29 | R00018 Betriebsprotokoll gehärtet | B0305 | Standard | — | 0,03h | 0,03h | autonom |
+| 2026-10-29 | R00018 Betriebsprotokoll gehärtet | B0379 | Standard | — | 0,03h | 0,03h | autonom |
+| 2026-10-29 | R00018 Betriebsprotokoll gehärtet | B0306 | Standard | — | 0,02h | 0,02h | autonom |
+| 2026-10-29 | R00018 Betriebsprotokoll gehärtet | B0303 Regelschlüssel im 4xx-Debug | Standard | — | 0,03h | 0,03h | autonom |
+| 2026-10-29 | R00018 Betriebsprotokoll gehärtet | B0381 | Standard | — | 0,05h | 0,05h | autonom |
+| 2026-10-29 | R00018 Betriebsprotokoll gehärtet | B0382 | Standard | — | 0,03h | 0,03h | autonom |
+| 2026-10-29 | R00018 Betriebsprotokoll gehärtet | B0383 | Standard | — | 0,02h | 0,02h | autonom |
+| 2026-10-29 | R00018 Betriebsprotokoll gehärtet | B0384 | Standard | — | 0,01h | 0,01h | autonom |
+| 2026-10-29 | R00018 Betriebsprotokoll gehärtet | B0385 | Standard | — | 0,02h | 0,02h | autonom |
+| 2026-10-29 | R00018 Betriebsprotokoll gehärtet | B0386 | Standard | — | 0,02h | 0,02h | autonom |
+| 2026-10-29 | R00018 Betriebsprotokoll gehärtet | Konsolidierung, Gate, 26 Mutanten | Konsolidierung | — | 0,30h | 0,30h | autonom |
