@@ -2,6 +2,7 @@
 
 mod abbruch;
 mod anfrageprotokoll;
+mod auskunft;
 mod beitreten;
 mod channels;
 mod eingebettet;

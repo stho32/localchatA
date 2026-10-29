@@ -109,6 +109,8 @@ pub enum Schluessel {
     Art,
     Verworfen,
     Operation,
+    /// Schlüssel einer Frage an die Namensauskunft: Name bzw. kanonische Adresse (ADR-0045 Ergänzung E6).
+    Schluessel,
 }
 
 impl Schluessel {
@@ -139,6 +141,7 @@ impl Schluessel {
             Schluessel::Art => "art",
             Schluessel::Verworfen => "verworfen",
             Schluessel::Operation => "operation",
+            Schluessel::Schluessel => "schluessel",
         }
     }
 }
