@@ -23,6 +23,8 @@ pub enum Gegenstand {
     Aenderungen,
     /// Anmeldungen von Anhängen (ADR-0036 Ergänzung Karte #9: 1 Einheit je Anmeldung).
     Anmeldungen,
+    /// Löschanfragen für Anhänge (1 Einheit vorab, ⌈n / 100⌉ als Rest).
+    Loeschungen,
 }
 
 impl Gegenstand {
@@ -31,6 +33,7 @@ impl Gegenstand {
             Gegenstand::Nachrichten => "Nachrichten",
             Gegenstand::Aenderungen => "Änderungen",
             Gegenstand::Anmeldungen => "Anmeldungen",
+            Gegenstand::Loeschungen => "Löschanfragen",
         }
     }
 
@@ -40,6 +43,7 @@ impl Gegenstand {
             Gegenstand::Nachrichten => episodentexte::GEBREMST,
             Gegenstand::Aenderungen => episodentexte::FRIST_GEBREMST,
             Gegenstand::Anmeldungen => episodentexte::ANHAENGE_GEBREMST,
+            Gegenstand::Loeschungen => episodentexte::LOESCHEN_GEBREMST,
         }
     }
 }

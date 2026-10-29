@@ -1,10 +1,6 @@
 //! Löschkörper prüfen (B0505, ADR-0046 Ergänzung „F1′“ Regel 4, Ergänzung „Karte #9 Security-Gate“ L9): `{ids:
 //! [<id>, …], bestaetigt?: <bool>}` — abgewiesen, nie umgeformt. Reihenfolge: Feld doppelt → weiteres Feld → `leer`
 //! → `anzahl` → `id` → `doppelt` → `bestaetigt`. `stelle` zählt ab 0 wie der Index der Liste. Rein.
-#![cfg_attr(
-    not(test),
-    expect(dead_code, reason = "die Route Löschen (B0508) nutzt die Prüfung")
-)]
 
 use super::super::felder::{Felder, doppelt, wert};
 use crate::gespraeche::anhangid::Anhangid;

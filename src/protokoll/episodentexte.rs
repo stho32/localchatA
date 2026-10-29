@@ -18,6 +18,7 @@ pub const GEBREMST: &str = "Senden gebremst: zu viele Nachrichten";
 pub const FRIST_GEBREMST: &str = "Frist gebremst: zu viele Änderungen";
 pub const ANHAENGE_GEBREMST: &str = "Anhänge gebremst: zu viele Anmeldungen";
 pub const METADATEN_NICHT_TILGBAR: &str = "Hochladen abgewiesen: Metadaten nicht tilgbar";
+pub const LOESCHEN_GEBREMST: &str = "Löschen gebremst: zu viele Löschanfragen";
 pub const SCHLUESSEL_VERDRAENGT: &str =
     "Wiederholschlüssel vor Ablauf verdrängt — eine Wiederholung kann doppelt ankommen";
 
@@ -60,6 +61,7 @@ mod tests {
         frist_gebremst: FRIST_GEBREMST = "Frist gebremst: zu viele Änderungen";
         anhaenge_gebremst: ANHAENGE_GEBREMST = "Anhänge gebremst: zu viele Anmeldungen";
         metadaten_nicht_tilgbar: METADATEN_NICHT_TILGBAR = "Hochladen abgewiesen: Metadaten nicht tilgbar";
+        loeschen_gebremst: LOESCHEN_GEBREMST = "Löschen gebremst: zu viele Löschanfragen";
         schluessel_verdraengt: SCHLUESSEL_VERDRAENGT =
             "Wiederholschlüssel vor Ablauf verdrängt — eine Wiederholung kann doppelt ankommen";
     }
