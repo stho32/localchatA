@@ -8,6 +8,7 @@ pub mod anhangquote;
 pub mod einstellungen;
 mod frist;
 pub mod fristeintrag;
+pub mod hochladefristen;
 mod kennung;
 mod logablage;
 pub mod logformat;
