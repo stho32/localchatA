@@ -435,3 +435,8 @@ Nie vom User erfragen.
 | 2026-10-29 | R00019 Frist gehärtet | B0321 Frist-Abweisungen im Bereich frist | Standard | 0,4h | 0,07h | 0,07h | autonom |
 | 2026-10-29 | R00019 Frist gehärtet | Mutanten, Gelerntes, Gate | Konsolidierung | — | 0,20h | 0,20h | autonom |
 | 2026-10-29 | R00020 Senden gehärtet Teil 2 | B0334 Nacharbeit: 413-Satz je Route wörtlich geprüft | Nacharbeit | — | 0,40h | 0,40h | autonom |
+| 2026-10-29 | R00021 Frist bucht am Schreibkonto | B0341 Vorab mit den vollen Kosten | Standard | 0,4h | 0,10h | 0,10h | autonom |
+| 2026-10-29 | R00021 Frist bucht am Schreibkonto | B0342 Bremse antwortet je Route | Standard | 0,4h | 0,08h | 0,08h | autonom |
+| 2026-10-29 | R00021 Frist bucht am Schreibkonto | B0343 Frist bucht 1 + 9 | Standard | 0,4h | 0,22h | 0,22h | autonom |
+| 2026-10-29 | R00021 Frist bucht am Schreibkonto | B0344 Bremse im Dialog belegt | Standard | 0,4h | 0,10h | 0,10h | autonom |
+| 2026-10-29 | R00021 Frist bucht am Schreibkonto | Mutanten, Gelerntes, Gate | Konsolidierung | — | 0,08h | 0,08h | autonom |
