@@ -98,7 +98,8 @@ export function verlaufAnlegen({ abrufen, schalter = () => {} }) {
 
   // „Zum Neuesten“: Klick oder Ende im Verlauf öffnet den Channel neu wie beim Wählen; der Fokus geht in den Verlauf.
   // Mit gezählten neuen Nachrichten: steht die erste im Fenster, kommt sie unter den klebenden Tagestrenner, eine Zeile
-  // Kontext darüber (ADR-0037 Regel 6, R00020 F0067); sonst neu öffnen.
+  // Kontext darüber (ADR-0037 Regel 6, R00020 F0067); steht sie schon dort (± 1 px), geht es ans Ende des Inhalts;
+  // sonst neu öffnen.
   function zumNeuesten() {
     log.focus();
     const erste = ersteNeueImFenster();
@@ -107,8 +108,24 @@ export function verlaufAnlegen({ abrufen, schalter = () => {} }) {
       return;
     }
     const ziel = log.scrollTop + oberkanteImVerlauf(erste) - klebenderTrennerUnterkante(erste) - zeilenhoehe();
+    const stehtSchonDort = Math.abs(ziel - log.scrollTop) <= 1;
+    if (stehtSchonDort) {
+      zumEndeDesInhalts();
+      return;
+    }
     auslaufFuer(ziel);
     log.scrollTop = ziel;
+    lageMerken();
+  }
+
+  // Ans Ende des Inhalts, über dem Auslauf, der dabei unter das Fenster gerät und wegfällt (ADR-0037 Ergänzung
+  // „Auslauf“ Punkt 4); steht der neueste Block nicht im Fenster, öffnet der Tab neu.
+  function zumEndeDesInhalts() {
+    if (fenster.neuer) {
+      oeffnen(offenerName);
+      return;
+    }
+    log.scrollTop = log.scrollHeight - log.clientHeight - auslauf.getBoundingClientRect().height;
     lageMerken();
   }
 

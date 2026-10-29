@@ -105,6 +105,11 @@ async function lageNachDemSprung(page, text) {
   return ergebnis.jsonValue();
 }
 
+/// Abstand vom Ende des Inhalts (Oberkante des Auslaufs) zur Unterkante des Verlaufs (px).
+function abstandZumEndeDesInhalts(log) {
+  return log.evaluate((element) => element.querySelector('.lc-auslauf').getBoundingClientRect().top - element.getBoundingClientRect().bottom);
+}
+
 const FENSTER = [{ width: 1280, height: 800 }, { width: 375, height: 812 }];
 
 for (const viewport of FENSTER) {
@@ -124,6 +129,32 @@ for (const viewport of FENSTER) {
     expect(lage.oberkante - lage.trennerUnten).toBeGreaterThanOrEqual(lage.zeile - 1);
     expect(lage.oberkante - lage.trennerUnten).toBeLessThanOrEqual(lage.zeile + 1);
     expect(lage.getroffen).toEqual({ nachricht: true, trenner: false });
+    expect(fehler).toEqual([]);
+  });
+}
+
+// US-2, „Zweiter Klick ans Ende“ (B0332): nach dem Sprung bringt ein zweiter Klick auf die Pille bzw. `Ende` im Verlauf
+// den Blick ans Ende des Inhalts; die Pille ist verborgen, alle drei neuen sind sichtbar.
+for (const zweiterZug of ['ein zweiter Klick auf die Pille', 'Ende im Verlauf']) {
+  test(`US-2: nach dem Sprung führt ${zweiterZug} ans Ende`, async ({ browser }) => {
+    const { page, log, fehler, beta } = await bLiest(browser);
+    await zweiHoehenHoch(log);
+    await dreiNeue(page, beta);
+    await pille(page).click();
+    await lageNachDemSprung(page, 'neu 1');
+
+    if (zweiterZug === 'ein zweiter Klick auf die Pille') {
+      await pille(page).click();
+    } else {
+      await log.press('End');
+    }
+
+    await expect.poll(() => abstandZumEndeDesInhalts(log)).toBeGreaterThanOrEqual(-1);
+    expect(await abstandZumEndeDesInhalts(log)).toBeLessThanOrEqual(1);
+    await expect(pille(page)).toBeHidden();
+    for (const text of [/^neu 1$/, /^neu 2$/, /^neu 3$/]) {
+      await expect(mitText(page, text)).toBeInViewport();
+    }
     expect(fehler).toEqual([]);
   });
 }
