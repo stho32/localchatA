@@ -64,7 +64,7 @@ pub fn pflege_eintrag(bericht: &Pflegebericht) -> Eintrag {
             ursache,
         } => Eintrag::neu(
             Stufe::Error,
-            Bereich::Frist,
+            Bereich::Pflege,
             ANHAENGE_NICHT_ENTFERNT,
             mit_anlass(
                 Kontext::neu()

@@ -61,6 +61,8 @@ pub enum Bereich {
     Anhang,
     /// Der Ereignisstrom (ADR-0042 Ergänzung Karte #31 Punkt 7).
     Live,
+    /// Pflege der Anhangtage (ADR-0046 Ergänzung „Review #53 B1“ Regel 4).
+    Pflege,
 }
 
 impl Bereich {
@@ -84,6 +86,7 @@ impl Bereich {
             Bereich::Quote => "quote",
             Bereich::Anhang => "anhang",
             Bereich::Live => "live",
+            Bereich::Pflege => "pflege",
         }
     }
 }

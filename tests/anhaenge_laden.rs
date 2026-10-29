@@ -385,7 +385,7 @@ async fn ein_gescheitertes_entfallen_der_anhaenge_wird_wiederholt() {
         drop(instanz);
         assert!(
             alle_zeilen(wurzel.path()).iter().any(|zeile| zeile.contains(&format!(
-                " ERROR frist Anhänge eines Tags nicht entfernt — erneuter Versuch bei der nächsten Pflege | channel=allgemein tag={tag} grund=frist_gesetzt"
+                " ERROR pflege Anhänge eines Tags nicht entfernt — erneuter Versuch bei der nächsten Pflege | channel=allgemein tag={tag} grund=frist_gesetzt"
             ))),
             "ERROR fehlt"
         );
