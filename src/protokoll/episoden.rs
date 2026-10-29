@@ -194,8 +194,21 @@ impl Episode {
         }
         Some(self.zeile(
             format!("läuft weiter — {} seit Beginn", self.anzahl),
-            self.kontext.clone(),
+            self.kontext_der_zusammenfassung(),
         ))
+    }
+
+    /// Der Kontext von Zwischen- und Ende-Zeile (ADR-0042 Ergänzung Karte #66): was für die ganze Episode gilt,
+    /// ohne die Werte des einzelnen Auftretens, mit dem Wert des letzten für die fortlaufenden Schlüssel und der
+    /// größten Bytezahl, falls die Episode eine führt.
+    fn kontext_der_zusammenfassung(&self) -> Kontext {
+        let kontext = self
+            .kontext
+            .fuer_ende(self.letzter.as_ref().unwrap_or(&self.kontext));
+        match self.bytes {
+            Some(bytes) => kontext.mit(Schluessel::Bytes, bytes),
+            None => kontext,
+        }
     }
 
     /// „Episode endet: n in d s“, d vom ersten bis zum letzten Auftreten, aufgerundet; bei Körperfehlern je Art
@@ -217,13 +230,7 @@ impl Episode {
         if !teile.is_empty() {
             text.push_str(&format!(" ({})", teile.join("; ")));
         }
-        let mut kontext = self
-            .kontext
-            .fuer_ende(self.letzter.as_ref().unwrap_or(&self.kontext));
-        if let Some(bytes) = self.bytes {
-            kontext = kontext.mit(Schluessel::Bytes, bytes);
-        }
-        self.zeile(text, kontext)
+        self.zeile(text, self.kontext_der_zusammenfassung())
     }
 
     fn zeile(&self, zusatz: String, kontext: Kontext) -> Eintrag {
@@ -447,6 +454,104 @@ mod tests {
             "Körper abgewiesen — Episode endet: 3 in 0 s (kaputt 1; zu groß 2; verworfen vollständig 2)"
         );
         assert_eq!(ende[0].kontext.wert(Schluessel::Bytes), Some("6000"));
+    }
+
+    fn schreibfehler(kennung: &str) -> Auftreten {
+        Auftreten {
+            stufe: Stufe::Error,
+            bereich: Bereich::Senden,
+            text: "Nachricht nicht gespeichert",
+            quelle: "2026-10-28.log Platte voll".into(),
+            kontext: Kontext::neu()
+                .mit(Schluessel::Channel, "allgemein")
+                .mit_nur_beginn(Schluessel::Kennung, kennung)
+                .mit(Schluessel::Datei, "2026-10-28.log")
+                .mit(Schluessel::Grund, "Platte voll"),
+            art: None,
+            verworfen: None,
+            bytes: None,
+            anzeige: None,
+        }
+    }
+
+    /// ADR-0042 Ergänzung Karte #66 (R00038 F0129): die Zwischenzeile nennt nur, was für die ganze Episode gilt.
+    #[test]
+    fn zwischenzeile_ohne_beginn_werte() {
+        let mut episoden = Episoden::neu(RUHE);
+        let beginn = episoden.auftreten(schreibfehler("alpha@10.0.0.9"), t(0.0));
+        let zwischen = episoden.auftreten(schreibfehler("beta@10.0.0.9"), t(601.0));
+
+        assert_eq!(
+            beginn[0].kontext.wert(Schluessel::Kennung),
+            Some("alpha@10.0.0.9")
+        );
+        assert_eq!(zwischen.len(), 1);
+        assert!(
+            zwischen[0].text.ends_with("läuft weiter — 2 seit Beginn"),
+            "{}",
+            zwischen[0].text
+        );
+        assert_eq!(zwischen[0].kontext.wert(Schluessel::Kennung), None);
+        assert_eq!(
+            zwischen[0].kontext.wert(Schluessel::Channel),
+            Some("allgemein")
+        );
+        assert_eq!(
+            zwischen[0].kontext.wert(Schluessel::Datei),
+            Some("2026-10-28.log")
+        );
+        assert_eq!(
+            zwischen[0].kontext.wert(Schluessel::Grund),
+            Some("Platte voll")
+        );
+    }
+
+    #[test]
+    fn zwischenzeile_und_ende_tragen_denselben_kontext() {
+        let mut episoden = Episoden::neu(RUHE);
+        episoden.auftreten(schreibfehler("alpha@10.0.0.9"), t(0.0));
+        let zwischen = episoden.auftreten(schreibfehler("beta@10.0.0.9"), t(601.0));
+        let ende = episoden.schliessen(t(601.0 + 60.0));
+
+        assert_eq!(zwischen[0].kontext, ende[0].kontext);
+        assert_eq!(ende[0].kontext.wert(Schluessel::Kennung), None);
+        assert_eq!(
+            ende[0].kontext.wert(Schluessel::Datei),
+            Some("2026-10-28.log")
+        );
+    }
+
+    #[test]
+    fn zwischenzeile_traegt_dauer_des_letzten_auftretens_und_groesste_bytes() {
+        let vorlauf = |ms: u64| Auftreten {
+            stufe: Stufe::Warning,
+            bereich: Bereich::Zeit,
+            text: "Vorlauf",
+            quelle: "zeit".into(),
+            kontext: Kontext::neu().mit_fortlaufend(Schluessel::DauerMs, ms),
+            art: None,
+            verworfen: None,
+            bytes: None,
+            anzeige: None,
+        };
+        let mut episoden = Episoden::neu(RUHE);
+        episoden.auftreten(vorlauf(61_001), t(0.0));
+        let zwischen = episoden.auftreten(vorlauf(7_410_002), t(601.0));
+
+        assert_eq!(
+            zwischen[0].kontext.wert(Schluessel::DauerMs),
+            Some("7410002")
+        );
+
+        let mut episoden = Episoden::neu(RUHE);
+        let mit_bytes = |bytes: u64| Auftreten {
+            bytes: Some(bytes),
+            ..schreibfehler("a")
+        };
+        episoden.auftreten(mit_bytes(7), t(0.0));
+        episoden.auftreten(mit_bytes(9), t(1.0));
+        let zwischen = episoden.auftreten(mit_bytes(3), t(601.0));
+        assert_eq!(zwischen[0].kontext.wert(Schluessel::Bytes), Some("9"));
     }
 
     #[test]
