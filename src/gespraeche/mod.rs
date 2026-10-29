@@ -345,7 +345,7 @@ impl Gespraeche {
         let vorher = self.belegung.dazu(dazu);
         self.ueber_90_melden(vorher, vorher.saturating_add(dazu));
         if let Some(schluessel) = schluessel {
-            stand
+            let _verdraengt = stand
                 .wiederholung
                 .merken(von, schluessel, gespraech, pruefsumme, zeit, jetzt);
         }
