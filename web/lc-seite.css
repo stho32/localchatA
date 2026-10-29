@@ -127,8 +127,11 @@ body { background: var(--kd-bg); color: var(--kd-ink); font-family: var(--font-s
 /* Der Ring liegt außen auf kd-surface — innen auf kd-accent wäre er unsichtbar; das Polster der Box (4 px) fasst
    Versatz und Breite (UX-Vorprüfung #41 M1) */
 .lc .lc-comp-senden:focus-visible { outline: 2px solid var(--kd-focus); outline-offset: 2px; }
+/* Touch-Geräte (grober Zeiger): Zielfläche 44 px; ab 16 px Schrift zoomt Safari unter iOS beim Fokus nicht ins Feld —
+   gelöst über die Schrift, nie über ein Zoomverbot im Viewport (UX-Vorprüfung #41 M2) */
 @media (pointer: coarse) {
   .lc-comp-senden { min-width: 44px; min-height: 44px; }
+  .lc .lc-comp-feld { font-size: 16px; line-height: 24px; }
 }
 /* Leerer Channel (ADR-0038 Regel 9): wie Agenten hier schreiben */
 .lc-mitte-hinweis.lc-leer-api { margin-top: 0; color: var(--kd-ink-muted); overflow-wrap: anywhere; }

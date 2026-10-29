@@ -83,3 +83,20 @@ function fokusringVermessen(knopfElement) {
     kontrastGegenFlaeche: (Math.max(ring, flaeche) + 0.05) / (Math.min(ring, flaeche) + 0.05),
   };
 }
+
+// „Kein Zoom beim Fokus“ (M2, wörtlich): „bei (pointer: coarse) Feld font-size ≥ 16 px, Desktop 13 px; Mutante „nur bei
+// 375 px“ auf Tablet rot; Gerät: iPhone Safari scale = 1, Knopf ganz sichtbar; nicht über maximum-scale=1.“
+for (const geraet of ['telefon', 'tablet', 'tabletQuer', 'desktop']) {
+  test(`Kein Zoom beim Fokus (${geraet}): Schrift im Feld groß genug, kein Zoomverbot im Viewport`, async ({ browser }) => {
+    const { page } = await seiteAuf(browser, geraet);
+
+    const schrift = parseFloat(await eingabe(page).evaluate((feld) => getComputedStyle(feld).fontSize));
+    if (geraet === 'desktop') {
+      expect(schrift).toBe(13);
+    } else {
+      expect(schrift).toBeGreaterThanOrEqual(16);
+    }
+    const viewport = await page.locator('meta[name="viewport"]').getAttribute('content');
+    expect(viewport).not.toMatch(/maximum-scale|user-scalable/);
+  });
+}
