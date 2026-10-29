@@ -175,3 +175,5 @@ Regeln:
 - 507: RFC 4918 Abschnitt 11.5 — aus dem Gedächtnis, in diesem Auftrag nicht geöffnet
 
 ## Ergänzungen
+
+- **2026-10-29 (Karte #26, R00018 Offene Frage 4) — Vorrang bei falscher Umgebung:** Regel 3 („Vorrang Option vor Umgebung vor Standard“, falscher Wert Exit 2) liest sich nach der einen Regel aus [ADR-0043](0043-protokollstufe-einstellen-und-kennzahlen-im-health-check.md), Ergänzung Karte #26: ist `--plattenquote` gültig gesetzt, wird `LOCALCHATA_PLATTENQUOTE` nicht gelesen, auch nicht geprüft; ein falscher Umgebungswert ist nur ohne Option Exit 2. Der Unit-Test „Aufruf“ unter „Folgeentscheidungen“ wächst um `--plattenquote 1MiB` mit `LOCALCHATA_PLATTENQUOTE=4` → 1.048.576, Herkunft `--plattenquote`; der Integrationsfall `LOCALCHATA_PLATTENQUOTE=4` ohne Option → Exit 2, kein `logs/` bleibt.
