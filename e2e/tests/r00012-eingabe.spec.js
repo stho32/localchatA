@@ -194,23 +194,27 @@ test('Schmal: Fehler in der Hinweiszeile bei 320 px ohne Querscrollen', async ({
   expect(a.fehler).toEqual([]);
 });
 
-// Merkt im Browser die Zeit der letzten Taste im Feld und jeden Channelwechsel (hashchange) mit seiner Zeit.
+// Merkt im Browser die Zeit der letzten Taste im Feld und jeden Channelwechsel (hashchange) mit seiner Zeit und dem
+// Entwurf von `allgemein` in sessionStorage in diesem Augenblick (nach dem Wechsel der Seite, die zuerst lauscht).
 async function tasteUndWechselMerken(page) {
-  await page.evaluate(() => {
+  await page.evaluate((schluessel) => {
     window.wechsel = [];
     document.addEventListener('input', () => { window.letzteTasteUm = Date.now(); }, true);
-    window.addEventListener('hashchange', () => { window.wechsel.push({ nach: window.location.hash, um: Date.now() }); });
-  });
+    window.addEventListener('hashchange', () => {
+      window.wechsel.push({ nach: window.location.hash, um: Date.now(), entwurf: window.sessionStorage.getItem(schluessel) });
+    });
+  }, ENTWURF);
 }
 
 async function wechselNachDerTaste(page) {
-  return page.evaluate(() => window.wechsel.map(({ nach, um }) => ({ nach, nachMs: um - window.letzteTasteUm })));
+  return page.evaluate(() => window.wechsel.map(({ nach, um, entwurf }) => ({ nach, nachMs: um - window.letzteTasteUm, entwurf })));
 }
 
 // „Entwurf beim schnellen Wechsel“ (US-15; Abnahme-Probe Code-Review #22 B3 b, wörtlich): „A tippt x, wechselt < 200 ms
-// nach # technik und zurück → Feld zeigt x; Variante Wechsel + Neuladen.“ Beide Wechsel liegen vor dem Schreiben der
-// Drossel (500 ms) — so belegt der Test das Schreiben beim Wechsel (eingabe.js channelSetzen). Mutante „beim Wechsel
-// nicht geschrieben“ wird rot.
+// nach # technik und zurück → Feld zeigt x; Variante Wechsel + Neuladen.“ Der Wechsel nach # technik liegt vor dem
+// Schreiben der Drossel (500 ms), und in seinem Augenblick steht `x` schon in sessionStorage — so belegt der Test das
+// Schreiben beim Wechsel (eingabe.js channelSetzen), unabhängig davon, wie schnell der Rückweg ist. Mutante „beim
+// Wechsel nicht geschrieben“ wird rot.
 const SCHNELL_MS = 200;
 
 test('US-15: x getippt, in weniger als 200 ms nach # technik und zurück — das Feld zeigt x', async ({ browser }) => {
@@ -229,7 +233,8 @@ test('US-15: x getippt, in weniger als 200 ms nach # technik und zurück — das
   const wechsel = await wechselNachDerTaste(a.page);
   console.log(`US-15 Wechsel nach der Taste: ${JSON.stringify(wechsel)}`);
   expect(wechsel.map(({ nach }) => nach)).toEqual(['#/c/technik', '#/c/allgemein']);
-  expect(wechsel[1].nachMs).toBeLessThan(SCHNELL_MS);
+  expect(wechsel[0].nachMs).toBeLessThan(SCHNELL_MS);
+  expect(wechsel[0].entwurf).toBe('x');
   expect(a.fehler).toEqual([]);
 });
 
@@ -252,5 +257,6 @@ test('US-15: x getippt, in weniger als 200 ms nach # technik, Tab neu geladen, z
   console.log(`US-15 Wechsel nach der Taste (vor dem Neuladen): ${JSON.stringify(wechsel)}`);
   expect(wechsel.map(({ nach }) => nach)).toEqual(['#/c/technik']);
   expect(wechsel[0].nachMs).toBeLessThan(SCHNELL_MS);
+  expect(wechsel[0].entwurf).toBe('x');
   expect(a.fehler).toEqual([]);
 });
