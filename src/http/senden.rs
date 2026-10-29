@@ -248,7 +248,7 @@ fn groesse_in_worten(bytes: u64) -> String {
 /// 507 an der Plattenquote (ADR-0044 Regel 4), ohne `Retry-After`.
 fn quote_erreicht(belegt: u64, hoechstens: u64) -> Response {
     let fehler = format!(
-        "Nicht gesendet: die Gespräche belegen {}, die Quote dieser Instanz ist {}. Platz entsteht, wenn alte \
+        "Nicht gesendet: Die Gespräche belegen {}, die Quote dieser Instanz ist {}. Platz entsteht, wenn alte \
          Tage nach ihrer Aufbewahrungsfrist entfallen (beim nächsten Tageswechsel) oder eine Frist verkürzt wird; \
          die Quote stellt der Betreiber beim Start mit --plattenquote ein.",
         groesse_in_worten(belegt),
@@ -569,7 +569,7 @@ mod tests {
                 507,
                 None,
                 json!({
-                    "fehler": "Nicht gesendet: die Gespräche belegen 1,0 MiB, die Quote dieser Instanz ist 1,0 MiB. Platz entsteht, wenn alte Tage nach ihrer Aufbewahrungsfrist entfallen (beim nächsten Tageswechsel) oder eine Frist verkürzt wird; die Quote stellt der Betreiber beim Start mit --plattenquote ein.",
+                    "fehler": "Nicht gesendet: Die Gespräche belegen 1,0 MiB, die Quote dieser Instanz ist 1,0 MiB. Platz entsteht, wenn alte Tage nach ihrer Aufbewahrungsfrist entfallen (beim nächsten Tageswechsel) oder eine Frist verkürzt wird; die Quote stellt der Betreiber beim Start mit --plattenquote ein.",
                     "regel": "quote",
                     "belegt": 1_048_519,
                     "hoechstens": 1_048_576

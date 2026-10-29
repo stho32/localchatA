@@ -15,7 +15,7 @@ const { vorlaeufige } = require('./r00012-hilfen');
 const QUOTE_ORDNER = path.resolve(__dirname, '../../target/debug/examples/quote-ordner');
 /// Text zu 17 Zeichen: ein Satz von `beta@127.0.0.1` (Agent) mit 81 Bytes.
 const TEXT = 'Quote-Probe 17 Z.';
-const TEXT_507 = 'Nicht gesendet: die Gespräche belegen 1,0 MiB, die Quote dieser Instanz ist 1,0 MiB. Platz entsteht, '
+const TEXT_507 = 'Nicht gesendet: Die Gespräche belegen 1,0 MiB, die Quote dieser Instanz ist 1,0 MiB. Platz entsteht, '
   + 'wenn alte Tage nach ihrer Aufbewahrungsfrist entfallen (beim nächsten Tageswechsel) oder eine Frist verkürzt wird; '
   + 'die Quote stellt der Betreiber beim Start mit --plattenquote ein.';
 

@@ -196,7 +196,7 @@ const GELADEN: u64 = 1_048_576 - 300;
 /// Kriterien (1.048.519, 243, 1.048.600) gelten mit diesem Text unverändert (Bericht Karte #34).
 const TEXT: &str = "Quote-Probe 17 Z.";
 const SATZ: u64 = 81;
-const TEXT_507: &str = "Nicht gesendet: die Gespräche belegen 1,0 MiB, die Quote dieser Instanz ist 1,0 MiB. Platz entsteht, wenn alte Tage nach ihrer Aufbewahrungsfrist entfallen (beim nächsten Tageswechsel) oder eine Frist verkürzt wird; die Quote stellt der Betreiber beim Start mit --plattenquote ein.";
+const TEXT_507: &str = "Nicht gesendet: Die Gespräche belegen 1,0 MiB, die Quote dieser Instanz ist 1,0 MiB. Platz entsteht, wenn alte Tage nach ihrer Aufbewahrungsfrist entfallen (beim nächsten Tageswechsel) oder eine Frist verkürzt wird; die Quote stellt der Betreiber beim Start mit --plattenquote ein.";
 
 fn berlin(zeitpunkt: chrono::DateTime<chrono::Utc>) -> localchata::uhr::Zeit {
     zeitpunkt.with_timezone(&chrono::FixedOffset::east_opt(3600).expect("Versatz"))
