@@ -356,3 +356,16 @@ Regeln:
   | `start` | Instanz bereit — zusätzlich | INFORMATION | `anhangquote`, `anhang_belegt`, `anhang_option` |
 
   Die Zeile „`WARNING quote Anhänge abgewiesen: Platz für Anhänge voll`“ der Ergänzung Karte #9 **entfällt** (es gibt keinen vollen Platz mehr, nur verdrängen oder Ansprüche); der Bereich `quote` gehört wieder allein dem Text. Warum WARNING für das Verdrängen, obwohl es Regel ist: es löscht Daten anderer; der Betreiber soll es sehen, ohne Debug zu schalten, und an der Episode erkennen, wer es auslöst. Keine 90-%-Schwelle für die Anhangquote — voll ist dort der Normalzustand.
+- **2026-10-29 (Karte #9 Betreiber F1′; [ADR-0046](0046-anhaenge-ablegen-eingang-bindung-beim-senden-tag-der-nachricht-quote-und-eigenes-konto.md) Ergänzung „Karte #9 Betreiber F1′“) — Löschen statt Verdrängen im Katalog, Warnschwelle für die Anhangquote:** Entscheider: Claude (autonom, architekt, Auftrag des Directors). Status: Akzeptiert. Aus der Ergänzung „Karte #9 Betreiber F1 und F4“ darüber **entfallen**, bevor gebaut: die Zeilen „Anhänge verdrängt“, „Anhang verdrängt (je Opfer)“, „Verdrängen gescheitert“ und der Satz „Keine 90-%-Schwelle für die Anhangquote — voll ist dort der Normalzustand“ (voll heißt jetzt: Hochladen blockiert). Alle anderen Zeilen dort bleiben (laufende Hochladungen, `zu_gross`, Metadaten, Start). Kontext nach ADR-0040 Regeln 3–5; nie Anhang-ID, Anzeigename oder Inhalt (M19); Dateien nur als `<hhmmssmmm>-<n>`.
+
+  | Bereich | Ereignis | Stufe | Kontext |
+  |---|---|---|---|
+  | `anhang` | Hochladen abgewiesen: Platz für Anhänge voll (507 `quote`, `grund: "voll"`) | WARNING, Episode je Kennung | `kennung`, `bytes`, `belegt`, `hoechstens` |
+  | `anhang` | Anhänge gelöscht (je bestätigter Anfrage) | **INFORMATION** | `kennung`, `herkunft`, `anhaenge`, `bytes`, `gespraeche`, `fremde`, `fehler` |
+  | `anhang` | Anhang gelöscht (je Datei) | DEBUG | `gespraech`, `tag`, `datei` (Präfix), `bytes` |
+  | `anhang` | Löschen gescheitert (Kürzen nicht möglich) | ERROR | `gespraech`, `tag`, `datei` (Präfix), `grund` |
+  | `anhang` | Löschen nicht bestätigt (409) | DEBUG wie jede 4xx | `kennung`, `anhaenge` |
+  | `anhang` | Anhänge belegen 90 % der Anhangquote / wieder unter 90 % | WARNING / INFORMATION, **Zustandswechsel** wie ADR-0044 Regel 7 | `gebunden`, `hoechstens`; beim Fallen `grund` (`geloescht` \| `start` \| `tageswechsel` \| `frist_gesetzt`) |
+
+  - **Warum INFORMATION für das Löschen**: es ist gewollte Bedienung (Betreiber), soll aber auf der Standardstufe sichtbar sein, damit der Betreiber erkennt, wer viel oder Fremdes löscht (M51); eine Zeile je Anfrage, das Schreibkonto begrenzt die Zahl der Zeilen. Verworfen: WARNING (eine Warnung für jede normale Bedienung stumpft ab); nur DEBUG (der Betreiber sähe ohne Umschalten nichts — gegen K-b).
+  - **Schwelle über `gebunden` (G), nicht über G + A**: über 90 % geht es nur beim Binden, darunter nur durch Löschen oder Entfallen — kein Flattern durch Anmeldungen und Abbrüche (wie ADR-0044 Regel 7). Start: liegt G schon über 90 % bzw. über der Quote, einmal `WARNING anhang Anhänge belegen 90 % der Anhangquote` bzw. die Start-Warnung aus ADR-0043.

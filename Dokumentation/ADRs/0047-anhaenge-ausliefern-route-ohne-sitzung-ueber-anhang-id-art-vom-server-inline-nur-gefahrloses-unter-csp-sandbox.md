@@ -352,3 +352,91 @@ Regeln:
   - E2E (Chromium, R00030): das Hochformatfoto mit `Orientation` 6 erscheint in der Vorschau hochkant.
 
   **Folgen:** R00029-Kriterium „Bilder unverändert“ (nach F4) **entfällt** und wird ersetzt durch QS7 mit den Tests oben; „Teilabruf über das Programm“ vergleicht mit der getilgten Datei, wo das Format im Geltungsbereich liegt (WebM nicht). Die Frage F4 unter „Offen“ ist beantwortet.
+
+- **2026-10-29 (Karte #9 Betreiber F1′; Karte #45 D0006; [ADR-0046](0046-anhaenge-ablegen-eingang-bindung-beim-senden-tag-der-nachricht-quote-und-eigenes-konto.md) Ergänzung „Karte #9 Betreiber F1′“) — ein gelöschter Anhang: 410, `zustand: "geloescht"`, Ereignis `anhaenge` an offene Sichten; Lesesicht des Laufwerks als Verzeichnis je Gespräch mit Sortierung und Paging; Matrixzeilen M40′–M46′, M51–M53:** Entscheider: Claude (autonom, architekt, Auftrag des Directors); Richtung vom Betreiber. Status: **Akzeptiert** für die Regeln 1–4 (Auslieferung, Metadaten, Ereignis, Oberfläche — Bau mit Karte #9 bzw. #43); **Vorgeschlagen** für Regel 5 (Lesesicht, Skizze für Karte #45; offen F8–F14).
+
+  **Anlass.** Betreiber zu F1 neu (keine Verdrängung, Hochladen bei voller Quote blockiert, Sammellöschung im Laufwerk), zu den Laufwerk-Richtungsfragen 1 („Jeder darf jeden Anhang löschen“), 2 (eine Sicht über alle Channels, „nach Channels geordnet … was zu welcher Nachricht gehört hat“), 3 („zuerst nur Verzeichnisse mit Sortierung nach Name, Größe und Alter; Suche und Filter später als Ausbaustufe“) und 4, wörtlich: „Die Chat-Struktur ist praktisch über Verzeichnisse abgebildet, ansonsten verhält es sich wie ein Web-Laufwerk“ (gewählt war: Dateien auch direkt ins Laufwerk eines Channels ablegen, ohne Nachricht). **Zurückgenommen, bevor gebaut**: aus der Ergänzung „Karte #9 Betreiber F1“ die Antwort W1 (410 „verdrängt“), die Regeln 1–4 dort im Wortlaut „verdrängt“, Regel 3 „Kein Live-Ereignis“ und die Matrixzeilen M40–M46 samt „Einordnung des Risikos“.
+
+  **Regeln** (Auslieferung und Verlauf):
+
+  1. **Abruf** `GET`/`HEAD /anhaenge/{id}` eines Eintrags `geloescht` → **410** `text/plain` „Dieser Anhang wurde gelöscht. Die Nachricht bleibt.“, Kopfzeilen wie jede Antwort der Route (CSP-Weiche, `nosniff`), `Cache-Control: no-store`; geprüft **vor** `If-None-Match` und `Range` — ein ETag aus der Zeit davor ergibt 410, nie 304. Entfallen bleibt 404; Datei fehlt bleibt 404 mit `WARNING anhang`. Eine Antwort, die vor dem Kürzen begann, bricht mit ihm ab (Länge stimmt nicht) — hingenommen. Verworfen wie in F1: derselbe 404 (Regel und Defekt nicht unterscheidbar), 200 mit Platzhalter (lügt über die Art).
+  2. **Metadaten** (Frage 5): jeder Eintrag in `anhaenge` trägt `zustand: "vorhanden" | "geloescht"`; bei `geloescht` bleiben `name`, `bytes`, `art`, `url` (antwortet 410). Gilt für Verlauf, Strom, Warten, Senden-Antwort.
+  3. **Ereignis `anhaenge`** (ersetzt F1 Regel 3; neues Thema im Strom nach [ADR-0023](0023-channels-als-zweites-thema-im-ereignisstrom.md), Bus `Ereignis::Anhaenge`): nach Schritt (c) des Löschens ([ADR-0046](0046-anhaenge-ablegen-eingang-bindung-beim-senden-tag-der-nachricht-quote-und-eigenes-konto.md) Ergänzung „F1′“ Regel 5) je betroffenem Gespräch ein Ereignis `{"art":"anhaenge","channel":"<name>","geloescht":[{"id":"…","zeit":"<Satzzeit>"}]}` — `zeit` ist die Zeit des Satzes, an dem der Anhang hängt, damit der Tab die Nachricht findet. **Ohne Ordnungszahl und ohne Stand**: `geloescht` ist endgültig und idempotent, die Reihenfolge der Ereignisse ändert nichts. Direktgespräche nur an die Beteiligten (Filter „sichtbar für“, [A00011](../Architektur/A00011-live-kanal.md)). Nach `NeuerStand` oder Wiederverbinden holt der Tab den offenen Block nach ([ADR-0028](0028-nachrichten-live-als-drittes-thema-ordnung-ueber-die-nachrichtenzeit.md) Regel 6) und **übernimmt dabei `zustand` schon bekannter Nachrichten** (Ausnahme von „kleiner oder gleicher Zeit wird verworfen“, Regel 5 dort — nur das Feld `zustand` der Anhänge). Varianten: E-a eigenes Thema (gewählt — Stärke: „Live überall“, Laufwerk und Verlauf folgen ohne Neuladen; Schwäche: ein Thema mehr im Strom); E-b die Nachricht als „geändert“ neu senden (bricht die Regel, dass Nachrichten unveränderlich sind und nach Zeit zusammengeführt werden — verworfen); E-c kein Ereignis wie bei F1 (Laufwerk zeigte Gelöschtes weiter an, ein Klick ergäbe 410 — verworfen).
+  4. **Oberfläche** (R00030, [A00005](../Architektur/A00005-weboberflaeche.md)): ein Anhang mit `zustand: "geloescht"` erscheint als Datei-Zeile mit Name, Größe und „Gelöscht“ (Wortlaut beim `ux-reviewer`), ohne „Öffnen“, „Laden“, Vorschau oder Player und ohne reservierten Bildplatz; trifft ein Ereignis `anhaenge` eine sichtbare Nachricht, wird Bild oder Player durch diese Zeile ersetzt (Höhe ändert sich einmal, L4 für diesen Fall hingenommen); ein `error` auf `<img>`, `<video>`, `<audio>` führt zur selben Zeile. Ein Lösch-Knopf im Verlauf ist nicht beauftragt — gelöscht wird im Laufwerk (Karte #45). Die 507 `voll` erscheint an der Datei mit dem Text aus ADR-0046 Ergänzung „F1′“ Regel 2.
+
+  **Regel 5 — Lesesicht des Laufwerks (Vorgeschlagen, Skizze für Karte #45):**
+
+  Lage: ein Verzeichnis je Channel bzw. Direktgespräch; darin die Anhänge von Nachrichten (mit Bezug zur Nachricht) und **Dateien ohne Nachricht** (Betreiber, Frage 4); sortierbar nach Name, Größe und Alter, auf- und absteigend, mit Paging; keine Suche, kein Filter (Ausbaustufe). „Wie ein Web-Laufwerk“ ist darüber hinaus nicht bestimmt — F9–F14.
+
+  *Varianten der Liste:*
+
+  | | Form | Stärke | Schwäche |
+  |---|---|---|---|
+  | L-a | eine flache Liste über alle Gespräche, nach Zeit geblättert | eine Route | widerspricht „nach Channels geordnet“ — verworfen |
+  | L-b | ganzer Baum in einer Antwort | ein Aufruf | bis 327.680 Einträge — verworfen |
+  | **L-c (vorgeschlagen)** | **zwei Ebenen**: Liste der Verzeichnisse, dann ein Verzeichnis sortiert und geblättert | wie ein Laufwerk; je Antwort beschränkt; Sortierung je Verzeichnis | drei geordnete Indizes je Gespräch im Speicher (A00016) |
+
+  *Routen* (alle unter `grenzschutz` mit Sitzung, lesend, ohne Konto-Buchung wie der Verlauf):
+  - `GET /api/anhaenge/platz` → `{hoechstens, belegt, gebunden, reserviert, frei, anhaenge}` — O(1) aus den Zählern von Gespräche (ersetzt die Form `verdraengbar`, `verdraengt_seit_start` aus ADR-0043 Ergänzung „F1“).
+  - `GET /api/anhaenge/verzeichnisse` → `{verzeichnisse: [{channel, anhaenge, bytes, juengster}]}` für jedes **sichtbare** Gespräch, auch ohne Anhänge (ein leeres Verzeichnis ist ein Ziel für Dateien ohne Nachricht), sortiert nach Name; Summen je Gespräch hält das Verzeichnis (O(Gespräche)).
+  - `GET /api/channels/{name}/anhaenge?sortierung=name|groesse|alter&richtung=auf|ab&n=1..200&nach=<cursor>` → `{anhaenge: [{id, name, bytes, art, url, zeit, nachricht: {zeit, von} | null}], weiter: <cursor> | null}` — nur `vorhanden`; Standard `alter`, `ab` (neueste zuerst). `zeit` ist die Zeit des Satzes (Alter); `nachricht` trägt den Bezug für den Sprung in den Verlauf, `null` bei Dateien ohne Nachricht. Sortierschlüssel: Name nach Unicode-Kleinschreibung, dann ID; Größe nach `bytes`, dann ID; Alter nach (Satzzeit, Sendefolge). Der Cursor ist undurchsichtig (Base32 aus Schlüssel und ID); ein Eintrag, der zwischen zwei Seiten gelöscht wird, verschiebt nichts. Unbekannte oder ungültige Parameter → 422 (abweisen, nicht umformen). Direktgespräche unter dem Pfad, den I0012 festlegt, nur für Beteiligte; ein Nichtbeteiligter erhält 404 wie für ein unbekanntes Gespräch.
+  - **Sprung in den Verlauf**: über `nachricht.zeit`; die Adresse (Hash nach [ADR-0027](0027-channel-waehlen-adresse-als-hash-zuletzt-gewaehlt-je-tab.md) plus Zeit) und ein Block „um eine Zeit“ entscheidet Karte #45 mit R00030.
+  - **Live im Laufwerk**: neue Anhänge aus dem Ereignis `nachricht` (trägt `anhaenge`), gelöschte aus `anhaenge`; Platz und Dateien ohne Nachricht — Entscheidung in Karte #45 (Vorschlag: `anhaenge` trägt `platz` mit, zusätzlich höchstens 1 Ereignis/s bei Änderung von G oder A).
+
+  *Dateien ohne Nachricht — Grundlage, damit Karte #9 nicht wartet:* sie werden über dieselben Routen angemeldet und hochgeladen (Eingang, Anspruch, Tilgen nach F4) und an einen **Ablage-Satz** gebunden — ein Satz im Tageslog des Gesprächs mit `+ art: ablage`, ohne Text, mit derselben Metazeile `+ anhang:` ([ADR-0004](0004-logformat-kopfzeile-und-eingerueckter-text.md): unbekannte Werte bleiben erhalten). Er erscheint nie im Verlauf, nie in der Suche und nie im Ereignis `nachricht`. Stärke: Ablage, Quote, Zählmaß, Laden, Löschen (`POST /api/anhaenge/loeschen`), Abruf, Sichtbarkeit und Entfallen gelten unverändert — eine Datei ohne Nachricht ist ein Anhang ohne sichtbaren Satz. Schwäche: sie entfällt mit ihrem Tag (Frage F8). Verworfen: ein eigener Ordner `laufwerk/` je Gespräch ohne Satz (zweite Ablage, zweite Löschlogik, zweites Laden — nur nötig, wenn F8 Option 2 gewählt wird). **Für Karte #9 folgt daraus nur**: kein Feld, keine Route und kein Ereignis darf voraussetzen, dass hinter jedem Anhang eine sichtbare Nachricht steht — Löschen, Abruf und Ereignis arbeiten über die ID und die Satzzeit; das Verzeichnis (A00016) trägt je Eintrag die Satzzeit und den Absender. Die Route zum Binden ohne Nachricht (Vorschlag `POST /api/channels/{name}/ablage` mit `{anhaenge: [ids]}`) gehört zu Karte #45.
+
+  **Offen — Fragen an den Betreiber** (je eine Frage; bis zur Antwort gilt nichts davon als gebaut — Karte #45):
+
+  **F8 — Wie lange bleiben Dateien ohne Nachricht?**
+  1. Wie Nachrichten: sie entfallen mit der Aufbewahrungsfrist ihres Channels, gerechnet ab dem Ablegen **(Empfehlung: eine Regel für alles im Verzeichnis, kein zweiter Ablageort, das Laufwerk füllt sich nicht unbemerkt über Monate)**
+  2. Bis jemand sie löscht — nur die Anhang-Quote begrenzt sie (braucht eigene Ablage außerhalb der Tagesordner)
+  3. Eigene Frist für Dateien ohne Nachricht je Channel, einstellbar wie die Frist
+
+  **F9 — Unterordner in einem Channel-Verzeichnis?**
+  1. Nein: je Channel bzw. Direktgespräch genau ein Verzeichnis, flach **(Empfehlung: die Chat-Struktur ist die Verzeichnisstruktur; Unterordner brauchen Namen, Verschieben und eigene Löschregeln)**
+  2. Ja, Unterordner nur für Dateien ohne Nachricht
+  3. Ja, beliebige Unterordner für alle Dateien
+
+  **F10 — Umbenennen von Dateien?**
+  1. Nein: der Name ist der beim Hochladen **(Empfehlung: die Nachricht nennt den Namen, unter dem sie gesendet wurde; Umbenennen bräuchte einen dauerhaften Vermerk neben dem Log)**
+  2. Nur Dateien ohne Nachricht
+  3. Alle, die Nachricht zeigt dann den neuen Namen
+
+  **F11 — Verschieben zwischen Verzeichnissen?**
+  1. Nein **(Empfehlung: ein Anhang gehört zum Gespräch seiner Nachricht; Verschieben in ein anderes Gespräch änderte, wer ihn sieht)**
+  2. Nur Dateien ohne Nachricht zwischen Channels
+  3. Kopieren statt Verschieben (zählt doppelt an der Quote)
+
+  **F12 — Ersetzen und Versionen?**
+  1. Nein: eine neue Fassung ist eine neue Datei **(Empfehlung: jede Datei ist unveränderlich, ETag `"<id>"` bleibt wahr, kein Versionsspeicher an der Quote)**
+  2. Ersetzen einer Datei ohne Nachricht unter gleichem Namen, alte Fassung gelöscht
+  3. Versionen mit Verlauf je Datei
+
+  **F13 — Mehrere Dateien und ganze Ordner hochladen?**
+  1. Mehrere Dateien auf einmal ja, Ordner nein **(Empfehlung: mehrere Dateien sind dieselben Routen wie heute; Ordner hängen an F9)**
+  2. Auch ganze Ordner, als flache Liste ihrer Dateien
+  3. Ganze Ordner mit Struktur (setzt F9 Option 3 voraus)
+
+  **F14 — Herunterladen mehrerer Dateien als Archiv?**
+  1. Nein: jede Datei einzeln über „Laden“ **(Empfehlung: kein Archivcode und kein zweiter großer Strom im Server; ein Agent lädt mit `curl` je ID)**
+  2. Ja, Auswahl als ZIP, gestreamt ohne Kompression
+  3. Ja, ein ganzes Verzeichnis als ZIP
+
+  **Matrixzeilen** (ersetzen M40–M46 der Ergänzung „F1“; für den `security-reviewer`, Gate an R00029; M47–M50 bleiben):
+
+  | # | Fläche | Angriff | erwartet | Linie |
+  |---|---|---|---|---|
+  | M40′ | Quote füllen | eine Herkunft lädt `Q` Bytes in vielen Dateien hoch und sendet sie | danach jede Anmeldung 507 `voll` ohne `Retry-After`, **Text 201**, kein gebundener Anhang verändert; Episode `Platz für Anhänge voll` je Kennung; nach bestätigtem Löschen von n Bytes nimmt die nächste Anmeldung ≤ n an; Kontrollpaar K1 vor dem Füllen | L1, L2 |
+  | M41′ | Abbruch | Anmelden `Q`, 1 GiB schreiben, Verbindung schließen; Lebensende abwarten | Anspruch frei, `.teil` weg, kein Anhang anderer verändert, Invarianten halten | L1, L2 |
+  | M42′ | Anspruch hält Platz | Anmelden `Q`, alle 9 s 64 KiB, nach der Gesamtfrist neu `PUT` | andere 507 `hochladungen` mit `Retry-After`, Text 201; spätestens am Lebensende frei; Health `reserviert` ≈ `Q`; **Löschen hilft nicht** (nur gebundene) — Restrisiko bewerten (≈ 6,4 KiB/s halten 20 GiB ≈ 11,4 h), Folgeoption E2 (Anspruch je Herkunft ≤ 50 %) | L2 |
+  | M43′ | Wettläufe | Löschen gegen Entfallen desselben Tages, gegen `GET` mit Range, gegen zweites Löschen derselben ID, gegen eine Anmeldung, die auf den Platz wartet; Kürzen scheitert | jeder Anhang genau einmal abgezogen; Platz erst nach dem Kürzen frei; `fehler` stellt `vorhanden` her; keine Verklemmung (Löschen nimmt keine Gesprächssperre) | L1 |
+  | M44′ | Orakel und Sichtbarkeit | Löschen mit ausgedachter ID, mit ID eines Direktgesprächs als Nichtbeteiligter, mit ID des Eingangs; Ereignis `anhaenge` und Laufwerk-Liste eines Direktgesprächs für Dritte | `unbekannt` in allen drei Fällen, gleich lange Antwort; kein Ereignis, kein Verzeichnis für Dritte; 410 ohne Gespräch, Tag, Name | L2 |
+  | M45′ | Kürzen und Symlink | Datei vor dem Kürzen durch einen Symlink auf eine fremde Datei ersetzt; Tag-Ordner durch Symlink ersetzt | fremde Datei unverändert (`O_NOFOLLOW`), Ergebnis `fehler`, `ERROR anhang`, Anhang wieder `vorhanden` | L1, L2 |
+  | M46′ | Quote gesenkt | Neustart mit `--anhangquote` unter der Belegung | Start löscht nichts, `WARNING`; jede Anmeldung 507 `voll`, bis Löschen sie unter die Quote bringt | L2 |
+  | M51 | Löschflut | ein Agent löscht alle IDs aus Verlauf bzw. Laufwerk mit `bestaetigt: true` in Anfragen zu 500 | gelingt (gewollt, keine Rechte); je Anfrage eine `INFORMATION`-Zeile mit Kennung, Zahl, `fremde`; 429 nach Schreibkonto (6 Einheiten je 500); Health `anhaenge_geloescht`; nie ID oder Name im Protokoll | L2 |
+  | M52 | CSRF und Rebinding | `POST /api/anhaenge/loeschen` mit fremdem `Origin`, `Sec-Fetch-Site: cross-site`, `text/plain`-Formular, fremdem Host | 403 bzw. 415 ohne Wirkung | L2 |
+  | M53 | Löschkörper | leere Liste, 501 IDs, doppelte ID, ID in Großbuchstaben, 25/27 Zeichen, `bestaetigt: "ja"`, weiteres Feld, Körper 16.385 Bytes | 422 `leer`/`anzahl`/`doppelt`/`id`/`bestaetigt`/`feld`, 413; nichts gelöscht, keine 409-Vorschau | L1, L2 |
+
+  **Einordnung des Risikos** (ehrlich): keine Daten gehen mehr ohne menschliche Handlung verloren — das Verdrängen ist weg. Dafür zwei Wege, auf denen ein einzelner Teilnehmer allen schadet: (1) **die Quote füllen** — 20 GiB im Gigabit-LAN in ≈ 3–4 min, danach lädt niemand hoch, bis jemand löscht; Text geht weiter (eigene Quote). Gemessen an der Leitplanke „Lastprofil Team-LAN“ (20 Menschen, 50 Agenten auf einem normalen Rechner, Maßstab für Grenzen gegen Flut) bleibt der Chat selbst unberührt, die Wirkung ist sichtbar (Episode, 90 %, Health) und durch eine Sammellöschung in Sekunden behoben — hingenommen, weil der Betreiber Blockieren statt Verdrängen gewählt hat und ein Anteil je Herkunft „für alle zusammen“ und B2 widerspräche. (2) **alles löschen** — gewollt möglich („Jeder darf jeden Anhang löschen“); Gegenmittel ohne Rechte: Bestätigung mit `fremde`, Protokoll mit Kennung, Konto; Rückgängig und Sichtbarkeit des Löschenden sind F6 und F7 ([ADR-0046](0046-anhaenge-ablegen-eingang-bindung-beim-senden-tag-der-nachricht-quote-und-eigenes-konto.md) Ergänzung „F1′“). Folgerichtung an den `security-reviewer`: M40′–M53 als Gate an R00029; M42′ mit Zahlen bewerten.
+
+  **Zuschnitt (Empfehlung an Director und `planer`):** Karte #9 (R00029) baut die blockierende Quote (507 `voll`/`hochladungen`, 422 `zu_gross`), die Route Löschen mit Bestätigung, Abruf 410, `zustand`, das Ereignis `anhaenge` auf dem Server, Laden „Länge 0 = gelöscht“, Protokoll und Health — ohne Löschen gäbe es zwischen #9 und #45 keinen Ausweg aus einer vollen Quote außer der Frist. Karte #43 (R00030) zeigt `zustand` und folgt dem Ereignis im Verlauf, zeigt 507 `voll` an der Datei. Karte #45 (D0006) baut die Lesesicht (Regel 5), die Oberfläche mit Auswahl, Bestätigungsdialog und Sammellöschung, Dateien ohne Nachricht und — je nach F8–F14 — mehr.
