@@ -2,6 +2,7 @@
 //! /api/anhaenge/{id}`), verwerfen (`DELETE /api/anhaenge/{id}`).
 
 mod anmelden;
+pub mod bereich;
 pub mod hochladen;
 mod verwerfen;
 
