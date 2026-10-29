@@ -858,3 +858,112 @@ fn i13_die_option_geht_der_umgebung_vor() {
     );
     assert!(erlaubt(&lauf.gesundheit("boese.example")));
 }
+
+/// Matrix F8 (L2): Abweisungen unter Flut sind eine Episode je Herkunft, keine Zeile je Anfrage; „erlaubt“
+/// höchstens einmal je Cache-Eintrag.
+#[test]
+fn f8_protokoll_unter_flut_eine_episode_und_eine_information() {
+    let lauf = mit_testnamen(&[]);
+
+    for nummer in 0..300 {
+        assert_eq!(lauf.gesundheit(&format!("r{nummer}.local")).status, 403);
+    }
+    for _ in 0..20 {
+        assert!(erlaubt(&lauf.gesundheit("chat.local")));
+    }
+
+    let warnungen = mit(&lauf.protokoll(), "WARNING", "grenzschutz");
+    let abweisungen: Vec<&String> = warnungen
+        .iter()
+        .filter(|zeile| zeile.contains("Anfrage mit fremdem Host abgewiesen"))
+        .collect();
+    assert_eq!(abweisungen.len(), 1, "{abweisungen:?}");
+    assert!(
+        abweisungen[0].contains("Episode beginnt"),
+        "{abweisungen:?}"
+    );
+    let gemeldet = lauf.erlaubt_gemeldet("Host-Name über lokalen Namensraum erlaubt", "chat.local");
+    assert_eq!(gemeldet.len(), 1, "{gemeldet:?}");
+}
+
+/// Matrix I15, I16 (L2): `--alle-namen=1` ist eine unbekannte Option; `--hilfe` nennt den Schalter mit dem
+/// Risikosatz auf eigener Zeile.
+#[test]
+fn i15_i16_schreibweise_mit_wert_und_hilfe() {
+    let wurzel = tempfile::tempdir().expect("Wegwerf-Ordner");
+    let ende = exit_code(wurzel.path(), &[], &["--alle-namen=1"]);
+    assert_eq!(ende.exit, Some(2), "{}", ende.stderr);
+    assert!(
+        ende.stderr.contains("Unbekannte Option --alle-namen=1"),
+        "{}",
+        ende.stderr
+    );
+
+    let hilfe = gemeinsam::aufrufen(&["--hilfe"]);
+    assert_eq!(hilfe.exit, Some(0));
+    assert!(
+        hilfe
+            .stdout
+            .lines()
+            .next()
+            .unwrap_or_default()
+            .contains("[--alle-namen]")
+    );
+    assert!(
+        hilfe
+            .stdout
+            .lines()
+            .any(|zeile| zeile.trim_start().starts_with("--alle-namen")
+                && zeile.contains("LOCALCHATA_ALLE_NAMEN")),
+        "{}",
+        hilfe.stdout
+    );
+    assert!(
+        hilfe.stdout.lines().any(|zeile| zeile.trim_start()
+            == "Risiko: eine fremde Website, die ein Teilnehmer öffnet, kann über DNS-Rebinding Channels mitlesen, Nachrichten schreiben und über die Frist Verläufe löschen."),
+        "{}",
+        hilfe.stdout
+    );
+    assert!(
+        hilfe.stdout.contains("gelten automatisch"),
+        "{}",
+        hilfe.stdout
+    );
+}
+
+/// Kriterium „Rückwärtsname im echten Netz“ (echtes DNS, ohne Testnamen; Matrix B7 automatisch, soweit der
+/// Rechner es hergibt): nur mit einer LAN-Adresse, für die `getent hosts` einen Namen liefert — sonst als
+/// übersprungen gemeldet (stderr des Tests).
+#[test]
+fn f0077_rueckwaertsname_im_echten_netz() {
+    let Some((lan, name)) = lan_adresse_mit_namen() else {
+        eprintln!("übersprungen: keine LAN-Adresse mit Rückwärtsnamen (getent hosts)");
+        return;
+    };
+    let lauf = starten(&["--host", "0.0.0.0"], &[]).ueber(&lan.to_string());
+
+    let antwort = lauf.gesundheit(&name);
+
+    assert!(
+        erlaubt(&antwort),
+        "{name} über {lan}: {} {}",
+        antwort.status,
+        antwort.inhalt
+    );
+}
+
+fn lan_adresse_mit_namen() -> Option<(IpAddr, String)> {
+    let sonde = std::net::UdpSocket::bind("0.0.0.0:0").ok()?;
+    sonde.connect("192.0.2.1:9").ok()?;
+    let lan = sonde.local_addr().ok()?.ip();
+    if lan.is_loopback() || lan.is_unspecified() {
+        return None;
+    }
+    let ausgabe = std::process::Command::new("getent")
+        .args(["hosts", &lan.to_string()])
+        .output()
+        .ok()?;
+    let text = String::from_utf8(ausgabe.stdout).ok()?;
+    let name = text.split_whitespace().nth(1)?.to_string();
+    Some((lan, name))
+}

@@ -614,6 +614,46 @@ mod tests {
         assert_eq!(episoden.len(), 1, "{episoden:?}");
     }
 
+    /// Matrix F1 (L1): 300 verschiedene `.local`-Namen, 50 gleichzeitig, keine Frage kommt zurück — höchstens 2
+    /// Fragen laufen, jede Anfrage ist nach höchstens 1 s (+100 ms) abgewiesen, die übrigen ohne Frage.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn flut_aus_zufaelligen_lokalen_namen_bleibt_bei_zwei_fragen() {
+        let test = Testauskunft::mit(&[], &[]);
+        let namen: Vec<String> = (0..300).map(|nummer| format!("r{nummer}.local")).collect();
+        for name in &namen {
+            test.sperren(name);
+        }
+        let a = aufbau(Arc::clone(&test));
+        let beginn = Instant::now();
+        for welle in namen.chunks(50) {
+            let mut laeufe = Vec::new();
+            for name in welle {
+                let auskunft = Arc::clone(&a.auskunft);
+                let name = name.clone();
+                laeufe.push(tokio::spawn(async move {
+                    let start = Instant::now();
+                    (urteil(&auskunft, &name).await, start.elapsed())
+                }));
+            }
+            for lauf in laeufe {
+                let (urteil, dauer) = lauf.await.expect("Lauf");
+                assert_eq!(urteil, None);
+                assert!(dauer <= Duration::from_millis(1100), "{dauer:?}");
+            }
+        }
+
+        assert!(
+            beginn.elapsed() < Duration::from_secs(8),
+            "{:?}",
+            beginn.elapsed()
+        );
+        assert_eq!(test.alle_fragen(), 2);
+        assert_eq!(test.hoechstens.load(Ordering::SeqCst), 2);
+        for name in &namen {
+            test.oeffnen(name);
+        }
+    }
+
     /// Kriterium „Geteilte Auflösung“ (Matrix F2): läuft für den Schlüssel schon eine Auflösung, wartet die
     /// zweite Anfrage darauf — 1 Frage; ebenso 50 gleichzeitige Anfragen.
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
