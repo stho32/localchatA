@@ -4,8 +4,8 @@
 mod gemeinsam;
 
 use gemeinsam::Absender;
-use gemeinsam::anhaenge::{MIB, Q, anmelden, anmelden_roh, id, starten};
-use gemeinsam::senden::{beitreten, ordner};
+use gemeinsam::anhaenge::{MIB, Q, ablegen, anmelden, anmelden_roh, gesundheit, id, starten};
+use gemeinsam::senden::{beitreten, ordner, roh_senden};
 use serde_json::json;
 
 fn ist_id(text: &str) -> bool {
@@ -178,6 +178,96 @@ async fn laufende_hochladungen_belegen_den_platz_507_mit_retry_after_30() {
             "frei": 0,
             "braucht": 65_536,
         })
+    );
+}
+
+/// Neun Anhänge zu 1 MiB gebunden (G = 9.437.184).
+async fn neun_gebunden(absender: &Absender, basis: &str, token: &str) {
+    for nummer in 0..9 {
+        let id = ablegen(
+            absender,
+            basis,
+            token,
+            &format!("n{nummer}.bin"),
+            vec![1u8; MIB as usize],
+        )
+        .await;
+        let koerper = json!({"text": "", "anhaenge": [id]})
+            .to_string()
+            .into_bytes();
+        let gesendet = roh_senden(
+            absender,
+            basis,
+            Some(token),
+            "allgemein",
+            "application/json",
+            koerper,
+        )
+        .await;
+        assert_eq!(gesendet.status, 201, "{}", gesendet.json);
+    }
+}
+
+/// Befund #9 B1, R00029 „Volle Anhang-Quote, Rechenbeispiel“ (QA6′): neun gebunden, Anmelden 2.097.152 → 507 ohne
+/// `Retry-After` mit dem Körper wörtlich; nichts beansprucht, `anhang_abgewiesen` 1. Variante mit einem
+/// angemeldeten Byte (`reserviert` 65.536): `belegt` = G + A, `gebunden` = G, `frei` = Q − G − A. Mutanten „`frei` und
+/// `braucht` vertauscht“ und „`belegt` = `gebunden`“ werden rot.
+#[tokio::test]
+async fn volle_anhang_quote_507_voll_woertlich() {
+    let wurzel = ordner();
+    let instanz = starten(wurzel.path(), &[], &[]);
+    let basis = instanz.adresse.as_str();
+    let beta = Absender::von("127.0.0.1");
+    let token = beitreten(&beta, basis, "beta", Some("agent")).await;
+    neun_gebunden(&beta, basis, &token).await;
+
+    let voll = anmelden(&beta, basis, &token, "g.bin", 2 * MIB).await;
+
+    assert_eq!(voll.status, 507);
+    assert_eq!(voll.kopf.get("retry-after"), None);
+    assert_eq!(
+        voll.json,
+        json!({
+            "fehler": "Nicht hochgeladen: der Platz für Anhänge ist voll — frei sind 1,0 MiB, die Datei braucht 2,0 MiB. Platz entsteht, wenn Anhänge gelöscht werden oder ältere Tage entfallen; Text kann weiter gesendet werden.",
+            "regel": "quote",
+            "grund": "voll",
+            "belegt": 9_437_184,
+            "gebunden": 9_437_184,
+            "reserviert": 0,
+            "hoechstens": 10_485_760,
+            "frei": 1_048_576,
+            "braucht": 2_097_152,
+        })
+    );
+    let stand = gesundheit(basis).await;
+    assert_eq!(
+        (&stand["reserviert"], &stand["anhang_abgewiesen"]),
+        (&json!(0), &json!(1))
+    );
+
+    id(&anmelden(&beta, basis, &token, "eins.bin", 1).await);
+    let mit_anspruch = anmelden(&beta, basis, &token, "g.bin", 2 * MIB).await;
+
+    assert_eq!(mit_anspruch.status, 507);
+    assert_eq!(mit_anspruch.kopf.get("retry-after"), None);
+    assert_eq!(
+        mit_anspruch.json,
+        json!({
+            "fehler": "Nicht hochgeladen: der Platz für Anhänge ist voll — frei sind 0,9 MiB, die Datei braucht 2,0 MiB. Platz entsteht, wenn Anhänge gelöscht werden oder ältere Tage entfallen; Text kann weiter gesendet werden.",
+            "regel": "quote",
+            "grund": "voll",
+            "belegt": 9_502_720,
+            "gebunden": 9_437_184,
+            "reserviert": 65_536,
+            "hoechstens": 10_485_760,
+            "frei": 983_040,
+            "braucht": 2_097_152,
+        })
+    );
+    let stand = gesundheit(basis).await;
+    assert_eq!(
+        (&stand["reserviert"], &stand["anhang_abgewiesen"]),
+        (&json!(65_536), &json!(2))
     );
 }
 
