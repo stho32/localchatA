@@ -212,6 +212,12 @@ body { background: var(--kd-bg); color: var(--kd-ink); font-family: var(--font-s
 .lc-bestaetigung[hidden] { display: none; }
 .lc-gesperrt code { font-family: var(--font-mono); overflow-wrap: anywhere; }
 .lc-dialog-schalter { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: var(--kd-space-8); margin-top: var(--kd-space-8); }
+/* Touch-Geräte: Dialogschalter als Ziel von 44 px, das Feld in 16 px, damit Safari unter iOS beim Fokus nicht zoomt
+   (R00019 F0083; gilt für beide Dialoge mit .lc-dialog, Designsystem 4.3); der Abstand von 8 px kommt aus gap */
+@media (pointer: coarse) {
+  .lc-dialog .lc-btn { min-width: 44px; height: 44px; }
+  .lc-dialog .lc-feld { font-size: 16px; }
+}
 
 /* Teilnehmerliste (Baustein Teilnehmerliste, Status nach components/bundle.css) */
 .lc-members { background: var(--kd-surface); border-left: 1px solid var(--kd-line); padding: var(--kd-space-8) 0; overflow-y: auto; min-width: 0; }

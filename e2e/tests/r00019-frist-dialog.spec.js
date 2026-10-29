@@ -217,3 +217,50 @@ test('Dialog mit Bildschirmtastatur, zweiter Schritt (US-16, B0544): „Zurück�
   expect(await ganzImFenster(verkuerzen(a.page))).toBe(true);
   expect(a.fehler).toEqual([]);
 });
+
+// Breite, Höhe und Lage eines Schalters; Abstand zweier Schalter waagerecht oder, bei Umbruch, senkrecht.
+const rand = (locator) => locator.evaluate((element) => element.getBoundingClientRect().toJSON());
+function abstand(links, rechts) {
+  if (rechts.top >= links.bottom) {
+    return rechts.top - links.bottom;
+  }
+  return rechts.left - links.right;
+}
+const schriftDesFelds = (page) => feld(page).evaluate((element) => getComputedStyle(element).fontSize);
+
+for (const [geraet, kontext] of [['Telefon 375 × 667', telefon(375, 667)], ['Tablet 768 × 1024', telefon(768, 1024)]]) {
+  test(`Touch im Dialog (B0545, ${geraet}): Schalter beider Schritte ≥ 44 × 44, Feld 16 px, „Zurück“ und „Frist verkürzen“ ≥ 8 px auseinander`, async ({ browser }) => {
+    await starten(verkuerzbar);
+    const a = await dialogOeffnen(browser, { kontext });
+
+    for (const name of ['Speichern', 'Abbrechen']) {
+      const schalter = await rand(dialog(a.page).getByRole('button', { name }));
+      expect(schalter.width, name).toBeGreaterThanOrEqual(44);
+      expect(schalter.height, name).toBeGreaterThanOrEqual(44);
+    }
+    expect(await schriftDesFelds(a.page)).toBe('16px');
+    await zweiterSchritt(a.page);
+    const zurueckRand = await rand(zurueck(a.page));
+    const verkuerzenRand = await rand(verkuerzen(a.page));
+    for (const schalter of [zurueckRand, verkuerzenRand]) {
+      expect(schalter.width).toBeGreaterThanOrEqual(44);
+      expect(schalter.height).toBeGreaterThanOrEqual(44);
+    }
+    expect(abstand(zurueckRand, verkuerzenRand)).toBeGreaterThanOrEqual(8);
+    expect(a.fehler).toEqual([]);
+  });
+}
+
+test('Touch im Dialog, Kontrollpaar 1280 × 800 ohne Touch (B0545): Schalter 28 px hoch, Feld 13 px, „Zurück“ und „Frist verkürzen“ ≥ 8 px auseinander', async ({ browser }) => {
+  await starten(verkuerzbar);
+  const a = await dialogOeffnen(browser);
+
+  expect((await rand(dialog(a.page).getByRole('button', { name: 'Speichern' }))).height).toBe(28);
+  expect(await schriftDesFelds(a.page)).toBe('13px');
+  await zweiterSchritt(a.page);
+  const zurueckRand = await rand(zurueck(a.page));
+  const verkuerzenRand = await rand(verkuerzen(a.page));
+  expect(zurueckRand.height).toBe(28);
+  expect(abstand(zurueckRand, verkuerzenRand)).toBeGreaterThanOrEqual(8);
+  expect(a.fehler).toEqual([]);
+});
