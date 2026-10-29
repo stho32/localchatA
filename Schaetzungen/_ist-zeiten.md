@@ -476,3 +476,9 @@ Nie vom User erfragen.
 | 2026-10-29 | R00033 Senden bei Störungen nach den Reviews #36 | B0554 Schreibweisen in Tests und Kommentaren (17:16–17:17) | Standard | 0,4h | 0,02h | 0,02h | autonom |
 | 2026-10-29 | R00033 Senden bei Störungen nach den Reviews #36 | B0551 Wartezeile beschreibt das Namensfeld (17:17–17:27, mit E2E-Lauf) | Standard | 0,4h | 0,2h | 0,2h | autonom |
 | 2026-10-29 | R00033 Senden bei Störungen nach den Reviews #36 | B0550 Countdown bleibt bei 320 px ganz (17:11–17:34, Messung in drei Viewports, Mutante; verschränkt mit B0551–B0553) | Standard | 2-4h | 0,5h | 0,5h | autonom |
+| 2026-10-29 | R00034 Eingriffszeilen mit eigenem Tagesbudget | B0555 Eingriffszeile erkennen | Standard | 0,4h | 0,03h | 0,03h | autonom (entw3) |
+| 2026-10-29 | R00034 Eingriffszeilen mit eigenem Tagesbudget | B0556 Klasse EINGRIFF mit 16 MiB | Standard | 0,4h | 0,03h | 0,03h | autonom (entw3) |
+| 2026-10-29 | R00034 Eingriffszeilen mit eigenem Tagesbudget | B0557 Eintragen ordnet nach Stufe, Bereich und Text | Standard | 0,4h | 0,02h | 0,02h | autonom (entw3) |
+| 2026-10-29 | R00034 Eingriffszeilen mit eigenem Tagesbudget | B0558 Wiederlesen mit derselben Zuordnung | Standard | 0,4h | 0,03h | 0,03h | autonom (entw3) |
+| 2026-10-29 | R00034 Eingriffszeilen mit eigenem Tagesbudget | B0559 Beitrittsflut lässt die Fristzeile stehen | Standard | 0,4h | 0,03h | 0,03h | autonom (entw3) |
+| 2026-10-29 | R00034 Eingriffszeilen mit eigenem Tagesbudget | Mutanten, Nachtrag M6, Gate | Konsolidierung | — | 0,15h | 0,15h | autonom (entw3) |
