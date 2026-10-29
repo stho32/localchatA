@@ -10,14 +10,16 @@ export function sendbar(text) {
   return textPruefen(text).art === 'ok';
 }
 
-// Was eine Taste im Feld bewirkt (Regel 2): 'senden' | 'zeile' | null. Während einer IME-Komposition und bei Text
-// nur aus Leerraum nie senden; Alt Enter tut nichts.
-export function taste(ereignis, text) {
+// Was eine Taste im Feld bewirkt (Regel 2, Ergänzung Karte #41 K5): 'senden' | 'zeile' | null. Während einer
+// IME-Komposition und bei Text nur aus Leerraum nie senden; Alt Enter tut nichts. Mit grobem Zeiger (Touch-Gerät,
+// `zeiger` 'grob') macht Enter eine Zeile, Strg und Meta Enter senden; sonst sendet Enter.
+export function taste(ereignis, text, zeiger) {
   const komponiert = ereignis.isComposing || ereignis.keyCode === IME_TASTENCODE;
   if (ereignis.key !== 'Enter' || komponiert || ereignis.altKey) {
     return null;
   }
-  if (ereignis.shiftKey) {
+  const mitSendetaste = ereignis.ctrlKey || ereignis.metaKey;
+  if (!mitSendetaste && (ereignis.shiftKey || zeiger === 'grob')) {
     return 'zeile';
   }
   if (nurLeerraum(text)) {

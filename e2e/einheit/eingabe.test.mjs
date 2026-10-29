@@ -52,3 +52,34 @@ test('sendbar ist falsch bei Leerraum nach White_Space und bei verletzter Textre
     assert.equal(sendbar(text), false, JSON.stringify(text.slice(0, 12)));
   }
 });
+
+// R00027 F0092 „Taste mit Zeigerart“ (B0483, ADR-0038 Ergänzung Karte #41 K5): mit grobem Zeiger macht Enter eine Zeile,
+// Strg/Meta Enter senden; die Mutante „Zeigerart ignoriert“ wird rot.
+test('grober Zeiger: Enter und Shift Enter machen eine Zeile, Strg Enter und Meta Enter senden', () => {
+  assert.equal(taste(ohne, 'Hallo', 'grob'), 'zeile');
+  assert.equal(taste(mit({ shiftKey: true }), 'Hallo', 'grob'), 'zeile');
+  assert.equal(taste(mit({ ctrlKey: true }), 'a', 'grob'), 'senden');
+  assert.equal(taste(mit({ metaKey: true }), 'a', 'grob'), 'senden');
+});
+
+test('grober Zeiger: Strg Enter während einer Komposition oder bei Leerraum tut nichts', () => {
+  assert.equal(taste(mit({ ctrlKey: true, isComposing: true }), 'a', 'grob'), null);
+  assert.equal(taste(mit({ ctrlKey: true, keyCode: 229 }), 'a', 'grob'), null);
+  assert.equal(taste(mit({ ctrlKey: true }), ' \n ', 'grob'), null);
+});
+
+test('grober Zeiger: Enter mit keyCode 229 tut nichts — die Zeile schreibt die Bildschirmtastatur', () => {
+  assert.equal(taste(mit({ keyCode: 229 }), 'Hallo', 'grob'), null);
+});
+
+test('feiner Zeiger: alle Fälle aus R00011 „Tasten“ unverändert', () => {
+  const faelle = [
+    [ohne, 'Hallo', 'senden'], [mit({ ctrlKey: true }), 'Hallo', 'senden'], [mit({ metaKey: true }), 'Hallo', 'senden'],
+    [mit({ shiftKey: true }), 'Hallo', 'zeile'], [mit({ altKey: true }), 'Hallo', null], [mit({ isComposing: true }), 'Hallo', null],
+    [mit({ keyCode: 229 }), 'Hallo', null], [ohne, ' \n ', null], [ohne, '', null], [ohne, '\u0085', null], [ohne, '﻿', 'senden'],
+    [mit({ key: 'a', keyCode: 65 }), 'Hallo', null],
+  ];
+  for (const [ereignis, text, erwartet] of faelle) {
+    assert.equal(taste(ereignis, text, 'fein'), erwartet, JSON.stringify({ ...ereignis, text }));
+  }
+});
