@@ -29,11 +29,13 @@ pub enum Pflegebericht {
         frist: u32,
         anlass: Pflegeanlass,
     },
-    /// Ein Tag ließ sich nicht entfernen; er bleibt in Datei und Index bis zum nächsten Anlass.
+    /// Ein Tag ließ sich nicht entfernen; er bleibt in Datei und Index bis zum nächsten Anlass. `ursache` ist der
+    /// Text des Plattenfehlers.
     NichtEntfallen {
         channel: Channelname,
         datei: String,
-        grund: String,
+        anlass: Pflegeanlass,
+        ursache: String,
     },
     /// Die Einstellungen sind defekt — in diesem Channel entfällt nichts (ADR-0032 Regel 5).
     Gesperrt {
@@ -113,7 +115,8 @@ impl Gespraeche {
                 return vec![Pflegebericht::NichtEntfallen {
                     channel: name.clone(),
                     datei: gespraech.pfad(),
-                    grund: fehler.to_string(),
+                    anlass: anlass.clone(),
+                    ursache: fehler.to_string(),
                 }];
             }
         };
@@ -132,10 +135,11 @@ impl Gespraeche {
                     }
                     entfallen.push(tag);
                 }
-                Err(grund) => fehler.push(Pflegebericht::NichtEntfallen {
+                Err(ursache) => fehler.push(Pflegebericht::NichtEntfallen {
                     channel: name.clone(),
                     datei: gespraech.tagesdatei(tag),
-                    grund: grund.to_string(),
+                    anlass: anlass.clone(),
+                    ursache: ursache.to_string(),
                 }),
             }
         }
@@ -194,7 +198,7 @@ pub enum Fristfehler {
     /// Mit der neuen Frist entfielen Tage, und es war nicht bestätigt — nichts geändert (ADR-0031 Regel 2.6).
     Bestaetigen(Entfaellt),
     /// Die Einstellungen ließen sich nicht schreiben (ADR-0031 Regel 2.7).
-    Ablage { datei: String, grund: String },
+    Ablage { datei: String, ursache: String },
 }
 
 impl Gespraeche {
@@ -265,7 +269,7 @@ impl Gespraeche {
                     .tage(&gespraech)
                     .map_err(|fehler| Fristfehler::Ablage {
                         datei: gespraech.pfad(),
-                        grund: fehler.to_string(),
+                        ursache: fehler.to_string(),
                     })?;
             if let Some(entfaellt) = vorschau(&auf_der_platte, &sperren(&verlauf), heute, tage) {
                 return Err(Fristfehler::Bestaetigen(entfaellt));
@@ -289,7 +293,7 @@ impl Gespraeche {
         let datei = gespraech.einstellungsdatei();
         let ablagefehler = |fehler: std::io::Error| Fristfehler::Ablage {
             datei: datei.clone(),
-            grund: fehler.to_string(),
+            ursache: fehler.to_string(),
         };
         let vorher = self
             .ablage
@@ -760,7 +764,8 @@ mod tests {
                 Pflegebericht::NichtEntfallen {
                     channel: allgemein(),
                     datei: "channels/allgemein/2026-10-21.log".into(),
-                    grund: "Entfernen scheitert (Speicher-Logablage)".into(),
+                    anlass: Pflegeanlass::FristGesetzt { von: beta() },
+                    ursache: "Entfernen scheitert (Speicher-Logablage)".into(),
                 },
             ]
         );
@@ -786,7 +791,7 @@ mod tests {
             gescheitert,
             Err(Fristfehler::Ablage {
                 datei: "channels/allgemein/einstellungen.toml".into(),
-                grund: "Einstellungen schreiben scheitert (Speicher-Logablage)".into(),
+                ursache: "Einstellungen schreiben scheitert (Speicher-Logablage)".into(),
             })
         );
         assert_eq!(gespraeche.channels().liste[0].frist, Frist::Tage(7));

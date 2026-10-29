@@ -9,6 +9,8 @@ mod channels;
 mod eingebettet;
 mod ereignisse;
 mod frist;
+#[cfg(test)]
+mod fristspur;
 mod gesundheit;
 #[cfg(test)]
 mod grenzepisoden;

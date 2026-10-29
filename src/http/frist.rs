@@ -63,12 +63,12 @@ pub async fn setzen(
             gesetzt_eintragen(&zustand.protokoll, &gesetzt, &teilnehmer.kennung);
             gesetzt_beantworten(&gesetzt)
         }
-        Ok(Err(Abweisung::Frist(Fristfehler::Ablage { datei, grund }))) => {
+        Ok(Err(Abweisung::Frist(Fristfehler::Ablage { datei, ursache }))) => {
             eintragen(
                 &zustand.protokoll,
-                frist_nicht_gesetzt_eintrag(&name, &teilnehmer.kennung, &datei, &grund),
+                frist_nicht_gesetzt_eintrag(&name, &teilnehmer.kennung, &datei, &ursache),
             );
-            Abweisung::Frist(Fristfehler::Ablage { datei, grund }).beantworten(&name)
+            Abweisung::Frist(Fristfehler::Ablage { datei, ursache }).beantworten(&name)
         }
         Ok(Err(abweisung)) => {
             let regel = abweisung.regelschluessel();
@@ -191,10 +191,10 @@ impl Abweisung {
                 })),
             )
                 .into_response(),
-            Abweisung::Frist(Fristfehler::Ablage { datei, grund }) => (
+            Abweisung::Frist(Fristfehler::Ablage { datei, ursache }) => (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(json!({
-                    "fehler": format!("Frist nicht gesetzt — {datei} ließ sich nicht schreiben ({grund})."),
+                    "fehler": format!("Frist nicht gesetzt — {datei} ließ sich nicht schreiben ({ursache})."),
                 })),
             )
                 .into_response(),

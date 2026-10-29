@@ -7,7 +7,8 @@ use crate::protokoll::{Bereich, Eintrag, Kontext, Schluessel, Stufe};
 use chrono::NaiveDate;
 
 /// Der Eintrag zu einem Pflegebericht: Entfallen als INFORMATION, ein nicht entfallener Tag als ERROR, defekte
-/// Einstellungen als WARNING (R00017, Abbildung Zeilen 2–5).
+/// Einstellungen als WARNING (R00017, Abbildung Zeilen 2–5). Im Bereich `frist` ist `grund` immer der Anlass, ein
+/// Plattenfehler steht in `ursache` (R00019).
 pub fn pflege_eintrag(bericht: &Pflegebericht) -> Eintrag {
     match bericht {
         Pflegebericht::Entfallen {
@@ -17,14 +18,12 @@ pub fn pflege_eintrag(bericht: &Pflegebericht) -> Eintrag {
             anlass,
             ..
         } => {
-            let kontext = Kontext::neu()
-                .mit(Schluessel::Channel, channel)
-                .mit(Schluessel::Anzahl, tage.len())
-                .mit(Schluessel::Grund, grund(anlass));
-            let kontext = match anlass {
-                Pflegeanlass::FristGesetzt { von } => kontext.mit(Schluessel::Kennung, von),
-                Pflegeanlass::Start | Pflegeanlass::Tageswechsel => kontext,
-            };
+            let kontext = mit_anlass(
+                Kontext::neu()
+                    .mit(Schluessel::Channel, channel)
+                    .mit(Schluessel::Anzahl, tage.len()),
+                anlass,
+            );
             Eintrag::neu(
                 Stufe::Information,
                 Bereich::Frist,
@@ -40,15 +39,19 @@ pub fn pflege_eintrag(bericht: &Pflegebericht) -> Eintrag {
         Pflegebericht::NichtEntfallen {
             channel,
             datei,
-            grund,
+            anlass,
+            ursache,
         } => Eintrag::neu(
             Stufe::Error,
             Bereich::Frist,
             "Tag nicht entfallen — erneuter Versuch beim nächsten Anlass",
-            Kontext::neu()
-                .mit(Schluessel::Channel, channel)
-                .mit(Schluessel::Datei, datei)
-                .mit(Schluessel::Grund, grund),
+            mit_anlass(
+                Kontext::neu()
+                    .mit(Schluessel::Channel, channel)
+                    .mit(Schluessel::Datei, datei),
+                anlass,
+            )
+            .mit(Schluessel::Ursache, ursache),
         ),
         Pflegebericht::Gesperrt {
             channel,
@@ -84,12 +87,13 @@ pub fn frist_gesetzt_eintrag(channel: &str, alt: u32, neu: u32, von: &Kennung) -
     )
 }
 
-/// `ERROR frist Frist nicht gesetzt — … | channel= kennung= datei= grund=` (Abbildung Zeile 6).
+/// `ERROR frist Frist nicht gesetzt — … | channel= kennung= datei= ursache=` (Abbildung Zeile 6): ohne Anlass,
+/// darum ohne `grund`; der Plattenfehler steht in `ursache` (ADR-0040 Ergänzung R00019, Option B).
 pub fn frist_nicht_gesetzt_eintrag(
     channel: &str,
     von: &Kennung,
     datei: &str,
-    grund: &str,
+    ursache: &str,
 ) -> Eintrag {
     Eintrag::neu(
         Stufe::Error,
@@ -99,8 +103,17 @@ pub fn frist_nicht_gesetzt_eintrag(
             .mit(Schluessel::Channel, channel)
             .mit(Schluessel::Kennung, von)
             .mit(Schluessel::Datei, datei)
-            .mit(Schluessel::Grund, grund),
+            .mit(Schluessel::Ursache, ursache),
     )
+}
+
+/// Der Anlass in `grund`, beim Setzen dazu die Kennung dessen, der gesetzt hat (ADR-0040 Ergänzung R00019).
+fn mit_anlass(kontext: Kontext, anlass: &Pflegeanlass) -> Kontext {
+    let kontext = kontext.mit(Schluessel::Grund, grund(anlass));
+    match anlass {
+        Pflegeanlass::FristGesetzt { von } => kontext.mit(Schluessel::Kennung, von),
+        Pflegeanlass::Start | Pflegeanlass::Tageswechsel => kontext,
+    }
 }
 
 /// Der Anlass als Wert von `grund`.
@@ -215,19 +228,34 @@ mod tests {
         );
     }
 
-    /// Zeile 4: je nicht entfallenem Tag ein ERROR mit Datei und Grund.
-    #[test]
-    fn nicht_entfallen_ist_error_mit_datei_und_grund() {
-        let bericht = Pflegebericht::NichtEntfallen {
+    fn nicht_entfallen(anlass: Pflegeanlass) -> Pflegebericht {
+        Pflegebericht::NichtEntfallen {
             channel: channel("allgemein"),
             datei: "channels/allgemein/2026-10-21.log".into(),
-            grund: "Permission denied (os error 13)".into(),
-        };
+            anlass,
+            ursache: "Permission denied (os error 13)".into(),
+        }
+    }
 
-        assert_eq!(
-            ab_der_stufe(&pflege_eintrag(&bericht)),
-            "ERROR frist Tag nicht entfallen — erneuter Versuch beim nächsten Anlass | channel=allgemein datei=channels/allgemein/2026-10-21.log grund=\"Permission denied (os error 13)\""
-        );
+    /// Zeile 4 mit R00019 F0064 „Einträge mit Anlass“ (ADR-0040 Ergänzung R00019, Option B): je nicht entfallenem
+    /// Tag ein ERROR, der Anlass in `grund`, bei `frist_gesetzt` die Kennung, der Plattenfehler in `ursache`.
+    #[test]
+    fn nicht_entfallen_traegt_den_anlass_in_grund_und_den_plattenfehler_in_ursache() {
+        let anfang = "ERROR frist Tag nicht entfallen — erneuter Versuch beim nächsten Anlass | channel=allgemein datei=channels/allgemein/2026-10-21.log";
+        let ursache = "ursache=\"Permission denied (os error 13)\"";
+        for (anlass, kontext) in [
+            (Pflegeanlass::Start, "grund=start".to_string()),
+            (Pflegeanlass::Tageswechsel, "grund=tageswechsel".to_string()),
+            (
+                Pflegeanlass::FristGesetzt { von: beta() },
+                "grund=frist_gesetzt kennung=beta@127.0.0.1".to_string(),
+            ),
+        ] {
+            assert_eq!(
+                ab_der_stufe(&pflege_eintrag(&nicht_entfallen(anlass))),
+                format!("{anfang} {kontext} {ursache}")
+            );
+        }
     }
 
     /// Zeile 5: defekte Einstellungen als WARNING mit Datei und Zeile; ohne Zeile (verweigert) ohne `zeile=`.
@@ -254,9 +282,10 @@ mod tests {
         );
     }
 
-    /// Zeile 6: der Schreibfehler beim Setzen als ERROR mit Kennung, Datei und Grund.
+    /// Zeile 6 mit R00019 F0064 „Schreibfehler mit `ursache`“ (ADR-0040 Ergänzung R00019, erster Test): der
+    /// Schreibfehler beim Setzen als ERROR mit Kennung, Datei und `ursache`, ohne `grund` (kein Anlass).
     #[test]
-    fn frist_nicht_gesetzt_ist_error_mit_kennung_datei_und_grund() {
+    fn frist_nicht_gesetzt_ist_error_mit_kennung_datei_und_ursache_ohne_grund() {
         assert_eq!(
             ab_der_stufe(&frist_nicht_gesetzt_eintrag(
                 "allgemein",
@@ -264,7 +293,7 @@ mod tests {
                 "channels/allgemein/einstellungen.toml",
                 "Permission denied (os error 13)"
             )),
-            "ERROR frist Frist nicht gesetzt — Einstellungen ließen sich nicht schreiben | channel=allgemein kennung=beta@127.0.0.1 datei=channels/allgemein/einstellungen.toml grund=\"Permission denied (os error 13)\""
+            "ERROR frist Frist nicht gesetzt — Einstellungen ließen sich nicht schreiben | channel=allgemein kennung=beta@127.0.0.1 datei=channels/allgemein/einstellungen.toml ursache=\"Permission denied (os error 13)\""
         );
     }
 
@@ -279,6 +308,7 @@ mod tests {
                 7,
                 Pflegeanlass::FristGesetzt { von: beta() },
             )),
+            pflege_eintrag(&nicht_entfallen(Pflegeanlass::FristGesetzt { von: beta() })),
         ];
         for eintrag in eintraege {
             assert!(!eintrag.text.contains('@'), "{}", eintrag.text);

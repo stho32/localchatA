@@ -115,10 +115,20 @@ fn frist_zeilen<'a>(zeilen: impl IntoIterator<Item = &'a String>) -> Vec<String>
         .collect()
 }
 
-const NICHT_ENTFALLEN: &str = "ERROR frist Tag nicht entfallen — erneuter Versuch beim nächsten Anlass | channel=allgemein datei=channels/allgemein/2026-10-20.log grund=\"";
+const NICHT_ENTFALLEN: &str = "ERROR frist Tag nicht entfallen — erneuter Versuch beim nächsten Anlass | channel=allgemein datei=channels/allgemein/2026-10-20.log grund=";
 
-/// US-22, Kriterien „Nicht löschbar“ (R00008) und „Nicht löschbar bleibt laut, die Ruhe gilt für beide“ (R00017):
-/// je Anlass genau eine Zeile in Datei und auf stderr, nie je Takt (Z3 4 s, Z4 3 s).
+/// R00019 F0064 „Nicht löschbar“: der Anlass in `grund`, der Plattenfehler in `ursache="…"`.
+fn nicht_entfallen_mit(zeile: &str, anlass: &str) -> bool {
+    zeile
+        .strip_prefix(NICHT_ENTFALLEN)
+        .and_then(|rest| rest.strip_prefix(anlass))
+        .and_then(|rest| rest.strip_prefix(" ursache=\""))
+        .is_some_and(|rest| rest.len() > 1 && rest.ends_with('"'))
+}
+
+/// US-22, Kriterien „Nicht löschbar“ (R00008), „Nicht löschbar bleibt laut, die Ruhe gilt für beide“ (R00017) und
+/// „Nicht löschbar“ (R00019, Anlass in `grund`, Plattenfehler in `ursache`): je Anlass genau eine Zeile in Datei und
+/// auf stderr, nie je Takt (Z3 4 s, Z4 3 s).
 #[test]
 fn us22_eine_nicht_loeschbare_datei_meldet_sich_einmal_je_anlass() {
     use gemeinsam::frist::{KURZ_VOR_MITTERNACHT, tag_da};
@@ -140,7 +150,7 @@ fn us22_eine_nicht_loeschbare_datei_meldet_sich_einmal_je_anlass() {
     assert_eq!(
         am_start
             .iter()
-            .filter(|z| z.starts_with(NICHT_ENTFALLEN))
+            .filter(|z| nicht_entfallen_mit(z, "start"))
             .count(),
         1,
         "{am_start:#?}"
@@ -169,13 +179,14 @@ fn us22_eine_nicht_loeschbare_datei_meldet_sich_einmal_je_anlass() {
     let nach_mitternacht = frist_zeilen(&zeilen(ordner, "2026-10-29"));
     assert_eq!(nach_mitternacht.len(), 1, "{nach_mitternacht:#?}");
     assert!(
-        nach_mitternacht[0].starts_with(NICHT_ENTFALLEN),
+        nicht_entfallen_mit(&nach_mitternacht[0], "tageswechsel"),
         "{nach_mitternacht:#?}"
     );
     let bis_dahin = auf_stderr(&stderr);
     assert_eq!(bis_dahin.len(), 2, "{bis_dahin:#?}");
     assert!(
-        bis_dahin.iter().all(|z| z.starts_with(NICHT_ENTFALLEN)),
+        nicht_entfallen_mit(&bis_dahin[0], "start")
+            && nicht_entfallen_mit(&bis_dahin[1], "tageswechsel"),
         "{bis_dahin:#?}"
     );
 
@@ -188,8 +199,9 @@ fn us22_eine_nicht_loeschbare_datei_meldet_sich_einmal_je_anlass() {
 
 const NICHT_GESETZT: &str = "ERROR frist Frist nicht gesetzt — Einstellungen ließen sich nicht schreiben | channel=allgemein kennung=beta@127.0.0.1 datei=channels/allgemein/einstellungen.toml";
 
-/// US-23, Kriterien „Schreibfehler“ (R00008) und „Schreibfehler bleibt laut“ (R00017): 500, nichts geändert, kein
-/// Ereignis; je eine ERROR-Zeile in Datei und auf stderr, keine INFORMATION.
+/// US-23, Kriterien „Schreibfehler“ (R00008), „Schreibfehler bleibt laut“ (R00017) und „Schreibfehler mit
+/// `ursache`“ (R00019): 500, nichts geändert, kein Ereignis; je eine ERROR-Zeile in Datei und auf stderr mit
+/// `ursache="…"` und ohne `grund=`, keine INFORMATION.
 #[tokio::test]
 async fn us23_schreiben_scheitert_nichts_aendert_sich() {
     use gemeinsam::Absender;
@@ -235,7 +247,9 @@ async fn us23_schreiben_scheitert_nichts_aendert_sich() {
     let heute = frist_zeilen(&zeilen(ordner, "2026-10-28"));
     assert_eq!(heute.len(), 1, "{heute:#?}");
     assert!(
-        heute[0].starts_with(NICHT_GESETZT) && heute[0].contains(" grund=\""),
+        heute[0].starts_with(NICHT_GESETZT)
+            && heute[0].contains(" ursache=\"")
+            && !heute[0].contains(" grund="),
         "{heute:#?}"
     );
     drop(schutz);
@@ -255,5 +269,10 @@ async fn us23_schreiben_scheitert_nichts_aendert_sich() {
         .collect();
     let auf_stderr = frist_zeilen(&stderr);
     assert_eq!(auf_stderr.len(), 1, "{auf_stderr:#?}");
-    assert!(auf_stderr[0].starts_with(NICHT_GESETZT), "{auf_stderr:#?}");
+    assert!(
+        auf_stderr[0].starts_with(NICHT_GESETZT)
+            && auf_stderr[0].contains(" ursache=\"")
+            && !auf_stderr[0].contains(" grund="),
+        "{auf_stderr:#?}"
+    );
 }
