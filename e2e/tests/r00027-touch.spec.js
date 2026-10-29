@@ -2,7 +2,7 @@
 // R00027 F0091 — die Eingabe mit dem Daumen und der Tastatur bedienbar (UX-Vorprüfung #41): Fokusring des Knopfs (M1,
 // B0480), Schrift des Felds ohne Zoom auf Touch-Geräten (M2, B0481), Schalter an der fehlgeschlagenen Nachricht (S7,
 // B0482). Geräte als emulierte Kontexte (r00027-hilfen.js).
-const { test, expect } = require('@playwright/test');
+const { test, expect } = require('./rahmen');
 const { sendenStarten, imBrowserBeitreten, eingabe } = require('./senden-hilfen');
 const { ROUTE, bestaetigt, sendungenMitschreiben } = require('./r00012-hilfen');
 const { geraetOeffnen, knopf, box } = require('./r00027-hilfen');

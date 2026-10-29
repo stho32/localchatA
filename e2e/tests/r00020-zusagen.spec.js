@@ -1,7 +1,7 @@
 'use strict';
 // R00020 F0071 Zusagen aus R00011 mit Tests belegt (US-7, US-8, „Folgen knapp über dem Ende“): gegen das echte
 // Programm, Chromium 1280 × 800, Uhr ab 2026-10-28 15:00 (+01:00). A ist `shoff`, B ist `anna`; `beta` sendet per API.
-const { test, expect } = require('@playwright/test');
+const { test, expect } = require('./rahmen');
 const {
   sendenStarten, beitreten, senden, kontextOeffnen, imBrowserBeitreten, eingabe, nachrichten, mitText,
 } = require('./senden-hilfen');

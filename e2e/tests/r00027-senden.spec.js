@@ -2,7 +2,7 @@
 // R00027 F0091 Senden-Knopf neben dem Feld — Senden über den Knopf auf demselben Weg wie Enter (B0415, K1, K4):
 // Tippen, Klick, Tastatur, Leerraum, Textregel, Doppeltipp, Komposition, Warteschlange, Fehlschlag, ohne Verbindung,
 // die vorläufige Nachricht mit genäherter Bildschirmtastatur. Uhr ab 2026-10-28 15:00 (+01:00); A ist `shoff`.
-const { test, expect } = require('@playwright/test');
+const { test, expect } = require('./rahmen');
 const { sendenStarten, imBrowserBeitreten, eingabe, nachrichten } = require('./senden-hilfen');
 const {
   ROUTE, vorlaeufige, bestaetigt, ansageRegion, netzAus, netzAn, sendungenMitschreiben,

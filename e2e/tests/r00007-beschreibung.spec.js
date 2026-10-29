@@ -3,7 +3,7 @@
 // der Kopfzeile nach # name — einzeilig mit Ellipse, isoliert in <bdi>, ganz im title, unter 720 px nicht.
 const fs = require('fs');
 const path = require('path');
-const { test, expect } = require('@playwright/test');
+const { test, expect } = require('./rahmen');
 const { instanzStarten, fehlerSammeln } = require('./hilfen');
 
 const JETZT = '2026-10-28T15:00:00.000+01:00';

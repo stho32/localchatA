@@ -2,7 +2,7 @@
 // R00011 F0044, Nacharbeit #8: „Lesestelle nach dem Sprung“ (UX-Review S1, US-27, US-28) — nach dem Klick auf die
 // Pille bleibt die erste neue Nachricht an ihrer Stelle, wenn der Blick weiterscrollt oder weitere Nachrichten kommen.
 // Gegen das echte Programm, Uhr ab 2026-10-28 15:00 (+01:00); B ist `anna`, `alpha` und `beta` senden per API.
-const { test, expect } = require('@playwright/test');
+const { test, expect } = require('./rahmen');
 const { fehlerSammeln } = require('./hilfen');
 const { sendenStarten, beitreten, senden, imBrowserBeitreten, nachrichten, mitText } = require('./senden-hilfen');
 

@@ -2,7 +2,7 @@
 // R00025 F0086 „Hinweiszeile hilft beim Bereinigen“ (B0404): der Schalter „Steuerzeichen entfernen“ neben der
 // Hinweiszeile — nimmt erst auf Klick die verbotenen Zeichen aus dem Feld, sagt an, ist auf Touch-Geräten 44 × 44 px
 // und lässt den Fokus im Feld. Gegen das echte Programm; die Regel selbst prüft e2e/einheit/textregel.test.mjs.
-const { test, expect } = require('@playwright/test');
+const { test, expect } = require('./rahmen');
 const { sendenStarten, kontextOeffnen, imBrowserBeitreten, eingabe } = require('./senden-hilfen');
 const { ansageRegion, sendungenMitschreiben } = require('./r00012-hilfen');
 const { GERAETE, geraetOeffnen, knopf, box } = require('./r00027-hilfen');

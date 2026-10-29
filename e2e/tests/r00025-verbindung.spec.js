@@ -2,7 +2,7 @@
 // R00025 F0084 „Eine Verbindungswarnung mit Countdown, angesagt“: gegen das echte Programm, Chromium 1280 × 800. A ist
 // `shoff`, B ist `anna`; „Strom getrennt“ ist `context.setOffline(true)`. Countdown-Text, Zeitpunkt und Quelle prüfen
 // die Node-Tests mit gestellter Zeit (e2e/einheit/verbindungsleiste.test.mjs, live.test.mjs, verteiler.test.mjs).
-const { test, expect } = require('@playwright/test');
+const { test, expect } = require('./rahmen');
 const { sendenStarten, kontextOeffnen, imBrowserBeitreten, beitreten, senden, eingabe } = require('./senden-hilfen');
 const { leiste, netzAus, netzAn } = require('./r00012-hilfen');
 const { GERAETE, geraetOeffnen } = require('./r00027-hilfen');

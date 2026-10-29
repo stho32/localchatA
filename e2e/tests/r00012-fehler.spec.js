@@ -2,7 +2,7 @@
 // R00012 F0046 Fehler und Wiederholung im Browser (US-2 bis US-5, Z7, Z8, Z11): gegen das echte Programm, Chromium
 // 1280 × 800, Uhr ab 2026-10-28 15:00 (+01:00). A ist `shoff`, B ist `anna`. „Strom getrennt“: Netz des Kontexts aus,
 // bis die Leiste „Verbindung verloren“ steht.
-const { test, expect } = require('@playwright/test');
+const { test, expect } = require('./rahmen');
 const { sendenStarten, beitreten, verlaufLesen, kontextOeffnen, imBrowserBeitreten, eingabe } = require('./senden-hilfen');
 const {
   ROUTE, vorlaeufige, bestaetigt, netzAus, netzAn, saetzeMit, sendungenMitschreiben,

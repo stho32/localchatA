@@ -1,7 +1,7 @@
 'use strict';
 // R00027 F0091 Senden-Knopf neben dem Feld — wie der Knopf aussieht und wo er steht (B0414): Gruppe, Zielfläche, Ort
 // und Schmal, Kontrast, Grund am Knopf, Bildschirmleser. Geräte als emulierte Kontexte (r00027-hilfen.js).
-const { test, expect } = require('@playwright/test');
+const { test, expect } = require('./rahmen');
 const { sendenStarten, imBrowserBeitreten, eingabe } = require('./senden-hilfen');
 const { ROUTE } = require('./r00012-hilfen');
 const { geraetOeffnen, knopf, box, ganzImSichtbaren } = require('./r00027-hilfen');

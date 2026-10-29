@@ -2,7 +2,7 @@
 // R00025 F0088 „Wiederbeitritt beim Senden auf dem Weg des Stroms“: gegen das echte Programm, Chromium 1280 × 800. A ist
 // `shoff`; die erste Sendung beantwortet die Route mit 401, den stillen Beitritt mit 409 (Name vergeben). Ein Lauf und
 // ein Weg prüfen die Node-Tests (e2e/einheit/wiederbeitritt.test.mjs, senden.test.mjs).
-const { test, expect } = require('@playwright/test');
+const { test, expect } = require('./rahmen');
 const { JETZT, sendenStarten, beitreten, kontextOeffnen, imBrowserBeitreten, eingabe } = require('./senden-hilfen');
 const { ROUTE, leiste, vorlaeufige, bestaetigt, saetzeMit, sendungenMitschreiben } = require('./r00012-hilfen');
 const { instanzStarten, freierPort, channelAnlegen } = require('./hilfen');

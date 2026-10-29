@@ -1,7 +1,7 @@
 'use strict';
 // R00025 F0084 „Eine Live-Region“ (UX-Vorprüfung #36 Muss V1): die Ansage-Region ist die einzige Live-Region der
 // Hauptansicht; Hinweiszeile und Statuszeile sagen über sie an. Gegen das echte Programm, Chromium 1280 × 800.
-const { test, expect } = require('@playwright/test');
+const { test, expect } = require('./rahmen');
 const { sendenStarten, kontextOeffnen, imBrowserBeitreten, eingabe } = require('./senden-hilfen');
 const { ansageRegion } = require('./r00012-hilfen');
 

@@ -1,7 +1,7 @@
 'use strict';
 // R00004 F0013, B0090: die Teilnehmerspalte zeichnet geordnete Gruppen nach dem Designsystem — im echten
 // Browser, das Modul aus dem Programm geladen (CSP script-src 'self').
-const { test, expect } = require('@playwright/test');
+const { test, expect } = require('./rahmen');
 const { instanzStarten } = require('./hilfen');
 
 let instanz;

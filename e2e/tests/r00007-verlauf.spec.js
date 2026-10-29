@@ -3,7 +3,7 @@
 // 2026-10-28 15:00 (+01:00). Nachrichten liegen vor dem Start als Tagesdateien; `gross` (100.000 über 7 Tage) kommt
 // vom Testdaten-Erzeuger. Die Grenze L2 ist die der Anforderung (500 ms), gemessen im Browser vom Zeitstempel des
 // click bis zum Bild, in dem die neueste Nachricht ganz sichtbar ist (requestAnimationFrame).
-const { test, expect } = require('@playwright/test');
+const { test, expect } = require('./rahmen');
 const {
   instanzStarten, fehlerSammeln, beitretenPerApi, channelAnlegen, grossAnlegen,
 } = require('./hilfen');

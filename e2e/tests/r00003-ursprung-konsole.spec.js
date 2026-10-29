@@ -2,7 +2,8 @@
 // R00003 F0006, Nacharbeit 2 (Entscheidung Director): über jede Adresse, unter der die Instanz erreichbar ist —
 // LAN-IP, 127.0.0.1, localhost, ein mit --erreichbar-als freigegebener Name — lädt die Seite und tritt bei,
 // ohne Konsolenzeile auf Stufe error; der Header-Satz außer COOP steht auf jeder Antwort.
-const { test, expect, chromium } = require('@playwright/test');
+const { chromium } = require('@playwright/test');
+const { test, expect } = require('./rahmen');
 const { instanzStarten, lanAdresse, fehlerSammeln } = require('./hilfen');
 
 const CSP = "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'";

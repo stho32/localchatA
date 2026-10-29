@@ -3,7 +3,7 @@
 // 2026-10-28 15:00 (+01:00). `gross` hat 100.000 Nachrichten über 7 Tage; `grenzen` 150 am 27.10. und 100 am
 // 28.10. im Minutentakt — die erste Blockgrenze liegt am Tageswechsel, die zweite mitten in einer Gruppe. L3–L5
 // sind deterministisch; die Grenze L4 ist die der Anforderung (höchstens 1 px).
-const { test, expect } = require('@playwright/test');
+const { test, expect } = require('./rahmen');
 const { instanzStarten, fehlerSammeln, channelAnlegen, grossAnlegen } = require('./hilfen');
 const { juengsteZeit, bloeckeRueckwaerts, ankerBeobachten, ruhig } = require('./verlauf-hilfen');
 

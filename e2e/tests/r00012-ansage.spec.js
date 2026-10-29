@@ -2,7 +2,7 @@
 // R00012 F0049 Gebündelte Ansage (US-13, US-14): gegen das echte Programm, Chromium 1280 × 800, Uhr ab 2026-10-28
 // 15:00 (+01:00). A ist `shoff`, B ist `anna`; `beta` sendet per API. Die Bündelung selbst (10 s) prüft der Node-Test
 // mit gestellter Zeit (e2e/einheit/ansage.test.mjs).
-const { test, expect } = require('@playwright/test');
+const { test, expect } = require('./rahmen');
 const { sendenStarten, beitreten, senden, kontextOeffnen, imBrowserBeitreten, eingabe } = require('./senden-hilfen');
 const { ROUTE, ansageRegion, bestaetigt } = require('./r00012-hilfen');
 

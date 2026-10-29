@@ -3,7 +3,7 @@
 // Änderungen über die Sitzung von A zeigt der Dialog „Channel-Einstellungen“ den `fehler` der 429.
 const fs = require('fs');
 const path = require('path');
-const { test, expect } = require('@playwright/test');
+const { test, expect } = require('./rahmen');
 const { instanzStarten, fehlerSammeln, fristPerApi } = require('./hilfen');
 
 let instanz;

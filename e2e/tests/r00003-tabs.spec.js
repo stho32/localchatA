@@ -1,7 +1,7 @@
 'use strict';
 // R00003 F0010, Nacharbeit Code-Review B1 (ADR-0012 „alle Tabs eines Browsers teilen die Sitzung“): mehrere
 // Tabs eines Browser-Kontexts laden gleichzeitig neu, nachdem die Sitzung am Server weg ist.
-const { test, expect } = require('@playwright/test');
+const { test, expect } = require('./rahmen');
 const { instanzStarten, freierPort, fehlerSammeln } = require('./hilfen');
 
 let instanz;

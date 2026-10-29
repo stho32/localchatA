@@ -1,7 +1,8 @@
 'use strict';
 // R00024 Instanz über ihren Netznamen öffnen (ADR-0045) im Testbrowser: Chromium löst die Namen per Regel auf
 // 127.0.0.1 auf, welchen Namen die Instanz annimmt, entscheiden die Testnamen (LOCALCHATA_TESTNAMEN, Debug-Build).
-const { test, expect, chromium } = require('@playwright/test');
+const { chromium } = require('@playwright/test');
+const { test, expect } = require('./rahmen');
 const { instanzStarten } = require('./hilfen');
 
 const TESTNAMEN = '127.0.0.1>nuc5.fritz.box;chat.local=127.0.0.1;drucker.local=192.0.2.1;boese.example=127.0.0.1';

@@ -1,7 +1,7 @@
 'use strict';
 // R00007 F0030 Verlauf gegliedert (US-14, US-15): Gruppen, Tagestrenner nach dem Datum des Servers (der Browser
 // läuft in Tokio), lange Nachrichten eingeklappt. Gegen das echte Programm, Uhr 2026-10-28 15:00 (+01:00).
-const { test, expect } = require('@playwright/test');
+const { test, expect } = require('./rahmen');
 const { instanzStarten, fehlerSammeln, channelAnlegen } = require('./hilfen');
 
 const JETZT = '2026-10-28T15:00:00.000+01:00';

@@ -2,7 +2,7 @@
 // R00011 F0044 Fremde Nachrichten im offenen Verlauf (US-17 bis US-21, Z1, Z2, Z5): gegen das echte Programm,
 // Chromium 1280 × 800, Uhr ab 2026-10-28 15:00 (+01:00). A ist `shoff`, B ist `anna`; `alpha`, `beta` und `carla`
 // senden per API von 127.0.0.1.
-const { test, expect } = require('@playwright/test');
+const { test, expect } = require('./rahmen');
 const { satz } = require('./hilfen');
 const {
   sendenStarten, beitreten, senden, verlaufLesen, kontextOeffnen, imBrowserBeitreten, nachrichten, mitText,

@@ -3,7 +3,7 @@
 // um, die Kopfzeile wächst mit; bei 1280 px bleibt die Kopfzeile 40 px hoch und die Kennung einzeilig.
 const fs = require('fs');
 const path = require('path');
-const { test, expect } = require('@playwright/test');
+const { test, expect } = require('./rahmen');
 const { instanzStarten, fehlerSammeln } = require('./hilfen');
 
 const NAME_13 = 'abcdefghijklm';

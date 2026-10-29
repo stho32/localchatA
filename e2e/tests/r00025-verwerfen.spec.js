@@ -2,7 +2,7 @@
 // R00025 F0085 „Verwerfen lässt sich rückgängig machen“: gegen das echte Programm. A ist `shoff`; die Route bricht den
 // ersten POST ab → `drei` steht fehlgeschlagen mit „Erneut senden“ und „Verwerfen“. Die Regel (5 s, Fokus, Channel-
 // wechsel) prüft e2e/einheit/zustellung.test.mjs mit gestellter Zeit.
-const { test, expect } = require('@playwright/test');
+const { test, expect } = require('./rahmen');
 const { sendenStarten, kontextOeffnen, imBrowserBeitreten, eingabe } = require('./senden-hilfen');
 const { ROUTE, vorlaeufige, saetzeMit, sendungenMitschreiben, ansageRegion } = require('./r00012-hilfen');
 const { GERAETE, geraetOeffnen, box, knopf } = require('./r00027-hilfen');

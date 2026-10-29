@@ -1,7 +1,7 @@
 'use strict';
 // R00020 F0067 Sprung zur ersten neuen Nachricht lesbar (US-1, US-2): gegen das echte Programm, Uhr ab 2026-10-28
 // 15:00 (+01:00). B ist `anna`, `beta` sendet per API; `allgemein` hat 300 Nachrichten.
-const { test, expect } = require('@playwright/test');
+const { test, expect } = require('./rahmen');
 const { sendenStarten, beitreten, senden, kontextOeffnen, imBrowserBeitreten, nachrichten, mitText } = require('./senden-hilfen');
 
 let instanz;

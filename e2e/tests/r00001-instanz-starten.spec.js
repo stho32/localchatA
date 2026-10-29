@@ -1,6 +1,6 @@
 'use strict';
 // R00001 Instanz starten — US-8: der Browser auf der Adresse der Startzeile sieht die Oberfläche ohne Fehler.
-const { test, expect } = require('@playwright/test');
+const { test, expect } = require('./rahmen');
 const { instanzStarten } = require('./hilfen');
 
 test('US-8: Seite mit Titel localchatA, keine Fehler in Konsole und Netz', async ({ page }) => {

@@ -1,7 +1,7 @@
 'use strict';
 // R00012 F0047 Lücken nach Wiederverbinden (US-6 bis US-8, Z6): gegen das echte Programm, Chromium 1280 × 800, Uhr ab
 // 2026-10-28 15:00 (+01:00). A ist `shoff`, B ist `anna`; Agenten senden per API.
-const { test, expect } = require('@playwright/test');
+const { test, expect } = require('./rahmen');
 const { sendenStarten, beitreten, senden, kontextOeffnen, imBrowserBeitreten, eingabe, nachrichten } = require('./senden-hilfen');
 const { leiste, bestaetigt, netzAus, netzAn } = require('./r00012-hilfen');
 

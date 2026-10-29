@@ -1,7 +1,7 @@
 'use strict';
 // R00006 F0025 Channel im Browser anlegen (US-19 bis US-23): gegen das echte Programm, Chromium. Konsole je
 // Szenario wie im Kriterium: Fehlerantworten nur dort erlaubt, wo die Anforderung sie vorschreibt.
-const { test, expect } = require('@playwright/test');
+const { test, expect } = require('./rahmen');
 const { instanzStarten, fehlerSammeln, beitretenPerApi, channelAnlegenPerApi, fokusImBrowser } = require('./hilfen');
 
 let instanz;

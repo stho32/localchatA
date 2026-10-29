@@ -2,7 +2,7 @@
 // R00005 F0018 Restzeit in der Teilnehmerliste (US-10 bis US-14) und F0019 „die Oberfläche ruft verlassen nie“:
 // gegen das echte Programm, Chromium, je Browser ein Kontext. Dauern ereignisgenau (sichtbarNach, Animations-
 // rahmen) ab dem Ereignis des Kriteriums; die Regel selbst prüfen die Serverzeiten (tests/restzeit.rs).
-const { test, expect } = require('@playwright/test');
+const { test, expect } = require('./rahmen');
 const { instanzStarten, freierPort, fehlerSammeln, beitretenPerApi, sichtbarNach, sichtbarMitWertNach } = require('./hilfen');
 
 let instanz;

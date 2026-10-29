@@ -1,6 +1,6 @@
 'use strict';
 // R00004 F0015 Teilnehmerliste ein- und ausblenden (US-25 bis US-27; Designsystem README, 1-tastatur.md).
-const { test, expect } = require('@playwright/test');
+const { test, expect } = require('./rahmen');
 const { instanzStarten, fehlerSammeln, fokusImBrowser } = require('./hilfen');
 
 let instanz;

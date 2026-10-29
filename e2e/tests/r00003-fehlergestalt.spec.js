@@ -1,7 +1,7 @@
 'use strict';
 // R00003 F0010, UX-Review (Sollte): Fehlergestalt nach Designsystem — kd-danger, ⚠ und Wort, aria-invalid;
 // Vorschlag nach 422 im Feld (Entscheidung Director), leeres Feld ohne POST.
-const { test, expect } = require('@playwright/test');
+const { test, expect } = require('./rahmen');
 const { instanzStarten, fehlerSammeln } = require('./hilfen');
 
 let instanz;

@@ -1,7 +1,7 @@
 'use strict';
 // R00012 F0048 Entwurf, Längenanzeige und Textprüfung im Browser (US-9 bis US-12, Z12): gegen das echte Programm,
 // Chromium 1280 × 800, Uhr ab 2026-10-28 15:00 (+01:00). A ist `shoff`.
-const { test, expect } = require('@playwright/test');
+const { test, expect } = require('./rahmen');
 const { sendenStarten, kontextOeffnen, imBrowserBeitreten, eingabe } = require('./senden-hilfen');
 const { bestaetigt, sendungenMitschreiben } = require('./r00012-hilfen');
 

@@ -1,7 +1,7 @@
 'use strict';
 // R00004 F0014 Ein Strom je Browser (US-20 bis US-24, ADR-0015): alle Tabs eines Browser-Kontexts teilen einen
 // Strom über einen SharedWorker; ohne SharedWorker hält jeder Tab seinen eigenen.
-const { test, expect } = require('@playwright/test');
+const { test, expect } = require('./rahmen');
 const { instanzStarten, freierPort, fehlerSammeln, sichtbarNach, zeigtNichtMehrOnline, NICHT_MEHR_ONLINE } = require('./hilfen');
 
 let instanz;

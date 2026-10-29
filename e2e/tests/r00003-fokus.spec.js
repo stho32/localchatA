@@ -1,7 +1,7 @@
 'use strict';
 // R00003 F0010, Nacharbeit UX-Review 1 (Muss): Fokus auf dem Primärschalter sichtbar, ≥ 3:1 gegen die
 // angrenzende Fläche — für jeden .lc-btn.primary.
-const { test, expect } = require('@playwright/test');
+const { test, expect } = require('./rahmen');
 const { instanzStarten } = require('./hilfen');
 
 let instanz;

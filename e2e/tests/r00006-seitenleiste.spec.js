@@ -2,7 +2,7 @@
 // R00006 F0024 Seitenleiste im Browser (US-15 bis US-18): gegen das echte Programm, Chromium, je Kontext ein
 // Browser; Agenten legen über die API an, damit die 201 im Testprozess ankommt. Dauern ereignisgenau (RAF) ab dem
 // Ereignis des Kriteriums; die Grenze ist die des Kriteriums (2 s).
-const { test, expect } = require('@playwright/test');
+const { test, expect } = require('./rahmen');
 const { instanzStarten, fehlerSammeln, beitretenPerApi, channelAnlegenPerApi, sichtbarNach } = require('./hilfen');
 
 const GRENZE_MS = 2000;

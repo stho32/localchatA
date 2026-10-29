@@ -1,6 +1,6 @@
 'use strict';
 // R00003 F0010, UX-Review (Sollte): Fokus nach dem Beitritt, Live-Hinweis wiederholt den Regeltext nicht.
-const { test, expect } = require('@playwright/test');
+const { test, expect } = require('./rahmen');
 const { instanzStarten } = require('./hilfen');
 
 let instanz;

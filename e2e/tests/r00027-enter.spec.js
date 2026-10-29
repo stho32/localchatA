@@ -2,7 +2,7 @@
 // R00027 F0092 Auf Touch-Geräten macht Enter eine neue Zeile (B0484, ADR-0038 Ergänzung Karte #41 K5, K6): Telefon,
 // Tablet mit Tastatur, Desktop unverändert, Wechsel der Zeigerart ohne Neuladen (CDP), kein Sende-Hinweis. Konsole
 // streng: keine einzige Fehlerzeile.
-const { test, expect } = require('@playwright/test');
+const { test, expect } = require('./rahmen');
 const { sendenStarten, imBrowserBeitreten, eingabe } = require('./senden-hilfen');
 const { bestaetigt, sendungenMitschreiben } = require('./r00012-hilfen');
 const { geraetOeffnen, knopf } = require('./r00027-hilfen');

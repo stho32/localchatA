@@ -4,7 +4,7 @@
 const fs = require('fs');
 const http = require('http');
 const path = require('path');
-const { test, expect } = require('@playwright/test');
+const { test, expect } = require('./rahmen');
 const { instanzStarten, fehlerSammeln, beitretenPerApi, fristPerApi, channelAnlegen, sichtbarNach } = require('./hilfen');
 
 const JETZT = '2026-10-28T12:00:00.000+01:00';

@@ -1,7 +1,7 @@
 'use strict';
 // R00003 F0010, Nacharbeit 2 (Code-Review A2): „Beitreten“ im Fehlerzustand und „Erneut versuchen“ schicken
 // das gemerkte Token mit — lebt die Sitzung noch, kehrt sie wieder, statt den eigenen Namen als vergeben zu zeigen.
-const { test, expect } = require('@playwright/test');
+const { test, expect } = require('./rahmen');
 const { instanzStarten } = require('./hilfen');
 
 let instanz;

@@ -1,7 +1,7 @@
 'use strict';
 // R00004 F0013 Teilnehmerliste im Browser (US-14 bis US-19): gegen das echte Programm, Chromium, je Kontext
 // ein Browser; in jedem Szenario keine Konsolenfehler.
-const { test, expect } = require('@playwright/test');
+const { test, expect } = require('./rahmen');
 const { instanzStarten, freierPort, lanAdresse, fehlerSammeln, beitretenPerApi, fokusImBrowser, sichtbarNach, zeigtNichtMehrOnline, NICHT_MEHR_ONLINE } = require('./hilfen');
 
 let instanz;

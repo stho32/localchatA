@@ -1,7 +1,7 @@
 'use strict';
 // R00006 Nacharbeit 1 (UX-Befund, NFR „Fokus nie im Nichts“): nach einer Fehlerantwort steht der Fokus im Feld
 // „Name“, und unter 720 px mit eingeblendeter Teilnehmerliste schließt das erste Esc den Dialog, nicht die Liste.
-const { test, expect } = require('@playwright/test');
+const { test, expect } = require('./rahmen');
 const { instanzStarten, fehlerSammeln, beitretenPerApi, channelAnlegenPerApi } = require('./hilfen');
 
 let instanz;

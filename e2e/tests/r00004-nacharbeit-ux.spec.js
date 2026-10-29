@@ -1,7 +1,7 @@
 'use strict';
 // R00004 Nacharbeit 1 aus dem UX-Review (S1–S6, O1): Zeilen, Anzahl am Schalter, Liste als Fläche unter
 // 720 px, „Stand unbekannt“ bei unterbrochener Verbindung, ruhiger Alarmtext, Fokus beim Einklappen.
-const { test, expect } = require('@playwright/test');
+const { test, expect } = require('./rahmen');
 const { instanzStarten, freierPort, fehlerSammeln, beitretenPerApi, stromOeffnen, NICHT_MEHR_ONLINE } = require('./hilfen');
 
 let instanz;

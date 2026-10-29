@@ -1,7 +1,7 @@
 'use strict';
 // R00007 F0032 Channel per Tastatur wechseln (US-19, US-20): Alt ↓ / Alt ↑ wie ein Klick über die Adresse, der
 // Fokus bleibt; nicht bei offenem Dialog. Konsole ohne Fehler.
-const { test, expect } = require('@playwright/test');
+const { test, expect } = require('./rahmen');
 const { instanzStarten, fehlerSammeln, channelAnlegen } = require('./hilfen');
 
 const JETZT = '2026-10-28T15:00:00.000+01:00';

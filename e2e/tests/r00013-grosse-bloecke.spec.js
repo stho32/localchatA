@@ -2,7 +2,7 @@
 // R00013 K8 L3c (US-7, US-8; ADR-0026 Ergänzung Abwurfschutz): `riesig` mit 200 Nachrichten zu 16.384 Zeichen in
 // einem Fenster von 1280 × 2160 — ein Block endet am Budget (15 Nachrichten) und ist eingeklappt niedriger als zwei
 // Sichthöhen. Das Fenster lädt nicht ohne Scrollen hin und her, hält höchstens 8 Blöcke und bleibt lückenlos.
-const { test, expect } = require('@playwright/test');
+const { test, expect } = require('./rahmen');
 const { instanzStarten, fehlerSammeln, channelAnlegen } = require('./hilfen');
 const { ankerBeobachten, ruhig } = require('./verlauf-hilfen');
 

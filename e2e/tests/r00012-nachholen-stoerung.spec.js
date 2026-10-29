@@ -2,7 +2,7 @@
 // R00012 F0047, Nacharbeit #22 (Code-Review #22 B1, B2, A3): Nachholen im Wettlauf mit dem Strom und unter Störung —
 // gegen das echte Programm, Chromium 1280 × 800, Uhr ab 2026-10-28 15:00 (+01:00). B ist `anna`; `beta` sendet per API.
 // Der Abruf `nach=` wird über page.route gehalten, abgebrochen oder mit 500 beantwortet.
-const { test, expect } = require('@playwright/test');
+const { test, expect } = require('./rahmen');
 const { sendenStarten, beitreten, senden, kontextOeffnen, imBrowserBeitreten, nachrichten } = require('./senden-hilfen');
 const { leiste, bestaetigt, netzAus, netzAn } = require('./r00012-hilfen');
 

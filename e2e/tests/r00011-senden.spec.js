@@ -1,7 +1,7 @@
 'use strict';
 // R00011 F0043 Eingabe und eigene Nachricht im Browser (US-11 bis US-16, Z3): gegen das echte Programm, Chromium
 // 1280 × 800, Uhr ab 2026-10-28 15:00 (+01:00). Browser A ist `shoff` (Mensch).
-const { test, expect } = require('@playwright/test');
+const { test, expect } = require('./rahmen');
 const {
   sendenStarten, beitreten, verlaufLesen, kontextOeffnen, imBrowserBeitreten, eingabe, nachrichten, mitText,
 } = require('./senden-hilfen');

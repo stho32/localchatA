@@ -5,7 +5,7 @@
 // länger — und liest den Text der 507 an seiner Nachricht, „Erneut senden“ bleibt.
 const path = require('path');
 const { execFileSync } = require('child_process');
-const { test, expect } = require('@playwright/test');
+const { test, expect } = require('./rahmen');
 const { instanzStarten } = require('./hilfen');
 const {
   JETZT, beitreten, senden, verlaufLesen, kontextOeffnen, imBrowserBeitreten, eingabe,

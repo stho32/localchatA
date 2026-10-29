@@ -2,7 +2,7 @@
 // R00011 F0044, Nacharbeit #8: fremde Nachrichten im Wettlauf mit dem Laden des Verlaufs — „Puffer vor dem ersten
 // Block“ (Code-Review B2). Gegen das echte Programm, Chromium 1280 × 800, Uhr ab 2026-10-28 15:00 (+01:00); B ist
 // `anna`, `beta` sendet per API von 127.0.0.1. Die Antwort des Abrufs hält der Test über `page.route` zurück.
-const { test, expect } = require('@playwright/test');
+const { test, expect } = require('./rahmen');
 const {
   sendenStarten, beitreten, senden, kontextOeffnen, imBrowserBeitreten, nachrichten, mitText,
 } = require('./senden-hilfen');
