@@ -12,6 +12,7 @@ const KEINE_GESCHWISTER = { neuesToken: async () => null };
 export async function beimLaden(speicher, api, geschwister = KEINE_GESCHWISTER) {
   const token = speicher.getItem(SITZUNG);
   const gemerkterName = speicher.getItem(NAME) || '';
+  let abgelaufenesToken = null;
   if (token) {
     const ich = await api.ich(token);
     if (ich.serverWeg) {
@@ -23,17 +24,23 @@ export async function beimLaden(speicher, api, geschwister = KEINE_GESCHWISTER) 
     if (ich.status !== 401) {
       return { art: 'fehler', name: gemerkterName, fehler: fehlertext(ich) };
     }
-    tokenVergessen(speicher, token);
+    abgelaufenesToken = token;
   }
-  if (gemerkterName) {
-    return stillBeitreten(gemerkterName, speicher, api, geschwister);
+  if (!gemerkterName) {
+    tokenVergessen(speicher, abgelaufenesToken);
+    return { art: 'beitreten', name: '' };
   }
-  return { art: 'beitreten', name: '' };
+  // Das abgelaufene Token erst vergessen, wenn nichts gelungen ist (Befund #58, wie nach einer Ablehnung).
+  const zustand = await stillBeitreten(gemerkterName, speicher, api, geschwister, abgelaufenesToken);
+  if (zustand.art !== 'kopfzeile') {
+    tokenVergessen(speicher, abgelaufenesToken);
+  }
+  return zustand;
 }
 
 // Nur das eigene, abgelehnte Token: hat ein anderer Tab inzwischen ein neues geschrieben, bleibt es stehen.
 function tokenVergessen(speicher, abgelehntesToken) {
-  if (speicher.getItem(SITZUNG) === abgelehntesToken) {
+  if (abgelehntesToken !== null && speicher.getItem(SITZUNG) === abgelehntesToken) {
     speicher.removeItem(SITZUNG);
   }
 }

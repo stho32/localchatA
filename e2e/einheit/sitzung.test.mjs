@@ -362,3 +362,39 @@ test('Befund #58: gelingt nach dem 409 nichts, ist das abgelehnte Token danach v
   assert.equal(zustand.art, 'vergeben');
   assert.equal(speicher.getItem(SITZUNG), null);
 });
+
+// Befund #58, Muster-Suche im Ladeweg: laden mehrere Tabs ohne Web Locks mit abgelaufenem Token, gilt dasselbe — kein
+// removeItem zwischen dem 401 und dem Ende des Wartens auf den Nachbar-Tab; scheitert alles, ist das Token vergessen.
+test('Befund #58 beim Laden: 401, 409, Token des Nachbar-Tabs — kein removeItem bis zum Erfolg', async () => {
+  const speicher = speicherMit({ [SITZUNG]: 'alt', [NAME]: 'shoff' });
+  const ablauf = [];
+  const entfernen = speicher.removeItem;
+  speicher.removeItem = (schluessel) => { ablauf.push(['removeItem', schluessel]); entfernen(schluessel); };
+  const api = {
+    ich: async (token) => {
+      ablauf.push(['ich', token]);
+      if (token === 'neu-vom-nachbarn') {
+        return { serverWeg: false, status: 200, daten: SHOFF };
+      }
+      return { serverWeg: false, status: 401, daten: {} };
+    },
+    beitreten: async () => VERGEBEN,
+  };
+  const geschwister = { neuesToken: async () => { ablauf.push(['warten']); return 'neu-vom-nachbarn'; } };
+
+  const zustand = await beimLaden(speicher, api, geschwister);
+
+  assert.deepEqual(zustand, { art: 'kopfzeile', teilnehmer: SHOFF, token: 'neu-vom-nachbarn' });
+  assert.deepEqual(ablauf, [['ich', 'alt'], ['warten'], ['ich', 'neu-vom-nachbarn']]);
+});
+
+test('Befund #58 beim Laden: 401 und nichts gelingt — das abgelaufene Token ist danach vergessen, mit und ohne Namen', async () => {
+  for (const name of ['shoff', '']) {
+    const speicher = speicherMit({ [SITZUNG]: 'alt', [NAME]: name });
+    const api = apiMit({ ich: { serverWeg: false, status: 401, daten: {} }, beitreten: VERGEBEN });
+
+    await beimLaden(speicher, api);
+
+    assert.equal(speicher.getItem(SITZUNG), null, name);
+  }
+});
