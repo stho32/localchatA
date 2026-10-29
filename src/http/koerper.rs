@@ -200,9 +200,7 @@ fn abweisung_eintragen<T>(
         bereich: Bereich::Koerper,
         text: crate::protokoll::episodentexte::KOERPER_ABGEWIESEN,
         quelle: format!("{} {}", ort.herkunft, ort.route),
-        kontext: Kontext::neu()
-            .mit(Schluessel::Herkunft, ort.herkunft)
-            .mit(Schluessel::Route, ort.route),
+        kontext: koerper_kontext(ort),
         art: Some(art),
         verworfen: gelesen.verworfen.map(Verworfen::als_text),
         bytes: Some(gelesen.bytes as u64),
@@ -214,6 +212,18 @@ fn abweisung_eintragen<T>(
         }
         Koerperfehler::Abgebrochen => ort.protokoll.episode_falls_offen(&auftreten),
         Koerperfehler::KeinJson | Koerperfehler::Doppelt { .. } => {}
+    }
+}
+
+/// Kontext der Körper-Episode: Herkunft und Route sind die Quelle; die Kennung gehört dem einzelnen Auftreten
+/// und steht nur in der Beginn-Zeile (ADR-0042 Ergänzung Karte #31 Punkt 4).
+fn koerper_kontext(ort: &Koerperort<'_>) -> Kontext {
+    let kontext = Kontext::neu()
+        .mit(Schluessel::Herkunft, ort.herkunft)
+        .mit(Schluessel::Route, ort.route);
+    match ort.kennung {
+        Some(kennung) => kontext.mit_nur_beginn(Schluessel::Kennung, kennung),
+        None => kontext,
     }
 }
 
@@ -444,6 +454,51 @@ mod tests {
             "Der Körper kam nicht innerhalb von 7 s vollständig an — Anfrage abgebrochen; den Körper ohne Pause senden."
         );
     }
+    /// R00022 B0345 (Körper-Episode an `POST …/nachrichten`): zwei Kennungen derselben Herkunft → Beginn mit
+    /// `kennung=` der ersten; Ende mit Zählung je Art, `herkunft=`, `route=`, größtem `bytes=`, ohne `kennung=`.
+    /// Mutante „Kontext des ersten Auftretens“ → rot.
+    #[test]
+    fn die_ende_zeile_der_koerper_episode_nennt_die_quelle_und_keine_kennung() {
+        use crate::protokoll::testhilfe::{im_speicher, zeit};
+        let (protokoll, speicher, uhr, _) =
+            im_speicher("2026-10-28T12:00:00+01:00", Stufe::Information);
+        let kopf = mit_typ("application/json");
+        for (kennung, bytes) in [("beta@127.0.0.1", 131_073), ("gamma@127.0.0.1", 200_000)] {
+            let ort = Koerperort {
+                protokoll: &protokoll,
+                route: "POST /api/channels/{name}/nachrichten",
+                herkunft: "127.0.0.1".parse().expect("IP"),
+                kennung: Some(kennung),
+            };
+            let gelesen = Gelesen::<()> {
+                ergebnis: Err(Koerperfehler::ZuGross),
+                bytes,
+                verworfen: Some(Verworfen::Vollstaendig),
+            };
+            abweisung_eintragen(&kopf, &ort, &Koerperfehler::ZuGross, &gelesen);
+        }
+        uhr.stellen(zeit("2026-10-28T12:01:00+01:00"));
+        protokoll.episoden_schliessen();
+
+        let zeilen: Vec<String> = speicher
+            .zeilen()
+            .into_iter()
+            .filter(|zeile| zeile.contains(" WARNING körper "))
+            .collect();
+        assert_eq!(zeilen.len(), 2, "{zeilen:#?}");
+        assert!(zeilen[0].contains("Episode beginnt"), "{zeilen:#?}");
+        assert!(zeilen[0].contains("kennung=beta@127.0.0.1"), "{zeilen:#?}");
+        assert!(zeilen[1].contains("Episode endet: 2 in "), "{zeilen:#?}");
+        assert!(zeilen[1].contains("(zu groß 2;"), "{zeilen:#?}");
+        assert!(!zeilen[1].contains("kennung="), "{zeilen:#?}");
+        assert!(zeilen[1].contains("herkunft=127.0.0.1"), "{zeilen:#?}");
+        assert!(
+            zeilen[1].contains("route=\"POST /api/channels/{name}/nachrichten\""),
+            "{zeilen:#?}"
+        );
+        assert!(zeilen[1].contains("bytes=200000"), "{zeilen:#?}");
+    }
+
     /// Status, `fehler`, `Connection: close` und Marke einer Antwort auf einen Körperfehler.
     async fn beantwortet(fehler: Koerperfehler, zu_gross: &str) -> (u16, String, bool, bool) {
         let antwort = koerperfehler_beantworten(fehler, zu_gross, r#"{"x":1}"#);

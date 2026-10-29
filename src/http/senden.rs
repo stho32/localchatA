@@ -225,27 +225,34 @@ fn nicht_gespeichert(
     datei: &str,
     grund: &str,
 ) -> Response {
-    zustand.protokoll.episode(Auftreten {
-        stufe: Stufe::Error,
-        bereich: Bereich::Senden,
-        text: crate::protokoll::episodentexte::NICHT_GESPEICHERT,
-        quelle: format!("{datei} {grund}"),
-        kontext: Kontext::neu()
-            .mit(Schluessel::Channel, channel)
-            .mit(Schluessel::Kennung, wer)
-            .mit(Schluessel::Datei, datei)
-            .mit(Schluessel::Grund, grund),
-        art: None,
-        verworfen: None,
-        bytes: None,
-        anzeige: None,
-    });
+    zustand
+        .protokoll
+        .episode(schreibfehler_auftreten(channel, wer, datei, grund));
     let fehler = "Nicht gespeichert — der Server konnte nicht schreiben.";
     (
         StatusCode::INTERNAL_SERVER_ERROR,
         Json(json!({ "fehler": fehler })),
     )
         .into_response()
+}
+
+/// Das Auftreten eines Schreibfehlers: die Quelle ist Datei und Grund, die Kennung gehört dem einzelnen Auftreten.
+fn schreibfehler_auftreten(channel: &str, wer: &str, datei: &str, grund: &str) -> Auftreten {
+    Auftreten {
+        stufe: Stufe::Error,
+        bereich: Bereich::Senden,
+        text: crate::protokoll::episodentexte::NICHT_GESPEICHERT,
+        quelle: format!("{datei} {grund}"),
+        kontext: Kontext::neu()
+            .mit(Schluessel::Channel, channel)
+            .mit_nur_beginn(Schluessel::Kennung, wer)
+            .mit(Schluessel::Datei, datei)
+            .mit(Schluessel::Grund, grund),
+        art: None,
+        verworfen: None,
+        bytes: None,
+        anzeige: None,
+    }
 }
 
 /// 500 nach gescheitertem Binden (ADR-0046 Regel 6): `ERROR senden` mit Gespräch, Tag und Datei nur als Präfix;
@@ -448,7 +455,7 @@ fn vorlauf_eintragen(protokoll: &crate::protokoll::Protokoll, vorlauf_ms: u64) {
         bereich: Bereich::Zeit,
         text: "Nachrichtenzeit läuft der Systemuhr voraus",
         quelle: "instanz".to_string(),
-        kontext: Kontext::neu().mit(Schluessel::DauerMs, vorlauf_ms),
+        kontext: Kontext::neu().mit_fortlaufend(Schluessel::DauerMs, vorlauf_ms),
         art: None,
         verworfen: None,
         bytes: None,
@@ -589,6 +596,70 @@ mod tests {
                 .iter()
                 .any(|zeile| zeile.contains(" 2 h 03 min voraus"))
         );
+    }
+
+    /// R00022 B0345 (ADR-0042 Ergänzung Karte #31 Punkt 7, erster Test): Schreibfehler-Episode mit zwei Kennungen →
+    /// Beginn mit `kennung=` der ersten, Ende ohne `kennung=`, mit `datei=` und `channel=`. Mutante „Kontext des
+    /// ersten Auftretens“ → rot.
+    #[test]
+    fn die_ende_zeile_des_schreibfehlers_nennt_die_datei_und_keine_kennung() {
+        use crate::protokoll::Stufe;
+        use crate::protokoll::testhilfe::{im_speicher, zeit};
+        let (protokoll, speicher, uhr, _) =
+            im_speicher("2026-10-28T12:00:00+01:00", Stufe::Information);
+        let datei = "channels/allgemein/2026-10-28.log";
+        protokoll.episode(schreibfehler_auftreten(
+            "allgemein",
+            "beta@127.0.0.1",
+            datei,
+            "Kein Platz mehr",
+        ));
+        protokoll.episode(schreibfehler_auftreten(
+            "allgemein",
+            "gamma@127.0.0.1",
+            datei,
+            "Kein Platz mehr",
+        ));
+        uhr.stellen(zeit("2026-10-28T12:01:00+01:00"));
+        protokoll.episoden_schliessen();
+
+        let zeilen: Vec<String> = speicher
+            .zeilen()
+            .into_iter()
+            .filter(|zeile| zeile.contains(" ERROR senden "))
+            .collect();
+        assert_eq!(zeilen.len(), 2, "{zeilen:#?}");
+        assert!(zeilen[0].contains("Episode beginnt"), "{zeilen:#?}");
+        assert!(zeilen[0].contains("kennung=beta@127.0.0.1"), "{zeilen:#?}");
+        assert!(zeilen[1].contains("Episode endet: 2 in "), "{zeilen:#?}");
+        assert!(!zeilen[1].contains("kennung="), "{zeilen:#?}");
+        assert!(zeilen[1].contains(&format!("datei={datei}")), "{zeilen:#?}");
+        assert!(zeilen[1].contains("channel=allgemein"), "{zeilen:#?}");
+    }
+
+    /// R00022 B0345 (zweiter Test, wörtlich): `zeit` mit 61.001 ms, dann 7.410.002 ms → Ende mit
+    /// `dauer_ms=7410002`; die Beginn-Zeile trägt 61001. Mutante „Ende mit dem ersten `dauer_ms`“ → rot.
+    #[test]
+    fn die_ende_zeile_des_vorlaufs_nennt_die_letzte_dauer() {
+        use crate::protokoll::Stufe;
+        use crate::protokoll::testhilfe::{im_speicher, zeit};
+        let (protokoll, speicher, uhr, _) =
+            im_speicher("2026-10-28T12:00:00+01:00", Stufe::Information);
+
+        vorlauf_eintragen(&protokoll, 61_001);
+        vorlauf_eintragen(&protokoll, 7_410_002);
+        uhr.stellen(zeit("2026-10-28T12:01:00+01:00"));
+        protokoll.episoden_schliessen();
+
+        let zeilen: Vec<String> = speicher
+            .zeilen()
+            .into_iter()
+            .filter(|zeile| zeile.contains(" WARNING zeit "))
+            .collect();
+        assert_eq!(zeilen.len(), 2, "{zeilen:#?}");
+        assert!(zeilen[0].contains("dauer_ms=61001"), "{zeilen:#?}");
+        assert!(zeilen[1].contains("Episode endet: 2 in "), "{zeilen:#?}");
+        assert!(zeilen[1].ends_with("dauer_ms=7410002"), "{zeilen:#?}");
     }
 
     async fn teile(antwort: Response) -> (u16, Option<String>, serde_json::Value) {

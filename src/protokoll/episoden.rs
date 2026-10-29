@@ -50,6 +50,8 @@ struct Episode {
     je_art: BTreeMap<&'static str, u64>,
     je_verworfen: BTreeMap<&'static str, u64>,
     bytes: Option<u64>,
+    /// Kontext des letzten Auftretens, nur geführt, wenn der Kontext fortlaufende Werte trägt.
+    letzter: Option<Kontext>,
 }
 
 /// Die offenen Episoden.
@@ -157,6 +159,7 @@ impl Episode {
             je_art: BTreeMap::new(),
             je_verworfen: BTreeMap::new(),
             bytes: None,
+            letzter: None,
         };
         episode.zaehlen(&auftreten, jetzt);
         episode
@@ -165,6 +168,9 @@ impl Episode {
     /// Zählt; `zuletzt` fällt nie (eine zurückspringende Uhr beendet nichts vorzeitig).
     fn zaehlen(&mut self, auftreten: &Auftreten, jetzt: Zeit) {
         self.anzahl += 1;
+        if self.kontext.hat_fortlaufende() {
+            self.letzter = Some(auftreten.kontext.clone());
+        }
         self.zuletzt = self.zuletzt.max(jetzt);
         if let Some(art) = auftreten.art {
             *self.je_art.entry(art).or_default() += 1;
@@ -211,7 +217,9 @@ impl Episode {
         if !teile.is_empty() {
             text.push_str(&format!(" ({})", teile.join("; ")));
         }
-        let mut kontext = self.kontext.fuer_ende();
+        let mut kontext = self
+            .kontext
+            .fuer_ende(self.letzter.as_ref().unwrap_or(&self.kontext));
         if let Some(bytes) = self.bytes {
             kontext = kontext.mit(Schluessel::Bytes, bytes);
         }

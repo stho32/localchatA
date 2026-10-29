@@ -215,9 +215,10 @@ impl Schluessel {
 }
 
 /// Benannte Werte eines Eintrags in der Reihenfolge, in der sie gesetzt werden; dazu die Schlüssel, die nur in
-/// der Beginn-Zeile einer Episode stehen (Werte eines einzelnen Auftretens, ADR-0042 Ergänzung Karte #31 Punkt 4).
+/// der Beginn-Zeile einer Episode stehen (Werte eines einzelnen Auftretens, ADR-0042 Ergänzung Karte #31 Punkt 4),
+/// und die, deren letzter Wert in die Ende-Zeile kommt (`dauer_ms` des Vorlaufs).
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct Kontext(Vec<(Schluessel, String)>, Vec<Schluessel>);
+pub struct Kontext(Vec<(Schluessel, String)>, Vec<Schluessel>, Vec<Schluessel>);
 
 impl Kontext {
     pub fn neu() -> Kontext {
@@ -242,15 +243,31 @@ impl Kontext {
         kontext
     }
 
-    /// Der Kontext der Ende-Zeile: ohne die Werte, die nur in die Beginn-Zeile gehören.
-    pub fn fuer_ende(&self) -> Kontext {
+    /// Setzt einen Wert wie `mit`, dessen letzter Wert der Episode in die Ende-Zeile kommt (`dauer_ms` des Vorlaufs).
+    pub fn mit_fortlaufend(self, schluessel: Schluessel, wert: impl ToString) -> Kontext {
+        let mut kontext = self.mit(schluessel, wert);
+        kontext.2.push(schluessel);
+        kontext
+    }
+
+    /// Ob der Kontext Werte trägt, die sich über die Episode ändern und deshalb nachgeführt werden.
+    pub fn hat_fortlaufende(&self) -> bool {
+        !self.2.is_empty()
+    }
+
+    /// Der Kontext der Ende-Zeile: ohne die Werte, die nur in die Beginn-Zeile gehören, und mit dem Wert des
+    /// letzten Auftretens (`letzter`) für die fortlaufenden Schlüssel.
+    pub fn fuer_ende(&self, letzter: &Kontext) -> Kontext {
         let werte = self
             .0
             .iter()
             .filter(|(schluessel, _)| !self.1.contains(schluessel))
-            .cloned()
+            .map(|(schluessel, wert)| match letzter.wert(*schluessel) {
+                Some(neu) if self.2.contains(schluessel) => (*schluessel, neu.to_string()),
+                _ => (*schluessel, wert.clone()),
+            })
             .collect();
-        Kontext(werte, Vec::new())
+        Kontext(werte, Vec::new(), Vec::new())
     }
 
     /// Der Wert zu einem Schlüssel, falls gesetzt (roh, an der Quelle gekürzt).
