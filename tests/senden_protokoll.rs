@@ -187,3 +187,120 @@ async fn der_schreibfehler_ist_eine_episode_je_datei_und_grund() {
     assert!(!alle.iter().any(|z| z.contains("Hallo")));
     assert!(!tagesdatei(wurzel.path(), "allgemein").exists());
 }
+
+/// 429 an einer Kennung, gezählt je `grenze` der Antwort.
+#[derive(Debug, Default, Clone, Copy)]
+struct JeGrenze {
+    herkunft: usize,
+    kennung: usize,
+}
+
+impl JeGrenze {
+    fn zaehlen(&mut self, antwort: &gemeinsam::ApiAntwort) {
+        if antwort.status != 429 {
+            return;
+        }
+        match antwort.json["grenze"].as_str() {
+            Some("herkunft") => self.herkunft += 1,
+            Some("kennung") => self.kennung += 1,
+            andere => panic!("429 ohne bekannte grenze: {andere:?} {}", antwort.json),
+        }
+    }
+}
+
+/// Ein Lauf der Abnahme-Probe S1: `beta` 35 × schnell, dann alle 1,2 s; währenddessen fluten 8 andere Kennungen
+/// derselben IP 4 s lang. Liefert die 429 an `beta` je Grenze.
+async fn beta_und_flut(instanz: &Instanz) -> JeGrenze {
+    let beta = Absender::von("127.0.0.1");
+    let token = beitreten(&beta, &instanz.adresse, "beta", None).await;
+    let mut flut = Vec::new();
+    for nummer in 0..8 {
+        let absender = Absender::von("127.0.0.1");
+        let token = beitreten(&absender, &instanz.adresse, &format!("flut{nummer}"), None).await;
+        flut.push((absender, token));
+    }
+    let mut je_grenze = JeGrenze::default();
+    for nummer in 0..35 {
+        let antwort = senden(
+            &beta,
+            &instanz.adresse,
+            &token,
+            "allgemein",
+            &format!("b{nummer}"),
+        )
+        .await;
+        je_grenze.zaehlen(&antwort);
+    }
+    let fluten: Vec<_> = flut
+        .into_iter()
+        .map(|(absender, token)| {
+            let adresse = instanz.adresse.clone();
+            tokio::spawn(async move {
+                let ende = Instant::now() + Duration::from_secs(4);
+                while Instant::now() < ende {
+                    senden(&absender, &adresse, &token, "allgemein", "f").await;
+                }
+            })
+        })
+        .collect();
+    for nummer in 0..4 {
+        tokio::time::sleep(Duration::from_millis(1_200)).await;
+        let antwort = senden(
+            &beta,
+            &instanz.adresse,
+            &token,
+            "allgemein",
+            &format!("l{nummer}"),
+        )
+        .await;
+        je_grenze.zaehlen(&antwort);
+    }
+    for flut in fluten {
+        flut.await.expect("Flut");
+    }
+    je_grenze
+}
+
+/// R00020 F0070 „Ende-Zeile je Grenze“, Abnahme-Probe Observability #8 S1 wörtlich: „RUHE_MS=5000, beta 35×
+/// schnell, dann alle 1,2 s, 8 andere Kennungen derselben IP fluten 4 s → Ende-Zeile für beta nennt herkunft k =
+/// Zahl der 429 mit grenze=herkunft.“ Genau eine Ende-Zeile für `beta` mit der Klammer je Grenze, `kennung=` und
+/// ohne `grenze=`. Ein Lauf mit h = 0 oder k = 0 ist ungültig und wird wiederholt (höchstens dreimal).
+#[tokio::test]
+async fn us5_die_ende_zeile_der_bremse_zaehlt_je_grenze() {
+    for _ in 0..3 {
+        let wurzel = ordner();
+        let instanz = starten(wurzel.path(), &[("LOCALCHATA_EPISODE_RUHE_MS", "5000")]);
+        let JeGrenze {
+            herkunft: h,
+            kennung: k,
+        } = beta_und_flut(&instanz).await;
+        if h == 0 || k == 0 {
+            println!("ungültiger Lauf: herkunft {h}, kennung {k} — wiederholen");
+            continue;
+        }
+        let ende_von_beta = |zeilen: &[String]| -> Vec<String> {
+            mit(zeilen, "WARNING", "schreibkonto")
+                .into_iter()
+                .filter(|z| z.contains("Episode endet") && z.contains("kennung=beta@127.0.0.1"))
+                .collect()
+        };
+        let gefunden = warten_auf(wurzel.path(), Duration::from_secs(15), |_| {
+            !ende_von_beta(&zeilen(wurzel.path(), HEUTE)).is_empty()
+        })
+        .await;
+
+        assert!(gefunden.is_some(), "keine Ende-Zeile für beta");
+        let enden = ende_von_beta(&zeilen(wurzel.path(), HEUTE));
+        assert_eq!(enden.len(), 1, "{enden:#?}");
+        println!("429 an beta: herkunft {h}, kennung {k}; {}", enden[0]);
+        let klammer = format!(" — Episode endet: {} in ", h + k);
+        let schluss = format!(" s (herkunft {h}; kennung {k}) | kennung=beta@127.0.0.1");
+        assert!(
+            enden[0].contains(&klammer) && enden[0].ends_with(&schluss),
+            "erwartet …{klammer}<d>{schluss}: {enden:#?}"
+        );
+        assert!(!enden[0].contains("grenze="), "{enden:#?}");
+        return;
+    }
+    panic!("drei ungültige Läufe (h = 0 oder k = 0)");
+}

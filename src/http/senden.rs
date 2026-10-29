@@ -268,25 +268,33 @@ fn quote_erreicht(belegt: u64, hoechstens: u64) -> Response {
 
 /// Jede 429 der Bremse zählt in eine Episode `WARNING schreibkonto` je Kennung (R00016, ADR-0036 Ergänzung).
 fn gebremst_melden(zustand: &Zustand, gebremst: Gebremst, teilnehmer: &Teilnehmer) -> Response {
-    let grenze = match gebremst.grenze {
+    let wer = teilnehmer.kennung.als_text();
+    zustand
+        .protokoll
+        .episode(gebremst_auftreten(wer, gebremst.grenze));
+    gebremst_beantworten(gebremst, &teilnehmer.kennung, teilnehmer.herkunft)
+}
+
+/// Das Auftreten einer 429 der Bremse: Quelle ist die Kennung; die Grenze zählt als Art, damit die Ende-Zeile je
+/// Grenze zählt (ADR-0042 Ergänzung Karte #31 Punkt 2), und steht als `grenze=` nur in der Beginn-Zeile (Punkt 4).
+fn gebremst_auftreten(wer: &str, grenze: Grenze) -> Auftreten {
+    let grenze = match grenze {
         Grenze::Kennung => Grenzart::Kennung,
         Grenze::Herkunft => Grenzart::Herkunft,
     };
-    let wer = teilnehmer.kennung.als_text();
-    zustand.protokoll.episode(Auftreten {
+    Auftreten {
         stufe: Stufe::Warning,
         bereich: Bereich::Schreibkonto,
         text: "Zu viele Nachrichten — gebremst",
         quelle: wer.to_string(),
         kontext: Kontext::neu()
             .mit(Schluessel::Kennung, wer)
-            .mit(Schluessel::Grenze, grenze),
-        art: None,
+            .mit_nur_beginn(Schluessel::Grenze, grenze),
+        art: Some(grenze.als_text()),
         verworfen: None,
         bytes: None,
         anzeige: None,
-    });
-    gebremst_beantworten(gebremst, &teilnehmer.kennung, teilnehmer.herkunft)
+    }
 }
 
 fn abgebrochen(zustand: &Zustand, abbruch: &Abgebrochen, wer: &str, channel: &str) -> Response {
@@ -434,6 +442,71 @@ pub fn sendekoerper_lesen(wert: &Value) -> Result<&str, Sendekoerperfehler> {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    /// R00020 F0070 „Ende-Zeile rein“ (ADR-0042 Ergänzung Karte #31 Punkt 7): 6 × `kennung` und 2 × `herkunft`
+    /// in einer Episode → die Ende-Zeile zählt je Grenze, trägt `kennung=` und kein `grenze=`; nur `kennung` →
+    /// „(kennung 6)“ ohne „herkunft 0“. Die Beginn-Zeile behält `grenze=` des ersten Auftretens.
+    #[test]
+    fn die_ende_zeile_der_bremse_zaehlt_je_grenze_mit_dem_kontext_der_quelle() {
+        use crate::protokoll::testhilfe::{im_speicher, zeit};
+        let (protokoll, speicher, uhr, _) =
+            im_speicher("2026-10-28T12:00:00+01:00", Stufe::Information);
+        let folge = [
+            Grenze::Herkunft,
+            Grenze::Kennung,
+            Grenze::Kennung,
+            Grenze::Kennung,
+            Grenze::Herkunft,
+            Grenze::Kennung,
+            Grenze::Kennung,
+            Grenze::Kennung,
+        ];
+        for (sekunde, grenze) in folge.into_iter().enumerate() {
+            uhr.stellen(zeit(&format!("2026-10-28T12:00:0{sekunde}+01:00")));
+            protokoll.episode(gebremst_auftreten("beta@127.0.0.1", grenze));
+            protokoll.episode(gebremst_auftreten("gamma@127.0.0.1", Grenze::Kennung));
+        }
+        uhr.stellen(zeit("2026-10-28T12:02:00+01:00"));
+        protokoll.episoden_schliessen();
+
+        let konto: Vec<String> = speicher
+            .zeilen()
+            .into_iter()
+            .filter(|zeile| zeile.contains(" WARNING schreibkonto "))
+            .collect();
+        let von = |wer: &str, art: &str| -> Vec<String> {
+            konto
+                .iter()
+                .filter(|z| z.contains(wer) && z.contains(art))
+                .cloned()
+                .collect()
+        };
+        assert_eq!(konto.len(), 4, "{konto:#?}");
+        assert_eq!(
+            von("beta@", "Episode beginnt"),
+            [konto[0].clone()],
+            "{konto:#?}"
+        );
+        assert!(
+            konto[0].ends_with(" — Episode beginnt | kennung=beta@127.0.0.1 grenze=herkunft"),
+            "{konto:#?}"
+        );
+        let beta_ende = von("beta@", "Episode endet");
+        assert_eq!(beta_ende.len(), 1, "{konto:#?}");
+        assert!(
+            beta_ende[0].ends_with(
+                " — Episode endet: 8 in 7 s (herkunft 2; kennung 6) | kennung=beta@127.0.0.1"
+            ),
+            "{konto:#?}"
+        );
+        let gamma_ende = von("gamma@", "Episode endet");
+        assert_eq!(gamma_ende.len(), 1, "{konto:#?}");
+        assert!(
+            gamma_ende[0]
+                .ends_with(" — Episode endet: 8 in 7 s (kennung 8) | kennung=gamma@127.0.0.1"),
+            "{konto:#?}"
+        );
+    }
 
     /// R00011 F0042 „Vorlauf“ mit der Episode des Betriebsprotokolls (R00016): über 60 s eine Zeile `WARNING zeit`
     /// mit Stunden und Minuten und `dauer_ms`; die zweite Nachricht keine; nach der Ruhe endet die Episode; ein neuer

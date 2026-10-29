@@ -163,9 +163,10 @@ impl Schluessel {
     }
 }
 
-/// Benannte Werte eines Eintrags in der Reihenfolge, in der sie gesetzt werden.
+/// Benannte Werte eines Eintrags in der Reihenfolge, in der sie gesetzt werden; dazu die Schlüssel, die nur in
+/// der Beginn-Zeile einer Episode stehen (Werte eines einzelnen Auftretens, ADR-0042 Ergänzung Karte #31 Punkt 4).
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct Kontext(Vec<(Schluessel, String)>);
+pub struct Kontext(Vec<(Schluessel, String)>, Vec<Schluessel>);
 
 impl Kontext {
     pub fn neu() -> Kontext {
@@ -180,6 +181,25 @@ impl Kontext {
             roh_gekuerzt(wert.to_string(), WERT_HOECHSTENS + 1),
         ));
         self
+    }
+
+    /// Setzt einen Wert wie `mit`, der in der Ende-Zeile einer Episode fehlt: er gilt nur für das erste
+    /// Auftreten, nicht für die ganze Episode (`grenze` der Bremse).
+    pub fn mit_nur_beginn(self, schluessel: Schluessel, wert: impl ToString) -> Kontext {
+        let mut kontext = self.mit(schluessel, wert);
+        kontext.1.push(schluessel);
+        kontext
+    }
+
+    /// Der Kontext der Ende-Zeile: ohne die Werte, die nur in die Beginn-Zeile gehören.
+    pub fn fuer_ende(&self) -> Kontext {
+        let werte = self
+            .0
+            .iter()
+            .filter(|(schluessel, _)| !self.1.contains(schluessel))
+            .cloned()
+            .collect();
+        Kontext(werte, Vec::new())
     }
 
     /// Der Wert zu einem Schlüssel, falls gesetzt (roh, an der Quelle gekürzt).

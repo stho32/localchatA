@@ -211,7 +211,7 @@ impl Episode {
         if !teile.is_empty() {
             text.push_str(&format!(" ({})", teile.join("; ")));
         }
-        let mut kontext = self.kontext.clone();
+        let mut kontext = self.kontext.fuer_ende();
         if let Some(bytes) = self.bytes {
             kontext = kontext.mit(Schluessel::Bytes, bytes);
         }
