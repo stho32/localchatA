@@ -27,8 +27,13 @@ const VERWERFEN_FRIST: Duration = Duration::from_secs(2);
 /// Lesens (Kopf vollständig), nicht je Stück — ein Tröpfler hielte sonst beliebig lange einen Platz. Gleich der
 /// Kopf-Zeitgrenze; gilt für die JSON-Körper bis 131.072 Bytes, die im LAN in Millisekunden ankommen.
 pub const KOERPER_LESEFRIST: Duration = Duration::from_secs(10);
-/// Text der 408 (ADR-0010, Ergänzung R00015).
-pub const ZU_LANGSAM: &str = "Körper nicht vollständig innerhalb von 10 s — Anfrage abgebrochen.";
+/// Text der 408 mit Ausweg (ADR-0010 Ergänzung Karte #26); die Sekunden kommen aus der Frist, nie von Hand.
+pub fn zu_langsam(frist: Duration) -> String {
+    format!(
+        "Der Körper kam nicht innerhalb von {} s vollständig an — Anfrage abgebrochen; den Körper ohne Pause senden.",
+        frist.as_secs()
+    )
+}
 
 /// Die eine Antwort für Körperfehler (ADR-0010 Ergänzung Karte #31): 413 | 415 | 400 | 408 mit deutschem
 /// `{fehler}` — Grund und Ausweg, bei 413, 415 und 400 mit dem Beispiel der Route; nach 413 und 408 schließt die
@@ -50,7 +55,7 @@ pub fn koerperfehler_beantworten(
             mit_beispiel("Der Körper ist kein gültiges JSON — ein JSON-Objekt schicken"),
         ),
         Koerperfehler::ZuGross => (StatusCode::PAYLOAD_TOO_LARGE, mit_beispiel(zu_gross)),
-        Koerperfehler::ZuLangsam => (StatusCode::REQUEST_TIMEOUT, ZU_LANGSAM.to_string()),
+        Koerperfehler::ZuLangsam => (StatusCode::REQUEST_TIMEOUT, zu_langsam(KOERPER_LESEFRIST)),
     };
     let antwort = (status, Json(json!({ "fehler": text })));
     let schliessen = matches!(fehler, Koerperfehler::ZuGross | Koerperfehler::ZuLangsam);
@@ -339,6 +344,28 @@ fn json_angekuendigt(kopf: &HeaderMap) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// R00018 F0062 (ADR-0010 Ergänzung Karte #26): die 408 sagt, was zu tun ist; die Sekunden kommen aus der
+    /// Frist (bei 7 s „7 s“), die Frist bleibt ganze Sekunden.
+    #[test]
+    fn der_408_text_nennt_die_frist_und_den_ausweg() {
+        let text = zu_langsam(KOERPER_LESEFRIST);
+
+        assert!(
+            text.contains(&format!("{} s", KOERPER_LESEFRIST.as_secs())),
+            "{text}"
+        );
+        assert!(text.ends_with("; den Körper ohne Pause senden."), "{text}");
+        assert_eq!(
+            text,
+            "Der Körper kam nicht innerhalb von 10 s vollständig an — Anfrage abgebrochen; den Körper ohne Pause senden."
+        );
+        assert_eq!(KOERPER_LESEFRIST.subsec_nanos(), 0);
+        assert_eq!(
+            zu_langsam(Duration::from_secs(7)),
+            "Der Körper kam nicht innerhalb von 7 s vollständig an — Anfrage abgebrochen; den Körper ohne Pause senden."
+        );
+    }
     use axum::http::HeaderValue;
 
     fn mit_typ(typ: &str) -> HeaderMap {

@@ -233,12 +233,19 @@ async fn g4_ein_langsamer_gueltiger_koerper_unter_der_frist_tritt_bei() {
 }
 
 /// ADR-0043, Ergänzung R00015, erster Test: 3 schweigende Körper → je 408 mit `Connection: close` und dem Text
-/// der ADR; `abgewiesen.zu_langsam = 3`, die übrigen Arten 0; genau eine Körper-Episode (beginnt, endet mit
-/// `zu_langsam 3`) für `POST /api/beitreten` von 127.0.0.1.
+/// der ADR (Wortlaut ADR-0010 Ergänzung Karte #26); `abgewiesen.zu_langsam = 3`, die übrigen Arten 0; genau eine
+/// Körper-Episode (beginnt, endet mit `zu_langsam 3`) für `POST /api/beitreten` von 127.0.0.1. Auf Stufe debug
+/// trägt jede der drei Debug-Zeilen `status=408` und `art=zu_langsam` (R00018 F0062, Code-Review #25 A2).
 #[tokio::test]
 async fn g4_jede_408_wird_als_zu_langsam_gezaehlt_und_als_episode_gemeldet() {
     let wurzel = tempfile::tempdir().expect("Wegwerf-Ordner");
-    let instanz = starten_um(wurzel.path(), &[("LOCALCHATA_EPISODE_RUHE_MS", "1000")]);
+    let instanz = starten_um(
+        wurzel.path(),
+        &[
+            ("LOCALCHATA_EPISODE_RUHE_MS", "1000"),
+            ("LOCALCHATA_PROTOKOLL_STUFE", "debug"),
+        ],
+    );
     let mut offen = Vec::new();
     for _ in 0..3 {
         offen.push(schweigend_oeffnen(instanz.port(), "127.0.0.1").await);
@@ -255,7 +262,7 @@ async fn g4_jede_408_wird_als_zu_langsam_gezaehlt_und_als_episode_gemeldet() {
         let json: serde_json::Value = serde_json::from_str(&ausgang.inhalt).expect("JSON");
         assert_eq!(
             json,
-            serde_json::json!({"fehler": "Körper nicht vollständig innerhalb von 10 s — Anfrage abgebrochen."})
+            serde_json::json!({"fehler": "Der Körper kam nicht innerhalb von 10 s vollständig an — Anfrage abgebrochen; den Körper ohne Pause senden."})
         );
         assert!(
             ausgang.kopf.iter().any(|z| z == "connection: close"),
@@ -278,6 +285,12 @@ async fn g4_jede_408_wird_als_zu_langsam_gezaehlt_und_als_episode_gemeldet() {
     for zeile in &koerper {
         assert_eq!(wert(zeile, "route").as_deref(), Some("POST /api/beitreten"));
         assert_eq!(wert(zeile, "herkunft").as_deref(), Some("127.0.0.1"));
+    }
+    let debug = mit(&datei, "DEBUG", "körper");
+    assert_eq!(debug.len(), 3, "{datei:#?}");
+    for zeile in &debug {
+        assert_eq!(wert(zeile, "status").as_deref(), Some("408"), "{zeile}");
+        assert_eq!(wert(zeile, "art").as_deref(), Some("zu_langsam"), "{zeile}");
     }
 }
 
@@ -314,7 +327,7 @@ async fn g4_auch_die_anlage_eines_channels_antwortet_nach_der_frist_408() {
     let json: serde_json::Value = serde_json::from_str(&ausgang.inhalt).expect("JSON");
     assert_eq!(
         json["fehler"],
-        "Körper nicht vollständig innerhalb von 10 s — Anfrage abgebrochen."
+        "Der Körper kam nicht innerhalb von 10 s vollständig an — Anfrage abgebrochen; den Körper ohne Pause senden."
     );
 }
 
