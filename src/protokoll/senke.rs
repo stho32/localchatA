@@ -17,6 +17,10 @@ pub trait Senke: Send {
     fn ordner(&self) -> Option<PathBuf> {
         None
     }
+    /// Was die Datei des Tages schon je Stufenklasse verbraucht (ADR-0042 Ergänzung #24 Punkt 9); ohne Datei 0.
+    fn verbrauch(&self, _tag: NaiveDate) -> [u64; 3] {
+        [0; 3]
+    }
 }
 
 /// Die Tagesdateien `logs/JJJJ-MM-TT.log`; jeder Eintrag öffnet seine Datei, schreibt und schließt sie — keine
@@ -79,6 +83,24 @@ impl Senke for Tagesdateien {
 
     fn ordner(&self) -> Option<PathBuf> {
         Some(self.logs.clone())
+    }
+
+    /// Liest die Datei des Tages einmal zeilenweise (Zeilen mit Zeilenende); fehlt sie oder ist sie nicht
+    /// lesbar, gilt 0 — wie bei einem frischen Tag.
+    fn verbrauch(&self, tag: NaiveDate) -> [u64; 3] {
+        let Ok(datei) = File::open(self.logs.join(dateiname(tag))) else {
+            return [0; 3];
+        };
+        let mut leser = io::BufReader::new(datei);
+        let mut zeile = Vec::new();
+        let zeilen = std::iter::from_fn(|| {
+            zeile.clear();
+            match io::BufRead::read_until(&mut leser, b'\n', &mut zeile) {
+                Ok(0) | Err(_) => None,
+                Ok(_) => Some(zeile.clone()),
+            }
+        });
+        super::budget::verbrauch_je_klasse(zeilen)
     }
 }
 

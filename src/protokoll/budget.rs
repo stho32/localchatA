@@ -82,6 +82,19 @@ impl Tagesbudget {
         }
     }
 
+    /// Gilt der Verbrauch schon für `tag`? Nein vor dem ersten Eintrag des Tages im Prozess.
+    pub fn gilt_fuer(&self, tag: NaiveDate) -> bool {
+        self.tag == Some(tag)
+    }
+
+    /// Rechnet den Verbrauch einer vorhandenen Tagesdatei an (ADR-0042 Ergänzung #24 Punkt 9); eine Klasse über
+    /// ihrem Budget verwirft ab ihrer nächsten Zeile, die erste davon meldet das wie sonst.
+    pub fn anrechnen(&mut self, tag: NaiveDate, verbrauch: [u64; 3]) {
+        self.tag = Some(tag);
+        self.verbraucht = verbrauch;
+        self.erreicht = [false; 3];
+    }
+
     /// Passt eine Zeile von `laenge` Bytes der Klasse `klasse` am Tag `tag` noch ins Budget? Ein neuer Tag beginnt
     /// mit neuem Budget.
     pub fn pruefen(&mut self, tag: NaiveDate, klasse: Klasse, laenge: u64) -> Urteil {

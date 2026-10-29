@@ -401,6 +401,10 @@ impl Protokoll {
         if inneres.rueckfall && self.mindeststufe <= Stufe::Information {
             self.rueckfall_beenden(inneres, jetzt);
         }
+        if !inneres.budget.gilt_fuer(tag) {
+            let verbrauch = inneres.senke.verbrauch(tag);
+            inneres.budget.anrechnen(tag, verbrauch);
+        }
         let zeile = zeile::zeile(eintrag, jetzt);
         let klasse = Klasse::von(eintrag.stufe);
         match inneres.budget.pruefen(tag, klasse, zeile.len() as u64) {
@@ -603,6 +607,87 @@ mod tests {
                 .map(str::to_string)
                 .collect()
         }
+    }
+
+    /// R00018 F0061, erster Test aus ADR-0042 Ergänzung #24 Punkt 9: ein neues Protokoll am selben Tag rechnet die
+    /// vorhandene Tagesdatei je Klasse an — DEBUG ist schon voll und verwirft, ERROR schreibt weiter.
+    #[test]
+    fn ein_neustart_am_selben_tag_rechnet_die_vorhandene_tagesdatei_je_klasse_an() {
+        let p = in_dateien("2026-10-28T12:00:00+01:00", Stufe::Debug);
+        let protokoll = Protokoll::mit(
+            Box::new(Tagesdateien::neu(&p.ordner)),
+            p.stderr.spiegel(),
+            Arc::clone(&p.uhr) as Arc<dyn Uhr>,
+            Stufe::Debug,
+        )
+        .mit_budgets(budget::Budgets {
+            debug: 1024,
+            information_warning: 1024,
+            error_exception: 1024,
+        });
+        let zeile = |stufe: &str| {
+            format!(
+                "2026-10-28T11:00:00.000+01:00 {stufe} start {}\n",
+                "x".repeat(60)
+            )
+        };
+        let mut vorhanden = zeile("DEBUG").repeat(1100 / zeile("DEBUG").len() + 1);
+        vorhanden.push_str(&zeile("ERROR"));
+        std::fs::create_dir_all(p.ordner.join("logs")).expect("logs");
+        std::fs::write(p.ordner.join("logs/2026-10-28.log"), &vorhanden).expect("Tagesdatei");
+        let vorher = p.datei("2026-10-28.log").len();
+
+        protokoll.eintragen(
+            Stufe::Debug,
+            Bereich::Start,
+            "nach dem Neustart",
+            Kontext::neu(),
+        );
+        protokoll.eintragen(
+            Stufe::Error,
+            Bereich::Start,
+            "Fehler danach",
+            Kontext::neu(),
+        );
+
+        let neu: Vec<String> = p.datei("2026-10-28.log")[vorher..].to_vec();
+        assert_eq!(neu.len(), 2, "{neu:#?}");
+        assert!(
+            neu[0].ends_with(" WARNING protokoll Tagesbudget DEBUG erreicht — weitere Einträge bis Mitternacht nur gezählt"),
+            "{neu:#?}"
+        );
+        assert!(neu[1].ends_with(" ERROR start Fehler danach"), "{neu:#?}");
+        assert_eq!(protokoll.kennzahlen().verworfen, 1);
+    }
+
+    /// Löscht die Betreiberin die Tagesdatei am selben Tag, bleibt der angerechnete Verbrauch (konservativ).
+    #[test]
+    fn eine_geloeschte_tagesdatei_senkt_den_angerechneten_verbrauch_nicht() {
+        let p = in_dateien("2026-10-28T12:00:00+01:00", Stufe::Debug);
+        let protokoll = Protokoll::mit(
+            Box::new(Tagesdateien::neu(&p.ordner)),
+            p.stderr.spiegel(),
+            Arc::clone(&p.uhr) as Arc<dyn Uhr>,
+            Stufe::Debug,
+        )
+        .mit_budgets(budget::Budgets {
+            debug: 1024,
+            information_warning: 1024,
+            error_exception: 1024,
+        });
+        std::fs::create_dir_all(p.ordner.join("logs")).expect("logs");
+        std::fs::write(
+            p.ordner.join("logs/2026-10-28.log"),
+            format!("t DEBUG start {}\n", "x".repeat(1100)),
+        )
+        .expect("Tagesdatei");
+        protokoll.eintragen(Stufe::Debug, Bereich::Start, "erster", Kontext::neu());
+        std::fs::remove_file(p.ordner.join("logs/2026-10-28.log")).expect("gelöscht");
+
+        protokoll.eintragen(Stufe::Debug, Bereich::Start, "zweiter", Kontext::neu());
+
+        assert_eq!(p.datei("2026-10-28.log"), Vec::<String>::new());
+        assert_eq!(protokoll.kennzahlen().verworfen, 2);
     }
 
     #[test]
