@@ -1,7 +1,9 @@
 //! R00025 F0087 B0494 „Echte Grenzen“ (ADR-0034 Ergänzung „Karte #36 Angriffsmatrix“ E4, Zeilen 3 L2r und 12): das
 //! echte Programm **ohne** Testknopf; viele Loopback-Herkünfte `127.0.1.x` füllen mehr als 36.000 Einträge in etwa
 //! einer Minute; ein Opfer mit einem Eintrag wiederholt → 200, ein Satz; `schluessel_verdraengt` ≥ 1; jede Episode
-//! nennt einen Fluter, nie das Opfer; der RSS-Zuwachs der Instanz ist ≤ 22 MB (ADR-0034 Regel 4).
+//! nennt einen Fluter, nie das Opfer. Der RSS-Zuwachs der Instanz ist nur **Grobwächter** gegen ungebremstes Wachsen
+//! unter Flut (≤ 64 MB, ADR-0034 Ergänzung „Karte #36 Speicher“, S3), nicht Beleg des Speichers — den misst S2
+//! (`tests/wiederholung_speicher.rs`).
 //!
 //! **Optional, `#[ignore]`**: nicht im Standard-Gate (≈ 1 min, 512 Sitzungen), im Entwicklertest ausdrücklich mit
 //! `cargo test --test wiederholung_echte_grenzen -- --ignored`. Lesart: Opfer und Fluter teilen die Sitzungsgrenze
@@ -19,8 +21,14 @@ use std::time::{Duration, Instant};
 
 /// Mehr als die Gesamtgrenze, damit sicher verdrängt wird.
 const ZIEL: usize = 36_000 + 2_000;
-/// Hypothese ADR-0034 Regel 4: höchstens ≈ 22 MB für 36.000 Einträge.
-const RSS_ZUWACHS_HOECHSTENS_KB: u64 = 22 * 1_000;
+/// Grobwächter Flut (ADR-0034 Ergänzung „Karte #36 Speicher“, S3): Release-Messung 41,3 MB + ≈ 50 % Reserve.
+const RSS_ZUWACHS_HOECHSTENS_KB: u64 = 64 * 1_000;
+/// Profil des gemessenen Programms — es kommt aus demselben Bau wie dieser Test.
+const PROFIL: &str = if cfg!(debug_assertions) {
+    "Debug"
+} else {
+    "Release"
+};
 const FLUTER: usize = 511;
 const HOECHSTENS_DAUER: Duration = Duration::from_secs(150);
 
@@ -135,7 +143,8 @@ async fn echte_grenzen_halten_den_schluessel_des_opfers_und_den_speicher() {
     let (_, gesundheit) = gemeinsam::gesundheit(&basis).await;
 
     eprintln!(
-        "echte Grenzen: {} angenommen in {dauer:.1?}, RSS {rss_vorher} → {rss_nachher} kB (+{} kB), verdrängt {}",
+        "echte Grenzen ({PROFIL}): {} angenommen in {dauer:.1?}, RSS {rss_vorher} → {rss_nachher} kB (+{} kB, \
+         Grobwächter ≤ {RSS_ZUWACHS_HOECHSTENS_KB} kB), verdrängt {}",
         angenommen.load(Ordering::SeqCst),
         rss_nachher.saturating_sub(rss_vorher),
         gesundheit["schluessel_verdraengt"]
@@ -169,7 +178,9 @@ async fn echte_grenzen_halten_den_schluessel_des_opfers_und_den_speicher() {
     );
     assert!(
         rss_nachher.saturating_sub(rss_vorher) <= RSS_ZUWACHS_HOECHSTENS_KB,
-        "RSS-Zuwachs {} kB über 22 MB — Befund an den architekt (ADR-0034 Regel 4)",
+        "Grobwächter Flut ({PROFIL}): RSS-Zuwachs {} kB über {RSS_ZUWACHS_HOECHSTENS_KB} kB — die Instanz wächst \
+         unter Flut ungebremst (ADR-0034 Ergänzung „Karte #36 Speicher“, S3); den Speicher des Wiederholspeichers \
+         misst S2: cargo test --test wiederholung_speicher -- --nocapture",
         rss_nachher.saturating_sub(rss_vorher)
     );
 }

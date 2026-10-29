@@ -11,6 +11,10 @@ use std::fmt;
 /// Höchstens so viele Schlüssel je Kennung (ADR-0034 Ergänzung Karte #36: Bedarf 630 aus dem Schreibkonto + Reserve).
 pub const HOECHSTENS_JE_KENNUNG: usize = 640;
 /// Höchstens so viele Schlüssel insgesamt — das Doppelte der Spitze des Lastprofils über 10 Minuten.
+///
+/// Speicher (ADR-0034 Ergänzung „Karte #36 Speicher“, S1): höchstens 1.200 Bytes allokiert je Eintrag im
+/// ungünstigsten Fall (je Eintrag eine eigene Kennung), bei 36.000 also ≤ 43,2 MB; im Lastprofil ≈ 10 MB. Gemessen
+/// am zählenden Allokator in `tests/wiederholung_speicher.rs` (S2), nicht am RSS der Instanz.
 pub const HOECHSTENS_GESAMT: usize = 36_000;
 /// So lange (ms ab dem Merken) gilt ein Schlüssel; danach ist er neu.
 pub const HOECHSTENS_ALTER_MS: i64 = 600_000;
