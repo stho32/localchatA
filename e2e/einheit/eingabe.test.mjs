@@ -1,7 +1,7 @@
-// Unit-Tests der Eingabe (R00011 F0043 „Tasten“, B0217; ADR-0038 Regel 2; node --test).
+// Unit-Tests der Eingabe (R00011 F0043 „Tasten“, B0217; ADR-0038 Regel 2; R00027 „Bereit-Regel“, B0413; node --test).
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { taste } from '../../web/eingabe.js';
+import { taste, sendbar } from '../../web/eingabe.js';
 
 const ohne = { key: 'Enter', shiftKey: false, ctrlKey: false, altKey: false, metaKey: false, isComposing: false, keyCode: 13 };
 const mit = (werte) => ({ ...ohne, ...werte });
@@ -36,4 +36,19 @@ test('Enter mit U+0085 sendet nicht, mit U+FEFF sendet es — wie der Server urt
 
 test('eine andere Taste tut nichts', () => {
   assert.equal(taste(mit({ key: 'a', keyCode: 65 }), 'Hallo'), null);
+});
+
+// R00027 F0091 „Bereit-Regel“ (B0413, ADR-0038 Ergänzung Karte #41 K2): eine Bedingung für Taste und Knopf. Mutanten
+// „Leer-Prüfung mit trim()“ (rot bei U+0085 und U+FEFF) und „Textregel nicht geprüft“ (rot bei 16.385 Byte).
+test('sendbar ist wahr bei Text, der senden würde', () => {
+  assert.equal(sendbar('a'), true);
+  assert.equal(sendbar('Hallo\nWelt'), true);
+  assert.equal(sendbar('\uFEFF'), true);
+  assert.equal(sendbar(`${'€'.repeat(5461)}a`), true);
+});
+
+test('sendbar ist falsch bei Leerraum nach White_Space und bei verletzter Textregel', () => {
+  for (const text of ['', '   ', ' \n\t', '\u0085', '\u3000', 'a'.repeat(16385), 'rot \u001b[31m']) {
+    assert.equal(sendbar(text), false, JSON.stringify(text.slice(0, 12)));
+  }
 });

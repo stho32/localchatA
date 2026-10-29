@@ -4,6 +4,12 @@ import { hinweis, hinweisAnsagen } from './hinweis.js';
 
 const IME_TASTENCODE = 229;
 
+// Die eine Bedingung, unter der Taste und Knopf senden (ADR-0038 Ergänzung Karte #41 K2): nicht nur Leerraum,
+// höchstens 16.384 Byte, kein verbotenes Zeichen.
+export function sendbar(text) {
+  return textPruefen(text).art === 'ok';
+}
+
 // Was eine Taste im Feld bewirkt (Regel 2): 'senden' | 'zeile' | null. Während einer IME-Komposition und bei Text
 // nur aus Leerraum nie senden; Alt Enter tut nichts.
 export function taste(ereignis, text) {
@@ -64,9 +70,8 @@ export function eingabeAnlegen({ senden, entwurf }) {
     if (enterOhneZeile) {
       ereignis.preventDefault();
     }
-    const regelVerletzt = gezeigt.stufe === 'fehler';
-    if (wirkung === 'senden' && !regelVerletzt) {
-      const text = feld.value;
+    const text = feld.value;
+    if (wirkung === 'senden' && sendbar(text)) {
       feld.value = '';
       hoeheAnpassen(feld);
       hinweisZeigen();
