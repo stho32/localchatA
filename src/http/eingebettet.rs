@@ -129,9 +129,16 @@ mod tests {
     fn jedes_javascript_unter_web_ist_eingebettet() {
         let ordner = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("web");
         for eintrag in std::fs::read_dir(ordner).expect("web/") {
-            let name = eintrag.expect("Eintrag").file_name().into_string().expect("Name");
+            let name = eintrag
+                .expect("Eintrag")
+                .file_name()
+                .into_string()
+                .expect("Name");
             if name.ends_with(".js") {
-                assert!(nachschlagen(&name).is_some(), "{name} ist nicht eingebettet");
+                assert!(
+                    nachschlagen(&name).is_some(),
+                    "{name} ist nicht eingebettet"
+                );
             }
         }
     }
