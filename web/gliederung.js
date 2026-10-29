@@ -33,6 +33,20 @@ export function gliederung(vorige, nachricht) {
   return { kopf: !gruppiert, tagestrenner: null };
 }
 
+// Eine Folge nach der vorigen (oder null) gegliedert; die Nachricht mit der Zeit `ersteNeue` (oder null) trägt als
+// erste gezählte neue immer ihren Kopf (R00020 F0067). → [{ kopf, tagestrenner }] in der Folge der Nachrichten
+export function folgeGliedern(vorige, nachrichten, ersteNeue) {
+  const gliederungen = [];
+  let davor = vorige;
+  for (const nachricht of nachrichten) {
+    const { kopf, tagestrenner } = gliederung(davor, nachricht);
+    const istErsteNeue = nachricht.zeit === ersteNeue;
+    gliederungen.push({ kopf: kopf || istErsteNeue, tagestrenner });
+    davor = nachricht;
+  }
+  return gliederungen;
+}
+
 function datumDer(zeit) {
   const { jahr, monat, tag } = teile(zeit);
   return `${jahr}-${monat}-${tag}`;

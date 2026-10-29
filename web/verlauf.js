@@ -7,7 +7,7 @@
 // weg. Der Verlauf ist die einzige scrollende Fläche der Mitte: role="log", aria-live="off", mit der Tastatur
 // fokussierbar; Nachladen wird nie angesagt.
 import { nachrichtZeichnen, kopfSetzen, trennerZeichnen, langeEinklappen, langeUmschalten } from './nachricht.js';
-import { gliederung, datumBenennen } from './gliederung.js';
+import { gliederung, folgeGliedern, datumBenennen } from './gliederung.js';
 import { nachladen, einfuegen } from './fenster.js';
 import { einordnen, buendlerAnlegen, folgenOderZaehlen, pillenText, auslaufNach } from './live-verlauf.js';
 
@@ -273,6 +273,10 @@ export function verlaufAnlegen({ abrufen, schalter = () => {} }) {
     if (neue.length === 0) {
       return;
     }
+    const neueFremde = neue.filter((nachricht) => eintraege.some((eintrag) => eintrag.nachricht === nachricht && !eintrag.eigen));
+    if (lage === 'zaehlen' && neueFremde.length > 0 && ersteNeue === null) {
+      ersteNeue = neueFremde[0].zeit;
+    }
     const anker = ankerMerken(log, inhalt);
     anfuegen(neue);
     ankerHalten(log, anker);
@@ -280,25 +284,22 @@ export function verlaufAnlegen({ abrufen, schalter = () => {} }) {
       amEnde = true;
       return;
     }
-    const neueFremde = neue.filter((nachricht) => eintraege.some((eintrag) => eintrag.nachricht === nachricht && !eintrag.eigen));
-    if (neueFremde.length > 0 && ersteNeue === null) {
-      ersteNeue = neueFremde[0].zeit;
-    }
     neueGezaehlt += neueFremde.length;
   }
 
-  // Neue Nachrichten ans Ende des jüngsten Blocks; im leeren Channel entsteht der erste Block.
+  // Neue Nachrichten ans Ende des jüngsten Blocks; im leeren Channel entsteht der erste Block. Die erste gezählte neue
+  // trägt ihren Kopf (R00020 F0067).
   function anfuegen(neue) {
     if (fenster === null) {
       fenster = { bloecke: [neue], aelter: false, neuer: false };
-      const knoten = gegliedertZeichnen(neue, null, heute);
+      const knoten = gegliedertZeichnen(neue, null, heute, ersteNeue);
       bloeckeKnoten = [knoten];
       inhalt.replaceChildren(...knoten);
       langeEinklappen(nurNachrichten(knoten));
       return;
     }
     const letzter = fenster.bloecke[fenster.bloecke.length - 1];
-    const knoten = gegliedertZeichnen(neue, letzter[letzter.length - 1], heute);
+    const knoten = gegliedertZeichnen(neue, letzter[letzter.length - 1], heute, ersteNeue);
     letzter.push(...neue);
     bloeckeKnoten[bloeckeKnoten.length - 1].push(...knoten);
     inhalt.append(...knoten);
@@ -584,20 +585,19 @@ function nurNachrichten(knoten) {
 }
 
 // Nachrichten nach der vorigen (oder null) gegliedert: Tagestrenner vor dem ersten des Tages, Kopf nur bei neuer
-// Gruppe (ADR-0026 Regel 4).
-function gegliedertZeichnen(nachrichten, vorige, heute) {
+// Gruppe (ADR-0026 Regel 4) und an der ersten gezählten neuen (Zeit oder null).
+function gegliedertZeichnen(nachrichten, vorige, heute, ersteNeue = null) {
+  const gliederungen = folgeGliedern(vorige, nachrichten, ersteNeue);
   const knoten = [];
-  let davor = vorige;
-  for (const nachricht of nachrichten) {
-    const { kopf, tagestrenner } = gliederung(davor, nachricht);
+  nachrichten.forEach((nachricht, stelle) => {
+    const { kopf, tagestrenner } = gliederungen[stelle];
     if (tagestrenner !== null) {
       knoten.push(trennerZeichnen(tagestrenner, heute));
     }
     const artikel = nachrichtZeichnen(nachricht);
     kopfSetzen(artikel, kopf);
     knoten.push(artikel);
-    davor = nachricht;
-  }
+  });
   return knoten;
 }
 
