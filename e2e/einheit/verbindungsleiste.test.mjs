@@ -53,6 +53,26 @@ test('getrennt mit Zeitpunkt zeigt den Countdown als Fehler', () => {
   assert.deepEqual(leisteInhalt(zustand, 5000), { text: '⚠ Verbindung verloren · neuer Versuch in 2 s', fehler: true });
 });
 
+// Karte #65 (R00037 Regel 2, ADR-0037): läuft ein Versuch, steht der Stand „wird verbunden …“ mit Vorrang vor dem
+// Countdown und auch ohne Zeitpunkt; Mutante „`versuchLaeuft` ignoriert“ → rot.
+test('Stand während des Versuchs: versuchLaeuft hat Vorrang vor Countdown und fehlendem Zeitpunkt', () => {
+  const jetzt = 1_000_000;
+
+  assert.equal(warnungText(null, jetzt, true), '⚠ Verbindung verloren · wird verbunden …');
+  assert.equal(warnungText(jetzt + 7000, jetzt, true), '⚠ Verbindung verloren · wird verbunden …');
+  assert.equal(warnungText(jetzt + 7000, jetzt, false), '⚠ Verbindung verloren · neuer Versuch in 7 s');
+  assert.equal(warnungText(jetzt + 7000, jetzt), '⚠ Verbindung verloren · neuer Versuch in 7 s');
+  assert.equal(warnungText(null, jetzt, false), '⚠ Verbindung verloren');
+});
+
+test('die Leiste trägt den Stand eines laufenden Versuchs als Fehler; ohne Versuch wieder den Countdown', () => {
+  const zustand = { getrennt: true, naechsterVersuchUm: 7000, meldung: null, meldungSeitMs: 0 };
+
+  assert.deepEqual(leisteInhalt({ ...zustand, versuchLaeuft: true }, 5000), { text: '⚠ Verbindung verloren · wird verbunden …', fehler: true });
+  assert.deepEqual(leisteInhalt({ ...zustand, naechsterVersuchUm: null, versuchLaeuft: true }, 5000), { text: '⚠ Verbindung verloren · wird verbunden …', fehler: true });
+  assert.deepEqual(leisteInhalt({ ...zustand, versuchLaeuft: false }, 5000), { text: '⚠ Verbindung verloren · neuer Versuch in 2 s', fehler: true });
+});
+
 // R00025 F0084 „Geltender Zeitpunkt“ (B0397, ADR-0015 Ergänzung Karte #36 Regel 5): Strom unterbrochen → der des
 // Stroms; Strom verbunden, Nachholen gescheitert → der des nächsten Nachhol-Versuchs; Netz des Tabs aus ohne
 // `unterbrochen` → keiner (Mutante „Quelle immer der Strom“ wird rot).
