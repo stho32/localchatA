@@ -482,3 +482,15 @@ Nie vom User erfragen.
 | 2026-10-29 | R00034 Eingriffszeilen mit eigenem Tagesbudget | B0558 Wiederlesen mit derselben Zuordnung | Standard | 0,4h | 0,03h | 0,03h | autonom (entw3) |
 | 2026-10-29 | R00034 Eingriffszeilen mit eigenem Tagesbudget | B0559 Beitrittsflut lässt die Fristzeile stehen | Standard | 0,4h | 0,03h | 0,03h | autonom (entw3) |
 | 2026-10-29 | R00034 Eingriffszeilen mit eigenem Tagesbudget | Mutanten, Nachtrag M6, Gate | Konsolidierung | — | 0,15h | 0,15h | autonom (entw3) |
+| 2026-10-29 | R00019 Frist gehärtet (Teil 1, #27) | B0324 Serverantworten der Frist deutsch | Standard | 0,4h | 0,12h | 0,12h | autonom (entw2) |
+| 2026-10-29 | R00019 Frist gehärtet (Teil 1, #27) | B0325 Fehlerzeile unterscheidet Eingabe und Server | Standard | 0,4h | 0,02h | 0,02h | autonom (entw2) |
+| 2026-10-29 | R00019 Frist gehärtet (Teil 1, #27) | B0543 Wartezeit der 429 als Uhrzeit | Standard | 0,4h | 0,02h | 0,02h | autonom (entw2) |
+| 2026-10-29 | R00019 Frist gehärtet (Teil 1, #27) | B0542 Wiederholter Fehlversuch | Standard | 0,4h | 0,03h | 0,03h | autonom (entw2) |
+| 2026-10-29 | R00019 Frist gehärtet (Teil 1, #27) | B0387 Zweiter Schritt folgt fremder Änderung | Standard | 0,4h | 0,03h | 0,03h | autonom (entw2) |
+| 2026-10-29 | R00019 Frist gehärtet (Teil 1, #27) | B0388 Frist verkürzen trägt den Satz | Standard | 0,4h | 0,02h | 0,02h | autonom (entw2) |
+| 2026-10-29 | R00019 Frist gehärtet (Teil 1, #27) | B0544 Dialog passt aufs Telefon | Standard | 0,4h | 0,03h | 0,03h | autonom (entw2) |
+| 2026-10-29 | R00019 Frist gehärtet (Teil 1, #27) | B0545 Dialog als Touch-Ziel | Standard | 0,4h | 0,02h | 0,02h | autonom (entw2) |
+| 2026-10-29 | R00019 Frist gehärtet (Teil 1, #27) | B0323 Kopfzeile kürzt zuerst Beschreibung und Instanz | Standard | 0,4h | 0,05h | 0,05h | autonom (entw2) |
+| 2026-10-29 | R00019 Frist gehärtet (Teil 1, #27) | B0540 Kopfzeile unter 480 px zweizeilig | Standard | 0,4h | 0,05h | 0,05h | autonom (entw2) |
+| 2026-10-29 | R00019 Frist gehärtet (Teil 1, #27) | B0541 Schalter der Kopfzeile als Touch-Ziel | Standard | 0,4h | 0,03h | 0,03h | autonom (entw2) |
+| 2026-10-29 | R00019 Frist gehärtet (Teil 1, #27) | Lesen, Mutanten, Rebase, Gate | Konsolidierung | — | 0,40h | 0,40h | autonom (entw2) |
