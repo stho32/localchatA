@@ -2,6 +2,7 @@
 //! `LOCALCHATA_PLATTENQUOTE` vor dem Standard 4 GiB; eine ganze Zahl mit `MiB` oder `GiB` zwischen 1 MiB und
 //! 1.024 GiB, oder `aus`. Rein.
 
+use crate::gespraeche::quote;
 use std::ffi::OsStr;
 use std::fmt;
 
@@ -10,10 +11,8 @@ pub const VARIABLE: &str = "LOCALCHATA_PLATTENQUOTE";
 const MIB: u64 = 1024 * 1024;
 const GIB: u64 = 1024 * MIB;
 
-/// Standard 4 GiB (ADR-0044 Regel 3): Normalwoche ≈ 1,6 GB und Bestand des Lastprofils ≈ 2,65 GB liegen unter
-/// der Warnschwelle von 3,6 GiB; eine flutende Herkunft braucht vom Normalstand ≈ 11 h bis hierher. Gerechnet,
-/// nicht gemessen — anheben ist ein Commit.
-pub const STANDARD: Plattenquote = Plattenquote::Bytes(4 * GIB);
+/// Standard 4 GiB, hergeleitet bei `gespraeche::quote::STANDARD_BYTES`.
+pub const STANDARD: Plattenquote = Plattenquote::Bytes(quote::STANDARD_BYTES);
 
 /// Die wirksame Quote: höchstens so viele Bytes für alle Gespräche, oder keine Grenze.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -23,6 +22,14 @@ pub enum Plattenquote {
 }
 
 impl Plattenquote {
+    /// Die Grenze in Bytes, `None` bei `aus`.
+    pub fn hoechstens(self) -> Option<u64> {
+        match self {
+            Plattenquote::Bytes(bytes) => Some(bytes),
+            Plattenquote::Aus => None,
+        }
+    }
+
     /// Wie der Start-Eintrag sie nennt: die Bytes oder `aus`.
     pub fn als_wert(self) -> String {
         match self {

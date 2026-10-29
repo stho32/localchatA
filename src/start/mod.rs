@@ -323,6 +323,7 @@ async fn nach_der_sperre(
     let bus = Arc::new(Bus::neu(live::KAPAZITAET));
     let gespraeche = Arc::new(
         verlauf_laden(&ordner, Arc::clone(&uhr), &protokoll)?
+            .mit_quote(quote.hoechstens())
             .mit_veroeffentlichen(bus::channels_veroeffentlichen(&bus))
             .mit_nachricht_veroeffentlichen(bus::nachrichten_veroeffentlichen(&bus)),
     );

@@ -152,3 +152,30 @@ fn der_start_eintrag_nennt_quote_und_herkunft() {
         );
     }
 }
+
+/// F0074 „Wirksame Quote sichtbar“ (Health-Check): `512MiB` → 536870912, `aus` → null, ohne Angabe 4 GiB.
+#[tokio::test]
+async fn die_gesundheit_nennt_die_wirksame_quote() {
+    for (argumente, umgebung, erwartet) in [
+        (
+            &["--plattenquote", "512MiB"][..],
+            &[][..],
+            serde_json::json!(536_870_912_u64),
+        ),
+        (
+            &[][..],
+            &[("LOCALCHATA_PLATTENQUOTE", "aus")][..],
+            serde_json::Value::Null,
+        ),
+        (&[][..], &[][..], serde_json::json!(4_294_967_296_u64)),
+    ] {
+        let wurzel = tempfile::tempdir().expect("Wegwerf-Ordner");
+        let instanz = starten_um(wurzel.path(), argumente, umgebung);
+
+        let (status, gesundheit) = gemeinsam::gesundheit(&instanz.adresse).await;
+
+        assert_eq!(status, 200);
+        assert_eq!(gesundheit["plattenquote"], erwartet, "{gesundheit}");
+        assert!(gesundheit.get("plattenquote").is_some(), "{gesundheit}");
+    }
+}

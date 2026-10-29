@@ -8,6 +8,7 @@ mod kennung;
 mod logablage;
 pub mod logformat;
 mod pflege;
+pub mod quote;
 mod speicherablage;
 pub mod textregel;
 mod verlaufsindex;
@@ -104,6 +105,8 @@ pub struct Gespraeche {
     ladezeit: Duration,
     veroeffentlichen: ChannelVeroeffentlichen,
     nachricht_veroeffentlichen: NachrichtVeroeffentlichen,
+    /// Plattenquote in Bytes, `None` heißt aus (ADR-0044 Regel 11); ohne `mit_quote` der Standard.
+    hoechstens: Option<u64>,
 }
 
 struct Schreibstand {
@@ -177,6 +180,8 @@ pub struct Kennzahlen {
     pub defekte_zeilen: u64,
     /// Channels im Verzeichnis — wie nah die Gesamtgrenze ist (ADR-0021).
     pub channels: u64,
+    /// Wirksame Plattenquote in Bytes, `None` bei `aus` (ADR-0044 Regel 9).
+    pub plattenquote: Option<u64>,
 }
 
 impl Gespraeche {
@@ -234,6 +239,7 @@ impl Gespraeche {
             ladezeit: beginn.elapsed(),
             veroeffentlichen: Arc::new(|_: &ChannelWechsel| {}),
             nachricht_veroeffentlichen: Arc::new(|_: &Gespraech, _: &Nachricht| {}),
+            hoechstens: Some(quote::STANDARD_BYTES),
         })
     }
 
@@ -354,11 +360,17 @@ impl Gespraeche {
             ladezeit_ms: u64::try_from(self.ladezeit.as_millis()).unwrap_or(u64::MAX),
             defekte_zeilen: self.defekte.len() as u64,
             channels: verzeichnis.channels.len() as u64,
+            plattenquote: self.hoechstens,
         }
     }
 }
 
 impl Gespraeche {
+    /// Setzt die Plattenquote in Bytes; `None` heißt aus (ADR-0044 Regel 11).
+    pub fn mit_quote(self, hoechstens: Option<u64>) -> Gespraeche {
+        Gespraeche { hoechstens, ..self }
+    }
+
     /// Hängt die Veröffentlichung der Channel-Wechsel an (im Start: der Bus); ohne sie gehen sie an niemanden.
     pub fn mit_veroeffentlichen(self, veroeffentlichen: ChannelVeroeffentlichen) -> Gespraeche {
         Gespraeche {
