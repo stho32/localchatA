@@ -57,7 +57,7 @@ pub fn koerperfehler_beantworten(
         ),
         Koerperfehler::ZuGross => (StatusCode::PAYLOAD_TOO_LARGE, zu_gross.to_string()),
         Koerperfehler::ZuLangsam => (StatusCode::REQUEST_TIMEOUT, zu_langsam(KOERPER_LESEFRIST)),
-        Koerperfehler::Doppelt(feld, kennung) => {
+        Koerperfehler::Doppelt { feld, kennung } => {
             return doppelt_beantworten(feld, kennung.as_deref());
         }
     };
@@ -101,7 +101,10 @@ pub enum Koerperfehler {
     ZuLangsam,
     /// Ein Schlüssel der obersten Ebene steht zweimal (ADR-0034 Ergänzung Karte #47): der Name des ersten, der ein
     /// zweites Mal vorkommt, und die Kennung der Anfrage, falls bekannt — nur für das Protokoll, nie der Wert.
-    Doppelt(String, Option<String>),
+    Doppelt {
+        feld: String,
+        kennung: Option<String>,
+    },
 }
 
 /// Wo ein Körper gelesen wird: Protokoll, Routenmuster, Herkunft, Kennung falls bekannt.
@@ -154,7 +157,7 @@ fn abweisung_eintragen<T>(
 ) {
     let (art, status, abweisungsart) = match fehler {
         // Doppelt steht nicht hier, sondern als 422 in der Anfrageschicht (Grund `feld_doppelt`), ohne Zähler.
-        Koerperfehler::Doppelt(..) => return,
+        Koerperfehler::Doppelt { .. } => return,
         Koerperfehler::ZuGross => ("zu_gross", Some(413), Abweisungsart::ZuGross),
         Koerperfehler::KeinJson => ("kein_json", Some(415), Abweisungsart::KeinJson),
         Koerperfehler::Kaputt => ("kaputt", Some(400), Abweisungsart::Kaputt),
@@ -210,7 +213,7 @@ fn abweisung_eintragen<T>(
             ort.protokoll.episode(auftreten);
         }
         Koerperfehler::Abgebrochen => ort.protokoll.episode_falls_offen(&auftreten),
-        Koerperfehler::KeinJson | Koerperfehler::Doppelt(..) => {}
+        Koerperfehler::KeinJson | Koerperfehler::Doppelt { .. } => {}
     }
 }
 
@@ -241,7 +244,10 @@ fn json_parsen(roh: &[u8]) -> Result<Value, Koerperfehler> {
         return serde_json::from_slice(roh).map_err(|_| Koerperfehler::Kaputt);
     };
     match super::felder::doppelt(&paare) {
-        Some(feld) => Err(Koerperfehler::Doppelt(feld.to_string(), None)),
+        Some(feld) => Err(Koerperfehler::Doppelt {
+            feld: feld.to_string(),
+            kennung: None,
+        }),
         None => Ok(Value::Object(paare.into_iter().collect())),
     }
 }
@@ -249,9 +255,10 @@ fn json_parsen(roh: &[u8]) -> Result<Value, Koerperfehler> {
 /// Trägt die Kennung der Anfrage in einen `Doppelt`-Fehler ein, damit die Anfrageschicht sie nennt.
 fn mit_kennung(fehler: Koerperfehler, ort: &Koerperort<'_>) -> Koerperfehler {
     match fehler {
-        Koerperfehler::Doppelt(feld, _) => {
-            Koerperfehler::Doppelt(feld, ort.kennung.map(str::to_string))
-        }
+        Koerperfehler::Doppelt { feld, .. } => Koerperfehler::Doppelt {
+            feld,
+            kennung: ort.kennung.map(str::to_string),
+        },
         anderer => anderer,
     }
 }
@@ -517,8 +524,10 @@ mod tests {
     #[tokio::test]
     async fn doppelt_wird_als_422_feld_doppelt_beantwortet_und_nicht_vorab_eingetragen() {
         for feld in ["text", "tage"] {
-            let fehler =
-                Koerperfehler::Doppelt(feld.to_string(), Some("anna@127.0.0.1".to_string()));
+            let fehler = Koerperfehler::Doppelt {
+                feld: feld.to_string(),
+                kennung: Some("anna@127.0.0.1".to_string()),
+            };
             let antwort = koerperfehler_beantworten(fehler, "unbenutzt", "{\"x\":1}");
 
             assert_eq!(antwort.status(), 422);
@@ -779,7 +788,12 @@ mod tests {
     /// Wert gewinnt“ (Prüfung abgeschaltet) → die ersten beiden Fälle werden rot.
     #[test]
     fn der_leser_erkennt_den_ersten_doppelten_schluessel() {
-        let doppelt = |feld: &str| Err(Koerperfehler::Doppelt(feld.to_string(), None));
+        let doppelt = |feld: &str| {
+            Err(Koerperfehler::Doppelt {
+                feld: feld.to_string(),
+                kennung: None,
+            })
+        };
 
         assert_eq!(json_parsen(br#"{"a":1,"a":2}"#), doppelt("a"));
         assert_eq!(json_parsen(br#"{"a":1,"\u0061":2}"#), doppelt("a"));
@@ -825,7 +839,10 @@ mod tests {
     /// Ende wird auch bei 15 000 Schlüsseln erkannt. Mutante „quadratisch zurück“ → Verhältnis ≈ 100.
     #[test]
     fn der_doppelt_test_waechst_linear_mit_der_zahl_der_schluessel() {
-        let (gross, klein) = (viele_schluessel(15_000, false), viele_schluessel(1_500, false));
+        let (gross, klein) = (
+            viele_schluessel(15_000, false),
+            viele_schluessel(1_500, false),
+        );
 
         let (dauer_gross, dauer_klein) = (kleinste_dauer(&gross), kleinste_dauer(&klein));
 
@@ -836,7 +853,10 @@ mod tests {
         );
         assert_eq!(
             json_parsen(&viele_schluessel(15_000, true)),
-            Err(Koerperfehler::Doppelt("k0".to_string(), None))
+            Err(Koerperfehler::Doppelt {
+                feld: "k0".to_string(),
+                kennung: None
+            })
         );
     }
 

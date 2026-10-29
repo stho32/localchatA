@@ -105,7 +105,10 @@ mod tests {
         assert_eq!(felder_lesen(b"\"x\"").expect("JSON"), None);
         assert!(felder_lesen(b"{\"a\":").is_err());
         assert!(felder_lesen(b"").is_err());
-        assert!(felder_lesen(b"{\"a\":1}x").is_err(), "Müll hinter dem Objekt");
+        assert!(
+            felder_lesen(b"{\"a\":1}x").is_err(),
+            "Müll hinter dem Objekt"
+        );
         assert!(felder_lesen(b"{\"a\":1}{}").is_err());
         assert_eq!(felder_lesen(b" \n{}").expect("JSON"), Some(vec![]));
     }

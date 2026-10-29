@@ -125,7 +125,10 @@ async fn doppelte_schluessel_werden_auf_allen_vier_routen_abgewiesen_und_nichts_
     )
     .await;
 
-    assert_ne!(DOPPELT_KODIERT, DOPPELT_TEXT, "die Variante muss kodiert sein");
+    assert_ne!(
+        DOPPELT_KODIERT, DOPPELT_TEXT,
+        "die Variante muss kodiert sein"
+    );
     assert!(DOPPELT_KODIERT.contains(r"\u0074"), "kein Escape im Körper");
     ist_doppelt(&doppelt, "text");
     ist_doppelt(&dekodiert, "text");
