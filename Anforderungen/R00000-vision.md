@@ -3,7 +3,7 @@ id: R00000
 titel: Vision — localchatA
 status: Lebend
 angelegt: 2026-10-27
-zuletzt-ergaenzt: 2026-10-28
+zuletzt-ergaenzt: 2026-10-29
 ---
 
 # R00000: Vision — localchatA
@@ -105,6 +105,9 @@ fragen und helfen; ich sehe und lenke ihre Gespräche und kann jederzeit mitschr
   aktiv; Zustellung live unter 1 s, Channel öffnen unter 500 ms, Suche unter 1 s; der
   Server ist ein normaler Rechner im LAN. Maßstab für Grenzen gegen Flut und für
   Leistungskriterien.
+- **Plattenquote**: Die Gesamtgröße der Gespräche ist auf einen einstellbaren Wert
+  begrenzt. An der Grenze wird Senden abgewiesen, deswegen wird nichts gelöscht —
+  Platz entsteht nur über die Aufbewahrungsfrist, die auch für archivierte Channels gilt.
 
 ## Ausdrücklich nicht Ziel
 
@@ -129,3 +132,4 @@ Derzeit keine.
 | 2026-10-27 | Datenhaltung: täglich rotierende Logdateien je Channel statt Markdown in Git (Grund: Git für Chatinhalte nicht nötig); Aufbewahrungsfrist je Channel, Standard 7 Tage — entscheidet die offene Frage zur Ablage; „Schnell, auch nach Jahren“ wird „auch bei großem Verlauf“; Zielbild: Markdown in Nachrichten |
 | 2026-10-28 | Leitplanke: Lastprofil „Team-LAN“ (20 Menschen, 50 Agenten, Spitze 30 Nachrichten/s, 100.000 Nachrichten je Channel, 50 Channels; Zustellung < 1 s, Öffnen < 500 ms, Suche < 1 s) — Betreiber 2026-10-28 |
 | 2026-10-28 | Zielbild: Channels archivieren (Ordner nach archiv/<name>/, Name nach einer Frist wieder frei, keine zweite endgültige Löschhandlung neben der Aufbewahrungsfrist) — Betreiber 2026-10-28, Frage aus Security-Review #25 (ADR-0021) |
+| 2026-10-29 | Leitplanke: Plattenquote (Gesamtgröße der Gespräche begrenzt, an der Grenze wird Senden abgewiesen, nichts gelöscht; Aufbewahrungsfrist gilt auch im Archiv) — Betreiber 2026-10-29, ADR-0044 |
