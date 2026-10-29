@@ -127,14 +127,28 @@ struct BlockAntwort<'a> {
     neuer: bool,
 }
 
-/// `{zeit, von, art, text}` — die eine Form einer Nachricht an der Grenze: Verlauf, 201 des Sendens und Ereignis im
-/// Strom (ADR-0034 Regel 4); `art` ist `null` ohne Metazeile.
+/// `{zeit, von, art, text, anhaenge}` — die eine Form einer Nachricht an der Grenze: Verlauf, 201 des Sendens und
+/// Ereignis im Strom (ADR-0034 Regel 4, ADR-0047 Frage 5); `art` ist `null` ohne Metazeile; `anhaenge` ist immer eine
+/// Liste in Sendefolge.
 #[derive(Serialize)]
 pub struct NachrichtAntwort<'a> {
     zeit: String,
     von: &'a str,
     art: Option<Art>,
     text: &'a str,
+    anhaenge: Vec<AnhangAntwort<'a>>,
+}
+
+/// `{id, name, bytes, art, breite, hoehe, url}` — Maße nur bei Bildern, sonst `null`; `url` relativ.
+#[derive(Serialize)]
+pub struct AnhangAntwort<'a> {
+    id: &'a str,
+    name: &'a str,
+    bytes: u64,
+    art: &'a str,
+    breite: Option<u32>,
+    hoehe: Option<u32>,
+    url: String,
 }
 
 impl<'a> NachrichtAntwort<'a> {
@@ -144,6 +158,19 @@ impl<'a> NachrichtAntwort<'a> {
             von: nachricht.von.als_text(),
             art: nachricht.art,
             text: &nachricht.text,
+            anhaenge: nachricht
+                .anhaenge
+                .iter()
+                .map(|anhang| AnhangAntwort {
+                    id: anhang.id.als_text(),
+                    name: &anhang.name,
+                    bytes: anhang.bytes,
+                    art: anhang.art,
+                    breite: anhang.masse.map(|(breite, _)| breite),
+                    hoehe: anhang.masse.map(|(_, hoehe)| hoehe),
+                    url: format!("/anhaenge/{}", anhang.id.als_text()),
+                })
+                .collect(),
         }
     }
 }
@@ -411,7 +438,7 @@ mod tests {
 
         assert_eq!(
             agent,
-            json!({"zeit": "2026-10-28T12:00:00.001+01:00", "von": "beta@127.0.0.1", "art": "agent", "text": "Hallo\nWelt"})
+            json!({"zeit": "2026-10-28T12:00:00.001+01:00", "von": "beta@127.0.0.1", "art": "agent", "text": "Hallo\nWelt", "anhaenge": []})
         );
         assert_eq!(ohne["art"], serde_json::Value::Null);
     }

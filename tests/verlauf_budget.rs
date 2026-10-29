@@ -229,7 +229,11 @@ async fn k2_unter_dem_budget_gilt_n_und_die_antwort_behaelt_ihre_form() {
             .expect("Nachricht");
         let mut felder: Vec<&str> = nachricht.keys().map(String::as_str).collect();
         felder.sort_unstable();
-        assert_eq!(felder, ["art", "text", "von", "zeit"], "R00011 ergänzt art");
+        assert_eq!(
+            felder,
+            ["anhaenge", "art", "text", "von", "zeit"],
+            "R00011 ergänzt art, R00029 anhaenge"
+        );
         assert_eq!(
             nachricht["art"],
             serde_json::Value::Null,

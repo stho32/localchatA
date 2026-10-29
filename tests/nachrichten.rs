@@ -89,9 +89,9 @@ async fn us1_die_neuesten_nachrichten_mit_zeit_absender_und_text_aelteste_zuerst
         json!({
             "channel": "allgemein",
             "nachrichten": [
-                { "zeit": "2026-10-28T14:00:00.000+01:00", "von": "alpha@127.0.0.2", "art": null, "text": "eins" },
-                { "zeit": "2026-10-28T14:01:00.000+01:00", "von": "alpha@127.0.0.2", "art": null, "text": "zwei\ndrei" },
-                { "zeit": "2026-10-28T14:02:00.000+01:00", "von": "alpha@127.0.0.2", "art": null, "text": "vier" },
+                { "zeit": "2026-10-28T14:00:00.000+01:00", "von": "alpha@127.0.0.2", "art": null, "text": "eins", "anhaenge": [] },
+                { "zeit": "2026-10-28T14:01:00.000+01:00", "von": "alpha@127.0.0.2", "art": null, "text": "zwei\ndrei", "anhaenge": [] },
+                { "zeit": "2026-10-28T14:02:00.000+01:00", "von": "alpha@127.0.0.2", "art": null, "text": "vier", "anhaenge": [] },
             ],
             "aelter": false,
             "neuer": false,
