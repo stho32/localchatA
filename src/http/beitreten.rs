@@ -10,8 +10,8 @@ use super::teilnehmer::gemeldete_sitzung;
 use crate::anwesenheit::{
     Abweisung, Beitrittsfehler, Beitrittswunsch, GESAMT, JE_HERKUNFT, Sitzung,
 };
-use crate::protokoll::episoden::Auftreten;
-use crate::protokoll::{Bereich, Kontext, Protokoll, Schluessel, Stufe};
+use crate::protokoll::grenze::grenzauftreten;
+use crate::protokoll::{Bereich, Kontext, Schluessel, Stufe};
 use axum::Json;
 use axum::body::Body;
 use axum::extract::{ConnectInfo, State};
@@ -62,14 +62,13 @@ pub async fn beantworten(
                 .into_response()
         }
         Err(fehler) => {
-            if matches!(fehler, Beitrittsfehler::ZuVieleSitzungen) {
-                grenze_eintragen(
-                    &zustand.protokoll,
+            if let Beitrittsfehler::ZuVieleSitzungen(gegriffen) = fehler {
+                zustand.protokoll.episode(grenzauftreten(
                     Bereich::Sitzung,
                     "Beitritt an der Sitzungsgrenze abgewiesen",
                     gegenstelle.ip(),
-                    format!("{JE_HERKUNFT} je Herkunft, {GESAMT} gesamt"),
-                );
+                    gegriffen,
+                ));
             }
             beitrittsfehler(fehler, &wunsch, gegenstelle)
         }
@@ -135,29 +134,6 @@ fn regelverstoss(abweisung: Abweisung) -> Response {
     )
 }
 
-/// Episode je Herkunft an einer Grenze mit 429 (ADR-0042 Regel 2: Sitzungs- und Channel-Grenze).
-pub(super) fn grenze_eintragen(
-    protokoll: &Protokoll,
-    bereich: Bereich,
-    text: &'static str,
-    herkunft: std::net::IpAddr,
-    grenze: String,
-) {
-    protokoll.episode(Auftreten {
-        stufe: Stufe::Warning,
-        bereich,
-        text,
-        quelle: herkunft.to_string(),
-        kontext: Kontext::neu()
-            .mit(Schluessel::Herkunft, herkunft)
-            .mit(Schluessel::Grenze, grenze),
-        art: None,
-        verworfen: None,
-        bytes: None,
-        anzeige: None,
-    });
-}
-
 fn beitrittsfehler(
     fehler: Beitrittsfehler,
     wunsch: &Beitrittswunsch,
@@ -186,7 +162,7 @@ fn beitrittsfehler(
                 None,
             )
         }
-        Beitrittsfehler::ZuVieleSitzungen => {
+        Beitrittsfehler::ZuVieleSitzungen(_) => {
             let text = format!(
                 "Zu viele Sitzungen — höchstens {JE_HERKUNFT} je Herkunft ({}) und {GESAMT} insgesamt.",
                 gegenstelle.ip()

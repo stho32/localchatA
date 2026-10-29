@@ -247,7 +247,8 @@ async fn us14_wer_an_die_verbindungsgrenze_stoesst_wird_einmal_gemeldet() {
         wert(&warnungen[0], "herkunft").as_deref(),
         Some("127.0.0.1")
     );
-    assert_eq!(wert(&warnungen[0], "grenze"), Some(grenze.to_string()));
+    assert_eq!(wert(&warnungen[0], "grenze").as_deref(), Some("herkunft"));
+    assert_eq!(wert(&warnungen[0], "hoechstens"), Some(grenze.to_string()));
 
     drop(offen);
     let datei = abwarten(wurzel.path(), |d| {

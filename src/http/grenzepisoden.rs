@@ -1,6 +1,7 @@
 //! Code-Review #24 B1, Abnahme-Proben 1 und 2: die Episoden an der Sitzungs- und an der Channel-Grenze, über
 //! den Router und dieselbe Annahmeschleife wie das Programm, mit einem Protokoll in der Speicher-Senke und
-//! gestellter Uhr (das Ende der Episode ohne Warten). Die Grenzen liest der Test aus den Konstanten.
+//! gestellter Uhr (das Ende der Episode ohne Warten). Die Grenzen stehen als Zahl aus der Anforderung im Test
+//! (R00015, R00018 F0081).
 
 use super::testserver;
 use crate::protokoll::senke::Speicher;
@@ -49,9 +50,22 @@ async fn starten() -> Instanz {
 
 impl Instanz {
     async fn post(&self, pfad: &str, koerper: Value, token: Option<&str>) -> (u16, Value) {
-        let mut anfrage = reqwest::Client::new()
-            .post(format!("{}{pfad}", self.basis))
-            .json(&koerper);
+        self.post_von("127.0.0.1", pfad, koerper, token).await
+    }
+
+    /// Wie `post`, von der Herkunft `von` (Linux-Loopback 127.0.0.0/8).
+    async fn post_von(
+        &self,
+        von: &str,
+        pfad: &str,
+        koerper: Value,
+        token: Option<&str>,
+    ) -> (u16, Value) {
+        let client = reqwest::Client::builder()
+            .local_address(von.parse::<std::net::IpAddr>().expect("Herkunft"))
+            .build()
+            .expect("Client");
+        let mut anfrage = client.post(format!("{}{pfad}", self.basis)).json(&koerper);
         if let Some(token) = token {
             anfrage = anfrage.header(SITZUNG, token);
         }
@@ -77,9 +91,8 @@ impl Instanz {
 /// beginnt“ mit Herkunft und Grenze, nach der Ruhe genau eine „Episode endet: 6“.
 #[tokio::test]
 async fn sechs_beitritte_ueber_der_sitzungsgrenze_sind_eine_episode_mit_herkunft_und_grenze() {
-    use crate::anwesenheit::{GESAMT, JE_HERKUNFT};
     let instanz = starten().await;
-    for nummer in 1..=JE_HERKUNFT {
+    for nummer in 1..=128 {
         let (status, _) = instanz
             .post("api/beitreten", json!({"name": format!("n{nummer}")}), None)
             .await;
@@ -101,15 +114,58 @@ async fn sechs_beitritte_ueber_der_sitzungsgrenze_sind_eine_episode_mit_herkunft
     assert_eq!(ueber, [429; 6]);
     assert_eq!(warnungen.len(), 2, "{warnungen:#?}");
     assert!(
-        warnungen[0].ends_with(&format!(
-            " WARNING sitzung Beitritt an der Sitzungsgrenze abgewiesen — Episode beginnt | herkunft=127.0.0.1 grenze=\"{JE_HERKUNFT} je Herkunft, {GESAMT} gesamt\""
-        )),
+        warnungen[0].ends_with(
+            " WARNING sitzung Beitritt an der Sitzungsgrenze abgewiesen — Episode beginnt | herkunft=127.0.0.1 grenze=herkunft hoechstens=128"
+        ),
         "{warnungen:#?}"
     );
     assert!(
         warnungen[1].contains(
-            " WARNING sitzung Beitritt an der Sitzungsgrenze abgewiesen — Episode endet: 6 in "
+            " WARNING sitzung Beitritt an der Sitzungsgrenze abgewiesen — Episode endet: 6 in 0 s (herkunft 6)"
         ),
+        "{warnungen:#?}"
+    );
+}
+
+/// R00018 F0081, Abnahme-Probe des Observability-Reviews #25 S1 (wörtlich: „Gesamtgrenze Sitzungen füllen, Beitritt
+/// von frischer Herkunft → `grenze=512 art=gesamt`, Gegenprobe 129. von 127.0.0.1 → `grenze=128 art=herkunft`“)
+/// mit den entschiedenen Namen (ADR-0042 Ergänzung Karte #26): 4 × 128 Sitzungen von 127.0.0.1–127.0.0.4, der
+/// Beitritt von 127.0.0.5 → 429 und `grenze=gesamt hoechstens=512`; die Gegenprobe steht im Test darüber.
+#[cfg(target_os = "linux")]
+#[tokio::test]
+async fn ein_beitritt_ueber_der_gesamtgrenze_nennt_grenze_gesamt_und_512() {
+    let instanz = starten().await;
+    for herkunft in 1..=4 {
+        let von = format!("127.0.0.{herkunft}");
+        for nummer in 1..=128 {
+            let name = format!("h{herkunft}n{nummer}");
+            let (status, antwort) = instanz
+                .post_von(&von, "api/beitreten", json!({ "name": name }), None)
+                .await;
+            assert_eq!(status, 201, "{name}: {antwort}");
+        }
+    }
+
+    let (ueber, antwort) = instanz
+        .post_von(
+            "127.0.0.5",
+            "api/beitreten",
+            json!({"name": "frisch"}),
+            None,
+        )
+        .await;
+    let warnungen = instanz.warnungen_nach_der_ruhe("sitzung");
+
+    assert_eq!(ueber, 429, "{antwort}");
+    assert_eq!(warnungen.len(), 2, "{warnungen:#?}");
+    assert!(
+        warnungen[0].ends_with(
+            " WARNING sitzung Beitritt an der Sitzungsgrenze abgewiesen — Episode beginnt | herkunft=127.0.0.5 grenze=gesamt hoechstens=512"
+        ),
+        "{warnungen:#?}"
+    );
+    assert!(
+        warnungen[1].contains(" — Episode endet: 1 in 0 s (gesamt 1)"),
         "{warnungen:#?}"
     );
 }
@@ -118,14 +174,13 @@ async fn sechs_beitritte_ueber_der_sitzungsgrenze_sind_eine_episode_mit_herkunft
 /// beginnt“ mit Herkunft und Grenze.
 #[tokio::test]
 async fn ein_anlegen_ueber_der_channel_grenze_ist_eine_episode_mit_herkunft_und_grenze() {
-    use crate::gespraeche::JE_HERKUNFT;
     let instanz = starten().await;
     let (status, sitzung) = instanz
         .post("api/beitreten", json!({"name": "alpha"}), None)
         .await;
     assert_eq!(status, 201);
     let token = sitzung["token"].as_str().expect("Token").to_string();
-    for nummer in 1..=JE_HERKUNFT {
+    for nummer in 1..=128 {
         let name = format!("c{nummer:03}");
         let (status, antwort) = instanz
             .post("api/channels", json!({"name": name}), Some(&token))
@@ -141,13 +196,13 @@ async fn ein_anlegen_ueber_der_channel_grenze_ist_eine_episode_mit_herkunft_und_
     assert_eq!(ueber, 429, "{antwort}");
     assert_eq!(warnungen.len(), 2, "{warnungen:#?}");
     assert!(
-        warnungen[0].ends_with(&format!(
-            " WARNING channels Anlegen an der Channel-Grenze abgewiesen — Episode beginnt | herkunft=127.0.0.1 grenze=\"{JE_HERKUNFT} herkunft\""
-        )),
+        warnungen[0].ends_with(
+            " WARNING channels Anlegen an der Channel-Grenze abgewiesen — Episode beginnt | herkunft=127.0.0.1 grenze=herkunft hoechstens=128"
+        ),
         "{warnungen:#?}"
     );
     assert!(
-        warnungen[1].contains(" Episode endet: 1 in "),
+        warnungen[1].contains(" Episode endet: 1 in 0 s (herkunft 1)"),
         "{warnungen:#?}"
     );
 }

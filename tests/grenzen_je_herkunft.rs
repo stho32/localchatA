@@ -98,8 +98,33 @@ async fn g1_160_verbindungen_einer_herkunft_werden_bedient_die_161_nicht_eine_an
     let andere_herkunft = gesundheit_auf(&mut anderswo).await;
 
     let bedient = status.iter().filter(|s| **s == Some(200)).count();
+    let platzgrenze: Vec<String> = alle_protokollzeilen(&instanz.ordner)
+        .into_iter()
+        .filter(|zeile| {
+            zeile.contains(" WARNING verbindung Verbindung an der Platzgrenze abgewiesen")
+        })
+        .collect();
     assert_eq!(bedient, 160, "{status:?}");
+    assert_eq!(platzgrenze.len(), 1, "{platzgrenze:#?}");
+    assert!(
+        platzgrenze[0]
+            .ends_with(" — Episode beginnt | herkunft=127.0.0.1 grenze=herkunft hoechstens=160"),
+        "R00018 F0081: {platzgrenze:#?}"
+    );
     assert_eq!(die_161, None, "die 161. Verbindung wird abgewiesen");
     assert_eq!(andere_herkunft, Some(200));
     drop(gehalten);
+}
+
+/// Alle Zeilen aller Tagesdateien unter `logs/` — die Instanz läuft mit der echten Uhr.
+fn alle_protokollzeilen(ordner: &std::path::Path) -> Vec<String> {
+    let mut zeilen = Vec::new();
+    for datei in std::fs::read_dir(ordner.join("logs"))
+        .expect("logs/")
+        .flatten()
+    {
+        let inhalt = std::fs::read_to_string(datei.path()).unwrap_or_default();
+        zeilen.extend(inhalt.lines().map(str::to_string));
+    }
+    zeilen
 }

@@ -8,6 +8,7 @@ use super::vorschlag::freier_name;
 use super::wunsch::{Art, Beitrittswunsch};
 use crate::gespraeche::Kennung;
 use crate::name::Name;
+use crate::protokoll::grenze::{Gegriffen, Grenzart};
 use crate::uhr::{Uhr, Zeit};
 use crate::zufall::{Token, Zufall, Zufallsfehler};
 use std::collections::HashMap;
@@ -55,7 +56,8 @@ pub enum Beitrittsfehler {
         seit: Zeit,
         vorschlag: Name,
     },
-    ZuVieleSitzungen,
+    /// Eine Sitzungsgrenze griff — welche und ihre Zahl (R00018 F0081).
+    ZuVieleSitzungen(Gegriffen),
     KeinZufall(Zufallsfehler),
 }
 
@@ -312,8 +314,17 @@ impl Anwesenheit {
             .count()
             + reserviert_von_hier;
         let gesamt = lebende.len() + bestand.reserviert.len();
-        if von_dieser_herkunft >= JE_HERKUNFT || gesamt >= GESAMT {
-            return Err(Beitrittsfehler::ZuVieleSitzungen);
+        if gesamt >= GESAMT {
+            return Err(Beitrittsfehler::ZuVieleSitzungen(Gegriffen {
+                art: Grenzart::Gesamt,
+                hoechstens: GESAMT,
+            }));
+        }
+        if von_dieser_herkunft >= JE_HERKUNFT {
+            return Err(Beitrittsfehler::ZuVieleSitzungen(Gegriffen {
+                art: Grenzart::Herkunft,
+                hoechstens: JE_HERKUNFT,
+            }));
         }
         Ok(())
     }
@@ -537,6 +548,22 @@ fn weg_um(letztes_lebenszeichen: Zeit, gnadenfrist: Duration) -> Zeit {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Die Grenze je Herkunft griff (128).
+    fn je_herkunft_voll() -> Beitrittsfehler {
+        Beitrittsfehler::ZuVieleSitzungen(Gegriffen {
+            art: Grenzart::Herkunft,
+            hoechstens: 128,
+        })
+    }
+
+    /// Die Gesamtgrenze griff (512).
+    fn gesamt_voll() -> Beitrittsfehler {
+        Beitrittsfehler::ZuVieleSitzungen(Gegriffen {
+            art: Grenzart::Gesamt,
+            hoechstens: 512,
+        })
+    }
     use crate::uhr::GestellteUhr;
     use crate::zufall::FesteFolge;
     use std::net::Ipv4Addr;
@@ -638,7 +665,7 @@ mod tests {
         let zu_viel = anwesenheit.beitreten(&wunsch("n129", Art::Agent), ip("127.0.0.1"));
         let andere_herkunft = anwesenheit.beitreten(&wunsch("n129", Art::Agent), ip("127.0.0.2"));
 
-        assert_eq!(zu_viel, Err(Beitrittsfehler::ZuVieleSitzungen));
+        assert_eq!(zu_viel, Err(je_herkunft_voll()));
         assert!(andere_herkunft.is_ok(), "{andere_herkunft:?}");
 
         let mut nummer = 0;
@@ -654,7 +681,7 @@ mod tests {
         }
         assert_eq!(anwesenheit.bestand().eintraege.len(), 512);
         let ueber_gesamt = anwesenheit.beitreten(&wunsch("neu", Art::Agent), ip("127.0.0.5"));
-        assert_eq!(ueber_gesamt, Err(Beitrittsfehler::ZuVieleSitzungen));
+        assert_eq!(ueber_gesamt, Err(gesamt_voll()));
     }
 
     #[test]
@@ -1452,12 +1479,12 @@ mod tests {
         uhr.stellen(nach_ms(60_001));
         let danach = anwesenheit.beitreten(&wunsch("f67", Art::Agent), ip("127.0.0.2"));
 
-        assert_eq!(zu_viel, Err(Beitrittsfehler::ZuVieleSitzungen));
+        assert_eq!(zu_viel, Err(je_herkunft_voll()));
         assert!(
             andere_herkunft.is_ok(),
             "Name sofort frei: {andere_herkunft:?}"
         );
-        assert_eq!(am_ende_der_frist, Err(Beitrittsfehler::ZuVieleSitzungen));
+        assert_eq!(am_ende_der_frist, Err(je_herkunft_voll()));
         assert!(danach.is_ok(), "{danach:?}");
     }
 
@@ -1486,7 +1513,7 @@ mod tests {
             "{} Plätze reserviert, nicht doppelt: {letzter:?}",
             JE_HERKUNFT - 1
         );
-        assert_eq!(ueber, Err(Beitrittsfehler::ZuVieleSitzungen));
+        assert_eq!(ueber, Err(je_herkunft_voll()));
     }
 
     #[test]
@@ -1513,7 +1540,7 @@ mod tests {
 
         let ueber_gesamt = anwesenheit.beitreten(&wunsch("neu", Art::Agent), ip("127.0.0.100"));
 
-        assert_eq!(ueber_gesamt, Err(Beitrittsfehler::ZuVieleSitzungen));
+        assert_eq!(ueber_gesamt, Err(gesamt_voll()));
     }
 
     #[test]

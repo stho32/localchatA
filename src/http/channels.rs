@@ -14,6 +14,8 @@ use super::teilnehmerliste::zeit_als_text;
 use crate::gespraeche::einstellungen::{Beschreibung, Beschreibungsfehler};
 use crate::gespraeche::{Anlegefehler, Channel, ChannelStand, Frist, Grenzart, Grenze};
 use crate::name::{NAMENSREGEL, Namensfehler, RESERVIERT};
+use crate::protokoll;
+use crate::protokoll::grenze::{Gegriffen, grenzauftreten};
 use crate::protokoll::{Bereich, Kontext, Schluessel, Stufe};
 use axum::Json;
 use axum::body::Body;
@@ -88,16 +90,18 @@ pub async fn anlegen(
         }
         Ok(Err(Anlegefehler::Grenze(grenze))) => {
             let art = match grenze.art {
-                Grenzart::Gesamt => "gesamt",
-                Grenzart::Herkunft => "herkunft",
+                Grenzart::Gesamt => protokoll::grenze::Grenzart::Gesamt,
+                Grenzart::Herkunft => protokoll::grenze::Grenzart::Herkunft,
             };
-            super::beitreten::grenze_eintragen(
-                &zustand.protokoll,
+            zustand.protokoll.episode(grenzauftreten(
                 Bereich::Channels,
                 "Anlegen an der Channel-Grenze abgewiesen",
                 herkunft,
-                format!("{} {art}", grenze.hoechstens),
-            );
+                Gegriffen {
+                    art,
+                    hoechstens: grenze.hoechstens,
+                },
+            ));
             grenze_erreicht(grenze)
         }
         Ok(Err(fehler)) => {

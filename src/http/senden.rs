@@ -16,6 +16,7 @@ use super::teilnehmer::Teilnehmer;
 use crate::gespraeche::textregel::{TEXT_HOECHSTENS_BYTES, Textfehler, text_pruefen};
 use crate::gespraeche::{Gesendet, Gespraech, Kennung, Nachricht, Sendefehler};
 use crate::protokoll::episoden::Auftreten;
+use crate::protokoll::grenze::Grenzart;
 use crate::protokoll::{Bereich, Kontext, Schluessel, Stufe};
 use crate::schreibkonto::eimer::kosten_senden;
 use crate::schreibkonto::{Gebremst, Grenze};
@@ -207,8 +208,8 @@ fn nicht_gespeichert(
 /// Jede 429 der Bremse zählt in eine Episode `WARNING schreibkonto` je Kennung (R00016, ADR-0036 Ergänzung).
 fn gebremst_melden(zustand: &Zustand, gebremst: Gebremst, teilnehmer: &Teilnehmer) -> Response {
     let grenze = match gebremst.grenze {
-        Grenze::Kennung => "kennung",
-        Grenze::Herkunft => "herkunft",
+        Grenze::Kennung => Grenzart::Kennung,
+        Grenze::Herkunft => Grenzart::Herkunft,
     };
     let wer = teilnehmer.kennung.als_text();
     zustand.protokoll.episode(Auftreten {
