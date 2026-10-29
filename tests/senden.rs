@@ -275,7 +275,7 @@ async fn us3_abgewiesen_wird_mit_regel_und_text_nichts_wird_umgeformt() {
     );
     assert_eq!(
         feld.json,
-        json!({"fehler": "Unbekanntes Feld antwort — erlaubt ist nur text.", "regel": "feld", "feld": "antwort"})
+        json!({"fehler": "Unbekanntes Feld antwort — erlaubt sind text und anhaenge.", "regel": "feld", "feld": "antwort"})
     );
     assert_eq!(
         kein_text.json,

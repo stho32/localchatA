@@ -14,6 +14,7 @@ use super::koerper::{
 };
 use super::nachrichten::NachrichtAntwort;
 use super::teilnehmer::Teilnehmer;
+use crate::gespraeche::anhangid::Anhangid;
 use crate::gespraeche::textregel::{TEXT_HOECHSTENS_BYTES, Textfehler, text_pruefen};
 use crate::gespraeche::{Gesendet, Gespraech, Nachricht, Sendefehler};
 use crate::protokoll::episoden::Auftreten;
@@ -74,23 +75,38 @@ pub async fn senden(
     if !zustand.gespraeche.channel_bekannt(&name) {
         return mit_regel(unbekannt(&name), "channel_unbekannt", Some(&wer));
     }
-    let text = match sendekoerper_lesen(&wert) {
-        Ok(text) => text.to_string(),
+    let (text, anhaenge) = match sendekoerper_lesen(&wert) {
+        Ok((text, anhaenge)) => (text.to_string(), anhaenge),
         Err(fehler) => {
             let regel = match fehler {
                 Sendekoerperfehler::Text => "text_fehlt",
                 Sendekoerperfehler::Feld { .. } => "feld_unbekannt",
+                Sendekoerperfehler::Anhaenge => "anhaenge",
+                Sendekoerperfehler::Anhang { .. } => "anhang",
             };
             return mit_regel(sendekoerper_abgewiesen(fehler), regel, Some(&wer));
         }
     };
-    if let Err(fehler) = text_pruefen(&text) {
-        let regel = match fehler {
-            Textfehler::Leer => "text_leer",
-            Textfehler::Laenge { .. } => "text_zu_lang",
-            Textfehler::Zeichen { .. } => "text_zeichen",
-        };
-        return mit_regel(text_abgewiesen(fehler), regel, Some(&wer));
+    let text = match text_mit_anhaengen(&text, anhaenge.len()) {
+        Ok(text) => text.to_string(),
+        Err(fehler) => {
+            let regel = match fehler {
+                Textfehler::Leer => "text_leer",
+                Textfehler::Laenge { .. } => "text_zu_lang",
+                Textfehler::Zeichen { .. } => "text_zeichen",
+            };
+            return mit_regel(text_abgewiesen(fehler), regel, Some(&wer));
+        }
+    };
+    if !anhaenge.is_empty() {
+        return mit_regel(
+            sendekoerper_abgewiesen(Sendekoerperfehler::Anhang {
+                id: anhaenge[0].als_text().to_string(),
+                grund: "unbekannt",
+            }),
+            "anhang",
+            Some(&wer),
+        );
     }
     let Ok(schluessel) = schluessel_lesen(&kopf) else {
         return mit_regel(
@@ -314,12 +330,34 @@ fn sendekoerper_abgewiesen(fehler: Sendekoerperfehler) -> Response {
             "regel": "text",
         }),
         Sendekoerperfehler::Feld { feld } => json!({
-            "fehler": format!("Unbekanntes Feld {feld} — erlaubt ist nur text."),
+            "fehler": format!("Unbekanntes Feld {feld} — erlaubt sind text und anhaenge."),
             "regel": "feld",
             "feld": feld,
         }),
+        Sendekoerperfehler::Anhaenge => json!({
+            "fehler": format!("anhaenge braucht eine Liste von höchstens {ANHAENGE_HOECHSTENS} Anhang-IDs."),
+            "regel": "anhaenge",
+            "hoechstens": ANHAENGE_HOECHSTENS,
+        }),
+        Sendekoerperfehler::Anhang { id, grund } => json!({
+            "fehler": anhangtext(&id, grund),
+            "regel": "anhang",
+            "id": id,
+            "grund": grund,
+        }),
     };
     (StatusCode::UNPROCESSABLE_ENTITY, Json(antwort)).into_response()
+}
+
+/// Der Satz zu einem Anhang, der nicht gesendet werden kann.
+pub(super) fn anhangtext(id: &str, grund: &str) -> String {
+    match grund {
+        "doppelt" => format!("Der Anhang {id} steht zweimal in der Liste."),
+        "abgelaufen" => format!("Der Anhang {id} ist abgelaufen — neu anmelden und hochladen."),
+        "fremd" => format!("Der Anhang {id} gehört einem anderen Teilnehmer."),
+        "unvollstaendig" => format!("Der Anhang {id} ist noch nicht vollständig hochgeladen."),
+        _ => format!("Den Anhang {id} gibt es nicht — erst anmelden und hochladen."),
+    }
 }
 
 /// Texte der Abweisung, die der Browser wörtlich zeigt (R00011 F0041); die Stelle für Menschen ab 1.
@@ -377,26 +415,70 @@ pub(super) fn mit_tausenderpunkt(zahl: usize) -> String {
     text
 }
 
-/// Warum ein Sendekörper keinen Text liefert (422 `text` bzw. `feld`).
+/// Höchstens so viele Anhänge trägt eine Nachricht (ADR-0046 Frage 3).
+pub const ANHAENGE_HOECHSTENS: usize = 10;
+
+/// Warum ein Sendekörper keinen Auftrag liefert (422 `text`, `feld`, `anhaenge` bzw. `anhang`).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Sendekoerperfehler {
     /// Kein Objekt, `text` fehlt oder ist keine Zeichenkette.
     Text,
-    /// Ein weiteres Feld neben `text`.
+    /// Ein weiteres Feld neben `text` und `anhaenge`.
     Feld { feld: String },
+    /// `anhaenge` ist keine Liste oder hat mehr als 10 Einträge.
+    Anhaenge,
+    /// Ein Eintrag ist keine ID (`unbekannt`) oder steht zweimal (`doppelt`).
+    Anhang { id: String, grund: &'static str },
 }
 
-/// Der Text aus dem Körper `{"text": "…"}` (B0207, ADR-0034 Regel 3.3); jedes weitere Feld wird abgewiesen.
-pub fn sendekoerper_lesen(wert: &Value) -> Result<&str, Sendekoerperfehler> {
+/// Text und Anhänge aus dem Körper `{"text": "…", "anhaenge"?: ["<id>", …]}` (B0439, ADR-0034 Regel 3.3 mit
+/// Ergänzung Karte #9): jedes weitere Feld wird abgewiesen; `anhaenge` höchstens 10, keine doppelt.
+pub fn sendekoerper_lesen(wert: &Value) -> Result<(&str, Vec<Anhangid>), Sendekoerperfehler> {
     let objekt = wert.as_object().ok_or(Sendekoerperfehler::Text)?;
     let text = objekt
         .get("text")
         .and_then(Value::as_str)
         .ok_or(Sendekoerperfehler::Text)?;
-    if let Some(feld) = objekt.keys().find(|feld| *feld != "text") {
+    if let Some(feld) = objekt
+        .keys()
+        .find(|feld| *feld != "text" && *feld != "anhaenge")
+    {
         return Err(Sendekoerperfehler::Feld { feld: feld.clone() });
     }
-    Ok(text)
+    let liste = match objekt.get("anhaenge") {
+        None => return Ok((text, Vec::new())),
+        Some(Value::Array(liste)) if liste.len() <= ANHAENGE_HOECHSTENS => liste,
+        Some(_) => return Err(Sendekoerperfehler::Anhaenge),
+    };
+    let mut ids: Vec<Anhangid> = Vec::with_capacity(liste.len());
+    for eintrag in liste {
+        let text_der_id = eintrag
+            .as_str()
+            .map_or_else(|| eintrag.to_string(), str::to_string);
+        let id = eintrag.as_str().and_then(Anhangid::lesen).ok_or_else(|| {
+            Sendekoerperfehler::Anhang {
+                id: text_der_id.clone(),
+                grund: "unbekannt",
+            }
+        })?;
+        if ids.contains(&id) {
+            return Err(Sendekoerperfehler::Anhang {
+                id: text_der_id,
+                grund: "doppelt",
+            });
+        }
+        ids.push(id);
+    }
+    Ok((text, ids))
+}
+
+/// Mit mindestens einem Anhang ist ein Text nur aus Leerraum erlaubt und wird als `""` gespeichert (Betreiber B5);
+/// sonst gilt die Textregel unverändert.
+pub fn text_mit_anhaengen(text: &str, anhaenge: usize) -> Result<&str, Textfehler> {
+    if anhaenge > 0 && text.chars().all(char::is_whitespace) {
+        return Ok("");
+    }
+    text_pruefen(text).map(|()| text)
 }
 
 #[cfg(test)]
@@ -519,8 +601,89 @@ mod tests {
 
     #[test]
     fn ein_objekt_mit_text_liefert_den_text() {
-        assert_eq!(sendekoerper_lesen(&json!({"text": "Hallo"})), Ok("Hallo"));
-        assert_eq!(sendekoerper_lesen(&json!({"text": "  "})), Ok("  "));
+        assert_eq!(
+            sendekoerper_lesen(&json!({"text": "Hallo"})),
+            Ok(("Hallo", vec![]))
+        );
+        assert_eq!(
+            sendekoerper_lesen(&json!({"text": "  "})),
+            Ok(("  ", vec![]))
+        );
+    }
+
+    fn id(text: &str) -> Anhangid {
+        Anhangid::lesen(text).expect("ID")
+    }
+
+    /// B0439: `anhaenge` mit IDs in Reihenfolge; `[]` heißt keine; über 10 → `anhaenge`; eine ID zweimal → `anhang`
+    /// `doppelt`; kein ID-Text, Zahl oder `null` → `anhang` `unbekannt`; keine Liste → `anhaenge`; weiteres Feld →
+    /// `feld`.
+    #[test]
+    fn der_sendekoerper_mit_anhaengen() {
+        let a = "aaaaaaaaaaaaaaaaaaaaaaaaaa";
+        let b = "bbbbbbbbbbbbbbbbbbbbbbbbbb";
+        assert_eq!(
+            sendekoerper_lesen(&json!({"text": "", "anhaenge": [a, b]})),
+            Ok(("", vec![id(a), id(b)]))
+        );
+        assert_eq!(
+            sendekoerper_lesen(&json!({"text": "x", "anhaenge": []})),
+            Ok(("x", vec![]))
+        );
+        let elf: Vec<String> = (0..11)
+            .map(|n| format!("{}{}", "a".repeat(25), char::from(b'a' + n)))
+            .collect();
+        assert_eq!(
+            sendekoerper_lesen(&json!({"text": "x", "anhaenge": elf})),
+            Err(Sendekoerperfehler::Anhaenge)
+        );
+        assert_eq!(
+            sendekoerper_lesen(&json!({"text": "x", "anhaenge": [a, a]})),
+            Err(Sendekoerperfehler::Anhang {
+                id: a.to_string(),
+                grund: "doppelt"
+            })
+        );
+        for falsch in [
+            json!("kurz"),
+            json!(5),
+            json!(null),
+            json!(a.to_uppercase()),
+        ] {
+            let erwartet = falsch
+                .as_str()
+                .map_or_else(|| falsch.to_string(), str::to_string);
+            assert_eq!(
+                sendekoerper_lesen(&json!({"text": "x", "anhaenge": [falsch]})),
+                Err(Sendekoerperfehler::Anhang {
+                    id: erwartet,
+                    grund: "unbekannt"
+                })
+            );
+        }
+        assert_eq!(
+            sendekoerper_lesen(&json!({"text": "x", "anhaenge": a})),
+            Err(Sendekoerperfehler::Anhaenge)
+        );
+        assert_eq!(
+            sendekoerper_lesen(&json!({"text": "x", "anhaenge": [a], "y": 1})),
+            Err(Sendekoerperfehler::Feld { feld: "y".into() })
+        );
+    }
+
+    /// B5: Text leer oder nur Leerraum mit mindestens einem Anhang → `""`; ohne Anhang `leer` wie bisher; die übrigen
+    /// Regeln gelten weiter.
+    #[test]
+    fn leerer_text_ist_mit_anhang_erlaubt() {
+        assert_eq!(text_mit_anhaengen("", 1), Ok(""));
+        assert_eq!(text_mit_anhaengen("  \n\t", 1), Ok(""));
+        assert_eq!(text_mit_anhaengen("Hallo", 1), Ok("Hallo"));
+        assert_eq!(text_mit_anhaengen("", 0), Err(Textfehler::Leer));
+        assert_eq!(text_mit_anhaengen("  ", 0), Err(Textfehler::Leer));
+        assert!(matches!(
+            text_mit_anhaengen("a\u{1b}", 1),
+            Err(Textfehler::Zeichen { .. })
+        ));
     }
 
     #[test]

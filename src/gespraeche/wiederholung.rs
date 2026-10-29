@@ -534,15 +534,49 @@ fn abgelaufen(eintrag: &Eintrag, jetzt: Zeit) -> bool {
 
 /// Prüfsumme des Texts, wie er gesendet wurde (vor dem Umformen ins Log); fest über Läufe hinweg.
 pub fn pruefsumme(text: &str) -> u64 {
+    pruefsumme_mit(text, &[])
+}
+
+/// Prüfsumme über Text **und** Anhang-IDs (ADR-0034 Ergänzung Karte #9 Punkt 4): ohne Anhänge dieselbe wie über den
+/// Text allein; gleicher Schlüssel mit anderen IDs → wie ein anderer Text.
+pub fn pruefsumme_mit(text: &str, anhaenge: &[super::anhangid::Anhangid]) -> u64 {
     use std::hash::{DefaultHasher, Hash, Hasher};
     let mut hasher = DefaultHasher::new();
     text.hash(&mut hasher);
+    for anhang in anhaenge {
+        anhang.als_text().hash(&mut hasher);
+    }
     hasher.finish()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Prüfsumme über Text und IDs: dieselben IDs → gleich; andere ID oder andere Reihenfolge → anders; ohne IDs
+    /// wie über den Text allein.
+    #[test]
+    fn die_pruefsumme_umfasst_text_und_anhang_ids() {
+        let id = |text: &str| super::super::anhangid::Anhangid::lesen(text).expect("ID");
+        let (a, b) = (
+            id("aaaaaaaaaaaaaaaaaaaaaaaaaa"),
+            id("bbbbbbbbbbbbbbbbbbbbbbbbbb"),
+        );
+        assert_eq!(pruefsumme_mit("x", &[]), pruefsumme("x"));
+        assert_eq!(
+            pruefsumme_mit("x", std::slice::from_ref(&a)),
+            pruefsumme_mit("x", std::slice::from_ref(&a))
+        );
+        assert_ne!(
+            pruefsumme_mit("x", std::slice::from_ref(&a)),
+            pruefsumme_mit("x", std::slice::from_ref(&b))
+        );
+        assert_ne!(
+            pruefsumme_mit("x", &[a.clone(), b.clone()]),
+            pruefsumme_mit("x", &[b, a.clone()])
+        );
+        assert_ne!(pruefsumme_mit("x", &[a]), pruefsumme("x"));
+    }
 
     fn t(ms: i64) -> Zeit {
         Zeit::parse_from_rfc3339("2026-10-28T12:00:00+01:00").expect("Zeit")
