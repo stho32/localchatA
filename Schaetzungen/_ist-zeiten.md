@@ -342,3 +342,4 @@ Nie vom User erfragen.
 | 2026-10-29 | R00020 Senden gehärtet Teil 1 | B0340 Markup im Nachrichtentext bleibt Text | Standard | 0,4h | 0,01h | 0,01h | autonom |
 | 2026-10-29 | R00020 Senden gehärtet Teil 1 | B0350 Fehlgeschlagene unter allen bestätigten belegt | Standard | 0,4h | 0,02h | 0,02h | autonom |
 | 2026-10-29 | R00020 Senden gehärtet Teil 1 | Lesen, Basis-Gate, Mutanten, Gate, Gelerntes | Konsolidierung | — | 0,18h | 0,18h | autonom |
+| 2026-10-29 | R00011 Nachricht senden | B0328 Nacharbeit 2: Sperrordnungstest erzwingt die Überlappung | Nacharbeit | — | 0,32h | 0,32h | autonom |
