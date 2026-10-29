@@ -26,8 +26,8 @@ async function zweiHoehenHoch(log) {
 }
 
 /// B in `allgemein` mit 300 Nachrichten, Fenster `viewport`; liefert Seite, Verlauf, Fehler und das Token von `beta`.
-async function bLiest(browser, viewport = { width: 1280, height: 800 }) {
-  instanz = await sendenStarten({ anzahl: 300 });
+async function bLiest(browser, viewport = { width: 1280, height: 800 }, erzeugtBis = undefined) {
+  instanz = await sendenStarten({ anzahl: 300, erzeugtBis });
   const b = await kontextOeffnen(browser, { breite: viewport.width, streng: true });
   await b.page.setViewportSize(viewport);
   await imBrowserBeitreten(b.page, instanz.adresse, 'anna');
@@ -131,6 +131,56 @@ for (const viewport of FENSTER) {
     expect(lage.getroffen).toEqual({ nachricht: true, trenner: false });
     expect(fehler).toEqual([]);
   });
+
+  // Muss B1 aus dem Code-Review #30: ist die erste neue zugleich die erste des Tages, klebt oben „Gestern“, und „Heute“
+  // steht im Fluss direkt über ihr; zwischen „Gestern“ und der ersten neuen bleibt eine Zeile der letzten Nachricht von
+  // gestern sichtbar.
+  test(`US-1 (${groesse}): ist die erste neue die erste des Tages, steht unter „Gestern“ eine Zeile von gestern`, async ({ browser }) => {
+    const { page, log, fehler, beta } = await bLiest(browser, viewport, '2026-10-27T15:00:00.000+01:00');
+    await zweiHoehenHoch(log);
+    await dreiNeue(page, beta);
+
+    await pille(page).click();
+
+    const lage = await lageNachDemSprung(page, 'neu 1');
+    const kontext = await kontextUnterDemTrenner(page, 'neu 1', lage.trennerUnten);
+    expect(kontext.klebenderTrenner).toBe('Gestern');
+    expect(kontext.sichtbarVonGestern).toBeGreaterThanOrEqual(lage.zeile - 1);
+    expect(kontext.halbeZeileDarunter).toEqual({ nachricht: true, trenner: false });
+    expect(kontext.direktDarueber).toBe('Heute');
+    await expect(mitText(page, /^neu 1$/).locator('.lc-meta .lc-id')).toHaveText('beta@127.0.0.1');
+    expect(fehler).toEqual([]);
+  });
+}
+
+/// Misst nach dem Sprung unter dem klebenden Trenner (Unterkante `trennerUnten`): seinen Text, wie viel px der letzten
+/// Nachricht vor dem Tagestrenner über `text` zwischen `trennerUnten` und der Oberkante (mit Außenabstand) von `text`
+/// sichtbar sind, was `elementFromPoint` eine halbe Zeile unter `trennerUnten` trifft und den Text des Elements direkt
+/// über `text`.
+function kontextUnterDemTrenner(page, text, trennerUnten) {
+  return page.evaluate(({ gesucht, unterkante }) => {
+    const log = document.querySelector('[role="log"]');
+    const erste = [...log.querySelectorAll('.lc-msg')].find((nachricht) => nachricht.querySelector('.lc-body').textContent === gesucht);
+    const rand = log.getBoundingClientRect().top;
+    const klebend = [...log.querySelectorAll('.lc-day')]
+      .filter((trenner) => Math.abs(trenner.getBoundingClientRect().top - rand - parseFloat(getComputedStyle(trenner).top)) <= 1);
+    let klebenderTrenner = null;
+    if (klebend.length > 0) {
+      klebenderTrenner = klebend[klebend.length - 1].textContent;
+    }
+    let vorher = erste.previousElementSibling;
+    while (vorher !== null && !vorher.classList.contains('lc-msg')) {
+      vorher = vorher.previousElementSibling;
+    }
+    const oberkante = erste.getBoundingClientRect().top - parseFloat(getComputedStyle(erste).marginTop);
+    const vorherRect = vorher.getBoundingClientRect();
+    const sichtbarVonGestern = Math.min(vorherRect.bottom, oberkante) - Math.max(vorherRect.top, unterkante);
+    const zeile = parseFloat(getComputedStyle(log).lineHeight);
+    const rechteck = erste.getBoundingClientRect();
+    const punkt = document.elementFromPoint(rechteck.left + rechteck.width / 2, unterkante + zeile / 2);
+    const halbeZeileDarunter = { nachricht: punkt !== null && punkt.closest('.lc-msg') !== null, trenner: punkt !== null && punkt.closest('.lc-day') !== null };
+    return { klebenderTrenner, sichtbarVonGestern, halbeZeileDarunter, direktDarueber: erste.previousElementSibling.textContent };
+  }, { gesucht: text, unterkante: trennerUnten });
 }
 
 // US-2, „Zweiter Klick ans Ende“ (B0332): nach dem Sprung bringt ein zweiter Klick auf die Pille bzw. `Ende` im Verlauf

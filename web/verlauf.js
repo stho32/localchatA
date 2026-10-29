@@ -110,7 +110,7 @@ export function verlaufAnlegen({ abrufen, schalter = () => {} }) {
       oeffnen(offenerName);
       return;
     }
-    const ziel = log.scrollTop + oberkanteImVerlauf(erste) - klebenderTrennerUnterkante(erste) - zeilenhoehe();
+    const ziel = sprungZiel(erste);
     const stehtSchonDort = Math.abs(ziel - log.scrollTop) <= 1;
     if (stehtSchonDort) {
       zumEndeDesInhalts();
@@ -130,6 +130,18 @@ export function verlaufAnlegen({ abrufen, schalter = () => {} }) {
     }
     log.scrollTop = log.scrollHeight - log.clientHeight - auslauf.getBoundingClientRect().height;
     lageMerken();
+  }
+
+  // Der Kontext ist die letzte Zeile der Nachricht vor der ersten neuen, auch über den Tagestrenner hinweg, wenn die
+  // erste neue einen Tag beginnt: ihre Unterkante kommt eine Zeile unter den Trenner, der über ihr klebt. Ohne
+  // Nachricht davor kommt die Oberkante des Platzes der ersten neuen dorthin.
+  function sprungZiel(erste) {
+    const kontext = nachrichtDavor(erste);
+    if (kontext === null) {
+      return log.scrollTop + oberkanteImVerlauf(erste) - klebenderTrennerUnterkante(erste) - zeilenhoehe();
+    }
+    const unterkanteDesKontexts = kontext.getBoundingClientRect().bottom - log.getBoundingClientRect().top;
+    return log.scrollTop + unterkanteDesKontexts - klebenderTrennerUnterkante(kontext) - zeilenhoehe();
   }
 
   // Die obere Kante des Platzes einer Nachricht, mit ihrem Abstand nach oben, gemessen vom oberen Rand des Verlaufs.
@@ -569,6 +581,14 @@ function klebenderTrennerUnterkante(nachricht) {
     return 0;
   }
   return parseFloat(getComputedStyle(davor).top) + davor.getBoundingClientRect().height;
+}
+
+function nachrichtDavor(nachricht) {
+  let davor = nachricht.previousElementSibling;
+  while (davor !== null && !davor.classList.contains('lc-msg')) {
+    davor = davor.previousElementSibling;
+  }
+  return davor;
 }
 
 // Höhe eines gezeichneten Blocks: von der Oberkante seines ersten bis zur Unterkante seines letzten Knotens.

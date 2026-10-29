@@ -10,8 +10,9 @@ const { instanzStarten, channelAnlegen, fehlerSammeln } = require('./hilfen');
 const JETZT = '2026-10-28T15:00:00.000+01:00';
 const ERZEUGER = path.resolve(__dirname, '../../target/debug/examples/verlauf-erzeugen');
 
-/// Startet mit Uhr 15:00, `allgemein` mit `anzahl` erzeugten Nachrichten (0: leer) und leerem `technik`.
-async function sendenStarten({ anzahl = 0, vorbereiten = () => {} } = {}) {
+/// Startet mit Uhr 15:00, `allgemein` mit `anzahl` erzeugten Nachrichten (0: leer), die bis `erzeugtBis` reichen
+/// (Standard: die Uhr der Instanz), und leerem `technik`.
+async function sendenStarten({ anzahl = 0, erzeugtBis = JETZT, vorbereiten = () => {} } = {}) {
   return instanzStarten({
     umgebung: { LOCALCHATA_JETZT: JETZT },
     vorbereiten: async (ordner) => {
@@ -20,7 +21,7 @@ async function sendenStarten({ anzahl = 0, vorbereiten = () => {} } = {}) {
       if (anzahl > 0) {
         execFileSync(ERZEUGER, [ordner, 'allgemein', String(anzahl), '1'], {
           stdio: 'ignore',
-          env: { ...process.env, TZ: 'Europe/Berlin', LOCALCHATA_JETZT: JETZT },
+          env: { ...process.env, TZ: 'Europe/Berlin', LOCALCHATA_JETZT: erzeugtBis },
         });
       }
       await vorbereiten(ordner);
