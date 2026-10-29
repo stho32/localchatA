@@ -6,6 +6,7 @@ pub mod bild;
 pub mod exif;
 pub mod medien;
 mod name;
+pub mod text;
 
 pub use art::{Art, DATEI};
 pub use name::{Namensfehler, name_pruefen};
