@@ -280,6 +280,53 @@ test('Kein Fehlalarm: ich 401 beim Folgen — Bildschirm bleibt, Token bleibt im
   expect(fehlerDritter).toEqual([]);
 });
 
+const NAME = 'localchatA.name';
+
+// Nachlese (ADR-0012 Regel 3, Probe P1): der Nachbar tritt bei, während der stille Beitritt dieses Tabs noch läuft; das
+// Token liegt schon im Speicher, wenn der Bildschirm steht (ohne Web Locks kommt kein Ereignis mehr) — der Tab folgt trotzdem.
+test('Nachlese: das Token liegt schon im Speicher, wenn der Bildschirm nach dem stillen Beitritt (422) steht — der Tab folgt binnen 3 s', async ({ context }) => {
+  await umgebungEinrichten(context, { ohneWebLocks: true });
+  await frischeInstanz();
+  const b = await context.newPage();
+  await b.goto(instanz.adresse);
+  await b.evaluate((schluessel) => localStorage.setItem(schluessel, 'Jörg'), NAME);
+  let beitrittFreigeben = null;
+  const gehalten = new Promise((weiter) => { beitrittFreigeben = weiter; });
+  await b.route('**/api/beitreten', async (route) => {
+    await gehalten;
+    await route.continue();
+  });
+  const stillerBeitritt = b.waitForRequest((anfrage) => anfrage.url().endsWith('/api/beitreten'), { timeout: 10000 });
+  await b.reload();
+  await stillerBeitritt;
+  const a = await context.newPage();
+  await a.goto(instanz.adresse);
+  await a.getByLabel('Name').fill('shoff');
+  await a.getByRole('button', { name: 'Beitreten' }).click();
+  await expect(a.getByRole('banner').locator('.lc-me')).toHaveText('shoff@127.0.0.1');
+
+  beitrittFreigeben();
+
+  await expect(b.getByRole('banner').locator('.lc-me')).toHaveText('shoff@127.0.0.1', { timeout: 3000 });
+});
+
+// Die Hauptansicht folgt nicht (Regel 8, Probe P3): wer gefolgt ist, hört das Signal des Nachbarn nicht mehr.
+test('Die Hauptansicht folgt nicht: ein später geschriebenes Token ändert Kopfzeile und Liste nicht und löst keine Anfrage aus', async ({ context }) => {
+  await frischeInstanz();
+  const { tabs } = await tabsAufDemBildschirm(context, 2);
+  const [a, b] = tabs;
+  await beitretenKlicken(a, 'shoff');
+  await expect(b.getByRole('banner').locator('.lc-me')).toHaveText('shoff@127.0.0.1');
+  await expect(a.getByRole('banner').locator('.lc-me')).toHaveText('shoff@127.0.0.1');
+  const ich = ichAnfragenMitschreiben(context);
+
+  await a.evaluate((schluessel) => localStorage.setItem(schluessel, 'token-von-bert'), SITZUNG);
+  await b.waitForTimeout(700);
+
+  expect(ich.anfragen, 'keine Anfrage GET /api/ich').toBe(0);
+  await expect(b.getByRole('banner').locator('.lc-me')).toHaveText('shoff@127.0.0.1');
+});
+
 // Fokus (ux-reviewer #62): scheitert das Folgen, liegt der Fokus nach dem Freigeben wieder im Namensfeld — getippte Zeichen
 // gehen nicht ins Leere. Variante 401 (Token unbekannt) und Server weg (Anfrage bricht ab).
 const FOLGEN_SCHEITERT = [
