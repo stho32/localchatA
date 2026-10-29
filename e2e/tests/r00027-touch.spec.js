@@ -4,7 +4,8 @@
 // B0482). Geräte als emulierte Kontexte (r00027-hilfen.js).
 const { test, expect } = require('@playwright/test');
 const { sendenStarten, imBrowserBeitreten, eingabe } = require('./senden-hilfen');
-const { geraetOeffnen, knopf } = require('./r00027-hilfen');
+const { ROUTE, bestaetigt, sendungenMitschreiben } = require('./r00012-hilfen');
+const { geraetOeffnen, knopf, box } = require('./r00027-hilfen');
 
 let instanz;
 test.afterEach(async () => {
@@ -98,5 +99,54 @@ for (const geraet of ['telefon', 'tablet', 'tabletQuer', 'desktop']) {
     }
     const viewport = await page.locator('meta[name="viewport"]').getAttribute('content');
     expect(viewport).not.toMatch(/maximum-scale|user-scalable/);
+  });
+}
+
+// „Schalter der fehlgeschlagenen Nachricht“ (S7): Gegeben wie „Fehlschlag“ (die Route antwortet auf den ersten POST mit
+// 500) → auf Touch-Geräten je ≥ 44 × 44 px und ≥ 8 px auseinander, am Desktop unverändert 28 px hoch; „Erneut senden“
+// sendet genau einmal.
+for (const geraet of ['telefon', 'tablet', 'desktop']) {
+  test(`Schalter der fehlgeschlagenen Nachricht (${geraet}): Größe, Abstand, Erneut senden genau einmal`, async ({ browser }) => {
+    const nachrichtenPfad = '/api/channels/allgemein/nachrichten';
+    const { page, fehler } = await seiteAuf(browser, geraet, { zusaetzlich: { [nachrichtenPfad]: [500] } });
+    const sendungen = sendungenMitschreiben(page);
+    let erste = true;
+    await page.route(ROUTE, async (route) => {
+      if (route.request().method() !== 'POST' || !erste) {
+        await route.continue();
+        return;
+      }
+      erste = false;
+      await route.fulfill({ status: 500, contentType: 'application/json', body: '{"fehler":"intern"}' });
+    });
+
+    await eingabe(page).fill('kaputt');
+    await knopf(page).click();
+    const erneut = page.getByRole('button', { name: 'Erneut senden' });
+    const verwerfen = page.getByRole('button', { name: 'Verwerfen' });
+    await expect(erneut).toBeVisible();
+    const erneutBox = await box(erneut);
+    const verwerfenBox = await box(verwerfen);
+    if (geraet === 'desktop') {
+      expect([erneutBox.height, verwerfenBox.height]).toEqual([28, 28]);
+    } else {
+      for (const schalter of [erneutBox, verwerfenBox]) {
+        expect(schalter.width).toBeGreaterThanOrEqual(44);
+        expect(schalter.height).toBeGreaterThanOrEqual(44);
+      }
+      const abstand = Math.max(verwerfenBox.left - erneutBox.right, verwerfenBox.top - erneutBox.bottom);
+      expect(abstand).toBeGreaterThanOrEqual(8);
+    }
+
+    if (geraet === 'desktop') {
+      await erneut.click();
+    } else {
+      await erneut.tap();
+    }
+    await expect(bestaetigt(page, 'kaputt')).toHaveCount(1);
+    await page.waitForTimeout(300);
+    expect(sendungen.map((sendung) => sendung.text)).toEqual(['kaputt', 'kaputt']);
+    await expect(bestaetigt(page, 'kaputt')).toHaveCount(1);
+    expect(fehler).toEqual([]);
   });
 }
