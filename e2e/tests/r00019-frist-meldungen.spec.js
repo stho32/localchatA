@@ -118,6 +118,12 @@ function uhrzeitAufgerundet(page, ms) {
   }, ms);
 }
 
+// Sekunden von `von` bis `bis` (beide HH:MM:SS) auf der Uhr, über Mitternacht hinweg.
+function abstandSekunden(von, bis) {
+  const sekunden = (uhrzeit) => uhrzeit.split(':').reduce((summe, teil) => summe * 60 + Number(teil), 0);
+  return (sekunden(bis) - sekunden(von) + 86400) % 86400;
+}
+
 // A speichert im jeweils neu geöffneten Dialog 8, 9, 8 (je 200); der vierte Versuch mit 9 bucht über die 30 Einheiten.
 async function dreimalGespeichert(page) {
   for (const tage of [8, 9, 8]) {
@@ -146,7 +152,10 @@ test('429 im Dialog (US-13, B0543): „⚠ Zu viele Änderungen von … — wied
   const uhrzeit = (await fehlerzeile(a.page).textContent()).match(/ab (\d\d:\d\d:\d\d)\.$/)[1];
   const fruehestens = await uhrzeitAufgerundet(a.page, t0 + wartezeit);
   const spaetestens = await uhrzeitAufgerundet(a.page, t1 + wartezeit);
-  expect([fruehestens, spaetestens]).toContain(uhrzeit);
+  // Die Anzeige rechnet ab der Ankunft der Antwort, die zwischen t0 und t1 liegt: ein Bereich, nicht seine beiden Ränder —
+  // unter Last liegt sie dazwischen (code-reviewer #27 Sollte).
+  expect(abstandSekunden(fruehestens, uhrzeit), `„${uhrzeit}“ liegt zwischen ${fruehestens} und ${spaetestens}`)
+    .toBeLessThanOrEqual(abstandSekunden(fruehestens, spaetestens));
   await expect(fehlerzeile(a.page)).not.toContainText('in 10 s');
   await feldUnmarkiertMitEingabe(a.page, '9');
   await expect(a.page.getByRole('banner').locator('.lc-head-frist')).toHaveText('· 8 Tage');
