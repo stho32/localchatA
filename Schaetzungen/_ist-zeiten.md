@@ -494,3 +494,4 @@ Nie vom User erfragen.
 | 2026-10-29 | R00019 Frist gehärtet (Teil 1, #27) | B0540 Kopfzeile unter 480 px zweizeilig | Standard | 0,4h | 0,05h | 0,05h | autonom (entw2) |
 | 2026-10-29 | R00019 Frist gehärtet (Teil 1, #27) | B0541 Schalter der Kopfzeile als Touch-Ziel | Standard | 0,4h | 0,03h | 0,03h | autonom (entw2) |
 | 2026-10-29 | R00019 Frist gehärtet (Teil 1, #27) | Lesen, Mutanten, Rebase, Gate | Konsolidierung | — | 0,40h | 0,40h | autonom (entw2) |
+| 2026-10-29 | R00019 Frist gehärtet (Teil 1, #27) | B0389 Frist-Feld weist Leerzeichen ab | Standard | 0,4h | 0,15h | 0,15h | autonom (entw3) |
