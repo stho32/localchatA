@@ -107,6 +107,8 @@ pub struct Gespraeche {
     nachricht_veroeffentlichen: NachrichtVeroeffentlichen,
     /// Plattenquote in Bytes, `None` heißt aus (ADR-0044 Regel 11); ohne `mit_quote` der Standard.
     hoechstens: Option<u64>,
+    /// Σ Bytes aller Tage im Index — Invariante `belegt = Σ Verlauf::bytes()` (ADR-0044 Regel 2).
+    belegung: quote::Belegung,
 }
 
 struct Schreibstand {
@@ -211,6 +213,7 @@ impl Gespraeche {
             for tag in behalten {
                 geladen.tag_laden(ablage.as_ref(), &gespraech, tag, &mut verlauf);
             }
+            geladen.belegt += verlauf.bytes();
             if let Some(channel) = channel {
                 geladen
                     .verzeichnis
@@ -240,6 +243,7 @@ impl Gespraeche {
             veroeffentlichen: Arc::new(|_: &ChannelWechsel| {}),
             nachricht_veroeffentlichen: Arc::new(|_: &Gespraech, _: &Nachricht| {}),
             hoechstens: Some(quote::STANDARD_BYTES),
+            belegung: quote::Belegung::neu(geladen.belegt),
         })
     }
 
@@ -339,6 +343,11 @@ impl Gespraeche {
         let letzte = self.letzte_ms.load(Ordering::Relaxed);
         let jetzt = self.uhr.jetzt().timestamp_millis();
         u64::try_from(letzte.saturating_sub(jetzt)).unwrap_or(0)
+    }
+
+    /// Bytes, die die Gespräche belegen (ADR-0044 Regel 2).
+    pub fn belegt(&self) -> u64 {
+        self.belegung.stand()
     }
 
     pub fn defekte(&self) -> &[Ladedefekt] {
@@ -503,6 +512,8 @@ struct Geladen {
     verzeichnis: Verzeichnis,
     defekte: Vec<Ladedefekt>,
     juengste: Option<Zeit>,
+    /// Σ Bytes der geladenen Tage aller Gespräche.
+    belegt: u64,
 }
 
 impl Geladen {
