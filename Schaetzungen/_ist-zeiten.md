@@ -468,3 +468,4 @@ Nie vom User erfragen.
 | 2026-10-29 | R00025 Senden bei Störungen gehärtet | B0489 Rückgängig angesagt und per Tastatur erreichbar | Standard | 0,4h | 0,12h | 0,12h | autonom |
 | 2026-10-29 | R00025 Senden bei Störungen gehärtet | Abschluss: Gate, Mutanten, Schärfen, Gelerntes | Konsolidierung | — | 0,27h | 0,27h | autonom |
 | 2026-10-29 | R00025 Senden bei Störungen gehärtet | B0493 Nacharbeit: Speicher am zählenden Allokator (S2), --ignored nach S3, Doku S1 (15:17–15:28) | Nacharbeit | — | 0,18h | 0,18h | autonom |
+| 2026-10-29 | R00025 Senden bei Störungen gehärtet | B0410 Nacharbeit: Zustellung nach gescheitertem Wiederbeitritt (UX M1), Sekundentakt am signal (A1), Wächter-Test (A3) (15:37–15:56) | Nacharbeit | — | 0,32h | 0,32h | autonom |
