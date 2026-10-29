@@ -1,12 +1,13 @@
 //! Aufruf lesen: Argumente → Startauftrag, Hilfewunsch oder Aufruffehler. Rein, ohne Platte und Netz.
 
+use super::plattenquote::{self, Plattenquote};
 use crate::protokoll::Stufe;
 use std::fmt;
 use std::path::PathBuf;
 
 /// Aufrufzeile mit allen Optionen, darunter je Option eine Erklärung.
 pub const HILFE: &str = concat!(
-    "Aufruf: localchatA [<ordner>] [--port <n>] [--host <adresse>] [--kein-browser] [--erreichbar-als <name>]… [--protokoll-stufe <stufe>] [--alle-namen] [--hilfe]\n",
+    "Aufruf: localchatA [<ordner>] [--port <n>] [--host <adresse>] [--kein-browser] [--erreichbar-als <name>]… [--protokoll-stufe <stufe>] [--plattenquote <größe>] [--alle-namen] [--hilfe]\n",
     "\n",
     "  <ordner>          Ordner der Instanz, wird angelegt (Standard: aktuelles Verzeichnis)\n",
     "  --port <n>        Port; ohne Angabe 7430 oder der nächste freie, 0 wählt das System\n",
@@ -19,6 +20,7 @@ pub const HILFE: &str = concat!(
     "  --protokoll-stufe <stufe>\n",
     "                    Mindeststufe des Betriebsprotokolls unter <ordner>/logs/: debug, information\n",
     "                    (Standard), warning, error; auch über LOCALCHATA_PROTOKOLL_STUFE\n",
+    "  --plattenquote <größe>  Höchstgröße aller Gespräche (Tageslogs der Channels und Direktgespräche) wie 4GiB oder 512MiB, aus für keine Grenze; Standard 4GiB; auch über LOCALCHATA_PLATTENQUOTE\n",
     "  --alle-namen      jeden Host-Namen annehmen, ohne Namensauflösung; auch über LOCALCHATA_ALLE_NAMEN=1\n",
     "                    Risiko: eine fremde Website, die ein Teilnehmer öffnet, kann über DNS-Rebinding Channels mitlesen, Nachrichten schreiben und über die Frist Verläufe löschen.\n",
     "  --hilfe           diese Hilfe zeigen\n",
@@ -48,6 +50,8 @@ pub struct Startauftrag {
     pub protokoll_stufe: Option<Stufe>,
     /// `--alle-namen` steht im Aufruf (ADR-0045 Regel 9).
     pub alle_namen: bool,
+    /// Quote aus `--plattenquote`, falls angegeben (ADR-0044 Regel 3).
+    pub plattenquote: Option<Plattenquote>,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -63,6 +67,7 @@ pub enum Aufruffehler {
     WertFehlt(String),
     PortUngueltig(String),
     StufeUngueltig(String),
+    QuoteUngueltig(String),
 }
 
 impl fmt::Display for Aufruffehler {
@@ -81,6 +86,7 @@ impl fmt::Display for Aufruffehler {
                 f,
                 "Keine Protokollstufe: {wert} — erlaubt sind {ERLAUBTE_STUFEN}"
             ),
+            Aufruffehler::QuoteUngueltig(_) => write!(f, "{}", plattenquote::Groessenfehler),
         }?;
         write!(f, " — Aufruf siehe localchatA --hilfe")
     }
@@ -97,6 +103,7 @@ impl Startauftrag {
             erreichbar_als: Vec::new(),
             protokoll_stufe: None,
             alle_namen: false,
+            plattenquote: None,
         };
         let mut ordner_gelesen = false;
         let mut args = args.into_iter();
@@ -114,6 +121,12 @@ impl Startauftrag {
                     let wert = args.next().ok_or(Aufruffehler::WertFehlt(argument))?;
                     let stufe = stufe_lesen(&wert).ok_or(Aufruffehler::StufeUngueltig(wert))?;
                     auftrag.protokoll_stufe = Some(stufe);
+                }
+                "--plattenquote" => {
+                    let wert = args.next().ok_or(Aufruffehler::WertFehlt(argument))?;
+                    let quote = plattenquote::lesen(&wert)
+                        .map_err(|_| Aufruffehler::QuoteUngueltig(wert))?;
+                    auftrag.plattenquote = Some(quote);
                 }
                 "--port" => {
                     let wert = args.next().ok_or(Aufruffehler::WertFehlt(argument))?;
@@ -183,6 +196,7 @@ mod tests {
                 erreichbar_als: vec![],
                 protokoll_stufe: None,
                 alle_namen: false,
+                plattenquote: None,
             }
         );
     }
@@ -199,6 +213,7 @@ mod tests {
                 erreichbar_als: vec![],
                 protokoll_stufe: None,
                 alle_namen: false,
+                plattenquote: None,
             }
         );
     }
@@ -395,5 +410,54 @@ mod tests {
         );
         assert!(super::super::allenamen::RISIKO.ends_with(risiko));
         assert!(HILFE.contains("gelten automatisch"), "{HILFE}");
+    }
+
+    /// B0353 (R00023 F0074, ADR-0044 Regel 3): `--plattenquote` wird gelesen; ein falscher Wert nennt Beispiele,
+    /// ohne Wert braucht es einen.
+    #[test]
+    fn plattenquote_wird_gelesen_falsch_nennt_beispiele_ohne_wert_braucht_einen() {
+        assert_eq!(
+            auftrag(&["--plattenquote", "512MiB"]).plattenquote,
+            Some(Plattenquote::Bytes(536_870_912))
+        );
+        assert_eq!(
+            auftrag(&["--plattenquote", "AUS"]).plattenquote,
+            Some(Plattenquote::Aus)
+        );
+        assert_eq!(auftrag(&["/tmp/x"]).plattenquote, None);
+        for falsch in ["4", "4GB", "0MiB", ""] {
+            let fehler = lies(&["--plattenquote", falsch]).expect_err(falsch);
+            assert_eq!(fehler, Aufruffehler::QuoteUngueltig(falsch.into()));
+            assert!(
+                fehler.to_string().starts_with(
+                    "--plattenquote braucht eine Größe wie 4GiB oder 512MiB, oder aus"
+                ),
+                "{fehler}"
+            );
+        }
+        assert_eq!(
+            lies(&["--plattenquote"])
+                .expect_err("ohne Wert")
+                .to_string(),
+            "--plattenquote braucht einen Wert — Aufruf siehe localchatA --hilfe"
+        );
+    }
+
+    /// R00023 F0074 „Hilfe“: die Zeile aus „Funktionale Anforderungen“ wörtlich, die Option in der Aufrufzeile.
+    #[test]
+    fn die_hilfe_nennt_die_plattenquote_wortlich() {
+        assert!(
+            HILFE
+                .lines()
+                .next()
+                .unwrap_or_default()
+                .contains("[--plattenquote <größe>]"),
+            "{HILFE}"
+        );
+        assert!(
+            HILFE.lines().any(|zeile| zeile.trim_start()
+                == "--plattenquote <größe>  Höchstgröße aller Gespräche (Tageslogs der Channels und Direktgespräche) wie 4GiB oder 512MiB, aus für keine Grenze; Standard 4GiB; auch über LOCALCHATA_PLATTENQUOTE"),
+            "{HILFE}"
+        );
     }
 }

@@ -114,6 +114,10 @@ pub enum Schluessel {
     Ursache,
     /// Zahl der Grenze, die gegriffen hat (ADR-0042 Ergänzung Karte #26 Punkt 1).
     Hoechstens,
+    /// Wirksame Plattenquote in Bytes oder `aus` (ADR-0042 Ergänzung Karte #34).
+    Plattenquote,
+    /// Bytes, die die Gespräche belegen (ADR-0044 Regel 2).
+    Belegt,
 }
 
 impl Schluessel {
@@ -147,6 +151,8 @@ impl Schluessel {
             Schluessel::Schluessel => "schluessel",
             Schluessel::Ursache => "ursache",
             Schluessel::Hoechstens => "hoechstens",
+            Schluessel::Plattenquote => "plattenquote",
+            Schluessel::Belegt => "belegt",
         }
     }
 }

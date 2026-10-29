@@ -23,14 +23,6 @@ pub enum Plattenquote {
 }
 
 impl Plattenquote {
-    /// Die Grenze in Bytes, `None` bei `aus`.
-    pub fn hoechstens(self) -> Option<u64> {
-        match self {
-            Plattenquote::Bytes(bytes) => Some(bytes),
-            Plattenquote::Aus => None,
-        }
-    }
-
     /// Wie der Start-Eintrag sie nennt: die Bytes oder `aus`.
     pub fn als_wert(self) -> String {
         match self {
@@ -192,7 +184,5 @@ mod tests {
     fn der_start_eintrag_nennt_bytes_oder_aus() {
         assert_eq!(Plattenquote::Bytes(536_870_912).als_wert(), "536870912");
         assert_eq!(Plattenquote::Aus.als_wert(), "aus");
-        assert_eq!(Plattenquote::Aus.hoechstens(), None);
-        assert_eq!(STANDARD.hoechstens(), Some(4_294_967_296));
     }
 }

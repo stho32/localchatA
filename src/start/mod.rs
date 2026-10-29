@@ -13,10 +13,6 @@ pub(crate) mod ende;
 mod ladedefekte;
 pub mod laufzeit;
 mod ordner;
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "B0353 verdrahtet die Quote im Start")
-)]
 mod plattenquote;
 mod port;
 mod protokollstufe;
@@ -28,6 +24,7 @@ pub mod verbindungen;
 use abrisspflege::{Pflege, pflege_aus};
 use aufruf::{Aufruf, Portwunsch, Startauftrag};
 use ende::Ende;
+use plattenquote::Plattenquote;
 use startfehler::Startfehler;
 use verbindungen::Verbindungsgrenzen;
 
@@ -107,6 +104,15 @@ pub async fn ausfuehren<I: IntoIterator<Item = String>>(argumente: I) -> ExitCod
                     return ExitCode::from(2);
                 }
             };
+            let quote_wert = std::env::var_os(plattenquote::VARIABLE);
+            let quote =
+                match plattenquote::wirksame_quote(auftrag.plattenquote, quote_wert.as_deref()) {
+                    Ok(quote) => quote,
+                    Err(fehler) => {
+                        eprintln!("{fehler}");
+                        return ExitCode::from(2);
+                    }
+                };
             let ruhe_wert = std::env::var_os(episodenruhe::VARIABLE);
             let ruhe = match episodenruhe::aus_umgebung(ruhe_wert.as_deref()) {
                 Ok(ruhe) => ruhe,
@@ -139,7 +145,7 @@ pub async fn ausfuehren<I: IntoIterator<Item = String>>(argumente: I) -> ExitCod
                     testpanik,
                     namensauskunft,
                 },
-                stufe,
+                Wirksam { stufe, quote },
                 ruhe,
             )
             .await
@@ -171,7 +177,10 @@ async fn starten(
     gnadenfrist: Duration,
     herzschlag: Duration,
     knoepfe: Knoepfe,
-    (stufe, stufe_herkunft): (Stufe, &'static str),
+    Wirksam {
+        stufe: (stufe, stufe_herkunft),
+        quote,
+    }: Wirksam,
     ruhe: Duration,
 ) -> Result<(), Startabbruch> {
     let uhr: Arc<dyn Uhr> = Arc::from(uhr);
@@ -203,6 +212,7 @@ async fn starten(
             bereinigt_am,
             knoepfe,
             stufe_herkunft,
+            quote,
         },
     );
     laufen.await.map_err(|fehler| {
@@ -223,6 +233,14 @@ struct Startlaeufe {
     knoepfe: Knoepfe,
     /// Woher die Mindeststufe kommt (`option=` im Start-Eintrag).
     stufe_herkunft: &'static str,
+    /// Wirksame Plattenquote und woher sie kommt.
+    quote: (Plattenquote, &'static str),
+}
+
+/// Was beim Start aus Option, Umgebung oder Standard wirksam wurde, je mit seiner Herkunft (ADR-0043 Regel 4).
+struct Wirksam {
+    stufe: (Stufe, &'static str),
+    quote: (Plattenquote, &'static str),
 }
 
 /// Was von außen in den Lauf eingreift: der Testknopf für Panik und die Namensauskunft (echt oder, im
@@ -300,6 +318,7 @@ async fn nach_der_sperre(
             namensauskunft,
         },
         stufe_herkunft,
+        quote: (quote, quote_herkunft),
     } = startlaeufe;
     let bus = Arc::new(Bus::neu(live::KAPAZITAET));
     let gespraeche = Arc::new(
@@ -365,6 +384,9 @@ async fn nach_der_sperre(
             .mit(Schluessel::Ordner, ordner.display())
             .mit(Schluessel::Stufe, protokoll.mindeststufe().als_wert())
             .mit(Schluessel::Option, stufe_herkunft)
+            .mit(Schluessel::Plattenquote, quote.als_wert())
+            .mit(Schluessel::Belegt, kennzahlen.log_bytes)
+            .mit(Schluessel::Option, quote_herkunft)
             .mit(Schluessel::Anzahl, kennzahlen.nachrichten)
             .mit(Schluessel::DauerMs, kennzahlen.ladezeit_ms),
     );
