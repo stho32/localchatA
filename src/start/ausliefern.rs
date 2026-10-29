@@ -18,6 +18,11 @@ use std::time::{Duration, Instant};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::task::JoinSet;
 
+/// Die lokale Adresse einer Verbindung — über welche eigene Adresse und welchen Port der Client kam,
+/// kanonisch wie die Gegenstelle (ADR-0045 Regel 3, Request-Extension neben `ConnectInfo`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct LokaleAdresse(pub SocketAddr);
+
 /// So lange darf ein Request-Kopf vom ersten Byte bis zur Leerzeile brauchen (gesamt, nicht je Lesevorgang).
 /// Hyper startet die Uhr auch nach jeder Antwort neu: sie ist zugleich die Leerlaufgrenze zwischen Requests.
 /// Laufende Antworten (Live-Kanal) zählen nicht, die Uhr läuft erst, wenn der nächste Kopf erwartet wird.
@@ -55,7 +60,11 @@ pub async fn ausliefern(
                     }
                     if let Some(platz) = platz {
                         pflege.anwenden(&strom);
-                        let app = app.clone().layer(Extension(ConnectInfo(gegenstelle)));
+                        let mut app = app.clone().layer(Extension(ConnectInfo(gegenstelle)));
+                        // Ohne lesbare lokale Adresse fehlt die Extension: dann kein Rückwärtsname, Abweisung ohne Adresse.
+                        if let Ok(lokal) = strom.local_addr() {
+                            app = app.layer(Extension(LokaleAdresse(kanonisch(lokal))));
+                        }
                         let verbindung = Verbindungsprotokoll::angenommen(&protokoll, gegenstelle);
                         let ende = ende.clone();
                         verbindungen.spawn(async move {
@@ -223,6 +232,63 @@ mod tests {
         let gesehen = herkunft(&format!("http://127.0.0.1:{port}/"), Some(zweiter)).await;
 
         assert_eq!(gesehen, "127.0.0.2");
+    }
+
+    /// Startet die Annahmeschleife mit einer Route, die die lokale Adresse der Verbindung nennt (B0366).
+    async fn lokale_adresse_zeigen(host: &str) -> u16 {
+        let app = Router::new().route(
+            "/",
+            get(
+                |Extension(LokaleAdresse(lokal)): Extension<LokaleAdresse>| async move {
+                    lokal.to_string()
+                },
+            ),
+        );
+        let listener = TcpListener::bind((host, 0)).await.expect("gebunden");
+        let port = listener.local_addr().expect("Adresse").port();
+        tokio::spawn(ausliefern(
+            listener,
+            app,
+            Ende::nie(),
+            Verbindungsgrenzen::fuer_deskriptoren(None),
+            programmpflege(),
+            Arc::new(Protokoll::ohne_ablage()),
+        ));
+        port
+    }
+
+    #[tokio::test]
+    async fn die_lokale_adresse_ist_die_angesprochene_mit_port() {
+        let port = lokale_adresse_zeigen("127.0.0.1").await;
+
+        let gesehen = herkunft(&format!("http://127.0.0.1:{port}/"), None).await;
+
+        assert_eq!(gesehen, format!("127.0.0.1:{port}"));
+    }
+
+    /// Matrix K4, B6: über `[::1]` bei `--host ::` → `::1`; über 127.0.0.2 bei `--host ::` kanonisch 127.0.0.2.
+    #[cfg(target_os = "linux")]
+    #[tokio::test]
+    async fn die_lokale_adresse_ist_kanonisch_auch_auf_allen_ipv6_schnittstellen() {
+        let port = lokale_adresse_zeigen("::").await;
+
+        let ueber_v6 = herkunft(&format!("http://[::1]:{port}/"), None).await;
+        let ueber_zweite = herkunft(&format!("http://127.0.0.2:{port}/"), None).await;
+
+        assert_eq!(ueber_v6, format!("[::1]:{port}"));
+        assert_eq!(ueber_zweite, format!("127.0.0.2:{port}"));
+    }
+
+    #[cfg(target_os = "linux")]
+    #[tokio::test]
+    async fn auf_allen_ipv4_schnittstellen_ist_die_lokale_adresse_die_angesprochene() {
+        let port = lokale_adresse_zeigen("0.0.0.0").await;
+
+        let ueber_zweite = herkunft(&format!("http://127.0.0.2:{port}/"), None).await;
+        let ueber_erste = herkunft(&format!("http://127.0.0.1:{port}/"), None).await;
+
+        assert_eq!(ueber_zweite, format!("127.0.0.2:{port}"));
+        assert_eq!(ueber_erste, format!("127.0.0.1:{port}"));
     }
 
     /// Ende-Signal für alle (B0078): ein Handler, der wie ein Strom auf das Ende hört, antwortet beim Signal
