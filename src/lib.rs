@@ -1,5 +1,7 @@
 //! localchatA — ein Programm liefert Weboberfläche und WebAPI für genau einen Ordner aus (ADR-0001).
 
+#![forbid(unsafe_code)]
+
 mod anwesenheit;
 pub mod fehler;
 pub mod gespraeche;

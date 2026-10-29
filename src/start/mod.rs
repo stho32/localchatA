@@ -46,19 +46,25 @@ use crate::zufall::Betriebssystemzufall;
 use aufruf::HILFE;
 use std::net::SocketAddr;
 use std::path::Path;
-use std::process::ExitCode;
 use std::sync::{Arc, OnceLock};
 use std::time::{Duration, Instant};
+
+/// Exit-Code: geordnet beendet oder Hilfe. Die drei Codes stehen nur hier (ADR-0010 Ergänzung Karte #35, Regel 3).
+pub const GELAUFEN: u8 = 0;
+/// Exit-Code: Laufzeit, Ordner, Port oder Sperre scheitert.
+pub const STARTFEHLER: u8 = 1;
+/// Exit-Code: falscher Aufruf oder unlesbarer Wert aus der Umgebung.
+pub const FALSCHER_AUFRUF: u8 = 2;
 
 /// Führt einen Aufruf (Argumente ohne Programmnamen) bis zum Ende aus und liefert den Exit-Code:
 /// 0 geordnet beendet oder Hilfe, 1 Ordner, Port oder Sperre scheitert, 2 falscher Aufruf oder
 /// unlesbare Startzeit in `LOCALCHATA_JETZT`, Gnadenfrist in `LOCALCHATA_GNADENFRIST_MS` bzw. Herzschlag in
-/// `LOCALCHATA_HERZSCHLAG_MS`.
-pub async fn ausfuehren<I: IntoIterator<Item = String>>(argumente: I) -> ExitCode {
+/// `LOCALCHATA_HERZSCHLAG_MS`. Eine Zahl statt `ExitCode`, weil `main` sie auf Unix an `_exit` gibt.
+pub async fn ausfuehren<I: IntoIterator<Item = String>>(argumente: I) -> u8 {
     match Startauftrag::aus_argumenten(argumente) {
         Ok(Aufruf::Hilfe) => {
             println!("{HILFE}");
-            ExitCode::SUCCESS
+            GELAUFEN
         }
         Ok(Aufruf::Starten(mut auftrag)) => {
             let umgebung = || std::env::var_os(allenamen::VARIABLE);
@@ -66,7 +72,7 @@ pub async fn ausfuehren<I: IntoIterator<Item = String>>(argumente: I) -> ExitCod
                 Ok(alle_namen) => alle_namen,
                 Err(fehler) => {
                     eprintln!("{fehler}");
-                    return ExitCode::from(2);
+                    return FALSCHER_AUFRUF;
                 }
             };
             let startzeit = std::env::var_os(uhr::STARTZEIT_VARIABLE);
@@ -74,7 +80,7 @@ pub async fn ausfuehren<I: IntoIterator<Item = String>>(argumente: I) -> ExitCod
                 Ok(uhr) => uhr,
                 Err(fehler) => {
                     eprintln!("{fehler}");
-                    return ExitCode::from(2);
+                    return FALSCHER_AUFRUF;
                 }
             };
             let gnadenfrist_wert = std::env::var_os(gnadenfrist::VARIABLE);
@@ -82,7 +88,7 @@ pub async fn ausfuehren<I: IntoIterator<Item = String>>(argumente: I) -> ExitCod
                 Ok(gnadenfrist) => gnadenfrist,
                 Err(fehler) => {
                     eprintln!("{fehler}");
-                    return ExitCode::from(2);
+                    return FALSCHER_AUFRUF;
                 }
             };
             let herzschlag_wert = std::env::var_os(herzschlag::VARIABLE);
@@ -90,7 +96,7 @@ pub async fn ausfuehren<I: IntoIterator<Item = String>>(argumente: I) -> ExitCod
                 Ok(herzschlag) => herzschlag,
                 Err(fehler) => {
                     eprintln!("{fehler}");
-                    return ExitCode::from(2);
+                    return FALSCHER_AUFRUF;
                 }
             };
             let stufe_wert = std::env::var_os(protokollstufe::VARIABLE);
@@ -101,7 +107,7 @@ pub async fn ausfuehren<I: IntoIterator<Item = String>>(argumente: I) -> ExitCod
                 Ok(stufe) => stufe,
                 Err(fehler) => {
                     eprintln!("{fehler}");
-                    return ExitCode::from(2);
+                    return FALSCHER_AUFRUF;
                 }
             };
             let quote_wert = std::env::var_os(plattenquote::VARIABLE);
@@ -110,7 +116,7 @@ pub async fn ausfuehren<I: IntoIterator<Item = String>>(argumente: I) -> ExitCod
                     Ok(quote) => quote,
                     Err(fehler) => {
                         eprintln!("{fehler}");
-                        return ExitCode::from(2);
+                        return FALSCHER_AUFRUF;
                     }
                 };
             let ruhe_wert = std::env::var_os(episodenruhe::VARIABLE);
@@ -118,14 +124,14 @@ pub async fn ausfuehren<I: IntoIterator<Item = String>>(argumente: I) -> ExitCod
                 Ok(ruhe) => ruhe,
                 Err(fehler) => {
                     eprintln!("{fehler}");
-                    return ExitCode::from(2);
+                    return FALSCHER_AUFRUF;
                 }
             };
             let testpanik = match Testpanik::aus_umgebung() {
                 Ok(testpanik) => testpanik,
                 Err(fehler) => {
                     eprintln!("{fehler}");
-                    return ExitCode::from(2);
+                    return FALSCHER_AUFRUF;
                 }
             };
             let namensauskunft: Arc<dyn Namensauskunft> = match Tabelle::aus_umgebung() {
@@ -133,7 +139,7 @@ pub async fn ausfuehren<I: IntoIterator<Item = String>>(argumente: I) -> ExitCod
                 Ok(None) => Arc::new(Echt),
                 Err(fehler) => {
                     eprintln!("{fehler}");
-                    return ExitCode::from(2);
+                    return FALSCHER_AUFRUF;
                 }
             };
             match starten(
@@ -150,17 +156,17 @@ pub async fn ausfuehren<I: IntoIterator<Item = String>>(argumente: I) -> ExitCod
             )
             .await
             {
-                Ok(()) => ExitCode::SUCCESS,
+                Ok(()) => GELAUFEN,
                 Err(Startabbruch::VorDerSperre(fehler)) => {
                     eprintln!("{fehler}");
-                    ExitCode::FAILURE
+                    STARTFEHLER
                 }
-                Err(Startabbruch::Eingetragen) => ExitCode::FAILURE,
+                Err(Startabbruch::Eingetragen) => STARTFEHLER,
             }
         }
         Err(fehler) => {
             eprintln!("{fehler}");
-            ExitCode::from(2)
+            FALSCHER_AUFRUF
         }
     }
 }

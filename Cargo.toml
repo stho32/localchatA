@@ -28,6 +28,7 @@ toml = "1"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "signal", "sync", "time"] }
 
 [target.'cfg(unix)'.dependencies]
+libc = "0.2.191"
 rustix = { version = "1", features = ["net", "process", "system"] }
 
 [dev-dependencies]
@@ -39,7 +40,7 @@ tempfile = "3"
 rustix = { version = "1", features = ["process", "std"] }
 
 [lints.rust]
-unsafe_code = "forbid"
+unsafe_code = "deny"
 
 [lints.clippy]
 unwrap_used = "deny"
