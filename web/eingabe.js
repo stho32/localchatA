@@ -84,8 +84,10 @@ export function eingabeAnlegen({ senden, entwurf }) {
     textBewerten();
     entwurf.eingabe(channel, feld.value);
   });
+  // Die Zeigerart wird je Tastendruck gefragt: steckt jemand eine Maus ans Tablet, gilt sofort die neue Regel (K5).
+  // Bei 'zeile' und während einer Komposition schreibt der Browser bzw. die Bildschirmtastatur die Zeile selbst.
   feld.addEventListener('keydown', (ereignis) => {
-    const wirkung = taste(ereignis, feld.value);
+    const wirkung = taste(ereignis, feld.value, zeigerart());
     const enterOhneZeile = ereignis.key === 'Enter' && wirkung !== 'zeile' && !komponiert(ereignis);
     if (enterOhneZeile) {
       ereignis.preventDefault();
@@ -149,6 +151,13 @@ export function eingabeAnlegen({ senden, entwurf }) {
     },
     fokussieren: () => feld.focus(),
   };
+}
+
+function zeigerart() {
+  if (window.matchMedia('(pointer: coarse)').matches) {
+    return 'grob';
+  }
+  return 'fein';
 }
 
 function komponiert(ereignis) {
