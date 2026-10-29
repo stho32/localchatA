@@ -101,4 +101,181 @@ mod tests {
         let datei = Datei::mit(b"\xFF\xD8\xFF\xE1\xFF\xFFExif".to_vec());
         assert!(matches!(tilgen(&datei), Err(Abbruch::Metadaten(_))));
     }
+
+    fn ergebnis(daten: Vec<u8>) -> (Ergebnis<Option<Getilgt>>, std::time::Duration, usize) {
+        let laenge = daten.len();
+        let datei = Datei::mit(daten);
+        let beginn = std::time::Instant::now();
+        let ergebnis = tilgen(&datei);
+        assert_eq!(datei.inhalt().len(), laenge, "die Länge ändert sich nie");
+        (ergebnis, beginn.elapsed(), datei.groesste_lesung())
+    }
+
+    fn kiste(typ: &[u8], inhalt: &[u8]) -> Vec<u8> {
+        [&((inhalt.len() + 8) as u32).to_be_bytes()[..], typ, inhalt].concat()
+    }
+
+    /// Robust (M48, M49): kaputte Längen, Riesenlängen, tiefe und viele Blöcke, falsche CRC → keine Panik, keine
+    /// Schleife, nichts außerhalb der Datei, Ergebnis getilgt oder `metadaten`, je Fall ≤ 2 s.
+    #[test]
+    fn robust_gegen_kaputte_strukturen() {
+        let ftyp = kiste(b"ftyp", b"isom\0\0\x02\0isommp41");
+        let mut tief = Vec::new();
+        for _ in 0..10_000 {
+            tief = kiste(b"udta", &tief);
+        }
+        let viele_chunks: Vec<u8> = [
+            &b"\x89PNG\r\n\x1a\n"[..],
+            &[0u8, 0, 0, 0, b'x', b'x', b'x', b'x', 0, 0, 0, 0].repeat(1_000_000),
+        ]
+        .concat();
+        let faelle: Vec<(&str, Vec<u8>)> = vec![
+            ("Segmentlänge 0", vec![0xFF, 0xD8, 0xFF, 0xE1, 0, 0]),
+            ("Segmentlänge 1", vec![0xFF, 0xD8, 0xFF, 0xE1, 0, 1, 9]),
+            (
+                "Segment über das Ende",
+                vec![0xFF, 0xD8, 0xFF, 0xE1, 0x40, 0, 1, 2, 3],
+            ),
+            (
+                "Box size 0",
+                [ftyp.clone(), vec![0, 0, 0, 0, b'm', b'o', b'o', b'v']].concat(),
+            ),
+            (
+                "Box size 1 mit 2^64 − 1",
+                [
+                    ftyp.clone(),
+                    vec![0, 0, 0, 1, b'm', b'o', b'o', b'v'],
+                    u64::MAX.to_be_bytes().to_vec(),
+                ]
+                .concat(),
+            ),
+            (
+                "Box size 8 mit Kindern",
+                [
+                    ftyp.clone(),
+                    vec![
+                        0, 0, 0, 8, b'm', b'o', b'o', b'v', 0, 0, 0, 9, b'u', b'd', b't', b'a',
+                    ],
+                ]
+                .concat(),
+            ),
+            (
+                "Verschachtelung 10.000",
+                [ftyp.clone(), kiste(b"moov", &tief)].concat(),
+            ),
+            ("10⁶ leere Chunks", viele_chunks),
+            (
+                "falsche CRC",
+                [
+                    &b"\x89PNG\r\n\x1a\n"[..],
+                    &[0, 0, 0, 1, b't', b'E', b'X', b't', b'x', 1, 2, 3, 4],
+                    &[0, 0, 0, 0, b'I', b'E', b'N', b'D', 0, 0, 0, 0],
+                ]
+                .concat(),
+            ),
+        ];
+        for (fall, daten) in faelle {
+            let (ergebnis, dauer, lesung) = ergebnis(daten);
+            assert!(
+                dauer < std::time::Duration::from_secs(2),
+                "{fall}: {dauer:?}"
+            );
+            assert!(lesung <= port::STUECK, "{fall}");
+            assert!(
+                matches!(ergebnis, Ok(_) | Err(Abbruch::Metadaten(_))),
+                "{fall}: {ergebnis:?}"
+            );
+        }
+    }
+
+    /// Metadaten nach `SOS` bzw. nach `IEND` und ein Polyglot mit zweitem `ftyp` sind Daten, kein Block.
+    #[test]
+    fn nach_dem_ende_ist_nichts_metadatum() {
+        let nach_sos = [
+            &[0xFF, 0xD8, 0xFF, 0xDA, 0, 2][..],
+            b"\xFF\xE1\x00\x10Exif\0\0GPS 52 13",
+        ]
+        .concat();
+        let (getilgt, _, _) = ergebnis(nach_sos.clone());
+        assert!(getilgt.is_ok());
+        let datei = Datei::mit(nach_sos.clone());
+        tilgen(&datei).expect("getilgt");
+        assert_eq!(datei.inhalt(), nach_sos, "nach SOS unverändert");
+        let zweites = [
+            kiste(b"ftyp", b"isom\0\0\x02\0isom"),
+            kiste(b"mdat", b"Medien"),
+            kiste(b"ftyp", b"heic"),
+            kiste(b"meta", b"\0\0\0\0"),
+        ]
+        .concat();
+        let datei = Datei::mit(zweites.clone());
+        tilgen(&datei).expect("getilgt");
+        assert_eq!(datei.inhalt(), zweites);
+    }
+
+    /// Präparierte Metadaten (M47): GPS nur in XMP, nur in der MakerNote, nur in IPTC, zwei `APP1`-Exif, Extended XMP
+    /// über mehrere Segmente, komprimiertes PNG `iTXt` → danach keine Ortsangabe in den Bytes, Bilddaten gleich.
+    #[test]
+    fn praeparierte_metadaten() {
+        let segment = |marke: u8, inhalt: &[u8]| {
+            [
+                &[0xFF, marke][..],
+                &((inhalt.len() + 2) as u16).to_be_bytes(),
+                inhalt,
+            ]
+            .concat()
+        };
+        let jpeg = |segmente: Vec<Vec<u8>>| {
+            [
+                vec![0xFF, 0xD8],
+                segmente.concat(),
+                segment(0xDA, b"\x01"),
+                b"Bilddaten".to_vec(),
+            ]
+            .concat()
+        };
+        let exif = |text: &[u8]| [&b"Exif\0\0MM\0*\0\0\0\x08\0\0\0\0\0\0"[..], text].concat();
+        let ext = b"http://ns.adobe.com/xmp/extension/\0";
+        let faelle = vec![
+            jpeg(vec![segment(
+                0xE1,
+                b"http://ns.adobe.com/xap/1.0/\0<GPSLatitude>52</GPSLatitude>",
+            )]),
+            jpeg(vec![segment(0xE1, &exif(b"MakerNote GPS 52.52 13.40"))]),
+            jpeg(vec![segment(0xED, b"Photoshop 3.0\08BIM GPS 52.52")]),
+            jpeg(vec![
+                segment(0xE1, &exif(b"GPS 52.52")),
+                segment(0xE1, &exif(b"GPS 13.40")),
+            ]),
+            jpeg(vec![
+                segment(0xE1, &[&ext[..], b"Teil1 GPS"].concat()),
+                segment(0xE1, &[&ext[..], b"Teil2 GPS"].concat()),
+            ]),
+        ];
+        for daten in faelle {
+            let datei = Datei::mit(daten.clone());
+            tilgen(&datei).expect("getilgt");
+            let inhalt = datei.inhalt();
+            assert!(
+                !inhalt.windows(3).any(|f| f == b"GPS"),
+                "{}",
+                String::from_utf8_lossy(&daten)
+            );
+            assert!(inhalt.ends_with(b"Bilddaten"));
+        }
+        let mut png = b"\x89PNG\r\n\x1a\n".to_vec();
+        for (typ, daten) in [
+            (&b"zTXt"[..], &b"Location\0\0x\x9cGPS"[..]),
+            (b"iTXt", b"XML:com.adobe.xmp\0\x01\0\0\0x\x9cGPS"),
+            (b"IEND", b""),
+        ] {
+            png.extend_from_slice(&(daten.len() as u32).to_be_bytes());
+            png.extend_from_slice(typ);
+            png.extend_from_slice(daten);
+            png.extend_from_slice(&bild::crc32(&[typ, daten], 0).to_be_bytes());
+        }
+        let datei = Datei::mit(png);
+        tilgen(&datei).expect("getilgt");
+        assert!(!datei.inhalt().windows(3).any(|f| f == b"GPS"));
+    }
 }
