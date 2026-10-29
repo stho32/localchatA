@@ -187,7 +187,7 @@ impl Strom {
                     Empfang::Ereignis(Ereignis::Anhaenge { channel, geloescht }) => {
                         Ausgabe::Anhaenge { channel, geloescht }
                     }
-                    Empfang::NeuerStand => {
+                    Empfang::NeuerStand { .. } => {
                         let stand = self.anwesenheit.teilnehmer();
                         self.zuletzt = stand.stand;
                         let channels = match channels_holen(&self.channels).await {

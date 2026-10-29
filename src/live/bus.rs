@@ -26,8 +26,10 @@ pub enum Ereignis {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Empfang {
     Ereignis(Ereignis),
-    /// Ereignisse sind verloren gegangen — der Abonnent braucht einen neuen Stand.
-    NeuerStand,
+    /// Ereignisse sind verloren gegangen — der Abonnent braucht einen neuen Stand; `verpasst` zählt sie.
+    NeuerStand {
+        verpasst: u64,
+    },
 }
 
 pub struct Bus {
@@ -62,7 +64,9 @@ impl Abonnement {
     pub async fn naechstes(&mut self) -> Option<Empfang> {
         match self.empfaenger.recv().await {
             Ok(ereignis) => Some(Empfang::Ereignis(ereignis)),
-            Err(broadcast::error::RecvError::Lagged(_)) => Some(Empfang::NeuerStand),
+            Err(broadcast::error::RecvError::Lagged(verpasst)) => {
+                Some(Empfang::NeuerStand { verpasst })
+            }
             Err(broadcast::error::RecvError::Closed) => None,
         }
     }
@@ -159,7 +163,10 @@ mod tests {
             bus.veroeffentlichen(wechsel(stand));
         }
 
-        assert_eq!(langsam.naechstes().await, Some(Empfang::NeuerStand));
+        assert_eq!(
+            langsam.naechstes().await,
+            Some(Empfang::NeuerStand { verpasst: 2 })
+        );
         assert_eq!(
             langsam.naechstes().await,
             Some(Empfang::Ereignis(wechsel(3)))
@@ -167,6 +174,23 @@ mod tests {
         assert_eq!(
             langsam.naechstes().await,
             Some(Empfang::Ereignis(wechsel(4)))
+        );
+    }
+
+    /// R00022 F0073 B0348 (Abnahme-Probe wörtlich): Bus mit Kapazität 2, 5 Ereignisse veröffentlicht → `naechstes`
+    /// liefert `NeuerStand { verpasst: 3 }`.
+    #[tokio::test]
+    async fn der_neue_stand_nennt_die_zahl_der_verpassten_ereignisse() {
+        let bus = Bus::neu(2);
+        let mut langsam = bus.abonnieren();
+
+        for stand in 1..=5 {
+            bus.veroeffentlichen(wechsel(stand));
+        }
+
+        assert_eq!(
+            langsam.naechstes().await,
+            Some(Empfang::NeuerStand { verpasst: 3 })
         );
     }
 
