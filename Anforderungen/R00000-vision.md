@@ -59,9 +59,10 @@ helfen können.
   Anhang-Quote wird frei.
 
 - **Mensch und KI sind gleichberechtigt.** Der Mensch schreibt im Browser, der
-  Agent über die API oder an den Dateien. Wer schreiben will, gibt sich selbst einen
-  Namen; die Herkunft, von der er kommt (IP-Adresse oder Rechnername), ergänzt ihn —
-  `shoff@127.0.0.1`, `claude@localhost`, `claude-entwickler@server.de`. Jeder Name
+  Agent über die API; die Dateien kann jeder lesen, schreiben tut nur localchatA
+  selbst. Wer schreiben will, gibt sich selbst einen Namen; die IP-Adresse, von der
+  er kommt, ergänzt ihn als Herkunft — `shoff@127.0.0.1`, `claude@192.168.1.20`,
+  `claude-entwickler@fd00::7`. Jeder Name
   vor dem `@` ist nur einmal vergeben: ein zweiter `claude` wird abgewiesen, egal
   von wo. Jede Nachricht nennt ihren Absender. Eine Anmeldung gibt es nicht.
 
@@ -79,7 +80,11 @@ helfen können.
   Aufbewahrungsfrist entfallen Nachrichten endgültig; daneben gibt es für Nachrichten
   eine zweite Löschhandlung: der Absender löscht seine eigene Nachricht (Zielbild
   „Eigene Nachrichten bearbeiten und löschen“). Anhänge haben eine eigene: sie lassen
-  sich im Laufwerk löschen, die Nachricht bleibt stehen.
+  sich im Laufwerk löschen, die Nachricht bleibt stehen. Archivierte Channels stehen
+  im Browser in einem eigenen Bereich „Archiv“ und lassen sich dort und über die API
+  nur lesen; jeder Teilnehmer kann einen archivierten Channel wiederherstellen,
+  solange sein Archiv besteht. Seine Anhänge stehen gekennzeichnet im Laufwerk und
+  lassen sich dort laden und löschen.
 
 - **Direktnachrichten und Erwähnungen.** Neben Channels gibt es Nachrichten an
   einzelne Teilnehmer und Erwähnungen (`@agent`), damit ein Agent auf das reagieren
@@ -93,7 +98,13 @@ helfen können.
   (Direktgespräche nur für die Beteiligten), darin die Anhänge mit ihrem Bezug zur
   Nachricht und Dateien, die ohne Nachricht direkt abgelegt wurden. Jede Datei zeigt
   Name, Größe und Alter und lässt sich danach sortieren; Suchen und Filtern kommen
-  später dazu. Dazu steht der freie Platz der Anhang-Quote im Blick, und jeder
+  später dazu. Wie in einem Web-Laufwerk lassen sich mehrere Dateien oder ein ganzes
+  Verzeichnis auf einmal als ZIP herunterladen; Dateien ohne Nachricht lassen sich
+  umbenennen, in Unterordnern ordnen, innerhalb ihres Channels verschieben und als
+  ganze Ordner hochladen. Anhänge von Nachrichten behalten ihren Namen und ihren
+  Platz. Eine neue Fassung ist eine neue Datei — Versionen gibt es nicht. Gelöscht
+  ist gelöscht: es gibt keinen Papierkorb, vor dem Löschen steht eine Bestätigung.
+  Dazu steht der freie Platz der Anhang-Quote im Blick, und jeder
   Teilnehmer darf jeden Anhang löschen — einzeln oder gesammelt.
 
 - **Live überall.** Eine neue Nachricht erscheint sofort in allen offenen Sichten,
@@ -159,23 +170,7 @@ fragen und helfen; ich sehe und lenke ihre Gespräche und kann jederzeit mitschr
 
 ## Offene Richtungsfragen
 
-- **Laufwerk — Rückgängig**: Lässt sich ein gelöschter Anhang wiederherstellen (etwa aus
-  einem Papierkorb), oder ist Löschen endgültig?
-- **Laufwerk — Wer gelöscht hat**: Sehen die Teilnehmer, wer einen Anhang gelöscht hat,
-  oder sieht das nur der Betreiber im Betriebsprotokoll?
-- **Laufwerk — Dateien ohne Nachricht**: Entfallen sie mit der Aufbewahrungsfrist ihres
-  Channels, bleiben sie, bis jemand sie löscht, oder gilt für sie eine eigene Frist?
-- **Laufwerk — Unterordner**: Gibt es in einem Channel-Verzeichnis Unterordner, oder ist
-  es flach?
-- **Laufwerk — Umbenennen**: Lassen sich Dateien umbenennen?
-- **Laufwerk — Verschieben**: Lassen sich Dateien zwischen Verzeichnissen verschieben oder
-  kopieren?
-- **Laufwerk — Ersetzen und Versionen**: Lässt sich eine Datei durch eine neue Fassung
-  ersetzen, mit oder ohne Versionen?
-- **Laufwerk — Ordner hochladen**: Lassen sich ganze Ordner hochladen, mit oder ohne ihre
-  Struktur?
-- **Laufwerk — Archiv herunterladen**: Lassen sich mehrere Dateien oder ein ganzes
-  Verzeichnis auf einmal als Archiv herunterladen?
+Derzeit keine.
 
 ## Ergänzungshistorie
 
@@ -208,3 +203,8 @@ fragen und helfen; ich sehe und lenke ihre Gespräche und kann jederzeit mitschr
 | 2026-10-29 | Richtungsfrage „Nachricht löschen — Anhänge“ entschieden: die Anhänge einer gelöschten Nachricht werden mitgelöscht wie beim Löschen im Laufwerk, ihr Platz in der Anhang-Quote wird frei; Zielbild ergänzt, Leitplanke „Anhang-Quote“: „bis jemand im Laufwerk Platz freigibt (Löschen, auch gesammelt)“ ersetzt durch „bis jemand Platz freigibt (Löschen im Laufwerk, auch gesammelt, oder Löschen einer eigenen Nachricht mit ihren Anhängen)“ — Betreiber 2026-10-29 (Karte #48, Option 2): „sie werden mitgelöscht (Zustand gelöscht wie beim Löschen im Laufwerk, Platz der Anhang-Quote wird frei).“ |
 | 2026-10-29 | Richtungsfrage „Bearbeiten und Löschen — Agenten“ entschieden: Agenten bearbeiten und löschen ihre eigenen Nachrichten über die API genauso wie Menschen im Browser; Zielbild ergänzt — Betreiber 2026-10-29 (Karte #48, Option 1): „Agenten bearbeiten und löschen eigene Nachrichten über die API genauso wie Menschen im Browser.“ |
 | 2026-10-29 | Richtungsfrage „Bearbeiten und Löschen — wer ist der Absender“ entschieden: als Absender gilt jeder, der mit derselben Kennung `name@herkunft` beitritt, auch in einer späteren Sitzung; Zielbild ergänzt — Betreiber 2026-10-29 (Karte #48, Option 1): „jeder, der später mit derselben Kennung name@herkunft beitritt, gilt als Absender.“ |
+| 2026-10-29 | Zielbild „Mensch und KI sind gleichberechtigt“: „Der Mensch schreibt im Browser, der Agent über die API oder an den Dateien. Wer schreiben will, gibt sich selbst einen Namen; die Herkunft, von der er kommt (IP-Adresse oder Rechnername), ergänzt ihn — `shoff@127.0.0.1`, `claude@localhost`, `claude-entwickler@server.de`.“ ersetzt durch „Der Mensch schreibt im Browser, der Agent über die API; die Dateien kann jeder lesen, schreiben tut nur localchatA selbst. Wer schreiben will, gibt sich selbst einen Namen; die IP-Adresse, von der er kommt, ergänzt ihn als Herkunft — `shoff@127.0.0.1`, `claude@192.168.1.20`, `claude-entwickler@fd00::7`.“ — Grund: „an den Dateien“ stammte aus der Zeit von „Markdown in Git“ (ADR-0005 Option A gilt endgültig: nur das Programm schreibt), und die Beispiele mit Rechnernamen widersprachen „die IP Adresse, von der man kommt, ist die Erweiterung“ (gebaut nur IP, ADR-0012/0013); Rest des Absatzes unverändert — Betreiber 2026-10-29: „Bitte durch PO entscheiden lassen alles“; entschieden vom PO, AI-Team/po-entscheidungen.md Zeile 108 und 109 |
+| 2026-10-29 | Zielbild „Laufwerk“ ergänzt: ZIP-Download mehrerer Dateien oder eines Verzeichnisses; Dateien ohne Nachricht umbenennen, in Unterordnern ordnen, innerhalb ihres Channels verschieben, als ganze Ordner hochladen; Anhänge von Nachrichten behalten Namen und Platz; keine Versionen; kein Papierkorb, Bestätigung vor dem Löschen (nie: Kopieren, Verschieben zwischen Channels; in Stufen über das Backlog, Zeile 100) — Betreiber 2026-10-29: „Bitte durch PO entscheiden lassen alles“; entschieden vom PO, AI-Team/po-entscheidungen.md Zeile 99, 100, 101, 102, 103, 104 und 105 |
+| 2026-10-29 | Zielbild „Channels lassen sich archivieren“ ergänzt: Bereich „Archiv“ im Browser, archivierte Channels dort und über die API nur lesbar, Wiederherstellen durch jeden Teilnehmer, solange das Archiv besteht, Anhänge gekennzeichnet im Laufwerk zum Laden und Löschen — Betreiber 2026-10-29: „Bitte durch PO entscheiden lassen alles“; entschieden vom PO, AI-Team/po-entscheidungen.md Zeile 106 und 107 |
+| 2026-10-29 | Richtungsfragen „Laufwerk — Wer gelöscht hat“ und „Laufwerk — Dateien ohne Nachricht“ entschieden und ausgetragen: Teilnehmer sehen nur „gelöscht“, wer gelöscht hat, steht in der `INFORMATION`-Zeile des Betriebsprotokolls (entschieden vom PO, Zeile 79); Dateien ohne Nachricht entfallen mit der Aufbewahrungsfrist ihres Channels, gerechnet ab dem Ablegen (entschieden vom PO, Zeile 80) |
+| 2026-10-29 | Richtungsfragen „Laufwerk — Rückgängig“ (kein Rückgängig, kein Papierkorb; Zeile 99), „Unterordner“ (ja, nur für Dateien ohne Nachricht; Zeile 101), „Umbenennen“ (nur Dateien ohne Nachricht; Zeile 102), „Verschieben“ (nur innerhalb des Channels, kein Kopieren; Zeile 103), „Ersetzen und Versionen“ (neue Fassung ist neue Datei; Zeile 104), „Ordner hochladen“ (ja, mit Struktur; Zeile 104), „Archiv herunterladen“ (Auswahl oder Verzeichnis als ZIP; Zeile 105) entschieden und ausgetragen; „Offene Richtungsfragen“: „Derzeit keine.“ — Betreiber 2026-10-29: „Bitte durch PO entscheiden lassen alles“; entschieden vom PO, AI-Team/po-entscheidungen.md Zeile 99–105 |
