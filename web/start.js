@@ -8,6 +8,7 @@ import * as teilnehmerliste from './teilnehmerliste.js';
 import { LEER as KEINE_CHANNELS, channelsZusammenfuehren } from './channels.js';
 import { verbinden } from './live.js';
 import { sekundentaktAnlegen } from './sekundentakt.js';
+import { wiederbeitrittAnlegen } from './wiederbeitritt.js';
 
 const api = {
   ich: (token) => rufen('/api/ich', { token }),
@@ -36,9 +37,23 @@ function zeigen(zustand, nachEingabe = false) {
 // Die Channels der Seitenleiste folgen demselben Strom (Stand und Wechsel nach `stand`, ADR-0023 Regel 6).
 // Die Liste folgt dem Strom — im SharedWorker für alle Tabs, sonst im Tab: Stand und Wechsel werden nach
 // `stand` zusammengeführt, geordnet und mit dem Versatz zur Serverzeit gezeichnet, Zeilen „gleich weg“ zählt der
-// Sekundentakt herunter; der Herzschlag erneuert nur den Versatz. Lehnt der Strom das Token ab (Neustart, Gnadenfrist), tritt der zuständige Tab still wieder bei
-// wie beim Laden und gibt das neue Token weiter.
+// Sekundentakt herunter; der Herzschlag erneuert nur den Versatz. Lehnt der Strom (beim zuständigen Tab) oder das Senden
+// das Token ab (Neustart, Gnadenfrist), führt ein Weg zum Wiederbeitritt (wiederbeitritt.js, R00025 F0088).
 function hauptansichtZeigen(teilnehmer, nachEingabe) {
+  const wiederBeitreten = wiederbeitrittAnlegen({
+    speicher,
+    api,
+    sperre: sitzungSperren,
+    gelungen: (token) => {
+      if (laufenderStrom !== null) {
+        laufenderStrom.tokenSetzen(token);
+      }
+    },
+    gescheitert: (zustand) => {
+      stromBeenden();
+      zeigen(zustand);
+    },
+  });
   const ansicht = hauptansicht.zeichnen(wurzel, teilnehmer, {
     kennungFokussieren: nachEingabe,
     channelAnlegen: (name, beschreibung) => rufen('/api/channels', {
@@ -51,7 +66,7 @@ function hauptansichtZeigen(teilnehmer, nachEingabe) {
       const token = speicher.getItem(sitzung.SITZUNG);
       return { ...await nachrichtSenden(channel, text, schluessel, { token }), token };
     },
-    wiederBeitreten: nachSendeAblehnungBeitreten,
+    wiederBeitreten,
   });
   let liste = teilnehmerliste.LEER;
   let channels = KEINE_CHANNELS;
@@ -93,50 +108,19 @@ function hauptansichtZeigen(teilnehmer, nachEingabe) {
     beiZustand: (zustand, { beitreten, token, naechsterVersuchUm }) => {
       ansicht.verbindungZeigen(zustand, naechsterVersuchUm);
       if (zustand === 'abgelehnt' && beitreten) {
-        stillWiederBeitreten(token);
+        wiederBeitreten(token);
       }
     },
   });
 }
 
-// Ohne GET /api/ich: dessen 401 stünde als Konsolenfehler (AK F0013); mit Web Lock tritt auch im Rückfall
-// je Tab nur einer bei, die anderen lesen dessen Token.
-// Das abgelehnte Token kommt vom Strom (im Worker auch für Tabs, deren eigenes Token längst veraltet ist).
-async function stillWiederBeitreten(abgelehntesToken) {
-  const wiederBeitreten = (geschwister) => sitzung.nachAblehnung(speicher, api, abgelehntesToken, geschwister);
-  let zustand;
+// Ohne GET /api/ich: dessen 401 stünde als Konsolenfehler (AK F0013). Mit Web Lock tritt je Browser nur ein Tab
+// zugleich bei; ohne (LAN-Adresse) wartet ein Tab nach dem 409 auf das Token des Nachbar-Tabs.
+function sitzungSperren(arbeit) {
   if (navigator.locks === undefined) {
-    zustand = await wiederBeitreten({ neuesToken: aufTokenEinesAnderenTabsWarten });
-  } else {
-    zustand = await navigator.locks.request(sitzung.SITZUNG, () => wiederBeitreten());
+    return arbeit({ neuesToken: aufTokenEinesAnderenTabsWarten });
   }
-  if (zustand.art === 'kopfzeile') {
-    laufenderStrom.tokenSetzen(speicher.getItem(sitzung.SITZUNG));
-    return;
-  }
-  stromBeenden();
-  zeigen(zustand);
-}
-
-// Eine 401 auf das Senden (Neustart, Gnadenfrist; ADR-0012, ADR-0037 Regel 4): hat ein anderer Weg schon ein neues
-// Token gemerkt, gilt es; sonst mit dem gemerkten Namen und dem alten Token beitreten — lebt die Sitzung noch, ist das
-// eine Wiederkehr (200), sonst ein neuer Beitritt. Der Strom bekommt das neue Token.
-async function nachSendeAblehnungBeitreten(abgelehntesToken) {
-  const beitreten = async () => {
-    const token = speicher.getItem(sitzung.SITZUNG);
-    if (token && token !== abgelehntesToken) {
-      return;
-    }
-    await sitzung.beitreten(speicher.getItem(sitzung.NAME) || '', speicher, api);
-  };
-  if (navigator.locks === undefined) {
-    await beitreten();
-  } else {
-    await navigator.locks.request(sitzung.SITZUNG, beitreten);
-  }
-  if (laufenderStrom !== null) {
-    laufenderStrom.tokenSetzen(speicher.getItem(sitzung.SITZUNG));
-  }
+  return navigator.locks.request(sitzung.SITZUNG, () => arbeit());
 }
 
 function alleZeilen(gruppen) {

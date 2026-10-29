@@ -40,10 +40,13 @@ function tokenVergessen(speicher, abgelehntesToken) {
 
 // Ein 409 auf den eigenen gemerkten Namen kann von einem anderen Tab desselben Browsers stammen, der gerade
 // zuerst beigetreten ist: dessen Token ist dann die gemeinsame Sitzung.
-async function stillBeitreten(name, speicher, api, geschwister) {
+async function stillBeitreten(name, speicher, api, geschwister, abgelehntesToken = null) {
   const zustand = await beitreten(name, speicher, api);
   if (zustand.art !== 'vergeben') {
     return zustand;
+  }
+  if (abgelehntesToken !== null) {
+    tokenVergessen(speicher, abgelehntesToken);
   }
   let tokenEinesAnderenTabs = speicher.getItem(SITZUNG);
   if (!tokenEinesAnderenTabs) {
@@ -103,10 +106,11 @@ function teilnehmerAus(daten) {
   return { kennung: daten.kennung, name: daten.name, herkunft: daten.herkunft, art: daten.art };
 }
 
-// Nach einem 401 aus dem Strom (Neustart, Gnadenfrist): ohne GET /api/ich wieder beitreten — dessen 401
-// (Vertrag aus R00003) stünde sonst als Konsolenfehler. Hat ein anderer Tab schon ein neues Token gemerkt,
-// gilt es; sonst das abgelehnte Token vergessen und still beitreten wie beim Laden — ein 409 kann dann vom
-// Nachbar-Tab stammen, dessen Token übernommen wird (Nacharbeit 3, B2).
+// Nach einem 401 aus Strom oder Senden (Neustart, Gnadenfrist; R00025 F0088 ein Weg): ohne GET /api/ich wieder
+// beitreten — dessen 401 (Vertrag aus R00003) stünde sonst als Konsolenfehler. Hat ein anderer Tab schon ein neues
+// Token gemerkt, gilt es; sonst still beitreten wie beim Laden, mit dem abgelehnten Token im Kopf: lebt die Sitzung
+// doch, ist es eine Wiederkehr (200), sonst ein neuer Beitritt. Ein 409 kann vom Nachbar-Tab stammen, dessen Token
+// übernommen wird (Nacharbeit 3, B2); gelingt nichts, ist das abgelehnte Token vergessen.
 export async function nachAblehnung(speicher, api, abgelehntesToken, geschwister = KEINE_GESCHWISTER) {
   const token = speicher.getItem(SITZUNG);
   if (token && token !== abgelehntesToken) {
@@ -116,6 +120,9 @@ export async function nachAblehnung(speicher, api, abgelehntesToken, geschwister
   if (!gemerkterName) {
     return { art: 'beitreten', name: '' };
   }
-  tokenVergessen(speicher, abgelehntesToken);
-  return stillBeitreten(gemerkterName, speicher, api, geschwister);
+  const zustand = await stillBeitreten(gemerkterName, speicher, api, geschwister, abgelehntesToken);
+  if (zustand.art !== 'kopfzeile') {
+    tokenVergessen(speicher, abgelehntesToken);
+  }
+  return zustand;
 }
