@@ -113,12 +113,19 @@ body { background: var(--kd-bg); color: var(--kd-ink); font-family: var(--font-s
 .lc-tile:not(.mensch):not(.agent) { background: var(--kd-surface-2); color: var(--kd-ink-muted); }
 
 /* Eingabe (Baustein Eingabe, ADR-0038 Regel 1): unter dem Verlauf über die volle Breite der Mitte; das Feld wächst
-   bis lc-composer-max und scrollt dann in sich */
+   bis lc-composer-max und scrollt dann in sich; rechts daneben, unten bündig, die Gruppe der Schalter mit „Senden“
+   als letztem (ADR-0038 Ergänzung Karte #41 K3) */
 .lc-comp { flex: none; background: var(--kd-surface); padding: 0 var(--kd-space-12) var(--kd-space-12); }
-.lc-comp-box { border: 1px solid var(--kd-line-strong); background: var(--kd-surface); }
+.lc-comp-box { display: flex; align-items: flex-end; padding: var(--kd-space-4); border: 1px solid var(--kd-line-strong); background: var(--kd-surface); }
 .lc-comp-box:focus-within { outline: 2px solid var(--kd-focus); outline-offset: -1px; }
-.lc .lc-comp-feld { display: block; width: 100%; min-height: 40px; max-height: var(--lc-composer-max); overflow-y: auto; resize: none; border: 0; padding: var(--kd-space-8); background: transparent; color: var(--kd-ink); outline: 0; }
+.lc .lc-comp-feld { display: block; flex: 1; min-width: 0; min-height: 40px; max-height: var(--lc-composer-max); overflow-y: auto; resize: none; border: 0; padding: var(--kd-space-8); background: transparent; color: var(--kd-ink); outline: 0; }
 .lc-comp-feld::placeholder { color: var(--kd-ink-muted); }
+.lc-comp-aktionen { display: flex; flex: none; column-gap: var(--kd-space-8); }
+.lc-comp-senden { min-width: 24px; min-height: 32px; padding: 0 var(--kd-space-12); border: 1px solid var(--kd-accent); background: var(--kd-accent); color: var(--kd-on-accent); font-weight: 600; cursor: pointer; touch-action: manipulation; }
+.lc-comp-senden[aria-disabled="true"] { border-color: var(--kd-line); background: var(--kd-surface); color: var(--kd-ink-muted); cursor: default; }
+@media (pointer: coarse) {
+  .lc-comp-senden { min-width: 44px; min-height: 44px; }
+}
 /* Leerer Channel (ADR-0038 Regel 9): wie Agenten hier schreiben */
 .lc-mitte-hinweis.lc-leer-api { margin-top: 0; color: var(--kd-ink-muted); overflow-wrap: anywhere; }
 .lc-leer-api code { font-family: var(--font-mono); font-size: 12px; }

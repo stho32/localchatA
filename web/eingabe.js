@@ -29,6 +29,7 @@ export function taste(ereignis, text) {
 // Das Feld unter dem Verlauf (Regel 1): <textarea rows="1"> mit zugänglichem Namen und Platzhalter „Nachricht an
 // # name“; es wächst mit dem Inhalt bis lc-composer-max (im CSS) und scrollt dann in sich. `senden(text)` bekommt
 // den Text; danach ist das Feld leer und wieder eine Zeile hoch, der Fokus bleibt (Regel 3). Gesperrt wird nie.
+// Rechts vom Feld die Gruppe der Schalter mit dem Knopf „Senden“ als letztem (Ergänzung Karte #41 K3, K7).
 // Darunter die Hinweiszeile (Regel 4): Länge und Steuerzeichen mit derselben Regel wie der Server — bei einem Fehler
 // sendet Enter nicht. Der Entwurf (entwurf.js) folgt dem Channel (Regel 7).
 export function eingabeAnlegen({ senden, entwurf }) {
@@ -39,10 +40,18 @@ export function eingabeAnlegen({ senden, entwurf }) {
   feld.setAttribute('aria-describedby', zeile.id);
   const angesagt = element('span', { className: 'lc-unsichtbar' });
   angesagt.setAttribute('aria-live', 'polite');
-  const kasten = element('div', { className: 'lc-comp-box' }, [feld]);
+  const knopf = element('button', { type: 'button', className: 'lc-comp-senden', textContent: 'Senden' });
+  knopf.setAttribute('aria-describedby', zeile.id);
+  const aktionen = element('div', { className: 'lc-comp-aktionen' }, [knopf]);
+  const kasten = element('div', { className: 'lc-comp-box' }, [feld, aktionen]);
   const rahmen = element('div', { className: 'lc-comp' }, [kasten, zeile, angesagt]);
   let channel = null;
   let gezeigt = hinweis(textPruefen(''));
+
+  function textBewerten() {
+    hinweisZeigen();
+    bereitZeigen();
+  }
 
   function hinweisZeigen() {
     const neu = hinweis(textPruefen(feld.value));
@@ -59,9 +68,18 @@ export function eingabeAnlegen({ senden, entwurf }) {
     gezeigt = neu;
   }
 
+  // Nicht verfügbar heißt aria-disabled, nie disabled: der Knopf bleibt fokussierbar und wird vorgelesen (K2, K3).
+  function bereitZeigen() {
+    if (sendbar(feld.value)) {
+      knopf.removeAttribute('aria-disabled');
+    } else {
+      knopf.setAttribute('aria-disabled', 'true');
+    }
+  }
+
   feld.addEventListener('input', () => {
     hoeheAnpassen(feld);
-    hinweisZeigen();
+    textBewerten();
     entwurf.eingabe(channel, feld.value);
   });
   feld.addEventListener('keydown', (ereignis) => {
@@ -74,7 +92,7 @@ export function eingabeAnlegen({ senden, entwurf }) {
     if (wirkung === 'senden' && sendbar(text)) {
       feld.value = '';
       hoeheAnpassen(feld);
-      hinweisZeigen();
+      textBewerten();
       entwurf.gesendet(channel);
       senden(text);
     }
@@ -97,7 +115,7 @@ export function eingabeAnlegen({ senden, entwurf }) {
       feld.placeholder = beschriftung;
       feld.value = entwurf.oeffnen(name);
       hoeheAnpassen(feld);
-      hinweisZeigen();
+      textBewerten();
     },
     fokussieren: () => feld.focus(),
   };
