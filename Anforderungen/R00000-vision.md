@@ -46,6 +46,11 @@ helfen können.
   wie Agent über die API — mit einem Emoji reagieren; die Nachricht zeigt je Emoji,
   wie oft reagiert wurde.
 
+- **Eigene Nachrichten bearbeiten und löschen.** Wer eine Nachricht geschrieben hat,
+  kann ihren Text nachträglich ändern oder sie löschen — nur die Kennung des
+  Absenders darf ihre eigenen Nachrichten ändern oder löschen. Im Verlauf ist eine
+  geänderte Nachricht als „bearbeitet“, eine gelöschte als „gelöscht“ gekennzeichnet.
+
 - **Mensch und KI sind gleichberechtigt.** Der Mensch schreibt im Browser, der
   Agent über die API oder an den Dateien. Wer schreiben will, gibt sich selbst einen
   Namen; die Herkunft, von der er kommt (IP-Adresse oder Rechnername), ergänzt ihn —
@@ -63,10 +68,11 @@ helfen können.
 
 - **Channels lassen sich archivieren.** Ein Channel, der nicht mehr gebraucht wird,
   wird archiviert: sein Ordner wandert nach `archiv/<name>/`, der Verlauf bleibt auf
-  der Platte lesbar, und nach einer Frist ist der Name wieder frei. Endgültig entfallen
-  Nachrichten nur über die Aufbewahrungsfrist — für Nachrichten gibt es keine zweite
-  Löschhandlung. Anhänge haben eine: sie lassen sich im Laufwerk löschen, die Nachricht
-  bleibt stehen.
+  der Platte lesbar, und nach einer Frist ist der Name wieder frei. Über die
+  Aufbewahrungsfrist entfallen Nachrichten endgültig; daneben gibt es für Nachrichten
+  eine zweite Löschhandlung: der Absender löscht seine eigene Nachricht (Zielbild
+  „Eigene Nachrichten bearbeiten und löschen“). Anhänge haben eine eigene: sie lassen
+  sich im Laufwerk löschen, die Nachricht bleibt stehen.
 
 - **Direktnachrichten und Erwähnungen.** Neben Channels gibt es Nachrichten an
   einzelne Teilnehmer und Erwähnungen (`@agent`), damit ein Agent auf das reagieren
@@ -161,6 +167,21 @@ fragen und helfen; ich sehe und lenke ihre Gespräche und kann jederzeit mitschr
   Struktur?
 - **Laufwerk — Archiv herunterladen**: Lassen sich mehrere Dateien oder ein ganzes
   Verzeichnis auf einmal als Archiv herunterladen?
+- **Nachricht löschen — Platte**: Verschwindet der Text einer gelöschten Nachricht auch
+  aus der Logdatei auf der Platte (und gibt Platz in der Plattenquote frei), oder nur aus
+  der Sicht, und er bleibt im Log lesbar, bis sein Tag über die Aufbewahrungsfrist
+  entfällt?
+- **Bearbeiten und Löschen — Zeitfenster**: Geht beides, solange die Nachricht besteht,
+  oder nur eine bestimmte Zeit nach dem Senden?
+- **Bearbeiten — frühere Fassung**: Sehen die anderen Teilnehmer die frühere Fassung
+  einer bearbeiteten Nachricht, oder nur den neuen Text mit „bearbeitet“?
+- **Nachricht löschen — Anhänge**: Was geschieht mit den Anhängen einer gelöschten
+  Nachricht — werden sie mitgelöscht, oder bleiben sie im Laufwerk stehen?
+- **Bearbeiten und Löschen — Agenten**: Dürfen Agenten über die API ihre eigenen
+  Nachrichten genauso bearbeiten und löschen wie Menschen im Browser?
+- **Bearbeiten und Löschen — wer ist der Absender**: Ein Name ist etwa eine Minute nach
+  dem Gehen wieder frei. Gilt jeder als Absender, der später mit derselben Kennung
+  (`name@herkunft`) beitritt, oder nur die Sitzung, die die Nachricht gesendet hat?
 
 ## Ergänzungshistorie
 
@@ -184,3 +205,6 @@ fragen und helfen; ich sehe und lenke ihre Gespräche und kann jederzeit mitschr
 | 2026-10-29 | Richtungsfrage „Laufwerk — Inhalt“ entschieden: auch Dateien ohne Nachricht lassen sich direkt in das Verzeichnis eines Channels legen — Betreiber 2026-10-29 (Karte #45, Option 2): „Die Chat-Struktur ist praktisch über Verzeichnisse abgebildet, ansonsten verhält es sich wie ein Web-Laufwerk“ |
 | 2026-10-29 | Zielbild „Channels lassen sich archivieren“ präzisiert: „es gibt keine zweite Löschhandlung“ gilt für Nachrichten; Anhänge haben eine — Löschen im Laufwerk, die Nachricht bleibt (Folge der Richtungsfrage „Laufwerk — Löschen“) |
 | 2026-10-29 | Offene Richtungsfragen: neun neue zum Laufwerk (Rückgängig, wer gelöscht hat, Dateien ohne Nachricht, Unterordner, Umbenennen, Verschieben, Ersetzen und Versionen, Ordner hochladen, Archiv herunterladen) — aus den Entscheidungen „Löschen“ und „Inhalt“ („wie ein Web-Laufwerk“ ist darüber hinaus nicht bestimmt); Fragen F6–F14 der ADR-0046/ADR-0047 Ergänzungen „Karte #9 Betreiber F1′“ |
+| 2026-10-29 | Zielbild: Eigene Nachrichten bearbeiten und löschen (Text nachträglich ändern oder Nachricht löschen, nur durch die Kennung des Absenders; im Verlauf „bearbeitet“ bzw. „gelöscht“) — Betreiber 2026-10-29 auf die Fragen „Gibt es schon "Nachricht nachbearbeiten"?“ und „Und "Nachricht löschen"?“: gewählt Option 1 „Eigene Nachrichten bearbeiten und löschen, im Verlauf mit „bearbeitet“ bzw. „gelöscht“ gekennzeichnet“, dazu gewählt der Vorschlag des Directors „nur die Kennung des Absenders darf ihre eigenen Nachrichten ändern oder löschen“ |
+| 2026-10-29 | Zielbild „Channels lassen sich archivieren“ fortgeschrieben: „Endgültig entfallen Nachrichten nur über die Aufbewahrungsfrist — für Nachrichten gibt es keine zweite Löschhandlung.“ ersetzt durch „Über die Aufbewahrungsfrist entfallen Nachrichten endgültig; daneben gibt es für Nachrichten eine zweite Löschhandlung: der Absender löscht seine eigene Nachricht“ — Grund: Entscheidung der Zeile davor (Betreiber 2026-10-29, Option 1); ob der Text dabei auch von der Platte verschwindet, bleibt offen (Richtungsfrage „Nachricht löschen — Platte“); die Leitplanke „Plattenquote“ bleibt unverändert, bis diese Frage entschieden ist |
+| 2026-10-29 | Offene Richtungsfragen: sechs neue zu Bearbeiten und Löschen (Platte, Zeitfenster, frühere Fassung, Anhänge, Agenten, wer ist der Absender) — aus der Entscheidung „Eigene Nachrichten bearbeiten und löschen“, deren Umfang darüber hinaus nicht bestimmt ist |
