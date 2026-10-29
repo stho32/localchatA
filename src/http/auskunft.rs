@@ -21,6 +21,8 @@ pub const WARTEZEIT: Duration = Duration::from_secs(1);
 /// So lange gilt ein Ergebnis „erlaubt“ bzw. „nicht erlaubt“ (auch Fehler und Zeitgrenze des Resolvers).
 pub const ERLAUBT_GILT: Duration = Duration::from_secs(5 * 60);
 pub const NICHT_ERLAUBT_GILT: Duration = Duration::from_secs(60);
+/// So lange gilt ein positiver Eintrag nach seinem Ablauf noch, während er im Hintergrund aufgefrischt wird.
+pub const GNADENFRIST: Duration = Duration::from_secs(10 * 60);
 /// Höchstens so viele fertige Einträge: die Summe der vier Fächer 128 + 96 + 16 + 16 (ADR-0045 Ergänzung „Karte
 /// #35 Nacharbeit“ Punkt 2); dazu höchstens `GLEICHZEITIG` laufende.
 pub const HOECHSTENS_EINTRAEGE: usize = 256;
@@ -57,6 +59,8 @@ enum Stand {
         ergebnis: Ergebnis,
         bis: Zeit,
         gemeldet: HashSet<String>,
+        /// Läuft für diesen positiven Eintrag in der Gnadenfrist schon eine Auffrischung?
+        auffrischung: bool,
     },
 }
 
@@ -258,9 +262,32 @@ impl Auskunft {
             .cache
             .lock()
             .unwrap_or_else(PoisonError::into_inner);
-        match cache.eintraege.get(abfrage).map(|eintrag| &eintrag.stand) {
+        match cache
+            .eintraege
+            .get_mut(abfrage)
+            .map(|eintrag| &mut eintrag.stand)
+        {
             Some(Stand::Fertig { ergebnis, bis, .. }) if jetzt < *bis => {
                 return Nachsehen::Treffer(ergebnis.clone());
+            }
+            Some(Stand::Fertig {
+                ergebnis,
+                bis,
+                auffrischung,
+                ..
+            }) if ergebnis.positiv() && jetzt < *bis + GNADENFRIST => {
+                let treffer = ergebnis.clone();
+                // Gnadenfrist (ADR-0045 Ergänzung „Karte #35 Nacharbeit“ Punkt 3): sofort erlaubt; auffrischen nur
+                // mit freier Erlaubnis und ohne Zeichen aus dem Eimer, höchstens eine Auffrischung zugleich.
+                if !*auffrischung
+                    && let Ok(erlaubnis) = Arc::clone(&self.erlaubnis).try_acquire_owned()
+                {
+                    *auffrischung = true;
+                    drop(cache);
+                    let (senden, _) = watch::channel(None);
+                    self.aufloesung_starten(abfrage.clone(), arbeit, senden, erlaubnis);
+                }
+                return Nachsehen::Treffer(treffer);
             }
             Some(Stand::Laeuft(empfang)) => return Nachsehen::Warten(empfang.clone()),
             _ => {}
@@ -278,10 +305,20 @@ impl Auskunft {
         let (senden, empfang) = watch::channel(None);
         cache.eintragen(abfrage.clone(), Stand::Laeuft(empfang.clone()));
         drop(cache);
-        let innen = Arc::clone(&self.innen);
-        let abfrage = abfrage.clone();
-        tokio::task::spawn_blocking(move || innen.aufloesen(abfrage, arbeit, senden, erlaubnis));
+        self.aufloesung_starten(abfrage.clone(), arbeit, senden, erlaubnis);
         Nachsehen::Warten(empfang)
+    }
+
+    /// Startet die Auflösung blockierend; ihr Ergebnis ersetzt den Eintrag des Schlüssels.
+    fn aufloesung_starten(
+        &self,
+        abfrage: Abfrage,
+        arbeit: Arbeit,
+        senden: watch::Sender<Option<Ergebnis>>,
+        erlaubnis: OwnedSemaphorePermit,
+    ) {
+        let innen = Arc::clone(&self.innen);
+        tokio::task::spawn_blocking(move || innen.aufloesen(abfrage, arbeit, senden, erlaubnis));
     }
 
     /// Warning-Episode „Namensauflösung zu langsam“ (ADR-0045 Regel 8), eine Quelle für alle Schlüssel.
@@ -369,6 +406,7 @@ impl Innen {
                     ergebnis: ergebnis.clone(),
                     bis,
                     gemeldet: HashSet::new(),
+                    auffrischung: false,
                 },
             );
         // Erst die Erlaubnis zurück, dann melden: wer auf das Ergebnis wartet und gleich die nächste Auflösung
@@ -789,7 +827,8 @@ mod tests {
         assert_eq!(test.fragen("vorwaerts", "same.local"), 1);
     }
 
-    /// Kriterium „Ablauf erlaubt“ (Matrix F4): 4:59 min keine neue Frage, nach 5 min eine.
+    /// Kriterium „Ablauf erlaubt“ (Matrix F4): 4:59 min keine neue Frage, nach 5 min eine — seit der Gnadenfrist
+    /// (Nacharbeit #35, ADR-0045 Ergänzung Punkt 3) im Hintergrund, die Anfrage ist sofort erlaubt.
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn erlaubt_gilt_fuenf_minuten() {
         let test = Testauskunft::mit(&[], &[("x.local", &["127.0.0.1"])]);
@@ -801,7 +840,7 @@ mod tests {
         assert_eq!(test.fragen("vorwaerts", "x.local"), 1);
         a.uhr.stellen(zeit("2026-10-29T12:05:00+01:00"));
         assert_eq!(urteil(&a.auskunft, "x.local").await, Some(true));
-        assert_eq!(test.fragen("vorwaerts", "x.local"), 2);
+        bis(|| test.fragen("vorwaerts", "x.local") == 2).await;
     }
 
     /// Rechenbeispiel „Ablauf nicht erlaubt“ (Matrix C4, C10, B5, F4): t = 0 (1 Frage), 59 s (1), 61 s (2).
@@ -994,6 +1033,130 @@ mod tests {
         (gefragt, abgewiesen)
     }
 
+    /// Belegt beide Erlaubnisse mit hängenden Fragen nach `h1.local` und `h2.local`; zurück kommen die Läufe.
+    async fn erlaubnisse_belegen(
+        a: &Aufbau,
+        test: &Arc<Testauskunft>,
+    ) -> Vec<tokio::task::JoinHandle<Option<bool>>> {
+        let mut laeufe = Vec::new();
+        for name in ["h1.local", "h2.local"] {
+            test.sperren(name);
+            let auskunft = Arc::clone(&a.auskunft);
+            laeufe.push(tokio::spawn(async move {
+                begrenzt(urteil(&auskunft, name)).await
+            }));
+        }
+        bis(|| test.fragen("vorwaerts", "h1.local") + test.fragen("vorwaerts", "h2.local") == 2)
+            .await;
+        laeufe
+    }
+
+    async fn erlaubnisse_freigeben(
+        a: &Aufbau,
+        test: &Testauskunft,
+        laeufe: Vec<tokio::task::JoinHandle<Option<bool>>>,
+    ) {
+        test.oeffnen("h1.local");
+        test.oeffnen("h2.local");
+        for lauf in laeufe {
+            lauf.await.expect("Lauf");
+        }
+        bis(|| a.auskunft.erlaubnis.available_permits() == GLEICHZEITIG).await;
+    }
+
+    /// Kriterium „Nacharbeit Karte #35: Gnadenfrist“ (ADR-0045 Ergänzung Punkt 3): `x.local` erlaubt bei t = 0; bei
+    /// 5:01 min sind beide Erlaubnisse belegt → erlaubt nach < 100 ms, 0 neue Fragen. Sind sie frei, ist die nächste
+    /// Anfrage sofort erlaubt und startet genau eine Auffrischung, auch bei leerem Eimer; antwortet sie „fremd“, ist
+    /// die folgende Anfrage abgewiesen.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn ein_bestaetigter_name_bleibt_in_der_gnadenfrist_sofort_erlaubt() {
+        let test = Testauskunft::mit(&[], &[("x.local", &["127.0.0.1"])]);
+        let a = aufbau(Arc::clone(&test));
+        assert_eq!(urteil(&a.auskunft, "x.local").await, Some(true));
+        a.uhr.stellen(zeit("2026-10-29T12:05:01+01:00"));
+
+        let laeufe = erlaubnisse_belegen(&a, &test).await;
+        let beginn = Instant::now();
+        assert_eq!(urteil(&a.auskunft, "x.local").await, Some(true));
+        assert!(
+            beginn.elapsed() < Duration::from_millis(100),
+            "{:?}",
+            beginn.elapsed()
+        );
+        assert_eq!(test.fragen("vorwaerts", "x.local"), 1);
+        erlaubnisse_freigeben(&a, &test, laeufe).await;
+
+        let leeren: Vec<String> = (0..20)
+            .map(|nummer| format!("leer{nummer}.local"))
+            .collect();
+        for name in &leeren {
+            urteil(&a.auskunft, name).await;
+        }
+        assert!(
+            leeren
+                .iter()
+                .any(|name| test.fragen("vorwaerts", name) == 0),
+            "Eimer leer"
+        );
+        test.sperren("x.local");
+        for _ in 0..5 {
+            let beginn = Instant::now();
+            assert_eq!(urteil(&a.auskunft, "x.local").await, Some(true));
+            assert!(
+                beginn.elapsed() < Duration::from_millis(100),
+                "{:?}",
+                beginn.elapsed()
+            );
+        }
+        bis(|| test.fragen("vorwaerts", "x.local") == 2).await;
+        test.antworten("x.local", &["192.0.2.1"]);
+        test.oeffnen("x.local");
+        let abfrage = Abfrage::Vorwaerts("x.local".into());
+        bis(|| {
+            a.auskunft.erlaubnis.available_permits() == GLEICHZEITIG
+                && a.auskunft.ist_fertig(&abfrage)
+        })
+        .await;
+
+        assert_eq!(urteil(&a.auskunft, "x.local").await, Some(false));
+        assert_eq!(test.fragen("vorwaerts", "x.local"), 2);
+    }
+
+    /// Gnadenfrist, Ende: ohne Auffrischung ist `x.local` bei 14:59 min noch, bei 15:01 min nicht mehr aus der
+    /// Gnadenfrist erlaubt (beide Erlaubnisse belegt, also keine neue Frage); ebenso ein Rückwärtseintrag.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn ohne_auffrischung_endet_die_gnadenfrist_nach_fuenfzehn_minuten() {
+        let test = Testauskunft::mit(
+            &[("127.0.0.2", "chat.fritz.box")],
+            &[("x.local", &["127.0.0.1"])],
+        );
+        let a = aufbau(Arc::clone(&test));
+        let router = Some(vec!["chat.fritz.box".to_string()]);
+        assert_eq!(urteil(&a.auskunft, "x.local").await, Some(true));
+        assert_eq!(
+            a.auskunft.namen_der_adresse(ip("127.0.0.2"), frist()).await,
+            router
+        );
+        let laeufe = erlaubnisse_belegen(&a, &test).await;
+
+        a.uhr.stellen(zeit("2026-10-29T12:14:59+01:00"));
+        assert_eq!(urteil(&a.auskunft, "x.local").await, Some(true));
+        assert_eq!(
+            a.auskunft.namen_der_adresse(ip("127.0.0.2"), frist()).await,
+            router
+        );
+        a.uhr.stellen(zeit("2026-10-29T12:15:01+01:00"));
+        assert_eq!(urteil(&a.auskunft, "x.local").await, None);
+        assert_eq!(
+            a.auskunft.namen_der_adresse(ip("127.0.0.2"), frist()).await,
+            None
+        );
+
+        assert_eq!(test.fragen("vorwaerts", "x.local"), 1);
+        assert_eq!(test.fragen("rueckwaerts", "127.0.0.2"), 1);
+        erlaubnisse_freigeben(&a, &test, laeufe).await;
+    }
+
     /// Rechenbeispiel „Ohne Erlaubnis keine Auflösung“ (E3, Matrix F6): zwei laufen; `neu.local` sofort abgewiesen,
     /// 0 Fragen, kein Eintrag; danach 1 Frage, erlaubt.
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -1106,6 +1269,12 @@ mod tests {
         assert!(!a.auskunft.erstmals_gemeldet(&abfrage, "x.local"));
         a.uhr.stellen(zeit("2026-10-29T12:05:00+01:00"));
         urteil(&a.auskunft, "x.local").await;
+        // Die Auffrischung läuft im Hintergrund (Gnadenfrist); ihr Ergebnis ist ein neuer Eintrag.
+        bis(|| {
+            test.fragen("vorwaerts", "x.local") == 2
+                && a.auskunft.erlaubnis.available_permits() == GLEICHZEITIG
+        })
+        .await;
         assert!(a.auskunft.erstmals_gemeldet(&abfrage, "x.local"));
     }
 }
