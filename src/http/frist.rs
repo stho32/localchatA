@@ -1,6 +1,7 @@
 //! Frist setzen (R00008 F0033, ADR-0031): `PUT /api/channels/{name}/frist {tage}` mit Sitzung. Prüfreihenfolge
 //! (Regel 2): Grenzschutz 403, Sitzung 401, Körper 415/413/400 → unbekannter Channel 404 → Wert 422 `frist` →
-//! defekte Einstellungen 409 `einstellungen-defekt` → 200 `{channel, entfallen}`. Die Arbeit am Verzeichnis läuft
+//! defekte Einstellungen 409 `einstellungen-defekt` → beim Verkürzen ohne Bestätigung Ordner nicht lesbar 500
+//! (Ergänzung R00019) oder Rückfrage 409 `bestaetigen` → 200 `{channel, entfallen}`. Die Arbeit am Verzeichnis läuft
 //! über `spawn_blocking`.
 
 use super::Zustand;
@@ -11,6 +12,7 @@ use super::koerper::{Koerperfehler, Koerperort, json_lesen, koerperfehler_beantw
 use super::teilnehmer::Teilnehmer;
 use crate::gespraeche::fristeintrag::{
     frist_gesetzt_eintrag, frist_nicht_gesetzt_eintrag, pflege_eintrag,
+    tage_nicht_ermittelt_eintrag,
 };
 use crate::gespraeche::{
     Entfaellt, Frist, FristGesetzt, Fristfehler, Gespraeche, Kennung, frist_in_spanne,
@@ -69,6 +71,13 @@ pub async fn setzen(
                 frist_nicht_gesetzt_eintrag(&name, &teilnehmer.kennung, &datei, &ursache),
             );
             Abweisung::Frist(Fristfehler::Ablage { datei, ursache }).beantworten(&name)
+        }
+        Ok(Err(Abweisung::Frist(Fristfehler::TageNichtErmittelt { ordner, ursache }))) => {
+            eintragen(
+                &zustand.protokoll,
+                tage_nicht_ermittelt_eintrag(&name, &teilnehmer.kennung, &ordner, &ursache),
+            );
+            Abweisung::Frist(Fristfehler::TageNichtErmittelt { ordner, ursache }).beantworten(&name)
         }
         Ok(Err(abweisung)) => {
             let regel = abweisung.regelschluessel();
@@ -155,6 +164,7 @@ impl Abweisung {
             Abweisung::Frist(Fristfehler::Bestaetigen(_)) => "bestaetigen",
             Abweisung::Frist(Fristfehler::EinstellungenDefekt { .. }) => "einstellungen_defekt",
             Abweisung::Frist(Fristfehler::Ablage { .. }) => "ablage",
+            Abweisung::Frist(Fristfehler::TageNichtErmittelt { .. }) => "tage_nicht_ermittelt",
         }
     }
 
@@ -188,6 +198,15 @@ impl Abweisung {
                     "fehler": format!("{datei} ist defekt; von Hand reparieren und neu starten."),
                     "regel": REGEL_EINSTELLUNGEN_DEFEKT,
                     "datei": datei,
+                })),
+            )
+                .into_response(),
+            Abweisung::Frist(Fristfehler::TageNichtErmittelt { ordner, .. }) => (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({
+                    "fehler": format!(
+                        "Frist nicht gesetzt — die Tage von # {name} ließen sich nicht ermitteln (Ordner nicht lesbar). Leserecht von {ordner} prüfen und erneut versuchen."
+                    ),
                 })),
             )
                 .into_response(),

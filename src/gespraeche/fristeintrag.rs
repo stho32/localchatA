@@ -112,10 +112,38 @@ pub fn frist_nicht_gesetzt_eintrag(
     datei: &str,
     ursache: &str,
 ) -> Eintrag {
+    nicht_gesetzt(
+        "Frist nicht gesetzt — Einstellungen ließen sich nicht schreiben",
+        channel,
+        von,
+        datei,
+        ursache,
+    )
+}
+
+/// `ERROR frist Frist nicht gesetzt — Tage nicht ermittelt | channel= kennung= datei= ursache=` (ADR-0042
+/// Ergänzung R00019 Punkt 1): verkürzt ohne Bestätigung, der Ordner ließ sich nicht auflisten.
+pub fn tage_nicht_ermittelt_eintrag(
+    channel: &str,
+    von: &Kennung,
+    ordner: &str,
+    ursache: &str,
+) -> Eintrag {
+    nicht_gesetzt(
+        "Frist nicht gesetzt — Tage nicht ermittelt",
+        channel,
+        von,
+        ordner,
+        ursache,
+    )
+}
+
+/// Die eine Form der beiden „Frist nicht gesetzt“: ERROR mit Channel, Kennung, Datei und `ursache`.
+fn nicht_gesetzt(text: &str, channel: &str, von: &Kennung, datei: &str, ursache: &str) -> Eintrag {
     Eintrag::neu(
         Stufe::Error,
         Bereich::Frist,
-        "Frist nicht gesetzt — Einstellungen ließen sich nicht schreiben",
+        text,
         Kontext::neu()
             .mit(Schluessel::Channel, channel)
             .mit(Schluessel::Kennung, von)
@@ -343,12 +371,27 @@ mod tests {
         );
     }
 
+    /// R00019 F0063 „Verkürzen bei nicht lesbarem Ordner“: eigener Text, Ordner als `datei`, ohne `grund`.
+    #[test]
+    fn tage_nicht_ermittelt_beim_setzen_ist_error_mit_kennung_ordner_und_ursache() {
+        assert_eq!(
+            ab_der_stufe(&tage_nicht_ermittelt_eintrag(
+                "allgemein",
+                &beta(),
+                "channels/allgemein",
+                "Permission denied (os error 13)"
+            )),
+            "ERROR frist Frist nicht gesetzt — Tage nicht ermittelt | channel=allgemein kennung=beta@127.0.0.1 datei=channels/allgemein ursache=\"Permission denied (os error 13)\""
+        );
+    }
+
     /// ADR-0040 Regel 3: die Kennung steht nie im Text.
     #[test]
     fn kein_text_traegt_eine_kennung() {
         let eintraege = [
             frist_gesetzt_eintrag("allgemein", 7, 30, &beta()),
             frist_nicht_gesetzt_eintrag("allgemein", &beta(), "d", "g"),
+            tage_nicht_ermittelt_eintrag("allgemein", &beta(), "d", "g"),
             pflege_eintrag(&entfallen(
                 &["2026-10-20"],
                 7,

@@ -207,6 +207,9 @@ pub enum Fristfehler {
     EinstellungenDefekt { datei: String },
     /// Mit der neuen Frist entfielen Tage, und es war nicht bestätigt — nichts geändert (ADR-0031 Regel 2.6).
     Bestaetigen(Entfaellt),
+    /// Verkürzt ohne Bestätigung, und der Ordner ließ sich nicht auflisten — ohne Vorschau keine Rückfrage, nichts
+    /// geändert (ADR-0031 Ergänzung R00019). `ordner` ist `channels/<name>`, `ursache` der Text des Plattenfehlers.
+    TageNichtErmittelt { ordner: String, ursache: String },
     /// Die Einstellungen ließen sich nicht schreiben (ADR-0031 Regel 2.7).
     Ablage { datei: String, ursache: String },
 }
@@ -241,7 +244,8 @@ impl Gespraeche {
     }
 
     /// Unter der Schreibsperre des Verzeichnisses (ADR-0031 Regeln 2.4–2.7): defekt → derselbe Wert (nichts
-    /// geschrieben, `None`) → Vorschau, ohne Bestätigung abgewiesen → Datei schreiben → Frist setzen, `stand` + 1,
+    /// geschrieben, `None`) → nur beim Verkürzen ohne Bestätigung auflisten und Vorschau, entfiele etwas, abgewiesen
+    /// (Ergänzung R00019; Verlängern ist verlustfrei) → Datei schreiben → Frist setzen, `stand` + 1,
     /// Wechsel veröffentlichen, noch unter der Sperre (Regel 4, ADR-0023 Regel 2). Gepflegt wird danach ohne diese
     /// Sperre (Regel 2.8).
     fn frist_eintragen(
@@ -273,12 +277,12 @@ impl Gespraeche {
         if vorher == tage {
             return Ok((channel.clone(), None));
         }
-        if !bestaetigt {
+        if tage < vorher && !bestaetigt {
             let auf_der_platte =
                 self.ablage
                     .tage(&gespraech)
-                    .map_err(|fehler| Fristfehler::Ablage {
-                        datei: gespraech.pfad(),
+                    .map_err(|fehler| Fristfehler::TageNichtErmittelt {
+                        ordner: gespraech.pfad(),
                         ursache: fehler.to_string(),
                     })?;
             if let Some(entfaellt) = vorschau(&auf_der_platte, &sperren(&verlauf), heute, tage) {
@@ -874,6 +878,44 @@ mod tests {
         assert_eq!(
             crate::gespraeche::Logablage::tage(ablage.as_ref(), &zweiter).expect("Tage"),
             Vec::<NaiveDate>::new()
+        );
+    }
+
+    /// R00019 F0063, erster Test aus ADR-0031 Ergänzung R00019 (Speicherablage „Auflisten scheitert“, Frist 30):
+    /// Verlängern listet nicht und gelingt; Verkürzen ohne Bestätigung scheitert mit „Tage nicht ermittelt“ und
+    /// ändert nichts; bestätigt Verkürzen braucht keine Vorschau und gelingt.
+    #[test]
+    fn nur_verkuerzen_ohne_bestaetigung_listet_den_ordner_auf() {
+        let ablage = Arc::new(Speicherablage::neu());
+        let gespraech = Gespraech::channel("allgemein");
+        ablage.einstellungen_setzen(&gespraech, b"frist_tage = 30\n");
+        ablage.tag_setzen(&gespraech, tag("2026-10-28"), &satz("2026-10-28"));
+        let (gespraeche, aufgezeichnet) = mit_aufzeichnung(&ablage);
+        ablage.auflisten_scheitern(&gespraech);
+
+        let verlaengert = gespraeche.frist_setzen("allgemein", 60, false, &beta());
+        let verkuerzt = gespraeche.frist_setzen("allgemein", 7, false, &beta());
+        let stand_danach = gespraeche.channels().stand;
+        let frist_danach = gespraeche.channels().liste[0].frist.clone();
+        let bestaetigt = gespraeche.frist_setzen("allgemein", 7, true, &beta());
+
+        let verlaengert = verlaengert.expect("verlängert ohne Auflisten");
+        assert_eq!(verlaengert.channel.frist, Frist::Tage(60));
+        assert_eq!(
+            verkuerzt,
+            Err(Fristfehler::TageNichtErmittelt {
+                ordner: "channels/allgemein".into(),
+                ursache: "Auflisten scheitert (Speicher-Logablage)".into(),
+            })
+        );
+        assert_eq!(frist_danach, Frist::Tage(60));
+        assert_eq!(stand_danach, 1);
+        let bestaetigt = bestaetigt.expect("bestätigt ohne Vorschau");
+        assert_eq!(bestaetigt.channel.frist, Frist::Tage(7));
+        assert_eq!(bestaetigt.entfallen(), (0, 0));
+        assert_eq!(
+            *sperren(&aufgezeichnet),
+            vec![(1, Frist::Tage(60), true), (2, Frist::Tage(7), true)]
         );
     }
 }
