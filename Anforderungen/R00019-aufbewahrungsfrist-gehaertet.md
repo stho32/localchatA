@@ -13,13 +13,16 @@ Die Aufbewahrungsfrist aus R00008 und ihre Spur im Betriebsprotokoll aus R00017 
 - **Ein nicht lesbarer Ordner hat seinen eigenen Namen**: lässt sich der Ordner eines Channels nicht auflisten, heißt der Eintrag „Tage nicht ermittelt — Ordner nicht lesbar“ statt „Tag nicht entfallen“ oder „Einstellungen ließen sich nicht schreiben“. Verlängern gelingt trotzdem; Verkürzen antwortet 500 mit einem deutschen Satz und Ausweg und ändert nichts.
 - **Die Spur nennt, wer es war**: auf Debug steht jede abgewiesene Anfrage an die Frist-Route im Bereich `frist` mit `channel`, `kennung` und Regelschlüssel; scheitert nach einem bestätigten Verkürzen das Löschen eines Tages, nennt die Zeile `grund=frist_gesetzt` und die Kennung dessen, der verkürzt hat. Im Bereich `frist` ist `grund` immer ein festes Wort (der Anlass), ein Plattenfehler steht immer in `ursache`.
 - **Der Channel-Name bleibt lesbar**: `# name ▾` in der Kopfzeile wird erst gekürzt, wenn Beschreibung und Instanzname keinen Platz mehr abgeben.
+- **Der Dialog bleibt ehrlich**: eine fremde Friständerung holt den zweiten Schritt zurück in den ersten, beide Schalter des zweiten Schritts tragen den Bestätigungssatz für Bildschirmleser, und „ 30“ gilt wie jede Eingabe, die nicht nur aus Ziffern besteht, als ungültig.
 - **Meldungen deutsch mit Ausweg**: ein Serverfehler beim Setzen erscheint im Dialog ohne englischen Systemtext und mit einem Ausweg; das Feld ist nur bei Eingabefehlern als ungültig markiert; die 409 an Agenten spricht wie die Oberfläche von „Tagen … bis einschließlich“.
 
 Zahlt ein auf: [Vision](R00000-vision.md) — „Mensch und KI sind gleichberechtigt“ (Agent und Mensch lesen dieselben Begriffe und bekommen beide einen Ausweg) und „eine gemeinsame LAN-Instanz“ (die einzige endgültige Handlung des Programms, das Löschen, ist auch an ihren Rändern nachvollziehbar). Kein Widerspruch zur Vision.
 
 Herkunft: Karte #12 (I0018), Auto-Reviews vom 2026-10-28 — Observability S1, O1, O2; Code-Review Anmerkung 2; UX-Review Sollte 2 und 3; Rechtschreib-Review Sollte. Schnitt des Directors: die Muss-Befunde und das wacklige Gate sind Nacharbeit #12 an R00008 (B0315–B0318), der Rest ist diese Anforderung.
 
-Slices (WBS `Dokumentation/Planung/localchata.md`, alle unter I0018 Aufbewahrungsfrist je Channel festlegen): F0063 Ordner nicht lesbar, F0064 Frist-Spur mit Kennung, F0065 Channel-Name auf dem Schalter lesbar, F0066 Frist-Meldungen deutsch mit Ausweg.
+Slices (WBS `Dokumentation/Planung/localchata.md`, alle unter I0018 Aufbewahrungsfrist je Channel festlegen): F0063 Ordner nicht lesbar, F0064 Frist-Spur mit Kennung, F0065 Channel-Name auf dem Schalter lesbar, F0066 Frist-Meldungen deutsch mit Ausweg, F0083 Frist-Dialog nach dem Entwicklertest #12.
+
+Nachgezogen am 2026-10-29 (planer, `/anforderung review`, Karte #27): die Nachträge des Directors aus dem Entwicklertest #12 — F0083 neu; die User Stories von R00008 an R00017 angeglichen und „Singular“ → „Einzahl“ in R00008 (ohne Bau).
 
 ### Domänenbezug
 
@@ -57,6 +60,12 @@ Mit R00019 findet die Betreiberin die Ursache mit `grep 'Tage nicht ermittelt' l
 - **500 Schreibfehler** (R00008 F0038): `fehler` ist „Frist nicht gesetzt — channels/<name>/einstellungen.toml ließ sich nicht schreiben. Schreibrecht des Ordners prüfen und erneut versuchen.“ — ohne Fremdtext; der Fremdtext steht weiter im Eintrag `ERROR frist Frist nicht gesetzt …` (R00017).
 - **409 `bestaetigen`**: `fehler` spricht wie die Oberfläche von Tagen und „bis einschließlich“, gebeugt wie nach der Nacharbeit #12: „Mit dieser Frist entfällt sofort 1 Tag bis einschließlich 2026-10-21 mit 1 Nachricht — mit "bestaetigt":true erneut senden.“ bzw. „Mit dieser Frist entfallen sofort 2 Tage bis einschließlich 2026-10-21 mit 5 Nachrichten — …“. Das Datum bleibt `JJJJ-MM-TT` (für Agenten).
 - **Dialog**: `aria-invalid="true"` am Feld nur bei Eingabefehlern (Prüfung vor dem Senden, 422 `frist`); bei 5xx, 404, 409 `einstellungen-defekt` und Netzfehler steht die Fehlerzeile mit ⚠, das Feld bleibt ohne `aria-invalid`. Bei 5xx zeigt die Fehlerzeile den deutschen `fehler` der Antwort; fehlt er, „Nicht gespeichert (Status <n>) — später erneut versuchen.“
+
+### Frist-Dialog nach dem Entwicklertest #12 (F0083; Entwicklertest #12, UX-Wiederholung #12, Rechtschreib-Review #12)
+
+- **Fremde Änderung im zweiten Schritt**: kommt ein Wechsel mit neuer Frist, während der Dialog den zweiten Schritt zeigt, kehrt er in den ersten Schritt zurück: das Feld ist wieder bearbeitbar und zeigt die Eingabe, der Bestätigungssatz und „Frist verkürzen“ sind weg, der Hinweis ergänzt „Inzwischen geändert: <n> Tage.“ wie im ersten Schritt (R00008), der Fokus liegt auf dem Feld. Erst ein neues Speichern fragt den Server, was jetzt entfiele. Heute bleibt der alte Satz stehen, und „Frist verkürzen“ würde eine inzwischen kürzere Frist still verlängern.
+- **„Frist verkürzen“ beschrieben**: der Bestätigungssatz ist die zugängliche Beschreibung von „Zurück“ **und** von „Frist verkürzen“ (R00008 verlangte ihn an „Zurück“ oder am Dialog). Der Kopfkommentar von `web/channel-einstellungen.js` (Zeilen 4–5) sagt das richtig.
+- **Nur Ziffern** (R00008 „Prüfung vor dem Senden“, so zugesagt, nicht so gebaut): eine Eingabe mit Leerzeichen wie „ 30“ ergibt die Fehlerzeile „Frist: ganze Zahl von 1 bis 3650 Tagen.“ und `aria-invalid="true"`, kein Abruf. Ob dafür der Feldtyp aus ADR-0033 Regel 3 (`type="number"`) wechseln muss, zeigt eine Probe im Chromium; ein Wechsel ist eine Ergänzung von ADR-0033 durch den architekt.
 
 ## Nicht-funktionale Anforderungen
 
@@ -103,6 +112,14 @@ Gemeinsam für alle Kriterien, wenn nicht anders genannt: Start und Gegeben wie 
 - [ ] Konsole: keine unbehandelte Ausnahme, kein CSP-Verstoß; in „Serverfehler im Dialog“ höchstens „Failed to load resource“ zu dem `PUT …/frist` mit **500** (vorgeschrieben oben).
 - [ ] **Testname** (Review-Punkt): `e2e/tests/r00008-frist.spec.js` nennt den Test „Esc (US-18): schließt, ohne zu speichern, der Fokus liegt auf # allgemein“.
 
+### F0083 Frist-Dialog nach dem Entwicklertest #12
+
+- [ ] **Zweiter Schritt folgt fremder Änderung** (E2E, zwei Kontexte): `allgemein` mit `frist_tage = 30` und `20.(2)`, `21.(3)`, `22.(1)`, `28.(1)`; A gibt 7 ein, `Enter` → zweiter Schritt. `beta` setzt per API 7 mit `"bestaetigt":true` → bei A innerhalb der Grenze **Z2** aus R00008: erster Schritt, Feld 7 und bearbeitbar, Hinweis „Inzwischen geändert: 7 Tage.“, „Frist verkürzen“ nicht sichtbar, kein Text „entfallen sofort“, der Fokus im Feld. A speichert → Statuszeile „Frist für # allgemein: 7 Tage.“. Variante: `beta` setzt 3 bestätigt → A sieht im ersten Schritt „Inzwischen geändert: 3 Tage.“, und bis A speichert, geht kein `PUT …/frist` von A aus. Mutante „Wechsel im zweiten Schritt übergangen“ wird rot.
+- [ ] **„Frist verkürzen“ beschrieben** (E2E wie R00008 „Bildschirmleser“): im zweiten Schritt hat `getByRole('button', {name: 'Frist verkürzen'})` eine Beschreibung, die auf `/2 Tage .* 5 Nachrichten .* nicht rückgängig/` passt; Variante Einzahl (`21.(1)`, `22.(1)`, `28.(1)`, 30 → 7) → „1 Tag“ und „1 Nachricht“. „Zurück“ behält seine Beschreibung. Mutante „`aria-describedby` an „Frist verkürzen“ entfernt“ wird rot.
+- [ ] **Leerzeichen abgewiesen** (E2E): A tippt ` 30` mit der Tastatur (nicht `fill`) und drückt `Enter` → Fehlerzeile „Frist: ganze Zahl von 1 bis 3650 Tagen.“ mit ⚠, `aria-invalid="true"`, kein Abruf an `…/frist`. Gegenprobe `30` → 200. Mutante „Wert des Browsers statt Rohtext“ wird rot.
+- [ ] **Kommentar** (Review-Punkt `rechtschreib-reviewer`): der Kopfkommentar von `web/channel-einstellungen.js` beschreibt beide Schalter, der Relativsatz bezieht sich auf den Schalter.
+- [ ] Konsole: keine unbehandelte Ausnahme, kein CSP-Verstoß; höchstens „Failed to load resource“ zur 409 `bestaetigen` (vorgeschrieben in R00008).
+
 ## Betroffene Verzeichnisstruktur
 
 - `src/gespraeche/pflege.rs` (Auflisten in `pflegen` und `frist_setzen`, Vorschau nur beim Verkürzen), `src/gespraeche/fristeintrag.rs` (neuer Bericht, `grund` = Anlass, `ursache`).
@@ -127,6 +144,7 @@ Die Bubbles der WBS sind Vorplanung; welche es am Ende werden, entscheidet der E
 - F0064: B0321 Frist-Abweisungen im Bereich frist · B0322 Löschfehler nach dem Setzen mit Kennung
 - F0065: B0323 Kopfzeile kürzt zuerst Beschreibung und Instanz
 - F0066: B0324 Serverantworten der Frist deutsch · B0325 Fehlerzeile unterscheidet Eingabe und Server
+- F0083: B0387 Zweiter Schritt folgt fremder Änderung · B0388 „Frist verkürzen“ trägt den Satz · B0389 Leerzeichen in der Frist abweisen
 
 Elemente: `Pflegebericht::TageNichtErmittelt { channel, ordner, ursache }`; `Fristfehler::TageNichtErmittelt { ordner, ursache }`; die Einträge aus `fristeintrag.rs` bekommen den Anlass (`Pflegeanlass`) als Eingabe; die Debug-Schicht nimmt `channel` aus dem Pfadparameter, die Erweiterung `Abweisung` aus R00018 (B0303) bleibt `{ regel, kennung }` (ADR-0042, Ergänzung R00019 Punkt 2, Option A).
 
@@ -144,13 +162,13 @@ Nach Skill `test-pyramide`.
 - **Unit (rein bzw. Speicherablage)**: Pflege mit scheiterndem Auflisten, `frist_setzen` mit scheiterndem Auflisten (Verlängern, Verkürzen, bestätigt Verkürzen — erster Test aus ADR-0031, Ergänzung R00019), Einträge je Anlass, Schreibfehler mit `ursache` (`fristeintrag.rs:267` dreht sich), `bereich(methode, muster)`, 409-Text 1/1 und 2/5.
 - **Router-Test (Speicherablage, Speicher-Senke)**: Löschfehler nach dem bestätigten Verkürzen.
 - **Integration (echtes Programm)**: Verlängern, Verkürzen und bestätigt Verkürzen bei nicht lesbarem Ordner, Ruhe am Tageswechsel, Debug-Abweisungen, Nicht löschbar und Schreibfehler in der neuen Form (`tests/frist_schutz.rs:118`, `:238`), 500 ohne Fremdtext.
-- **E2E**: Breiten, langer Name, Serverfehler im Dialog mit Gegenprobe.
+- **E2E**: Breiten, langer Name, Serverfehler im Dialog mit Gegenprobe, zweiter Schritt bei fremder Änderung, Beschreibung von „Frist verkürzen“, Leerzeichen in der Frist.
 - Mutationsproben je Kriterium; das Ergebnis steht im Bericht des Entwicklers.
 
 ## Abhängigkeiten
 
 - Abhängig von: Nacharbeit #12 an R00008 (B0315–B0318 unter F0034, F0035, F0037; gelb); F0038 Löschschutz und Fehlerwege, F0058 Frist im Betriebsprotokoll (gruen); F0059 Jeder Fehlerpfad mit Spur und festem Grund (R00018, rot) für F0063 und F0064 — Schlüssel `ursache` und Erweiterung `Abweisung`.
-- Innerhalb: F0065 und F0066 brauchen nur die Nacharbeit #12; F0063 und F0064 zusätzlich F0059. Untereinander parallel.
+- Innerhalb: F0083 braucht F0037 (R00008) und ändert dieselbe Datei wie F0066 (B0325) und F0072 (R00021, B0344): `web/channel-einstellungen.js` — nacheinander bauen. F0065 und F0066 brauchen nur die Nacharbeit #12; F0063 und F0064 zusätzlich F0059. Untereinander parallel.
 - Blockiert: —
 
 ## Offene Fragen
@@ -159,6 +177,7 @@ Nach Skill `test-pyramide`.
   1. ~~`grund` der Frist-ERROR-Zeilen trägt den Anlass, Plattenfehler in `ursache`~~ — entschieden weiter als empfohlen: im **ganzen Bereich `frist`** ist `grund` fest, jeder Fremdtext steht in `ursache`, auch in „Frist nicht gesetzt — Einstellungen ließen sich nicht schreiben“ (ADR-0040, Ergänzung R00019, Option B). Nachgezogen in F0064 („Eine Zeilenform im Bereich `frist`“, Kriterium „Schreibfehler mit `ursache`“).
   2. ~~Katalogzeilen „Tage nicht ermittelt“~~ — wie empfohlen: zwei neue ERROR-Zeilen, zwei präzisierte (ADR-0042, Ergänzung R00019 Punkt 1); Auflisten nur beim Verkürzen ohne Bestätigung, sonst 500 mit dem Satz oben (ADR-0031, Ergänzung R00019, Option A); Abbildungstabelle in ADR-0030 nachgezogen. R00019 F0063 bleibt unverändert.
   3. ~~Bereich `frist` für die Debug-Zeilen~~ — wie empfohlen, als Regel: Bereich nach Methode und Routenmuster, `channel=` aus dem Pfadparameter, auch für die 401 aus dem Extraktor (ADR-0042, Ergänzung R00019 Punkt 2, Option A). Mitgenommen: `POST /api/channels/{name}/nachrichten` → `senden`. Nachgezogen in F0064 („Bereich nach Route“, Kriterium „Bereich nach Methode und Routenmuster“).
+- Vor dem Bau von B0389, an den architekt über den Director, nur wenn die Probe es verlangt: liefert `<input type="number">` im Chromium ` 30` als `30`, braucht „nur Ziffern“ einen anderen Feldtyp (`type="text"` mit `inputmode="numeric"`) — Ergänzung von ADR-0033 Regel 3. Empfehlung: Feldtyp wechseln; die Zusage „nur Ziffern“ gilt seit R00008.
 - Nicht blockierend, an den Director: die Probe des ux-reviewer zu F0065 nennt Breiten, aber Instanzname und Beschreibung stehen nicht auf der Karte (Bilder im Scratchpad des Reviewers); vor dem Bau abgleichen.
 
 ## Manuelle Vorbereitungstätigkeiten
@@ -177,7 +196,8 @@ Gezählt aus der WBS (Bubbles). 0,4 h ist die Untergrenze je Bubble nach dem Ski
 - F0064 Frist-Spur mit Kennung: 2 Bubbles · 2 klar (0,8 h); seit dem Nachzug vom 2026-10-28 trägt B0321 eine Regel (`senden`) und B0322 eine Funktion (`frist_nicht_gesetzt_eintrag`) mehr — Hypothese: beides passt in die Untergrenze, ungemessen
 - F0065 Channel-Name auf dem Schalter lesbar: 1 Bubble · 1 klar (0,4 h)
 - F0066 Frist-Meldungen deutsch mit Ausweg: 2 Bubbles · 2 klar (0,8 h)
-- Zusammen: 7 Bubbles · 2,8 h klar, keine unklaren; eine Welle nach der Nacharbeit #12 (F0063 und F0064 zusätzlich nach F0059)
+- F0083 Frist-Dialog nach dem Entwicklertest #12: 3 Bubbles · 2 klar (0,8 h) · 1 unklar (B0389, Rohtext eines Zahlenfelds; 2–4 h)
+- Zusammen: 10 Bubbles (vorher 7, +3 aus den Nachträgen vom 2026-10-29) · 3,6 h klar + 2–4 h unklar; Karte #27 (F0065, F0066, F0083): 6 Bubbles; eine Welle nach der Nacharbeit #12 (F0063 und F0064 zusätzlich nach F0059)
 
 ## Warum löst diese Anforderung das Problem? (Pflicht)
 
@@ -188,6 +208,7 @@ Die Wirkungskette:
 - Der nicht lesbare Ordner bekommt einen eigenen Eintrag. Deshalb sucht die Betreiberin am Leserecht des Ordners, nicht an einer Tagesdatei oder an der Einstellungsdatei, und ein Agent kann verlängern, ohne an einer Vorschau zu scheitern, die er nicht braucht.
 - Abweisungen und Löschfehler der Frist tragen Bereich, Channel, Kennung und Anlass. Deshalb ordnet die Betreiberin jede endgültige Handlung und jeden Fehlversuch einer Person und einem Anlass zu (X00002: jeder mit Sitzung darf verkürzen).
 - Die Kopfzeile kürzt zuerst, was weniger wichtig ist. Deshalb sieht die Entwicklerin auch in einem halben Laptop-Fenster, in welchem Channel sie die Frist ändert.
+- Der zweite Schritt folgt fremden Änderungen und beschreibt beide Schalter. Deshalb bestätigt niemand eine Zahl, die nicht mehr stimmt, und ein Bildschirmleser hört am Schalter, der löscht, was er löscht.
 - Meldungen sind deutsch, mit Ausweg und markieren nur falsche Eingaben. Deshalb versteht die Entwicklerin einen Serverfehler, ohne ihre richtige Eingabe zu ändern, und Agent und Mensch lesen dieselben Begriffe.
 
 Der Hebel liegt an wenigen Stellen (Auflisten in Pflege und Setzen, Kontext der Frist-Einträge, Bereich der Debug-Schicht, Fehlerzeile des Dialogs, eine CSS-Regel), nicht an neuen Abläufen.
@@ -195,6 +216,7 @@ Der Hebel liegt an wenigen Stellen (Auflisten in Pflege und Setzen, Kontext der 
 ## Missing-Docs
 
 - Glossar fehlt (`Dokumentation/Domaenenwissen/` existiert nicht); Begriffe aus ADR-0029 bis ADR-0033 und ADR-0040 bis ADR-0042.
+- Nachträge #27: für die Punkte des Entwicklertests #12 stehen keine Abnahme-Proben auf der Karte, und der Wortlaut des Rechtschreib-Befunds zum Kommentar `web/channel-einstellungen.js:4–5` fehlt; die Kriterien unter F0083 sind aus den Beschreibungen abgeleitet.
 - Die Abnahme-Proben zu UX Sollte 2 und 3, Observability S1, O1, O2 sind auf der Karte nur skizziert; die Kriterien oben sind daraus abgeleitet.
 
 ## Notizen
