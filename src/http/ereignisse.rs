@@ -5,18 +5,19 @@
 //! geht noch hinaus, dann endet der Strom). Ein Token im Query zählt nicht.
 
 use super::Zustand;
+use super::abbruch::{Abgebrochen, Grenzort, abbruch_beantworten, abbruch_eintragen};
 use super::channels::{channel_als_json, stand_als_json as channels_als_json};
 use super::nachrichten::NachrichtAntwort;
 use super::teilnehmer::{gemeldetes_token, nicht_erkannt};
 use super::teilnehmerliste::{stand_als_json, zeile_als_json, zeit_als_text};
 use crate::anwesenheit::status::Status;
 use crate::anwesenheit::{Anwesenheit, Halter, Stand, Wechsel};
-use crate::gespraeche::{ChannelStand, ChannelWechsel, Gespraeche, Nachricht};
+use crate::gespraeche::{ChannelStand, ChannelWechsel, Nachricht};
 use crate::live::bus::{Abonnement, Empfang, Ereignis};
+use crate::protokoll::Protokoll;
 use crate::start::ende::Ende;
-use axum::Json;
 use axum::extract::{ConnectInfo, State};
-use axum::http::{HeaderMap, StatusCode};
+use axum::http::HeaderMap;
 use axum::response::sse::{Event, Sse};
 use axum::response::{IntoResponse, Response};
 use futures_util::stream;
@@ -37,16 +38,44 @@ pub async fn beantworten(
     let Some((halter, _veroeffentlicht)) = verbunden else {
         return nicht_erkannt();
     };
+    let gespraeche = Arc::clone(&zustand.gespraeche);
+    strom_beantworten(&zustand, halter, Arc::new(move || gespraeche.channels())).await
+}
+
+/// Woher der Strom den Stand der Channels holt — im Programm aus den Gesprächen.
+type Channelquelle = Arc<dyn Fn() -> ChannelStand + Send + Sync>;
+
+/// Wo der Stand der Channels geholt wird (ADR-0042 Ergänzung #24 Punkt 1).
+fn channels_ort(kennung: &str) -> Grenzort<'_> {
+    Grenzort {
+        route: "GET /api/ereignisse",
+        operation: "channels_stand",
+        kennung: Some(kennung),
+        channel: None,
+    }
+}
+
+/// Der Strom eines erkannten Halters; scheitert der Stand der Channels davor, 500 mit Eintrag.
+async fn strom_beantworten(zustand: &Zustand, halter: Halter, quelle: Channelquelle) -> Response {
     let (stand, abonnement) = zustand.anwesenheit.stand_mit(|| zustand.bus.abonnieren());
-    let Some(channels) = channels_holen(&zustand.gespraeche).await else {
-        let fehler =
-            json!({ "fehler": "Der Stand der Channels ließ sich nicht holen — neu verbinden." });
-        return (StatusCode::INTERNAL_SERVER_ERROR, Json(fehler)).into_response();
+    let kennung = halter.kennung().als_text().to_string();
+    let channels = match channels_holen(&quelle).await {
+        Ok(channels) => channels,
+        Err(abbruch) => {
+            return abbruch_beantworten(
+                &zustand.protokoll,
+                &abbruch,
+                &channels_ort(&kennung),
+                "Stand der Channels nicht geholt",
+            );
+        }
     };
     let herzschlag = zustand.herzschlag;
     let strom = Strom {
         anwesenheit: Arc::clone(&zustand.anwesenheit),
-        gespraeche: Arc::clone(&zustand.gespraeche),
+        channels: quelle,
+        protokoll: Arc::clone(&zustand.protokoll),
+        kennung,
         abonnement,
         ende: zustand.ende.clone(),
         herzschlag: tokio::time::interval_at(tokio::time::Instant::now() + herzschlag, herzschlag),
@@ -60,18 +89,21 @@ pub async fn beantworten(
 }
 
 /// Der Stand der Channels unter der Sperre des Verzeichnisses — eine `std`-Sperre, darum über `spawn_blocking`
-/// (ADR-0021 Regel 7); `None` nur, wenn das Holen abbrach.
-async fn channels_holen(gespraeche: &Arc<Gespraeche>) -> Option<ChannelStand> {
-    let gespraeche = Arc::clone(gespraeche);
-    tokio::task::spawn_blocking(move || gespraeche.channels())
+/// (ADR-0021 Regel 7); `Err` nur, wenn das Holen abbrach.
+async fn channels_holen(channels: &Channelquelle) -> Result<ChannelStand, Abgebrochen> {
+    let channels = Arc::clone(channels);
+    tokio::task::spawn_blocking(move || channels())
         .await
-        .ok()
+        .map_err(Abgebrochen::from)
 }
 
 /// Was ein offener Strom hält; mit ihm fällt der Halter (Client weg oder Ende des Programms).
 struct Strom {
     anwesenheit: Arc<Anwesenheit>,
-    gespraeche: Arc<Gespraeche>,
+    channels: Channelquelle,
+    protokoll: Arc<Protokoll>,
+    /// Kennung des Halters — für die Spur, wenn der Strom am Stand der Channels endet.
+    kennung: String,
     abonnement: Abonnement,
     ende: Ende,
     herzschlag: Interval,
@@ -150,7 +182,18 @@ impl Strom {
                     Empfang::NeuerStand => {
                         let stand = self.anwesenheit.teilnehmer();
                         self.zuletzt = stand.stand;
-                        let channels = channels_holen(&self.gespraeche).await?;
+                        let channels = match channels_holen(&self.channels).await {
+                            Ok(channels) => channels,
+                            Err(abbruch) => {
+                                abbruch_eintragen(
+                                    &self.protokoll,
+                                    &abbruch,
+                                    &channels_ort(&self.kennung),
+                                    "Ereignisstrom beendet — Stand der Channels nicht geholt; der Client verbindet neu",
+                                );
+                                return None;
+                            }
+                        };
                         self.zuletzt_channels = channels.stand;
                         self.ausstehend.push_back(Ausgabe::Channels(channels));
                         Ausgabe::Stand(stand)
@@ -219,10 +262,11 @@ fn wechsel_ereignis(wechsel: &Wechsel) -> Event {
 mod tests {
     use super::*;
     use crate::anwesenheit::Beitrittswunsch;
-    use crate::gespraeche::{Kennung, Speicherablage};
+    use crate::gespraeche::{Gespraeche, Kennung, Speicherablage};
     use crate::live::bus::{Bus, anwesenheit_veroeffentlichen, channels_veroeffentlichen};
     use crate::uhr::Systemuhr;
     use crate::zufall::Betriebssystemzufall;
+    use axum::http::StatusCode;
     use std::time::Duration;
 
     /// Gespräche im Speicher, deren Channel-Wechsel auf `bus` gehen.
@@ -242,9 +286,12 @@ mod tests {
         halter: Halter,
     ) -> Strom {
         let channels = gespraeche.channels();
+        let quelle = Arc::clone(gespraeche);
         Strom {
             anwesenheit: Arc::clone(anwesenheit),
-            gespraeche: Arc::clone(gespraeche),
+            channels: Arc::new(move || quelle.channels()),
+            protokoll: Arc::new(crate::protokoll::Protokoll::ohne_ablage()),
+            kennung: halter.kennung().als_text().to_string(),
             abonnement,
             ende: Ende::nie(),
             herzschlag: tokio::time::interval_at(
@@ -260,9 +307,17 @@ mod tests {
     }
 
     fn beitreten(anwesenheit: &Anwesenheit, name: &str) -> crate::zufall::Token {
+        beitreten_von(anwesenheit, name, "127.0.0.2".parse().expect("IP"))
+    }
+
+    fn beitreten_von(
+        anwesenheit: &Anwesenheit,
+        name: &str,
+        herkunft: std::net::IpAddr,
+    ) -> crate::zufall::Token {
         let wunsch = Beitrittswunsch::pruefen(&json!({ "name": name })).expect("Wunsch");
         anwesenheit
-            .beitreten(&wunsch, "127.0.0.2".parse().expect("IP"))
+            .beitreten(&wunsch, herkunft)
             .expect("beigetreten")
             .sitzung
             .token
@@ -447,5 +502,100 @@ mod tests {
             panic!("erwartet ein Channel-Wechsel über 5, kam {danach:?}");
         };
         assert_eq!(wechsel.stand, 6);
+    }
+
+    /// Ein Stand der Channels, der beim `n`-ten Holen (ab 1) in Panik gerät — davor der echte Stand.
+    fn channels_mit_panik_ab(gespraeche: &Arc<Gespraeche>, ab: usize) -> Channelquelle {
+        let gespraeche = Arc::clone(gespraeche);
+        let geholt = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        Arc::new(move || {
+            let nummer = geholt.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
+            assert!(nummer < ab, "Probe-Panik beim Stand der Channels");
+            gespraeche.channels()
+        })
+    }
+
+    /// R00018 F0059, erster Test aus ADR-0042 Ergänzung #24 Punkt 1 (vor dem Strom): scheitert der Stand der
+    /// Channels, antwortet der Strom 500 mit dem deutschen Satz, und genau eine Zeile steht im Protokoll.
+    #[tokio::test]
+    async fn scheitert_der_stand_der_channels_vor_dem_strom_ist_es_500_und_eine_zeile() {
+        use crate::protokoll::Stufe;
+        use crate::protokoll::testhilfe::im_speicher;
+        let mut zustand = crate::http::testserver::zustand(std::path::Path::new("/tmp"));
+        let (protokoll, speicher, _, _) =
+            im_speicher("2026-10-28T12:00:00+01:00", Stufe::Information);
+        zustand.protokoll = protokoll;
+        let herkunft: std::net::IpAddr = "127.0.0.1".parse().expect("IP");
+        let token = beitreten_von(&zustand.anwesenheit, "beta", herkunft);
+        let (halter, _) = zustand
+            .anwesenheit
+            .verbunden(&token, herkunft)
+            .expect("Halter");
+        let channels = channels_mit_panik_ab(&zustand.gespraeche, 1);
+
+        let antwort = strom_beantworten(&zustand, halter, channels).await;
+
+        assert_eq!(antwort.status(), StatusCode::INTERNAL_SERVER_ERROR);
+        let koerper = axum::body::to_bytes(antwort.into_body(), 4096)
+            .await
+            .expect("Körper");
+        let json: serde_json::Value = serde_json::from_slice(&koerper).expect("JSON");
+        assert_eq!(
+            json["fehler"],
+            "Interner Fehler — Stand der Channels nicht geholt; bitte erneut versuchen"
+        );
+        let zeilen = speicher.zeilen();
+        assert_eq!(zeilen.len(), 1, "{zeilen:#?}");
+        assert!(
+            zeilen[0].contains(" ERROR programmfehler Anfrage an einem Programmfehler gescheitert — Stand der Channels nicht geholt | route=\"GET /api/ereignisse\" operation=channels_stand status=500 kennung=beta@127.0.0.1 grund=panik ursache="),
+            "{zeilen:#?}"
+        );
+    }
+
+    /// R00018 F0059 (im Strom): scheitert der Stand der Channels nach einem neuen Stand, endet der Strom, und
+    /// genau eine Zeile „Ereignisstrom beendet …“ steht im Protokoll.
+    #[tokio::test]
+    async fn scheitert_der_stand_der_channels_im_strom_endet_er_mit_einer_zeile() {
+        use crate::protokoll::Stufe;
+        use crate::protokoll::testhilfe::im_speicher;
+        let (protokoll, speicher, _, _) =
+            im_speicher("2026-10-28T12:00:00+01:00", Stufe::Information);
+        let bus = Arc::new(Bus::neu(2));
+        let anwesenheit = Arc::new(
+            Anwesenheit::neu(
+                Arc::new(Systemuhr),
+                Arc::new(Betriebssystemzufall),
+                Duration::from_secs(60),
+            )
+            .mit_veroeffentlichen(anwesenheit_veroeffentlichen(&bus)),
+        );
+        let herkunft: std::net::IpAddr = "127.0.0.1".parse().expect("IP");
+        let token = beitreten_von(&anwesenheit, "beta", herkunft);
+        let (halter, _) = anwesenheit.verbunden(&token, herkunft).expect("Halter");
+        let (stand, abonnement) = anwesenheit.stand_mit(|| bus.abonnieren());
+        let gespraeche = gespraeche_am(&bus);
+        let mut strom = strom_fuer(&anwesenheit, &gespraeche, stand, abonnement, halter);
+        strom.channels = channels_mit_panik_ab(&gespraeche, 1);
+        strom.protokoll = protokoll;
+        for nummer in 0..5 {
+            beitreten(&anwesenheit, &format!("w{nummer}"));
+        }
+
+        let mut ausgaben = 0;
+        while tokio::time::timeout(Duration::from_secs(5), strom.naechste_ausgabe())
+            .await
+            .expect("Strom endet, statt zu warten")
+            .is_some()
+        {
+            ausgaben += 1;
+            assert!(ausgaben < 10, "der Strom endet nicht");
+        }
+
+        let zeilen = speicher.zeilen();
+        assert_eq!(zeilen.len(), 1, "{zeilen:#?}");
+        assert!(
+            zeilen[0].contains(" ERROR programmfehler Ereignisstrom beendet — Stand der Channels nicht geholt; der Client verbindet neu | route=\"GET /api/ereignisse\" operation=channels_stand kennung=beta@127.0.0.1 grund=panik ursache="),
+            "{zeilen:#?}"
+        );
     }
 }

@@ -111,6 +111,8 @@ pub enum Schluessel {
     Operation,
     /// Schlüssel einer Frage an die Namensauskunft: Name bzw. kanonische Adresse (ADR-0045 Ergänzung E6).
     Schluessel,
+    /// Fremdtext einer technischen Ursache (ADR-0040 Ergänzung „eigener Schlüssel `ursache`“).
+    Ursache,
 }
 
 impl Schluessel {
@@ -142,6 +144,7 @@ impl Schluessel {
             Schluessel::Verworfen => "verworfen",
             Schluessel::Operation => "operation",
             Schluessel::Schluessel => "schluessel",
+            Schluessel::Ursache => "ursache",
         }
     }
 }

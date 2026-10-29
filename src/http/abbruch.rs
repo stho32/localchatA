@@ -1,7 +1,8 @@
 //! Abbruch an der Grenze (ADR-0042 Regel 4 und Ergänzung 6): ein Blocking-Teil lief nicht zu Ende. Eine Hilfe für
 //! alle Handler: 500 mit deutschem Satz ohne Fremdtext; Panik → `ERROR programmfehler … grund=panik` (die
-//! EXCEPTION mit `ort` schreibt der Haken), Abbruch ohne Panik → `EXCEPTION programmfehler … grund=abgebrochen`.
-//! Der Text des Abbruchs (englisch, von tokio) steht nur im Protokoll, im Wert `art`.
+//! EXCEPTION mit `ort` schreibt der Haken), Abbruch ohne Panik → `EXCEPTION programmfehler … grund=abgebrochen`,
+//! geschlossene Werkbank → `EXCEPTION programmfehler … grund=werkbank_geschlossen`. Der Text des Abbruchs
+//! (englisch, von tokio) steht nur im Protokoll, im Wert `ursache` (ADR-0042 Ergänzung #24 Punkte 5 und 6).
 
 use crate::protokoll::{Bereich, Kontext, Protokoll, Schluessel, Stufe};
 use axum::Json;
@@ -56,14 +57,46 @@ pub fn abbruch_beantworten(
     ort: &Grenzort<'_>,
     was: &str,
 ) -> Response {
+    eintrag_schreiben(
+        protokoll,
+        abbruch,
+        ort,
+        format!("Anfrage an einem Programmfehler gescheitert — {was}"),
+        Some(500),
+    );
+    interner_fehler(was)
+}
+
+/// Nur der Eintrag, wo keine Antwort mehr möglich ist (im Strom): `was` ist der ganze Text, ohne `status`.
+pub fn abbruch_eintragen(
+    protokoll: &Protokoll,
+    abbruch: &Abgebrochen,
+    ort: &Grenzort<'_>,
+    was: &str,
+) {
+    eintrag_schreiben(protokoll, abbruch, ort, was.to_string(), None);
+}
+
+/// Panik → ERROR `grund=panik`; abgebrochen → EXCEPTION `grund=abgebrochen`; Werkbank geschlossen → EXCEPTION
+/// `grund=werkbank_geschlossen` (ADR-0042 Ergänzung #24 Punkt 6). Der Fremdtext steht in `ursache` (Punkt 5).
+fn eintrag_schreiben(
+    protokoll: &Protokoll,
+    abbruch: &Abgebrochen,
+    ort: &Grenzort<'_>,
+    text: String,
+    status: Option<u16>,
+) {
     let (stufe, grund) = match abbruch.art {
         Abbruchart::Panik => (Stufe::Error, "panik"),
-        Abbruchart::Abgebrochen | Abbruchart::Geschlossen => (Stufe::Exception, "abgebrochen"),
+        Abbruchart::Abgebrochen => (Stufe::Exception, "abgebrochen"),
+        Abbruchart::Geschlossen => (Stufe::Exception, "werkbank_geschlossen"),
     };
     let mut kontext = Kontext::neu()
         .mit(Schluessel::Route, ort.route)
-        .mit(Schluessel::Operation, ort.operation)
-        .mit(Schluessel::Status, 500);
+        .mit(Schluessel::Operation, ort.operation);
+    if let Some(status) = status {
+        kontext = kontext.mit(Schluessel::Status, status);
+    }
     if let Some(kennung) = ort.kennung {
         kontext = kontext.mit(Schluessel::Kennung, kennung);
     }
@@ -73,12 +106,11 @@ pub fn abbruch_beantworten(
     protokoll.eintragen(
         stufe,
         Bereich::Programmfehler,
-        format!("Anfrage an einem Programmfehler gescheitert — {was}"),
+        text,
         kontext
             .mit(Schluessel::Grund, grund)
-            .mit(Schluessel::Art, &abbruch.ursache),
+            .mit(Schluessel::Ursache, &abbruch.ursache),
     );
-    interner_fehler(was)
 }
 
 /// 500 mit deutschem Satz ohne Fremdtext.
@@ -140,10 +172,11 @@ mod tests {
         );
         assert!(
             zeilen[0].contains(
-                "route=\"GET /api/channels\" operation=channels status=500 grund=abgebrochen art="
+                "route=\"GET /api/channels\" operation=channels status=500 grund=abgebrochen ursache="
             ),
             "{zeilen:#?}"
         );
+        assert!(!zeilen[0].contains(" art="), "{zeilen:#?}");
         assert!(
             zeilen[0].contains("cancelled"),
             "der Fremdtext steht im Protokoll: {zeilen:#?}"
@@ -179,8 +212,69 @@ mod tests {
         let zeilen = speicher.zeilen();
         assert_eq!(zeilen.len(), 1, "{zeilen:#?}");
         assert!(zeilen[0].contains(" ERROR programmfehler "), "{zeilen:#?}");
+        assert!(!zeilen[0].contains(" art="), "{zeilen:#?}");
         assert!(
             zeilen[0].contains("route=\"GET /api/channels/{name}/nachrichten\" operation=verlauf status=500 kennung=beta@127.0.0.1 channel=allgemein grund=panik"),
+            "{zeilen:#?}"
+        );
+    }
+
+    /// R00018 F0059 (ADR-0042 Ergänzung #24 Punkt 6): die geschlossene Werkbank ist ein eigener Grund, kein
+    /// Abbruch — EXCEPTION mit `grund=werkbank_geschlossen`, der Fremdtext in `ursache`.
+    #[tokio::test]
+    async fn geschlossene_werkbank_ist_exception_mit_eigenem_grund() {
+        let (protokoll, speicher, _, _) =
+            im_speicher("2026-10-28T12:00:00+01:00", Stufe::Information);
+        let abbruch = Abgebrochen {
+            art: Abbruchart::Geschlossen,
+            ursache: "Werkbank geschlossen — semaphore closed".to_string(),
+        };
+
+        let antwort =
+            abbruch_beantworten(&protokoll, &abbruch, &CHANNELS, "Channels nicht gelesen");
+
+        assert_eq!(antwort.status(), StatusCode::INTERNAL_SERVER_ERROR);
+        let zeilen = speicher.zeilen();
+        assert_eq!(zeilen.len(), 1, "{zeilen:#?}");
+        assert!(
+            zeilen[0].contains(" EXCEPTION programmfehler "),
+            "{zeilen:#?}"
+        );
+        assert!(
+            zeilen[0].contains(
+                "status=500 grund=werkbank_geschlossen ursache=\"Werkbank geschlossen — semaphore closed\""
+            ),
+            "{zeilen:#?}"
+        );
+        assert!(!zeilen[0].contains(" art="), "{zeilen:#?}");
+    }
+
+    /// R00018 F0059 (ADR-0042 Ergänzung #24 Punkt 1): wo keine Antwort mehr möglich ist (im Strom), schreibt
+    /// `abbruch_eintragen` genau den Eintrag — ohne `status`, denn es geht keine 500 hinaus.
+    #[tokio::test]
+    async fn abbruch_eintragen_schreibt_nur_den_eintrag() {
+        let (protokoll, speicher, _, _) =
+            im_speicher("2026-10-28T12:00:00+01:00", Stufe::Information);
+        let handle = tokio::spawn(std::future::pending::<()>());
+        handle.abort();
+        let fehler = handle.await.expect_err("abgebrochen");
+
+        abbruch_eintragen(
+            &protokoll,
+            &Abgebrochen::from(fehler),
+            &Grenzort {
+                route: "GET /api/ereignisse",
+                operation: "channels_stand",
+                kennung: Some("beta@127.0.0.1"),
+                channel: None,
+            },
+            "Ereignisstrom beendet — Stand der Channels nicht geholt; der Client verbindet neu",
+        );
+
+        let zeilen = speicher.zeilen();
+        assert_eq!(zeilen.len(), 1, "{zeilen:#?}");
+        assert!(
+            zeilen[0].contains(" EXCEPTION programmfehler Ereignisstrom beendet — Stand der Channels nicht geholt; der Client verbindet neu | route=\"GET /api/ereignisse\" operation=channels_stand kennung=beta@127.0.0.1 grund=abgebrochen ursache="),
             "{zeilen:#?}"
         );
     }
