@@ -22,7 +22,7 @@ export function einstellungenEinrichten({ wurzel, setzen, statusZeigen, neuOeffn
       return;
     }
     const teile = dialogZeichnen(channel);
-    offen = { name: channel.name, frist: channel.frist_tage, laeuft: false, teile, fremdGeaendert: () => {} };
+    offen = { name: channel.name, frist: channel.frist_tage, laeuft: false, vorgemerkt: null, teile, fremdGeaendert: () => {} };
     const zustand = offen;
     const abmelden = new AbortController();
     teile.dialog.addEventListener('close', () => {
@@ -44,12 +44,18 @@ export function einstellungenEinrichten({ wurzel, setzen, statusZeigen, neuOeffn
   }
 
   // Ein Wechsel aus dem Strom: ändert jemand anders die Frist, bleibt die Eingabe, der Hinweis nennt den neuen Wert.
+  // Läuft gerade die eigene Anfrage, merkt sich der Dialog den Wert vor; die Antwort entscheidet, ob er fremd war
+  // (R00019 F0083, code-reviewer #27 B1).
   function channelGeaendert(channel) {
-    const fremdGeaendert = offen !== null && !offen.laeuft && channel.name === offen.name && channel.frist_tage !== offen.frist;
-    if (!fremdGeaendert) {
+    const geaendert = offen !== null && channel.name === offen.name && channel.frist_tage !== offen.frist;
+    if (!geaendert) {
       return;
     }
     offen.frist = channel.frist_tage;
+    if (offen.laeuft) {
+      offen.vorgemerkt = { frist: channel.frist_tage };
+      return;
+    }
     offen.fremdGeaendert(channel.frist_tage);
   }
 
@@ -74,6 +80,7 @@ function bedienen(zustand, { setzen, statusZeigen, neuOeffnen }, signal) {
 
   async function senden(tage, bestaetigt) {
     zustand.laeuft = true;
+    zustand.vorgemerkt = null;
     schalterSperren(teile, true);
     const antwort = await setzen(name, tage, bestaetigt);
     const eintreffenMs = Date.now();
@@ -87,6 +94,12 @@ function bedienen(zustand, { setzen, statusZeigen, neuOeffnen }, signal) {
       }
       return;
     }
+    const vorgemerkt = zustand.vorgemerkt;
+    if (antwort.status === 409 && antwort.daten.regel === 'bestaetigen' && !bestaetigt && vorgemerkt !== null) {
+      // Der Satz der 409 gilt für den Stand vor der fremden Änderung: gar nicht erst zeigen.
+      zumErstenSchrittZurueck(vorgemerkt.frist);
+      return;
+    }
     if (antwort.status === 409 && antwort.daten.regel === 'bestaetigen' && !bestaetigt) {
       schritt = 2;
       zweiterSchritt(teile, bestaetigungText(tage, antwort.daten.entfaellt));
@@ -95,6 +108,16 @@ function bedienen(zustand, { setzen, statusZeigen, neuOeffnen }, signal) {
     schritt = 1;
     ersterSchritt(teile);
     fehlversuchMelden(fehlerDerAntwort(antwort, eintreffenMs));
+    if (vorgemerkt !== null) {
+      teile.inzwischen.textContent = ` ${inzwischenText(vorgemerkt.frist)}`;
+    }
+    teile.feld.focus();
+  }
+
+  function zumErstenSchrittZurueck(frist) {
+    schritt = 1;
+    ersterSchritt(teile);
+    teile.inzwischen.textContent = ` ${inzwischenZurueckText(frist)}`;
     teile.feld.focus();
   }
 
@@ -105,10 +128,7 @@ function bedienen(zustand, { setzen, statusZeigen, neuOeffnen }, signal) {
       teile.inzwischen.textContent = ` ${inzwischenText(frist)}`;
       return;
     }
-    schritt = 1;
-    ersterSchritt(teile);
-    teile.inzwischen.textContent = ` ${inzwischenZurueckText(frist)}`;
-    teile.feld.focus();
+    zumErstenSchrittZurueck(frist);
   };
 
   teile.formular.addEventListener('submit', (ereignis) => {

@@ -137,6 +137,80 @@ test('Gegenprobe ohne Rücksprung (B0387): A im ersten Schritt, beta setzt 9 →
   expect(a.fehler).toEqual([]);
 });
 
+// Hält die Antwort auf `PUT …/frist` fest: der Server hat die Anfrage schon beantwortet (`route.fetch()`), A bekommt
+// die Antwort erst nach `freigeben()` (code-reviewer #27 Muss B1).
+async function antwortFesthalten(page) {
+  let freigeben;
+  let angekommen;
+  const frei = new Promise((aufloesen) => { freigeben = aufloesen; });
+  const ankunft = new Promise((aufloesen) => { angekommen = aufloesen; });
+  await page.route(`**${ROUTE}`, async (route) => {
+    if (route.request().method() !== 'PUT') {
+      await route.continue();
+      return;
+    }
+    const antwort = await route.fetch();
+    angekommen();
+    await frei;
+    await route.fulfill({ response: antwort });
+  });
+  return { ankunft, freigeben };
+}
+
+for (const [tage, verzoegerung] of [[3, 0], [3, 200], [3, 1000], [9, 0]]) {
+  test(`Fremde Änderung während der laufenden Anfrage (US-10b, B0565): beta setzt ${tage}, Freigabe nach ${verzoegerung} ms → erster Schritt, Hinweis, kein weiteres PUT`, async ({ browser }) => {
+    await starten(verkuerzbar);
+    const a = await dialogOeffnen(browser);
+    const abrufe = abrufeMitschreiben(a.page);
+    const festgehalten = await antwortFesthalten(a.page);
+    await feld(a.page).fill('7');
+    await feld(a.page).press('Enter');
+    await festgehalten.ankunft;
+
+    await betaSetzt(tage);
+    await expect(a.page.getByRole('banner').locator('.lc-head-frist')).toHaveText(`· ${tage} Tage`);
+    await a.page.waitForTimeout(verzoegerung);
+    festgehalten.freigeben();
+
+    await imErstenSchrittMit(a.page, '7', `Inzwischen geändert: ${tage} Tage — erneut speichern, um zu sehen, was entfällt.`);
+    expect(abrufe).toEqual(['PUT']);
+    expect(a.fehler).toEqual([]);
+  });
+}
+
+test('Fremde Änderung während der laufenden Anfrage, Gegenprobe (B0565): beta setzt 30, die Frist von vor A → normaler zweiter Schritt', async ({ browser }) => {
+  await starten(verkuerzbar);
+  const a = await dialogOeffnen(browser);
+  const festgehalten = await antwortFesthalten(a.page);
+  await feld(a.page).fill('7');
+  await feld(a.page).press('Enter');
+  await festgehalten.ankunft;
+
+  await betaSetzt(30);
+  festgehalten.freigeben();
+
+  await expect(verkuerzen(a.page)).toBeVisible();
+  await expect(dialog(a.page)).toContainText('entfallen sofort');
+  await expect(dialog(a.page)).not.toContainText('Inzwischen geändert');
+  expect(a.fehler).toEqual([]);
+});
+
+test('Fremde Änderung während der laufenden Anfrage, eigene 200 (B0565): das Ereignis kommt vor der Antwort → Dialog schließt ohne Hinweis', async ({ browser }) => {
+  await starten(verkuerzbar);
+  const a = await dialogOeffnen(browser);
+  const festgehalten = await antwortFesthalten(a.page);
+  await feld(a.page).fill('40');
+  await feld(a.page).press('Enter');
+  await festgehalten.ankunft;
+  await expect(a.page.getByRole('banner').locator('.lc-head-frist')).toHaveText('· 40 Tage');
+
+  festgehalten.freigeben();
+
+  await expect(dialog(a.page)).toBeHidden();
+  await expect(a.page.locator('.lc-statuszeile')).toHaveText('Frist für # allgemein: 40 Tage.');
+  expect(a.fehler).toEqual([]);
+});
+
 // Statt des Musters /2 Tage .* 5 Nachrichten .* nicht rückgängig/ der ganze Satz — das Muster verlangt ein Leerzeichen
 // nach „Nachrichten“, im Satz steht dort der Punkt (wie in r00008-frist.spec.js, B0317).
 for (const [art, vorbereiten, satz] of [
