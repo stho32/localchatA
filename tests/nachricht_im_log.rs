@@ -42,8 +42,14 @@ fn ordner_mit_allgemein() -> tempfile::TempDir {
 /// Lädt den Ordner mit einer gestellten Uhr; die Uhr bleibt für den Test erreichbar.
 fn laden(ordner: &Path, jetzt: &str) -> (Gespraeche, Arc<GestellteUhr>) {
     let uhr = Arc::new(GestellteUhr::neu(zeit(jetzt)));
-    let gespraeche =
-        Gespraeche::laden(Arc::new(Dateiablage::neu(ordner)), uhr.clone()).expect("geladen");
+    let gespraeche = Gespraeche::laden(
+        Arc::new(Dateiablage::neu(
+            ordner,
+            Arc::new(localchata::protokoll::Protokoll::ohne_ablage()),
+        )),
+        uhr.clone(),
+    )
+    .expect("geladen");
     (gespraeche, uhr)
 }
 

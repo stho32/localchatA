@@ -411,7 +411,7 @@ fn verlauf_laden(
     uhr: Arc<dyn Uhr>,
     protokoll: &Arc<Protokoll>,
 ) -> Result<Gespraeche, Startfehler> {
-    let ablage = Dateiablage::neu(ordner).mit_protokoll(Arc::clone(protokoll));
+    let ablage = Dateiablage::neu(ordner, Arc::clone(protokoll));
     let gespraeche =
         Gespraeche::laden(Arc::new(ablage), uhr).map_err(|fehler| Startfehler::Laden {
             ordner: ordner.to_path_buf(),

@@ -35,8 +35,11 @@ async fn hilfslauf_anhaengen_mit_dateigroessengrenze() {
     )
     .expect("Grenze gesetzt");
 
-    let ergebnis =
-        Dateiablage::neu(ordner.as_ref()).anhaengen(&Gespraech::channel("allgemein"), tag(), SATZ);
+    let ergebnis = Dateiablage::neu(
+        ordner.as_ref(),
+        std::sync::Arc::new(localchata::protokoll::Protokoll::ohne_ablage()),
+    )
+    .anhaengen(&Gespraech::channel("allgemein"), tag(), SATZ);
 
     println!(
         "ERGEBNIS {}",

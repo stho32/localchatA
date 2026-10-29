@@ -674,7 +674,10 @@ mod tests {
 
     fn laden_um(ordner: &Path, jetzt: &str) -> Gespraeche {
         Gespraeche::laden(
-            Arc::new(Dateiablage::neu(ordner)),
+            Arc::new(Dateiablage::neu(
+                ordner,
+                Arc::new(crate::protokoll::Protokoll::ohne_ablage()),
+            )),
             Arc::new(GestellteUhr::neu(zeit(jetzt))),
         )
         .expect("geladen")

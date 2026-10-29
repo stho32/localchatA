@@ -26,7 +26,10 @@ async fn starten() -> Instanz {
     let mut zustand = testserver::zustand(ordner.path());
     zustand.gespraeche = Arc::new(
         crate::gespraeche::Gespraeche::laden(
-            Arc::new(crate::gespraeche::Dateiablage::neu(ordner.path())),
+            Arc::new(crate::gespraeche::Dateiablage::neu(
+                ordner.path(),
+                Arc::new(crate::protokoll::Protokoll::ohne_ablage()),
+            )),
             Arc::new(crate::uhr::Systemuhr),
         )
         .expect("leerer Ordner"),

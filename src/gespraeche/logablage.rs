@@ -93,21 +93,17 @@ pub struct Angehaengt {
 /// Die Ablage im Ordner der Instanz.
 pub struct Dateiablage {
     ordner: PathBuf,
-    protokoll: Option<Arc<Protokoll>>,
+    protokoll: Arc<Protokoll>,
 }
 
 impl Dateiablage {
-    pub fn neu(ordner: &Path) -> Dateiablage {
+    /// Nur mit Protokoll (R00018 F0059): ein gescheiterter Rückbau steht immer als ERROR im Betriebsprotokoll
+    /// (ADR-0042 Regel 2, `senden`) — es gibt keinen Weg, ihn still zu machen.
+    pub fn neu(ordner: &Path, protokoll: Arc<Protokoll>) -> Dateiablage {
         Dateiablage {
             ordner: ordner.to_path_buf(),
-            protokoll: None,
+            protokoll,
         }
-    }
-
-    /// Ein gescheiterter Rückbau steht dann als ERROR im Betriebsprotokoll (ADR-0042 Regel 2, `senden`).
-    pub fn mit_protokoll(mut self, protokoll: Arc<Protokoll>) -> Dateiablage {
-        self.protokoll = Some(protokoll);
-        self
     }
 }
 
@@ -163,11 +159,8 @@ impl Logablage for Dateiablage {
         }
         bytes.extend_from_slice(satz.as_bytes());
         if let Err(fehler) = datei.write_all(&bytes) {
-            if let (Some(grund), Some(protokoll)) = (
-                zurueckbauen(|auf| datei.set_len(auf), laenge, &tagesdatei),
-                &self.protokoll,
-            ) {
-                protokoll.eintragen(
+            if let Some(grund) = zurueckbauen(|auf| datei.set_len(auf), laenge, &tagesdatei) {
+                self.protokoll.eintragen(
                     Stufe::Error,
                     Bereich::Senden,
                     "Rückbau gescheitert — der Rest des Satzes bleibt in der Tagesdatei stehen",
@@ -327,7 +320,7 @@ mod tests {
             "d\n",
         );
         datei(ordner, ".localchatA.sperre", "");
-        let ablage = Dateiablage::neu(ordner);
+        let ablage = ohne_spur(ordner);
 
         let gespraeche = ablage.gespraeche().expect("Gespräche");
 
@@ -363,9 +356,14 @@ mod tests {
         );
     }
 
+    /// Eine Ablage, deren Einträge nirgends stehen (Tests ohne Blick ins Protokoll).
+    fn ohne_spur(ordner: &Path) -> Dateiablage {
+        Dateiablage::neu(ordner, Arc::new(Protokoll::ohne_ablage()))
+    }
+
     fn allgemein(ordner: &Path) -> (Dateiablage, Gespraech) {
         fs::create_dir_all(ordner.join("channels/allgemein")).expect("Channel-Ordner");
-        (Dateiablage::neu(ordner), Gespraech::channel("allgemein"))
+        (ohne_spur(ordner), Gespraech::channel("allgemein"))
     }
 
     #[test]
@@ -446,7 +444,7 @@ mod tests {
     #[test]
     fn unbekanntes_gespraech_wird_nicht_angelegt() {
         let wurzel = tempfile::tempdir().expect("Wegwerf-Ordner");
-        let ablage = Dateiablage::neu(wurzel.path());
+        let ablage = ohne_spur(wurzel.path());
 
         let ergebnis = ablage.anhaengen(
             &Gespraech::channel("gibtsnicht"),
@@ -496,7 +494,8 @@ mod tests {
         .expect("Symlink");
         let (protokoll, speicher, _, _) =
             im_speicher("2026-10-28T12:00:00+01:00", Stufe::Information);
-        let ablage = ablage.mit_protokoll(protokoll);
+        drop(ablage);
+        let ablage = Dateiablage::neu(wurzel.path(), protokoll);
 
         let ergebnis = ablage.anhaengen(&allgemein, tag("2026-10-28"), "@ eins\n  a\n\n");
 
@@ -530,7 +529,7 @@ mod tests {
     fn leerer_ordner_hat_keine_gespraeche() {
         let wurzel = tempfile::tempdir().expect("Wegwerf-Ordner");
         assert!(
-            Dateiablage::neu(wurzel.path())
+            ohne_spur(wurzel.path())
                 .gespraeche()
                 .expect("Gespräche")
                 .is_empty()
@@ -552,7 +551,7 @@ mod tests {
     #[test]
     fn channel_ordner_entsteht_auch_ohne_channels_und_ein_zweites_mal_scheitert_unberuehrt() {
         let wurzel = tempfile::tempdir().expect("Wegwerf-Ordner");
-        let ablage = Dateiablage::neu(wurzel.path());
+        let ablage = ohne_spur(wurzel.path());
         let allgemein = Gespraech::channel("allgemein");
 
         ablage.channel_ordner_anlegen(&allgemein).expect("angelegt");
@@ -630,7 +629,7 @@ mod tests {
             "channels/allgemein/2026-10-20.log.bak",
             "Sicherung\n",
         );
-        let ablage = Dateiablage::neu(ordner);
+        let ablage = ohne_spur(ordner);
         let allgemein = Gespraech::channel("allgemein");
 
         ablage
@@ -671,7 +670,7 @@ mod tests {
             ordner.join("channels/allgemein/2026-10-01.log"),
         )
         .expect("Symlink");
-        let ablage = Dateiablage::neu(ordner);
+        let ablage = ohne_spur(ordner);
         let allgemein = Gespraech::channel("allgemein");
 
         let symlink = ablage.tag_entfernen(&allgemein, tag("2026-10-01"));

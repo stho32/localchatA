@@ -125,13 +125,16 @@ pub(crate) mod testserver {
     pub fn zustand(ordner: &Path) -> Zustand {
         let leer = tempfile::tempdir().expect("Wegwerf-Ordner");
         let bus = Arc::new(crate::live::bus::Bus::neu(crate::live::KAPAZITAET));
-        let gespraeche =
-            Gespraeche::laden(Arc::new(Dateiablage::neu(leer.path())), Arc::new(Systemuhr))
-                .expect("leerer Ordner geladen")
-                .mit_veroeffentlichen(crate::live::bus::channels_veroeffentlichen(&bus))
-                .mit_nachricht_veroeffentlichen(crate::live::bus::nachrichten_veroeffentlichen(
-                    &bus,
-                ));
+        let gespraeche = Gespraeche::laden(
+            Arc::new(Dateiablage::neu(
+                leer.path(),
+                Arc::new(crate::protokoll::Protokoll::ohne_ablage()),
+            )),
+            Arc::new(Systemuhr),
+        )
+        .expect("leerer Ordner geladen")
+        .mit_veroeffentlichen(crate::live::bus::channels_veroeffentlichen(&bus))
+        .mit_nachricht_veroeffentlichen(crate::live::bus::nachrichten_veroeffentlichen(&bus));
         let anwesenheit = Anwesenheit::neu(
             Arc::new(Systemuhr),
             Arc::new(Betriebssystemzufall),
