@@ -372,16 +372,13 @@ impl Gespraeche {
 
     pub fn kennzahlen(&self) -> Kennzahlen {
         let mut nachrichten = 0;
-        let mut log_bytes = 0;
         let verzeichnis = lesend(&self.verzeichnis);
         for verlauf in verzeichnis.verlaeufe.values() {
-            let verlauf = sperren(verlauf);
-            nachrichten += verlauf.nachrichten();
-            log_bytes += verlauf.bytes();
+            nachrichten += sperren(verlauf).nachrichten();
         }
         Kennzahlen {
             nachrichten,
-            log_bytes,
+            log_bytes: self.belegt(),
             ladezeit_ms: u64::try_from(self.ladezeit.as_millis()).unwrap_or(u64::MAX),
             defekte_zeilen: self.defekte.len() as u64,
             channels: verzeichnis.channels.len() as u64,

@@ -42,6 +42,16 @@ impl Belegung {
     pub(super) fn dazu(&self, bytes: u64) -> u64 {
         self.belegt.fetch_add(bytes, Ordering::SeqCst)
     }
+
+    /// Vermindert um `bytes` eines entfallenen Tages, ohne Schreibsperre; liefert den Stand davor. Ein gleichzeitiges
+    /// Abziehen macht eine laufende Prüfung höchstens strenger (ADR-0044 Regel 2).
+    pub(super) fn weg(&self, bytes: u64) -> u64 {
+        self.belegt
+            .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |belegt| {
+                Some(belegt.saturating_sub(bytes))
+            })
+            .unwrap_or_else(|belegt| belegt)
+    }
 }
 
 /// Der neue Satz brächte die Gespräche über die Quote.
@@ -255,5 +265,53 @@ pub(super) mod tests {
 
         assert_eq!(gespraeche.belegt(), 740 + 4 * 181);
         assert_eq!(summe_im_index(&gespraeche), 740 + 4 * 181);
+    }
+
+    /// B0357 (Ende der Probe aus B0356): Entfallen nimmt den 740-Byte-Tag → `belegt` = nur noch heute, = Σ Index;
+    /// danach passt wieder, was vorher abgewiesen wurde. Mutante „Entfallen zieht nicht ab“ wird rot.
+    #[test]
+    fn entfallen_zieht_die_bytes_des_tages_ab() {
+        let (gespraeche, _, _) = an_der_quote();
+        let allgemein = Gespraech::channel("allgemein");
+        gespraeche
+            .senden(&allgemein, &beta(), Art::Agent, &text_fuer(80))
+            .expect("gesendet");
+        assert!(
+            gespraeche
+                .senden(&allgemein, &beta(), Art::Agent, &text_fuer(181))
+                .is_err()
+        );
+
+        gespraeche
+            .frist_setzen("allgemein", 1, true, &beta())
+            .expect("gesetzt");
+
+        assert_eq!(gespraeche.belegt(), 80);
+        assert_eq!(summe_im_index(&gespraeche), 80);
+        assert_eq!(gespraeche.kennzahlen().log_bytes, 80);
+        gespraeche
+            .senden(&allgemein, &beta(), Art::Agent, &text_fuer(181))
+            .expect("wieder Platz");
+        assert_eq!(gespraeche.belegt(), 261);
+
+        gespraeche.pflegen(tag("2026-10-30"), Pflegeanlass::Tageswechsel);
+        assert_eq!(gespraeche.belegt(), 0);
+        assert_eq!(summe_im_index(&gespraeche), 0);
+    }
+
+    /// F0075 „Löschen scheitert“: der Tag bleibt im Index und im Zähler. Mutante „zieht vor dem Entfernen ab“ wird
+    /// rot.
+    #[test]
+    fn ein_tag_der_nicht_entfaellt_zaehlt_weiter() {
+        let (gespraeche, ablage, _) = an_der_quote();
+        let allgemein = Gespraech::channel("allgemein");
+        ablage.entfernen_scheitern(&allgemein, tag("2026-10-27"));
+
+        gespraeche
+            .frist_setzen("allgemein", 1, true, &beta())
+            .expect("gesetzt");
+
+        assert_eq!(gespraeche.belegt(), 740);
+        assert_eq!(summe_im_index(&gespraeche), 740);
     }
 }

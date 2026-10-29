@@ -125,7 +125,10 @@ impl Gespraeche {
             let mut verlauf = sperren(&verlauf);
             match self.ablage.tag_entfernen(&gespraech, tag) {
                 Ok(()) => {
-                    nachrichten += verlauf.tag_entfernen(tag).map_or(0, |(saetze, _)| saetze);
+                    if let Some((saetze, bytes)) = verlauf.tag_entfernen(tag) {
+                        nachrichten += saetze;
+                        self.belegung.weg(bytes);
+                    }
                     entfallen.push(tag);
                 }
                 Err(grund) => fehler.push(Pflegebericht::NichtEntfallen {
