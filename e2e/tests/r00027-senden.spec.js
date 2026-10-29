@@ -90,6 +90,48 @@ test('Klick sendet (Desktop): ein POST, bestätigt, der Fokus liegt danach im Fe
   expect(fehler).toEqual([]);
 });
 
+// „Nach dem Senden nicht verfügbar“ (Abnahme-Probe Code-Review #41 B1): das geleerte Feld macht den Knopf ohne
+// weitere Eingabe wieder nicht verfügbar — auf jedem Weg, auf dem gesendet wird.
+for (const [weg, geraet, absenden] of [
+  ['Tippen auf den Knopf', 'telefon', (page) => knopf(page).tap()],
+  ['Klick auf den Knopf', 'desktop', (page) => knopf(page).click()],
+  ['Enter im Feld', 'desktop', (page) => eingabe(page).press('Enter')],
+]) {
+  test(`Nach dem Senden (${geraet}, ${weg}): Feld leer, Knopf ohne weitere Eingabe nicht verfügbar`, async ({ browser }) => {
+    const { page, fehler } = await seiteAuf(browser, geraet);
+    const sendungen = sendungenMitschreiben(page);
+
+    await eingabe(page).fill('Hallo');
+    await expect(knopf(page)).not.toHaveAttribute('aria-disabled', /.*/);
+    await absenden(page);
+
+    await expect(eingabe(page)).toHaveValue('');
+    await expect(knopf(page)).toHaveAttribute('aria-disabled', 'true');
+    await expect(bestaetigt(page, 'Hallo')).toHaveCount(1);
+    await expect(knopf(page)).toHaveAttribute('aria-disabled', 'true');
+    expect(sendungen.map((sendung) => sendung.text)).toEqual(['Hallo']);
+    expect(fehler).toEqual([]);
+  });
+}
+
+test('Nach dem Channelwechsel (Desktop): Entwurf x in # allgemein, im leeren # technik nicht verfügbar, zurück bereit', async ({ browser }) => {
+  const { page, fehler } = await seiteAuf(browser, 'desktop');
+  const channelWaehlen = async (name) => {
+    await page.getByRole('navigation', { name: 'Channels' }).getByRole('link', { name, exact: true }).click();
+    await expect(page.getByRole('log')).toHaveAttribute('aria-label', `Verlauf # ${name}`);
+  };
+
+  await eingabe(page).fill('x');
+  await expect(knopf(page)).not.toHaveAttribute('aria-disabled', /.*/);
+  await channelWaehlen('technik');
+  await expect(eingabe(page)).toHaveValue('');
+  await expect(knopf(page)).toHaveAttribute('aria-disabled', 'true');
+  await channelWaehlen('allgemein');
+  await expect(eingabe(page)).toHaveValue('x');
+  await expect(knopf(page)).not.toHaveAttribute('aria-disabled', /.*/);
+  expect(fehler).toEqual([]);
+});
+
 test('Tastatur (Desktop): Tab auf den Knopf, Enter und Leertaste senden, der Fokus kehrt ins Feld; Tab weiter in die Teilnehmerliste', async ({ browser }) => {
   const { page, fehler } = await seiteAuf(browser, 'desktop');
   const sendungen = sendungenMitschreiben(page);
