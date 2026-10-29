@@ -1,5 +1,6 @@
 //! Debug je Anfrage (ADR-0042 Regel 2, letzte Zeile): jede einzelne 400, 401, 404, 405, 409, 413, 415 und 422 als
-//! `DEBUG` mit Routenmuster, Status, Herkunft und Grund. Nur bei 404 auf unbekannte Pfade steht der Pfad selbst
+//! `DEBUG` mit Routenmuster, Status, Herkunft und Grund — im Bereich der Route nach Methode und Muster, mit
+//! `channel=` aus dem Pfadparameter (Ergänzung R00019 Punkt 2). Nur bei 404 auf unbekannte Pfade steht der Pfad selbst
 //! (dekodiert, im Protokoll escaped und gekürzt). Körperfehler trägt `json_lesen` selbst ein — ihre Antwort
 //! trägt die Marke `Eingetragen` und wird hier übergangen. Der Grund ist ein Regelschlüssel (ADR-0042 Ergänzung
 //! #24 Punkt 3): aus der Erweiterung `Abweisung` des abweisenden Handlers, sonst einer je Status.
@@ -65,6 +66,9 @@ pub async fn schicht(
     let mut kontext = Kontext::neu()
         .mit(Schluessel::Route, format!("{methode} {ziel}"))
         .mit(Schluessel::Status, status);
+    if let Some(channel) = channel_im_pfad(muster.as_deref(), &pfad) {
+        kontext = kontext.mit(Schluessel::Channel, channel);
+    }
     match (
         abweisung.and_then(|abweisung| abweisung.kennung.as_deref()),
         herkunft,
@@ -75,7 +79,7 @@ pub async fn schicht(
     }
     protokoll.eintragen(
         Stufe::Debug,
-        bereich(muster.as_deref().unwrap_or(&pfad)),
+        bereich(methode.as_str(), muster.as_deref().unwrap_or(&pfad)),
         "Anfrage abgewiesen",
         kontext.mit(Schluessel::Grund, grund),
     );
@@ -99,23 +103,35 @@ fn grund(status: u16) -> Option<&'static str> {
     })
 }
 
-fn bereich(pfad: &str) -> Bereich {
-    if pfad.contains("/nachrichten") {
-        Bereich::Verlauf
-    } else if pfad.starts_with("/api/channels") {
-        Bereich::Channels
-    } else if [
-        "/api/beitreten",
-        "/api/ich",
-        "/api/verlassen",
-        "/api/teilnehmer",
-    ]
-    .iter()
-    .any(|sitzung| pfad.starts_with(sitzung))
-    {
-        Bereich::Sitzung
-    } else {
-        Bereich::Verbindung
+/// Der Pfadparameter `{name}` der passenden Route, dekodiert wie der Router; ohne Muster oder ohne `{name}` nichts
+/// (ADR-0042 Ergänzung R00019 Punkt 2 — so trägt auch die 401 aus dem Extraktor `channel=`).
+fn channel_im_pfad(muster: Option<&str>, pfad: &str) -> Option<String> {
+    let stelle = muster?.split('/').position(|teil| teil == "{name}")?;
+    pfad.split('/').nth(stelle).map(prozent_dekodiert)
+}
+
+/// Der Fachbereich der Route aus Methode und Routenmuster, die spezifischste Regel zuerst — derselbe Bereich, unter
+/// dem ihre Information- und Error-Zeilen stehen (ADR-0042 Ergänzung R00019 Punkt 2). Ohne Muster (Router-404)
+/// steht hier der Pfad.
+fn bereich(methode: &str, muster: &str) -> Bereich {
+    match (methode, muster) {
+        ("PUT", "/api/channels/{name}/frist") => Bereich::Frist,
+        ("POST", "/api/channels/{name}/nachrichten") => Bereich::Senden,
+        ("GET", "/api/channels/{name}/nachrichten") => Bereich::Verlauf,
+        (_, muster) if muster.starts_with("/api/channels") => Bereich::Channels,
+        (_, muster)
+            if [
+                "/api/beitreten",
+                "/api/ich",
+                "/api/verlassen",
+                "/api/teilnehmer",
+            ]
+            .iter()
+            .any(|sitzung| muster.starts_with(sitzung)) =>
+        {
+            Bereich::Sitzung
+        }
+        _ => Bereich::Verbindung,
     }
 }
 
@@ -169,6 +185,50 @@ mod tests {
         }
         assert_eq!(grund(405), Some("methode"));
         assert_eq!(grund(401), Some("nicht_angemeldet"));
+    }
+
+    /// R00019 F0064 „Bereich nach Methode und Routenmuster“ (ADR-0042 Ergänzung R00019 Punkt 2, erster Test).
+    #[test]
+    fn der_bereich_folgt_methode_und_routenmuster_nicht_dem_pfadpraefix() {
+        assert_eq!(bereich("PUT", "/api/channels/{name}/frist"), Bereich::Frist);
+        assert_eq!(
+            bereich("POST", "/api/channels/{name}/nachrichten"),
+            Bereich::Senden
+        );
+        assert_eq!(
+            bereich("GET", "/api/channels/{name}/nachrichten"),
+            Bereich::Verlauf
+        );
+        assert_eq!(bereich("POST", "/api/channels"), Bereich::Channels);
+        assert_eq!(bereich("GET", "/api/channels/x/y"), Bereich::Channels);
+        assert_eq!(bereich("POST", "/api/beitreten"), Bereich::Sitzung);
+        assert_eq!(bereich("GET", "/api/gibtsnicht"), Bereich::Verbindung);
+    }
+
+    /// R00019 F0064: `channel=` aus dem Pfadparameter `{name}` der passenden Route, dekodiert wie der Router.
+    #[test]
+    fn der_channel_kommt_aus_dem_pfadparameter_der_passenden_route() {
+        assert_eq!(
+            channel_im_pfad(
+                Some("/api/channels/{name}/frist"),
+                "/api/channels/allgemein/frist"
+            )
+            .as_deref(),
+            Some("allgemein")
+        );
+        assert_eq!(
+            channel_im_pfad(
+                Some("/api/channels/{name}/nachrichten"),
+                "/api/channels/a%0ab/nachrichten"
+            )
+            .as_deref(),
+            Some("a\nb")
+        );
+        assert_eq!(
+            channel_im_pfad(Some("/api/channels"), "/api/channels"),
+            None
+        );
+        assert_eq!(channel_im_pfad(None, "/api/channels/x/y"), None);
     }
 
     #[test]
