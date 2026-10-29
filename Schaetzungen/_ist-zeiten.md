@@ -582,3 +582,4 @@ Nie vom User erfragen.
 | 2026-10-29 | R00022 Betriebsprotokoll nach den Reviews #8 | B0347 Gelungenes Senden auf Debug | Standard | 0,4h | 0,30h | 0,30h | autonom (entw2) |
 | 2026-10-29 | R00022 Betriebsprotokoll nach den Reviews #8 | B0348 Überholung mit Zahl | Standard | 0,4h | 0,20h | 0,20h | autonom (entw2) |
 | 2026-10-29 | R00022 Betriebsprotokoll nach den Reviews #8 | B0349 Überholten Ereignisstrom melden | Standard | 0,4h | 0,40h | 0,40h | autonom (entw2) |
+| 2026-10-29 | R00036 Tabs folgen dem Beitritt | Nacharbeit B1, B2, Fokus; R00037 Netz aus | Nacharbeit | — | 1,00h | 1,00h | autonom (entw2) |
