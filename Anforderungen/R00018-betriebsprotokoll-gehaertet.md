@@ -26,6 +26,8 @@ Slices (WBS `Dokumentation/Planung/localchata.md`, alle unter I0021 Betriebsprot
 
 Nachgezogen am 2026-10-29 (planer, `/anforderung review`, Karte #26): die Nachträge des Directors aus dem Observability-, Rechtschreib- und Code-Review #25, dem Entwicklertest #24 und der engen Wiederholung des Code-Reviews #24 — F0062 erweitert, F0081 und F0082 neu.
 
+Angeglichen am 2026-10-29 (planer, `/anforderung review`, Karte #26) an die Entscheidungen des architekt zu den offenen Fragen 1–4: [ADR-0042](../Dokumentation/ADRs/0042-stufen-ereigniskatalog-episoden-und-tagesgrenze-des-betriebsprotokolls.md) Ergänzung Karte #26 (Schlüssel der Grenzart, offene Episoden beim Ende), [ADR-0010](../Dokumentation/ADRs/0010-eigene-annahmeschleife-hyper-http1.md) Ergänzung Karte #26 (Wortlaut der 408), [ADR-0043](../Dokumentation/ADRs/0043-protokollstufe-einstellen-und-kennzahlen-im-health-check.md) Ergänzung Karte #26 (gültige Option übersteuert falsche Umgebung).
+
 ### Domänenbezug
 
 Kein Glossar im Projekt (`Dokumentation/Domaenenwissen/` fehlt). Begriffe wie in R00014: Betriebsprotokoll, Eintrag, Stufe, Bereich, Kontext, Episode, Tagesbudget, Stufenklasse; neu: **Regelschlüssel** (festes ASCII-Wort in `snake_case`, das sagt, welche Regel eine Anfrage abwies), **Grenzart** (welche Grenze griff: die je Herkunft oder die gesamte), **Abrissgrenze** (= Sendefrist, 2 × Herzschlag, ADR-0039 Regel 6), **Werkbank** (die begrenzten Plätze für Verlaufsblöcke, ADR-0039).
@@ -56,7 +58,7 @@ Mit R00018 findet die Betreiberin jeden dieser Fälle mit `grep ' ERROR \| EXCEP
 
 ### Abriss und Werkbank im Health-Check (F0060; ADR-0042 Ergänzung #24 Punkt 7, ADR-0043 Ergänzung #24, ADR-0039 Ergänzung)
 
-- **Abriss**: endet eine Verbindung mit einem Fehler, in dessen Quellenkette ein `io::Error` der Art `TimedOut` steht, ist das ein Abriss an der Abrissgrenze (Sendefrist oder stiller Abriss; der Kernel unterscheidet beides nicht). Er ergibt eine `WARNING verbindung Verbindung an der Abrissgrenze geschlossen`-Episode je Herkunft mit `herkunft` und `grenze` (Abrissgrenze in ms) und zählt in `abgerissen`.
+- **Abriss**: endet eine Verbindung mit einem Fehler, in dessen Quellenkette ein `io::Error` der Art `TimedOut` steht, ist das ein Abriss an der Abrissgrenze (Sendefrist oder stiller Abriss; der Kernel unterscheidet beides nicht). Er ergibt eine `WARNING verbindung Verbindung an der Abrissgrenze geschlossen`-Episode je Herkunft mit `herkunft` und `hoechstens` (Abrissgrenze in ms; ohne `grenze`, weil es nur eine Art gibt — ADR-0042 Ergänzung Karte #26 Punkt 1 „Mitgezogen“) und zählt in `abgerissen`.
 - **`/api/gesundheit`** bekommt drei Felder:
   - `abgerissen`: Zahl der Abrisse seit dem Start, beim Entstehen gezählt, unabhängig von Stufe, Episode und Budget;
   - `werkbank_plaetze`: Plätze der Werkbank, fest seit dem Start;
@@ -74,22 +76,22 @@ Mit R00018 findet die Betreiberin jeden dieser Fälle mit `grep ' ERROR \| EXCEP
 - `--hilfe` zeigt `--protokoll-stufe <stufe>` auf einer eigenen Zeile und die Erklärung darunter eingerückt, wie bei `--erreichbar-als`.
 - Die Exit-2-Meldungen zu `LOCALCHATA_PROTOKOLL_STUFE`, `LOCALCHATA_EPISODE_RUHE_MS` und `LOCALCHATA_TESTPANIK` nennen den falschen Wert in „…“ statt in Rust-Anführung (`"…"` aus `{:?}`). Steuer- und Richtungszeichen im Wert bleiben escaped wie im Protokoll.
 - Die Zusammenfassung einer Körper-Episode nennt die Art `zu_gross` als „zu groß“ (`Episode endet: 200 in 1 s (zu groß 200; verworfen vollständig 200)`). Im Schlüssel `art=` der Debug-Zeilen und in `abgewiesen` bleibt `zu_gross`.
-- **408 mit Ausweg** (Rechtschreib-Review #25; Code-Review #25 A1, A2): der `fehler` der 408 aus der Lesefrist sagt, was der Client tun soll, in der Satzform der übrigen Körperfehler — Vorschlag des Rechtschreib-Reviews: „Der Körper kam nicht innerhalb von 10 s vollständig an — Anfrage abgebrochen, den Körper ohne Pause senden.“ Den Wortlaut legt der architekt in einer Ergänzung von ADR-0010 fest (heute: „Körper nicht vollständig innerhalb von 10 s — Anfrage abgebrochen.“, ADR-0010 Ergänzung R00015 Punkt 2). Die Sekunden stammen aus `KOERPER_LESEFRIST` (gebildet oder per Test daran gebunden). Die Debug-Zeile der 408 trägt `status=408`.
+- **408 mit Ausweg** (Rechtschreib-Review #25; Code-Review #25 A1, A2; ADR-0010 Ergänzung Karte #26): der `fehler` der 408 aus der Lesefrist lautet „Der Körper kam nicht innerhalb von <s> s vollständig an — Anfrage abgebrochen; den Körper ohne Pause senden.“ — Zustand, Gedankenstrich vor der Folge, Semikolon vor dem Ausweg wie der 413-Text des Sendens (heute: „Körper nicht vollständig innerhalb von 10 s — Anfrage abgebrochen.“). `<s>` wird aus `KOERPER_LESEFRIST.as_secs()` gebildet, nicht von Hand geschrieben; die Frist bleibt ganze Sekunden. Status, `Connection: close` und der Ort in der einen Antwortfunktion bleiben (ADR-0010 Ergänzung Karte #31). Die Debug-Zeile der 408 trägt `status=408`.
 - **Bereinigungszeile in der Einzahl** (ADR-0041 Nachzug Karte #28 Punkt 3): entfällt genau eine Protokolldatei, nennt die Zeile nur ihr Datum — `1 Protokolldatei entfällt (2026-10-14; Aufbewahrung 14 Tage; Start)` statt `(2026-10-14 bis 2026-10-14; …)`; ab zwei Dateien bleibt die Spanne.
 - **Texte im Code** (Rechtschreib-Review #25, Sollte): Großschreibung nach Doppelpunkt in Kommentaren und Testtiteln, „kleingeschrieben“ zusammen, Komma in `Dokumentation/Gelerntes.md:33`.
 
 ### Grenzen mit Zahl und Art im Protokoll (F0081; Observability-Review #25 S1, O2; Rechtschreib-Review #24)
 
 - Eine Abweisung an der **Platzgrenze** der Annahmeschleife, an der **Sitzungsgrenze** (429 beim Beitritt) und an der **Channel-Grenze** (429 beim Anlegen) nennt in der Beginn-Zeile ihrer Episode die **Zahl** der Grenze, die gegriffen hat, und ihre **Art** (`herkunft` oder `gesamt`) — in allen drei Bereichen gleich geschrieben. Heute steht dort `grenze=160` ohne Art, `grenze="128 je Herkunft, 512 gesamt"` bzw. `grenze="128 herkunft"`.
-- Die **Schlüssel** legt der architekt in der Katalogzeile fest (ADR-0042). Vorschlag des Observability-Reviews: `grenze=<n> art=herkunft|gesamt`. Offene Frage unten.
+- **Schlüssel** (ADR-0042 Ergänzung Karte #26 Punkt 1, Option B): `grenze` nennt immer **welche** Grenze griff, als Wort (`herkunft` oder `gesamt`), nie Zahl oder Freitext; `hoechstens` nennt **ihre Zahl** — wie in der 429-Antwort (`{grenze, hoechstens}`, R00006) und im Schreibkonto (`grenze=kennung|herkunft`, R00016). Beginn-Zeile: `… — Episode beginnt | herkunft=<h> grenze=<herkunft|gesamt> hoechstens=<n>`. Die gebaute Verbindungszeile ändert sich: `grenze=160` → `grenze=herkunft hoechstens=160`.
 - Die Annahmeschleife erfährt die Art im selben Schritt wie die Abweisung (`zulassen`), nicht durch ein zweites Lesen danach — sonst kann zwischen beiden ein Platz frei werden und die falsche Art im Protokoll stehen.
-- Die Ende-Zeile einer solchen Episode zählt die Abweisungen je Art (`… (gesamt 1; herkunft 5)`), wie die Körper- und die Schreibkonto-Episode. Dass sie nur den Kontext der Quelle trägt (ohne die Zahl des ersten Auftretens), bringt R00022 (F0073, ADR-0042 Ergänzung Karte #31 Punkt 4).
+- Die Ende-Zeile einer solchen Episode zählt die Abweisungen je Grenze (`… — Episode endet: <n> in <d> s (gesamt <g>; herkunft <h>)`, ein Teil mit 0 entfällt, alphabetisch), wie die Körper- und die Schreibkonto-Episode; dafür trägt jedes Auftreten die Grenze als `art` des Auftretens (Zählkategorie, kein Kontextschlüssel — im Kontext bleibt `art=` der Fehlerart des Körpers und der Abbruchursache vorbehalten). Dass sie nur den Kontext der Quelle trägt (ohne die Zahl des ersten Auftretens), bringt R00022 (F0073, ADR-0042 Ergänzung Karte #31 Punkt 4).
 
 ### Start, Ende und Sitzungswechsel lückenlos im Protokoll (F0082; Entwicklertest #24, Code-Review #24 A8)
 
-- **Ende**: nach dem Ende-Signal schreibt jede noch offene Episode ihre Ende-Zeile in ihrer Stufe, nachdem alle Verbindungen geschlossen sind und bevor die zweite `INFORMATION ende`-Zeile („beendet“) steht (ADR-0042 Ergänzung 7). Ohne das endet eine Flut, die bis zum Ende lief, im Protokoll mit „Episode beginnt“ und ohne Zahl.
+- **Ende** (ADR-0042 Ergänzung Karte #26 Punkt 2, Option A): nach dem Ende der Annahmeschleife (alle Verbindungen zu oder Ende-Frist abgelaufen) und bevor die zweite `INFORMATION ende`-Zeile („beendet“) steht, schreibt **jede** noch offene Episode — auch die Sammelepisode — ihre Ende-Zeile in ihrer Stufe, Form wie nach der Ruhe; das Tagesbudget gilt wie für jede Zeile. Gebraucht wird eine Schließ-Variante ohne Ruhe-Bedingung: `Protokoll::episoden_schliessen` (`src/protokoll/mod.rs:286`) schließt heute nur ruhende. Ohne das endet eine Flut, die bis zum Ende lief, im Protokoll mit „Episode beginnt“ und ohne Zahl.
 - **`logs/` nach jedem Start** (R00014 „Ort“): `logs/` wird nach der Sperre angelegt, auch wenn die Mindeststufe noch keinen Eintrag schreibt (z. B. `--protokoll-stufe warning`). Bei Exit 2 (falsche Stufe) entsteht wie bisher kein `logs/`.
-- **Vorrang bei falscher Umgebung**: was gilt, wenn `--protokoll-stufe` gültig gesetzt ist und `LOCALCHATA_PROTOKOLL_STUFE` einen falschen Wert hat, legt der architekt fest (ADR-0043 Regel 2; offene Frage unten). Empfehlung: die Option gilt, die Umgebung wird nicht ausgewertet. Gebaut ist heute Exit 2.
+- **Vorrang bei falscher Umgebung** (ADR-0043 Ergänzung Karte #26, Option A): ist `--protokoll-stufe` gültig gesetzt, gilt die Option, und `LOCALCHATA_PROTOKOLL_STUFE` wird nicht gelesen — weder geprüft noch gemeldet; der Start-Eintrag nennt `option=--protokoll-stufe`. Ohne Option bleibt ein falscher Umgebungswert Exit 2, nichts geschrieben, kein `logs/`. Gebaut ist heute Exit 2 auch neben der Option; der Unit-Test `eine_falsche_umgebung_ist_ein_fehler_auch_neben_der_option` (`src/start/protokollstufe.rs:70`) kehrt sich um. Dieselbe Regel gilt für `--plattenquote` (R00023) und `--alle-namen` (R00024).
 - **Sitzungswechsel auf Debug** (R00014 F0054, so gebaut): ein Wechsel nach online bzw. offline ergibt je genau eine `DEBUG sitzung Sitzung online` bzw. `Sitzung offline` mit `kennung=` — jetzt mit Integrationstest.
 
 ## Nicht-funktionale Anforderungen
@@ -128,7 +130,7 @@ Gemeinsam für alle Integrationskriterien: Start mit `localchatA <ordner> --port
 
 - [ ] **Abriss erkennen** (Unit, rein): `ist_abriss` ist wahr für einen Fehler mit `io::ErrorKind::TimedOut` in der Quellenkette (auch eingepackt), falsch für `ConnectionReset`, `BrokenPipe` und `UnexpectedEof`.
 - [ ] **Gate K5 mit Spur** (Gate, Integration, echtes Programm, Linux; Erweiterung von R00013 K5, Erwartung aus ADR-0042 Ergänzung #24 Punkt 7): Start mit `LOCALCHATA_HERZSCHLAG_MS=2000`; 4 Rohverbindungen holen je `?n=200` aus `riesig` und lesen nicht. Nachdem alle vier server-seitig zu sind (Beobachtung wie in K5):
-  - `heute.log` enthält genau eine Zeile `WARNING verbindung Verbindung an der Abrissgrenze geschlossen — Episode beginnt | herkunft=<h> grenze=4000`, `<h>` die Herkunft der vier Verbindungen (im Gate heute `127.0.0.2`; ADR-0042 nennt `127.0.0.1`);
+  - `heute.log` enthält genau eine Zeile `WARNING verbindung Verbindung an der Abrissgrenze geschlossen — Episode beginnt | herkunft=<h> hoechstens=4000`, `<h>` die Herkunft der vier Verbindungen (im Gate heute `127.0.0.2`; ADR-0042 nennt `127.0.0.1`); die Zeile enthält kein `grenze=`;
   - `/api/gesundheit` nennt `abgerissen: 4`.
   - Mutante „Abriss nicht erkannt“ → keine Zeile und `abgerissen: 0`, rot.
   - Zeigt die Probe, dass hyper eine andere Fehlerart durchreicht als `TimedOut`, folgt die Einordnung in `ist_abriss` der Probe (Vermutung des architekt, nicht geprobt).
@@ -152,29 +154,31 @@ Gemeinsam für alle Integrationskriterien: Start mit `localchatA <ordner> --port
 - [ ] **Exit-2-Meldungen** (Integration): `LOCALCHATA_PROTOKOLL_STUFE=laut`, `LOCALCHATA_EPISODE_RUHE_MS=abc` und `LOCALCHATA_TESTPANIK=laut` (Debug-Build) ergeben je Exit 2 und eine stderr-Zeile, die die Variable nennt und `„laut“` bzw. `„abc“` enthält, aber kein `"laut"` bzw. `"abc"`. Unit: ein Wert mit `\u{1b}` erscheint escaped (`\u{1b}`), nicht roh.
 - [ ] **Episodentext** (Unit am Episoden-Baustein und die Gegenprobe aus R00014 F0055): die Zusammenfassung einer Körper-Episode mit 200 × `zu_gross` lautet `… Episode endet: 200 in <d> s (zu groß 200; verworfen vollständig 200)`; die Debug-Zeilen derselben Abweisungen tragen weiter `art=zu_gross`, `abgewiesen.zu_gross` bleibt der Schlüssel.
 - [ ] **Testname** (Review-Punkt): `src/protokoll/tagestakt.rs` enthält keinen Testnamen mit `nachster`.
-- [ ] **408 mit Ausweg** (Unit und Integration; Wortlaut nach der Ergänzung von ADR-0010):
-  - Unit: der 408-Text nennt die Sekunden aus `KOERPER_LESEFRIST` (bei 10 s „10 s“); Mutante „Zahl fest im Text“ wird rot, wenn die Bildung oder Bindung entfällt.
-  - Integration wie R00015 G1 (Beitritt mit `Content-Length: 4096`, 10 Bytes, Stille) → 408 mit genau dem neuen `fehler`; `grep -rn 'Körper nicht vollständig innerhalb' src tests` findet nichts.
+- [ ] **408 mit Ausweg** (Unit und Integration; Wortlaut ADR-0010 Ergänzung Karte #26):
+  - Unit: der 408-Text enthält `format!("{} s", KOERPER_LESEFRIST.as_secs())` und endet mit „; den Körper ohne Pause senden.“; bei 10 s lautet er „Der Körper kam nicht innerhalb von 10 s vollständig an — Anfrage abgebrochen; den Körper ohne Pause senden.“; `KOERPER_LESEFRIST.subsec_nanos() == 0`. Mutante „Zahl fest im Text“ wird rot (Frist im Test als Parameter auf 7 s → „7 s“).
+  - Integration wie R00015 G1 (Beitritt mit `Content-Length: 4096`, 10 Bytes, Stille) → 408 mit genau diesem `fehler`; `grep -rn 'Körper nicht vollständig innerhalb' src tests` findet nichts.
   - Integration auf Stufe debug: die Debug-Zeile dieser 408 trägt `status=408` und `art=zu_langsam`; Mutante „`status` fehlt“ (`src/http/koerper.rs:94`) wird rot.
 - [ ] **Bereinigungszeile in der Einzahl** (Unit und Integration): eine entfallene Datei `2026-10-14.log` → `INFORMATION protokoll 1 Protokolldatei entfällt (2026-10-14; Aufbewahrung 14 Tage; Start)`; zwei (`2026-10-13`, `2026-10-14`) → `2 Protokolldateien entfallen (2026-10-13 bis 2026-10-14; …)`. Der Tageswechsel-Test aus R00014 erwartet `1 Protokolldatei entfällt (2026-10-15; Aufbewahrung 14 Tage; Tageswechsel)`. Mutante „immer Spanne“ wird rot.
 - [ ] **Texte im Code** (Review-Punkt `rechtschreib-reviewer`): die Sollte-Stellen des Rechtschreib-Reviews #25 sind behoben.
 
 ### F0081 Grenzen mit Zahl und Art im Protokoll
 
-Schlüssel `<zahl>` und `<art>` stehen für die Namen aus der Katalogzeile des architekt (Vorschlag `grenze=<n> art=<art>`).
+Schlüssel nach ADR-0042 Ergänzung Karte #26 Punkt 1: `grenze=herkunft|gesamt` (welche Grenze griff) und `hoechstens=<n>` (ihre Zahl).
 
 - [ ] **Zulassen nennt die Art** (Unit, rein): Grenzen je Gegenstelle 1, gesamt 2. A belegt einen Platz; eine zweite Verbindung von A wird abgewiesen mit Art `herkunft` und Zahl 1. B belegt einen Platz; C wird abgewiesen mit Art `gesamt` und Zahl 2. A gibt frei; C wird zugelassen. Mutante „gesamt als herkunft gemeldet“ wird rot.
-- [ ] **Sitzungsgrenze** (Integration oder Router-Test; Abnahme-Probe des Observability-Reviews #25 S1, wörtlich aus dem Kommentar des Directors): „Gesamtgrenze Sitzungen füllen, Beitritt von frischer Herkunft → `grenze=512 art=gesamt`, Gegenprobe 129. von 127.0.0.1 → `grenze=128 art=herkunft`“. Also: 4 × 128 Sitzungen von `127.0.0.1` bis `127.0.0.4` (oder ein Router mit kleiner Grenze, dann deren Zahlen) → ein Beitritt von `127.0.0.5` antwortet 429, die Beginn-Zeile `WARNING sitzung Beitritt an der Sitzungsgrenze abgewiesen — Episode beginnt` trägt `herkunft=127.0.0.5` und Art `gesamt`, Zahl 512; Gegenprobe auf frischer Instanz: der 129. Beitritt von `127.0.0.1` → Art `herkunft`, Zahl 128. Mutante „Art fehlt im Beitrittsfehler“ wird rot.
-- [ ] **Channel-Grenze** (Integration): der 129. `POST /api/channels` von `127.0.0.1` → 429 und die Beginn-Zeile `WARNING channels Anlegen an der Channel-Grenze abgewiesen — Episode beginnt` mit Art `herkunft`, Zahl 128; kein `grenze="128 herkunft"` mehr.
-- [ ] **Platzgrenze** (Integration): 161 offene Verbindungen von `127.0.0.1` → die Beginn-Zeile `WARNING verbindung Verbindung an der Platzgrenze abgewiesen — Episode beginnt` trägt Art `herkunft`, Zahl 160.
+- [ ] **Sitzungsgrenze** (Integration oder Router-Test; Abnahme-Probe des Observability-Reviews #25 S1, wörtlich aus dem Kommentar des Directors): „Gesamtgrenze Sitzungen füllen, Beitritt von frischer Herkunft → `grenze=512 art=gesamt`, Gegenprobe 129. von 127.0.0.1 → `grenze=128 art=herkunft`“ — mit den entschiedenen Namen (ADR-0042 Ergänzung Karte #26): `grenze=gesamt hoechstens=512` bzw. `grenze=herkunft hoechstens=128`. Also: 4 × 128 Sitzungen von `127.0.0.1` bis `127.0.0.4` (oder ein Router mit kleiner Grenze, dann deren Zahlen) → ein Beitritt von `127.0.0.5` antwortet 429, die Beginn-Zeile `WARNING sitzung Beitritt an der Sitzungsgrenze abgewiesen — Episode beginnt` trägt `herkunft=127.0.0.5 grenze=gesamt hoechstens=512`; Gegenprobe auf frischer Instanz: der 129. Beitritt von `127.0.0.1` → `herkunft=127.0.0.1 grenze=herkunft hoechstens=128`. Der Router-Test aus R00014 F0055 (`src/http/grenzepisoden.rs`) erwartet dieselbe Form statt `grenze="128 je Herkunft, 512 gesamt"`. Mutante „Art fehlt im Beitrittsfehler“ wird rot.
+- [ ] **Channel-Grenze** (Integration): der 129. `POST /api/channels` von `127.0.0.1` → 429 und die Beginn-Zeile `WARNING channels Anlegen an der Channel-Grenze abgewiesen — Episode beginnt` mit `grenze=herkunft hoechstens=128`; kein `grenze="128 herkunft"` mehr (auch nicht im Router-Test aus R00014 F0055).
+- [ ] **Platzgrenze** (Integration): 161 offene Verbindungen von `127.0.0.1` → die Beginn-Zeile `WARNING verbindung Verbindung an der Platzgrenze abgewiesen — Episode beginnt` trägt `grenze=herkunft hoechstens=160` (heute `grenze=160`).
 - [ ] **Zählung je Art** (Unit, Speicher-Senke): eine Sitzungs-Episode derselben Herkunft mit 5 Abweisungen der Art `herkunft` und 1 der Art `gesamt` endet mit `… Episode endet: 6 in <d> s (gesamt 1; herkunft 5)`.
-- [ ] **Eine Schreibweise** (Review-Punkt): in `src/` schreibt keine der drei Stellen die Grenze als Freitext (`je Herkunft`, `herkunft` hinter einer Zahl).
+- [ ] **Eine Schreibweise** (Review-Punkt und Unit): in `src/` schreibt keine der drei Stellen die Grenze als Freitext (`je Herkunft`, `herkunft` hinter einer Zahl); `grep -rn 'Schluessel::Grenze' src` zeigt nur Werte aus einer Grenzart-Aufzählung, nie eine Zahl oder `format!`. Mutante „Zahl unter `grenze`“ wird im Unit-Test der Kontextbildung rot.
 
 ### F0082 Start, Ende und Sitzungswechsel lückenlos im Protokoll
 
-- [ ] **Episode beim Ende** (Integration, echtes Programm, `LOCALCHATA_EPISODE_RUHE_MS=60000`): eine Anfrage mit `Origin: http://fremd.example` → 403 und `WARNING grenzschutz … Episode beginnt`; danach SIGTERM → Exit 0, und `heute.log` enthält genau eine Zeile `WARNING grenzschutz … Episode endet: 1 in <d> s` — nach der ersten `INFORMATION ende`-Zeile (`grund=SIGTERM`) und vor der zweiten („beendet“). Mutante „Ende ohne Schließen“ wird rot.
+- [ ] **Episode beim Ende** (Integration, echtes Programm, `LOCALCHATA_EPISODE_RUHE_MS=60000`): eine Anfrage mit `Origin: http://fremd.example` → 403 und `WARNING grenzschutz … Episode beginnt`; danach SIGTERM → Exit 0, und `heute.log` enthält genau eine Zeile `WARNING grenzschutz … Episode endet: 1 in <d> s` — nach der ersten `INFORMATION ende`-Zeile (`grund=SIGTERM`) und vor der zweiten („beendet“); „beendet“ ist die letzte Zeile des Laufs. Die Ruhe von 60 s ist nicht abgelaufen — geschlossen hat die Variante ohne Ruhe-Bedingung. Mutante „Ende ohne Schließen“ wird rot.
 - [ ] **`logs/` auf Stufe warning** (Integration): frischer Ordner, `--protokoll-stufe warning` → sobald die Startzeile gelesen ist, ist `<ordner>/logs` ein Verzeichnis (eine Tagesdatei muss es nicht geben). Gegenprobe `LOCALCHATA_PROTOKOLL_STUFE=laut` → Exit 2, kein `logs/`. Mutante „anlegen erst beim ersten Eintrag“ wird rot.
-- [ ] **Vorrang bei falscher Umgebung** (Integration; nach der Regel des architekt, hier die Empfehlung): `LOCALCHATA_PROTOKOLL_STUFE=laut` mit `--protokoll-stufe debug` → die Instanz startet, `/api/gesundheit` nennt `protokoll_stufe: "debug"`; ohne die Option → Exit 2 wie bisher. Bestätigt der architekt die gebaute Lesart (Exit 2 auch mit gültiger Option), gilt stattdessen: Exit 2, nichts geschrieben, kein `logs/`.
+- [ ] **Vorrang bei falscher Umgebung** (Unit und Integration; ADR-0043 Ergänzung Karte #26):
+  - Unit: `wirksame_stufe(Some(Stufe::Error), Some("laut"))`, ebenso mit `exception` und leer → `Ok((Stufe::Error, "--protokoll-stufe"))` (der Test `eine_falsche_umgebung_ist_ein_fehler_auch_neben_der_option` kehrt sich um); ohne Option `laut` → Fehler, der die Variable nennt. Mutante „Umgebung immer geprüft“ wird rot.
+  - Integration: `LOCALCHATA_PROTOKOLL_STUFE=laut` mit `--protokoll-stufe debug` → die Instanz startet, `/api/gesundheit` nennt `protokoll_stufe: "debug"`, der Start-Eintrag nennt `option=--protokoll-stufe`; ohne die Option → Exit 2, nichts geschrieben, kein `logs/`.
 - [ ] **Online und offline** (Integration; Abnahme-Probe der engen Wiederholung des Code-Reviews #24, A8, wörtlich aus dem Kommentar des Directors): „Integrationstest online/offline mit LOCALCHATA_PROTOKOLL_STUFE=debug und kleiner LOCALCHATA_GNADENFRIST_MS → je eine „DEBUG sitzung Sitzung online“/„… offline“ mit kennung=; Mutant start/mod.rs:271 mit_veroeffentlichen ohne Protokoll muss rot werden.“ Also: `beta` öffnet den Ereignisstrom → genau eine `DEBUG sitzung Sitzung online` mit `kennung=beta@127.0.0.1`; schließt ihn → genau eine `… Sitzung offline` mit derselben Kennung.
 
 ## Betroffene Verzeichnisstruktur
@@ -207,7 +211,7 @@ Die Bubbles der WBS sind Vorplanung; welche es am Ende werden, entscheidet der E
 - F0061: B0312 Verbrauch je Klasse · B0313 Budget aus der Tagesdatei anrechnen
 - F0062: B0314 Meldungstexte · B0379 408 mit Ausweg aus der Lesefrist · B0380 Bereinigungszeile mit einem Datum
 - F0081: B0381 Zulassen nennt die Grenzart · B0382 Grenzart im Kontext der drei Abweisungen
-- F0082: B0383 Offene Episoden beim Ende schließen · B0384 `logs/` auch ohne Eintrag anlegen · B0385 Option übersteuert eine falsche Umgebung (unter Vorbehalt) · B0386 Online und offline auf Debug belegt
+- F0082: B0383 Offene Episoden beim Ende schließen · B0384 `logs/` auch ohne Eintrag anlegen · B0385 Option übersteuert eine falsche Umgebung · B0386 Online und offline auf Debug belegt
 
 Elemente (Signaturen nach A00015 und den ADR-Ergänzungen): `abbruch_eintragen(protokoll, abbruch, ort, was)`, `abbruch_beantworten(…) -> Response`, `annahmefehler_einordnen(&io::Error) -> Annahmefehler` (rein), `ist_abriss(&(dyn Error + 'static)) -> bool` (rein), `Abweisung { regel: &'static str, kennung: Option<String> }` (Antwort-Erweiterung), `verbrauch_je_klasse(zeilen) -> [u64; 3]` (rein), `Schluessel::Ursache`.
 
@@ -241,7 +245,12 @@ Nach Skill `test-pyramide`.
 ## Offene Fragen
 
 - Keine für den Bau von F0059–F0061.
-- **An den architekt über den Director, vor dem Bau der genannten Bubbles** (Empfehlung des planer jeweils zuerst):
+- **Entschieden vom architekt am 2026-10-29 (Karte #26), jeweils wie empfohlen** — die Anforderung ist oben angeglichen:
+  1. Schlüssel der Grenzart → (b) `grenze=herkunft|gesamt hoechstens=<n>`: [ADR-0042](../Dokumentation/ADRs/0042-stufen-ereigniskatalog-episoden-und-tagesgrenze-des-betriebsprotokolls.md) Ergänzung Karte #26 Punkt 1 (Commit 9a93cf7). Mitgezogen: Abrissgrenze `hoechstens` statt `grenze` in ms (B0308, B0310).
+  2. Wortlaut der 408 → Semikolon: [ADR-0010](../Dokumentation/ADRs/0010-eigene-annahmeschleife-hyper-http1.md) Ergänzung Karte #26 (Commit 67e5b5b).
+  3. Platz der Ende-Zeilen → nach dem Schließen der Verbindungen und vor „beendet“: ADR-0042 Ergänzung Karte #26 Punkt 2.
+  4. Vorrang bei falscher Umgebung → (a) die gültige Option übersteuert, die Umgebung wird nicht gelesen: [ADR-0043](../Dokumentation/ADRs/0043-protokollstufe-einstellen-und-kennzahlen-im-health-check.md) Ergänzung Karte #26 (Commit 5182fcf); B0385 bleibt.
+- Die Fragen, wie sie gestellt waren (Verlauf):
   1. **Schlüssel der Grenzart** (F0081, ADR-0042 Katalogzeile): (a) `grenze=<n> art=herkunft|gesamt` wie vom Observability-Review vorgeschlagen; (b) `grenze=herkunft|gesamt hoechstens=<n>` — dieselbe Bedeutung von `grenze` wie im Schreibkonto (`grenze=kennung|herkunft`, R00016) und in der 429-Antwort (`{grenze:"herkunft", hoechstens:32}`, R00006); (c) neuer Schlüssel `grenzart`. Zu bedenken: `art` heißt heute die Fehlerart der Körpergrenze (`zu_gross`, …; oben unter F0059 „bleibt der Fehlerart vorbehalten“), und `art` des Auftretens speist die Zählung je Art in der Ende-Zeile. Empfehlung (b): ein Schlüssel, eine Bedeutung über Protokoll und API; die Abnahme-Probe gilt dann mit diesen Namen.
   2. **Wortlaut der 408** (B0379, Ergänzung ADR-0010): Vorschlag des Rechtschreib-Reviews „… — Anfrage abgebrochen, den Körper ohne Pause senden.“; die Geschwistertexte trennen den Ausweg mit Semikolon („… höchstens 131.072 Byte; längere Texte teilen.“). Empfehlung: Semikolon wie die Geschwister.
   3. **Platz der Ende-Zeilen beim Ende** (B0383, ADR-0042 Ergänzung 7): Empfehlung nach dem Schließen der Verbindungen und vor „beendet“ — so zählen Auftreten bis zuletzt mit.
@@ -266,7 +275,7 @@ Gezählt aus der WBS (Bubbles). 0,4 h ist die Untergrenze je Bubble nach dem Ski
 - F0061 Tagesbudget über Neustarts: 2 Bubbles · 2 klar (0,8 h)
 - F0062 Meldungen ohne Rust-Schreibweise: 3 Bubbles · 3 klar (1,2 h)
 - F0081 Grenzen mit Zahl und Art im Protokoll: 2 Bubbles · 1 klar (0,4 h) · 1 unklar (2–4 h)
-- F0082 Start, Ende und Sitzungswechsel lückenlos im Protokoll: 4 Bubbles · 4 klar (1,6 h), davon B0385 unter Vorbehalt
+- F0082 Start, Ende und Sitzungswechsel lückenlos im Protokoll: 4 Bubbles · 4 klar (1,6 h) (B0385 seit ADR-0043 Ergänzung Karte #26 fest)
 - Zusammen: 23 Bubbles (vorher 15, +8 aus den Nachträgen vom 2026-10-29) · 7,6 h klar + 8–16 h unklar; alle sechs Slices brauchen die Nacharbeit #24 und sind danach parallel (eine Welle)
 
 ## Warum löst diese Anforderung das Problem? (Pflicht)
@@ -296,7 +305,8 @@ Der Hebel liegt an den wenigen gemeinsamen Stellen (Abbruch-Hilfe, Debug-Schicht
   - „Verlauf nicht gelesen“ ist `EXCEPTION verlauf` statt `ERROR verlauf` (R00014 F0051, Kriterium „Umgestellte Meldungen mit Test“; R00014 F0053 „An der Grenze“: der englische Text steht in `ursache`, nicht in `grund`).
   - Die Gegenprobe aus R00014 F0055 erwartet in der Ende-Zeile `zu groß 200` statt `zu_gross 200`.
   - 4xx-Debug-Zeilen tragen einen Regelschlüssel als `grund` (R00014 F0054 „Debug“ nannte `grund` ohne Form).
-  - Die Beginn-Zeilen der Grenz-Episoden tragen Zahl und Art der Grenze in den Schlüsseln des architekt statt `grenze=<G>` bzw. Freitext (R00014 F0055 Kriterium „`G + 1` offene Verbindungen … `grenze=<G>`“ und die Tests aus B0299).
+  - Die Beginn-Zeilen der Grenz-Episoden tragen `grenze=herkunft|gesamt hoechstens=<n>` statt `grenze=<G>` bzw. Freitext (R00014 F0055 Kriterium „`G + 1` offene Verbindungen … `grenze=<G>`“ → `grenze=herkunft hoechstens=<G>`; die Tests aus B0299 in `src/http/grenzepisoden.rs:102` und `:142` ziehen mit).
+  - Die Abriss-Episode trägt `hoechstens=<ms>` statt `grenze=<ms>` (ADR-0042 Ergänzung #24 Punkt 7, mitgezogen durch Ergänzung Karte #26).
   - Die Bereinigungszeile nennt bei genau einer Datei nur das Datum (R00014 Zeilen 69 und 207).
   - Der 408-Text der Lesefrist (R00015, ADR-0010 Ergänzung R00015 Punkt 2) bekommt einen Ausweg.
 - Herkunft: Karte #24 (Auto-Reviews 2026-10-28), Schnitt des Directors: Nacharbeit #24 = Muss und Kürzen an der Quelle (an R00014), der Rest als eigene Karte mit dieser Anforderung.
