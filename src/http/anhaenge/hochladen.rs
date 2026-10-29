@@ -135,6 +135,16 @@ pub async fn hochladen(
     beantworten(ergebnis, &wer)
 }
 
+/// Jede Antwort der Route `PUT /api/anhaenge/{id}` schließt die Verbindung, gleich welcher Status — auch die
+/// Abweisungen der Extraktoren (ADR-0046 Ergänzung „Connection: close auf jeder PUT-Antwort“, Regel C2): Bytes
+/// nach dem Körper werden nie als zweite Anfrage gelesen.
+pub async fn verbindung_schliessen(mut antwort: Response) -> Response {
+    antwort
+        .headers_mut()
+        .insert(CONNECTION, axum::http::HeaderValue::from_static("close"));
+    antwort
+}
+
 /// Ab dieser Länge steht das Ende eines Hochladens als `INFORMATION` im Protokoll (ADR-0042 Ergänzung Karte #9).
 pub const GROSSES_HOCHLADEN: u64 = 64 * 1_048_576;
 

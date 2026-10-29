@@ -48,6 +48,7 @@ use crate::protokoll::testpanik::Testpanik;
 use crate::schreibkonto::Schreibkonto;
 use crate::start::ende::Ende;
 use axum::Router;
+use axum::handler::Handler;
 use axum::middleware;
 use axum::routing::{get, post, put};
 use std::path::PathBuf;
@@ -99,7 +100,10 @@ pub fn router(zustand: Zustand) -> Router {
         )
         .route(
             "/api/anhaenge/{id}",
-            put(anhaenge::hochladen).delete(anhaenge::verwerfen),
+            put(anhaenge::hochladen.layer(middleware::map_response(
+                anhaenge::hochladen::verbindung_schliessen,
+            )))
+            .delete(anhaenge::verwerfen),
         )
         .route(
             "/api/channels",

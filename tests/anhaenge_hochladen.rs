@@ -248,3 +248,100 @@ async fn ein_langsames_grosses_hochladen_blockiert_nichts() {
         &antwort[..antwort.len().min(200)]
     );
 }
+
+/// Schickt auf **einer** Verbindung in einem `write` den `PUT` samt `koerper` und unmittelbar dahinter `GET
+/// /api/gesundheit`; liest bis EOF (oder Reset) und liefert alles Gelesene — `None`, wenn die Instanz die
+/// Verbindung nach 5 s nicht beendet hat.
+async fn put_mit_angehaengter_anfrage(port: u16, kopf: &str, koerper: &[u8]) -> Option<String> {
+    use tokio::io::AsyncReadExt;
+    let mut verbindung = gemeinsam::herkunft::verbinden(port, "127.0.0.1").await;
+    let mut alles = format!("{kopf}\r\n\r\n").into_bytes();
+    alles.extend_from_slice(koerper);
+    alles.extend_from_slice(b"GET /api/gesundheit HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n");
+    verbindung.write_all(&alles).await.expect("geschrieben");
+    let mut gelesen = Vec::new();
+    let ende = tokio::time::timeout(Duration::from_secs(5), async {
+        let mut puffer = [0u8; 4_096];
+        loop {
+            match verbindung.read(&mut puffer).await {
+                Ok(0) | Err(_) => break,
+                Ok(n) => gelesen.extend_from_slice(&puffer[..n]),
+            }
+        }
+    })
+    .await;
+    ende.ok()
+        .map(|()| String::from_utf8_lossy(&gelesen).into_owned())
+}
+
+/// Genau eine Antwort mit `status` und `connection: close`, danach EOF — keine zweite Antwort der Gesundheit.
+fn genau_eine_antwort(gelesen: Option<String>, status: &str) {
+    let antwort = gelesen.expect("die Instanz beendet die Verbindung nach der Antwort");
+    assert!(
+        antwort.starts_with(&format!("HTTP/1.1 {status}")),
+        "{antwort}"
+    );
+    assert_eq!(antwort.matches("HTTP/1.1 ").count(), 1, "{antwort}");
+    assert!(
+        antwort.to_ascii_lowercase().contains("connection: close"),
+        "{antwort}"
+    );
+}
+
+/// ADR-0046 Ergänzung „Connection: close auf jeder PUT-Antwort“, Erste Tests (wörtlich): Anmelden 10 Bytes; auf einer
+/// Verbindung in einem `write` `PUT` mit `Content-Length: 10`, 10 Bytes Körper, dahinter `GET /api/gesundheit` →
+/// genau eine Antwort (200, `connection: close`), danach EOF. Dasselbe für 422 `laenge` (vor dem Lesen) und 422
+/// `metadaten` (nach dem Lesen, beschädigtes JPEG mit `APP1`-Länge über das Segmentende); dazu ohne Sitzung (401) und
+/// zweiter `PUT` (409) — jede Antwort der Route schließt.
+#[tokio::test]
+async fn jede_antwort_des_put_schliesst_die_verbindung() {
+    let wurzel = ordner();
+    let instanz = starten(wurzel.path(), &[], &[]);
+    let basis = instanz.adresse.as_str();
+    let beta = Absender::von("127.0.0.1");
+    let token = beitreten(&beta, basis, "beta", Some("agent")).await;
+
+    let zehn = id(&anmelden(&beta, basis, &token, "zehn.bin", 10).await);
+    genau_eine_antwort(
+        put_mit_angehaengter_anfrage(instanz.port(), &put_kopf(&zehn, &token, 10), &[7u8; 10])
+            .await,
+        "200",
+    );
+    genau_eine_antwort(
+        put_mit_angehaengter_anfrage(instanz.port(), &put_kopf(&zehn, &token, 10), &[7u8; 10])
+            .await,
+        "409",
+    );
+
+    let laenge = id(&anmelden(&beta, basis, &token, "laenge.bin", 10).await);
+    genau_eine_antwort(
+        put_mit_angehaengter_anfrage(instanz.port(), &put_kopf(&laenge, &token, 9), &[7u8; 9])
+            .await,
+        "422",
+    );
+
+    let mut kaputt = vec![0xFF, 0xD8, 0xFF, 0xE1, 0xFF, 0xF0];
+    kaputt.extend_from_slice(b"Exif\0\0GPS 52.5200");
+    let metadaten = id(&anmelden(&beta, basis, &token, "kaputt.jpg", kaputt.len() as u64).await);
+    let gelesen = put_mit_angehaengter_anfrage(
+        instanz.port(),
+        &put_kopf(&metadaten, &token, kaputt.len() as u64),
+        &kaputt,
+    )
+    .await;
+    assert!(
+        gelesen
+            .as_deref()
+            .is_some_and(|antwort| antwort.contains("\"regel\":\"metadaten\"")),
+        "{gelesen:?}"
+    );
+    genau_eine_antwort(gelesen, "422");
+
+    let ohne_sitzung = format!(
+        "PUT /api/anhaenge/{laenge} HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Type: application/octet-stream\r\nContent-Length: 10"
+    );
+    genau_eine_antwort(
+        put_mit_angehaengter_anfrage(instanz.port(), &ohne_sitzung, &[7u8; 10]).await,
+        "401",
+    );
+}
