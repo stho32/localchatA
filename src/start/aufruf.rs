@@ -20,7 +20,9 @@ pub const HILFE: &str = concat!(
     "  --protokoll-stufe <stufe>\n",
     "                    Mindeststufe des Betriebsprotokolls unter <ordner>/logs/: debug, information\n",
     "                    (Standard), warning, error; auch über LOCALCHATA_PROTOKOLL_STUFE\n",
-    "  --plattenquote <größe>  Höchstgröße aller Gespräche (Tageslogs der Channels und Direktgespräche) wie 4GiB oder 512MiB, aus für keine Grenze; Standard 4GiB; auch über LOCALCHATA_PLATTENQUOTE\n",
+    "  --plattenquote <größe>\n",
+    "                    Höchstgröße aller Gespräche (Tageslogs der Channels und Direktgespräche)\n",
+    "                    wie 4GiB oder 512MiB, aus für keine Grenze; Standard 4GiB; auch über LOCALCHATA_PLATTENQUOTE\n",
     "  --alle-namen      jeden Host-Namen annehmen, ohne Namensauflösung; auch über LOCALCHATA_ALLE_NAMEN=1\n",
     "                    Risiko: eine fremde Website, die ein Teilnehmer öffnet, kann über DNS-Rebinding Channels mitlesen, Nachrichten schreiben und über die Frist Verläufe löschen.\n",
     "  --hilfe           diese Hilfe zeigen\n",
@@ -443,7 +445,11 @@ mod tests {
         );
     }
 
-    /// R00023 F0074 „Hilfe“: die Zeile aus „Funktionale Anforderungen“ wörtlich, die Option in der Aufrufzeile.
+    /// Wie die anderen Optionen: Option auf eigener Zeile, Erklärung eingerückt darunter (Hinweis Entwicklertest #26).
+    const HILFE_PLATTENQUOTE: &str = "  --plattenquote <größe>\n                    Höchstgröße aller Gespräche (Tageslogs der Channels und Direktgespräche)\n                    wie 4GiB oder 512MiB, aus für keine Grenze; Standard 4GiB; auch über LOCALCHATA_PLATTENQUOTE\n";
+
+    /// R00023 F0074 „Hilfe“: der Text der Anforderung, umbrochen wie die übrigen Optionen; die Option in der
+    /// Aufrufzeile.
     #[test]
     fn die_hilfe_nennt_die_plattenquote_wortlich() {
         assert!(
@@ -454,10 +460,6 @@ mod tests {
                 .contains("[--plattenquote <größe>]"),
             "{HILFE}"
         );
-        assert!(
-            HILFE.lines().any(|zeile| zeile.trim_start()
-                == "--plattenquote <größe>  Höchstgröße aller Gespräche (Tageslogs der Channels und Direktgespräche) wie 4GiB oder 512MiB, aus für keine Grenze; Standard 4GiB; auch über LOCALCHATA_PLATTENQUOTE"),
-            "{HILFE}"
-        );
+        assert!(HILFE.contains(HILFE_PLATTENQUOTE), "{HILFE}");
     }
 }

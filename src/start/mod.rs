@@ -387,7 +387,7 @@ async fn nach_der_sperre(
             .mit(Schluessel::Option, stufe_herkunft)
             .mit(Schluessel::Plattenquote, quote.als_wert())
             .mit(Schluessel::Belegt, kennzahlen.log_bytes)
-            .mit(Schluessel::Option, quote_herkunft)
+            .mit(Schluessel::PlattenquoteOption, quote_herkunft)
             .mit(Schluessel::Anzahl, kennzahlen.nachrichten)
             .mit(Schluessel::DauerMs, kennzahlen.ladezeit_ms),
     );

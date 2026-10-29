@@ -118,6 +118,8 @@ pub enum Schluessel {
     Plattenquote,
     /// Bytes, die die Gespräche belegen (ADR-0044 Regel 2).
     Belegt,
+    /// Woher die Plattenquote kommt — eigener Schlüssel, `option` nennt die Herkunft der Protokollstufe.
+    PlattenquoteOption,
 }
 
 impl Schluessel {
@@ -153,6 +155,7 @@ impl Schluessel {
             Schluessel::Hoechstens => "hoechstens",
             Schluessel::Plattenquote => "plattenquote",
             Schluessel::Belegt => "belegt",
+            Schluessel::PlattenquoteOption => "plattenquote_option",
         }
     }
 }

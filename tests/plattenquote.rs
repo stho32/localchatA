@@ -101,19 +101,19 @@ fn eine_gueltige_option_uebersteuert_eine_falsche_umgebung() {
 
     let start = start_eintrag(wurzel.path());
     assert!(
-        start.contains(" plattenquote=2097152 belegt=0 option=--plattenquote "),
+        start.contains(" plattenquote=2097152 belegt=0 plattenquote_option=--plattenquote "),
         "{start}"
     );
 }
 
-/// F0074 „Hilfe“: Exit 0, die Zeile zu `--plattenquote` wörtlich.
+/// F0074 „Hilfe“: Exit 0, der Text zu `--plattenquote` wörtlich, umbrochen wie die übrigen Optionen.
 #[test]
 fn die_hilfe_nennt_die_plattenquote() {
     let ende = aufrufen(&["--hilfe"]);
 
     assert_eq!(ende.exit, Some(0), "{}", ende.stderr);
     assert!(
-        ende.stdout.contains("--plattenquote <größe>  Höchstgröße aller Gespräche (Tageslogs der Channels und Direktgespräche) wie 4GiB oder 512MiB, aus für keine Grenze; Standard 4GiB; auch über LOCALCHATA_PLATTENQUOTE"),
+        ende.stdout.contains("  --plattenquote <größe>\n                    Höchstgröße aller Gespräche (Tageslogs der Channels und Direktgespräche)\n                    wie 4GiB oder 512MiB, aus für keine Grenze; Standard 4GiB; auch über LOCALCHATA_PLATTENQUOTE\n"),
         "{}",
         ende.stdout
     );
@@ -121,7 +121,8 @@ fn die_hilfe_nennt_die_plattenquote() {
 
 /// F0074 „Wirksame Quote sichtbar“ (Start-Eintrag): Option, Umgebung, Standard mit Herkunft, leerer Ordner →
 /// `belegt=0`; die Mutanten „Umgebung schlägt Option“ und „Herkunft immer `standard`“ werden rot. Geprüft wird die
-/// Folge `plattenquote= belegt= option=`, denn `option=standard` der Protokollstufe steht schon davor.
+/// Folge `plattenquote= belegt= plattenquote_option=`; jeder Schlüssel steht nur einmal in der Zeile (Hinweis
+/// Entwicklertest #26: `option=` gehört der Protokollstufe).
 #[test]
 fn der_start_eintrag_nennt_quote_und_herkunft() {
     for (argumente, umgebung, erwartet) in [
@@ -147,9 +148,12 @@ fn der_start_eintrag_nennt_quote_und_herkunft() {
             (true, true) => "standard",
         };
         assert!(
-            start.contains(&format!("{erwartet}belegt=0 option={herkunft} ")),
+            start.contains(&format!(
+                "{erwartet}belegt=0 plattenquote_option={herkunft} "
+            )),
             "{herkunft}: {start}"
         );
+        assert_eq!(start.matches(" option=").count(), 1, "{start}");
     }
 }
 
