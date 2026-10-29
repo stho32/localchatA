@@ -512,3 +512,7 @@ Nie vom User erfragen.
 | 2026-10-29 | R00019 Aufbewahrungsfrist gehärtet | B0540 Kopfzeile ab 480 px bricht nach Inhalt um | Nacharbeit | 0,4h | 2,50h | 2,50h | autonom (entw3) |
 | 2026-10-29 | R00019 Aufbewahrungsfrist gehärtet | B0566 Frist-Feld auf Touch 44 px | Nacharbeit | 0,4h | 0,30h | 0,30h | autonom (entw3) |
 | 2026-10-29 | R00019 Aufbewahrungsfrist gehärtet | B0567 Uhrzeit der 429 als Bereich | Nacharbeit | 0,4h | 0,50h | 0,50h | autonom (entw3) |
+| 2026-10-29 | R00036 Tabs folgen dem Beitritt | B0568 nachbarFolgen und vomBildschirmBeitreten | Standard | 0,4h | 1,50h | 1,50h | autonom (entw2) |
+| 2026-10-29 | R00036 Tabs folgen dem Beitritt | B0569 Formular sperren und freigeben | Standard | 0,4h | 0,30h | 0,30h | autonom (entw2) |
+| 2026-10-29 | R00036 Tabs folgen dem Beitritt | B0570 Lauscher, Nachlese, Klick unter Sitzungssperre (inkl, Nacharbeit) | Standard | 0,4h | 3,00h | 3,00h | autonom (entw2) |
+| 2026-10-29 | R00036 Tabs folgen dem Beitritt | B0571 Abnahme-Probe, Mutanten, Zeitmessung | Standard | 0,4h | 3,00h | 3,00h | autonom (entw2) |
