@@ -341,3 +341,18 @@ Regeln:
   2. Die Prüfung ist eine reine Funktion mit der Bauart als Parameter (`testgrenze(wert, debug: bool)`); `debug: false` liefert „nicht gelesen“ für jeden Wert. So läuft der Release-Zweig (Angriffsmatrix Zeile 21: Release `=5` und `=x` starten normal, `=5` wirkt nicht) im Unit-Test; über das Release-Programm prüft ihn der Entwicklertest.
   3. Der Satz „36.000 Sendungen in 10 min verlangen mindestens 8 Herkünfte“ unter Punkt 3 bleibt als Untergrenze wahr; mit ≥ 128 Herkünften genügen ≈ 40 s. Die echten 36.000 prüft darum ein optionaler Test `--ignored` (ADR-0034, E4); der Knopf bleibt für das Standard-Gate.
   - **Erste Tests** (für den `planer`): Unit `testgrenze` — `"1"`, `"5"`, `"36000"` → Grenze; `"0"`, `"36001"`, `"+5"`, `"05"`, `" 5"`, `"5 "`, `"-1"`, `"x"`, `""` → Fehler; je Wert mit `debug: false` → nicht gelesen. Mutante „`parse` statt Schreibweise“ rot (`+5`).
+- **2026-10-29 (Karte #9 Betreiber F1 und F4; [ADR-0046](0046-anhaenge-ablegen-eingang-bindung-beim-senden-tag-der-nachricht-quote-und-eigenes-konto.md), [ADR-0047](0047-anhaenge-ausliefern-route-ohne-sitzung-ueber-anhang-id-art-vom-server-inline-nur-gefahrloses-unter-csp-sandbox.md) je Ergänzung) — Verdrängen und Tilgen im Katalog:** Entscheider: Claude (autonom, architekt, Auftrag des Directors). Status: Akzeptiert. Kontext nach ADR-0040 Regeln 3–5; nie Anhang-ID, Anzeigename, Inhalt oder Koordinaten (M19); Dateien nur als `<hhmmssmmm>-<n>`.
+
+  | Bereich | Ereignis | Stufe | Kontext |
+  |---|---|---|---|
+  | `anhang` | Anhänge verdrängt | **WARNING, Episode je Herkunft der Hochladung, die verdrängt** — Beginn mit der ersten Verdrängung, Ende-Zeile zählt `anhaenge` und `bytes` | `kennung`, `herkunft`, `anhaenge`, `bytes`, `aeltester_tag` (Tag des ältesten Opfers) |
+  | `anhang` | Anhang verdrängt (je Opfer) | DEBUG | `gespraech`, `tag`, `datei` (Präfix), `bytes` |
+  | `anhang` | Verdrängen gescheitert (Kürzen nicht möglich) | ERROR | `gespraech`, `tag`, `datei` (Präfix), `grund` |
+  | `anhang` | Hochladen abgewiesen: laufende Hochladungen belegen den Platz (507 `quote`, `grund: "hochladungen"`) | WARNING, Episode je Kennung | `kennung`, `reserviert`, `hoechstens` |
+  | `anhang` | Datei größer als die Anhangquote (422 `zu_gross`) | DEBUG wie jede 4xx | `kennung`, `bytes`, `hoechstens` |
+  | `anhang` | Metadaten getilgt | DEBUG | `art`, `bloecke`, `ort` (`ja`/`nein`) |
+  | `anhang` | Hochladen abgewiesen: Metadaten nicht tilgbar (422 `metadaten`) | WARNING, Episode je Herkunft | `herkunft`, `art`, `grund` |
+  | `start` | Platte trägt die Quoten nicht · Anhänge belegen mehr als die Anhangquote | WARNING | `frei`, `plattenquote`, `anhangquote`, `anhang_belegt` |
+  | `start` | Instanz bereit — zusätzlich | INFORMATION | `anhangquote`, `anhang_belegt`, `anhang_option` |
+
+  Die Zeile „`WARNING quote Anhänge abgewiesen: Platz für Anhänge voll`“ der Ergänzung Karte #9 **entfällt** (es gibt keinen vollen Platz mehr, nur verdrängen oder Ansprüche); der Bereich `quote` gehört wieder allein dem Text. Warum WARNING für das Verdrängen, obwohl es Regel ist: es löscht Daten anderer; der Betreiber soll es sehen, ohne Debug zu schalten, und an der Episode erkennen, wer es auslöst. Keine 90-%-Schwelle für die Anhangquote — voll ist dort der Normalzustand.
