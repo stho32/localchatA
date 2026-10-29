@@ -2,7 +2,7 @@
 // Textregel des Servers in R00011 F0041, src/gespraeche/textregel.rs; node --test).
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { textPruefen, nurLeerraum } from '../../web/textregel.js';
+import { textPruefen, nurLeerraum, steuerzeichenEntfernen } from '../../web/textregel.js';
 
 test('die Grenze liegt bei 16 384 Bytes UTF-8 (Mutanten 16 383/16 385 und „Zeichen statt Bytes“ werden rot)', () => {
   assert.deepEqual(textPruefen('a'.repeat(16384)), { art: 'ok', bytes: 16384 });
@@ -54,5 +54,22 @@ test('nur Leerraum: White_Space ist leer, U+FEFF und U+200B sind es nicht', () =
   }
   for (const nichtLeer of ['\uFEFF', '\u200B', 'a']) {
     assert.equal(nurLeerraum(nichtLeer), false, JSON.stringify(nichtLeer));
+  }
+});
+
+// R00025 F0086 „Steuerzeichen entfernen“ (B0403): nur die verbotenen Zeichen der Textregel, nicht ganze ANSI-Folgen;
+// ein Wagenrücklauf vor einem Zeilenumbruch bleibt (Mutante „Wagenrücklauf vor Umbruch entfernt“ wird rot).
+test('steuerzeichenEntfernen nimmt nur die verbotenen Zeichen und zählt sie', () => {
+  const faelle = [
+    ['rot \u001b[31mFehler\u001b[0m', 'rot [31mFehler[0m', 2],
+    ['a\rb', 'ab', 1],
+    ['a\r\nb', 'a\r\nb', 0],
+    ['a\tb', 'a\tb', 0],
+    ['👩‍💻', '👩‍💻', 0],
+    ['\u0000\u007f\u0085x\r', 'x', 4],
+  ];
+  for (const [vorher, nachher, entfernt] of faelle) {
+    assert.deepEqual(steuerzeichenEntfernen(vorher), { text: nachher, entfernt }, JSON.stringify(vorher));
+    assert.notEqual(textPruefen(nachher).art, 'zeichen', JSON.stringify(nachher));
   }
 });

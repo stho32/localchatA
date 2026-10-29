@@ -27,16 +27,28 @@ export function nurLeerraum(text) {
 
 function erstesVerbotenes(zeichen) {
   for (let stelle = 0; stelle < zeichen.length; stelle += 1) {
-    const einzeln = zeichen[stelle];
-    const wagenruecklaufVorUmbruch = einzeln === '\r' && zeichen[stelle + 1] === '\n';
-    const erlaubt = einzeln === '\t' || einzeln === '\n' || wagenruecklaufVorUmbruch;
-    if (/^\p{Cc}$/u.test(einzeln) && !erlaubt) {
-      return { stelle, zeichen: schreibweise(einzeln) };
+    if (verboten(zeichen, stelle)) {
+      return { stelle, zeichen: schreibweise(zeichen[stelle]) };
     }
   }
   return null;
 }
 
+function verboten(zeichen, stelle) {
+  const einzeln = zeichen[stelle];
+  const wagenruecklaufVorUmbruch = einzeln === '\r' && zeichen[stelle + 1] === '\n';
+  const erlaubt = einzeln === '\t' || einzeln === '\n' || wagenruecklaufVorUmbruch;
+  return /^\p{Cc}$/u.test(einzeln) && !erlaubt;
+}
+
 function schreibweise(einzeln) {
   return `U+${einzeln.codePointAt(0).toString(16).toUpperCase().padStart(4, '0')}`;
+}
+
+// „Steuerzeichen entfernen“ (R00025 F0086): nimmt genau die Zeichen, die erstesVerbotenes meldet — nicht ganze
+// ANSI-Folgen. → { text, entfernt }
+export function steuerzeichenEntfernen(text) {
+  const zeichen = Array.from(text);
+  const bleibende = zeichen.filter((einzeln, stelle) => !verboten(zeichen, stelle));
+  return { text: bleibende.join(''), entfernt: zeichen.length - bleibende.length };
 }
