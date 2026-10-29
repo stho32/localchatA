@@ -1,6 +1,7 @@
 //! Gespräche: einziger Schreiber des Ordners (A00006) mit Logformat, Logablage und Verlaufsindex.
 
 pub mod abfrage;
+pub mod anhangpruefung;
 pub mod einstellungen;
 mod frist;
 pub mod fristeintrag;
