@@ -1,9 +1,5 @@
 //! Kopfzeilen der Anhang-Antwort (B0445, ADR-0047 Regel 3, Ergänzung Karte #9 Gate Regeln 1, 6): die Route setzt
 //! keine CSP — die setzt die Weiche in `sicherheitsheader_setzen` (B0467). Rein.
-#![cfg_attr(
-    not(test),
-    expect(dead_code, reason = "Anhang ausliefern (B0446) nutzt die Kopfzeilen")
-)]
 
 use axum::http::header::{
     ACCEPT_RANGES, CACHE_CONTROL, CONTENT_DISPOSITION, CONTENT_LENGTH, CONTENT_RANGE, CONTENT_TYPE,

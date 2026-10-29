@@ -163,6 +163,14 @@ impl Gespraeche {
         Some(verworfen)
     }
 
+    /// Ein gebundener Anhang aus dem Verzeichnis — die ID ist nur Schlüssel, nie ein Dateiname (Ausliefern, B0446).
+    pub fn anhang_finden(
+        &self,
+        id: &Anhangid,
+    ) -> Option<std::sync::Arc<super::anhangverzeichnis::Eintrag>> {
+        self.anhangverzeichnis.finden(id)
+    }
+
     /// Die Ablage für Eingang und Anhänge.
     pub fn anhangablage(&self) -> &std::sync::Arc<dyn Anhangablage> {
         &self.anhangablage

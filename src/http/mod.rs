@@ -93,6 +93,10 @@ pub fn router(zustand: Zustand) -> Router {
         .route("/api/beitreten", post(beitreten::beantworten))
         .route("/api/anhaenge", post(anhaenge::anmelden))
         .route(
+            "/anhaenge/{id}",
+            get(anhaenge::ausliefern).head(anhaenge::ausliefern),
+        )
+        .route(
             "/api/anhaenge/{id}",
             put(anhaenge::hochladen).delete(anhaenge::verwerfen),
         )

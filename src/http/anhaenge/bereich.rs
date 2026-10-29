@@ -1,9 +1,5 @@
 //! Bereich lesen (B0444, ADR-0047 Regel 4, Frage 6, Ergänzung Karte #9 Gate Regel 5): genau ein Bereich
 //! `bytes=a-b`, `a-` oder `-n`, sonst die ganze Datei; nicht erfüllbar → 416. Rein.
-#![cfg_attr(
-    not(test),
-    expect(dead_code, reason = "Anhang ausliefern (B0446) nutzt den Bereich")
-)]
 
 /// Was ein Abruf liefert.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
