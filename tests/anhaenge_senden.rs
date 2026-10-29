@@ -5,7 +5,7 @@
 mod gemeinsam;
 
 use gemeinsam::anhaenge::{
-    ablegen, anmelden, gesundheit, hochladen, id, im_eingang, starten, verwerfen,
+    ablegen, anmelden, gesundheit, hochladen_abgewiesen, id, im_eingang, starten, verwerfen,
 };
 use gemeinsam::senden::{beitreten, ordner, roh_senden, verlauf};
 use gemeinsam::strom::Strom;
@@ -335,7 +335,7 @@ async fn eine_gebundene_id_ist_fuer_jeden_verbraucht() {
         (gesendet.status, &gesendet.json["grund"]),
         (422, &json!("unbekannt"))
     );
-    let hoch = hochladen(&gamma, basis, &token_gamma, &gelesene_id, vec![9; 5]).await;
+    let hoch = hochladen_abgewiesen(&instanz, &token_gamma, &gelesene_id, 5, None).await;
     assert_eq!(
         (hoch.status, &hoch.json["grund"]),
         (404, &json!("unbekannt"))

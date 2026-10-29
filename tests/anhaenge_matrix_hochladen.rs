@@ -6,7 +6,8 @@ mod gemeinsam;
 
 use gemeinsam::Absender;
 use gemeinsam::anhaenge::{
-    Q, anmelden, gesundheit, hochladen, id, im_eingang, roh_antwort, roh_oeffnen, starten,
+    Q, anmelden, gesundheit, hochladen, hochladen_abgewiesen, id, im_eingang, roh_antwort,
+    roh_oeffnen, starten,
 };
 use gemeinsam::dateien::png;
 use gemeinsam::senden::{beitreten, ordner, senden};
@@ -139,7 +140,7 @@ async fn zwei_put_auf_eine_id() {
     erster.write_all(&[1u8; 50_000]).await.expect("Hälfte");
     tokio::time::sleep(Duration::from_millis(200)).await;
 
-    let zweiter = hochladen(&beta, basis, &token, &angemeldet, vec![2u8; 100_000]).await;
+    let zweiter = hochladen_abgewiesen(&instanz, &token, &angemeldet, 100_000, None).await;
     erster.write_all(&[1u8; 50_000]).await.expect("Rest");
     let antwort = roh_antwort(&mut erster, Duration::from_secs(5)).await;
 

@@ -129,6 +129,44 @@ pub async fn roh_antwort(
     String::from_utf8_lossy(&roh).into_owned()
 }
 
+/// `PUT /api/anhaenge/<id>` roh von 127.0.0.1 mit `Content-Length: laenge`, für Abweisungen vor dem ersten
+/// Körperbyte (404, 409, 411, 415, 422, 429): die Antwort wird bis zum Schließen gelesen, danach — frühestens
+/// `koerper_nach` nach dem Kopf — 10 Bytes Körper geschrieben, Schreibfehler zählen nicht. Die Instanz antwortet vor
+/// dem Körper und schließt; ein Client, der den Körper vor dem Lesen schreibt, kann `EPIPE`/`ECONNRESET` sehen und
+/// die Antwort verlieren (Befund #55 B1) — darum erst lesen. Liefert Status und JSON des Körpers.
+pub async fn hochladen_abgewiesen(
+    instanz: &Instanz,
+    token: &str,
+    id: &str,
+    laenge: u64,
+    koerper_nach: Option<std::time::Duration>,
+) -> ApiAntwort {
+    use tokio::io::AsyncWriteExt;
+    let kopf = format!(
+        "PUT /api/anhaenge/{id} HTTP/1.1\r\nHost: 127.0.0.1\r\nX-LocalchatA-Sitzung: {token}\r\nContent-Type: application/octet-stream\r\nContent-Length: {laenge}"
+    );
+    let beginn = tokio::time::Instant::now();
+    let mut verbindung = roh_oeffnen(instanz.port(), "127.0.0.1", &kopf).await;
+    let antwort = roh_antwort(&mut verbindung, std::time::Duration::from_secs(5)).await;
+    if let Some(warten) = koerper_nach {
+        tokio::time::sleep_until(beginn + warten).await;
+        let _ = verbindung.write_all(&[7u8; 10]).await;
+    }
+    let status = antwort
+        .strip_prefix("HTTP/1.1 ")
+        .and_then(|rest| rest.get(..3))
+        .and_then(|zahl| zahl.parse().ok())
+        .unwrap_or_else(|| panic!("keine Antwort vor dem Körper: {antwort:?}"));
+    let koerper = antwort
+        .split_once("\r\n\r\n")
+        .map_or("", |(_, koerper)| koerper);
+    ApiAntwort {
+        status,
+        kopf: reqwest::header::HeaderMap::new(),
+        json: serde_json::from_str(koerper).unwrap_or(Value::Null),
+    }
+}
+
 /// Dateien im Eingang des Ordners (Namen).
 pub fn im_eingang(ordner: &Path) -> Vec<String> {
     let mut namen: Vec<String> = std::fs::read_dir(ordner.join(".eingang"))

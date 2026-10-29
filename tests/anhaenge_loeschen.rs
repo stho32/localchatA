@@ -4,7 +4,9 @@
 mod gemeinsam;
 
 use gemeinsam::Absender;
-use gemeinsam::anhaenge::{MIB, ablegen, anmelden, gesundheit, hochladen, id, starten};
+use gemeinsam::anhaenge::{
+    MIB, ablegen, anmelden, gesundheit, hochladen, hochladen_abgewiesen, id, starten,
+};
 use gemeinsam::senden::{beitreten, ordner, roh_senden, verlauf};
 use gemeinsam::{ApiAntwort, api_antwort};
 use serde_json::{Value, json};
@@ -430,7 +432,9 @@ async fn koerper_wird_abgewiesen_nie_umgeformt() {
     assert_eq!(abrufen(gamma, g.basis(), &g.b).await, 200);
 }
 
-/// Kein Rückgängig: `PUT /api/anhaenge/a` → 404 `unbekannt`; Senden mit `a` → 422 `anhang`/`unbekannt`.
+/// Kein Rückgängig: `PUT /api/anhaenge/a` → 404 `unbekannt`; Senden mit `a` → 422 `anhang`/`unbekannt`. Der `PUT`
+/// geht roh (Befund #55 B1): die 404 kommt vor dem ersten Körperbyte mit `Connection: close`, ein Client, der den
+/// Körper danach schreibt, sieht `EPIPE`/`ECONNRESET` — geprüft wird die Antwort, nicht das Schreiben.
 #[tokio::test]
 async fn kein_rueckgaengig() {
     let g = gegeben().await;
@@ -447,13 +451,23 @@ async fn kein_rueckgaengig() {
         200
     );
 
-    let hoch = hochladen(beta, g.basis(), token, &g.a, vec![7; 10]).await;
+    let ohne_koerper = hochladen_abgewiesen(&g.instanz, token, &g.a, 10, None).await;
+    let koerper_spaeter = hochladen_abgewiesen(
+        &g.instanz,
+        token,
+        &g.a,
+        10,
+        Some(std::time::Duration::from_millis(200)),
+    )
+    .await;
     let gesendet = senden_mit(beta, g.basis(), token, "allgemein", &[&g.a]).await;
 
-    assert_eq!(
-        (hoch.status, &hoch.json["grund"]),
-        (404, &json!("unbekannt"))
-    );
+    for antwort in [&ohne_koerper, &koerper_spaeter] {
+        assert_eq!(
+            (antwort.status, &antwort.json["grund"]),
+            (404, &json!("unbekannt"))
+        );
+    }
     assert_eq!(
         (gesendet.status, &gesendet.json["grund"]),
         (422, &json!("unbekannt"))

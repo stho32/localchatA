@@ -5,7 +5,9 @@
 mod gemeinsam;
 
 use gemeinsam::Absender;
-use gemeinsam::anhaenge::{MIB, anmelden, gesundheit, hochladen, id, im_eingang, starten};
+use gemeinsam::anhaenge::{
+    MIB, anmelden, gesundheit, hochladen, hochladen_abgewiesen, id, im_eingang, starten,
+};
 use gemeinsam::dateien::{hochkant_jpg, mp4, pdf};
 use gemeinsam::protokoll::alle_zeilen;
 use gemeinsam::senden::{beitreten, ordner, senden};
@@ -120,7 +122,8 @@ async fn ein_beschaedigtes_jpeg_wird_mit_422_metadaten_abgewiesen() {
     );
     assert!(im_eingang(wurzel.path()).is_empty());
     assert_eq!(gesundheit(basis).await["reserviert"], 0);
-    let erneut = hochladen(&beta, basis, &token, &angemeldet, kaputt).await;
+    let erneut =
+        hochladen_abgewiesen(&instanz, &token, &angemeldet, kaputt.len() as u64, None).await;
     assert_eq!(erneut.status, 404, "{}", erneut.json);
     drop(instanz);
     let zeilen = alle_zeilen(wurzel.path());

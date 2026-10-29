@@ -5,7 +5,8 @@ mod gemeinsam;
 
 use gemeinsam::Absender;
 use gemeinsam::anhaenge::{
-    MIB, anmelden, hochladen, id, im_eingang, roh_antwort, roh_oeffnen, starten,
+    MIB, anmelden, hochladen, hochladen_abgewiesen, id, im_eingang, roh_antwort, roh_oeffnen,
+    starten,
 };
 use gemeinsam::senden::{beitreten, ordner, senden};
 use std::time::{Duration, Instant};
@@ -93,19 +94,13 @@ async fn abweisungen_vor_dem_ersten_byte() {
         .body(vec![0u8; 307_200]);
     assert_eq!(gemeinsam::api_antwort(text).await.status, 415);
 
-    let fremd = hochladen(&beta, basis, &token, &id_gamma, vec![0; 10]).await;
+    let fremd = hochladen_abgewiesen(&instanz, &token, &id_gamma, 10, None).await;
     assert_eq!(
         (fremd.status, fremd.json["grund"].as_str()),
         (404, Some("unbekannt"))
     );
-    let ausgedacht = hochladen(
-        &beta,
-        basis,
-        &token,
-        "aaaaaaaaaaaaaaaaaaaaaaaaaa",
-        vec![0; 10],
-    )
-    .await;
+    let ausgedacht =
+        hochladen_abgewiesen(&instanz, &token, "aaaaaaaaaaaaaaaaaaaaaaaaaa", 10, None).await;
     assert_eq!(
         (ausgedacht.status, ausgedacht.json["grund"].as_str()),
         (404, Some("unbekannt"))
@@ -122,7 +117,7 @@ async fn abweisungen_vor_dem_ersten_byte() {
             .status,
         200
     );
-    let zweiter = hochladen(&beta, basis, &token, &id, vec![1; 307_200]).await;
+    let zweiter = hochladen_abgewiesen(&instanz, &token, &id, 307_200, None).await;
     assert_eq!(
         (zweiter.status, zweiter.json["regel"].as_str()),
         (409, Some("fertig"))
@@ -159,12 +154,31 @@ async fn nach_dem_abbruch_laedt_ein_neuer_put_hoch() {
 
     // Der Abbruch wird erkannt, sobald die Instanz das Ende der Verbindung liest; bis dahin läuft der alte `PUT`
     // (409 `laeuft`) — gewartet wird auf das Merkmal, nicht auf eine Zeit.
-    let mut erneut = hochladen(&beta, &instanz.adresse, &token, &id, vec![7; 307_200]).await;
+    // Bis dahin kommt die 409 vor dem Körper und mit `Connection: close`; schreibt der Client den Körper danach,
+    // kann die Antwort verloren gehen (Befund #55 B1) — auch das heißt „noch nicht frei“, dann erneut.
     let bis = Instant::now() + Duration::from_secs(5);
-    while erneut.status == 409 && Instant::now() < bis {
-        tokio::time::sleep(Duration::from_millis(20)).await;
-        erneut = hochladen(&beta, &instanz.adresse, &token, &id, vec![7; 307_200]).await;
-    }
+    let erneut = loop {
+        let versuch = beta
+            .anfrage(
+                reqwest::Method::PUT,
+                format!("{}api/anhaenge/{id}", instanz.adresse),
+            )
+            .header("Content-Type", "application/octet-stream")
+            .header("X-LocalchatA-Sitzung", &token)
+            .body(vec![7u8; 307_200])
+            .send()
+            .await;
+        match versuch {
+            Ok(antwort) if antwort.status() != 409 || Instant::now() >= bis => break antwort,
+            _ => tokio::time::sleep(Duration::from_millis(20)).await,
+        }
+    };
+    let status = erneut.status();
+    let erneut = gemeinsam::ApiAntwort {
+        status: status.as_u16(),
+        kopf: erneut.headers().clone(),
+        json: erneut.json().await.unwrap_or_default(),
+    };
     assert_eq!(erneut.status, 200, "{}", erneut.json);
 }
 
