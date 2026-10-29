@@ -320,6 +320,10 @@ Auslöser: Die Vision verspricht ein Gespräch zwischen Menschen und Agenten, da
 - F0043 „Fehlerantwort“: „bleibt an ihrer Stelle“ heißt „unter allen bestätigten, in Sendereihenfolge“ (UX-Review #8 S5, ADR-0037 Ergänzung Karte #31, Option B — wie gebaut); US-15 entsprechend. Der Beleg als Test steht in R00020 F0071.
 - F0043 „Tasten“: „Leerraum“ ist die Klasse des Servers (Unicode `White_Space`, ADR-0038 Ergänzung Karte #31). Heute prüft der Browser mit `trim()` — ein Text nur aus U+0085 geht als Anfrage hinaus und scheitert mit 422; die Berichtigung und ihr Beleg stehen in R00020 F0071 (B0351).
 
+### Review 2026-10-29 (Karte #30, planer im Auftrag des Directors, `/anforderung review`)
+
+- C User Stories US-6 und US-15 (Entwicklertest #8 Anmerkung 1, Entwicklertest #30): `chmod -R a-w channels/allgemein` statt `chmod a-w` auf den Ordner — der Ordner ohne Schreibrecht sperrt nur das Anlegen der Tagesdatei; besteht die heutige schon (nach US-1 bzw. US-11 im selben Ordner), hängt die Instanz weiter an. Zurück mit `chmod -R u+w`; US-6 „der Verlauf bleibt leer“ → „unverändert (auf einem frischen Ordner leer)“. Das Integrationskriterium „Plattenfehler“ läuft auf einem frischen Ordner und bleibt.
+
 ### Bewusst außerhalb
 
 Schalter „Erneut senden“ und „Verwerfen“, Zeitgrenze 10 s, 401 mit Wiederbeitritt, Puffern bei getrenntem Strom, Wiederholschlüssel auf dem Server (F0046); Lücken nach Wiederverbinden (F0047); Entwurf je Channel, Längenanzeige, Textprüfung vor dem Senden, `/` und `Esc` in die Eingabe (F0048); gebündelte Ansage (F0049); Codeblock-Regel und Leiste (I0017, I0010); `↑` in leerer Eingabe; Senden in Direktgespräche (I0012, I0015); `/api/openapi.json` (I0015); Buchung der Frist (offene Frage).
