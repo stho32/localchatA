@@ -440,3 +440,4 @@ Nie vom User erfragen.
 | 2026-10-29 | R00021 Frist bucht am Schreibkonto | B0343 Frist bucht 1 + 9 | Standard | 0,4h | 0,22h | 0,22h | autonom |
 | 2026-10-29 | R00021 Frist bucht am Schreibkonto | B0344 Bremse im Dialog belegt | Standard | 0,4h | 0,10h | 0,10h | autonom |
 | 2026-10-29 | R00021 Frist bucht am Schreibkonto | Mutanten, Gelerntes, Gate | Konsolidierung | — | 0,08h | 0,08h | autonom |
+| 2026-10-29 | R00021 Frist bucht am Schreibkonto | B0343 Nacharbeit: Vorab vor dem Körper belegt (400/415/413) | Nacharbeit | — | 0,13h | 0,13h | autonom |
