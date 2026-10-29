@@ -2,7 +2,7 @@
 //! Ursprung sie Wirkung annimmt (gegen CSRF).
 
 use super::abweisungsseite;
-use super::auskunft::{Abfrage, Auskunft};
+use super::auskunft::{Abfrage, Auskunft, WARTEZEIT};
 use super::hostnamen::{
     FesteNamen, Grund, host_urteil, im_lokalen_namensraum, normalform, zeigt_auf_eigene,
 };
@@ -23,6 +23,7 @@ use serde_json::json;
 use std::fmt;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 use std::sync::Arc;
+use tokio::time::Instant;
 
 /// Die äußerste Schicht vor jeder Route (auch 404 und 405): Host prüfen (403 mit Ausweg als Text),
 /// Ursprung prüfen (403 `{fehler}`), dann die Route; auf jede Antwort kommt der Header-Satz.
@@ -229,8 +230,8 @@ impl Grenzschutz {
     }
 
     /// Urteil über den `Host` einer Anfrage, die über die lokale Adresse `lokal` kam: IP-Literal erlaubt; ein
-    /// Name nur in Normalform (Regel 1), dann fest (Regel 2), als Rückwärtsname von `lokal` (Regel 3) oder im
-    /// lokalen Namensraum mit eigener Adresse (Regel 4) — nur dort wird vorwärts aufgelöst; alles andere
+    /// Name nur in Normalform (Regel 1), dann fest (Regel 2), außerhalb des lokalen Namensraums als Rückwärtsname
+    /// von `lokal` (Regel 3), darin nur mit eigener Adresse (Regel 4) — nur dort wird vorwärts aufgelöst; alles andere
     /// abgewiesen (Regel 5). Ein Wert, der sich nicht als Host mit optionalem Port lesen lässt, nie.
     pub async fn host_pruefen(
         &self,
@@ -263,20 +264,24 @@ impl Grenzschutz {
             return Err(abgewiesen());
         };
         let lokal = lokal.to_canonical();
-        let namen = auskunft.namen_der_adresse(lokal).await.unwrap_or_default();
-        if let Some(grund) = host_urteil(&normal, &self.feste, || namen) {
+        // Eine Frist je Anfrage und ein Weg je Name (ADR-0045 Ergänzung „Karte #35 Nacharbeit“ Punkt 1): ein Name
+        // im lokalen Namensraum nur vorwärts (Regel 4), jeder andere nur rückwärts (Regel 3).
+        let frist = Instant::now() + WARTEZEIT;
+        if !im_lokalen_namensraum(&normal) {
+            let namen = auskunft
+                .namen_der_adresse(lokal, frist)
+                .await
+                .unwrap_or_default();
+            let grund = host_urteil(&normal, &self.feste, || namen).ok_or_else(abgewiesen)?;
             auskunft.erlaubt_melden(&Abfrage::Rueckwaerts(lokal), &normal, lokal);
             return Ok(grund);
-        }
-        if !im_lokalen_namensraum(&normal) {
-            return Err(abgewiesen());
         }
         let name = normal.clone();
         let urteilen = move |port: &dyn Namensauskunft| {
             let adressen = port.adressen_des_namens(&name);
             zeigt_auf_eigene(&adressen, &mut |adresse| port.ist_eigene_adresse(adresse))
         };
-        if auskunft.urteil_ueber(&normal, urteilen).await != Some(true) {
+        if auskunft.urteil_ueber(&normal, urteilen, frist).await != Some(true) {
             return Err(abgewiesen());
         }
         auskunft.erlaubt_melden(&Abfrage::Vorwaerts(normal.clone()), &normal, lokal);
@@ -854,5 +859,145 @@ mod tests {
                 .any(|name| name.as_str().starts_with("access-control-allow-")),
             "{kopf:?}"
         );
+    }
+
+    /// Abnahme-Probe B1 des `code-reviewer` (Nacharbeit #35, ADR-0045 Ergänzung „Karte #35 Nacharbeit“ Punkt 1):
+    /// über `host_pruefen` mit blockierender Testauskunft, lokale Adresse 192.168.178.65.
+    mod frist_je_anfrage {
+        use super::*;
+        use crate::http::testauskunft::{Testauskunft, ip};
+        use std::sync::atomic::Ordering;
+        use std::time::{Duration, Instant};
+
+        const LOKAL: &str = "192.168.178.65";
+        const GRENZE: Duration = Duration::from_millis(1100);
+
+        fn schutz_mit(test: &Arc<Testauskunft>) -> Arc<Grenzschutz> {
+            let auskunft = Auskunft::neu(
+                Arc::clone(test) as Arc<dyn Namensauskunft>,
+                Arc::new(crate::uhr::Systemuhr),
+                Arc::new(Protokoll::ohne_ablage()),
+            );
+            Arc::new(Grenzschutz::neu(None, Vec::new()).mit_auskunft(Arc::new(auskunft)))
+        }
+
+        /// Rückwärtsfrage für die lokale Adresse und Vorwärtsfrage für `namen` hängen je `dauer`.
+        fn haengend(namen: &[&str], dauer: Duration) -> Arc<Testauskunft> {
+            let test = Testauskunft::mit(&[(LOKAL, "nuc5.fritz.box")], &[]);
+            test.haengen(LOKAL, dauer);
+            for name in namen {
+                test.haengen(name, dauer);
+            }
+            test
+        }
+
+        async fn gepruefte_dauer(
+            schutz: &Grenzschutz,
+            host: &str,
+        ) -> (Result<Grund, HostAbgewiesen>, Duration) {
+            let beginn = Instant::now();
+            let urteil = schutz.host_pruefen(Some(host), Some(ip(LOKAL))).await;
+            (urteil, beginn.elapsed())
+        }
+
+        /// „Host chat.local:7430, nas.home.arpa:7430, dienst.internal:7430, chat:7430 → je abgewiesen nach
+        /// ≤ 1 s + 100 ms ab Aufruf“ (Rückwärts- und Vorwärtsfrage blockieren je 3 s).
+        #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+        async fn lokale_namen_sind_nach_hoechstens_einer_sekunde_abgewiesen() {
+            for name in ["chat.local", "nas.home.arpa", "dienst.internal", "chat"] {
+                let test = haengend(&[name], Duration::from_secs(3));
+                let schutz = schutz_mit(&test);
+                let (urteil, dauer) = gepruefte_dauer(&schutz, &format!("{name}:7430")).await;
+                assert!(urteil.is_err(), "{name}");
+                assert!(dauer <= GRENZE, "{name}: {dauer:?}");
+            }
+        }
+
+        /// „zweite Anfrage nas.home.arpa:7430 bei t = 0,5 s während laufender Rückwärtsfrage → ≤ 1 s + 100 ms ab
+        /// eigenem Eingang“.
+        #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+        async fn eine_zweite_anfrage_wartet_hoechstens_eine_sekunde_ab_eigenem_eingang() {
+            let test = haengend(&["chat.local", "nas.home.arpa"], Duration::from_secs(3));
+            let schutz = schutz_mit(&test);
+            let erste = {
+                let schutz = Arc::clone(&schutz);
+                tokio::spawn(async move { gepruefte_dauer(&schutz, "chat.local:7430").await })
+            };
+            tokio::time::sleep(Duration::from_millis(500)).await;
+
+            let (urteil, dauer) = gepruefte_dauer(&schutz, "nas.home.arpa:7430").await;
+
+            assert!(urteil.is_err());
+            assert!(dauer <= GRENZE, "{dauer:?}");
+            let (urteil, dauer) = erste.await.expect("erste Anfrage");
+            assert!(urteil.is_err());
+            assert!(dauer <= GRENZE, "{dauer:?}");
+        }
+
+        /// „Kontrolle boese.example:7430 bei blockierter Rückwärtsfrage → ≤ 1,1 s, 0 Vorwärtsfragen“.
+        #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+        async fn ein_oeffentlicher_name_wartet_hoechstens_eine_sekunde_ohne_vorwaertsfrage() {
+            let test = haengend(&[], Duration::from_secs(3));
+            let schutz = schutz_mit(&test);
+
+            let (urteil, dauer) = gepruefte_dauer(&schutz, "boese.example:7430").await;
+
+            assert!(urteil.is_err());
+            assert!(dauer <= GRENZE, "{dauer:?}");
+            assert_eq!(test.fragen("vorwaerts", "boese.example"), 0);
+        }
+
+        /// „Gegenprobe ohne Blockade chat.local → 127.0.0.1 erlaubt“.
+        #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+        async fn ohne_blockade_ist_ein_lokaler_name_auf_eine_eigene_adresse_erlaubt() {
+            let test = Testauskunft::mit(&[], &[("chat.local", &["127.0.0.1"])]);
+            let schutz = schutz_mit(&test);
+
+            let (urteil, _) = gepruefte_dauer(&schutz, "chat.local:7430").await;
+
+            assert_eq!(urteil, Ok(Grund::LokalerNamensraum));
+        }
+
+        /// ADR-0045 Durchsetzung, ergänzt: Rückwärtsfrage blockiert 3 s, `chat.local → 127.0.0.1` antwortet sofort →
+        /// erlaubt nach < 100 ms, 0 Rückwärtsfragen (Mutante „lokaler Name fragt auch rückwärts“).
+        #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+        async fn ein_lokaler_name_wird_nie_rueckwaerts_gefragt() {
+            let test = Testauskunft::mit(
+                &[(LOKAL, "nuc5.fritz.box")],
+                &[("chat.local", &["127.0.0.1"])],
+            );
+            test.haengen(LOKAL, Duration::from_secs(3));
+            let schutz = schutz_mit(&test);
+
+            let (urteil, dauer) = gepruefte_dauer(&schutz, "chat.local:7430").await;
+
+            assert_eq!(urteil, Ok(Grund::LokalerNamensraum));
+            assert!(dauer < Duration::from_millis(100), "{dauer:?}");
+            assert_eq!(test.fragen("rueckwaerts", LOKAL), 0);
+        }
+
+        /// „Matrix F1 über host_pruefen: 50 gleichzeitige r<n>.local, jede Frage hängt 5 s → jede ≤ 1,1 s, höchstens
+        /// 2 Fragen gleichzeitig“.
+        #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+        async fn fuenfzig_gleichzeitige_lokale_namen_bleiben_bei_zwei_fragen() {
+            let namen: Vec<String> = (0..50).map(|nummer| format!("r{nummer}.local")).collect();
+            let alle: Vec<&str> = namen.iter().map(String::as_str).collect();
+            let test = haengend(&alle, Duration::from_secs(5));
+            let schutz = schutz_mit(&test);
+            let mut laeufe = Vec::new();
+            for name in &namen {
+                let schutz = Arc::clone(&schutz);
+                let host = format!("{name}:7430");
+                laeufe.push(tokio::spawn(async move {
+                    gepruefte_dauer(&schutz, &host).await
+                }));
+            }
+            for lauf in laeufe {
+                let (urteil, dauer) = lauf.await.expect("Lauf");
+                assert!(urteil.is_err());
+                assert!(dauer <= GRENZE, "{dauer:?}");
+            }
+            assert!(test.hoechstens.load(Ordering::SeqCst) <= 2);
+        }
     }
 }

@@ -12,10 +12,11 @@ use std::net::IpAddr;
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 use tokio::sync::{OwnedSemaphorePermit, Semaphore, watch};
+use tokio::time::Instant;
 
 /// Höchstens so viele Auflösungen laufen gleichzeitig (eigene Semaphore, nicht die Werkbank).
 pub const GLEICHZEITIG: usize = 2;
-/// So lange wartet eine Anfrage höchstens auf eine Auflösung.
+/// So lange wartet eine Anfrage höchstens auf ihre Auflösung — eine Frist je Anfrage, ab ihrem Eingang.
 pub const WARTEZEIT: Duration = Duration::from_secs(1);
 /// So lange gilt ein Ergebnis „erlaubt“ bzw. „nicht erlaubt“ (auch Fehler und Zeitgrenze des Resolvers).
 pub const ERLAUBT_GILT: Duration = Duration::from_secs(5 * 60);
@@ -86,6 +87,7 @@ enum Nachsehen {
     Treffer(Ergebnis),
     Warten(watch::Receiver<Option<Ergebnis>>),
     KeineErlaubnis,
+    FristAbgelaufen,
 }
 
 impl Auskunft {
@@ -107,10 +109,13 @@ impl Auskunft {
 
     /// Die Rückwärtsnamen der (kanonischen) Adresse — `None`, wenn keine Antwort binnen der Wartezeit kam oder
     /// keine Auflösung starten durfte.
-    pub async fn namen_der_adresse(&self, adresse: IpAddr) -> Option<Vec<String>> {
+    pub async fn namen_der_adresse(&self, adresse: IpAddr, frist: Instant) -> Option<Vec<String>> {
         let adresse = adresse.to_canonical();
         let arbeit: Arbeit = Box::new(move |port| Ergebnis::Namen(port.namen_der_adresse(adresse)));
-        match self.erfragen(Abfrage::Rueckwaerts(adresse), arbeit).await {
+        match self
+            .erfragen(Abfrage::Rueckwaerts(adresse), arbeit, frist)
+            .await
+        {
             Some(Ergebnis::Namen(namen)) => Some(namen),
             _ => None,
         }
@@ -121,10 +126,11 @@ impl Auskunft {
         &self,
         name: &str,
         urteilen: impl FnOnce(&dyn Namensauskunft) -> bool + Send + 'static,
+        frist: Instant,
     ) -> Option<bool> {
         let arbeit: Arbeit = Box::new(move |port| Ergebnis::Erlaubt(urteilen(port)));
         match self
-            .erfragen(Abfrage::Vorwaerts(name.to_string()), arbeit)
+            .erfragen(Abfrage::Vorwaerts(name.to_string()), arbeit, frist)
             .await
         {
             Some(Ergebnis::Erlaubt(erlaubt)) => Some(erlaubt),
@@ -169,11 +175,16 @@ impl Auskunft {
         }
     }
 
-    /// Treffer im Cache, sonst auf eine laufende Auflösung warten oder eine starten — höchstens `WARTEZEIT`.
-    async fn erfragen(&self, abfrage: Abfrage, arbeit: Arbeit) -> Option<Ergebnis> {
-        let mut empfang = match self.nachsehen_oder_starten(&abfrage, arbeit) {
+    /// Treffer im Cache, sonst auf eine laufende Auflösung warten oder eine starten — höchstens bis zur `frist` der
+    /// Anfrage (ADR-0045 Ergänzung „Karte #35 Nacharbeit“ Punkt 1: eine Frist je Anfrage, nie je Frage neu).
+    async fn erfragen(&self, abfrage: Abfrage, arbeit: Arbeit, frist: Instant) -> Option<Ergebnis> {
+        let mut empfang = match self.nachsehen_oder_starten(&abfrage, arbeit, frist) {
             Nachsehen::Treffer(ergebnis) => return Some(ergebnis),
             Nachsehen::KeineErlaubnis => return None,
+            Nachsehen::FristAbgelaufen => {
+                self.zu_langsam(&abfrage);
+                return None;
+            }
             Nachsehen::Warten(empfang) => empfang,
         };
         let warten = async {
@@ -183,7 +194,7 @@ impl Auskunft {
                 .ok()
                 .and_then(|ergebnis| ergebnis.clone())
         };
-        match tokio::time::timeout(WARTEZEIT, warten).await {
+        match tokio::time::timeout_at(frist, warten).await {
             Ok(ergebnis) => ergebnis,
             Err(_) => {
                 self.zu_langsam(&abfrage);
@@ -193,8 +204,13 @@ impl Auskunft {
     }
 
     /// Unter der Sperre des Caches: gültiger Eintrag → Treffer; laufende Auflösung → warten; sonst eine Erlaubnis
-    /// ohne Warten holen (E3) — ohne Erlaubnis kein Eintrag, keine Frage.
-    fn nachsehen_oder_starten(&self, abfrage: &Abfrage, arbeit: Arbeit) -> Nachsehen {
+    /// ohne Warten holen (E3) — ohne Erlaubnis kein Eintrag, keine Frage; ist die Frist schon abgelaufen, ebenso.
+    fn nachsehen_oder_starten(
+        &self,
+        abfrage: &Abfrage,
+        arbeit: Arbeit,
+        frist: Instant,
+    ) -> Nachsehen {
         let jetzt = self.innen.uhr.jetzt();
         let mut cache = self
             .innen
@@ -207,6 +223,9 @@ impl Auskunft {
             }
             Some(Stand::Laeuft(empfang)) => return Nachsehen::Warten(empfang.clone()),
             _ => {}
+        }
+        if Instant::now() >= frist {
+            return Nachsehen::FristAbgelaufen;
         }
         let Ok(erlaubnis) = Arc::clone(&self.erlaubnis).try_acquire_owned() else {
             return Nachsehen::KeineErlaubnis;
@@ -406,6 +425,11 @@ mod tests {
     use std::sync::atomic::Ordering;
     use std::time::Instant;
 
+    /// Die Frist einer Anfrage, die jetzt eingeht.
+    fn frist() -> tokio::time::Instant {
+        tokio::time::Instant::now() + WARTEZEIT
+    }
+
     const START: &str = "2026-10-29T12:00:00+01:00";
 
     struct Aufbau {
@@ -436,10 +460,73 @@ mod tests {
     }
 
     async fn urteil(auskunft: &Auskunft, name: &str) -> Option<bool> {
+        urteil_bis(auskunft, name, frist()).await
+    }
+
+    async fn urteil_bis(
+        auskunft: &Auskunft,
+        name: &str,
+        frist: tokio::time::Instant,
+    ) -> Option<bool> {
         let eigener = name.to_string();
         auskunft
-            .urteil_ueber(name, move |port| eigen_urteil(port, &eigener))
+            .urteil_ueber(name, move |port| eigen_urteil(port, &eigener), frist)
             .await
+    }
+
+    fn warnungen_zu_langsam(speicher: &Speicher) -> usize {
+        speicher
+            .zeilen()
+            .into_iter()
+            .filter(|zeile| zeile.contains(" WARNING grenzschutz Namensauflösung zu langsam"))
+            .count()
+    }
+
+    /// Nacharbeit #35, B1 (ADR-0045 Ergänzung „Karte #35 Nacharbeit“ Punkt 1): die Frist gehört der Anfrage — eine
+    /// Frage, die mit 300 ms Rest beginnt, wartet höchstens diese 300 ms, nicht eine eigene Sekunde (Mutante
+    /// „Frist je Frage neu“).
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn die_frist_der_anfrage_begrenzt_die_frage() {
+        let test = Testauskunft::mit(&[], &[]);
+        test.sperren("langsam.local");
+        let a = aufbau(Arc::clone(&test));
+
+        let beginn = Instant::now();
+        let frist = tokio::time::Instant::now() + Duration::from_millis(300);
+        let antwort = begrenzt(urteil_bis(&a.auskunft, "langsam.local", frist)).await;
+        let gewartet = beginn.elapsed();
+
+        assert_eq!(antwort, None);
+        assert!(gewartet >= Duration::from_millis(300), "{gewartet:?}");
+        assert!(gewartet < Duration::from_millis(400), "{gewartet:?}");
+        assert_eq!(warnungen_zu_langsam(&a.speicher), 1);
+        test.oeffnen("langsam.local");
+    }
+
+    /// Nacharbeit #35, B1: ist die Frist beim Start einer Frage schon abgelaufen, wird nicht gefragt — keine
+    /// Erlaubnis, kein Eintrag, abgewiesen wie nach einer Zeitgrenze; ein Treffer im Cache kostet keine Frist.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn mit_abgelaufener_frist_keine_frage_und_kein_eintrag() {
+        let test = Testauskunft::mit(&[], &[("x.local", &["127.0.0.1"])]);
+        let a = aufbau(Arc::clone(&test));
+        let abgelaufen = tokio::time::Instant::now();
+
+        assert_eq!(urteil_bis(&a.auskunft, "x.local", abgelaufen).await, None);
+        assert_eq!(test.alle_fragen(), 0);
+        assert!(
+            !a.auskunft
+                .hat_eintrag(&Abfrage::Vorwaerts("x.local".into()))
+        );
+        assert_eq!(a.auskunft.erlaubnis.available_permits(), GLEICHZEITIG);
+        assert_eq!(warnungen_zu_langsam(&a.speicher), 1);
+
+        assert_eq!(urteil(&a.auskunft, "x.local").await, Some(true));
+        let abgelaufen = tokio::time::Instant::now();
+        assert_eq!(
+            urteil_bis(&a.auskunft, "x.local", abgelaufen).await,
+            Some(true)
+        );
+        assert_eq!(test.fragen("vorwaerts", "x.local"), 1);
     }
 
     /// Eine Anfrage auf eine hängende Auskunft endet nur durch die Zeitgrenze; ohne sie hinge der Test — die
@@ -509,7 +596,7 @@ mod tests {
         let a = aufbau(Arc::clone(&test));
 
         let beginn = Instant::now();
-        let anfrage_a = begrenzt(a.auskunft.namen_der_adresse(ip("192.168.178.65"))).await;
+        let anfrage_a = begrenzt(a.auskunft.namen_der_adresse(ip("192.168.178.65"), frist())).await;
         let gewartet = beginn.elapsed();
 
         assert_eq!(anfrage_a, None);
@@ -519,7 +606,10 @@ mod tests {
         let abfrage = Abfrage::Rueckwaerts(ip("192.168.178.65"));
         bis(|| a.auskunft.ist_fertig(&abfrage)).await;
 
-        let anfrage_b = a.auskunft.namen_der_adresse(ip("192.168.178.65")).await;
+        let anfrage_b = a
+            .auskunft
+            .namen_der_adresse(ip("192.168.178.65"), frist())
+            .await;
 
         assert_eq!(anfrage_b, Some(vec!["nuc5.fritz.box".to_string()]));
         assert_eq!(test.fragen("rueckwaerts", "192.168.178.65"), 1);
@@ -625,13 +715,13 @@ mod tests {
         assert_eq!(urteil(&a.auskunft, "drucker.local").await, Some(false));
         assert_eq!(test.fragen("vorwaerts", "drucker.local"), 2);
 
-        let ohne = a.auskunft.namen_der_adresse(ip("127.0.0.3")).await;
+        let ohne = a.auskunft.namen_der_adresse(ip("127.0.0.3"), frist()).await;
         assert_eq!(ohne, Some(Vec::new()));
         a.uhr.stellen(zeit("2026-10-29T12:02:00+01:00"));
-        a.auskunft.namen_der_adresse(ip("127.0.0.3")).await;
+        a.auskunft.namen_der_adresse(ip("127.0.0.3"), frist()).await;
         assert_eq!(test.fragen("rueckwaerts", "127.0.0.3"), 1);
         a.uhr.stellen(zeit("2026-10-29T12:02:02+01:00"));
-        a.auskunft.namen_der_adresse(ip("127.0.0.3")).await;
+        a.auskunft.namen_der_adresse(ip("127.0.0.3"), frist()).await;
         assert_eq!(test.fragen("rueckwaerts", "127.0.0.3"), 2);
     }
 
@@ -700,7 +790,7 @@ mod tests {
             let auskunft = Arc::clone(&a.auskunft);
             laeufe.push(tokio::spawn(async move {
                 let start = Instant::now();
-                let namen = begrenzt(auskunft.namen_der_adresse(ip("127.0.0.1"))).await;
+                let namen = begrenzt(auskunft.namen_der_adresse(ip("127.0.0.1"), frist())).await;
                 (namen, start.elapsed())
             }));
         }
@@ -728,8 +818,10 @@ mod tests {
 
         urteil(&a.auskunft, "chat.local").await;
         urteil(&a.auskunft, "chat.local").await;
-        a.auskunft.namen_der_adresse(ip("::ffff:127.0.0.1")).await;
-        a.auskunft.namen_der_adresse(ip("127.0.0.1")).await;
+        a.auskunft
+            .namen_der_adresse(ip("::ffff:127.0.0.1"), frist())
+            .await;
+        a.auskunft.namen_der_adresse(ip("127.0.0.1"), frist()).await;
 
         let debug: Vec<String> = a
             .speicher

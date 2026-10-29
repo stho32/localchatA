@@ -214,6 +214,14 @@ impl Lauf {
     }
 
     fn vorwaerts_gefragt(&self, name: &str) -> usize {
+        self.gefragt("vorwaerts", name)
+    }
+
+    fn rueckwaerts_gefragt(&self, adresse: &str) -> usize {
+        self.gefragt("rueckwaerts", adresse)
+    }
+
+    fn gefragt(&self, art: &str, schluessel: &str) -> usize {
         mit(
             &zeilen(self.instanz.ordner.as_path(), HEUTE),
             "DEBUG",
@@ -221,8 +229,8 @@ impl Lauf {
         )
         .iter()
         .filter(|zeile| zeile.contains("Namensauskunft gefragt"))
-        .filter(|zeile| wert(zeile, "art").as_deref() == Some("vorwaerts"))
-        .filter(|zeile| wert(zeile, "schluessel").as_deref() == Some(name))
+        .filter(|zeile| wert(zeile, "art").as_deref() == Some(art))
+        .filter(|zeile| wert(zeile, "schluessel").as_deref() == Some(schluessel))
         .count()
     }
 
@@ -656,6 +664,9 @@ fn c1_c7_c10_c13_lokaler_namensraum() {
             "{nummer} {name}: einmal, dann Cache"
         );
     }
+    // Nacharbeit #35 (ADR-0045 Ergänzung Punkt 1): in den C-Zeilen gilt „R nein“ — ein Name im lokalen
+    // Namensraum wird nur vorwärts geprüft. C12 und D1 liegen außerhalb und fragen danach rückwärts („R: C“).
+    assert_eq!(lauf.rueckwaerts_gefragt("127.0.0.1"), 0, "C1–C11: R nein");
     for (nummer, name) in [
         ("C12", "x.localhost"),
         ("C13", "2130706433"),

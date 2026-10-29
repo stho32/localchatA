@@ -18,6 +18,8 @@ pub(crate) struct Testauskunft {
     pub(crate) laufend: AtomicUsize,
     pub(crate) hoechstens: AtomicUsize,
     pub(crate) fragen: Mutex<Vec<String>>,
+    /// Je Schlüssel: so lange hängt jede Frage danach (blockierender Schlaf), ohne Tor.
+    pub(crate) haengt: Mutex<HashMap<String, Duration>>,
 }
 
 impl Testauskunft {
@@ -45,6 +47,14 @@ impl Testauskunft {
             .lock()
             .expect("Tor")
             .insert(schluessel.to_string());
+    }
+
+    /// Jede Frage nach `schluessel` hängt `dauer` lang, dann kommt die Antwort.
+    pub(crate) fn haengen(&self, schluessel: &str, dauer: Duration) {
+        self.haengt
+            .lock()
+            .expect("Hängen")
+            .insert(schluessel.to_string(), dauer);
     }
 
     pub(crate) fn oeffnen(&self, schluessel: &str) {
@@ -83,6 +93,11 @@ impl Testauskunft {
                 .wait_timeout(gesperrt, Duration::from_millis(100))
                 .expect("Tor")
                 .0;
+        }
+        drop(gesperrt);
+        let haengt = self.haengt.lock().expect("Hängen").get(schluessel).copied();
+        if let Some(dauer) = haengt {
+            std::thread::sleep(dauer);
         }
         self.laufend.fetch_sub(1, Ordering::SeqCst);
     }
