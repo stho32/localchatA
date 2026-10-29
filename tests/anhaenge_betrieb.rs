@@ -226,3 +226,115 @@ async fn reservierung_verfallen_ohne_hochladen() {
         3
     );
 }
+
+/// Großes Hochladen (B0462): 64 MiB → genau eine `INFORMATION anhang Großes Hochladen abgeschlossen` mit
+/// `bytes=67108864`, `dauer_ms`, `mib_s`; 64 MiB − 1 Byte → keine.
+#[tokio::test]
+async fn grosses_hochladen() {
+    let wurzel = ordner();
+    let instanz = starten(wurzel.path(), &["--anhangquote", "1GiB"], &[]);
+    let beta = Absender::von("127.0.0.1");
+    let token = beitreten(&beta, &instanz.adresse, "beta", Some("agent")).await;
+
+    for laenge in [64 * 1_048_576, 64 * 1_048_576 - 1] {
+        ablegen(
+            &beta,
+            &instanz.adresse,
+            &token,
+            "gross.bin",
+            vec![0u8; laenge],
+        )
+        .await;
+    }
+    drop(instanz);
+
+    let zeilen = zeilen_mit(
+        wurzel.path(),
+        "INFORMATION anhang Großes Hochladen abgeschlossen",
+    );
+    assert_eq!(zeilen.len(), 1, "{zeilen:#?}");
+    assert!(
+        zeilen[0].contains("bytes=67108864 dauer_ms=") && zeilen[0].contains(" mib_s="),
+        "{}",
+        zeilen[0]
+    );
+}
+
+/// Debug (B0462): je eine `DEBUG anhang`-Zeile für Anmeldung, Hochladen-Ende, Abbruch und Abruf (mit Range
+/// `bereich` als Länge) mit `kennung`, `herkunft`, `bytes`, `art`, `dauer_ms` — die Datei nur als Präfix.
+#[tokio::test]
+async fn debug_ereignisse() {
+    use tokio::io::AsyncWriteExt;
+    let wurzel = ordner();
+    let instanz = starten(wurzel.path(), &["--protokoll-stufe", "debug"], &[]);
+    let basis = instanz.adresse.clone();
+    let beta = Absender::von("127.0.0.1");
+    let token = beitreten(&beta, &basis, "beta", Some("agent")).await;
+    let id = ablegen(&beta, &basis, &token, "a.bin", vec![0u8; 1000]).await;
+    let koerper = serde_json::json!({"text": "", "anhaenge": [id]})
+        .to_string()
+        .into_bytes();
+    assert_eq!(
+        roh_senden(
+            &beta,
+            &basis,
+            Some(&token),
+            "allgemein",
+            "application/json",
+            koerper
+        )
+        .await
+        .status,
+        201
+    );
+    let teil = beta
+        .anfrage(reqwest::Method::GET, format!("{basis}anhaenge/{id}"))
+        .header("range", "bytes=0-99")
+        .send()
+        .await
+        .expect("Abruf");
+    assert_eq!(teil.status(), 206);
+    let abbruch = gemeinsam::anhaenge::id(&anmelden(&beta, &basis, &token, "b.bin", 1000).await);
+    let mut verbindung = roh_oeffnen(
+        instanz.port(),
+        "127.0.0.1",
+        &put_kopf(&abbruch, &token, 1000),
+    )
+    .await;
+    verbindung.write_all(&[0u8; 10]).await.expect("Anfang");
+    drop(verbindung);
+    tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+    drop(instanz);
+
+    let anmeldung = zeilen_mit(wurzel.path(), "DEBUG anhang Anmeldung angenommen");
+    assert!(
+        anmeldung[0]
+            .contains("kennung=beta@127.0.0.1 herkunft=127.0.0.1 bytes=1000 datei=.eingang/"),
+        "{}",
+        anmeldung[0]
+    );
+    let ende = zeilen_mit(wurzel.path(), "DEBUG anhang Hochladen abgeschlossen");
+    assert!(
+        ende[0].contains("bytes=1000 art=application/octet-stream dauer_ms="),
+        "{}",
+        ende[0]
+    );
+    let abgebrochen = zeilen_mit(wurzel.path(), "DEBUG anhang Hochladen abgebrochen");
+    assert_eq!(abgebrochen.len(), 1, "{abgebrochen:#?}");
+    let abruf = zeilen_mit(wurzel.path(), "DEBUG anhang Anhang abgerufen");
+    assert!(
+        abruf[0].contains("herkunft=127.0.0.1")
+            && abruf[0].contains("bytes=1000")
+            && abruf[0].contains("bereich=100"),
+        "{}",
+        abruf[0]
+    );
+    for zeile in gemeinsam::protokoll::alle_zeilen(wurzel.path()) {
+        assert!(
+            !zeile.contains(id.as_str())
+                && !zeile.contains(abbruch.as_str())
+                && !zeile.contains("a.bin"),
+            "{zeile}"
+        );
+    }
+}

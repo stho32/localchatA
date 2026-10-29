@@ -14,7 +14,7 @@ use crate::gespraeche::anhangverzeichnis::{Eintrag, Zustand as Anhangzustand, pr
 use crate::http::Zustand;
 use crate::protokoll::{Bereich as Protokollbereich, Kontext, Schluessel, Stufe};
 use axum::body::Body;
-use axum::extract::{Path, State};
+use axum::extract::{ConnectInfo, Path, State};
 use axum::http::header::{ETAG, IF_NONE_MATCH, IF_RANGE, RANGE};
 use axum::http::{HeaderMap, Method, StatusCode};
 use axum::response::{IntoResponse, Response};
@@ -25,6 +25,7 @@ pub const GELOESCHT: &str = "Dieser Anhang wurde gelöscht. Die Nachricht bleibt
 
 pub async fn ausliefern(
     State(zustand): State<Arc<Zustand>>,
+    ConnectInfo(gegenstelle): ConnectInfo<std::net::SocketAddr>,
     methode: Method,
     Path(id): Path<String>,
     kopf: HeaderMap,
@@ -82,6 +83,19 @@ pub async fn ausliefern(
     } else {
         Body::from_stream(bereich_strom(datei, von, bis).await)
     };
+    zustand.protokoll.eintragen(
+        Stufe::Debug,
+        Protokollbereich::Anhang,
+        "Anhang abgerufen",
+        Kontext::neu()
+            .mit(Schluessel::Herkunft, gegenstelle.ip())
+            .mit(Schluessel::Ordner, eintrag.gespraech.pfad())
+            .mit(Schluessel::Tag, eintrag.tag.format("%Y-%m-%d"))
+            .mit(Schluessel::Anhang, praefix(&eintrag.datei))
+            .mit(Schluessel::Bytes, eintrag.bytes)
+            .mit(Schluessel::Art, eintrag.art)
+            .mit(Schluessel::Bereich, bis - von),
+    );
     let mut antwort = (status, koerper).into_response();
     let teil = matches!(bereich, Bereich::Teil(..)).then(|| (von, bis - 1));
     kopfzeilen::datei(antwort.headers_mut(), &beschrieben, teil);

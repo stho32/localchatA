@@ -62,6 +62,7 @@ pub async fn hochladen(
         Ok(platz) => platz,
         Err(fehler) => return abgewiesen(fehler, &wer),
     };
+    let beginn = std::time::Instant::now();
     let ergebnis = uebertragen(
         Arc::clone(&zustand.gespraeche),
         Arc::clone(&zustand.hochladebank),
@@ -69,6 +70,13 @@ pub async fn hochladen(
         koerper.into_data_stream(),
     )
     .await;
+    ende_melden(
+        &zustand.protokoll,
+        &teilnehmer,
+        &id,
+        &ergebnis,
+        beginn.elapsed(),
+    );
     match &ergebnis {
         Ergebnis::Fertig {
             getilgt: Some(getilgt),
@@ -125,6 +133,74 @@ pub async fn hochladen(
         );
     }
     beantworten(ergebnis, &wer)
+}
+
+/// Ab dieser Länge steht das Ende eines Hochladens als `INFORMATION` im Protokoll (ADR-0042 Ergänzung Karte #9).
+pub const GROSSES_HOCHLADEN: u64 = 64 * 1_048_576;
+
+/// Ende und Abbruch einer Übertragung (B0462): `DEBUG anhang` mit `kennung`, `herkunft`, `bytes`, `art`,
+/// `dauer_ms`; ab 64 MiB zusätzlich `INFORMATION anhang Großes Hochladen abgeschlossen` mit `bytes`, `dauer_ms`,
+/// `mib_s`. Die Datei nur als ID-Präfix des Eingangs.
+fn ende_melden(
+    protokoll: &crate::protokoll::Protokoll,
+    teilnehmer: &Teilnehmer,
+    id: &Anhangid,
+    ergebnis: &Ergebnis,
+    dauer: Duration,
+) {
+    let dauer_ms = u64::try_from(dauer.as_millis()).unwrap_or(u64::MAX);
+    let kontext = Kontext::neu()
+        .mit(Schluessel::Kennung, teilnehmer.kennung.als_text())
+        .mit(Schluessel::Herkunft, teilnehmer.herkunft)
+        .mit(Schluessel::Datei, format!(".eingang/{}", id.praefix()));
+    match ergebnis {
+        Ergebnis::Fertig { bytes, art, .. } => {
+            protokoll.eintragen(
+                Stufe::Debug,
+                Bereich::Anhang,
+                "Hochladen abgeschlossen",
+                kontext
+                    .mit(Schluessel::Bytes, *bytes)
+                    .mit(Schluessel::Art, art.typ)
+                    .mit(Schluessel::DauerMs, dauer_ms),
+            );
+            if *bytes >= GROSSES_HOCHLADEN {
+                let sekunden = dauer.as_secs_f64().max(0.001);
+                let mib_s = *bytes as f64 / 1_048_576.0 / sekunden;
+                protokoll.eintragen(
+                    Stufe::Information,
+                    Bereich::Anhang,
+                    "Großes Hochladen abgeschlossen",
+                    Kontext::neu()
+                        .mit(Schluessel::Bytes, *bytes)
+                        .mit(Schluessel::DauerMs, dauer_ms)
+                        .mit(Schluessel::MibS, format!("{mib_s:.1}")),
+                );
+            }
+        }
+        anders => protokoll.eintragen(
+            Stufe::Debug,
+            Bereich::Anhang,
+            "Hochladen abgebrochen",
+            kontext
+                .mit(Schluessel::Grund, abbruchgrund(anders))
+                .mit(Schluessel::DauerMs, dauer_ms),
+        ),
+    }
+}
+
+fn abbruchgrund(ergebnis: &Ergebnis) -> &'static str {
+    match ergebnis {
+        Ergebnis::Fertig { .. } => "fertig",
+        Ergebnis::Metadaten(_) => "metadaten",
+        Ergebnis::Frist(Fristart::Stueckfrist) => "stueckfrist",
+        Ergebnis::Frist(Fristart::Gesamtfrist) => "gesamtfrist",
+        Ergebnis::Lebensende => "lebensende",
+        Ergebnis::Verloren(_) => "verloren",
+        Ergebnis::Platte { .. } => "platte",
+        Ergebnis::Fehler(_) => "fehler",
+        Ergebnis::Abgebrochen => "abgebrochen",
+    }
 }
 
 /// Wie eine Übertragung endete.

@@ -85,6 +85,19 @@ pub async fn anmelden(
     .await;
     match angemeldet {
         Ok(Ok(anmeldung)) => {
+            zustand.protokoll.eintragen(
+                Stufe::Debug,
+                Bereich::Anhang,
+                "Anmeldung angenommen",
+                Kontext::neu()
+                    .mit(Schluessel::Kennung, wer.as_str())
+                    .mit(Schluessel::Herkunft, teilnehmer.herkunft)
+                    .mit(Schluessel::Bytes, bytes)
+                    .mit(
+                        Schluessel::Datei,
+                        format!(".eingang/{}", anmeldung.id.praefix()),
+                    ),
+            );
             anspruch_melden(&zustand, &teilnehmer, bytes, &anmeldung);
             angenommen(&anmeldung, &name, bytes)
         }
