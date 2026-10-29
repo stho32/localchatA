@@ -19,16 +19,35 @@ pub struct Verlauf {
 struct Tag {
     rohtext: Vec<u8>,
     satzanfaenge: Vec<usize>,
+    /// Ob ein Satz des Tages eine Metazeile `+ anhang:` trägt — beim Laden mitgezählt, nicht ein zweites Mal gesucht.
+    traegt_anhang: bool,
 }
 
 impl Verlauf {
-    /// Nimmt einen geladenen Tag auf: Rohtext und die Byte-Anfänge seiner gültigen Sätze.
+    /// Nimmt einen geladenen Tag auf: Rohtext und die Byte-Anfänge seiner gültigen Sätze (Tests; das Laden
+    /// kennt das Merkmal schon).
+    #[cfg(test)]
     pub fn tag_aufnehmen(&mut self, tag: NaiveDate, rohtext: Vec<u8>, satzanfaenge: Vec<usize>) {
+        let traegt_anhang = satzanfaenge
+            .iter()
+            .any(|anfang| satz_traegt_anhang(&rohtext[*anfang..]));
+        self.tag_mit_anhangflagge(tag, rohtext, satzanfaenge, traegt_anhang);
+    }
+
+    /// Wie `tag_aufnehmen`, mit dem beim Lesen schon bestimmten Merkmal, ob der Tag Metazeilen `+ anhang:` trägt.
+    pub fn tag_mit_anhangflagge(
+        &mut self,
+        tag: NaiveDate,
+        rohtext: Vec<u8>,
+        satzanfaenge: Vec<usize>,
+        traegt_anhang: bool,
+    ) {
         self.tage.insert(
             tag,
             Tag {
                 rohtext,
                 satzanfaenge,
+                traegt_anhang,
             },
         );
     }
@@ -41,6 +60,7 @@ impl Verlauf {
             tag.rohtext.push(b'\n');
         }
         tag.satzanfaenge.push(tag.rohtext.len());
+        tag.traegt_anhang |= satz_traegt_anhang(satz.as_bytes());
         tag.rohtext.extend_from_slice(satz.as_bytes());
     }
 
@@ -53,21 +73,15 @@ impl Verlauf {
 
     /// Tage mit ihrem Rohtext, aufsteigend (Laden der Anhänge); ein Tag, in dem kein Satz eine Metazeile
     /// `+ anhang:` trägt, liefert einen leeren Rohtext — er wird kein zweites Mal zerlegt (Ladezeit QA5). Geprüft werden
-    /// nur die Zeilen `+ …` direkt nach jedem Satzkopf.
+    /// nur die Zeilen `+ …` direkt nach jedem Satzkopf, und zwar schon beim Lesen der Tagesdatei.
     pub fn tage_roh(&self) -> impl Iterator<Item = (NaiveDate, &[u8])> {
         self.tage.iter().map(|(tag, inhalt)| {
-            let traegt = inhalt
-                .satzanfaenge
-                .iter()
-                .any(|anfang| satz_traegt_anhang(&inhalt.rohtext[*anfang..]));
-            (
-                *tag,
-                if traegt {
-                    inhalt.rohtext.as_slice()
-                } else {
-                    &[]
-                },
-            )
+            let rohtext: &[u8] = if inhalt.traegt_anhang {
+                &inhalt.rohtext
+            } else {
+                &[]
+            };
+            (*tag, rohtext)
         })
     }
 

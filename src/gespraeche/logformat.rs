@@ -267,6 +267,12 @@ pub fn kopfzeit(satz: &[u8]) -> Option<Zeit> {
 /// Die Bytespannen beziehen sich auf die Rohbytes. Eine Zeile, die kein gültiges UTF-8 ist, ist ein Defekt
 /// ihrer Zeile — als Kopfzeile ein Defekt des ganzen Satzes —, nie des ganzen Tages (ADR-0011).
 pub fn saetze(rohtext: &[u8]) -> Vec<Result<SatzBereich, Defekt>> {
+    saetze_und_metazeilen(rohtext).0
+}
+
+/// Wie `saetze`, dazu ob eine Zeile mit `+ anhang:` beginnt — im selben Durchgang (Ladezeit, B0442).
+pub fn saetze_und_metazeilen(rohtext: &[u8]) -> (Vec<Result<SatzBereich, Defekt>>, bool) {
+    let mut traegt_anhang = false;
     let mut ergebnis = Vec::new();
     let mut offen = Offen::Anfang;
     let mut anfang = 0;
@@ -277,6 +283,7 @@ pub fn saetze(rohtext: &[u8]) -> Vec<Result<SatzBereich, Defekt>> {
             Ok(inhalt) => (Cow::Borrowed(inhalt), true),
             Err(_) => (String::from_utf8_lossy(roh), false),
         };
+        traegt_anhang |= inhalt.starts_with(ANHANG_METAZEILE);
         match zeilenart(&inhalt) {
             Zeilenart::Kopf => {
                 offen.schliessen(anfang, &mut ergebnis);
@@ -302,7 +309,7 @@ pub fn saetze(rohtext: &[u8]) -> Vec<Result<SatzBereich, Defekt>> {
         anfang += zeile.len();
     }
     offen.schliessen(rohtext.len(), &mut ergebnis);
-    ergebnis
+    (ergebnis, traegt_anhang)
 }
 
 /// Was beim Lesen gerade offen ist: noch kein Satz, ein gültiger oder ein als Ganzes defekter.

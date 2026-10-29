@@ -899,7 +899,8 @@ impl Geladen {
             }
         };
         let mut satzanfaenge = Vec::new();
-        for gelesen in logformat::saetze(&rohtext) {
+        let (saetze, traegt_anhang) = logformat::saetze_und_metazeilen(&rohtext);
+        for gelesen in saetze {
             match gelesen {
                 Ok(satz) => {
                     satzanfaenge.push(satz.anfang);
@@ -911,7 +912,7 @@ impl Geladen {
                 }),
             }
         }
-        verlauf.tag_aufnehmen(tag, rohtext, satzanfaenge);
+        verlauf.tag_mit_anhangflagge(tag, rohtext, satzanfaenge, traegt_anhang);
     }
 }
 
