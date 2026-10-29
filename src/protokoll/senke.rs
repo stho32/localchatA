@@ -18,8 +18,8 @@ pub trait Senke: Send {
         None
     }
     /// Was die Datei des Tages schon je Stufenklasse verbraucht (ADR-0042 Ergänzung #24 Punkt 9); ohne Datei 0.
-    fn verbrauch(&self, _tag: NaiveDate) -> [u64; 3] {
-        [0; 3]
+    fn verbrauch(&self, _tag: NaiveDate) -> [u64; 4] {
+        [0; 4]
     }
 }
 
@@ -87,9 +87,9 @@ impl Senke for Tagesdateien {
 
     /// Liest die Datei des Tages einmal zeilenweise (Zeilen mit Zeilenende); fehlt sie oder ist sie nicht
     /// lesbar, gilt 0 — wie bei einem frischen Tag.
-    fn verbrauch(&self, tag: NaiveDate) -> [u64; 3] {
+    fn verbrauch(&self, tag: NaiveDate) -> [u64; 4] {
         let Ok(datei) = File::open(self.logs.join(dateiname(tag))) else {
-            return [0; 3];
+            return [0; 4];
         };
         let mut leser = io::BufReader::new(datei);
         let mut zeile = Vec::new();

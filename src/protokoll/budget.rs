@@ -1,5 +1,5 @@
 //! Tagesbudget je Protokolldatei und Stufenklasse (ADR-0042 Regel 6): Debug 64 MiB, Information+Warning 32 MiB,
-//! Error+Exception 32 MiB. Rein: entscheidet, ob eine Zeile noch passt.
+//! Error+Exception 32 MiB, Eingriff 16 MiB (ADR-0049). Rein: entscheidet, ob eine Zeile noch passt.
 
 use super::Stufe;
 use chrono::NaiveDate;
@@ -12,6 +12,7 @@ pub struct Budgets {
     pub debug: u64,
     pub information_warning: u64,
     pub error_exception: u64,
+    pub eingriff: u64,
 }
 
 /// Die Budgets des Programms.
@@ -19,6 +20,7 @@ pub const BUDGETS: Budgets = Budgets {
     debug: 64 * MIB,
     information_warning: 32 * MIB,
     error_exception: 32 * MIB,
+    eingriff: 16 * MIB,
 };
 
 /// Stufenklasse eines Eintrags.
@@ -27,6 +29,8 @@ pub enum Klasse {
     Debug,
     InformationWarning,
     ErrorException,
+    /// Zeilen, die gemeinsame oder fremde Daten ändern oder löschen (ADR-0049).
+    Eingriff,
 }
 
 impl Klasse {
@@ -43,6 +47,7 @@ impl Klasse {
             Klasse::Debug => "DEBUG",
             Klasse::InformationWarning => "INFORMATION+WARNING",
             Klasse::ErrorException => "ERROR+EXCEPTION",
+            Klasse::Eingriff => "EINGRIFF",
         }
     }
 
@@ -51,6 +56,7 @@ impl Klasse {
             Klasse::Debug => 0,
             Klasse::InformationWarning => 1,
             Klasse::ErrorException => 2,
+            Klasse::Eingriff => 3,
         }
     }
 }
@@ -68,8 +74,8 @@ pub enum Urteil {
 pub struct Tagesbudget {
     budgets: Budgets,
     tag: Option<NaiveDate>,
-    verbraucht: [u64; 3],
-    erreicht: [bool; 3],
+    verbraucht: [u64; 4],
+    erreicht: [bool; 4],
 }
 
 impl Tagesbudget {
@@ -77,8 +83,8 @@ impl Tagesbudget {
         Tagesbudget {
             budgets,
             tag: None,
-            verbraucht: [0; 3],
-            erreicht: [false; 3],
+            verbraucht: [0; 4],
+            erreicht: [false; 4],
         }
     }
 
@@ -89,10 +95,10 @@ impl Tagesbudget {
 
     /// Rechnet den Verbrauch einer vorhandenen Tagesdatei an (ADR-0042 Ergänzung #24 Punkt 9); eine Klasse über
     /// ihrem Budget verwirft ab ihrer nächsten Zeile, die erste davon meldet das wie sonst.
-    pub fn anrechnen(&mut self, tag: NaiveDate, verbrauch: [u64; 3]) {
+    pub fn anrechnen(&mut self, tag: NaiveDate, verbrauch: [u64; 4]) {
         self.tag = Some(tag);
         self.verbraucht = verbrauch;
-        self.erreicht = [false; 3];
+        self.erreicht = [false; 4];
     }
 
     /// Passt eine Zeile von `laenge` Bytes der Klasse `klasse` am Tag `tag` noch ins Budget? Ein neuer Tag beginnt
@@ -100,13 +106,14 @@ impl Tagesbudget {
     pub fn pruefen(&mut self, tag: NaiveDate, klasse: Klasse, laenge: u64) -> Urteil {
         if self.tag != Some(tag) {
             self.tag = Some(tag);
-            self.verbraucht = [0; 3];
-            self.erreicht = [false; 3];
+            self.verbraucht = [0; 4];
+            self.erreicht = [false; 4];
         }
         let budget = match klasse {
             Klasse::Debug => self.budgets.debug,
             Klasse::InformationWarning => self.budgets.information_warning,
             Klasse::ErrorException => self.budgets.error_exception,
+            Klasse::Eingriff => self.budgets.eingriff,
         };
         let stelle = klasse.stelle();
         if self.verbraucht[stelle] + laenge <= budget && !self.erreicht[stelle] {
@@ -122,11 +129,11 @@ impl Tagesbudget {
     }
 }
 
-/// Verbrauch einer vorhandenen Tagesdatei je Klasse `[DEBUG, INFORMATION+WARNING, ERROR+EXCEPTION]` in Bytes
+/// Verbrauch einer vorhandenen Tagesdatei je Klasse `[DEBUG, INFORMATION+WARNING, ERROR+EXCEPTION, EINGRIFF]` in Bytes
 /// (ADR-0042 Ergänzung #24 Punkt 9): je Zeile ihre Bytes, wie gegeben (mit Zeilenende, wenn es dabei ist), der
 /// Klasse der Stufe im zweiten Wort; eine Zeile ohne erkennbare Stufe zählt zu DEBUG (rein).
-pub fn verbrauch_je_klasse<Z: AsRef<[u8]>>(zeilen: impl IntoIterator<Item = Z>) -> [u64; 3] {
-    let mut verbrauch = [0; 3];
+pub fn verbrauch_je_klasse<Z: AsRef<[u8]>>(zeilen: impl IntoIterator<Item = Z>) -> [u64; 4] {
+    let mut verbrauch = [0; 4];
     for zeile in zeilen {
         let zeile = zeile.as_ref();
         let klasse = zeile
@@ -170,7 +177,7 @@ mod tests {
         ];
 
         assert_eq!(zeilen[0].len(), 100);
-        assert_eq!(verbrauch_je_klasse(&zeilen), [113, 50, 30]);
+        assert_eq!(verbrauch_je_klasse(&zeilen), [113, 50, 30, 0]);
     }
 
     #[test]
@@ -181,7 +188,7 @@ mod tests {
             "t WARNINGX start c\n",
         ];
 
-        assert_eq!(verbrauch_je_klasse(zeilen), [19, 22, 20]);
+        assert_eq!(verbrauch_je_klasse(zeilen), [19, 22, 20, 0]);
     }
     use crate::protokoll::senke::Speicher;
     use crate::protokoll::testhilfe::{Aufzeichnung, zeit};
@@ -194,6 +201,60 @@ mod tests {
         assert_eq!(BUDGETS.debug, 67_108_864);
         assert_eq!(BUDGETS.information_warning, 33_554_432);
         assert_eq!(BUDGETS.error_exception, 33_554_432);
+    }
+
+    /// R00034 F0125 (ADR-0049 Regel 1 und 4): 16 MiB, in Summe 144 MiB je Tag.
+    #[test]
+    fn das_eingriffsbudget_hat_16_mib_und_die_grenzen_summieren_sich_auf_144_mib() {
+        assert_eq!(BUDGETS.eingriff, 16_777_216);
+        let summe = BUDGETS.debug
+            + BUDGETS.information_warning
+            + BUDGETS.error_exception
+            + BUDGETS.eingriff;
+        assert_eq!(summe, 144 * MIB);
+    }
+
+    /// R00034 F0125: Klasse EINGRIFF mit 1 KiB — genau eine Budgetmeldung, danach verworfen; INFORMATION+WARNING
+    /// bleibt davon unberührt, und umgekehrt.
+    #[test]
+    fn die_klasse_eingriff_hat_ihr_eigenes_budget_getrennt_von_information_warning() {
+        let tag = NaiveDate::from_ymd_opt(2026, 10, 29).expect("Tag");
+        let mut budget = Tagesbudget::neu(Budgets {
+            debug: 1024,
+            information_warning: 1024,
+            error_exception: 1024,
+            eingriff: 1024,
+        });
+
+        assert_eq!(
+            budget.pruefen(tag, Klasse::Eingriff, 1000),
+            Urteil::Schreiben
+        );
+        assert_eq!(
+            budget.pruefen(tag, Klasse::Eingriff, 100),
+            Urteil::ErstmalsVerworfen
+        );
+        assert_eq!(budget.pruefen(tag, Klasse::Eingriff, 1), Urteil::Verworfen);
+        assert_eq!(
+            budget.pruefen(tag, Klasse::InformationWarning, 1000),
+            Urteil::Schreiben
+        );
+        assert_eq!(Klasse::Eingriff.als_text(), "EINGRIFF");
+
+        let mut anders = Tagesbudget::neu(Budgets {
+            eingriff: 1024,
+            ..BUDGETS
+        });
+        assert_eq!(
+            anders.pruefen(tag, Klasse::Eingriff, 1024),
+            Urteil::Schreiben
+        );
+        anders.anrechnen(tag, [0, 33_554_432, 0, 0]);
+        assert_eq!(
+            anders.pruefen(tag, Klasse::InformationWarning, 1),
+            Urteil::ErstmalsVerworfen
+        );
+        assert_eq!(anders.pruefen(tag, Klasse::Eingriff, 1), Urteil::Schreiben);
     }
 
     #[test]
@@ -210,6 +271,7 @@ mod tests {
             debug: 1024,
             information_warning: 1024,
             error_exception: 1024,
+            eingriff: 1024,
         });
         let debug = |protokoll: &Protokoll| {
             protokoll.eintragen(

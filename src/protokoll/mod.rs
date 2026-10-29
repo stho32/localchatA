@@ -650,6 +650,7 @@ mod tests {
             debug: 1024,
             information_warning: 1024,
             error_exception: 1024,
+            eingriff: 1024,
         });
         let zeile = |stufe: &str| {
             format!(
@@ -700,6 +701,7 @@ mod tests {
             debug: 1024,
             information_warning: 1024,
             error_exception: 1024,
+            eingriff: 1024,
         });
         std::fs::create_dir_all(p.ordner.join("logs")).expect("logs");
         std::fs::write(
