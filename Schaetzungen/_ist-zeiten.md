@@ -389,3 +389,11 @@ Nie vom User erfragen.
 | 2026-10-29 | R00018 Betriebsprotokoll gehärtet | B0385 | Standard | — | 0,02h | 0,02h | autonom |
 | 2026-10-29 | R00018 Betriebsprotokoll gehärtet | B0386 | Standard | — | 0,02h | 0,02h | autonom |
 | 2026-10-29 | R00018 Betriebsprotokoll gehärtet | Konsolidierung, Gate, 26 Mutanten | Konsolidierung | — | 0,30h | 0,30h | autonom |
+| 2026-10-29 | R00024 Netznamen | B0417 Nacharbeit: Frist je Anfrage, ein Weg je Name | Nacharbeit | — | 0,10h | 0,10h | autonom |
+| 2026-10-29 | R00024 Netznamen | B0418 Nacharbeit: Cache in vier Fächern | Nacharbeit | — | 0,08h | 0,08h | autonom |
+| 2026-10-29 | R00024 Netznamen | B0419 Nacharbeit: Rate neuer Auflösungen | Nacharbeit | — | 0,08h | 0,08h | autonom |
+| 2026-10-29 | R00024 Netznamen | B0420 Nacharbeit: Gnadenfrist mit Auffrischen | Nacharbeit | — | 0,07h | 0,07h | autonom |
+| 2026-10-29 | R00024 Netznamen | B0421 Nacharbeit: eigener Faden (Diagnose glibc-Ende) | Nacharbeit | — | 0,13h | 0,13h | autonom |
+| 2026-10-29 | R00024 Netznamen | B0422 Nacharbeit: Panik belegt | Nacharbeit | — | 0,02h | 0,02h | autonom |
+| 2026-10-29 | R00024 Netznamen | B0423 Nacharbeit: Risikosätze | Nacharbeit | — | 0,02h | 0,02h | autonom |
+| 2026-10-29 | R00024 Netznamen | Nacharbeit: Lesen, Mutanten, Gate | Nacharbeit | — | 0,27h | 0,27h | autonom |
