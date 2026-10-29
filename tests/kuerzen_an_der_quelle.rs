@@ -14,8 +14,11 @@ use tokio::net::TcpSocket;
 
 /// So viele Herkünfte schicken je einen riesigen Kopf (Abnahme-Probe des security-reviewer).
 const HERKUENFTE: u32 = 300;
-/// So groß ist der `Host:`-Wert je Anfrage.
+/// So groß ist der `Host:`-Wert je Anfrage (Abnahme-Probe); seit der Kopfgrenze 16 KiB (ADR-0010 Ergänzung „Karte #9
+/// Nacharbeit“, K2) endet er mit 431 von hyper, bevor der Grenzschutz ihn sieht.
 const KOPF_BYTES: usize = 400_000;
+/// Der größte `Host:`-Wert, der unter der Kopfgrenze bis zum Grenzschutz kommt — für das Kürzen an der Quelle.
+const KOPF_BYTES_UNTER_DER_GRENZE: usize = 15_000;
 /// Höchstens so viel darf der RSS wachsen (gemessen vor dem Fix: 309 MB).
 const HOECHSTENS_ZUWACHS_KB: u64 = 50 * 1024;
 
@@ -70,13 +73,20 @@ async fn us17_dreihundert_riesige_host_koepfe_lassen_den_rss_um_hoechstens_50_mb
     }
     let nachher = rss_kb(pid);
 
-    assert!(status.iter().all(|&s| s == 403), "{status:?}");
+    assert!(status.iter().all(|&s| s == 431), "{status:?}");
     let zuwachs = nachher.saturating_sub(vorher);
     eprintln!("messung us17_rss_zuwachs_kb={zuwachs} vorher_kb={vorher} nachher_kb={nachher}");
     assert!(
         zuwachs <= HOECHSTENS_ZUWACHS_KB,
         "RSS um {zuwachs} kB gewachsen (vorher {vorher} kB, nachher {nachher} kB)"
     );
+
+    let kopf = "a".repeat(KOPF_BYTES_UNTER_DER_GRENZE);
+    let mut status = Vec::new();
+    for nummer in 0..HERKUENFTE {
+        status.push(riesiger_host(instanz.port(), herkunft(nummer), &kopf).await);
+    }
+    assert!(status.iter().all(|&s| s == 403), "{status:?}");
     let grenzschutz: Vec<String> = gemeinsam::protokoll::alle_zeilen(&instanz.ordner)
         .into_iter()
         .filter(|zeile| zeile.contains(" WARNING grenzschutz "))
