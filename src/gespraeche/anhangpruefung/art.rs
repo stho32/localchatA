@@ -8,9 +8,9 @@ pub const DATEI: &str = "application/octet-stream";
 /// `application/octet-stream`, HEIC und HEIF (Download, ADR-0047 Ergänzung „Karte #9 Nacharbeit F3 und F4“) und Text
 /// über 16 MiB — gilt beim Erkennen wie beim Ausliefern.
 pub fn inline(typ: &str, bytes: u64) -> bool {
-    let download = [DATEI, super::medien::HEIC_TYP, super::medien::HEIF_TYP];
-    !download.contains(&typ)
-        && !(typ == super::erkenner::TEXT && bytes > super::text::TEXT_INLINE_HOECHSTENS)
+    let nur_laden = [DATEI, super::medien::HEIC_TYP, super::medien::HEIF_TYP].contains(&typ);
+    let grosser_text = typ == super::erkenner::TEXT && bytes > super::text::TEXT_INLINE_HOECHSTENS;
+    !(nur_laden || grosser_text)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
