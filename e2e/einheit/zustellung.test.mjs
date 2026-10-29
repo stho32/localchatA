@@ -196,21 +196,22 @@ test('(d) 401 und danach 201 → bestätigt, kein Fehlschlag', () => {
   assert.deepEqual(bestaetigte(ausgaben), ['5']);
 });
 
-test('(e) „Erneut senden“ stellt ans Ende der Warteschlange mit demselben Schlüssel; „Verwerfen“ entfernt', () => {
+// Seit R00025 F0085 (ändert R00012 F0046) entfernt „Verwerfen“ nicht sofort: die Nachricht steht 5 s als verworfen.
+test('(e) „Erneut senden“ stellt ans Ende der Warteschlange mit demselben Schlüssel; „Verwerfen“ nimmt sie aus der Warteschlange', () => {
   const { zustand, ausgaben } = ablauf(
     senden('a'), senden('b'), senden('c'),
     { art: 'netzfehler', schluessel: 'k-a' },
     { art: 'netzfehler', schluessel: 'k-b' },
     { art: 'erneut', schluessel: 'k-a' },
-    { art: 'verwerfen', schluessel: 'k-b' },
+    { art: 'verwerfen', schluessel: 'k-b', jetzt: 0 },
     antwort('k-c', 201, { channel: 'allgemein', nachricht: nachricht('5', 'c') }),
   );
 
   assert.equal(ausgaben[5].auftrag, null, 'c läuft noch');
   assert.deepEqual(ausgaben[5].zustand.vorlaeufige.map((v) => [v.text, v.zustand]), [['b', 'fehlgeschlagen'], ['c', 'wird gesendet'], ['a', 'wird gesendet']]);
-  assert.deepEqual(ausgaben[6].zustand.vorlaeufige.map((v) => v.text), ['c', 'a']);
+  assert.deepEqual(ausgaben[6].zustand.vorlaeufige.map((v) => [v.text, v.zustand]), [['b', 'verworfen'], ['c', 'wird gesendet'], ['a', 'wird gesendet']]);
   assert.deepEqual(ausgaben[7].auftrag, { schluessel: 'k-a', channel: 'allgemein', text: 'a' });
-  assert.deepEqual(zustand.vorlaeufige.map((v) => [v.text, v.zustand, v.grund]), [['a', 'wird gesendet', undefined]]);
+  assert.deepEqual(zustand.vorlaeufige.map((v) => [v.text, v.zustand]), [['b', 'verworfen'], ['a', 'wird gesendet']]);
 });
 
 test('(e) „Erneut senden“ ohne laufenden Auftrag sendet sofort; nach einer 401 gilt wieder ein Versuch', () => {
@@ -237,4 +238,66 @@ test('(f) das eigene Ereignis kommt vor dem Netzfehler → bestätigt; der Netzf
   assert.deepEqual(zustand.vorlaeufige, []);
   assert.equal(zustand.laufend, null);
   assert.deepEqual(auftraege(ausgaben), ['x', null, null]);
+});
+
+// R00025 F0085 „Verworfen auf Zeit“ (B0400; ADR-0037 Ergänzung „Verworfen auf Zeit“): fehlgeschlagene x mit Schlüssel k;
+// „Verwerfen“ bei 0 → verworfen; „Rückgängig“ bei 4.999 → fehlgeschlagen mit Grund und Schlüssel k, kein Auftrag;
+// erneut „Verwerfen“ bei 10.000 → bei 14.999 verworfen, bei 15.000 entfernt (Mutanten „4 s“, „6 s“, „Rückgängig sendet“
+// werden je rot).
+const fehlgeschlagenesX = () => ablauf(senden('x', 'k'), antwort('k', 500, { fehler: '…' })).zustand;
+
+test('Verworfen auf Zeit: Rückgängig bis 4.999 ms bringt sie zurück, ab 5.000 ms ist sie entfernt', () => {
+  const vorher = fehlgeschlagenesX();
+  const verworfen = zustellen(vorher, { art: 'verwerfen', schluessel: 'k', jetzt: 0 });
+  const zurueck = zustellen(verworfen.zustand, { art: 'rueckgaengig', schluessel: 'k', jetzt: 4999 });
+  const wieder = zustellen(zurueck.zustand, { art: 'verwerfen', schluessel: 'k', jetzt: 10000 });
+  const knapp = zustellen(wieder.zustand, { art: 'verfallen', jetzt: 14999 });
+  const weg = zustellen(knapp.zustand, { art: 'verfallen', jetzt: 15000 });
+
+  assert.deepEqual(verworfen.zustand.vorlaeufige.map((v) => [v.schluessel, v.zustand, v.seit]), [['k', 'verworfen', 0]]);
+  assert.deepEqual(zurueck.zustand.vorlaeufige, vorher.vorlaeufige);
+  assert.equal(zurueck.auftrag, null);
+  assert.deepEqual(knapp.zustand.vorlaeufige.map((v) => v.zustand), ['verworfen']);
+  assert.deepEqual(weg.zustand.vorlaeufige, []);
+  const zuSpaet = zustellen(zustellen(vorher, { art: 'verwerfen', schluessel: 'k', jetzt: 0 }).zustand, { art: 'rueckgaengig', schluessel: 'k', jetzt: 5000 });
+  assert.notEqual(zuSpaet.zustand.vorlaeufige[0]?.zustand, 'fehlgeschlagen');
+  assert.equal(zuSpaet.auftrag, null);
+});
+
+// Channelwechsel (ADR-0037 Ergänzung „Verworfen auf Zeit“, erster Test, wörtlich): „verworfen bei 0, Channelwechsel bei
+// 1.000, Rückkehr bei 3.000 → Zeile da, Rückgängig → fehlgeschlagen mit demselben Schlüssel; Rückkehr bei 6.000 →
+// entfernt. Mutante „Wechsel verwirft“ → rot.“ Ein Channelwechsel ist kein Ereignis der Zustellung; die Uhr läuft.
+test('Channelwechsel: die verworfene bleibt, die Zeit läuft weiter', () => {
+  const verworfen = zustellen(fehlgeschlagenesX(), { art: 'verwerfen', schluessel: 'k', jetzt: 0 }).zustand;
+
+  const bei3000 = zustellen(verworfen, { art: 'verfallen', jetzt: 3000 }).zustand;
+  const zurueck = zustellen(bei3000, { art: 'rueckgaengig', schluessel: 'k', jetzt: 3000 }).zustand;
+  const bei6000 = zustellen(verworfen, { art: 'verfallen', jetzt: 6000 }).zustand;
+
+  assert.deepEqual(bei3000.vorlaeufige.map((v) => v.zustand), ['verworfen']);
+  assert.deepEqual(zurueck.vorlaeufige.map((v) => [v.schluessel, v.zustand]), [['k', 'fehlgeschlagen']]);
+  assert.deepEqual(bei6000.vorlaeufige, []);
+});
+
+// Regel 2: ein fremdes Ereignis mit gleichem Text während „verworfen“ trifft sie nicht (Mutante „verworfen bestätigt“).
+test('eine verworfene ist nicht in der Warteschlange und wird nie bestätigt', () => {
+  const verworfen = zustellen(fehlgeschlagenesX(), { art: 'verwerfen', schluessel: 'k', jetzt: 0 });
+  const ereignisMitGleichemText = zustellen(verworfen.zustand, ereignis(nachricht('7', 'x')));
+  const verbunden = zustellen(verworfen.zustand, { art: 'verbunden' });
+
+  assert.equal(verworfen.auftrag, null);
+  assert.deepEqual(ereignisMitGleichemText.zustand.vorlaeufige.map((v) => v.zustand), ['verworfen']);
+  assert.equal(ereignisMitGleichemText.bestaetigt, null);
+  assert.equal(verbunden.auftrag, null);
+});
+
+// „Fokus verlängert“ (UX-Vorprüfung #36 Muss V2, wörtlich): „verworfen bei 0; Fokus auf ‚Rückgängig‘ bei 4.000 → bei
+// 8.999 verworfen, bei 9.000 entfernt; ohne Fokus bei 5.000 entfernt. Die Mutante ‚Fokus verlängert nicht‘ wird rot.“
+test('Fokus auf „Rückgängig“ setzt die 5 s neu', () => {
+  const verworfen = zustellen(fehlgeschlagenesX(), { art: 'verwerfen', schluessel: 'k', jetzt: 0 }).zustand;
+  const mitFokus = zustellen(verworfen, { art: 'fokusRueckgaengig', schluessel: 'k', jetzt: 4000 }).zustand;
+
+  assert.deepEqual(zustellen(mitFokus, { art: 'verfallen', jetzt: 8999 }).zustand.vorlaeufige.map((v) => v.zustand), ['verworfen']);
+  assert.deepEqual(zustellen(mitFokus, { art: 'verfallen', jetzt: 9000 }).zustand.vorlaeufige, []);
+  assert.deepEqual(zustellen(verworfen, { art: 'verfallen', jetzt: 5000 }).zustand.vorlaeufige, []);
 });

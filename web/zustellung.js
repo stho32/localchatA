@@ -7,7 +7,9 @@
 //            wiederbeigetreten? }], laufend: schluessel | null, bestaetigt: [zeit…], getrennt }
 // ereignis: { art: 'senden', channel, text, schluessel } · { art: 'antwort', schluessel, status, daten }
 //         · { art: 'netzfehler' | 'zeitueberschreitung', schluessel } · { art: 'ereignis', kennung, channel, nachricht }
-//         · { art: 'getrennt' | 'verbunden' } · { art: 'erneut' | 'verwerfen', schluessel } · { art: 'beitrittGescheitert' }
+//         · { art: 'getrennt' | 'verbunden' } · { art: 'erneut', schluessel } · { art: 'beitrittGescheitert' }
+//         · { art: 'verwerfen' | 'rueckgaengig' | 'fokusRueckgaengig', schluessel, jetzt } · { art: 'verfallen', jetzt }
+//         (Verworfen auf Zeit, R00025 F0085: eine verworfene steht 5 s mit `seit`, dann ist sie entfernt)
 // → { zustand, auftrag: { schluessel, channel, text } | null, bestaetigt: { channel, nachricht } | null,
 //     fremd: { channel, nachricht } | null, wiederbeitreten, fehlschlag: { grund } | null }
 export const LEER = { vorlaeufige: [], laufend: null, bestaetigt: [], getrennt: false };
@@ -35,7 +37,13 @@ export function zustellen(zustand, ereignis) {
     case 'erneut':
       return erneutSenden(zustand, ereignis.schluessel);
     case 'verwerfen':
-      return ergebnis({ ...zustand, vorlaeufige: ohne(zustand.vorlaeufige, ereignis.schluessel) });
+      return verwerfen(zustand, ereignis);
+    case 'rueckgaengig':
+      return rueckgaengig(zustand, ereignis);
+    case 'fokusRueckgaengig':
+      return fokusAufRueckgaengig(zustand, ereignis);
+    case 'verfallen':
+      return verfallen(zustand, ereignis.jetzt);
     case 'beitrittGescheitert':
       return beitrittGescheitert(zustand);
     default:
@@ -60,6 +68,63 @@ function beantwortet(zustand, { schluessel, status, daten }) {
   const bestaetigung = bestaetigen({ ...zustand, vorlaeufige }, daten.channel, daten.nachricht);
   const weiter = naechsterAuftrag(bestaetigung.zustand);
   return { ...weiter, bestaetigt: bestaetigung.bestaetigt };
+}
+
+// Verworfen auf Zeit (ADR-0037 Ergänzung „Verworfen auf Zeit“): 5 s lässt sich „Verwerfen“ zurücknehmen; Fokus auf
+// „Rückgängig“ setzt die Zeit neu. Eine verworfene ist nicht in der Warteschlange und wird nie bestätigt.
+const RUECKGAENGIG_MS = 5000;
+
+function verwerfen(zustand, { schluessel, jetzt }) {
+  return ergebnis({ ...zustand, vorlaeufige: mitGeaenderter(zustand.vorlaeufige, schluessel, (vorlaeufig) => ({ ...vorlaeufig, zustand: 'verworfen', seit: jetzt })) });
+}
+
+function rueckgaengig(zustand, { schluessel, jetzt }) {
+  const zuruecknehmbar = (vorlaeufig) => vorlaeufig.zustand === 'verworfen' && jetzt - vorlaeufig.seit < RUECKGAENGIG_MS;
+  return ergebnis({
+    ...zustand,
+    vorlaeufige: mitGeaenderter(zustand.vorlaeufige, schluessel, (vorlaeufig) => {
+      if (!zuruecknehmbar(vorlaeufig)) {
+        return vorlaeufig;
+      }
+      const { seit, ...fehlgeschlagene } = vorlaeufig;
+      return { ...fehlgeschlagene, zustand: 'fehlgeschlagen' };
+    }),
+  });
+}
+
+function fokusAufRueckgaengig(zustand, { schluessel, jetzt }) {
+  return ergebnis({
+    ...zustand,
+    vorlaeufige: mitGeaenderter(zustand.vorlaeufige, schluessel, (vorlaeufig) => {
+      if (vorlaeufig.zustand !== 'verworfen' || jetzt - vorlaeufig.seit >= RUECKGAENGIG_MS) {
+        return vorlaeufig;
+      }
+      return { ...vorlaeufig, seit: jetzt };
+    }),
+  });
+}
+
+function verfallen(zustand, jetzt) {
+  const steht = (vorlaeufig) => vorlaeufig.zustand !== 'verworfen' || jetzt - vorlaeufig.seit < RUECKGAENGIG_MS;
+  return ergebnis({ ...zustand, vorlaeufige: zustand.vorlaeufige.filter(steht) });
+}
+
+// Wann die nächste verworfene verfällt (ms), null ohne verworfene — für den einen Zeitgeber des Tabs.
+export function naechsterVerfall(zustand) {
+  const seit = zustand.vorlaeufige.filter((vorlaeufig) => vorlaeufig.zustand === 'verworfen').map((vorlaeufig) => vorlaeufig.seit);
+  if (seit.length === 0) {
+    return null;
+  }
+  return Math.min(...seit) + RUECKGAENGIG_MS;
+}
+
+function mitGeaenderter(vorlaeufige, schluessel, aendern) {
+  return vorlaeufige.map((vorlaeufig) => {
+    if (vorlaeufig.schluessel !== schluessel) {
+      return vorlaeufig;
+    }
+    return aendern(vorlaeufig);
+  });
 }
 
 // Scheitert der stille Wiederbeitritt (ADR-0012 Ergänzung Karte #36 Regel 4): die Warteschlange hält sofort an, jede

@@ -427,7 +427,7 @@ export function verlaufAnlegen({ abrufen, schalter = () => {} }) {
   }
 
   function ausstehendZeichnen() {
-    const eigene = vorlaeufige.filter((vorlaeufig) => vorlaeufig.channel === offenerName);
+    const eigene = vorlaeufige.filter((vorlaeufig) => vorlaeufig.channel === offenerName && vorlaeufig.zustand !== 'verworfen');
     ausstehend.replaceChildren(...eigene.map((vorlaeufig) => vorlaeufigZeichnen(vorlaeufig, eigeneKennung)));
   }
 

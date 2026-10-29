@@ -9,8 +9,10 @@ import { LEER, zustellen } from './zustellung.js';
 
 // abschicken: async (channel, text, schluessel) → { art: 'antwort', status, daten, token } | { art: 'zeitueberschreitung'
 // | 'netzfehler' } · wiederBeitreten: async (abgelehntesToken) → zustand der Sitzung · netzAus: () → bool · ansagen:
-// (ereignis der Ansage) · zustellung: { zustand } des Tabs
-export function sendenEinrichten({ verlauf, kennung, abschicken, wiederBeitreten, netzAus, ansagen, zustellung = { zustand: LEER } }) {
+// (ereignis der Ansage) · zustellung: { zustand } des Tabs · jetzt: () → ms seit der Epoche
+export function sendenEinrichten({
+  verlauf, kennung, abschicken, wiederBeitreten, netzAus, ansagen, zustellung = { zustand: LEER }, jetzt = () => Date.now(),
+}) {
   let offenerChannel = null;
   let zuletztGesendetMitToken = null;
   let ereignisseRuhen = false;
@@ -78,7 +80,7 @@ export function sendenEinrichten({ verlauf, kennung, abschicken, wiederBeitreten
     },
     verbunden: () => anwenden(zustellen(zustellung.zustand, { art: 'verbunden' })),
     // „Erneut senden“ | „Verwerfen“ an einer fehlgeschlagenen Nachricht.
-    schalter: (aktion, schluessel) => anwenden(zustellen(zustellung.zustand, { art: aktion, schluessel })),
+    schalter: (aktion, schluessel) => anwenden(zustellen(zustellung.zustand, { art: aktion, schluessel, jetzt: jetzt() })),
   };
 }
 
