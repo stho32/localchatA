@@ -3,11 +3,15 @@
 // `shoff`; die erste Sendung beantwortet die Route mit 401, den stillen Beitritt mit 409 (Name vergeben). Ein Lauf und
 // ein Weg prüfen die Node-Tests (e2e/einheit/wiederbeitritt.test.mjs, senden.test.mjs).
 const { test, expect } = require('@playwright/test');
-const { sendenStarten, kontextOeffnen, imBrowserBeitreten, eingabe } = require('./senden-hilfen');
-const { ROUTE, vorlaeufige, bestaetigt, saetzeMit, sendungenMitschreiben } = require('./r00012-hilfen');
+const { JETZT, sendenStarten, beitreten, kontextOeffnen, imBrowserBeitreten, eingabe } = require('./senden-hilfen');
+const { ROUTE, leiste, vorlaeufige, bestaetigt, saetzeMit, sendungenMitschreiben } = require('./r00012-hilfen');
+const { instanzStarten, freierPort, channelAnlegen } = require('./hilfen');
 
 let instanz;
+let kontexte = [];
 test.afterEach(async () => {
+  await Promise.all(kontexte.map((kontext) => kontext.close()));
+  kontexte = [];
   if (instanz) {
     await instanz.stoppen();
     instanz = null;
@@ -135,3 +139,96 @@ test('Wartende genannt: ohne ungesendete Nachricht keine Zeile', async ({ browse
   await expect(a.page.locator('.lc-wartende')).toHaveCount(0);
   expect(a.fehler).toEqual([]);
 });
+
+// Nacharbeit #36, ux-reviewer M1 (Abnahme-Probe wörtlich): „Varianten (a) Strom meldet 401 zuerst (Instanz neu starten,
+// während die Leiste mit Countdown steht, dann senden) und (b) Senden meldet sie zuerst; je Variante Name nach dem
+// Neustart per API belegen, im Tab unter anderem Namen beitreten → „Erneut senden“ binnen 2 s genau ein POST
+// …/nachrichten mit dem gespeicherten Schlüssel, „fünf“ einmal im Log; danach neue Nachricht → 201 binnen 2 s.“
+// Echte 401 und echte 409 des Programms. In (b) liest der Tab Strom und Verlauf nach dem Neustart mit dem Token eines
+// Helfers (Route tauscht nur GET-Köpfe, Strom im Tab statt im SharedWorker; bis der Helfer da ist, gilt der Server
+// als weg) — so ist er verbunden, und erst das Senden trifft auf das unbekannte Token.
+const STROM = '/api/ereignisse';
+const GRENZE_MS = 2000;
+
+async function neustartLassen(browser, { sendenZuerst }) {
+  instanz = await instanzStarten({
+    port: await freierPort(),
+    umgebung: { LOCALCHATA_JETZT: JETZT },
+    vorbereiten: (ordner) => channelAnlegen(ordner, 'allgemein'),
+  });
+  const erwartet = { [BEITRETEN]: [409] };
+  if (sendenZuerst) {
+    erwartet[NACHRICHTEN] = [401];
+  } else {
+    erwartet[STROM] = [401];
+  }
+  const a = await kontextOeffnen(browser, { serverWegErwartet: true, zusaetzlich: erwartet });
+  kontexte.push(a.kontext);
+  let helferToken = null;
+  if (sendenZuerst) {
+    await a.kontext.addInitScript(() => { delete window.SharedWorker; });
+  }
+  await imBrowserBeitreten(a.page, instanz.adresse, 'shoff');
+  const sendungen = sendungenMitschreiben(a.page);
+  if (sendenZuerst) {
+    await a.page.route('**/api/**', async (route) => {
+      const anfrage = route.request();
+      if (anfrage.method() !== 'GET') {
+        await route.continue();
+        return;
+      }
+      if (helferToken === null) {
+        await route.abort('connectionrefused');
+        return;
+      }
+      await route.continue({ headers: { ...anfrage.headers(), 'x-localchata-sitzung': helferToken } });
+    });
+  }
+
+  await instanz.beenden();
+  await expect(leiste(a.page)).toHaveText(/^⚠ Verbindung verloren/);
+  await instanz.starten();
+  await beitreten(instanz.adresse, 'shoff', { art: 'mensch', herkunft: '127.0.0.2' });
+  if (sendenZuerst) {
+    helferToken = await beitreten(instanz.adresse, 'helfer', { art: 'mensch' });
+  }
+  await eingabe(a.page).fill('fünf');
+  await eingabe(a.page).press('Enter');
+
+  await expect(a.page.getByLabel('Name')).toBeVisible({ timeout: 20000 });
+  if (sendenZuerst) {
+    await a.page.unroute('**/api/**');
+  }
+  return { a, sendungen };
+}
+
+for (const variante of [{ titel: '(a) Strom meldet 401 zuerst', sendenZuerst: false }, { titel: '(b) Senden meldet 401 zuerst', sendenZuerst: true }]) {
+  test(`Scheitern nach Neustart ${variante.titel}: „Erneut senden“ und neue Nachricht gehen hinaus`, async ({ browser }) => {
+    test.setTimeout(60000);
+    const { a, sendungen } = await neustartLassen(browser, variante);
+    const vorDemBeitritt = sendungen.length;
+
+    await alsBeitreten(a.page, 'shoff-anders');
+    await expect(vorlaeufige(a.page).locator('.lc-body')).toHaveText(['fünf']);
+    const schluessel = await vorlaeufige(a.page).getAttribute('data-schluessel');
+    const klick = Date.now();
+    await vorlaeufige(a.page).getByRole('button', { name: 'Erneut senden' }).click();
+
+    await expect.poll(() => sendungen.length, { intervals: [25], timeout: 10000 }).toBe(vorDemBeitritt + 1);
+    expect(sendungen[vorDemBeitritt].beginn - klick).toBeLessThan(GRENZE_MS);
+    expect(sendungen[vorDemBeitritt]).toMatchObject({ text: 'fünf', schluessel });
+    await expect(bestaetigt(a.page, 'fünf')).toHaveCount(1);
+    await a.page.waitForTimeout(300);
+    expect(sendungen.length).toBe(vorDemBeitritt + 1);
+    expect(saetzeMit(instanz.ordner, 'allgemein', 'fünf')).toBe(1);
+
+    const antwort = a.page.waitForResponse((r) => r.request().method() === 'POST' && r.url().endsWith(NACHRICHTEN), { timeout: 10000 });
+    const abgeschickt = Date.now();
+    await eingabe(a.page).fill('sechs');
+    await eingabe(a.page).press('Enter');
+    expect((await antwort).status()).toBe(201);
+    expect(Date.now() - abgeschickt).toBeLessThan(GRENZE_MS);
+    await expect(bestaetigt(a.page, 'sechs')).toHaveCount(1);
+    expect(a.fehler).toEqual([]);
+  });
+}

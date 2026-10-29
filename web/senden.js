@@ -73,6 +73,10 @@ export function sendenEinrichten({
     anwenden(zustellen(zustellung.zustand, { art: antwort.art, schluessel }));
   }
 
+  // Eine neue Hauptansicht beginnt verbunden (VERBINDUNG_ANFANG); die Zustellung des Tabs kann noch getrennt sein — aus
+  // der Ansicht, deren stiller Beitritt gescheitert ist (R00025 F0088); sonst ruhte ihre Warteschlange für immer.
+  anwenden(zustellen(zustellung.zustand, { art: 'verbunden' }));
+
   return {
     senden: (text) => {
       anwenden(zustellen(zustellung.zustand, { art: 'senden', channel: offenerChannel, text, schluessel: neuerSchluessel() }));

@@ -101,8 +101,9 @@ test('ab dem Wiederverbinden des Stroms werden Ereignisse angenommen, die Wartes
 // `POST …/nachrichten`, beide fehlgeschlagen mit dem Grund aus Regel 4, der Zustand `vergeben` geht an `zeigen`;
 // dasselbe, wenn der Strom die Ablehnung zuerst meldet. Mutante „Senden scheitert still wie heute“ → rot.“ Die
 // Zustellung gehört dem Tab; was start.js beim Scheitern tut, steht hier im Rückruf `gescheitert`.
-function tabMitScheiterndemBeitritt(abschicken) {
-  const zustellung = { zustand: LEER };
+const VERGEBEN = { status: 409, daten: { belegt_von: '127.0.0.9', seit: '2026-10-28T15:00:00+01:00', vorschlag: 'shoff-2' } };
+
+function tabMitScheiterndemBeitritt(abschicken, { beitrittsAntworten = [], zustellung = { zustand: LEER } } = {}) {
   const gezeigt = [];
   const werte = new Map([[SITZUNG, 'alt'], [NAME, 'shoff']]);
   const speicher = {
@@ -111,7 +112,7 @@ function tabMitScheiterndemBeitritt(abschicken) {
     removeItem: (schluessel) => werte.delete(schluessel),
   };
   const api = {
-    beitreten: async () => ({ status: 409, daten: { belegt_von: '127.0.0.9', seit: '2026-10-28T15:00:00+01:00', vorschlag: 'shoff-2' } }),
+    beitreten: async () => beitrittsAntworten.shift() || VERGEBEN,
     ich: async () => ({ status: 401 }),
   };
   const wiederBeitreten = wiederbeitrittAnlegen({
@@ -180,4 +181,40 @@ test('Scheitern im Tab (Strom zuerst): die spätere 401 des laufenden Versuchs s
   assert.deepEqual(gesendet, ['eins']);
   assert.deepEqual(tab.zustellung.zustand.vorlaeufige.map((v) => v.zustand), ['fehlgeschlagen', 'fehlgeschlagen']);
   assert.deepEqual(tab.gezeigt, ['vergeben']);
+});
+
+// Nacharbeit #36, ux-reviewer M1 (Abnahme-Probe, Node-Teil): die Zustellung des Tabs ist getrennt (Strom meldete die
+// Trennung, dann die 401), der stille Beitritt scheitert; nach dem Beitritt unter neuem Namen richtet die neue
+// Hauptansicht ihr Senden über dieselbe Zustellung ein → „Erneut senden“ liefert genau einen Auftrag mit demselben
+// Schlüssel, eine neue Nachricht danach ebenso.
+test('Scheitern bei getrenntem Strom: nach dem Beitritt sendet „Erneut senden“ genau einmal mit demselben Schlüssel', async () => {
+  const zustellung = { zustand: { ...LEER, getrennt: true } };
+  const alt = tabMitScheiterndemBeitritt(async () => ABGELEHNT, { zustellung });
+  alt.senden.senden('fünf');
+  await alt.wiederBeitreten('alt');
+  const [wartend] = zustellung.zustand.vorlaeufige;
+  assert.deepEqual([wartend.text, wartend.zustand], ['fünf', 'fehlgeschlagen']);
+
+  const gesendet = [];
+  const neu = sendenEinrichten({
+    verlauf: verlaufErsatz(),
+    kennung: 'shoff-2@127.0.0.1',
+    abschicken: async (channel, text, schluessel) => {
+      gesendet.push([text, schluessel]);
+      return { art: 'antwort', status: 201, daten: { channel, nachricht: { zeit: `z${gesendet.length}`, von: 'shoff-2@127.0.0.1', text } }, token: 'neu' };
+    },
+    wiederBeitreten: async () => ({ art: 'kopfzeile' }),
+    netzAus: () => false,
+    ansagen: () => {},
+    zustellung,
+  });
+  neu.channelGeoeffnet('allgemein');
+  neu.schalter('erneut', wartend.schluessel);
+  await naechsteRunde();
+  neu.senden('sechs');
+  await naechsteRunde();
+
+  assert.deepEqual(gesendet.map(([text]) => text), ['fünf', 'sechs']);
+  assert.equal(gesendet[0][1], wartend.schluessel);
+  assert.deepEqual(zustellung.zustand.vorlaeufige, []);
 });
