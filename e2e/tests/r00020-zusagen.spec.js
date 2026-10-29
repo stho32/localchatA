@@ -67,3 +67,20 @@ test('Folgen, Gegenprobe: eine Zeile + 5 px über dem Ende bleibt der Blick steh
   expect(Math.abs(await log.evaluate((element) => element.scrollTop) - vorher)).toBeLessThanOrEqual(1);
   expect(fehler).toEqual([]);
 });
+
+// US-7, „Markup bleibt Text“ (B0340, Security-Review #8 Optional 5): HTML im Text erscheint wörtlich; kein Element aus
+// dem Text entsteht, kein Skript läuft.
+test('US-7: HTML im Nachrichtentext bleibt Text', async ({ browser }) => {
+  const { page, fehler, beta } = await bAmEnde(browser, 5);
+  const markup = '<img src=x onerror="window.__xss=1"><b>fett</b><script>window.__xss=2</script>';
+
+  await senden(instanz.adresse, beta, 'allgemein', markup);
+
+  const nachricht = nachrichten(page).last();
+  await expect(nachricht.locator('.lc-body')).toHaveText(markup);
+  await expect(nachricht.locator('img')).toHaveCount(0);
+  await expect(nachricht.locator('b')).toHaveCount(0);
+  await expect(nachricht.locator('script')).toHaveCount(0);
+  expect(await page.evaluate(() => typeof window.__xss)).toBe('undefined');
+  expect(fehler).toEqual([]);
+});
