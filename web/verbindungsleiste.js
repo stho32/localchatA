@@ -50,3 +50,33 @@ export function geltenderZeitpunkt({ stromUnterbrochen, strom, nachholen }) {
   }
   return nachholen;
 }
+
+// Die Leiste besteht aus zwei Teilen (R00033 F0124, ux-reviewer #36 S1): dem Anlass „⚠ Verbindung verloren“, der bei
+// Platzmangel mit „…“ kürzt, und dem Stand „ · neuer Versuch in n s“ bzw. „ · wird verbunden …“, der nie gekürzt wird —
+// am schmalen Telefon bleibt die eine Zahl, die sagt, ob sich Warten lohnt. Der Text als Ganzes bleibt der von
+// `warnungText`; jeder andere Text (Meldungen, Warnung ohne Zeitpunkt) ist ein Anlass ohne Stand.
+const STAND = / · (?:neuer Versuch in \d+ s|wird verbunden …)$/;
+
+export function leisteTeile(text) {
+  const treffer = STAND.exec(text);
+  if (treffer === null) {
+    return { anlass: text, stand: '' };
+  }
+  return { anlass: text.slice(0, treffer.index), stand: treffer[0] };
+}
+
+export function leisteFuellen(leiste, text) {
+  const { anlass, stand } = leisteTeile(text);
+  const teile = [teil('lc-leiste-anlass', anlass)];
+  if (stand !== '') {
+    teile.push(teil('lc-leiste-stand', stand));
+  }
+  leiste.replaceChildren(...teile);
+}
+
+function teil(klasse, text) {
+  const element = document.createElement('span');
+  element.className = klasse;
+  element.textContent = text;
+  return element;
+}

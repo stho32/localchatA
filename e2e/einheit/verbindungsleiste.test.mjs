@@ -1,7 +1,7 @@
 // Unit-Tests der Leiste oben im Verlauf (R00012 F0047 „Meldung“, B0244; Designsystem VerlaufsMarken; node --test).
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { wiederVerbundenText, leisteInhalt, warnungText, geltenderZeitpunkt } from '../../web/verbindungsleiste.js';
+import { wiederVerbundenText, leisteInhalt, warnungText, geltenderZeitpunkt, leisteTeile, leisteFuellen } from '../../web/verbindungsleiste.js';
 
 test('Text nach dem Nachholen: Zahl mit Tausenderpunkt, ohne Zahl bei 0, „neueste geladen“ nach Neu-Öffnen', () => {
   assert.equal(wiederVerbundenText({ art: 'nachgeholt', zahl: 3 }), '✓ Wieder verbunden · 3 nachgeladen');
@@ -55,4 +55,51 @@ test('geltender Zeitpunkt nach Quelle', () => {
   assert.equal(geltenderZeitpunkt({ stromUnterbrochen: true, strom: 7000, nachholen: 3000 }), 7000);
   assert.equal(geltenderZeitpunkt({ stromUnterbrochen: false, strom: 7000, nachholen: 3000 }), 3000);
   assert.equal(geltenderZeitpunkt({ stromUnterbrochen: false, strom: null, nachholen: null }), null);
+});
+
+// R00033 F0124 B0550 (ux-reviewer #36 S1): die Leiste besteht aus Anlass (kürzt bei Platzmangel mit „…“) und Stand (nie
+// gekürzt); zusammen ergeben sie wörtlich den Text von R00025.
+test('Teilung der Warnung in Anlass und Stand: der Stand ist „ · neuer Versuch in n s“ bzw. „ · wird verbunden …“', () => {
+  const jetzt = 1_000_000;
+
+  assert.deepEqual(leisteTeile(warnungText(jetzt + 4001, jetzt)), { anlass: '⚠ Verbindung verloren', stand: ' · neuer Versuch in 5 s' });
+  assert.deepEqual(leisteTeile(warnungText(jetzt + 25000, jetzt)), { anlass: '⚠ Verbindung verloren', stand: ' · neuer Versuch in 10 s' });
+  assert.deepEqual(leisteTeile(warnungText(jetzt, jetzt)), { anlass: '⚠ Verbindung verloren', stand: ' · wird verbunden …' });
+  assert.deepEqual(leisteTeile(warnungText(null, jetzt)), { anlass: '⚠ Verbindung verloren', stand: '' });
+  assert.deepEqual(leisteTeile('✓ Wieder verbunden · 3 nachgeladen'), { anlass: '✓ Wieder verbunden · 3 nachgeladen', stand: '' });
+});
+
+// Ein DOM-Ersatz genügt, um zu lesen, was die Leiste setzt.
+class Knoten {
+  constructor(tag) {
+    this.tag = tag;
+    this.kinder = [];
+  }
+  replaceChildren(...kinder) { this.kinder = kinder; }
+  get textContent() { return this.kinder.map((k) => (typeof k === 'string' ? k : k.textContent)).join(''); }
+  set textContent(wert) { this.kinder = [wert]; }
+}
+
+test('die Leiste setzt Anlass und Stand als zwei Teile, deren Text genau dem Text von R00025 entspricht', () => {
+  const vorher = globalThis.document;
+  globalThis.document = { createElement: (tag) => new Knoten(tag) };
+  try {
+    const jetzt = 1_000_000;
+    for (const text of [warnungText(jetzt + 7000, jetzt), warnungText(jetzt, jetzt), warnungText(null, jetzt), '✓ Wieder verbunden']) {
+      const leiste = new Knoten('div');
+
+      leisteFuellen(leiste, text);
+
+      assert.equal(leiste.textContent, text);
+      assert.equal(leiste.kinder[0].className, 'lc-leiste-anlass');
+    }
+    const leiste = new Knoten('div');
+    leisteFuellen(leiste, warnungText(1_007_000, 1_000_000));
+    assert.deepEqual(leiste.kinder.map((k) => [k.className, k.textContent]), [
+      ['lc-leiste-anlass', '⚠ Verbindung verloren'],
+      ['lc-leiste-stand', ' · neuer Versuch in 7 s'],
+    ]);
+  } finally {
+    globalThis.document = vorher;
+  }
 });

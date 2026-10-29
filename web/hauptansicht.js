@@ -21,7 +21,7 @@ import { entwurfAnlegen } from './entwurf.js';
 import { fokusTaste } from './fokus.js';
 import { VERBINDUNG_ANFANG, verbindung } from './wiederverbinden.js';
 import { nachholLaufAnlegen } from './nachhollauf.js';
-import { wiederVerbundenText, leisteInhalt, geltenderZeitpunkt } from './verbindungsleiste.js';
+import { wiederVerbundenText, leisteInhalt, geltenderZeitpunkt, leisteFuellen } from './verbindungsleiste.js';
 import { ANSAGE_LEER, ansage, ansageSchreiberAnlegen } from './ansage.js';
 
 const STAND_UNBEKANNT = 'Stand unbekannt — zuletzt bekannte Liste.';
@@ -161,7 +161,7 @@ function wiederverbindenEinrichten({ mitte, verlauf, senden, abrufen, ansagen },
     leiste.hidden = inhalt === null;
     leiste.textContent = '';
     if (inhalt !== null) {
-      leiste.textContent = inhalt.text;
+      leisteFuellen(leiste, inhalt.text);
       leiste.classList.toggle('lc-leiste-fehler', inhalt.fehler);
     }
     countdownStellen();

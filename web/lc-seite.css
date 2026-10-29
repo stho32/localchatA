@@ -162,7 +162,11 @@ body { background: var(--kd-bg); color: var(--kd-ink); font-family: var(--font-s
 .lc-comp-bereinigen button { touch-action: manipulation; }
 /* Leiste oben über der Mitte (Baustein VerlaufsMarken „Verbindung“; R00025 F0084): überlagernd wie Ladezeile und Pille,
    deckend, in jedem Text genau eine Zeile von 28 px — der Verlauf springt nicht; verloren in kd-danger */
-.lc-leiste { position: absolute; top: 0; left: 0; right: 0; z-index: 3; height: var(--kd-row); display: flex; align-items: center; padding: 0 var(--kd-space-12); font-size: 12px; font-weight: 600; color: var(--kd-ink-muted); background: var(--kd-surface); border-bottom: 1px solid var(--kd-line); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.lc-leiste { position: absolute; top: 0; left: 0; right: 0; z-index: 3; height: var(--kd-row); display: flex; align-items: center; padding: 0 var(--kd-space-12); font-size: 12px; font-weight: 600; color: var(--kd-ink-muted); background: var(--kd-surface); border-bottom: 1px solid var(--kd-line); white-space: nowrap; overflow: hidden; }
+/* Zwei Teile (R00033): bei Platzmangel kürzt der Anlass mit „…“, der Stand („ · neuer Versuch in n s“) nie; `pre`, damit
+   das Leerzeichen am Anfang des Stands bleibt */
+.lc-leiste-anlass { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.lc-leiste-stand { flex: 0 0 auto; overflow: hidden; white-space: pre; }
 .lc-leiste.lc-leiste-fehler { color: var(--kd-danger); }
 .lc-leiste[hidden] { display: none; }
 /* Steht die Leiste, liegt die Ladezeile direkt darunter, und eine fokussierte Nachricht verschwindet nicht unter ihr */
