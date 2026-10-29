@@ -926,6 +926,38 @@ mod tests {
         const { assert!(HOECHSTENS_GESAMT >= 30 * 600) };
     }
 
+    /// Wächter „Uhr zurück“ (code-reviewer #36 A2, Abnahme-Probe wörtlich): „bei 10.000 ms merkt `a` „a1“; die Uhr
+    /// springt auf 0, `b` merkt „k“; bei 600.001 ms ist „k“ neu und wird neu gemerkt; bei 610.002 ms merkt `c` „c1“.
+    /// Erwartet ist dann `pruefen(b, "k")` = `Wiederholt { zeit: 600.001 }` und 2 Einträge. Mit Mutant (Zeilen 181–183
+    /// entfernt) kommt `Neu`.“ Gemeint ist der Wächter in `merken`, der einen vorhandenen Eintrag desselben Schlüssels
+    /// vor dem Einfügen entfernt: sonst bliebe der alte, in der Folge hinter `a1` stehende Eintrag, und sein spätes
+    /// Entfernen löschte den Verweis auf den neuen.
+    #[test]
+    fn eine_zurueckgestellte_uhr_laesst_den_neu_gemerkten_schluessel_nicht_vergessen() {
+        let (a, b, c) = (
+            kennung("a@127.0.0.1"),
+            kennung("b@127.0.0.1"),
+            kennung("c@127.0.0.1"),
+        );
+        let mut speicher = Wiederholung::default();
+        merke(&mut speicher, &a, "a1", 10_000);
+        merke(&mut speicher, &b, "k", 0);
+        assert_eq!(
+            speicher.pruefen(&b, "k", &allgemein(), pruefsumme("k"), t(600_001)),
+            Pruefung::Neu,
+            "nach 600.001 ms ist „k“ abgelaufen"
+        );
+        merke(&mut speicher, &b, "k", 600_001);
+
+        merke(&mut speicher, &c, "c1", 610_002);
+
+        assert_eq!(
+            speicher.pruefen(&b, "k", &allgemein(), pruefsumme("k"), t(610_002)),
+            Pruefung::Wiederholt { zeit: t(600_001) }
+        );
+        assert_eq!(speicher.groessen().eintraege, 2);
+    }
+
     /// Kontrollpaar K2: gemerkt bei t, eine andere Sendung bei t + 600.001 ms → keine Meldung, `v1` ist neu.
     #[test]
     fn nach_ablauf_ist_der_schluessel_neu_ohne_meldung() {
