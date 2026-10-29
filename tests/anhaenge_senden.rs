@@ -350,6 +350,20 @@ async fn eine_gebundene_id_ist_fuer_jeden_verbraucht() {
         .path()
         .join(format!("channels/allgemein/anhaenge/{tag}/{}", vorher[0].0));
     assert_eq!(std::fs::read(datei).expect("Datei"), vec![7; 5]);
+    let abgerufen = gamma
+        .anfrage(
+            reqwest::Method::GET,
+            format!("{basis}anhaenge/{gelesene_id}"),
+        )
+        .send()
+        .await
+        .expect("Abruf");
+    assert_eq!(
+        abgerufen.status(),
+        200,
+        "Öffnen über den Link bleibt (Befund #53 B4)"
+    );
+    assert_eq!(abgerufen.bytes().await.expect("Bytes").to_vec(), vec![7; 5]);
 }
 
 /// M16: eine eingeschleuste Metazeile im Text bleibt Text — `anhaenge: []`.
@@ -367,6 +381,94 @@ async fn eine_eingeschleuste_metazeile_ist_kein_anhang() {
     assert_eq!(antwort.status, 201, "{}", antwort.json);
     assert_eq!(antwort.json["nachricht"]["anhaenge"], json!([]));
     assert_eq!(antwort.json["nachricht"]["text"], text);
+
+    // Befund #53 B4: nach dem Neustart bleibt die Zeile Text, die ID gibt es nicht.
+    drop(instanz);
+    let instanz = starten(wurzel.path(), &[], &[]);
+    let basis = instanz.adresse.as_str();
+    let token = beitreten(&beta, basis, "beta2", Some("agent")).await;
+    let gelesen = verlauf(&beta, basis, &token, "allgemein").await;
+    assert_eq!(gelesen["nachrichten"][0]["text"], text);
+    assert_eq!(gelesen["nachrichten"][0]["anhaenge"], json!([]));
+    let abgerufen = beta
+        .anfrage(
+            reqwest::Method::GET,
+            format!("{basis}anhaenge/aaaaaaaaaaaaaaaaaaaaaaaaaa"),
+        )
+        .send()
+        .await
+        .expect("Abruf");
+    assert_eq!(abgerufen.status(), 404);
+}
+
+/// Befund #53 B4, R00029 „Nichts halb“ über das Programm: `channels/allgemein/anhaenge` ist eine Datei, das Binden
+/// scheitert → 500, kein Satz, beide Dateien wieder im Eingang, `reserviert` unverändert; `ERROR senden` nennt die
+/// Datei nur als Präfix (nie Name oder ID); ist der Weg wieder frei, sind dieselben IDs sendbar.
+#[tokio::test]
+async fn ein_gescheitertes_binden_baut_zurueck() {
+    let wurzel = ordner();
+    let instanz = starten(wurzel.path(), &[], &[]);
+    let basis = instanz.adresse.as_str();
+    let beta = Absender::von("127.0.0.1");
+    let token = beitreten(&beta, basis, "beta", Some("agent")).await;
+    let eins = ablegen(&beta, basis, &token, "geheim-eins.bin", vec![1; 5]).await;
+    let zwei = ablegen(&beta, basis, &token, "geheim-zwei.bin", vec![2; 5]).await;
+    let sperre = wurzel.path().join("channels/allgemein/anhaenge");
+    std::fs::write(&sperre, b"keine Ordner").expect("Datei statt Ordner");
+    let vorher = gesundheit(basis).await;
+
+    let antwort = senden_mit(
+        &beta,
+        basis,
+        &token,
+        "allgemein",
+        json!({"text": "x", "anhaenge": [eins, zwei]}),
+    )
+    .await;
+
+    assert_eq!(antwort.status, 500, "{}", antwort.json);
+    let mut erwartet = vec![eins.clone(), zwei.clone()];
+    erwartet.sort();
+    assert_eq!(im_eingang(wurzel.path()), erwartet);
+    assert_eq!(gesundheit(basis).await["reserviert"], vorher["reserviert"]);
+    let gelesen = verlauf(&beta, basis, &token, "allgemein").await;
+    assert_eq!(gelesen["nachrichten"], json!([]));
+    let fehler: Vec<String> = gemeinsam::protokoll::alle_zeilen(wurzel.path())
+        .into_iter()
+        .filter(|zeile| zeile.contains(" ERROR senden Anhang nicht gebunden"))
+        .collect();
+    assert_eq!(fehler.len(), 1, "{fehler:#?}");
+    let datei = fehler[0]
+        .split(" datei=")
+        .nth(1)
+        .and_then(|rest| rest.split(' ').next())
+        .expect("datei=");
+    assert!(
+        datei.len() >= 11
+            && datei.split_once('-').is_some_and(|(zeit, nummer)| {
+                zeit.len() == 9
+                    && zeit.bytes().all(|z| z.is_ascii_digit())
+                    && nummer.bytes().all(|z| z.is_ascii_digit())
+            }),
+        "{}",
+        fehler[0]
+    );
+    assert!(
+        !fehler[0].contains("geheim") && !fehler[0].contains(&eins) && !fehler[0].contains(&zwei),
+        "{}",
+        fehler[0]
+    );
+
+    std::fs::remove_file(&sperre).expect("Weg frei");
+    let erneut = senden_mit(
+        &beta,
+        basis,
+        &token,
+        "allgemein",
+        json!({"text": "x", "anhaenge": [eins, zwei]}),
+    )
+    .await;
+    assert_eq!(erneut.status, 201, "{}", erneut.json);
 }
 
 /// Wiederholschlüssel über Text und IDs: derselbe Körper zweimal → 201, dann 200 mit derselben Zeit und denselben
