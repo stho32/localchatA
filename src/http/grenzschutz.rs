@@ -1000,4 +1000,91 @@ mod tests {
             assert!(test.hoechstens.load(Ordering::SeqCst) <= 2);
         }
     }
+
+    /// Abnahme-Probe W1 des `security-reviewer` (Nacharbeit #35, L1, Testauskunft und Testuhr): „x.local=127.0.0.1
+    /// und 127.0.0.2>chat.fritz.box je einmal erlaubt; danach 1.000 verschiedene einteilige Namen f<i> sofort
+    /// beantwortet und abgeschlossen → x.local weiter erlaubt mit fragen("vorwaerts","x.local") == 1,
+    /// chat.fritz.box über 127.0.0.2 erlaubt mit fragen("rueckwaerts","127.0.0.2") == 1; Varianten Flut auf
+    /// .local/.internal/.home.arpa“. Die Testuhr rückt je Name 0,1 s vor (Rate).
+    mod flut_verdraengt_keinen_rechtmaessigen_namen {
+        use super::*;
+        use crate::http::testauskunft::{Testauskunft, ip};
+        use crate::protokoll::testhilfe::zeit;
+        use crate::uhr::{GestellteUhr, Uhr};
+
+        async fn flut_mit(endung: &str) {
+            let test = Testauskunft::mit(
+                &[("127.0.0.2", "chat.fritz.box")],
+                &[("x.local", &["127.0.0.1"])],
+            );
+            let uhr = Arc::new(GestellteUhr::neu(zeit("2026-10-29T12:00:00+01:00")));
+            let auskunft = Auskunft::neu(
+                Arc::clone(&test) as Arc<dyn Namensauskunft>,
+                Arc::clone(&uhr) as Arc<dyn crate::uhr::Uhr>,
+                Arc::new(Protokoll::ohne_ablage()),
+            );
+            let schutz = Grenzschutz::neu(None, Vec::new()).mit_auskunft(Arc::new(auskunft));
+            let ueber_1 = Some(ip("127.0.0.1"));
+            let ueber_2 = Some(ip("127.0.0.2"));
+            assert_eq!(
+                schutz.host_pruefen(Some("x.local:7430"), ueber_1).await,
+                Ok(Grund::LokalerNamensraum)
+            );
+            assert_eq!(
+                schutz
+                    .host_pruefen(Some("chat.fritz.box:7430"), ueber_2)
+                    .await,
+                Ok(Grund::Rueckwaertsname)
+            );
+
+            for nummer in 0..1000 {
+                uhr.stellen(uhr.jetzt() + chrono::Duration::milliseconds(100));
+                let host = format!("f{nummer}{endung}:7430");
+                assert!(
+                    schutz.host_pruefen(Some(&host), ueber_1).await.is_err(),
+                    "{host}"
+                );
+            }
+
+            assert_eq!(
+                schutz.host_pruefen(Some("x.local:7430"), ueber_1).await,
+                Ok(Grund::LokalerNamensraum),
+                "{endung}"
+            );
+            assert_eq!(test.fragen("vorwaerts", "x.local"), 1, "{endung}");
+            assert_eq!(
+                schutz
+                    .host_pruefen(Some("chat.fritz.box:7430"), ueber_2)
+                    .await,
+                Ok(Grund::Rueckwaertsname),
+                "{endung}"
+            );
+            assert_eq!(test.fragen("rueckwaerts", "127.0.0.2"), 1, "{endung}");
+            assert_eq!(
+                test.fragen("vorwaerts", &format!("f999{endung}")),
+                1,
+                "die Flut wurde gefragt"
+            );
+        }
+
+        #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+        async fn flut_einteiliger_namen() {
+            flut_mit("").await;
+        }
+
+        #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+        async fn flut_auf_local() {
+            flut_mit(".local").await;
+        }
+
+        #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+        async fn flut_auf_internal() {
+            flut_mit(".internal").await;
+        }
+
+        #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+        async fn flut_auf_home_arpa() {
+            flut_mit(".home.arpa").await;
+        }
+    }
 }

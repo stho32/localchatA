@@ -21,7 +21,8 @@ pub const WARTEZEIT: Duration = Duration::from_secs(1);
 /// So lange gilt ein Ergebnis „erlaubt“ bzw. „nicht erlaubt“ (auch Fehler und Zeitgrenze des Resolvers).
 pub const ERLAUBT_GILT: Duration = Duration::from_secs(5 * 60);
 pub const NICHT_ERLAUBT_GILT: Duration = Duration::from_secs(60);
-/// Höchstens so viele Einträge; der älteste fällt.
+/// Höchstens so viele fertige Einträge: die Summe der vier Fächer 128 + 96 + 16 + 16 (ADR-0045 Ergänzung „Karte
+/// #35 Nacharbeit“ Punkt 2); dazu höchstens `GLEICHZEITIG` laufende.
 pub const HOECHSTENS_EINTRAEGE: usize = 256;
 
 /// Wonach gefragt wird: die Namen einer lokalen Adresse oder das Urteil über einen Namen.
@@ -271,6 +272,18 @@ impl Auskunft {
     }
 
     #[cfg(test)]
+    fn fertige(&self) -> usize {
+        self.innen
+            .cache
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .eintraege
+            .values()
+            .filter(|eintrag| matches!(eintrag.stand, Stand::Fertig { .. }))
+            .count()
+    }
+
+    #[cfg(test)]
     fn hat_eintrag(&self, abfrage: &Abfrage) -> bool {
         self.innen
             .cache
@@ -322,15 +335,14 @@ impl Innen {
 }
 
 impl Cache {
-    /// Setzt den Stand eines Schlüssels; ein neuer Schlüssel bekommt die nächste Nummer, und über
-    /// `HOECHSTENS_EINTRAEGE` fällt der älteste fertige Eintrag.
+    /// Setzt den Stand eines Schlüssels mit der nächsten Nummer (dem Alter). Ein fertiger Eintrag gehört in das
+    /// Fach seines Ergebnisses; ist es voll, fällt der älteste fertige Eintrag **desselben** Fachs (ADR-0045
+    /// Ergänzung „Karte #35 Nacharbeit“ Punkt 2). Laufende Einträge gehören in kein Fach.
     fn eintragen(&mut self, abfrage: Abfrage, stand: Stand) {
-        if let Some(eintrag) = self.eintraege.get_mut(&abfrage)
-            && matches!(eintrag.stand, Stand::Laeuft(_))
-        {
-            eintrag.stand = stand;
-            return;
-        }
+        let fach = match &stand {
+            Stand::Fertig { ergebnis, .. } => Some(Fach::von(ergebnis)),
+            Stand::Laeuft(_) => None,
+        };
         self.naechste += 1;
         self.eintraege.insert(
             abfrage,
@@ -339,17 +351,64 @@ impl Cache {
                 nummer: self.naechste,
             },
         );
-        while self.eintraege.len() > HOECHSTENS_EINTRAEGE {
+        if let Some(fach) = fach {
+            self.fach_begrenzen(fach);
+        }
+    }
+
+    fn fach_begrenzen(&mut self, fach: Fach) {
+        let im_fach = |eintrag: &Eintrag| match &eintrag.stand {
+            Stand::Fertig { ergebnis, .. } => Fach::von(ergebnis) == fach,
+            Stand::Laeuft(_) => false,
+        };
+        while self
+            .eintraege
+            .values()
+            .filter(|eintrag| im_fach(eintrag))
+            .count()
+            > fach.plaetze()
+        {
             let aeltester = self
                 .eintraege
                 .iter()
-                .filter(|(_, eintrag)| matches!(eintrag.stand, Stand::Fertig { .. }))
+                .filter(|(_, eintrag)| im_fach(eintrag))
                 .min_by_key(|(_, eintrag)| eintrag.nummer)
                 .map(|(abfrage, _)| abfrage.clone());
             match aeltester {
                 Some(abfrage) => self.eintraege.remove(&abfrage),
                 None => break,
             };
+        }
+    }
+}
+
+/// Die vier Fächer des Caches: ein negatives Ergebnis verdrängt nie ein positives, ein Vorwärtseintrag nie einen
+/// Rückwärtseintrag.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Fach {
+    VorwaertsErlaubt,
+    VorwaertsNichtErlaubt,
+    RueckwaertsMitNamen,
+    RueckwaertsOhneNamen,
+}
+
+const _: () = assert!(128 + 96 + 16 + 16 == HOECHSTENS_EINTRAEGE);
+
+impl Fach {
+    fn von(ergebnis: &Ergebnis) -> Fach {
+        match ergebnis {
+            Ergebnis::Erlaubt(true) => Fach::VorwaertsErlaubt,
+            Ergebnis::Erlaubt(false) => Fach::VorwaertsNichtErlaubt,
+            Ergebnis::Namen(namen) if namen.is_empty() => Fach::RueckwaertsOhneNamen,
+            Ergebnis::Namen(_) => Fach::RueckwaertsMitNamen,
+        }
+    }
+
+    fn plaetze(self) -> usize {
+        match self {
+            Fach::VorwaertsErlaubt => 128,
+            Fach::VorwaertsNichtErlaubt => 96,
+            Fach::RueckwaertsMitNamen | Fach::RueckwaertsOhneNamen => 16,
         }
     }
 }
@@ -725,22 +784,126 @@ mod tests {
         assert_eq!(test.fragen("rueckwaerts", "127.0.0.3"), 2);
     }
 
-    /// Kriterium „Größe“ (Matrix F3): nach 257 Schlüsseln ist der erste nicht mehr im Cache, der letzte schon.
+    /// Rückt die Testuhr um 0,1 s vor — so viel, wie der Eimer für ein Zeichen braucht (Rate, ADR-0045 Ergänzung
+    /// „Karte #35 Nacharbeit“ Punkt 2).
+    fn weiter(a: &Aufbau) {
+        a.uhr
+            .stellen(a.uhr.jetzt() + chrono::Duration::milliseconds(100));
+    }
+
+    /// Kriterium „Größe“, Matrix F3 neu (Nacharbeit #35, Fach Vorwärts „erlaubt“ 128): nach 200 erlaubten Namen
+    /// ist der erste neu gefragt, die letzten 128 nicht.
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    async fn hoechstens_256_eintraege_der_aelteste_faellt() {
+    async fn erlaubte_namen_verdraengen_sich_nur_gegenseitig_128_bleiben() {
         let test = Testauskunft::mit(&[], &[]);
+        for nummer in 0..200 {
+            test.antworten(&format!("e{nummer}.local"), &["127.0.0.1"]);
+        }
         let a = aufbau(Arc::clone(&test));
-        for nummer in 0..257 {
-            urteil(&a.auskunft, &format!("n{nummer}.local")).await;
+        for nummer in 0..200 {
+            weiter(&a);
+            assert_eq!(
+                urteil(&a.auskunft, &format!("e{nummer}.local")).await,
+                Some(true)
+            );
         }
 
-        urteil(&a.auskunft, "n256.local").await;
-        urteil(&a.auskunft, "n1.local").await;
-        urteil(&a.auskunft, "n0.local").await;
+        for nummer in 72..200 {
+            let name = format!("e{nummer}.local");
+            assert_eq!(urteil(&a.auskunft, &name).await, Some(true));
+            assert_eq!(test.fragen("vorwaerts", &name), 1, "{name}");
+        }
+        weiter(&a);
+        assert_eq!(urteil(&a.auskunft, "e0.local").await, Some(true));
+        assert_eq!(test.fragen("vorwaerts", "e0.local"), 2);
+    }
 
-        assert_eq!(test.fragen("vorwaerts", "n256.local"), 1);
-        assert_eq!(test.fragen("vorwaerts", "n1.local"), 1);
+    /// Nacharbeit #35 W1 (Fach Vorwärts „nicht erlaubt“ 96): 200 abgewiesene Namen verdrängen weder `x.local` noch
+    /// den Rückwärtseintrag `127.0.0.2 → chat.fritz.box`; der älteste abgewiesene wird neu gefragt.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn abgewiesene_namen_verdraengen_weder_erlaubte_noch_rueckwaertseintraege() {
+        let test = Testauskunft::mit(
+            &[("127.0.0.2", "chat.fritz.box")],
+            &[("x.local", &["127.0.0.1"])],
+        );
+        let a = aufbau(Arc::clone(&test));
+        let router = vec!["chat.fritz.box".to_string()];
+        assert_eq!(urteil(&a.auskunft, "x.local").await, Some(true));
+        assert_eq!(
+            a.auskunft.namen_der_adresse(ip("127.0.0.2"), frist()).await,
+            Some(router.clone())
+        );
+        for nummer in 0..200 {
+            weiter(&a);
+            assert_eq!(
+                urteil(&a.auskunft, &format!("n{nummer}.local")).await,
+                Some(false)
+            );
+        }
+
+        assert_eq!(urteil(&a.auskunft, "x.local").await, Some(true));
+        assert_eq!(
+            a.auskunft.namen_der_adresse(ip("127.0.0.2"), frist()).await,
+            Some(router)
+        );
+        assert_eq!(test.fragen("vorwaerts", "x.local"), 1);
+        assert_eq!(test.fragen("rueckwaerts", "127.0.0.2"), 1);
+        weiter(&a);
+        urteil(&a.auskunft, "n0.local").await;
         assert_eq!(test.fragen("vorwaerts", "n0.local"), 2);
+    }
+
+    /// Nacharbeit #35 W1 (Fächer Rückwärts je 16): 40 lokale Adressen ohne Rückwärtsnamen verdrängen den Eintrag
+    /// `127.0.0.2 → chat.fritz.box` nicht; die älteste Adresse ohne Namen wird neu gefragt.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn adressen_ohne_namen_verdraengen_den_rueckwaertseintrag_mit_namen_nicht() {
+        let test = Testauskunft::mit(&[("127.0.0.2", "chat.fritz.box")], &[]);
+        let a = aufbau(Arc::clone(&test));
+        a.auskunft.namen_der_adresse(ip("127.0.0.2"), frist()).await;
+        for nummer in 0..40 {
+            weiter(&a);
+            let ohne = a
+                .auskunft
+                .namen_der_adresse(ip(&format!("127.0.1.{nummer}")), frist())
+                .await;
+            assert_eq!(ohne, Some(Vec::new()));
+        }
+
+        let namen = a.auskunft.namen_der_adresse(ip("127.0.0.2"), frist()).await;
+        assert_eq!(namen, Some(vec!["chat.fritz.box".to_string()]));
+        assert_eq!(test.fragen("rueckwaerts", "127.0.0.2"), 1);
+        weiter(&a);
+        a.auskunft.namen_der_adresse(ip("127.0.1.0"), frist()).await;
+        assert_eq!(test.fragen("rueckwaerts", "127.0.1.0"), 2);
+    }
+
+    /// Nacharbeit #35 W1: nach einer gemischten Flut sind nie mehr als 256 fertige Einträge da (128 + 96 + 16 + 16).
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn nach_gemischter_flut_hoechstens_256_fertige_eintraege() {
+        let test = Testauskunft::mit(&[], &[]);
+        for nummer in 0..200 {
+            test.antworten(&format!("e{nummer}.local"), &["127.0.0.1"]);
+        }
+        let a = aufbau(Arc::clone(&test));
+        for nummer in 0..200 {
+            weiter(&a);
+            urteil(&a.auskunft, &format!("e{nummer}.local")).await;
+            weiter(&a);
+            urteil(&a.auskunft, &format!("n{nummer}.local")).await;
+            weiter(&a);
+            a.auskunft
+                .namen_der_adresse(
+                    ip(&format!("127.0.{}.{}", 1 + nummer / 100, nummer % 100)),
+                    frist(),
+                )
+                .await;
+            assert!(
+                a.auskunft.fertige() <= HOECHSTENS_EINTRAEGE,
+                "{}",
+                a.auskunft.fertige()
+            );
+        }
+        assert_eq!(HOECHSTENS_EINTRAEGE, 256);
     }
 
     /// Rechenbeispiel „Ohne Erlaubnis keine Auflösung“ (E3, Matrix F6): zwei laufen; `neu.local` sofort abgewiesen,

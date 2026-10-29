@@ -12,7 +12,7 @@ use std::time::{Duration, Instant};
 #[derive(Default)]
 pub(crate) struct Testauskunft {
     pub(crate) rueckwaerts: HashMap<IpAddr, Vec<String>>,
-    pub(crate) vorwaerts: HashMap<String, Vec<IpAddr>>,
+    pub(crate) vorwaerts: Mutex<HashMap<String, Vec<IpAddr>>>,
     pub(crate) gesperrt: Mutex<HashSet<String>>,
     pub(crate) tor: Condvar,
     pub(crate) laufend: AtomicUsize,
@@ -32,12 +32,14 @@ impl Testauskunft {
                 .iter()
                 .map(|(adresse, name)| (ip(adresse), vec![name.to_string()]))
                 .collect(),
-            vorwaerts: vorwaerts
-                .iter()
-                .map(|(name, adressen)| {
-                    (name.to_string(), adressen.iter().map(|a| ip(a)).collect())
-                })
-                .collect(),
+            vorwaerts: Mutex::new(
+                vorwaerts
+                    .iter()
+                    .map(|(name, adressen)| {
+                        (name.to_string(), adressen.iter().map(|a| ip(a)).collect())
+                    })
+                    .collect::<HashMap<_, _>>(),
+            ),
             ..Testauskunft::default()
         })
     }
@@ -55,6 +57,14 @@ impl Testauskunft {
             .lock()
             .expect("Hängen")
             .insert(schluessel.to_string(), dauer);
+    }
+
+    /// Ab jetzt antwortet `name` vorwärts mit `adressen`.
+    pub(crate) fn antworten(&self, name: &str, adressen: &[&str]) {
+        self.vorwaerts
+            .lock()
+            .expect("Vorwärts")
+            .insert(name.to_string(), adressen.iter().map(|a| ip(a)).collect());
     }
 
     pub(crate) fn oeffnen(&self, schluessel: &str) {
@@ -111,7 +121,12 @@ impl Namensauskunft for Testauskunft {
 
     fn adressen_des_namens(&self, name: &str) -> Vec<IpAddr> {
         self.frage("vorwaerts", name);
-        self.vorwaerts.get(name).cloned().unwrap_or_default()
+        self.vorwaerts
+            .lock()
+            .expect("Vorwärts")
+            .get(name)
+            .cloned()
+            .unwrap_or_default()
     }
 
     fn ist_eigene_adresse(&self, adresse: IpAddr) -> bool {
