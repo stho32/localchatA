@@ -90,7 +90,10 @@ pub fn router(zustand: Zustand) -> Router {
         .route("/api/gesundheit", get(gesundheit::beantworten))
         .route("/api/beitreten", post(beitreten::beantworten))
         .route("/api/anhaenge", post(anhaenge::anmelden))
-        .route("/api/anhaenge/{id}", put(anhaenge::hochladen))
+        .route(
+            "/api/anhaenge/{id}",
+            put(anhaenge::hochladen).delete(anhaenge::verwerfen),
+        )
         .route(
             "/api/channels",
             get(channels::auflisten).post(channels::anlegen),

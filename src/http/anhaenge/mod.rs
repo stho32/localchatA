@@ -3,6 +3,8 @@
 
 mod anmelden;
 pub mod hochladen;
+mod verwerfen;
 
 pub use anmelden::anmelden;
 pub use hochladen::hochladen;
+pub use verwerfen::verwerfen;
