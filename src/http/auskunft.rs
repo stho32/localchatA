@@ -69,6 +69,45 @@ struct Eintrag {
 struct Cache {
     eintraege: HashMap<Abfrage, Eintrag>,
     naechste: u64,
+    eimer: Eimer,
+}
+
+/// Neue Auflösungen je Sekunde und Vorrat des Eimers (ADR-0045 Ergänzung „Karte #35 Nacharbeit“ Punkt 2).
+pub const NEUE_JE_SEKUNDE: u64 = 10;
+pub const VORRAT: u64 = 20;
+
+/// Ein Eimer für die ganze Instanz, gemessen in Tausendstel Zeichen; Zeit über den Uhr-Provider.
+struct Eimer {
+    tausendstel: u64,
+    stand: Option<Zeit>,
+}
+
+impl Default for Eimer {
+    fn default() -> Eimer {
+        Eimer {
+            tausendstel: VORRAT * 1000,
+            stand: None,
+        }
+    }
+}
+
+impl Eimer {
+    /// Füllt nach der verstrichenen Zeit auf (höchstens bis zum Vorrat) und nimmt ein Zeichen, wenn eines da ist.
+    fn zeichen_nehmen(&mut self, jetzt: Zeit) -> bool {
+        let verstrichen_ms = self.stand.map_or(0, |stand| {
+            (jetzt - stand).num_milliseconds().max(0).unsigned_abs()
+        });
+        self.tausendstel =
+            (self.tausendstel + verstrichen_ms.saturating_mul(NEUE_JE_SEKUNDE)).min(VORRAT * 1000);
+        if self.stand.is_none_or(|stand| jetzt > stand) {
+            self.stand = Some(jetzt);
+        }
+        let genug = self.tausendstel >= 1000;
+        if genug {
+            self.tausendstel -= 1000;
+        }
+        genug
+    }
 }
 
 struct Innen {
@@ -205,7 +244,8 @@ impl Auskunft {
     }
 
     /// Unter der Sperre des Caches: gültiger Eintrag → Treffer; laufende Auflösung → warten; sonst eine Erlaubnis
-    /// ohne Warten holen (E3) — ohne Erlaubnis kein Eintrag, keine Frage; ist die Frist schon abgelaufen, ebenso.
+    /// ohne Warten holen (E3) und ein Zeichen aus dem Eimer (Rate) — ohne beides kein Eintrag, keine Frage; ist die
+    /// Frist schon abgelaufen, ebenso.
     fn nachsehen_oder_starten(
         &self,
         abfrage: &Abfrage,
@@ -231,6 +271,10 @@ impl Auskunft {
         let Ok(erlaubnis) = Arc::clone(&self.erlaubnis).try_acquire_owned() else {
             return Nachsehen::KeineErlaubnis;
         };
+        // Ohne Zeichen aus dem Eimer wie ohne Erlaubnis (E3): keine Frage, kein Eintrag.
+        if !cache.eimer.zeichen_nehmen(jetzt) {
+            return Nachsehen::KeineErlaubnis;
+        }
         let (senden, empfang) = watch::channel(None);
         cache.eintragen(abfrage.clone(), Stand::Laeuft(empfang.clone()));
         drop(cache);
@@ -904,6 +948,50 @@ mod tests {
             );
         }
         assert_eq!(HOECHSTENS_EINTRAEGE, 256);
+    }
+
+    /// Kriterium „Nacharbeit Karte #35: Rate neuer Auflösungen“: die Testuhr steht, 25 neue Namen → genau 20
+    /// Fragen, 5 sofort abgewiesen ohne Frage und ohne Eintrag; Testuhr +1 s, 25 weitere → 10 Fragen.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn ohne_konto_hoechstens_zwanzig_auf_einmal_dann_zehn_je_sekunde() {
+        let test = Testauskunft::mit(&[], &[]);
+        let erste: Vec<String> = (0..25).map(|nummer| format!("a{nummer}.local")).collect();
+        let zweite: Vec<String> = (0..25).map(|nummer| format!("b{nummer}.local")).collect();
+        for name in erste.iter().chain(&zweite) {
+            test.antworten(name, &["127.0.0.1"]);
+        }
+        let a = aufbau(Arc::clone(&test));
+
+        let (gefragt, abgewiesen) = welle(&a, &test, &erste).await;
+        assert_eq!((gefragt, abgewiesen), (20, 5));
+        a.uhr.stellen(a.uhr.jetzt() + chrono::Duration::seconds(1));
+        let (gefragt, abgewiesen) = welle(&a, &test, &zweite).await;
+        assert_eq!((gefragt, abgewiesen), (10, 15));
+    }
+
+    /// Fragt jeden Namen einmal; zählt Fragen und Abweisungen und prüft: eine Abweisung hat weder Frage noch
+    /// Eintrag.
+    async fn welle(a: &Aufbau, test: &Testauskunft, namen: &[String]) -> (usize, usize) {
+        let mut abgewiesen = 0;
+        for name in namen {
+            match urteil(&a.auskunft, name).await {
+                Some(true) => {}
+                None => {
+                    abgewiesen += 1;
+                    assert_eq!(test.fragen("vorwaerts", name), 0, "{name}");
+                    assert!(
+                        !a.auskunft.hat_eintrag(&Abfrage::Vorwaerts(name.clone())),
+                        "{name}"
+                    );
+                }
+                anders => panic!("{name}: {anders:?}"),
+            }
+        }
+        let gefragt = namen
+            .iter()
+            .map(|name| test.fragen("vorwaerts", name))
+            .sum();
+        (gefragt, abgewiesen)
     }
 
     /// Rechenbeispiel „Ohne Erlaubnis keine Auflösung“ (E3, Matrix F6): zwei laufen; `neu.local` sofort abgewiesen,

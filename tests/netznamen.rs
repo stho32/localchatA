@@ -868,6 +868,16 @@ fn f8_protokoll_unter_flut_eine_episode_und_eine_information() {
     for nummer in 0..300 {
         assert_eq!(lauf.gesundheit(&format!("r{nummer}.local")).status, 403);
     }
+    // Nacharbeit #35 (ADR-0045 Ergänzung „Karte #35 Nacharbeit“ Punkt 2, Rate): die Flut hat den Eimer geleert —
+    // ein neuer Name kommt nach der Flut herein, sobald wieder ein Zeichen da ist (10 je Sekunde).
+    let ende = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    while !erlaubt(&lauf.gesundheit("chat.local")) {
+        assert!(
+            std::time::Instant::now() < ende,
+            "chat.local nach der Flut nicht erlaubt"
+        );
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
     for _ in 0..20 {
         assert!(erlaubt(&lauf.gesundheit("chat.local")));
     }
