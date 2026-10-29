@@ -1,7 +1,7 @@
 // Unit-Tests der gebündelten Ansage (R00012 F0049 „Bündeln“, B0251; ADR-0038 Regel 10; node --test, gestellte Zeit).
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { ANSAGE_LEER, ansage } from '../../web/ansage.js';
+import { ANSAGE_LEER, ansage, ansageSchreiberAnlegen } from '../../web/ansage.js';
 
 const OFFEN = 'allgemein';
 const fremd = (von = 'claude@10.0.0.5', channel = OFFEN) => ({ art: 'fremd', von, channel, offenerChannel: OFFEN });
@@ -89,4 +89,38 @@ test('ein Channel-Wechsel verwirft Gesammeltes', () => {
   const texte = ablauf([[0, fremd()], [1000, fremd()], [2000, { art: 'gewechselt' }], [10000, TAKT]]);
 
   assert.deepEqual(texte.map(([, text]) => text), ['Neue Nachricht von claude@10.0.0.5 in # allgemein', null, null, null]);
+});
+
+// R00025 F0084 „Zwei Sofort-Ansagen“ (B0488; UX-Vorprüfung #36 V10, wörtlich: „Zwei Sofort-Ansagen im selben Frame →
+// beide Texte erreichen die Region (in Folge oder zusammengezogen); Mutante ‚letzte gewinnt‘ rot.“): zusammengezogen in
+// der Reihenfolge des Eintreffens, mit „. “ verbunden, gleiche Texte einmal (ADR-0038 Ergänzung „Karte #36
+// UX-Vorprüfung“ Punkt 3).
+test('Sofort-Ansagen im selben Bild erreichen die Region zusammengezogen, gleiche einmal', () => {
+  const geschrieben = [];
+  let bild = null;
+  const sagen = ansageSchreiberAnlegen({
+    schreiben: (text) => geschrieben.push(text),
+    imNaechstenBild: (rueckruf) => {
+      bild = rueckruf;
+    },
+  });
+
+  sagen('Frist auf 3 Tage gesetzt');
+  sagen('Verbindung verloren');
+  sagen('Frist auf 3 Tage gesetzt');
+  bild();
+  sagen('Wieder verbunden');
+  bild();
+
+  assert.deepEqual(geschrieben, ['', 'Frist auf 3 Tage gesetzt. Verbindung verloren', '', 'Wieder verbunden']);
+});
+
+test('eine Sofort-Ansage mit Text geht unverändert und außerhalb der Bündelung hinaus', () => {
+  const gesammelt = ansage(ANSAGE_LEER, fremd(), 0).zustand;
+  const zweite = ansage(gesammelt, fremd(), 1000).zustand;
+
+  const ergebnis = ansage(zweite, { art: 'sofort', text: 'Steuerzeichen U+001B an Stelle 5 — bitte entfernen.' }, 2000);
+
+  assert.equal(ergebnis.text, 'Steuerzeichen U+001B an Stelle 5 — bitte entfernen.');
+  assert.deepEqual(ergebnis.zustand, zweite);
 });

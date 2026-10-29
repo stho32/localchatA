@@ -22,7 +22,7 @@ import { fokusTaste } from './fokus.js';
 import { VERBINDUNG_ANFANG, verbindung } from './wiederverbinden.js';
 import { nachholLaufAnlegen } from './nachhollauf.js';
 import { wiederVerbundenText, leisteInhalt } from './verbindungsleiste.js';
-import { ANSAGE_LEER, ansage } from './ansage.js';
+import { ANSAGE_LEER, ansage, ansageSchreiberAnlegen } from './ansage.js';
 
 const UNTERBROCHEN = '⚠ Verbindung unterbrochen — localchatA verbindet neu.';
 const STAND_UNBEKANNT = 'Stand unbekannt — zuletzt bekannte Liste.';
@@ -208,12 +208,12 @@ function ansageEinrichten() {
   let zustand = ANSAGE_LEER;
   let takt = null;
 
-  function sagen(text) {
-    region.textContent = '';
-    requestAnimationFrame(() => {
+  const sagen = ansageSchreiberAnlegen({
+    schreiben: (text) => {
       region.textContent = text;
-    });
-  }
+    },
+    imNaechstenBild: (rueckruf) => requestAnimationFrame(rueckruf),
+  });
 
   function taktStellen() {
     const ABSTAND_MS = 10000;
