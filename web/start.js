@@ -6,6 +6,7 @@ import * as beitretenBildschirm from './beitreten.js';
 import * as hauptansicht from './hauptansicht.js';
 import * as teilnehmerliste from './teilnehmerliste.js';
 import { LEER as KEINE_CHANNELS, channelsZusammenfuehren } from './channels.js';
+import { bildschirmlaufAnlegen } from './bildschirmlauf.js';
 import { verbinden } from './live.js';
 import { sekundentaktAnlegen } from './sekundentakt.js';
 import { wiederbeitrittAnlegen } from './wiederbeitritt.js';
@@ -44,73 +45,35 @@ function zeigen(zustand, nachEingabe = false, abgelehntesToken = null) {
 // `storage` solange er steht, dazu die Nachlese beim Zeichnen. Folgen schreibt und löscht nie im Speicher.
 function bildschirmAbmelden() {
   if (bildschirmLauf !== null) {
-    bildschirmLauf.abgemeldet = true;
+    bildschirmLauf.lauf.abmelden();
     window.removeEventListener('storage', bildschirmLauf.beimSpeichern);
     bildschirmLauf = null;
   }
 }
 
 function bildschirmZeigen(zustand, abgelehntesToken) {
-  const lauf = { abgemeldet: false, folgt: false, klickt: false, gemerkt: null, beimSpeichern: null };
+  let lauf = null;
   const griffe = beitretenBildschirm.zeichnen(wurzel, zustand, {
     beitreten: async (name) => {
-      lauf.klickt = true;
+      lauf.klickt();
       const neu = await sitzungSperren(() => sitzung.vomBildschirmBeitreten(name, speicher, api, abgelehntesToken));
       zeigen(neu, true, abgelehntesToken);
     },
     wartende: ungesendete(zustellung.zustand),
   });
-
-  // Ein Lauf zugleich (Regel 5): ein Signal während des Folgens wird gemerkt und geprüft, wenn der Lauf scheitert.
-  async function nachbarFolgen(gemeldet) {
-    if (lauf.klickt || lauf.abgemeldet) {
-      return;
-    }
-    if (lauf.folgt) {
-      lauf.gemerkt = gemeldet;
-      return;
-    }
-    lauf.folgt = true;
-    griffe.sperren();
-    let gefolgt = null;
-    try {
-      for (let pruefen = gemeldet; pruefen !== null && gefolgt === null;) {
-        lauf.gemerkt = null;
-        gefolgt = await sitzung.nachbarFolgen(speicher, api, abgelehntesToken, pruefen);
-        if (lauf.gemerkt !== pruefen) {
-          pruefen = lauf.gemerkt;
-        } else {
-          pruefen = null;
-        }
-      }
-    } finally {
-      lauf.folgt = false;
-      if (gefolgt === null && !lauf.abgemeldet) {
-        griffe.freigeben();
-      }
-    }
-    if (gefolgt !== null && !lauf.abgemeldet) {
-      zeigen(gefolgt);
-    }
-  }
-
-  lauf.beimSpeichern = (ereignis) => {
-    if (ereignis.key === sitzung.SITZUNG && ereignis.newValue && ereignis.newValue !== abgelehntesToken) {
-      nachbarFolgen(ereignis.newValue);
-    }
-  };
-  bildschirmLauf = lauf;
-  window.addEventListener('storage', lauf.beimSpeichern);
+  lauf = bildschirmlaufAnlegen({
+    abgelehntesToken,
+    gemerktesToken: () => speicher.getItem(sitzung.SITZUNG),
+    folgen: (gemeldet) => sitzung.nachbarFolgen(speicher, api, abgelehntesToken, gemeldet),
+    gesperrt: griffe.sperren,
+    freigegeben: griffe.freigeben,
+    gefolgt: (gefolgt) => zeigen(gefolgt),
+  });
+  const beimSpeichern = (ereignis) => lauf.beimSpeichern(ereignis);
+  bildschirmLauf = { lauf, beimSpeichern };
+  window.addEventListener('storage', beimSpeichern);
   if (['beitreten', 'vergeben', 'ungueltig'].includes(zustand.art)) {
-    nachlesen(abgelehntesToken, nachbarFolgen);
-  }
-}
-
-// Nachlese (Regel 3): ein Token, das schon im Speicher liegt, gilt als Signal, auch wenn sein Ereignis ohne Lauscher kam.
-function nachlesen(abgelehntesToken, nachbarFolgen) {
-  const token = speicher.getItem(sitzung.SITZUNG);
-  if (token && token !== abgelehntesToken) {
-    nachbarFolgen(token);
+    lauf.nachlesen();
   }
 }
 

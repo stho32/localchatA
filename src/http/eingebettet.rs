@@ -52,6 +52,7 @@ pub fn nachschlagen(name: &str) -> Option<EingebetteteDatei> {
         "entwurf.js" => (include_bytes!("../../web/entwurf.js"), JS),
         "wiederverbinden.js" => (include_bytes!("../../web/wiederverbinden.js"), JS),
         "wiederbeitritt.js" => (include_bytes!("../../web/wiederbeitritt.js"), JS),
+        "bildschirmlauf.js" => (include_bytes!("../../web/bildschirmlauf.js"), JS),
         _ => return None,
     };
     Some(EingebetteteDatei { inhalt, typ })
@@ -120,6 +121,18 @@ mod tests {
             let modul = nachschlagen(name).unwrap_or_else(|| panic!("{name} eingebettet"));
             assert_eq!(modul.typ, "text/javascript; charset=utf-8", "{name}");
             assert!(!modul.inhalt.is_empty(), "{name}");
+        }
+    }
+
+    /// Ein neues Modul unter `web/` ohne Eintrag in `nachschlagen` liefe nur im Browser auf einen 404 (Karte #62).
+    #[test]
+    fn jedes_javascript_unter_web_ist_eingebettet() {
+        let ordner = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("web");
+        for eintrag in std::fs::read_dir(ordner).expect("web/") {
+            let name = eintrag.expect("Eintrag").file_name().into_string().expect("Name");
+            if name.ends_with(".js") {
+                assert!(nachschlagen(&name).is_some(), "{name} ist nicht eingebettet");
+            }
         }
     }
 
