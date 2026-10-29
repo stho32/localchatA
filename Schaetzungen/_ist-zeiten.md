@@ -423,3 +423,4 @@ Nie vom User erfragen.
 | 2026-10-29 | R00027 Senden-Knopf | B0484 Zeigerart je Tastendruck | Standard | 0,4h | 0,02h | 0,02h | autonom |
 | 2026-10-29 | R00027 Senden-Knopf | B0416 Designsystem | Standard | 0,4h | 0,02h | 0,02h | autonom |
 | 2026-10-29 | R00027 Senden-Knopf | Mutanten, Gate 1, Fix Tab-Reihenfolge, Gate 2 | Konsolidierung | — | 0,35h | 0,35h | autonom |
+| 2026-10-29 | R00027 Senden-Knopf | B0413/B0415 Nacharbeit: Tests Zustand nach dem Senden, Komposition, Strg Shift Enter | Nacharbeit | — | 0,25h | 0,25h | autonom |
