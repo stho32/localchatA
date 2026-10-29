@@ -395,6 +395,7 @@ async fn nach_der_sperre(
         Arc::clone(&protokoll),
     )
     .await;
+    protokoll.alle_episoden_schliessen();
     protokoll.eintragen(
         Stufe::Information,
         Bereich::Ende,

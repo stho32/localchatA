@@ -124,6 +124,16 @@ impl Episoden {
     }
 }
 
+impl Episoden {
+    /// Schließt jede offene Episode — auch die Sammelepisode — ohne Ruhe-Bedingung und ohne Zwischenzeile; beim
+    /// Ende des Programms (ADR-0042 Ergänzung Karte #26 Punkt 2). Liefert die Ende-Zeilen, nach Quelle geordnet.
+    pub fn alle_schliessen(&mut self) -> Vec<Eintrag> {
+        let mut endend: Vec<(Schluessel3, Episode)> = self.offen.drain().collect();
+        endend.sort_by(|(a, _), (b, _)| a.quelle.cmp(&b.quelle));
+        endend.iter().map(|(_, episode)| episode.ende()).collect()
+    }
+}
+
 impl Episode {
     fn beginnen(auftreten: Auftreten, jetzt: Zeit, sammel: bool) -> Episode {
         let zwischen = chrono::Duration::from_std(ZWISCHEN).unwrap_or(chrono::Duration::MAX);
@@ -370,6 +380,36 @@ mod tests {
         }
         assert!(episoden.schliessen(t(69.999)).is_empty());
         assert_eq!(episoden.schliessen(t(70.0)).len(), 1);
+    }
+
+    /// R00018 F0082: beim Ende schließen alle offenen Episoden, auch die Sammelepisode, ohne Ruhe.
+    #[test]
+    fn alle_schliessen_beendet_jede_offene_episode_ohne_ruhe() {
+        let mut episoden = Episoden::neu(Duration::from_secs(60));
+        for nummer in 0..=HOECHSTENS_OFFEN {
+            episoden.auftreten(
+                grenzschutz(&format!("10.0.{}.{}", nummer / 256, nummer % 256)),
+                t(0.0),
+            );
+        }
+        episoden.auftreten(grenzschutz("10.0.0.1"), t(2.5));
+
+        let ende = episoden.alle_schliessen();
+
+        assert_eq!(ende.len(), HOECHSTENS_OFFEN + 1);
+        assert!(
+            ende.iter()
+                .any(|eintrag| eintrag.text.contains("Episode endet: 2 in 3 s")),
+            "{:?}",
+            texte(&ende[..3])
+        );
+        assert!(
+            ende.iter().any(|eintrag| eintrag
+                .text
+                .contains(" — weitere Quellen — Episode endet: 1 in 0 s")),
+            "Sammelepisode"
+        );
+        assert!(episoden.alle_schliessen().is_empty());
     }
 
     #[test]

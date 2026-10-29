@@ -299,6 +299,18 @@ impl Protokoll {
         self.ohne_zaehlen_schreiben(zeilen, jetzt);
     }
 
+    /// Schließt beim Ende jede offene Episode ohne Ruhe-Bedingung (ADR-0042 Ergänzung Karte #26 Punkt 2); das
+    /// Tagesbudget gilt wie für jede Zeile.
+    pub fn alle_episoden_schliessen(&self) {
+        let jetzt = self.uhr.jetzt();
+        let zeilen = self
+            .episoden
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .alle_schliessen();
+        self.ohne_zaehlen_schreiben(zeilen, jetzt);
+    }
+
     /// Zeilen einer Episode: gezählt ist schon das Auftreten, nicht die Zeile.
     fn ohne_zaehlen_schreiben(&self, eintraege: Vec<Eintrag>, jetzt: Zeit) {
         for eintrag in eintraege {
