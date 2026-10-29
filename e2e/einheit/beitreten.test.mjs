@@ -89,13 +89,15 @@ class Knoten {
     this.tag = tag;
     this.kinder = [];
     this.attribute = {};
+    this.behandler = {};
     this.classList = { toggle() {} };
   }
   setAttribute(name, wert) { this.attribute[name] = wert; }
   removeAttribute(name) { delete this.attribute[name]; }
   append(...kinder) { this.kinder.push(...kinder); }
   replaceChildren(...kinder) { this.kinder = kinder; }
-  addEventListener() {}
+  addEventListener(art, behandler) { (this.behandler[art] ||= []).push(behandler); }
+  ausloesen(art, ereignis) { (this.behandler[art] || []).forEach((behandler) => behandler(ereignis)); }
   focus() {}
   finden(pruefung) {
     if (pruefung(this)) {
@@ -134,4 +136,60 @@ test('ohne wartende Nachrichten gibt es weder Zeile noch Verweis', () => {
 
   assert.equal(wurzel.finden((k) => k.className === 'lc-wartende'), undefined);
   assert.equal(feld.attribute['aria-describedby'], 'lc-name-zweck lc-name-hinweis lc-meldung');
+});
+
+// Karte #62, F0127 B0569 (ADR-0012 Regel 4): Folgen sperrt das Formular und gibt es wieder frei, die Eingabe bleibt.
+function bildschirmZeichnen(zustand = { art: 'beitreten', name: '' }) {
+  const vorher = globalThis.document;
+  globalThis.document = { createElement: (tag) => new Knoten(tag) };
+  try {
+    const wurzel = new Knoten('div');
+    const griffe = zeichnen(wurzel, zustand, { wartende: 0, beitreten: async () => {} });
+    return { wurzel, griffe, feld: wurzel.finden((k) => k.id === 'lc-name'), schalter: wurzel.finden((k) => k.tag === 'button' && k.textContent === 'Beitreten'), formular: wurzel.finden((k) => k.tag === 'form') };
+  } finally {
+    globalThis.document = vorher;
+  }
+}
+
+test('Sperren: Feld und Schalter disabled, das Formular aria-busy; die Eingabe bleibt', () => {
+  const { griffe, feld, schalter, formular } = bildschirmZeichnen({ art: 'vergeben', name: 'shoff', belegtVon: 'x', seit: '2026-10-27T08:04:00.000+00:00', vorschlag: 'shoff-2' });
+  feld.value = 'abc';
+
+  griffe.sperren();
+
+  assert.equal(feld.disabled, true);
+  assert.equal(schalter.disabled, true);
+  assert.equal(formular.attribute['aria-busy'], 'true');
+  assert.equal(feld.value, 'abc');
+});
+
+test('Freigeben: beides wieder frei, aria-busy weg, die Eingabe bleibt', () => {
+  const { griffe, feld, schalter, formular } = bildschirmZeichnen();
+  feld.value = 'abc';
+  griffe.sperren();
+
+  griffe.freigeben();
+
+  assert.equal(feld.disabled, false);
+  assert.equal(schalter.disabled, false);
+  assert.equal(formular.attribute['aria-busy'], undefined);
+  assert.equal(feld.value, 'abc');
+});
+
+test('Freigeben nach einem Klick, der noch läuft: der Klick ist wieder möglich', async () => {
+  const vorher = globalThis.document;
+  globalThis.document = { createElement: (tag) => new Knoten(tag) };
+  const beitritte = [];
+  try {
+    const wurzel = new Knoten('div');
+    const griffe = zeichnen(wurzel, { art: 'beitreten', name: 'shoff' }, { wartende: 0, beitreten: async (name) => { beitritte.push(name); } });
+    const formular = wurzel.finden((k) => k.tag === 'form');
+    griffe.sperren();
+    griffe.freigeben();
+    formular.ausloesen('submit', { preventDefault() {} });
+    await Promise.resolve();
+    assert.deepEqual(beitritte, ['shoff']);
+  } finally {
+    globalThis.document = vorher;
+  }
 });

@@ -7,6 +7,7 @@ const LEER = { art: 'leer' };
 const OHNE_MELDUNG = { art: 'beitreten' };
 const WARTENDE_ID = 'lc-wartende';
 
+// Gibt { sperren, freigeben } zurück: das Formular für die Dauer eines Folgens sperren und wieder öffnen.
 export function zeichnen(wurzel, zustand, aktionen) {
   const feld = element('input', {
     id: 'lc-name', className: 'lc-feld', type: 'text', autocomplete: 'nickname', spellcheck: false,
@@ -47,10 +48,24 @@ export function zeichnen(wurzel, zustand, aktionen) {
       feld.focus();
       return;
     }
+    sperren();
+    await aktionen.beitreten(feld.value);
+  }
+
+  // Auch der Beitritt eines Nachbar-Tabs sperrt das Formular, solange dem Nachbarn gefolgt wird (Karte #62, Regel 4):
+  // ohne Wirkung auf die Eingabe, kein zweiter Klick möglich.
+  function sperren() {
     laeuft = true;
+    feld.disabled = true;
     schalter.disabled = true;
     formular.setAttribute('aria-busy', 'true');
-    await aktionen.beitreten(feld.value);
+  }
+
+  function freigeben() {
+    laeuft = false;
+    feld.disabled = false;
+    schalter.disabled = false;
+    formular.removeAttribute('aria-busy');
   }
 
   function beimTippen() {
@@ -72,6 +87,7 @@ export function zeichnen(wurzel, zustand, aktionen) {
 
   wurzel.replaceChildren(element('main', { className: 'lc-beitreten' }, [formular]));
   feld.focus();
+  return { sperren, freigeben };
 }
 
 function wartendeZeile(anzahl = 0) {
