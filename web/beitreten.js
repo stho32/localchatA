@@ -52,9 +52,13 @@ export function zeichnen(wurzel, zustand, aktionen) {
     await aktionen.beitreten(feld.value);
   }
 
+  // Lag der Fokus im Feld, geht er beim Sperren verloren; `freigeben` bringt ihn zurück (ux-reviewer #62).
+  const dokument = document;
+  let fokusImFeld = false;
   // Auch der Beitritt eines Nachbar-Tabs sperrt das Formular, solange dem Nachbarn gefolgt wird (Karte #62, Regel 4):
   // ohne Wirkung auf die Eingabe, kein zweiter Klick möglich.
   function sperren() {
+    fokusImFeld = dokument.activeElement === feld;
     laeuft = true;
     feld.disabled = true;
     schalter.disabled = true;
@@ -66,6 +70,9 @@ export function zeichnen(wurzel, zustand, aktionen) {
     feld.disabled = false;
     schalter.disabled = false;
     formular.removeAttribute('aria-busy');
+    if (fokusImFeld) {
+      feld.focus();
+    }
   }
 
   function beimTippen() {

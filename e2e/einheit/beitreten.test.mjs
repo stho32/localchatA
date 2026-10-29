@@ -193,3 +193,33 @@ test('Freigeben nach einem Klick, der noch läuft: der Klick ist wieder möglich
     globalThis.document = vorher;
   }
 });
+
+// ux-reviewer #62: scheitert das Folgen, soll der Fokus wieder im Feld liegen, wenn er vor dem Sperren dort lag.
+function fokusVerfolgt(liegtImFeld) {
+  const vorher = globalThis.document;
+  const fokussiert = [];
+  globalThis.document = { createElement: (tag) => new Knoten(tag), activeElement: null };
+  try {
+    const wurzel = new Knoten('div');
+    const griffe = zeichnen(wurzel, { art: 'beitreten', name: '' }, { wartende: 0, beitreten: async () => {} });
+    const feld = wurzel.finden((k) => k.id === 'lc-name');
+    feld.focus = () => { fokussiert.push('feld'); };
+    if (liegtImFeld) {
+      globalThis.document.activeElement = feld;
+    }
+    griffe.sperren();
+    globalThis.document.activeElement = null;
+    griffe.freigeben();
+    return fokussiert;
+  } finally {
+    globalThis.document = vorher;
+  }
+}
+
+test('Freigeben bringt den Fokus ins Feld zurück, wenn er vor dem Sperren dort lag', () => {
+  assert.deepEqual(fokusVerfolgt(true), ['feld']);
+});
+
+test('Freigeben holt den Fokus nicht, wenn er vor dem Sperren woanders lag', () => {
+  assert.deepEqual(fokusVerfolgt(false), []);
+});

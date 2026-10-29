@@ -280,6 +280,36 @@ test('Kein Fehlalarm: ich 401 beim Folgen — Bildschirm bleibt, Token bleibt im
   expect(fehlerDritter).toEqual([]);
 });
 
+// Fokus (ux-reviewer #62): scheitert das Folgen, liegt der Fokus nach dem Freigeben wieder im Namensfeld — getippte Zeichen
+// gehen nicht ins Leere. Variante 401 (Token unbekannt) und Server weg (Anfrage bricht ab).
+const FOLGEN_SCHEITERT = [
+  { titel: '401 auf GET /api/ich', antwort: (route) => route.fulfill({
+    status: 401, contentType: 'application/json', body: JSON.stringify({ fehler: 'Sitzung unbekannt.' }),
+  }) },
+  { titel: 'Server nicht erreichbar', antwort: (route) => route.abort('connectionrefused') },
+];
+
+for (const variante of FOLGEN_SCHEITERT) {
+  test(`Fokus: scheitert das Folgen (${variante.titel}), bleibt der Fokus im Namensfeld und das Tippen geht weiter`, async ({ context }) => {
+    await frischeInstanz();
+    const { tabs } = await tabsAufDemBildschirm(context, 2);
+    const [a, b] = tabs;
+    await b.route('**/api/ich', variante.antwort);
+    await b.getByLabel('Name').fill('xyz');
+    await b.getByLabel('Name').focus();
+    const ichAnfrage = b.waitForRequest((anfrage) => anfrage.url().endsWith('/api/ich'), { timeout: 10000 });
+
+    await a.evaluate((schluessel) => localStorage.setItem(schluessel, 'kaputt-token'), SITZUNG);
+    await ichAnfrage;
+
+    await expect(b.locator('form')).not.toHaveAttribute('aria-busy', 'true');
+    await expect(b.getByLabel('Name')).toBeEnabled();
+    await expect(b.locator('#lc-name')).toBeFocused();
+    await b.keyboard.type('z');
+    await expect(b.getByLabel('Name')).toHaveValue('xyzz');
+  });
+}
+
 // Klick im Wettlauf (mit Web Locks): beide Tabs klicken im selben Augenblick „Beitreten“ — eine Sitzung, ein POST.
 test('Klick im Wettlauf: zwei Tabs klicken zugleich, beide zeigen dieselbe Kennung, ein POST, eine Sitzung', async ({ context }) => {
   await frischeInstanz();
