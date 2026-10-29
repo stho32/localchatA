@@ -306,12 +306,13 @@ fn abgebrochen(zustand: &Zustand, abbruch: &Abgebrochen, wer: &str, channel: &st
 const BEISPIEL: &str = r#"{"text":"Hallo"}"#;
 
 /// Die eine Antwort für Körperfehler (`koerper::koerperfehler_beantworten`) mit dem vollständigen 413-Satz und
-/// dem Beispiel der Route.
+/// dem Beispiel der Route; die 413 schreibt die Grenze wie die Oberfläche, ohne Beispiel (R00020 F0069).
 fn koerper_abgewiesen(fehler: Koerperfehler) -> Response {
     koerperfehler_beantworten(
         fehler,
         &format!(
-            "Der Körper ist zu groß — höchstens {SENDEN_GRENZE} Bytes, längere Texte teilen, zum Beispiel {BEISPIEL}."
+            "Der Körper ist zu groß — höchstens {} Byte; längere Texte teilen.",
+            mit_tausenderpunkt(SENDEN_GRENZE)
         ),
         BEISPIEL,
     )

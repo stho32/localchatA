@@ -108,6 +108,8 @@ async fn ein_satz_ohne_metazeile_hat_art_null() {
 }
 
 /// US-4 „Körpergrenze als Spanne“: 131 072 gültig → 201; 131 073 kein JSON → 413, nicht 400; als text/plain → 413.
+/// R00020 F0069 US-4 „Zu groß heißt teilen“: die 413 schreibt die Grenze wie die Oberfläche, ohne Beispiel, und
+/// schließt; der Verlauf trägt nur die angenommene Nachricht.
 #[tokio::test]
 async fn us4_die_koerpergrenze_liegt_genau_bei_131072_bytes() {
     let wurzel = ordner();
@@ -151,16 +153,21 @@ async fn us4_die_koerpergrenze_liegt_genau_bei_131072_bytes() {
         angenommen.json["nachricht"]["text"],
         json!("a".repeat(16_384))
     );
-    assert_eq!(zu_gross.status, 413);
-    assert!(
-        zu_gross.json["fehler"]
-            .as_str()
-            .expect("fehler")
-            .contains("höchstens 131072 Bytes"),
-        "{}",
-        zu_gross.json
+    let zu_gross_erwartet =
+        json!({"fehler": "Der Körper ist zu groß — höchstens 131.072 Byte; längere Texte teilen."});
+    for antwort in [&zu_gross, &zu_gross_text] {
+        assert_eq!((antwort.status, &antwort.json), (413, &zu_gross_erwartet));
+        assert_eq!(
+            antwort.kopf.get("connection").map(|w| w.as_bytes()),
+            Some(&b"close"[..])
+        );
+    }
+    let nachrichten = verlauf(&beta, &instanz.adresse, &token, "allgemein").await;
+    assert_eq!(
+        nachrichten["nachrichten"].as_array().map(Vec::len),
+        Some(1),
+        "nur die angenommene: {nachrichten}"
     );
-    assert_eq!(zu_gross_text.status, 413);
 }
 
 /// „Längste Schreibweise“: jedes Zeichen als `a` (98 315 Bytes) → 201; 5 462 × `€` → 422 `laenge`.
