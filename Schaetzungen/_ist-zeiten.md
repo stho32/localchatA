@@ -508,3 +508,7 @@ Nie vom User erfragen.
 | 2026-10-29 | R00035 Verlauf nach Ausfall | Mutanten und Zusatztest | Konsolidierung | — | 0,03h | 0,03h | autonom (entw2) |
 | 2026-10-29 | R00035 Verlauf nach Ausfall | Gate und Rebase | Konsolidierung | — | 0,23h | 0,23h | autonom (entw2) |
 | 2026-10-29 | R00032 Doppelte Schlüssel abweisen | Nacharbeit B1, B2 (linear), S1 | Nacharbeit | — | 0,50h | 0,50h | autonom (entw2) |
+| 2026-10-29 | R00019 Aufbewahrungsfrist gehärtet | B0565 Fremde Änderung während der laufenden Anfrage | Nacharbeit | 0,4h | 1,50h | 1,50h | autonom (entw3) |
+| 2026-10-29 | R00019 Aufbewahrungsfrist gehärtet | B0540 Kopfzeile ab 480 px bricht nach Inhalt um | Nacharbeit | 0,4h | 2,50h | 2,50h | autonom (entw3) |
+| 2026-10-29 | R00019 Aufbewahrungsfrist gehärtet | B0566 Frist-Feld auf Touch 44 px | Nacharbeit | 0,4h | 0,30h | 0,30h | autonom (entw3) |
+| 2026-10-29 | R00019 Aufbewahrungsfrist gehärtet | B0567 Uhrzeit der 429 als Bereich | Nacharbeit | 0,4h | 0,50h | 0,50h | autonom (entw3) |
