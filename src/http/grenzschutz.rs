@@ -355,6 +355,12 @@ pub fn sicherheitsheader_setzen(kopf: &mut HeaderMap, pfad: &str, host: Option<&
     for (name, wert) in HEADER_SATZ {
         kopf.insert(name, HeaderValue::from_static(wert));
     }
+    if anhangpfad(pfad) {
+        kopf.insert(
+            CONTENT_SECURITY_POLICY,
+            HeaderValue::from_static(ANHANG_CSP),
+        );
+    }
     let opener = HeaderName::from_static("cross-origin-opener-policy");
     if ursprung_vertrauenswuerdig(host) {
         kopf.insert(opener, HeaderValue::from_static("same-origin"));
@@ -364,6 +370,40 @@ pub fn sicherheitsheader_setzen(kopf: &mut HeaderMap, pfad: &str, host: Option<&
     if pfad.starts_with("/api/") {
         kopf.insert(CACHE_CONTROL, HeaderValue::from_static("no-store"));
     }
+}
+
+/// CSP jeder Antwort unter `/anhaenge` (ADR-0047 Ergänzung Karte #9 Gate Regel 1): kein Skript, kein Stil, kein
+/// Laden — der Anhang ist ein eigener, leerer Ursprung.
+pub const ANHANG_CSP: &str = "sandbox; default-src 'none'";
+
+/// Ob der Pfad — roh oder prozent-dekodiert — `/anhaenge` ist oder darunter liegt (B0467).
+fn anhangpfad(pfad: &str) -> bool {
+    let unter = |pfad: &str| pfad == "/anhaenge" || pfad.starts_with("/anhaenge/");
+    unter(pfad) || unter(&prozent_dekodiert(pfad))
+}
+
+/// `%XX` → Byte; ungültige Folgen bleiben, wie sie sind.
+fn prozent_dekodiert(pfad: &str) -> String {
+    let bytes = pfad.as_bytes();
+    let mut dekodiert = Vec::with_capacity(bytes.len());
+    let mut stelle = 0;
+    while stelle < bytes.len() {
+        let hex = bytes
+            .get(stelle + 1..stelle + 3)
+            .and_then(|hex| std::str::from_utf8(hex).ok())
+            .and_then(|hex| u8::from_str_radix(hex, 16).ok());
+        match (bytes[stelle], hex) {
+            (b'%', Some(byte)) => {
+                dekodiert.push(byte);
+                stelle += 3;
+            }
+            (byte, _) => {
+                dekodiert.push(byte);
+                stelle += 1;
+            }
+        }
+    }
+    String::from_utf8_lossy(&dekodiert).into_owned()
 }
 
 const HEADER_SATZ: [(HeaderName, &str); 5] = [
@@ -750,6 +790,52 @@ mod tests {
         }
         sicherheitsheader_setzen(&mut kopf, pfad, host);
         kopf
+    }
+
+    /// B0467: unter `/anhaenge` (roh oder dekodiert) genau `sandbox; default-src 'none'`, sonst die App-CSP; alle
+    /// anderen Kopfzeilen des Satzes unverändert (Mutante „Weiche fehlt“).
+    #[test]
+    fn die_csp_weiche_nach_dem_pfad() {
+        for pfad in [
+            "/anhaenge",
+            "/anhaenge/",
+            "/anhaenge/x",
+            "/anhaenge/x/y",
+            "/%61nhaenge/x",
+            "/%61NHAENGE/x",
+        ] {
+            let erwartet = if pfad == "/%61NHAENGE/x" {
+                CSP
+            } else {
+                ANHANG_CSP
+            };
+            let kopf = kopf_nach(pfad, &[("content-security-policy", "script-src *")]);
+            assert_eq!(
+                wert(&kopf, "content-security-policy"),
+                Some(erwartet),
+                "{pfad}"
+            );
+            assert_eq!(
+                wert(&kopf, "x-content-type-options"),
+                Some("nosniff"),
+                "{pfad}"
+            );
+            assert_eq!(wert(&kopf, "x-frame-options"), Some("DENY"));
+            assert_eq!(
+                wert(&kopf, "cross-origin-resource-policy"),
+                Some("same-origin")
+            );
+        }
+        for pfad in [
+            "/anhaengex",
+            "/api/anhaenge",
+            "/api/anhaenge/x",
+            "/",
+            "/x/anhaenge/",
+        ] {
+            let kopf = kopf_nach(pfad, &[]);
+            assert_eq!(wert(&kopf, "content-security-policy"), Some(CSP), "{pfad}");
+        }
     }
 
     #[test]
