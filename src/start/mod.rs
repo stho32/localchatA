@@ -41,6 +41,7 @@ use crate::protokoll::episoden::Auftreten;
 use crate::protokoll::episodenruhe;
 use crate::protokoll::tagestakt::{self, Tagestakt};
 use crate::protokoll::testpanik::Testpanik;
+use crate::protokoll::vorlauf;
 use crate::protokoll::wache::bewacht;
 use crate::protokoll::{Bereich, Kontext, Protokoll, Schluessel, Stufe};
 use crate::schreibkonto::Schreibkonto;
@@ -441,6 +442,7 @@ async fn nach_der_sperre(
     }
     quote_beim_start_melden(&gespraeche, &protokoll);
     gespraeche.anhangschwelle_pruefen("start");
+    vorlauf::eintragen(&protokoll, gespraeche.zeit_vorlauf_ms());
     let gepflegt_am = uhr.jetzt().date_naive();
     frist_pflegen(&gespraeche, gepflegt_am, Pflegeanlass::Start, &protokoll);
     let anwesenheit = Arc::new(

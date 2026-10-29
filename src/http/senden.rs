@@ -18,9 +18,9 @@ use crate::gespraeche::anhangid::Anhangid;
 use crate::gespraeche::textregel::{TEXT_HOECHSTENS_BYTES, Textfehler, text_pruefen};
 use crate::gespraeche::{Gesendet, Gespraech, Nachricht, Sendefehler};
 use crate::protokoll::episoden::Auftreten;
+use crate::protokoll::vorlauf;
 use crate::protokoll::{Bereich, Kontext, Schluessel, Stufe};
 use crate::schreibkonto::eimer::kosten_senden;
-use crate::uhr::{vorlauf_melden, vorlauf_text};
 use axum::Json;
 use axum::body::Body;
 use axum::extract::{Path, State};
@@ -135,7 +135,7 @@ pub async fn senden(
     .await;
     match ergebnis {
         Ok(Ok(Gesendet::Neu(nachricht))) => {
-            vorlauf_eintragen(&zustand.protokoll, zustand.gespraeche.zeit_vorlauf_ms());
+            vorlauf::eintragen(&zustand.protokoll, zustand.gespraeche.zeit_vorlauf_ms());
             gesendet(StatusCode::CREATED, &name, &nachricht)
         }
         Ok(Ok(Gesendet::Wiederholt(nachricht))) => gesendet(StatusCode::OK, &name, &nachricht),
@@ -445,24 +445,6 @@ fn text_abgewiesen(fehler: Textfehler) -> Response {
     (StatusCode::UNPROCESSABLE_ENTITY, Json(antwort)).into_response()
 }
 
-/// Meldet einen Vorlauf über 60 s als Episode `WARNING zeit` der Instanz (R00016, ADR-0035 Regel 4 mit Ergänzung).
-fn vorlauf_eintragen(protokoll: &crate::protokoll::Protokoll, vorlauf_ms: u64) {
-    if !vorlauf_melden(vorlauf_ms) {
-        return;
-    }
-    protokoll.episode(Auftreten {
-        stufe: Stufe::Warning,
-        bereich: Bereich::Zeit,
-        text: "Nachrichtenzeit läuft der Systemuhr voraus",
-        quelle: "instanz".to_string(),
-        kontext: Kontext::neu().mit_fortlaufend(Schluessel::DauerMs, vorlauf_ms),
-        art: None,
-        verworfen: None,
-        bytes: None,
-        anzeige: Some(vorlauf_text(vorlauf_ms)),
-    });
-}
-
 /// `17020` → `17.020`.
 pub(super) fn mit_tausenderpunkt(zahl: usize) -> String {
     let ziffern = zahl.to_string();
@@ -564,15 +546,15 @@ mod tests {
                 .collect::<Vec<_>>()
         };
 
-        vorlauf_eintragen(&protokoll, 60_000);
+        vorlauf::eintragen(&protokoll, 60_000);
         let bei_60_000 = zeit_zeilen().len();
-        vorlauf_eintragen(&protokoll, 61_001);
-        vorlauf_eintragen(&protokoll, 61_002);
+        vorlauf::eintragen(&protokoll, 61_001);
+        vorlauf::eintragen(&protokoll, 61_002);
         let nach_zweien = zeit_zeilen();
         uhr.stellen(zeit("2026-10-28T12:01:00+01:00"));
         protokoll.episoden_schliessen();
         let nach_der_ruhe = zeit_zeilen().len();
-        vorlauf_eintragen(&protokoll, 7_410_002);
+        vorlauf::eintragen(&protokoll, 7_410_002);
 
         assert_eq!(bei_60_000, 0);
         assert_eq!(nach_zweien.len(), 1, "{nach_zweien:#?}");
@@ -646,8 +628,8 @@ mod tests {
         let (protokoll, speicher, uhr, _) =
             im_speicher("2026-10-28T12:00:00+01:00", Stufe::Information);
 
-        vorlauf_eintragen(&protokoll, 61_001);
-        vorlauf_eintragen(&protokoll, 7_410_002);
+        vorlauf::eintragen(&protokoll, 61_001);
+        vorlauf::eintragen(&protokoll, 7_410_002);
         uhr.stellen(zeit("2026-10-28T12:01:00+01:00"));
         protokoll.episoden_schliessen();
 
