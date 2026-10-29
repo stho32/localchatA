@@ -206,12 +206,13 @@ fn us3_unlesbare_startzeit_endet_mit_exit_zwei_und_nennt_die_variable() {
 
 #[test]
 fn nicht_lesbare_ablage_beendet_den_start_mit_exit_eins_und_nennt_den_ordner() {
+    use std::os::unix::fs::PermissionsExt;
+    // `channels` als Datei ist seit ADR-0046 Ergänzung „`channels` muss ein echter Ordner sein“ ein Startfehler mit
+    // Exit 2 (`tests/channels_wurzel.rs`); nicht lesbar ist hier ein echter Ordner ohne Rechte.
     let wurzel = tempfile::tempdir().expect("Wegwerf-Ordner");
-    datei(
-        wurzel.path(),
-        "channels",
-        "eine Datei, wo der Ordner sein müsste",
-    );
+    let channels = wurzel.path().join("channels");
+    std::fs::create_dir(&channels).expect("Ordner");
+    std::fs::set_permissions(&channels, std::fs::Permissions::from_mode(0o000)).expect("Rechte");
     let ordner = wurzel.path().display().to_string();
 
     let ende = aufrufen_mit(
@@ -226,6 +227,8 @@ fn nicht_lesbare_ablage_beendet_den_start_mit_exit_eins_und_nennt_den_ordner() {
         &[("TZ", "Europe/Berlin")],
     );
 
+    std::fs::set_permissions(&channels, std::fs::Permissions::from_mode(0o755))
+        .expect("Rechte zurück");
     assert_eq!(ende.exit, Some(1), "stderr: {}", ende.stderr);
     let zeilen: Vec<&str> = ende.stderr.lines().collect();
     assert_eq!(zeilen.len(), 1, "{:?}", ende.stderr);
