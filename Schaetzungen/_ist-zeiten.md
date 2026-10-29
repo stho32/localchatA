@@ -521,3 +521,7 @@ Nie vom User erfragen.
 | 2026-10-29 | R00037 Hinweis und Leiste nach Ausfall | B0574+B0575 Hinweis sagt, was geschieht; Hauptansicht verdrahtet | Standard | 0,4h | 0,67h | 0,67h | autonom (entw3) |
 | 2026-10-29 | R00037 Hinweis und Leiste nach Ausfall | B0576 Abnahme-Probe | Standard | 0,4h | 0,75h | 0,75h | autonom (entw3) |
 | 2026-10-29 | R00037 Hinweis und Leiste nach Ausfall | Gate | Konsolidierung | — | 0,25h | 0,25h | autonom (entw3) |
+| 2026-10-29 | R00026 Folgen und Sprung belegt | B0577 Folgen ohne erste neue belegt (E2E) | Standard | 0,4h | 0,10h | 0,10h | autonom (entw3) |
+| 2026-10-29 | R00026 Folgen und Sprung belegt | B0578 Sprungziel als reine Funktion | Standard | 0,4h | 0,07h | 0,07h | autonom (entw3) |
+| 2026-10-29 | R00026 Folgen und Sprung belegt | B0579 Schreibweisen in Dokumenten und Spec | Standard | 0,4h | 0,07h | 0,07h | autonom (entw3) |
+| 2026-10-29 | R00026 Folgen und Sprung belegt | B0580 Schreibweisen in Code-Kommentaren | Standard | 0,4h | 0,03h | 0,03h | autonom (entw3) |
