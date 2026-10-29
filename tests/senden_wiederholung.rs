@@ -307,3 +307,288 @@ async fn eine_wiederholung_bucht_am_schreibkonto_wie_ein_erster_versuch() {
         1
     );
 }
+
+/// Ein Teilnehmer der Flut: Absenderadresse, Name, Token.
+struct Teilnehmer {
+    absender: Absender,
+    name: String,
+    token: String,
+}
+
+/// Je Herkunft `127.0.1.<n>` (n aus `herkuenfte`) `je_herkunft` Kennungen `<vorsilbe><n>x<j>`.
+async fn viele_beitreten(
+    basis: &str,
+    herkuenfte: std::ops::RangeInclusive<u8>,
+    je_herkunft: usize,
+    vorsilbe: &str,
+) -> Vec<Teilnehmer> {
+    let mut alle = Vec::new();
+    for herkunft in herkuenfte {
+        for j in 0..je_herkunft {
+            let absender = Absender::von(&format!("127.0.1.{herkunft}"));
+            let name = format!("{vorsilbe}{herkunft}x{j}");
+            let token = beitreten(&absender, basis, &name, Some("agent")).await;
+            alle.push(Teilnehmer {
+                absender,
+                name,
+                token,
+            });
+        }
+    }
+    alle
+}
+
+/// Jede Kennung sendet `je_kennung` Nachrichten mit eigenem Schlüssel, alle Kennungen zugleich; die Statuscodes.
+async fn fluten(basis: &str, teilnehmer: &[Teilnehmer], je_kennung: usize) -> Vec<u16> {
+    let je_teilnehmer = futures_util::future::join_all(teilnehmer.iter().map(|t| async move {
+        let mut status = Vec::new();
+        for nummer in 0..je_kennung {
+            let text = format!("{} {nummer}", t.name);
+            let schluessel = format!("{}-{nummer}", t.name);
+            status.push(
+                mit_schluessel(
+                    &t.absender,
+                    basis,
+                    &t.token,
+                    "allgemein",
+                    &text,
+                    &schluessel,
+                )
+                .await
+                .status,
+            );
+        }
+        status
+    }))
+    .await;
+    je_teilnehmer.into_iter().flatten().collect()
+}
+
+fn verdraengt_zeilen(ordner: &std::path::Path) -> Vec<String> {
+    gemeinsam::protokoll::alle_zeilen(ordner)
+        .into_iter()
+        .filter(|zeile| zeile.contains("Wiederholschlüssel vor Ablauf verdrängt"))
+        .collect()
+}
+
+/// Lauf der Abnahme-Probe aus dem Observability-Review #22 (S1): `alfa` sendet „Wichtig“ mit `auftrag-1`; 160
+/// Kennungen (40 Herkünfte × 4) senden je 28 = 4.480 Nachrichten; `alfa` wiederholt. Liefert die Wiederholung,
+/// die Zahl der Sätze „Wichtig“, die Episodenzeilen und den Zähler.
+async fn wichtig_unter_last(umgebung: &[(&str, &str)]) -> (ApiAntwort, usize, Vec<String>, u64) {
+    let wurzel = ordner();
+    let instanz = starten(wurzel.path(), umgebung);
+    let basis = &instanz.adresse;
+    let alfa = Absender::von("127.0.0.1");
+    let token = beitreten(&alfa, basis, "alfa", Some("agent")).await;
+    let erste = mit_schluessel(&alfa, basis, &token, "allgemein", "Wichtig", "auftrag-1").await;
+    assert_eq!(erste.status, 201, "{}", erste.json);
+    let flut = viele_beitreten(basis, 2..=41, 4, "f").await;
+
+    let status = fluten(basis, &flut, 28).await;
+    let wiederholt =
+        mit_schluessel(&alfa, basis, &token, "allgemein", "Wichtig", "auftrag-1").await;
+
+    assert_eq!(status.len(), 4_480);
+    assert!(status.iter().all(|s| *s == 201), "Flut nicht angenommen");
+    let saetze = saetze_mit(&tagesinhalt(wurzel.path(), "allgemein"), "Wichtig");
+    let (_, gesundheit) = gemeinsam::gesundheit(basis).await;
+    let zaehler = gesundheit["schluessel_verdraengt"]
+        .as_u64()
+        .expect("Zähler");
+    (
+        wiederholt,
+        saetze,
+        verdraengt_zeilen(wurzel.path()),
+        zaehler,
+    )
+}
+
+/// R00025 „Unter Last“ (Abnahme-Probe Observability #22 S1, wörtlich: „alfa sendet „Wichtig“ mit auftrag-1; 160
+/// Kennungen senden 4.480 Nachrichten; alfa wiederholt → …“), Lesart nach E1 mit den echten Grenzen: 200, „Wichtig“
+/// genau einmal, keine Episode, Zähler 0. Vor der Härtung rot (201, zwei Sätze).
+#[tokio::test]
+async fn unter_last_haelt_der_schluessel_mit_den_echten_grenzen() {
+    let (wiederholt, saetze, episoden, zaehler) = wichtig_unter_last(&[]).await;
+
+    assert_eq!(wiederholt.status, 200, "{}", wiederholt.json);
+    assert_eq!(saetze, 1);
+    assert_eq!(episoden, Vec::<String>::new());
+    assert_eq!(zaehler, 0);
+}
+
+/// R00025 „Unter Last“ mit `LOCALCHATA_TESTGRENZE_SCHLUESSEL=4096` (die 4.096 der Probe, Debug-Build): die
+/// Wiederholung antwortet 200 mit „Wichtig“ genau einmal — `alfa` hat 1 Eintrag, jede der 160 Kennungen 28 —, und
+/// die Episoden nennen nur Fluter, `grenze=gesamt`, `hoechstens=4096`; Zähler ≥ 1.
+#[tokio::test]
+async fn unter_last_mit_kleiner_gesamtgrenze_trifft_die_verdraengung_die_fluter() {
+    let (wiederholt, saetze, episoden, zaehler) =
+        wichtig_unter_last(&[("LOCALCHATA_TESTGRENZE_SCHLUESSEL", "4096")]).await;
+
+    assert_eq!(wiederholt.status, 200, "{}", wiederholt.json);
+    assert_eq!(saetze, 1);
+    let beginne: Vec<&String> = episoden
+        .iter()
+        .filter(|zeile| zeile.contains("Episode beginnt"))
+        .collect();
+    assert!(!beginne.is_empty(), "keine Episode");
+    for zeile in &beginne {
+        assert!(zeile.contains(" WARNING senden "), "{zeile}");
+        assert!(zeile.contains(" kennung=f"), "{zeile}");
+        assert!(!zeile.contains("alfa"), "{zeile}");
+        assert!(
+            zeile.contains(" grenze=gesamt hoechstens=4096 alter_ms="),
+            "{zeile}"
+        );
+    }
+    assert!(zaehler >= 1);
+}
+
+/// R00025 „Fremde verdrängen nicht“ (Abnahme-Probe Security #22, wörtlich: „A merkt v1; 4.096 Sendungen anderer
+/// Kennungen; A wiederholt v1 → 200, eine Zeile“), Aufbau nach Angriffsmatrix Zeile 2: 35 Herkünfte
+/// `127.0.1.2`–`127.0.1.36` × 4 Kennungen × 30 Sendungen, ohne Testknopf → 200, ein Satz, Zähler 0, keine Episode.
+#[tokio::test]
+async fn fremde_verdraengen_den_schluessel_nicht() {
+    let wurzel = ordner();
+    let instanz = starten(wurzel.path(), &[]);
+    let basis = &instanz.adresse;
+    let a = Absender::von("127.0.0.1");
+    let token = beitreten(&a, basis, "opfer", None).await;
+    let erste = mit_schluessel(&a, basis, &token, "allgemein", "Mein Satz", "v1").await;
+    let flut = viele_beitreten(basis, 2..=36, 4, "g").await;
+
+    let status = fluten(basis, &flut, 30).await;
+    let wiederholt = mit_schluessel(&a, basis, &token, "allgemein", "Mein Satz", "v1").await;
+    let (_, gesundheit) = gemeinsam::gesundheit(basis).await;
+
+    assert_eq!(erste.status, 201);
+    assert!(status.len() >= 4_096 && status.iter().all(|s| *s == 201));
+    assert_eq!(wiederholt.status, 200, "{}", wiederholt.json);
+    assert_eq!(wiederholt.json, erste.json);
+    assert_eq!(
+        saetze_mit(&tagesinhalt(wurzel.path(), "allgemein"), "Mein Satz"),
+        1
+    );
+    assert_eq!(gesundheit["schluessel_verdraengt"], 0);
+    assert_eq!(verdraengt_zeilen(wurzel.path()), Vec::<String>::new());
+}
+
+/// R00025 „Testknopf“ (ADR-0042 Ergänzungen Karte #36, erste Tests wörtlich: „`=0` und `=x` → Exit 2, kein
+/// `logs/`“; Angriffsmatrix Zeile 19): jeder Wert außer `[1-9][0-9]{0,4}` bis 36.000 → Exit 2, stderr nennt die
+/// Variable und „1 bis 36.000“, kein `logs/`.
+#[test]
+fn falsche_werte_des_testknopfs_enden_mit_exit_2_ohne_protokoll() {
+    for falsch in ["0", "x", "", "36001", "-1", "+5", "05", " 5", "5 "] {
+        let wurzel = ordner();
+        let pfad = wurzel.path().to_string_lossy().into_owned();
+        let ende = gemeinsam::aufrufen_mit(
+            &[
+                &pfad,
+                "--port",
+                "0",
+                "--host",
+                "127.0.0.1",
+                "--kein-browser",
+            ],
+            &[("LOCALCHATA_TESTGRENZE_SCHLUESSEL", falsch)],
+        );
+
+        assert_eq!(ende.exit, Some(2), "{falsch:?}: {}", ende.stderr);
+        assert!(
+            ende.stderr.contains("LOCALCHATA_TESTGRENZE_SCHLUESSEL"),
+            "{}",
+            ende.stderr
+        );
+        assert!(ende.stderr.contains("1 bis 36.000"), "{}", ende.stderr);
+        assert!(!wurzel.path().join("logs").exists(), "{falsch:?}");
+    }
+}
+
+/// R00025 „Testknopf“ (wörtlich: „`=5` → die sechste Sendung verdrängt, Episode und Zähler 1“; Angriffsmatrix
+/// Zeile 20): 6 Kennungen senden je 1 mit Schlüssel → der Eintrag der ersten fällt (Gleichstand, am längsten auf
+/// 1), Episode `grenze=gesamt hoechstens=5`, Zähler 1, ihre Wiederholung antwortet 201; `=1` und `=36000` starten.
+#[tokio::test]
+async fn mit_testgrenze_5_verdraengt_die_sechste_sendung_den_ersten() {
+    let wurzel = ordner();
+    let instanz = starten(wurzel.path(), &[("LOCALCHATA_TESTGRENZE_SCHLUESSEL", "5")]);
+    let basis = &instanz.adresse;
+    let sechs = viele_beitreten(basis, 2..=3, 3, "s").await;
+
+    let mut status = Vec::new();
+    for teilnehmer in &sechs {
+        status.extend(fluten(basis, std::slice::from_ref(teilnehmer), 1).await);
+    }
+    let erste = &sechs[0];
+    let (_, gesundheit) = gemeinsam::gesundheit(basis).await;
+    let beginne: Vec<String> = verdraengt_zeilen(wurzel.path())
+        .into_iter()
+        .filter(|zeile| zeile.contains("Episode beginnt"))
+        .collect();
+    let wiederholt = mit_schluessel(
+        &erste.absender,
+        basis,
+        &erste.token,
+        "allgemein",
+        &format!("{} 0", erste.name),
+        &format!("{}-0", erste.name),
+    )
+    .await;
+
+    assert_eq!(status, [201; 6]);
+    assert_eq!(beginne.len(), 1, "{beginne:?}");
+    assert!(
+        beginne[0].contains(&format!(
+            " kennung={}@127.0.1.2 grenze=gesamt hoechstens=5 alter_ms=",
+            erste.name
+        )),
+        "{}",
+        beginne[0]
+    );
+    assert_eq!(gesundheit["schluessel_verdraengt"], 1);
+    assert_eq!(wiederholt.status, 201, "{}", wiederholt.json);
+    for gueltig in ["1", "36000"] {
+        let wurzel = ordner();
+        let instanz = starten(
+            wurzel.path(),
+            &[("LOCALCHATA_TESTGRENZE_SCHLUESSEL", gueltig)],
+        );
+        assert_eq!(
+            gemeinsam::gesundheit(&instanz.adresse).await.0,
+            200,
+            "{gueltig}"
+        );
+    }
+}
+
+/// R00025 „Gleichzeitig bei vollem Speicher“ (Angriffsmatrix Zeile 27): Testknopf `=5`, Speicher voll; 20
+/// gleichzeitige Sendungen mit demselben neuen Schlüssel → eine 201, 19 × 200 mit gleicher `zeit`, ein Satz,
+/// genau eine Verdrängung.
+#[tokio::test]
+async fn gleichzeitig_bei_vollem_speicher_genau_ein_satz_und_eine_verdraengung() {
+    let wurzel = ordner();
+    let instanz = starten(wurzel.path(), &[("LOCALCHATA_TESTGRENZE_SCHLUESSEL", "5")]);
+    let basis = &instanz.adresse;
+    let fuellung = viele_beitreten(basis, 2..=2, 5, "v").await;
+    assert_eq!(fluten(basis, &fuellung, 1).await, [201; 5]);
+    let neu = Absender::von("127.0.1.3");
+    let token = beitreten(&neu, basis, "gleichzeitig", None).await;
+
+    let antworten = futures_util::future::join_all(
+        (0..20).map(|_| mit_schluessel(&neu, basis, &token, "allgemein", "Einmal", "neu-1")),
+    )
+    .await;
+    let (_, gesundheit) = gemeinsam::gesundheit(basis).await;
+
+    let mut status: Vec<u16> = antworten.iter().map(|a| a.status).collect();
+    status.sort_unstable();
+    assert_eq!(status, [[200; 19].as_slice(), &[201]].concat());
+    let zeiten: std::collections::BTreeSet<String> = antworten
+        .iter()
+        .map(|a| a.json["nachricht"]["zeit"].to_string())
+        .collect();
+    assert_eq!(zeiten.len(), 1, "{zeiten:?}");
+    assert_eq!(
+        saetze_mit(&tagesinhalt(wurzel.path(), "allgemein"), "Einmal"),
+        1
+    );
+    assert_eq!(gesundheit["schluessel_verdraengt"], 1);
+}

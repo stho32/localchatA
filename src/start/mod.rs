@@ -19,6 +19,7 @@ mod protokollstufe;
 mod rechnername;
 mod sperre;
 mod startfehler;
+mod testgrenze;
 pub mod verbindungen;
 
 use abrisspflege::{Pflege, pflege_aus};
@@ -135,6 +136,16 @@ pub async fn ausfuehren<I: IntoIterator<Item = String>>(argumente: I) -> u8 {
                     return FALSCHER_AUFRUF;
                 }
             };
+            let testgrenze = match testgrenze::testgrenze(
+                std::env::var_os(testgrenze::VARIABLE).as_deref(),
+                cfg!(debug_assertions),
+            ) {
+                Ok(testgrenze) => testgrenze,
+                Err(fehler) => {
+                    eprintln!("{fehler}");
+                    return FALSCHER_AUFRUF;
+                }
+            };
             let namensauskunft: Arc<dyn Namensauskunft> = match Tabelle::aus_umgebung() {
                 Ok(Some(tabelle)) => Arc::new(tabelle),
                 Ok(None) => Arc::new(Echt),
@@ -151,6 +162,7 @@ pub async fn ausfuehren<I: IntoIterator<Item = String>>(argumente: I) -> u8 {
                 Knoepfe {
                     testpanik,
                     namensauskunft,
+                    testgrenze,
                 },
                 Wirksam { stufe, quote },
                 ruhe,
@@ -255,6 +267,8 @@ struct Wirksam {
 struct Knoepfe {
     testpanik: Testpanik,
     namensauskunft: Arc<dyn Namensauskunft>,
+    /// Gesamtgrenze des Wiederholspeichers aus `LOCALCHATA_TESTGRENZE_SCHLUESSEL` (nur Debug-Build).
+    testgrenze: Option<usize>,
 }
 
 /// Die Gespräche und das Datum ihrer Pflege beim Start — der Startwert der Tagesaufgabe `fristpflege`.
@@ -320,10 +334,12 @@ async fn nach_der_sperre(
     let Startlaeufe {
         beginn,
         bereinigt_am,
-        knoepfe: Knoepfe {
-            testpanik,
-            namensauskunft,
-        },
+        knoepfe:
+            Knoepfe {
+                testpanik,
+                namensauskunft,
+                testgrenze,
+            },
         stufe_herkunft,
         quote: (quote, quote_herkunft),
     } = startlaeufe;
@@ -331,6 +347,7 @@ async fn nach_der_sperre(
     let gespraeche = Arc::new(
         verlauf_laden(&ordner, Arc::clone(&uhr), &protokoll)?
             .mit_quote(quote.hoechstens())
+            .mit_wiederholung(wiederholspeicher(testgrenze))
             .mit_quote_melden(quote_melden(&protokoll))
             .mit_verdraengt_melden(verdraengt_melden(&protokoll))
             .mit_veroeffentlichen(bus::channels_veroeffentlichen(&bus))
@@ -479,6 +496,14 @@ fn quote_melden(protokoll: &Arc<Protokoll>) -> crate::gespraeche::quote::QuoteMe
             eintrag.kontext,
         );
     })
+}
+
+/// Der Wiederholspeicher mit den echten Grenzen, mit dem Testknopf eine kleinere Gesamtgrenze (schon geprüft).
+fn wiederholspeicher(testgrenze: Option<usize>) -> crate::gespraeche::wiederholung::Wiederholung {
+    use crate::gespraeche::wiederholung::{HOECHSTENS_JE_KENNUNG, Wiederholung};
+    testgrenze
+        .and_then(|gesamt| Wiederholung::neu(HOECHSTENS_JE_KENNUNG, gesamt).ok())
+        .unwrap_or_default()
 }
 
 /// Verdrängte Wiederholschlüssel als WARNING-Episode `senden` je verdrängter Kennung (ADR-0042 Ergänzung Karte #36
