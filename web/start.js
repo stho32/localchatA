@@ -230,14 +230,16 @@ function sitzungBeimLaden() {
   return navigator.locks.request(sitzung.SITZUNG, () => laden());
 }
 
-// Auf dem Bildschirm nach einem Beitritt ohne Token ist das Token, das beim Laden im Speicher lag, das abgelehnte (401).
+// Das Token, das beim Laden im Speicher lag, ist das eigene des Tabs und gilt auf dem Bildschirm nie als Nachbar: nach
+// einer Ablehnung (401) ist es das abgelehnte, bei „Server nicht erreichbar“ und Fehler das ungeprüfte, mit dem
+// „Beitreten“ bzw. „Erneut versuchen“ eine Wiederkehr statt eines 409 ergibt (R00003 F0010, Nacharbeit 2).
 async function laden(geschwister) {
   const gemerkt = speicher.getItem(sitzung.SITZUNG);
   const zustand = await sitzung.beimLaden(speicher, api, geschwister);
-  if (['beitreten', 'vergeben', 'ungueltig'].includes(zustand.art)) {
-    return { zustand, abgelehntesToken: gemerkt };
+  if (zustand.art === 'kopfzeile') {
+    return { zustand, abgelehntesToken: null };
   }
-  return { zustand, abgelehntesToken: null };
+  return { zustand, abgelehntesToken: gemerkt };
 }
 
 function aufTokenEinesAnderenTabsWarten() {
