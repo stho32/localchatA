@@ -2,6 +2,7 @@
 //! gespeichert und als welche Art sie ausgeliefert wird. Rein — keine Platte, keine Uhr.
 
 mod art;
+pub mod exif;
 mod name;
 
 pub use art::{Art, DATEI};
