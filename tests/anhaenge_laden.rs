@@ -293,3 +293,85 @@ async fn beim_tageswechsel_entfallen_die_anhaenge() {
     assert_eq!(gesundheit(&instanz.adresse).await["anhang_belegt"], 0);
     assert!(!tagordner.exists());
 }
+
+/// Befund #53 B2: dieselbe Metazeile (dieselbe ID) am 20. und am 25. → je `WARNING laden` „ID doppelt“, kein
+/// Eintrag, beide Dateien Waisen (131.072); Frist 3 → der 20. entfällt, 65.536 bleiben.
+#[tokio::test]
+async fn dieselbe_id_in_zwei_tagen_ist_doppelt() {
+    let wurzel = ordner();
+    let tag = am_tag_senden(wurzel.path(), "2026-10-25T12:00:00+02:00").await;
+    assert_eq!(tag, "2026-10-25");
+    let channel = wurzel.path().join("channels/allgemein");
+    let tagesdatei = std::fs::read_to_string(channel.join("2026-10-25.log")).expect("Tag");
+    std::fs::write(
+        channel.join("2026-10-20.log"),
+        tagesdatei.replace("2026-10-25T", "2026-10-20T"),
+    )
+    .expect("20.");
+    std::fs::create_dir_all(channel.join("anhaenge/2026-10-20")).expect("Tag");
+    for eintrag in std::fs::read_dir(channel.join("anhaenge/2026-10-25")).expect("Tag") {
+        let eintrag = eintrag.expect("Eintrag");
+        std::fs::copy(
+            eintrag.path(),
+            channel
+                .join("anhaenge/2026-10-20")
+                .join(eintrag.file_name()),
+        )
+        .expect("Kopie");
+    }
+    let id = tagesdatei
+        .lines()
+        .find_map(|zeile| zeile.strip_prefix("+ anhang: "))
+        .and_then(|rest| rest.split(' ').next())
+        .expect("ID")
+        .to_string();
+
+    let instanz = starten(
+        wurzel.path(),
+        &[],
+        &[("LOCALCHATA_JETZT", "2026-10-25T13:00:00+02:00")],
+    );
+    assert_eq!(gesundheit(&instanz.adresse).await["anhang_belegt"], 131_072);
+    let beta = Absender::von("127.0.0.1");
+    let abrufen = |basis: String| {
+        let beta = &beta;
+        let id = &id;
+        async move {
+            beta.anfrage(reqwest::Method::GET, format!("{basis}anhaenge/{id}"))
+                .send()
+                .await
+                .expect("Antwort")
+                .status()
+                .as_u16()
+        }
+    };
+    assert_eq!(abrufen(instanz.adresse.clone()).await, 404, "kein Eintrag");
+    let token = beitreten(&beta, &instanz.adresse, "beta", Some("agent")).await;
+    let gesetzt = frist_setzen(
+        &beta,
+        &instanz,
+        &token,
+        "allgemein",
+        json!({"tage": 3, "bestaetigt": true}),
+    )
+    .await;
+    assert_eq!(gesetzt.status, 200, "{}", gesetzt.json);
+
+    assert_eq!(gesundheit(&instanz.adresse).await["anhang_belegt"], 65_536);
+    assert_eq!(abrufen(instanz.adresse.clone()).await, 404, "auch danach");
+    drop(instanz);
+    let doppelt: Vec<String> = laden_warnungen(wurzel.path())
+        .into_iter()
+        .filter(|zeile| zeile.contains("ID doppelt"))
+        .collect();
+    assert!(
+        ["2026-10-20.log", "2026-10-25.log"]
+            .iter()
+            .all(|datei| doppelt.iter().any(|zeile| zeile.contains(datei))),
+        "{doppelt:#?}"
+    );
+    assert!(
+        doppelt.iter().all(|zeile| !zeile.contains(&id)),
+        "keine ID im Protokoll"
+    );
+}

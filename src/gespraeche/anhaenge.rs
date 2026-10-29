@@ -12,6 +12,7 @@ use super::anhangid::Anhangid;
 use super::anhangpruefung::Art;
 use super::anhangpruefung::{Namensfehler, name_pruefen};
 use super::anhangquote::{self, Platzfehler};
+use super::anhangverzeichnis::{doppelte_ids, tag_lesen};
 use super::{Gespraeche, Kennung, sperren};
 use crate::uhr::Zeit;
 use std::net::IpAddr;
@@ -270,9 +271,11 @@ impl Gespraeche {
     }
 
     /// Setzt die Ablage für Eingang und Anhänge (im Start: die Deskriptoren des Ordners) und lädt die Anhänge aller
-    /// Tage im Index (B0442, ADR-0046 Regel 8 „Laden“): je Tag die Metazeilen und die regulären Dateien in
-    /// `anhaenge/<tag>/` — `G` zählt jede reguläre Datei im Zählmaß, auch Waisen; Symlinks und Unterordner nie. Ist
-    /// `anhaenge` oder der Tag nicht zu öffnen (Symlink, kein Ordner), bleiben die Anhänge des Tags ohne Eintrag.
+    /// Tage im Index (B0442, ADR-0046 Regel 8 „Laden“): je Tag die
+    /// Metazeilen und die regulären Dateien in `anhaenge/<tag>/` — `G` zählt jede reguläre Datei im Zählmaß, auch
+    /// Waisen; Symlinks und Unterordner nie. Eine ID, die in mehr als einer Metazeile über
+    /// alle Tage und Gespräche steht, ergibt keinen Eintrag (Befund #53 B2). Ist `anhaenge` oder der Tag nicht zu
+    /// öffnen (Symlink, kein Ordner), bleiben die Anhänge des Tags ohne Eintrag.
     pub fn mit_anhangablage(
         mut self,
         anhangablage: std::sync::Arc<dyn Anhangablage>,
@@ -280,7 +283,7 @@ impl Gespraeche {
         self.anhangablage = anhangablage;
         let beginn = std::time::Instant::now();
         let mut befunde = Vec::new();
-        let mut gebunden = 0u64;
+        let mut gelesen = Vec::new();
         {
             let verzeichnis = super::lesend(&self.verzeichnis);
             for (gespraech, verlauf) in &verzeichnis.verlaeufe {
@@ -288,19 +291,7 @@ impl Gespraeche {
                 for (tag, rohtext) in verlauf.tage_roh() {
                     match self.anhangablage.tag_dateien(gespraech, tag) {
                         Ok(dateien) => {
-                            let (tagesbefunde, tag_g) = self
-                                .anhangverzeichnis
-                                .tag_laden(gespraech, tag, rohtext, &dateien);
-                            gebunden = gebunden.saturating_add(tag_g);
-                            befunde.extend(tagesbefunde.into_iter().map(|befund| {
-                                super::Anhangladebefund {
-                                    gespraech: gespraech.clone(),
-                                    tag,
-                                    zeile: Some(befund.zeile),
-                                    grund: befund.grund.to_string(),
-                                    datei: befund.datei,
-                                }
-                            }));
+                            gelesen.push((gespraech.clone(), tag, tag_lesen(rohtext), dateien));
                         }
                         Err(fehler) => befunde.push(super::Anhangladebefund {
                             gespraech: gespraech.clone(),
@@ -312,6 +303,25 @@ impl Gespraeche {
                     }
                 }
             }
+        }
+        let doppelt = doppelte_ids(gelesen.iter().map(|(_, _, zeilen, _)| zeilen));
+        let mut gebunden = 0u64;
+        for (gespraech, tag, zeilen, dateien) in gelesen {
+            let (tagesbefunde, tag_g) = self
+                .anhangverzeichnis
+                .tag_eintragen(&gespraech, tag, zeilen, &dateien, &doppelt);
+            gebunden = gebunden.saturating_add(tag_g);
+            befunde.extend(
+                tagesbefunde
+                    .into_iter()
+                    .map(|befund| super::Anhangladebefund {
+                        gespraech: gespraech.clone(),
+                        tag,
+                        zeile: Some(befund.zeile),
+                        grund: befund.grund.to_string(),
+                        datei: befund.datei,
+                    }),
+            );
         }
         self.anhangzaehler
             .gebunden

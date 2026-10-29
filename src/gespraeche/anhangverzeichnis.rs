@@ -235,10 +235,7 @@ impl Anhangverzeichnis {
         abzuziehen.saturating_add(waisen)
     }
 
-    /// Lädt einen Tag aus dem Rohtext seiner Tagesdatei und den regulären Dateien in `anhaenge/<tag>/`: je gültiger
-    /// Metazeile, deren Datei es mit genau `bytes` Bytes gibt, ein Eintrag `vorhanden` (Länge 0 bei `bytes` > 0:
-    /// `geloescht`); jede andere Datei ist eine Waise. Unplausible Metazeilen (M17) ergeben keinen Eintrag und einen
-    /// Befund. Liefert die Befunde und `G` des Tages.
+    /// Lädt einen einzelnen Tag (`tag_lesen` und `tag_eintragen`); doppelt ist eine ID nur innerhalb des Tags.
     pub fn tag_laden(
         &self,
         gespraech: &Gespraech,
@@ -246,47 +243,46 @@ impl Anhangverzeichnis {
         rohtext: &[u8],
         dateien: &[Tagesdatei],
     ) -> (Vec<Ladebefund>, u64) {
-        let mut befunde = Vec::new();
-        let mut zeilen = Vec::new();
-        let mut ids_gesehen: HashMap<Anhangid, usize> = HashMap::new();
-        let saetze = logformat::saetze(rohtext);
-        let (mut gezaehlt_bis, mut zeilen_davor) = (0, 0);
-        for satz in saetze.into_iter().flatten() {
-            let text = String::from_utf8_lossy(&rohtext[satz.anfang..satz.ende]);
-            zeilen_davor += rohtext[gezaehlt_bis..satz.anfang]
-                .iter()
-                .filter(|byte| **byte == b'\n')
-                .count();
-            gezaehlt_bis = satz.anfang;
-            let erste_zeile = zeilen_davor;
-            for (im_satz, gelesen) in logformat::anhaenge_im_satz(&text) {
-                let zeile = erste_zeile + im_satz;
-                match gelesen {
-                    Ok(anhang) => {
-                        *ids_gesehen.entry(anhang.id.clone()).or_default() += 1;
-                        zeilen.push((zeile, anhang, satz.zeit, satz.von.clone()));
-                    }
-                    Err(befund) => befunde.push(Ladebefund {
-                        zeile,
-                        grund: befundtext(befund),
-                        datei: None,
-                    }),
-                }
-            }
-        }
+        let gelesen = tag_lesen(rohtext);
+        let doppelt = doppelte_ids([&gelesen]);
+        self.tag_eintragen(gespraech, tag, gelesen, dateien, &doppelt)
+    }
+
+    /// Trägt einen gelesenen Tag ein, mit den regulären Dateien in `anhaenge/<tag>/`: je gültiger Metazeile, deren
+    /// ID nicht in `doppelt` steht und deren Datei es mit genau `bytes` Bytes gibt, ein Eintrag `vorhanden` (Länge 0
+    /// bei `bytes` > 0: `geloescht`); jede andere Datei ist eine Waise. Liefert die Befunde (die des Lesens zuerst)
+    /// und `G` des Tages.
+    pub fn tag_eintragen(
+        &self,
+        gespraech: &Gespraech,
+        tag: NaiveDate,
+        gelesen: Tageszeilen,
+        dateien: &[Tagesdatei],
+        doppelt: &HashSet<Anhangid>,
+    ) -> (Vec<Ladebefund>, u64) {
+        let Tageszeilen {
+            zeilen,
+            mut befunde,
+        } = gelesen;
         let laengen: HashMap<&str, u64> = dateien
             .iter()
             .map(|datei| (datei.name.as_str(), datei.laenge))
             .collect();
         let mut belegt: HashSet<String> = HashSet::new();
         let mut gebunden = 0u64;
-        for (zeile, anhang, satzzeit, von) in zeilen {
+        for Metazeile {
+            zeile,
+            anhang,
+            satzzeit,
+            von,
+        } in zeilen
+        {
             let befund = |grund| Ladebefund {
                 zeile,
                 grund,
                 datei: Some(praefix(&anhang.datei)),
             };
-            if ids_gesehen.get(&anhang.id).copied().unwrap_or(0) > 1 {
+            if doppelt.contains(&anhang.id) {
                 befunde.push(befund("ID doppelt"));
                 continue;
             }
@@ -325,6 +321,66 @@ impl Anhangverzeichnis {
     pub fn anzahl(&self) -> usize {
         self.lesend().eintraege.len()
     }
+}
+
+/// Eine gültige Metazeile `+ anhang:` mit ihrer Zeile und ihrem Satz.
+#[derive(Debug)]
+pub struct Metazeile {
+    zeile: usize,
+    anhang: logformat::Anhangzeile,
+    satzzeit: Zeit,
+    von: Kennung,
+}
+
+/// Die Metazeilen eines Tages und die Befunde unlesbarer Zeilen (M17), noch ohne Dateien.
+#[derive(Debug, Default)]
+pub struct Tageszeilen {
+    zeilen: Vec<Metazeile>,
+    befunde: Vec<Ladebefund>,
+}
+
+/// Liest die Metazeilen aus dem Rohtext einer Tagesdatei; ohne Tagesdatei (Tag nur in `anhaenge/`) leer.
+pub fn tag_lesen(rohtext: &[u8]) -> Tageszeilen {
+    let mut gelesen = Tageszeilen::default();
+    let (mut gezaehlt_bis, mut zeilen_davor) = (0, 0);
+    for satz in logformat::saetze(rohtext).into_iter().flatten() {
+        let text = String::from_utf8_lossy(&rohtext[satz.anfang..satz.ende]);
+        zeilen_davor += rohtext[gezaehlt_bis..satz.anfang]
+            .iter()
+            .filter(|byte| **byte == b'\n')
+            .count();
+        gezaehlt_bis = satz.anfang;
+        for (im_satz, ergebnis) in logformat::anhaenge_im_satz(&text) {
+            let zeile = zeilen_davor + im_satz;
+            match ergebnis {
+                Ok(anhang) => gelesen.zeilen.push(Metazeile {
+                    zeile,
+                    anhang,
+                    satzzeit: satz.zeit,
+                    von: satz.von.clone(),
+                }),
+                Err(befund) => gelesen.befunde.push(Ladebefund {
+                    zeile,
+                    grund: befundtext(befund),
+                    datei: None,
+                }),
+            }
+        }
+    }
+    gelesen
+}
+
+/// Die IDs, die über alle gelesenen Tage (aller Gespräche) mehr als einmal vorkommen — sie ergeben keinen Eintrag
+/// (Befund #53 B2: eine ID gehört genau einem Tag eines Gesprächs).
+pub fn doppelte_ids<'a>(tage: impl IntoIterator<Item = &'a Tageszeilen>) -> HashSet<Anhangid> {
+    let mut gesehen: HashSet<&Anhangid> = HashSet::new();
+    let mut doppelt = HashSet::new();
+    for metazeile in tage.into_iter().flat_map(|tag| &tag.zeilen) {
+        if !gesehen.insert(&metazeile.anhang.id) {
+            doppelt.insert(metazeile.anhang.id.clone());
+        }
+    }
+    doppelt
 }
 
 fn befundtext(befund: Anhangbefund) -> &'static str {
