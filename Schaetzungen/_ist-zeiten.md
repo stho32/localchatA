@@ -332,3 +332,13 @@ Nie vom User erfragen.
 | 2026-10-28 | R00011 Nachricht senden | B0326 Nachricht während des letzten Nachlade-Abrufs übernehmen | Nacharbeit | 2-4h | 0,12h | 0,12h | autonom |
 | 2026-10-28 | R00011 Nachricht senden | B0329 Auslauf baut sich mit dem Lesen ab | Nacharbeit | 2-4h | 0,20h | 0,20h | autonom |
 | 2026-10-28 | R00011 Nachricht senden | Nacharbeit #8: Mutanten, Gate | Nacharbeit | — | 0,03h | 0,03h | autonom |
+| 2026-10-29 | R00020 Senden gehärtet Teil 1 | B0338 Bestätigung nur im eigenen Channel belegt | Standard | 0,4h | 0,02h | 0,02h | autonom |
+| 2026-10-29 | R00020 Senden gehärtet Teil 1 | B0351 Leerraum beim Enter wie der Server | Standard | 0,4h | 0,03h | 0,03h | autonom |
+| 2026-10-29 | R00020 Senden gehärtet Teil 1 | B0331 Erste neue mit Kopf | Standard | 0,4h | 0,07h | 0,07h | autonom |
+| 2026-10-29 | R00020 Senden gehärtet Teil 1 | B0330 Kontext unter dem klebenden Tagestrenner | Standard | 0,4h | 0,02h | 0,02h | autonom |
+| 2026-10-29 | R00020 Senden gehärtet Teil 1 | B0332 Pille nach dem Sprung führt ans Ende | Standard | 0,4h | 0,03h | 0,03h | autonom |
+| 2026-10-29 | R00020 Senden gehärtet Teil 1 | B0333 Pille beschriften | Standard | 0,4h | 0,05h | 0,05h | autonom |
+| 2026-10-29 | R00020 Senden gehärtet Teil 1 | B0339 Folgen knapp über dem Ende im Zusammenspiel | Standard | 0,4h | 0,01h | 0,01h | autonom |
+| 2026-10-29 | R00020 Senden gehärtet Teil 1 | B0340 Markup im Nachrichtentext bleibt Text | Standard | 0,4h | 0,01h | 0,01h | autonom |
+| 2026-10-29 | R00020 Senden gehärtet Teil 1 | B0350 Fehlgeschlagene unter allen bestätigten belegt | Standard | 0,4h | 0,02h | 0,02h | autonom |
+| 2026-10-29 | R00020 Senden gehärtet Teil 1 | Lesen, Basis-Gate, Mutanten, Gate, Gelerntes | Konsolidierung | — | 0,18h | 0,18h | autonom |
