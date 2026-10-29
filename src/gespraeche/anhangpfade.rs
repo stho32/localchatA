@@ -137,14 +137,15 @@ pub fn tag_dateien(
     let mut dateien = Vec::new();
     for eintrag in rustix::fs::Dir::read_from(&tag)? {
         let eintrag = eintrag?;
-        let name = eintrag.file_name().to_string_lossy().into_owned();
-        if name == "." || name == ".." {
+        if ist_punkt(eintrag.file_name()) {
             continue;
         }
-        let stand = rustix::fs::statat(&tag, name.as_str(), AtFlags::SYMLINK_NOFOLLOW)?;
+        // Gelesen wird über den rohen Namen; ein Name ohne UTF-8 kann zu keiner Metazeile gehören und zählt mit
+        // seinem verlustbehafteten Text als Waise — er macht den Tag nicht unlesbar (Befund #53 A2).
+        let stand = rustix::fs::statat(&tag, eintrag.file_name(), AtFlags::SYMLINK_NOFOLLOW)?;
         if FileType::from_raw_mode(stand.st_mode).is_file() {
             dateien.push(Tagesdatei {
-                name,
+                name: eintrag.file_name().to_string_lossy().into_owned(),
                 laenge: u64::try_from(stand.st_size).unwrap_or(0),
             });
         }
@@ -213,22 +214,32 @@ fn leeren(ordner_fd: &OwnedFd, tiefe: usize) -> io::Result<()> {
     let mut namen = Vec::new();
     for eintrag in rustix::fs::Dir::read_from(ordner_fd)? {
         let eintrag = eintrag?;
-        let name = eintrag.file_name().to_string_lossy().into_owned();
-        if name != "." && name != ".." {
-            namen.push(name);
+        if !ist_punkt(eintrag.file_name()) {
+            namen.push(eintrag.file_name().to_owned());
         }
     }
+    // Rohe Namen: auch ein Eintrag ohne UTF-8 im Namen wird entfernt (Befund #53 A2).
     for name in namen {
-        let stand = rustix::fs::statat(ordner_fd, name.as_str(), AtFlags::SYMLINK_NOFOLLOW)?;
+        let stand = rustix::fs::statat(ordner_fd, name.as_c_str(), AtFlags::SYMLINK_NOFOLLOW)?;
         if FileType::from_raw_mode(stand.st_mode).is_dir() {
-            let unter = ordner(ordner_fd, &name)?;
+            let unter = rustix::fs::openat(
+                ordner_fd,
+                name.as_c_str(),
+                OFlags::DIRECTORY | OFlags::NOFOLLOW | OFlags::CLOEXEC | OFlags::RDONLY,
+                Mode::empty(),
+            )?;
             leeren(&unter, tiefe + 1)?;
-            rustix::fs::unlinkat(ordner_fd, name.as_str(), AtFlags::REMOVEDIR)?;
+            rustix::fs::unlinkat(ordner_fd, name.as_c_str(), AtFlags::REMOVEDIR)?;
         } else {
-            rustix::fs::unlinkat(ordner_fd, name.as_str(), AtFlags::empty())?;
+            rustix::fs::unlinkat(ordner_fd, name.as_c_str(), AtFlags::empty())?;
         }
     }
     Ok(())
+}
+
+/// `.` oder `..` eines Verzeichnisses.
+fn ist_punkt(name: &std::ffi::CStr) -> bool {
+    matches!(name.to_bytes(), b"." | b"..")
 }
 
 #[cfg(test)]

@@ -221,24 +221,24 @@ fn leeren(eingang: &rustix::fd::OwnedFd) -> io::Result<Vec<Stehengeblieben>> {
     let mut namen = Vec::new();
     for eintrag in rustix::fs::Dir::read_from(eingang)? {
         let eintrag = eintrag?;
-        let name = eintrag.file_name().to_string_lossy().into_owned();
-        if name == "." || name == ".." {
+        if matches!(eintrag.file_name().to_bytes(), b"." | b"..") {
             continue;
         }
-        namen.push(name);
+        namen.push(eintrag.file_name().to_owned());
     }
+    // Rohe Namen: auch ein Eintrag ohne UTF-8 im Namen wird geleert bzw. gemeldet (Befund #53 A2).
     for name in namen {
         let art = rustix::fs::statat(
             eingang,
-            name.as_str(),
+            name.as_c_str(),
             rustix::fs::AtFlags::SYMLINK_NOFOLLOW,
         )?;
         let typ = rustix::fs::FileType::from_raw_mode(art.st_mode);
         if typ.is_file() {
-            rustix::fs::unlinkat(eingang, name.as_str(), rustix::fs::AtFlags::empty())?;
+            rustix::fs::unlinkat(eingang, name.as_c_str(), rustix::fs::AtFlags::empty())?;
         } else {
             stehen.push(Stehengeblieben {
-                name,
+                name: name.to_string_lossy().into_owned(),
                 art: if typ.is_symlink() {
                     "symlink"
                 } else if typ.is_dir() {
@@ -584,6 +584,51 @@ mod tests {
     }
 
     /// Teildatei: `O_EXCL` (zweimal anlegen scheitert), Abschluss ohne Überschreiben (M39), Löschen beider Namen.
+    /// Befund #53 A2, Muster-Suche: eine reguläre Datei ohne UTF-8 im Namen im Eingang hält den Start nicht auf —
+    /// sie wird geleert wie jede andere.
+    #[test]
+    fn der_start_leert_auch_einen_namen_ohne_utf8() {
+        use std::os::unix::ffi::OsStrExt;
+        let wurzel = tempfile::tempdir().expect("Wegwerf-Ordner");
+        std::fs::create_dir_all(wurzel.path().join(".eingang")).expect("Eingang");
+        let kaputt = std::ffi::OsStr::from_bytes(b"\xff\xfe.teil");
+        std::fs::write(wurzel.path().join(".eingang").join(kaputt), b"x").expect("Datei");
+
+        let (_, stehen) = Anhangdateien::oeffnen(wurzel.path()).expect("geöffnet");
+
+        assert!(stehen.is_empty(), "{stehen:?}");
+        assert_eq!(
+            std::fs::read_dir(wurzel.path().join(".eingang"))
+                .expect("Eingang")
+                .count(),
+            0
+        );
+    }
+
+    /// Befund #53 A2: ein Dateiname, der kein UTF-8 ist, macht den Tag nicht unlesbar — er zählt als Datei (Waise)
+    /// mit seiner Länge, und das Entfallen des Tags entfernt ihn.
+    #[test]
+    fn ein_name_ohne_utf8_macht_den_tag_nicht_unlesbar() {
+        use std::os::unix::ffi::OsStrExt;
+        let wurzel = tempfile::tempdir().expect("Wegwerf-Ordner");
+        let tagordner = wurzel.path().join("channels/c/anhaenge/2026-10-29");
+        std::fs::create_dir_all(&tagordner).expect("Tag");
+        std::fs::write(tagordner.join("120000000-1-a.bin"), b"abc").expect("Datei");
+        let kaputt = std::ffi::OsStr::from_bytes(b"120000000-2-\xff\xfe.bin");
+        std::fs::write(tagordner.join(kaputt), b"12345").expect("Name ohne UTF-8");
+        let (ablage, _) = Anhangdateien::oeffnen(wurzel.path()).expect("geöffnet");
+        let c = Gespraech::channel("c");
+        let tag = NaiveDate::from_ymd_opt(2026, 10, 29).expect("Tag");
+
+        let dateien = ablage.tag_dateien(&c, tag).expect("lesbar");
+
+        let mut laengen: Vec<u64> = dateien.iter().map(|datei| datei.laenge).collect();
+        laengen.sort();
+        assert_eq!(laengen, vec![3, 5], "{dateien:?}");
+        ablage.tag_entfernen(&c, tag).expect("entfernt");
+        assert!(!tagordner.exists());
+    }
+
     /// Befund #53 B1: die Tage in `anhaenge/` — echte Ordner mit Tagesnamen, aufsteigend; eine Datei oder ein
     /// Symlink mit Tagesnamen, ein anderer Name und eine andere Schreibweise zählen nicht; ohne `anhaenge` keine, als
     /// Symlink ein Fehler.
