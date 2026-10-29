@@ -45,10 +45,13 @@ async function stillBeitreten(name, speicher, api, geschwister, abgelehntesToken
   if (zustand.art !== 'vergeben') {
     return zustand;
   }
-  if (abgelehntesToken !== null) {
-    tokenVergessen(speicher, abgelehntesToken);
-  }
+  // Den Speicher hier nicht anfassen (Befund #58): ohne Web Locks löscht ein removeItem aus einem veralteten Stand im
+  // Browser das eben geschriebene Token des Nachbar-Tabs, und dessen storage-Ereignis bleibt aus. Das abgelehnte
+  // Token gilt beim Lesen nicht; vergessen wird es erst, wenn nichts gelungen ist (nachAblehnung).
   let tokenEinesAnderenTabs = speicher.getItem(SITZUNG);
+  if (tokenEinesAnderenTabs === abgelehntesToken) {
+    tokenEinesAnderenTabs = null;
+  }
   if (!tokenEinesAnderenTabs) {
     tokenEinesAnderenTabs = await geschwister.neuesToken();
   }

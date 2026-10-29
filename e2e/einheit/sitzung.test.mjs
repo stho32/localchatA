@@ -330,3 +330,35 @@ test('nach Ablehnung im Strom: 409, der Nachbar schreibt erst danach → warten,
   assert.deepEqual(zustand, { art: 'kopfzeile', teilnehmer: SHOFF, token: 'neu-vom-nachbarn' });
   assert.deepEqual(aufrufe, [['beitreten', 'shoff'], ['ich', 'neu-vom-nachbarn']]);
 });
+
+// Befund #58, zweite Gestalt (r00004 B2 mit 3 Tabs unter Last, Trace: 409, kein GET ich, nach 2 s Beitreten-Bildschirm):
+// ohne Web Locks darf der Tab nach dem 409 den Speicher nicht anfassen, solange er auf den Nachbar-Tab wartet — ein
+// eigenes removeItem aus einem veralteten Stand löscht im Browser das eben geschriebene Token des Nachbarn, und dessen
+// storage-Ereignis bleibt aus. Das abgelehnte Token gilt beim Lesen schlicht nicht; vergessen wird es erst, wenn nichts
+// gelungen ist.
+test('Befund #58: nach dem 409 kein removeItem vor oder während des Wartens auf den Nachbar-Tab, Erfolg ohne removeItem', async () => {
+  const speicher = speicherMit({ [SITZUNG]: 'alt', [NAME]: 'shoff' });
+  const ablauf = [];
+  const entfernen = speicher.removeItem;
+  speicher.removeItem = (schluessel) => { ablauf.push(['removeItem', schluessel]); entfernen(schluessel); };
+  const api = {
+    beitreten: async () => VERGEBEN,
+    ich: async (token) => { ablauf.push(['ich', token]); return { serverWeg: false, status: 200, daten: SHOFF }; },
+  };
+  const geschwister = { neuesToken: async () => { ablauf.push(['warten']); return 'neu-vom-nachbarn'; } };
+
+  const zustand = await nachAblehnung(speicher, api, 'alt', geschwister);
+
+  assert.deepEqual(zustand, { art: 'kopfzeile', teilnehmer: SHOFF, token: 'neu-vom-nachbarn' });
+  assert.deepEqual(ablauf, [['warten'], ['ich', 'neu-vom-nachbarn']]);
+});
+
+test('Befund #58: gelingt nach dem 409 nichts, ist das abgelehnte Token danach vergessen', async () => {
+  const speicher = speicherMit({ [SITZUNG]: 'alt', [NAME]: 'shoff' });
+  const api = { beitreten: async () => VERGEBEN, ich: async () => ({ serverWeg: false, status: 401, daten: null }) };
+
+  const zustand = await nachAblehnung(speicher, api, 'alt', { neuesToken: async () => null });
+
+  assert.equal(zustand.art, 'vergeben');
+  assert.equal(speicher.getItem(SITZUNG), null);
+});
