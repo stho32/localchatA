@@ -5,6 +5,7 @@
 mod abriss;
 pub(crate) mod abrisspflege;
 mod allenamen;
+mod anhangquote;
 mod annahmefehler;
 mod aufruf;
 pub(crate) mod ausliefern;
@@ -121,6 +122,17 @@ pub async fn ausfuehren<I: IntoIterator<Item = String>>(argumente: I) -> u8 {
                         return FALSCHER_AUFRUF;
                     }
                 };
+            let anhangquote_wert = std::env::var_os(anhangquote::VARIABLE);
+            let anhangquote = match anhangquote::wirksame_anhangquote(
+                auftrag.anhangquote,
+                anhangquote_wert.as_deref(),
+            ) {
+                Ok(anhangquote) => anhangquote,
+                Err(fehler) => {
+                    eprintln!("{fehler}");
+                    return FALSCHER_AUFRUF;
+                }
+            };
             let ruhe_wert = std::env::var_os(episodenruhe::VARIABLE);
             let ruhe = match episodenruhe::aus_umgebung(ruhe_wert.as_deref()) {
                 Ok(ruhe) => ruhe,
@@ -164,7 +176,11 @@ pub async fn ausfuehren<I: IntoIterator<Item = String>>(argumente: I) -> u8 {
                     namensauskunft,
                     testgrenze,
                 },
-                Wirksam { stufe, quote },
+                Wirksam {
+                    stufe,
+                    quote,
+                    anhangquote,
+                },
                 ruhe,
             )
             .await
@@ -199,6 +215,7 @@ async fn starten(
     Wirksam {
         stufe: (stufe, stufe_herkunft),
         quote,
+        anhangquote,
     }: Wirksam,
     ruhe: Duration,
 ) -> Result<(), Startabbruch> {
@@ -232,6 +249,7 @@ async fn starten(
             knoepfe,
             stufe_herkunft,
             quote,
+            anhangquote,
         },
     );
     laufen.await.map_err(|fehler| {
@@ -254,12 +272,15 @@ struct Startlaeufe {
     stufe_herkunft: &'static str,
     /// Wirksame Plattenquote und woher sie kommt.
     quote: (Plattenquote, &'static str),
+    /// Wirksame Anhang-Quote und woher sie kommt.
+    anhangquote: (anhangquote::Anhangquote, &'static str),
 }
 
 /// Was beim Start aus Option, Umgebung oder Standard wirksam wurde, je mit seiner Herkunft (ADR-0043 Regel 4).
 struct Wirksam {
     stufe: (Stufe, &'static str),
     quote: (Plattenquote, &'static str),
+    anhangquote: (anhangquote::Anhangquote, &'static str),
 }
 
 /// Was von außen in den Lauf eingreift: der Testknopf für Panik und die Namensauskunft (echt oder, im
@@ -342,11 +363,16 @@ async fn nach_der_sperre(
             },
         stufe_herkunft,
         quote: (quote, quote_herkunft),
+        anhangquote: (anhangquote, _anhangquote_herkunft),
     } = startlaeufe;
     let bus = Arc::new(Bus::neu(live::KAPAZITAET));
     let gespraeche = Arc::new(
         verlauf_laden(&ordner, Arc::clone(&uhr), &protokoll)?
             .mit_quote(quote.hoechstens())
+            .mit_anhangquote(anhangquote.hoechstens())
+            .mit_plattenauskunft(Arc::new(crate::gespraeche::platte::Statvfs::neu(
+                ordner.clone(),
+            )))
             .mit_wiederholung(wiederholspeicher(testgrenze))
             .mit_quote_melden(quote_melden(&protokoll))
             .mit_verdraengt_melden(verdraengt_melden(&protokoll))

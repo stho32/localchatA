@@ -1,5 +1,6 @@
 //! Aufruf lesen: Argumente → Startauftrag, Hilfewunsch oder Aufruffehler. Rein, ohne Platte und Netz.
 
+use super::anhangquote::{self, Anhangquote};
 use super::plattenquote::{self, Plattenquote};
 use crate::protokoll::Stufe;
 use std::fmt;
@@ -7,7 +8,7 @@ use std::path::PathBuf;
 
 /// Aufrufzeile mit allen Optionen, darunter je Option eine Erklärung.
 pub const HILFE: &str = concat!(
-    "Aufruf: localchatA [<ordner>] [--port <n>] [--host <adresse>] [--kein-browser] [--erreichbar-als <name>]… [--protokoll-stufe <stufe>] [--plattenquote <größe>] [--alle-namen] [--hilfe]\n",
+    "Aufruf: localchatA [<ordner>] [--port <n>] [--host <adresse>] [--kein-browser] [--erreichbar-als <name>]… [--protokoll-stufe <stufe>] [--plattenquote <größe>] [--anhangquote <größe>] [--alle-namen] [--hilfe]\n",
     "\n",
     "  <ordner>          Ordner der Instanz, wird angelegt (Standard: aktuelles Verzeichnis)\n",
     "  --port <n>        Port; ohne Angabe 7430 oder der nächste freie, 0 wählt das System\n",
@@ -23,6 +24,10 @@ pub const HILFE: &str = concat!(
     "  --plattenquote <größe>\n",
     "                    Höchstgröße aller Gespräche (Tageslogs der Channels und Direktgespräche)\n",
     "                    wie 4GiB oder 512MiB, aus für keine Grenze; Standard 4GiB; auch über LOCALCHATA_PLATTENQUOTE\n",
+    "  --anhangquote <größe>\n",
+    "                    Höchstgröße aller Anhänge zusammen wie 20GiB oder 512MiB, aus für keine Grenze;\n",
+    "                    ist sie voll, wird Hochladen abgewiesen, bis Anhänge gelöscht werden oder entfallen;\n",
+    "                    Standard 20GiB; auch über LOCALCHATA_ANHANGQUOTE\n",
     "  --alle-namen      jeden Host-Namen annehmen, ohne Namensauflösung; auch über LOCALCHATA_ALLE_NAMEN=1\n",
     "                    Risiko: Eine fremde Website, die ein Teilnehmer öffnet, kann über DNS-Rebinding Channels mitlesen, Nachrichten schreiben und über die Frist Verläufe löschen.\n",
     "  --hilfe           diese Hilfe zeigen\n",
@@ -54,6 +59,8 @@ pub struct Startauftrag {
     pub alle_namen: bool,
     /// Quote aus `--plattenquote`, falls angegeben (ADR-0044 Regel 3).
     pub plattenquote: Option<Plattenquote>,
+    /// Anhang-Quote aus `--anhangquote`, falls angegeben (ADR-0043 Ergänzung „F1“).
+    pub anhangquote: Option<Anhangquote>,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -70,6 +77,7 @@ pub enum Aufruffehler {
     PortUngueltig(String),
     StufeUngueltig(String),
     QuoteUngueltig(String),
+    AnhangquoteUngueltig(String),
 }
 
 impl fmt::Display for Aufruffehler {
@@ -89,6 +97,14 @@ impl fmt::Display for Aufruffehler {
                 "Keine Protokollstufe: {wert} — erlaubt sind {ERLAUBTE_STUFEN}"
             ),
             Aufruffehler::QuoteUngueltig(_) => write!(f, "{}", plattenquote::Groessenfehler),
+            Aufruffehler::AnhangquoteUngueltig(wert) => write!(
+                f,
+                "{}",
+                anhangquote::Groessenfehler {
+                    quelle: anhangquote::OPTION,
+                    wert: wert.clone(),
+                }
+            ),
         }?;
         write!(f, " — Aufruf siehe localchatA --hilfe")
     }
@@ -106,6 +122,7 @@ impl Startauftrag {
             protokoll_stufe: None,
             alle_namen: false,
             plattenquote: None,
+            anhangquote: None,
         };
         let mut ordner_gelesen = false;
         let mut args = args.into_iter();
@@ -129,6 +146,12 @@ impl Startauftrag {
                     let quote = plattenquote::lesen(&wert)
                         .map_err(|_| Aufruffehler::QuoteUngueltig(wert))?;
                     auftrag.plattenquote = Some(quote);
+                }
+                "--anhangquote" => {
+                    let wert = args.next().ok_or(Aufruffehler::WertFehlt(argument))?;
+                    let quote = anhangquote::lesen(&wert)
+                        .ok_or(Aufruffehler::AnhangquoteUngueltig(wert))?;
+                    auftrag.anhangquote = Some(quote);
                 }
                 "--port" => {
                     let wert = args.next().ok_or(Aufruffehler::WertFehlt(argument))?;
@@ -199,6 +222,7 @@ mod tests {
                 protokoll_stufe: None,
                 alle_namen: false,
                 plattenquote: None,
+                anhangquote: None,
             }
         );
     }
@@ -216,6 +240,7 @@ mod tests {
                 protokoll_stufe: None,
                 alle_namen: false,
                 plattenquote: None,
+                anhangquote: None,
             }
         );
     }
@@ -469,5 +494,45 @@ mod tests {
             "{HILFE}"
         );
         assert!(HILFE.contains(HILFE_PLATTENQUOTE), "{HILFE}");
+    }
+
+    /// R00029 „Anhang-Quote einstellen“: die Option wird gelesen; ein falscher Wert nennt Option, Wert und Spanne.
+    #[test]
+    fn anhangquote_wird_gelesen_falsch_nennt_option_wert_und_spanne() {
+        assert_eq!(
+            auftrag(&["--anhangquote", "512MiB"]).anhangquote,
+            Some(Anhangquote::Bytes(536_870_912))
+        );
+        assert_eq!(
+            auftrag(&["--anhangquote", "aus"]).anhangquote,
+            Some(Anhangquote::Aus)
+        );
+        assert_eq!(auftrag(&["/tmp/x"]).anhangquote, None);
+        for falsch in ["0MiB", "20000", "20 GiB", "16385GiB", "512KiB", ""] {
+            let fehler = lies(&["--anhangquote", falsch]).expect_err(falsch);
+            assert_eq!(fehler, Aufruffehler::AnhangquoteUngueltig(falsch.into()));
+            assert_eq!(
+                fehler.to_string(),
+                format!(
+                    "--anhangquote braucht eine Größe von 1 MiB bis 16.384 GiB wie 20GiB oder 512MiB, oder aus — nicht „{falsch}“ — Aufruf siehe localchatA --hilfe"
+                )
+            );
+        }
+    }
+
+    /// Der Text der Beschreibung wörtlich, umbrochen wie die übrigen Optionen (Muster `--plattenquote`).
+    #[test]
+    fn die_hilfe_nennt_die_anhangquote_wortlich() {
+        let zeile = "--anhangquote <größe>  Höchstgröße aller Anhänge zusammen wie 20GiB oder 512MiB, aus für keine Grenze; ist sie voll, wird Hochladen abgewiesen, bis Anhänge gelöscht werden oder entfallen; Standard 20GiB; auch über LOCALCHATA_ANHANGQUOTE";
+        let woerter = |text: &str| text.split_whitespace().collect::<Vec<_>>().join(" ");
+        assert!(woerter(HILFE).contains(&woerter(zeile)), "{HILFE}");
+        assert!(
+            HILFE
+                .lines()
+                .next()
+                .unwrap_or_default()
+                .contains("[--anhangquote <größe>]"),
+            "{HILFE}"
+        );
     }
 }
