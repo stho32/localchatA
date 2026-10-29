@@ -66,12 +66,17 @@ pub async fn beantworten(
             ([(CONTENT_TYPE, "application/json")], bytes).into_response()
         }
         Ok(Err(Unbekannt)) => unbekannt(&name),
-        Ok(Ok((_, Err(fehler)))) => nicht_gelesen(&zustand, &fehler.to_string()),
+        Ok(Ok((_, Err(fehler)))) => nicht_gelesen(
+            &zustand,
+            teilnehmer.kennung.als_text(),
+            &name,
+            &fehler.to_string(),
+        ),
         Err(abbruch) => abbruch_beantworten(
             &zustand.protokoll,
             &abbruch,
             &Grenzort {
-                route: "GET /api/channels/{name}/nachrichten",
+                route: ROUTE,
                 operation: "verlauf",
                 kennung: Some(teilnehmer.kennung.als_text()),
                 channel: Some(&name),
@@ -82,14 +87,22 @@ pub async fn beantworten(
 }
 
 const NICHT_GELESEN: &str = "Verlauf nicht gelesen";
+const ROUTE: &str = "GET /api/channels/{name}/nachrichten";
 
-/// 500 mit deutschem Satz — die Ursache (oft englisch) steht nur im Betriebsprotokoll (ADR-0042 Ergänzung 6).
-fn nicht_gelesen(zustand: &Zustand, grund: &str) -> Response {
-    zustand.protokoll.eintragen(
-        Stufe::Error,
+/// Ein Block ließ sich nicht serialisieren — eine verletzte Annahme (ADR-0042 Ergänzung #24 Punkt 4): EXCEPTION
+/// mit Ort und `grund=serialisierung`, der Fremdtext von `serde_json` nur in `ursache`; 500 mit deutschem Satz.
+fn nicht_gelesen(zustand: &Zustand, kennung: &str, channel: &str, ursache: &str) -> Response {
+    zustand.protokoll.exception(
         Bereich::Verlauf,
-        "Verlauf nicht gelesen",
-        Kontext::neu().mit(Schluessel::Grund, grund),
+        "Verlauf nicht gelesen — Block ließ sich nicht serialisieren",
+        Kontext::neu()
+            .mit(Schluessel::Route, ROUTE)
+            .mit(Schluessel::Operation, "verlauf")
+            .mit(Schluessel::Status, 500)
+            .mit(Schluessel::Channel, channel)
+            .mit(Schluessel::Kennung, kennung)
+            .mit(Schluessel::Grund, "serialisierung")
+            .mit(Schluessel::Ursache, ursache),
     );
     interner_fehler(NICHT_GELESEN)
 }
@@ -316,7 +329,7 @@ mod tests {
     #[tokio::test]
     async fn ein_abgebrochener_verlauf_ist_500_mit_grund() {
         let zustand = crate::http::testserver::zustand(std::path::Path::new("/tmp"));
-        let antwort = nicht_gelesen(&zustand, "Werkbank geschlossen");
+        let antwort = nicht_gelesen(&zustand, "beta@127.0.0.1", "allgemein", "Probe");
 
         assert_eq!(antwort.status(), StatusCode::INTERNAL_SERVER_ERROR);
         let koerper = axum::body::to_bytes(antwort.into_body(), 1024)
@@ -329,29 +342,42 @@ mod tests {
         );
     }
 
-    /// Code-Review #24 B1, Abnahme-Probe 7: genau eine ERROR-Zeile mit dem Grund; die Antwort nennt ihn nicht.
-    /// R00018 (B0304) stellt den Eintrag auf EXCEPTION um und passt diesen Test an.
+    /// R00018 F0059 (ADR-0042 Ergänzung #24 Punkt 4; ersetzt Code-Review #24 B1, Abnahme-Probe 7): ein
+    /// Serialisierungsfehler ist eine verletzte Annahme — genau eine EXCEPTION mit Ort, festem `grund` und dem
+    /// Fremdtext in `ursache`; `exceptions` steigt, `errors` nicht; die Antwort nennt den Fremdtext nicht.
     #[tokio::test]
-    async fn nicht_gelesen_ist_genau_ein_error_mit_grund_den_die_antwort_nicht_nennt() {
+    async fn nicht_serialisierbar_ist_genau_eine_exception_mit_ursache_den_die_antwort_nicht_nennt()
+    {
         use crate::protokoll::testhilfe::im_speicher;
         let mut zustand = crate::http::testserver::zustand(std::path::Path::new("/tmp"));
         let (protokoll, speicher, _, _) =
             im_speicher("2026-10-28T12:00:00+01:00", Stufe::Information);
         zustand.protokoll = protokoll;
 
-        let antwort = nicht_gelesen(&zustand, "key must be a string");
+        let antwort = nicht_gelesen(
+            &zustand,
+            "beta@127.0.0.1",
+            "allgemein",
+            "key must be a string",
+        );
 
+        assert_eq!(antwort.status(), StatusCode::INTERNAL_SERVER_ERROR);
         assert_eq!(
             speicher.zeilen(),
             [
-                "2026-10-28T12:00:00.000+01:00 ERROR verlauf Verlauf nicht gelesen | grund=\"key must be a string\""
+                "2026-10-28T12:00:00.000+01:00 EXCEPTION verlauf Verlauf nicht gelesen — Block ließ sich nicht serialisieren | route=\"GET /api/channels/{name}/nachrichten\" operation=verlauf status=500 channel=allgemein kennung=beta@127.0.0.1 grund=serialisierung ursache=\"key must be a string\""
             ]
         );
+        let zaehler = zustand.protokoll.zaehlerstand();
+        assert_eq!((zaehler.exceptions, zaehler.errors), (1, 0));
         let koerper = axum::body::to_bytes(antwort.into_body(), 1024)
             .await
             .expect("Körper");
-        let text = String::from_utf8_lossy(&koerper);
-        assert!(!text.contains("key must be"), "{text}");
+        let json: serde_json::Value = serde_json::from_slice(&koerper).expect("JSON");
+        assert_eq!(
+            json["fehler"],
+            "Interner Fehler — Verlauf nicht gelesen; bitte erneut versuchen"
+        );
     }
 
     /// B0210: Verlauf, Antwort und Ereignis serialisieren dieselbe Form `{zeit, von, art, text}`; ohne Metazeile
