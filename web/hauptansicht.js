@@ -117,7 +117,7 @@ export function zeichnen(wurzel, teilnehmer, optionen) {
     ansagen.melden({ art: 'gewechselt' });
   };
   const auswahlFolgen = auswahlEinrichten({
-    seitenleiste: channels, kopf, mitte, verlauf, eingabe, beiAuswahl, beiOeffnen,
+    seitenleiste: channels, kopf, mitte, verlauf, eingabe, beiAuswahl, beiOeffnen, erneutWaehlen: wieder.erneutWaehlen,
   }, vorigeAnsichtAbmelden.signal);
   return {
     region: zeilen,
@@ -140,8 +140,8 @@ export function zeichnen(wurzel, teilnehmer, optionen) {
 }
 
 // Getrennt heißt Strom unterbrochen oder Netz des Tabs aus (wiederverbinden.js): die Leiste oben im Verlauf sagt es,
-// die Warteschlange ruht. Wieder verbunden → Ereignisse wieder annehmen, für den offenen Channel nachholen
-// (nachhollauf.js), erst nach dem Gelingen 4 s melden und weitersenden — so stehen fremde Nachrichten aus der Trennung
+// die Warteschlange ruht. Wieder verbunden → Ereignisse wieder annehmen, für den offenen Channel nachholen — oder,
+// war er nie geladen, ihn laden (nachhollauf.js) —, erst nach dem Gelingen 4 s melden und weitersenden — so stehen fremde Nachrichten aus der Trennung
 // vor den eigenen gepufferten (ADR-0037 Regel 7). Scheitert das Nachholen, bleibt die Leiste „Verbindung verloren“.
 // Die Leiste liegt über der Mitte, nicht im Verlauf — mit und ohne offenen Channel, einmal je Hauptansicht; Ein- und
 // Ausblenden verschiebt nichts (ADR-0038 Ergänzung Karte #36).
@@ -195,6 +195,7 @@ function wiederverbindenEinrichten({ mitte, verlauf, senden, abrufen, ansagen },
     abrufen,
     annehmen: (nachrichten) => verlauf.nachgeholtAnnehmen(nachrichten),
     neuOeffnen: (channel) => verlauf.oeffnen(channel),
+    laden: (channel, signal) => verlauf.oeffnen(channel, signal),
     gescheitert: (naechsterVersuchUm) => {
       naechsterVersuch.nachholen = naechsterVersuchUm;
       leisteZeigen();
@@ -246,7 +247,17 @@ function wiederverbindenEinrichten({ mitte, verlauf, senden, abrufen, ansagen },
 
   window.addEventListener('offline', () => melden({ art: 'netz', online: false }), { signal });
   window.addEventListener('online', () => melden({ art: 'netz', online: true }), { signal });
-  return { melden, channelGewechselt: lauf.channelGewechselt };
+  // Eine neue Wahl des offenen Channels: läuft ein Laden-Lauf, zieht sie dessen Versuch vor — kein zweites Öffnen
+  // daneben (ADR-0037 7i); sonst versucht der Verlauf es nach „Verlauf nicht geladen“ erneut (R00007).
+  function erneutWaehlen() {
+    if (lauf.laedt()) {
+      lauf.jetztVersuchen();
+      return;
+    }
+    verlauf.erneutVersuchen();
+  }
+
+  return { melden, channelGewechselt: lauf.channelGewechselt, erneutWaehlen };
 }
 
 function zeitpunktDesStroms({ zustand, naechsterVersuchUm }) {
@@ -325,7 +336,7 @@ function fokusOrt(verlauf) {
 
 // Liefert channelsZeigen(liste): die Liste ist erst mit dem ersten Stand bekannt — bis dahin bleibt ein
 // gewählter Name ohne Urteil, damit „gibt es nicht“ nie vor dem Stand erscheint.
-function auswahlEinrichten({ seitenleiste, kopf, mitte, verlauf, eingabe, beiAuswahl, beiOeffnen }, signal) {
+function auswahlEinrichten({ seitenleiste, kopf, mitte, verlauf, eingabe, beiAuswahl, beiOeffnen, erneutWaehlen }, signal) {
   const adresse = startadresse(window.location.hash, window.sessionStorage.getItem(MERKER));
   if (adresse !== null) {
     window.history.replaceState(null, '', adresse);
@@ -363,7 +374,7 @@ function auswahlEinrichten({ seitenleiste, kopf, mitte, verlauf, eingabe, beiAus
   seitenleiste.nav.addEventListener('click', (ereignis) => {
     const verweis = ereignis.target.closest('a[data-channel]');
     if (verweis !== null && verweis.dataset.channel === offen) {
-      verlauf.erneutVersuchen();
+      erneutWaehlen();
     }
   }, { signal });
   // Alt ↓ / Alt ↑ wählt wie ein Klick über die Adresse; der Fokus bleibt, wo er ist (ADR-0027 Regel 4).

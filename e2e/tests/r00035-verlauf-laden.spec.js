@@ -3,7 +3,12 @@
 // echten Browser, mit einem Ersatz für den Abruf, den der Test Schritt für Schritt beantwortet. `oeffnen(channel,
 // signal)` liefert { art: 'geladen' | 'fehler' | 'abgebrochen' }; `stand()` meldet `gescheitert`.
 const { test, expect } = require('./rahmen');
-const { sendenStarten } = require('./senden-hilfen');
+const { sendenStarten, imBrowserBeitreten } = require('./senden-hilfen');
+const { freierPort, fehlerSammeln } = require('./hilfen');
+const { leiste } = require('./r00012-hilfen');
+
+const VERLAUF = '/api/channels/allgemein/nachrichten';
+const link = (page, name) => page.getByRole('navigation', { name: 'Channels' }).getByRole('link', { name, exact: true });
 
 let instanz;
 test.afterEach(async () => {
@@ -156,4 +161,46 @@ test('während des neuen Ladens live Angekommenes steht nach dem Laden genau ein
   }, BLOCK);
 
   await expect.poll(() => texte(page)).toEqual(['v1', 'v2', 'v3', 'v4']);
+});
+
+// R00035 B0562 „Hauptansicht verdrahtet das Laden“ (ADR-0037 7i; Pre-Mortem 1): scheitert das Laden nach der Rückkehr
+// weiter (500), zieht eine neue Wahl desselben Channels den nächsten Versuch vor — ein Abruf sofort, der geplante
+// entfällt, kein zweites Öffnen daneben. Mutante „die Wahl ruft erneutVersuchen“ → ein Abruf mehr beim geplanten
+// Neuversuch.
+test('Wahl desselben Channels während des Laden-Laufs: sofort ein Versuch, der geplante entfällt', async ({ browser }) => {
+  test.setTimeout(60000);
+  instanz = await sendenStarten({ port: await freierPort() });
+  const kontext = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+  const page = await kontext.newPage();
+  const fehler = fehlerSammeln(page, { serverWegErwartet: true, zusaetzlich: { [VERLAUF]: [500] } });
+  await imBrowserBeitreten(page, instanz.adresse, 'shoff');
+  await expect(page.getByText('Noch keine Nachrichten in # allgemein.')).toBeVisible();
+  const oeffnungen = [];
+  page.on('request', (anfrage) => {
+    const ziel = new URL(anfrage.url());
+    if (ziel.pathname === VERLAUF && !ziel.searchParams.has('nach')) {
+      oeffnungen.push(Date.now());
+    }
+  });
+  const verlaufsAbruf = (adresse) => adresse.pathname === VERLAUF;
+  await page.route(verlaufsAbruf, (route) => route.fulfill({ status: 500, body: '' }));
+  await link(page, 'technik').click();
+  await link(page, 'allgemein').click();
+  await expect(page.getByRole('alert')).toHaveText('⚠ Verlauf nicht geladen — Verbindung prüfen.');
+
+  await instanz.beenden();
+  await expect(leiste(page)).toHaveText(/^⚠ Verbindung verloren/);
+  await instanz.starten();
+  await expect.poll(() => oeffnungen.length, { timeout: 10000 }).toBe(3);
+  await link(page, 'allgemein').click();
+  await expect.poll(() => oeffnungen.length, { timeout: 1000 }).toBe(4);
+  await page.waitForTimeout(2500);
+
+  expect(oeffnungen.length).toBe(4);
+  await expect(leiste(page)).toHaveText(/^⚠ Verbindung verloren/);
+  await page.unroute(verlaufsAbruf);
+  await link(page, 'allgemein').click();
+  await expect(leiste(page)).toHaveText('✓ Wieder verbunden · Verlauf geladen');
+  await expect(page.getByText('Noch keine Nachrichten in # allgemein.')).toBeVisible();
+  expect(fehler).toEqual([]);
 });
