@@ -360,3 +360,10 @@ Nie vom User erfragen.
 | 2026-10-29 | R00024 Netznamen | B0377 Alle Namen annehmen | Standard | — | 0,02h | 0,02h | autonom |
 | 2026-10-29 | R00024 Netznamen | B0378 Alle Namen sichtbar machen | Standard | — | 0,05h | 0,05h | autonom |
 | 2026-10-29 | R00024 Netznamen | Lesen, Angriffsmatrix L2, 17 Mutanten, Testgrenzen, Gate, Gelerntes | Konsolidierung | — | 1,17h | 1,17h | autonom |
+| 2026-10-29 | R00012 Senden bei Störungen | B0390 Nacharbeit: Lücke und Live-Strom zusammenführen | Nacharbeit | — | 0,07h | 0,07h | autonom |
+| 2026-10-29 | R00012 Senden bei Störungen | B0391 Nacharbeit: Zusammenführen verdrahten (mit Nachbesserung leerer Channel) | Nacharbeit | — | 0,27h | 0,27h | autonom |
+| 2026-10-29 | R00012 Senden bei Störungen | B0392 Nacharbeit: Zeitgrenze im Nachhol-Abruf 10 s | Nacharbeit | — | 0,07h | 0,07h | autonom |
+| 2026-10-29 | R00012 Senden bei Störungen | B0393 Nacharbeit: Gescheitertes Nachholen hält die Lücke offen | Nacharbeit | — | 0,13h | 0,13h | autonom |
+| 2026-10-29 | R00012 Senden bei Störungen | B0394 Nacharbeit: Entwurf beim schnellen Channelwechsel belegt (mit Nachschärfung) | Nacharbeit | — | 0,33h | 0,33h | autonom |
+| 2026-10-29 | R00012 Senden bei Störungen | B0395 Nacharbeit: Takt der Sammelansage belegt | Nacharbeit | — | 0,02h | 0,02h | autonom |
+| 2026-10-29 | R00012 Senden bei Störungen | Nacharbeit: Lesen, Zeittests unter Last, Gate, US-14-Diagnose | Nacharbeit | — | 1,00h | 1,00h | autonom |
