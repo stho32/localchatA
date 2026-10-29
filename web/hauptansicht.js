@@ -73,6 +73,8 @@ export function zeichnen(wurzel, teilnehmer, optionen) {
   channels.channelsZeigen([]);
   const verlauf = verlaufAnlegen({
     abrufen: optionen.verlaufAbrufen,
+    fokusRueckgaengig: (schluessel) => senden.rueckgaengigFokussiert(schluessel),
+    fokusVerloren: () => eingabe.fokussieren(),
     schalter: (aktion, schluessel) => {
       if (aktion === 'rueckgaengig') {
         verlauf.nachRueckgaengigFokussieren(schluessel);

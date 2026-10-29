@@ -4,7 +4,7 @@
 // wechsel) prüft e2e/einheit/zustellung.test.mjs mit gestellter Zeit.
 const { test, expect } = require('@playwright/test');
 const { sendenStarten, kontextOeffnen, imBrowserBeitreten, eingabe } = require('./senden-hilfen');
-const { ROUTE, vorlaeufige, saetzeMit, sendungenMitschreiben } = require('./r00012-hilfen');
+const { ROUTE, vorlaeufige, saetzeMit, sendungenMitschreiben, ansageRegion } = require('./r00012-hilfen');
 const { GERAETE, geraetOeffnen, box, knopf } = require('./r00027-hilfen');
 
 let instanz;
@@ -181,5 +181,75 @@ test('Verfallen (Z15): nach 4 s noch da, spätestens 7 s nach dem Klick weg, kei
   expect(nachVierSekunden).toBe(1);
   expect(dauer).toBeLessThanOrEqual(Z15_SPAETESTENS_MS);
   expect(saetzeMit(instanz.ordner, 'allgemein', 'drei')).toBe(0);
+  expect(unerwartet(a.fehler)).toEqual([]);
+});
+
+// „Nur Tastatur“ (UX-Vorprüfung #36 Muss V2, wörtlich: „‚Verwerfen‘ mit `Enter` → die Ansage-Region enthält ‚Verworfen‘.
+// Einmal `Shift Tab` aus dem Feld (Pille verborgen) → Fokus auf ‚Rückgängig‘. `Enter` → `drei` zurück, Fokus auf
+// ‚Erneut senden‘, kein `POST`. Variante: Fokus auf ‚Rückgängig‘ lassen bis zum Verfall → `document.activeElement` ist das
+// Feld.“) Der volle Ansagetext lautet „Verworfen · Rückgängig ist 5 Sekunden lang möglich“.
+async function dreiFehlgeschlagenPerTastatur(page) {
+  await erstenPostAbbrechen(page);
+  await eingabe(page).fill('drei');
+  await eingabe(page).press('Enter');
+  await expect(vorlaeufige(page).locator('.lc-send')).toHaveText('⚠ Keine Antwort vom Server.');
+  await vorlaeufige(page).getByRole('button', { name: 'Verwerfen' }).focus();
+  await page.keyboard.press('Enter');
+  await expect(rueckgaengig(page)).toBeVisible();
+  await expect(eingabe(page)).toBeFocused();
+}
+
+test('Nur Tastatur: Verwerfen angesagt, Shift Tab auf „Rückgängig“, Enter bringt drei zurück', async ({ browser }) => {
+  instanz = await sendenStarten();
+  const a = await kontextOeffnen(browser);
+  await imBrowserBeitreten(a.page, instanz.adresse, 'shoff');
+  const sendungen = sendungenMitschreiben(a.page);
+
+  await dreiFehlgeschlagenPerTastatur(a.page);
+  await expect(ansageRegion(a.page)).toHaveText('Verworfen · Rückgängig ist 5 Sekunden lang möglich');
+  await expect(a.page.locator('.lc-pill')).toBeHidden();
+  await a.page.keyboard.press('Shift+Tab');
+  await expect(rueckgaengig(a.page)).toBeFocused();
+  await a.page.keyboard.press('Enter');
+
+  await expect(vorlaeufige(a.page).locator('.lc-body')).toHaveText(['drei']);
+  await expect(vorlaeufige(a.page).getByRole('button', { name: 'Erneut senden' })).toBeFocused();
+  await a.page.waitForTimeout(300);
+  expect(sendungen.map((sendung) => sendung.text)).toEqual(['drei']);
+  expect(unerwartet(a.fehler)).toEqual([]);
+});
+
+test('Nur Tastatur (Variante): bleibt der Fokus auf „Rückgängig“ bis zum Verfall, liegt er danach im Feld', async ({ browser }) => {
+  test.setTimeout(30000);
+  instanz = await sendenStarten();
+  const a = await kontextOeffnen(browser);
+  await imBrowserBeitreten(a.page, instanz.adresse, 'shoff');
+
+  await dreiFehlgeschlagenPerTastatur(a.page);
+  await a.page.keyboard.press('Shift+Tab');
+  await expect(rueckgaengig(a.page)).toBeFocused();
+  await expect(verworfen(a.page)).toHaveCount(0, { timeout: 10000 });
+
+  await expect(eingabe(a.page)).toBeFocused();
+  expect(await a.page.evaluate(() => document.activeElement === document.body)).toBe(false);
+  expect(unerwartet(a.fehler)).toEqual([]);
+});
+
+// „Fokus verlängert“ im Tab (V2, zur Regel im Node-Test): Fokus auf „Rückgängig“ 3 s nach „Verwerfen“ → 6 s nach dem
+// Klick steht die Zeile noch (ohne Fokus wäre sie nach 5 s weg).
+test('Fokus auf „Rückgängig“ verlängert die 5 s im Tab', async ({ browser }) => {
+  test.setTimeout(30000);
+  instanz = await sendenStarten();
+  const a = await kontextOeffnen(browser);
+  await imBrowserBeitreten(a.page, instanz.adresse, 'shoff');
+  await dreiFehlgeschlagenPerTastatur(a.page);
+  const beginn = Date.now();
+
+  await a.page.waitForTimeout(3000);
+  await a.page.keyboard.press('Shift+Tab');
+  await expect(rueckgaengig(a.page)).toBeFocused();
+  await a.page.waitForTimeout(Math.max(0, 6000 - (Date.now() - beginn)));
+
+  await expect(verworfen(a.page)).toHaveCount(1);
   expect(unerwartet(a.fehler)).toEqual([]);
 });

@@ -97,7 +97,16 @@ export function sendenEinrichten({
     },
     verbunden: () => anwenden(zustellen(zustellung.zustand, { art: 'verbunden' })),
     // „Erneut senden“ | „Verwerfen“ an einer fehlgeschlagenen Nachricht.
-    schalter: (aktion, schluessel) => anwenden(zustellen(zustellung.zustand, { art: aktion, schluessel, jetzt: jetzt() })),
+    schalter: (aktion, schluessel) => {
+      anwenden(zustellen(zustellung.zustand, { art: aktion, schluessel, jetzt: jetzt() }));
+      if (aktion === 'verwerfen') {
+        ansagen({ art: 'sofort', text: 'Verworfen · Rückgängig ist 5 Sekunden lang möglich' });
+      }
+    },
+    // Fokus auf „Rückgängig“ setzt die 5 s neu (R00025 F0085, V2).
+    rueckgaengigFokussiert: (schluessel) => {
+      anwenden(zustellen(zustellung.zustand, { art: 'fokusRueckgaengig', schluessel, jetzt: jetzt() }));
+    },
   };
 }
 

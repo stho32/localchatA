@@ -16,7 +16,7 @@ import { einordnen, zusammenfuehren, buendlerAnlegen, folgenOderZaehlen, pillenT
 // am Ende folgt der Blick, sonst zählt die Pille „n neue Nachrichten“; vorlaeufigeZeigen(liste) zeichnet eigene
 // Nachrichten unterwegs oder fehlgeschlagen unter allen bestätigten; an fehlgeschlagenen rufen „Erneut senden“ und
 // „Verwerfen“ schalter('erneut' | 'verwerfen', schluessel) (ADR-0038 Regel 5).
-export function verlaufAnlegen({ abrufen, schalter = () => {} }) {
+export function verlaufAnlegen({ abrufen, schalter = () => {}, fokusRueckgaengig = () => {}, fokusVerloren = () => {} }) {
   const inhalt = element('div', { className: 'lc-log-inhalt' });
   const ausstehend = element('div', { className: 'lc-ausstehend' });
   const auslauf = element('div', { className: 'lc-auslauf' });
@@ -426,11 +426,43 @@ export function verlaufAnlegen({ abrufen, schalter = () => {} }) {
     langeEinklappen(nurNachrichten(knoten));
   }
 
+  // Neu gezeichnet bleibt der Fokus auf seinem Schalter; gibt es ihn nicht mehr (die verworfene ist verfallen), geht er
+  // ins Feld, nie auf body (R00025 F0085, V2).
   function ausstehendZeichnen() {
+    const fokussiert = fokussierterSchalter();
     const eigene = vorlaeufige.filter((vorlaeufig) => vorlaeufig.channel === offenerName);
     ausstehend.replaceChildren(...eigene.map((vorlaeufig) => vorlaeufigZeichnen(vorlaeufig, eigeneKennung)));
+    if (fokussiert !== null) {
+      fokusZurueck(fokussiert);
+    }
     erneutSendenFokussieren();
   }
+
+  function fokussierterSchalter() {
+    const aktiv = document.activeElement;
+    if (aktiv === null || !ausstehend.contains(aktiv) || aktiv.dataset.aktion === undefined) {
+      return null;
+    }
+    return { aktion: aktiv.dataset.aktion, schluessel: aktiv.closest('[data-schluessel]').dataset.schluessel };
+  }
+
+  let fokusWirdZurueckgelegt = false;
+  function fokusZurueck({ aktion, schluessel }) {
+    const derselbe = ausstehend.querySelector(`[data-schluessel="${CSS.escape(schluessel)}"] button[data-aktion="${aktion}"]`);
+    if (derselbe === null) {
+      fokusVerloren();
+      return;
+    }
+    fokusWirdZurueckgelegt = true;
+    derselbe.focus();
+    fokusWirdZurueckgelegt = false;
+  }
+  ausstehend.addEventListener('focusin', (ereignis) => {
+    const aufRueckgaengig = ereignis.target.matches('button[data-aktion="rueckgaengig"]');
+    if (aufRueckgaengig && !fokusWirdZurueckgelegt) {
+      fokusRueckgaengig(ereignis.target.closest('[data-schluessel]').dataset.schluessel);
+    }
+  });
 
   // Nach „Rückgängig“ liegt der Fokus auf „Erneut senden“ der Nachricht, sobald sie wieder gezeichnet ist (R00025 F0085).
   let fokusAufErneut = null;
