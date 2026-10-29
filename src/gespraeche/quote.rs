@@ -8,6 +8,27 @@ use std::sync::atomic::{AtomicU64, Ordering};
 /// gemessen — anheben ist ein Commit.
 pub const STANDARD_BYTES: u64 = 4 * 1024 * 1024 * 1024;
 
+/// Richtung eines Wechsels über die Warnschwelle von 90 % (ADR-0044 Regel 7).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Richtung {
+    NachOben,
+    NachUnten,
+}
+
+/// Ob `belegt` über 90 % von `hoechstens` liegt: `belegt × 10 > hoechstens × 9`, ganzzahlig.
+pub fn ueber_90(belegt: u64, hoechstens: u64) -> bool {
+    u128::from(belegt) * 10 > u128::from(hoechstens) * 9
+}
+
+/// Der Wechsel über die Warnschwelle zwischen zwei Ständen, sonst keiner — ein Zustandswechsel, keine Episode.
+pub fn wechsel(vorher: u64, nachher: u64, hoechstens: u64) -> Option<Richtung> {
+    match (ueber_90(vorher, hoechstens), ueber_90(nachher, hoechstens)) {
+        (false, true) => Some(Richtung::NachOben),
+        (true, false) => Some(Richtung::NachUnten),
+        _ => None,
+    }
+}
+
 /// Zähler der Bytes, die die Gespräche belegen (ADR-0044 Regel 2): Σ Rohtext aller Tage im Verlaufsindex.
 #[derive(Debug, Default)]
 pub(super) struct Belegung {
@@ -322,5 +343,37 @@ pub(super) mod tests {
 
         assert_eq!(gespraeche.belegt(), 740);
         assert_eq!(summe_im_index(&gespraeche), 740);
+    }
+
+    /// B0361 (R00023 F0076 „Schwelle als Zustandswechsel“, Quote 1.000). Mutanten „`>=` statt `>`“ und „Wechsel
+    /// bei jedem Senden über 90 %“ werden rot.
+    #[test]
+    fn die_schwelle_meldet_nur_den_wechsel() {
+        use super::{Richtung, wechsel};
+        for (vorher, nachher, erwartet) in [
+            (880, 900, None),
+            (900, 901, Some(Richtung::NachOben)),
+            (901, 980, None),
+            (980, 901, None),
+            (901, 900, Some(Richtung::NachUnten)),
+            (950, 100, Some(Richtung::NachUnten)),
+            (100, 950, Some(Richtung::NachOben)),
+            (100, 100, None),
+        ] {
+            assert_eq!(
+                wechsel(vorher, nachher, 1_000),
+                erwartet,
+                "{vorher} → {nachher}"
+            );
+        }
+    }
+
+    /// Rechenbeispiel Standard: 4 GiB, Warnschwelle ab 3.865.470.567 Bytes; ohne Überlauf auch an der Obergrenze.
+    #[test]
+    fn die_schwelle_der_standardquote_liegt_bei_3_6_gib() {
+        use super::{STANDARD_BYTES, ueber_90};
+        assert!(!ueber_90(3_865_470_566, STANDARD_BYTES));
+        assert!(ueber_90(3_865_470_567, STANDARD_BYTES));
+        assert!(ueber_90(u64::MAX, u64::MAX));
     }
 }
