@@ -4,6 +4,7 @@ Rollen dieses Projekts aus der Kollektion der Factory (`/factory rollen`). Das K
 
 | Rolle | Kürzel | Einsatz |
 |---|---|---|
+| product-owner | po | Rückfragen der Rollen im Sinne der Vision entscheiden (Referenzprodukte erlaubt), Protokoll `AI-Team/po-entscheidungen.md`; dem Betreiber nur Richtungsweisendes; Rechenschaft und Kurskorrektur auf Ansage (Betreiber 2026-10-29) |
 | planer | plan | Spalte Bereit: Interaction bis Bubble verfeinern, Anforderung über `/anforderung aus-slice`; Befunde einplanen |
 | architekt | arch | Technikwahl vor dem ersten Bau (Rust-Stack, Ablage der rotierenden Logs, Live-Kanal, Suche bei 100.000 Nachrichten) als Architektur-Modell und ADRs; Umbauten |
 | entwickler | entw | Interactions bauen, Test zuerst, Gate; Befundkarten |
