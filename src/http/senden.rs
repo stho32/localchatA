@@ -486,19 +486,19 @@ pub enum Sendekoerperfehler {
 }
 
 /// Text und Anhänge aus dem Körper `{"text": "…", "anhaenge"?: ["<id>", …]}` (B0439, ADR-0034 Regel 3.3 mit
-/// Ergänzung Karte #9): jedes weitere Feld wird abgewiesen; `anhaenge` höchstens 10, keine doppelt.
+/// Ergänzung Karte #9, Reihenfolge nach Karte #47): erst jedes weitere Feld, dann der Typ von `text`; `anhaenge` höchstens 10, keine doppelt.
 pub fn sendekoerper_lesen(wert: &Value) -> Result<(&str, Vec<Anhangid>), Sendekoerperfehler> {
     let objekt = wert.as_object().ok_or(Sendekoerperfehler::Text)?;
-    let text = objekt
-        .get("text")
-        .and_then(Value::as_str)
-        .ok_or(Sendekoerperfehler::Text)?;
     if let Some(feld) = objekt
         .keys()
         .find(|feld| *feld != "text" && *feld != "anhaenge")
     {
         return Err(Sendekoerperfehler::Feld { feld: feld.clone() });
     }
+    let text = objekt
+        .get("text")
+        .and_then(Value::as_str)
+        .ok_or(Sendekoerperfehler::Text)?;
     let liste = match objekt.get("anhaenge") {
         None => return Ok((text, Vec::new())),
         Some(Value::Array(liste)) if liste.len() <= ANHAENGE_HOECHSTENS => liste,
@@ -764,6 +764,20 @@ mod tests {
             Err(Sendekoerperfehler::Feld {
                 feld: "antwort".into()
             })
+        );
+    }
+
+    /// B0548 (ADR-0034 Ergänzung Karte #47): das weitere Feld vor dem Typfehler von `text` — `{"x":1}` nennt `x`,
+    /// `{"text":1,"x":1}` ebenso; `{"text":1}` bleibt `Text`.
+    #[test]
+    fn ein_weiteres_feld_kommt_vor_dem_typfehler_von_text() {
+        let feld = |name: &str| Err(Sendekoerperfehler::Feld { feld: name.into() });
+        assert_eq!(sendekoerper_lesen(&json!({"x": 1})), feld("x"));
+        assert_eq!(sendekoerper_lesen(&json!({"text": 1, "x": 1})), feld("x"));
+        assert_eq!(sendekoerper_lesen(&json!({"y": 1})), feld("y"));
+        assert_eq!(
+            sendekoerper_lesen(&json!({"text": 1})),
+            Err(Sendekoerperfehler::Text)
         );
     }
 }
