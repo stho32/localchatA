@@ -40,7 +40,7 @@ Ausgeschlossen:
 - Die Gesamtgrenzen passen zum Profil: Verbindungen gesamt `min(512, Deskriptoren/2)` bei ≈ 240 Bedarf, Sitzungen gesamt 512 bei 70 bzw. 140, Channels gesamt 256 bei 50 aktiven.
 - Das Schreibkonto je Kennung passt.
 - Das Schreibkonto je Herkunft (Vorrat 120, 8/s) ist ein Grenzfall, der an der Dauer einer Spitze hängt. Der Betreiber kennt sie nicht; nach der Entscheidung des Directors (2026-10-28) bleibt es wie gebaut, und die Auslegung folgt der Messung im Betrieb (F0057, R00016).
-- Die Auslegung des Verlaufs auf 3–5 Mio Nachrichten ist eine Probe vor I0011, keine Anforderung (Notiz an I0011 in der WBS).
+- Die Auslegung des Verlaufs auf 3–5 Mio. Nachrichten ist eine Probe vor I0011, keine Anforderung (Notiz an I0011 in der WBS).
 
 ### Betroffene Komponenten
 
@@ -85,11 +85,11 @@ Die drei Konstanten werden je mit ihrer Herleitung aus dem Lastprofil im Komment
 - `src/start/verbindungen.rs`: Grenze je Gegenstelle = 160 bei ausreichenden Deskriptoren. Heute rot (64).
 - `src/anwesenheit/bestand.rs`: 128 Beitritte einer Herkunft ergeben Erfolg, der 129. `ZuVieleSitzungen`. Heute rot beim 65.
 - `src/gespraeche/verzeichnis.rs`: 128 Anlagen von `10.0.0.1` ergeben Erfolg, die 129. `Grenze {herkunft, 128}`. Heute rot bei der 33.
-- `src/http/koerper.rs` mit `tokio::time::pause`: ein Strom liefert 10 Bytes von angekündigten 4.096 und dann nichts → nach 9,999 s wird noch gelesen, nach 10,000 s kommt `Zeitueberschreitung`. Heute rot: liest endlos.
+- `src/http/koerper.rs` mit `tokio::time::pause`: ein Strom liefert 10 Bytes von angekündigten 4.096 und dann nichts → nach 9,999 s wird noch gelesen, nach 10,000 s kommt `ZuLangsam`. Heute rot: liest endlos.
 
 ### Code-Extraktion für isoliertes Testing
 
-- Die Frist ist ein Parameter von `begrenzt_lesen`, die Konstante setzt der Aufrufer — so ist sie mit pausierter Zeit testbar.
+- Die Frist ist ein Parameter der Lesefunktion (gebaut: `roh_lesen`, über `lesen_mit_umstaenden` aus `json_lesen`; ADR-0010 Nachzug Karte #28), die Konstante setzt der Aufrufer — so ist sie mit pausierter Zeit testbar.
 - Die Grenzen bleiben Konstanten neben ihrer Prüfung; die bestehenden reinen Tests übernehmen die neue Spanne.
 
 ### Regressionstests
@@ -129,7 +129,7 @@ Gemeinsam: Start mit `localchatA <ordner> --port 0 --host 127.0.0.1 --kein-brows
 
 ### G4 Lesefrist für den Körper (Unit und Integration; Abnahme-Probe des Security-Reviews zu #21)
 
-- [ ] **Unit** (`tokio::time::pause`): 10 Bytes von angekündigten 4.096, danach Stille → nach 9,999 s keine Entscheidung, nach 10,000 s `Zeitueberschreitung`.
+- [ ] **Unit** (`tokio::time::pause`): 10 Bytes von angekündigten 4.096, danach Stille → nach 9,999 s keine Entscheidung, nach 10,000 s `ZuLangsam`.
   - Ein Strom, der alle 1 s ein Byte liefert, endet ebenso nach 10,000 s ab dem ersten Körperbyte (gesamt, nicht je Stück).
   - 248 Bytes, vollständig nach 9,9 s → gelesen.
 - [ ] **Integration, Abnahme-Probe**. Zweck: ein Client, der seinen Körper nicht schickt, hält keinen Platz länger als die Frist; mit G parallel schweigenden Körpern einer Herkunft ist danach wieder Platz.
@@ -163,7 +163,7 @@ Gemeinsam: Start mit `localchatA <ordner> --port 0 --host 127.0.0.1 --kein-brows
 ## Implementierungshinweise
 
 - Konstanten mit Herleitung im Kommentar: Profil, Rechnung, Datum, Verweis auf A00001.
-- `begrenzt_lesen(koerper, grenze, frist)` mit `tokio::time::timeout_at` über die ganze Schleife. Die Antwort 408 entsteht wie 413 im Aufrufer.
+- `roh_lesen(kopf, koerper, grenze, frist)` (gebaut; geplant hieß sie `begrenzt_lesen`) mit `tokio::time::timeout_at` über die ganze Schleife. Die Antwort 408 entsteht wie 413 im Aufrufer.
 - Für Integrationstests mit vielen Verbindungen: Rohverbindungen mit `bind` auf `127.0.0.x` vor `connect`, wie in R00013.
 - Ist R00014 schon gebaut, steht die 408 als DEBUG-Zeile im Protokoll (route, herkunft, art); die Zählung in `abgewiesen` siehe Offene Fragen.
 
