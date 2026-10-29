@@ -217,8 +217,8 @@ function wiederverbindenEinrichten({ mitte, verlauf, senden, abrufen, ansagen },
     },
   });
 
-  // Lädt der Tab von selbst? Strom getrennt (das Wiederverbinden startet den Laden-Lauf) oder ein Laden-Lauf läuft: dann
-  // sagt der Hinweis „wird geladen“, sonst hilft nur die neue Wahl des Channels (R00037 Regel 1).
+  // Lädt der Tab von selbst? Strom getrennt oder Netz des Tabs aus (das Wiederverbinden startet den Laden-Lauf) oder ein
+  // Laden-Lauf läuft: dann sagt der Hinweis „wird geladen“, sonst hilft nur die neue Wahl des Channels (R00037 Regel 1).
   verlauf.selbstversuchendSetzen(() => !zustand.strom || !zustand.netz || lauf.laedt());
 
   // Das Nachgeholte fügt der Verlauf im nächsten Bild ein (ADR-0037 Regel 6); die Meldung kommt erst danach, damit

@@ -10,7 +10,7 @@
 //   Zustandswechsel: steht der Hinweis aus (b) und wird danach die Instanz beendet, zeigt derselbe Knoten den Text aus (a).
 const { test, expect } = require('./rahmen');
 const { sendenStarten, kontextOeffnen, imBrowserBeitreten, beitreten, senden } = require('./senden-hilfen');
-const { leiste, netzAus } = require('./r00012-hilfen');
+const { leiste, netzAus, netzAn } = require('./r00012-hilfen');
 const { freierPort, sichtbarNach } = require('./hilfen');
 const { geraetOeffnen } = require('./r00027-hilfen');
 
@@ -115,6 +115,33 @@ for (const [ohneSharedWorker, weg] of [[false, 'mit'], [true, 'ohne']]) {
     });
     expect(derselbe).toBe(true);
     expect(a.fehler).toEqual([]);
+  });
+
+  // Zustandswechsel durch das Netz des Tabs (Karte #65, A1): der Strom bleibt, der Tab ist offline — der Tab lädt von
+  // selbst nach, sobald das Netz zurück ist, der Hinweis sagt es.
+  test(`Netz des Tabs aus (${weg} SharedWorker): steht der Hinweis aus (b), zeigt derselbe Knoten offline den Text aus (a), online ist er weg`, async ({ browser }) => {
+    test.setTimeout(90000);
+    await instanzMitVerlauf();
+    const a = await kontextFuerA(browser, ohneSharedWorker, { zusaetzlich: { [VERLAUF]: [500] } });
+    await a.page.route(ERSTER_ABRUF, (route) => route.fulfill({ status: 500, body: '' }));
+    await imBrowserBeitreten(a.page, instanz.adresse, 'shoff');
+    await expect(a.page.getByRole('alert')).toHaveText(ERNEUT);
+    await a.page.getByRole('alert').evaluate((knoten) => { window.hinweisKnoten = knoten; });
+
+    await netzAus(a);
+
+    await expect(a.page.getByRole('alert')).toHaveText(GELADEN);
+    const derselbe = await a.page.evaluate(() => {
+      const alarme = document.querySelectorAll('[role="alert"]');
+      return alarme.length === 1 && alarme[0] === window.hinweisKnoten && window.hinweisKnoten.isConnected;
+    });
+    expect(derselbe).toBe(true);
+
+    await a.page.unroute(ERSTER_ABRUF);
+    await netzAn(a);
+
+    await expect(a.page.getByRole('alert')).toHaveCount(0, { timeout: 30000 });
+    await expect(a.page.getByRole('log').locator('.lc-body').filter({ hasText: /^v3$/ })).toHaveCount(1);
   });
 
   // (c) Stand der Leiste während des Versuchs: Strom weg, Neustart, der Versuch des Laden-Laufs wird 11 s gehalten.
