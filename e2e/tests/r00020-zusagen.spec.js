@@ -3,7 +3,7 @@
 // Programm, Chromium 1280 × 800, Uhr ab 2026-10-28 15:00 (+01:00). A ist `shoff`, B ist `anna`; `beta` sendet per API.
 const { test, expect } = require('@playwright/test');
 const {
-  sendenStarten, beitreten, senden, kontextOeffnen, imBrowserBeitreten, nachrichten, mitText,
+  sendenStarten, beitreten, senden, kontextOeffnen, imBrowserBeitreten, eingabe, nachrichten, mitText,
 } = require('./senden-hilfen');
 
 let instanz;
@@ -83,4 +83,37 @@ test('US-7: HTML im Nachrichtentext bleibt Text', async ({ browser }) => {
   await expect(nachricht.locator('script')).toHaveCount(0);
   expect(await page.evaluate(() => typeof window.__xss)).toBe('undefined');
   expect(fehler).toEqual([]);
+});
+
+// US-8, „Fehlgeschlagene unter allen bestätigten“ (B0350; Abnahme-Probe aus ADR-0037 Ergänzung Karte #31, wörtlich):
+// „A sendet „x“, Route antwortet 500; danach sendet `beta` 2 → die beiden stehen über „x“, „x“ ist das letzte Element
+// des Verlaufs und zeigt ⚠.“ Die 500 kommt als gestellte Antwort; erlaubt ist dazu genau ihre Konsolenzeile.
+test('US-8: die fehlgeschlagene Nachricht bleibt unter allen bestätigten', async ({ browser }) => {
+  instanz = await sendenStarten({ anzahl: 5 });
+  const a = await kontextOeffnen(browser, { zusaetzlich: { '/api/channels/allgemein/nachrichten': [500] } });
+  await imBrowserBeitreten(a.page, instanz.adresse, 'shoff');
+  await expect(nachrichten(a.page)).toHaveCount(5);
+  await a.page.route('**/api/channels/allgemein/nachrichten', (route) => {
+    if (route.request().method() !== 'POST') {
+      return route.continue();
+    }
+    return route.fulfill({ status: 500, contentType: 'application/json', body: '{"fehler":"Interner Fehler"}' });
+  });
+  await eingabe(a.page).fill('x');
+  await eingabe(a.page).press('Enter');
+  const x = mitText(a.page, /^x$/);
+  await expect(x).toContainText('⚠');
+  const beta = await beitreten(instanz.adresse, 'beta');
+
+  await senden(instanz.adresse, beta, 'allgemein', 'eins');
+  await senden(instanz.adresse, beta, 'allgemein', 'zwei');
+
+  await expect(mitText(a.page, /^zwei$/)).toHaveCount(1);
+  const texte = await nachrichten(a.page).evaluateAll((liste) => liste.map((nachricht) => nachricht.querySelector('.lc-body').textContent));
+  expect(texte.slice(-3)).toEqual(['eins', 'zwei', 'x']);
+  const letzte = nachrichten(a.page).last();
+  await expect(letzte.locator('.lc-body')).toHaveText('x');
+  await expect(letzte).toHaveClass(/lc-fehlgeschlagen/);
+  await expect(letzte).toContainText('⚠');
+  expect(a.fehler).toEqual([]);
 });
