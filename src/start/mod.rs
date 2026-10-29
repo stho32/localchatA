@@ -671,26 +671,35 @@ fn quote_beim_start_melden(gespraeche: &Gespraeche, protokoll: &Protokoll) {
     }
 }
 
+/// Quelle der Episode „Reservierung verfallen“ ist die Herkunft; Kennung und Bytes sind Werte der einzelnen
+/// verfallenen Anmeldung und stehen nur in der Beginn-Zeile (ADR-0046 Ergänzung Karte #66).
+fn verfall_auftreten(verfallen: &crate::gespraeche::anhangeingang::Verfallen) -> Auftreten {
+    Auftreten {
+        stufe: Stufe::Warning,
+        bereich: Bereich::Anhang,
+        text: crate::protokoll::episodentexte::RESERVIERUNG_VERFALLEN,
+        quelle: verfallen.herkunft.to_string(),
+        kontext: Kontext::neu()
+            .mit_nur_beginn(Schluessel::Kennung, verfallen.kennung.als_text())
+            .mit(Schluessel::Herkunft, verfallen.herkunft)
+            .mit_nur_beginn(Schluessel::Bytes, verfallen.bytes),
+        art: None,
+        verworfen: None,
+        bytes: None,
+        anzeige: None,
+    }
+}
+
 /// Eine Anmeldung, die verfiel, ohne je fertig geworden zu sein → Episode je Herkunft `WARNING anhang Reservierung
 /// verfallen ohne Hochladen` (B0463, M22; ADR-0046 Ergänzung Karte #9 Gate Regel 4); dazu `DEBUG anhang` je Ablauf.
 fn verfall_melden(protokoll: &Protokoll, verfallen: &crate::gespraeche::anhangeingang::Verfallen) {
+    if verfallen.ohne_hochladen {
+        protokoll.episode(verfall_auftreten(verfallen));
+    }
     let kontext = Kontext::neu()
         .mit(Schluessel::Kennung, verfallen.kennung.als_text())
         .mit(Schluessel::Herkunft, verfallen.herkunft)
         .mit(Schluessel::Bytes, verfallen.bytes);
-    if verfallen.ohne_hochladen {
-        protokoll.episode(Auftreten {
-            stufe: Stufe::Warning,
-            bereich: Bereich::Anhang,
-            text: crate::protokoll::episodentexte::RESERVIERUNG_VERFALLEN,
-            quelle: verfallen.herkunft.to_string(),
-            kontext: kontext.clone(),
-            art: None,
-            verworfen: None,
-            bytes: None,
-            anzeige: None,
-        });
-    }
     protokoll.eintragen(
         Stufe::Debug,
         Bereich::Anhang,
@@ -959,6 +968,50 @@ mod tests {
     use crate::gespraeche::Kennung;
     use crate::name::Name;
     use crate::protokoll::testhilfe::{im_speicher, zeit};
+
+    /// R00038 B0590 (ADR-0042 Ergänzung Karte #66, wörtlich): zwei verfallene Anmeldungen von `10.0.0.9`
+    /// (Kennungen `alpha`, `beta`; `bytes` 5 und 6) → Ende nur `herkunft=10.0.0.9`; die DEBUG-Zeile je Ablauf trägt
+    /// weiter alle drei Schlüssel. Mutante „Kontext des ersten Auftretens“ rot.
+    #[test]
+    fn die_ende_zeile_verfallener_reservierungen_nennt_nur_die_herkunft() {
+        let (protokoll, speicher, uhr, _) = im_speicher("2026-10-28T12:00:00+01:00", Stufe::Debug);
+        let verfallen = |kennung: &str, bytes: u64| crate::gespraeche::anhangeingang::Verfallen {
+            id: crate::gespraeche::anhangid::Anhangid::lesen("abcdefghijklmnopqrstuvwxyz")
+                .expect("ID"),
+            kennung: Kennung::bilden(&format!("{kennung}@10.0.0.9")).expect("Kennung"),
+            herkunft: "10.0.0.9".parse().expect("IP"),
+            bytes,
+            ohne_hochladen: true,
+            laufend: false,
+            fertig: false,
+        };
+        verfall_melden(&protokoll, &verfallen("alpha", 5));
+        verfall_melden(&protokoll, &verfallen("beta", 6));
+        uhr.stellen(zeit("2026-10-28T12:01:00+01:00"));
+        protokoll.episoden_schliessen();
+
+        let zeilen = speicher.zeilen();
+        let episode: Vec<&String> = zeilen
+            .iter()
+            .filter(|z| z.contains(" WARNING anhang Reservierung verfallen"))
+            .collect();
+        assert_eq!(episode.len(), 2, "{zeilen:#?}");
+        assert!(
+            episode[0].ends_with("| kennung=alpha@10.0.0.9 herkunft=10.0.0.9 bytes=5"),
+            "{episode:#?}"
+        );
+        assert!(episode[1].contains("Episode endet: 2 in "), "{episode:#?}");
+        assert!(episode[1].ends_with("| herkunft=10.0.0.9"), "{episode:#?}");
+        let debug: Vec<&String> = zeilen
+            .iter()
+            .filter(|z| z.contains(" DEBUG anhang Anmeldung verfallen"))
+            .collect();
+        assert_eq!(debug.len(), 2, "{zeilen:#?}");
+        assert!(
+            debug[1].ends_with("| kennung=beta@10.0.0.9 herkunft=10.0.0.9 bytes=6"),
+            "{debug:#?}"
+        );
+    }
 
     /// B0516: `frei + log_bytes + anhang_belegt` genau eine Byte unter `plattenquote + anhangquote + 1 GiB` → trägt
     /// nicht; genau gleich → trägt; eine Quote `aus` zählt nicht.

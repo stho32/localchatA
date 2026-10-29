@@ -47,6 +47,46 @@ async fn grosser_anspruch_als_episode_je_kennung() {
     assert!(beginn[0].contains("bytes=3145728"), "{}", beginn[0]);
 }
 
+/// R00038 F0129 (B0590, Integration): zwei Anmeldungen derselben Kennung über der Grenze mit verschiedenen `bytes`
+/// (3 MiB, 4 MiB) bei Ruhe 200 ms → eine Beginn-Zeile mit `bytes=` der ersten, eine Ende-Zeile mit `kennung` und
+/// `herkunft`, ohne `bytes=` und `hochladen_bis=`.
+#[tokio::test]
+async fn grosser_anspruch_ende_zeile_ohne_werte_des_ersten_auftretens() {
+    let wurzel = ordner();
+    let instanz = starten(wurzel.path(), &[], &[("LOCALCHATA_EPISODE_RUHE_MS", "200")]);
+    let basis = instanz.adresse.as_str();
+    let beta = Absender::von("127.0.0.1");
+    let token = beitreten(&beta, basis, "beta", Some("agent")).await;
+
+    for megabyte in [3, 4] {
+        let angemeldet =
+            id(&anmelden(&beta, basis, &token, "gross.bin", megabyte * 1_048_576).await);
+        assert_eq!(verwerfen(&beta, basis, &token, &angemeldet).await, 204);
+    }
+    let ende = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    while zeilen_mit(wurzel.path(), "Großer Anspruch — Episode endet").is_empty()
+        && std::time::Instant::now() < ende
+    {
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    }
+    drop(instanz);
+
+    let beginn = zeilen_mit(wurzel.path(), "Großer Anspruch — Episode beginnt");
+    assert_eq!(beginn.len(), 1, "{beginn:#?}");
+    assert!(
+        beginn[0].contains("bytes=3145728 hochladen_bis="),
+        "{}",
+        beginn[0]
+    );
+    let ende = zeilen_mit(wurzel.path(), "Großer Anspruch — Episode endet: 2 in ");
+    assert_eq!(ende.len(), 1, "{ende:#?}");
+    assert!(
+        ende[0].ends_with("| kennung=beta@127.0.0.1 herkunft=127.0.0.1"),
+        "{}",
+        ende[0]
+    );
+}
+
 fn put_kopf(id: &str, token: &str, laenge: u64) -> String {
     format!(
         "PUT /api/anhaenge/{id} HTTP/1.1\r\nHost: 127.0.0.1\r\nX-LocalchatA-Sitzung: {token}\r\nContent-Type: application/octet-stream\r\nContent-Length: {laenge}"

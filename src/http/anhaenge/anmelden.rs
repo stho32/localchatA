@@ -195,25 +195,37 @@ fn anspruch_melden(zustand: &Zustand, teilnehmer: &Teilnehmer, bytes: u64, anmel
     if !grosser_anspruch(bytes, zustand.gespraeche.anhangkennzahlen().anhangquote) {
         return;
     }
-    let wer = teilnehmer.kennung.als_text();
-    zustand.protokoll.episode(Auftreten {
+    zustand.protokoll.episode(anspruch_auftreten(
+        teilnehmer.kennung.als_text(),
+        teilnehmer.herkunft,
+        bytes,
+        &zeit_als_text(&anmeldung.hochladen_bis),
+    ));
+}
+
+/// Quelle der Episode „Großer Anspruch“ ist die Kennung (mit ihrer Herkunft); Bytes und Frist sind Werte der
+/// einzelnen Anmeldung und stehen nur in der Beginn-Zeile (ADR-0042 Ergänzung Karte #66).
+fn anspruch_auftreten(
+    wer: &str,
+    herkunft: std::net::IpAddr,
+    bytes: u64,
+    hochladen_bis: &str,
+) -> Auftreten {
+    Auftreten {
         stufe: Stufe::Information,
         bereich: Bereich::Anhang,
         text: episodentexte::GROSSER_ANSPRUCH,
         quelle: wer.to_string(),
         kontext: Kontext::neu()
             .mit(Schluessel::Kennung, wer)
-            .mit(Schluessel::Herkunft, teilnehmer.herkunft)
-            .mit(Schluessel::Bytes, bytes)
-            .mit(
-                Schluessel::HochladenBis,
-                zeit_als_text(&anmeldung.hochladen_bis),
-            ),
+            .mit(Schluessel::Herkunft, herkunft)
+            .mit_nur_beginn(Schluessel::Bytes, bytes)
+            .mit_nur_beginn(Schluessel::HochladenBis, hochladen_bis),
         art: None,
         verworfen: None,
         bytes: None,
         anzeige: None,
-    });
+    }
 }
 
 /// 201 `{anhang: {id, name, bytes, hochladen, anlauf_bis, hochladen_bis}}`.
@@ -438,6 +450,49 @@ fn koerper_abgewiesen(fehler: Koerperfehler) -> Response {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// R00038 B0590 (ADR-0042 Ergänzung Karte #66, wörtlich): zwei Anmeldungen derselben Kennung (`bytes` 5 GiB und
+    /// 6 GiB) → Ende `kennung=… herkunft=…` ohne `bytes=` und `hochladen_bis=`. Mutante „`herkunft` mit
+    /// `mit_nur_beginn`“ rot.
+    #[test]
+    fn die_ende_zeile_des_grossen_anspruchs_nennt_kennung_und_herkunft() {
+        use crate::protokoll::Stufe;
+        use crate::protokoll::testhilfe::{im_speicher, zeit};
+        let (protokoll, speicher, uhr, _) =
+            im_speicher("2026-10-28T12:00:00+01:00", Stufe::Information);
+        let herkunft = "10.0.0.9".parse().expect("IP");
+        const GIB: u64 = 1 << 30;
+        protokoll.episode(anspruch_auftreten(
+            "beta@10.0.0.9",
+            herkunft,
+            5 * GIB,
+            "2026-10-28T13:00:00+01:00",
+        ));
+        protokoll.episode(anspruch_auftreten(
+            "beta@10.0.0.9",
+            herkunft,
+            6 * GIB,
+            "2026-10-28T13:00:05+01:00",
+        ));
+        uhr.stellen(zeit("2026-10-28T12:01:00+01:00"));
+        protokoll.episoden_schliessen();
+
+        let zeilen: Vec<String> = speicher
+            .zeilen()
+            .into_iter()
+            .filter(|z| z.contains(" INFORMATION anhang Großer Anspruch"))
+            .collect();
+        assert_eq!(zeilen.len(), 2, "{zeilen:#?}");
+        assert!(
+            zeilen[0].contains("bytes=5368709120 hochladen_bis=2026-10-28T13:00:00+01:00"),
+            "{zeilen:#?}"
+        );
+        assert!(zeilen[1].contains("Episode endet: 2 in "), "{zeilen:#?}");
+        assert!(
+            zeilen[1].ends_with("| kennung=beta@10.0.0.9 herkunft=10.0.0.9"),
+            "{zeilen:#?}"
+        );
+    }
 
     /// B0525 an der Grenze im Zählmaß (Q = 10 MiB): 2.617.345 Bytes (z = 640 × 4.096 = Q/4) → großer Anspruch,
     /// 2.617.344 (z = 639 × 4.096) → nicht; ohne Anhang-Quote nie (Mutanten „> statt ≥“, „bytes statt z“).
