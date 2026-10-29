@@ -297,3 +297,68 @@ async fn us4_die_episode_der_frist_ist_getrennt_vom_senden() {
         "{enden:#?}"
     );
 }
+
+/// `PUT …/frist` mit rohem Körper und eigenem `Content-Type`, ohne dass der Test ein gültiges JSON erzwingt.
+async fn frist_roh(
+    absender: &Absender,
+    instanz: &Instanz,
+    token: &str,
+    art: &str,
+    koerper: &str,
+) -> ApiAntwort {
+    let anfrage = absender
+        .anfrage(
+            reqwest::Method::PUT,
+            format!("{}api/channels/allgemein/frist", instanz.adresse),
+        )
+        .header("X-LocalchatA-Sitzung", token)
+        .header("Content-Type", art)
+        .body(koerper.to_string());
+    gemeinsam::api_antwort(anfrage).await
+}
+
+/// Nachschub der Kennung: 1 Einheit je Sekunde. Nach 25 Vorab-Einheiten bleiben 5; die gültige Änderung bucht 1
+/// vorab und braucht dann 9 — sie wird nur gebremst, wenn bis zu ihr weniger als 5 Einheiten nachgeflossen sind.
+const NACHSCHUB_REICHT_NICHT: Duration = Duration::from_secs(5);
+
+/// R00021 Nacharbeit B1 (code-reviewer #32, Abnahme-Probe wörtlich): `beta` schickt 25 × einen Körper, der vor dem
+/// Wert scheitert (`erwartet`), danach `{"tage":8}` → 429. Die Vorab-Einheit fällt vor dem Lesen des Körpers; die
+/// Uhr läuft bis zur 26. Anfrage (A4). Mutante „Vorab-Block hinter `json_lesen`“ → die 26. wäre 200 → rot.
+async fn koerperfehler_kosten_die_vorab_einheit(art: &str, koerper: &str, erwartet: u16) {
+    let wurzel = ordner();
+    let instanz = starten(wurzel.path(), &[]);
+    let eins = Absender::von("127.0.0.1");
+    let beta = beitreten(&eins, &instanz.adresse, "beta", None).await;
+    let beginn = Instant::now();
+
+    let mut fehler = Vec::new();
+    for _ in 0..25 {
+        fehler.push(frist_roh(&eins, &instanz, &beta, art, koerper).await);
+    }
+    let danach = frist_setzen(&eins, &instanz, &beta, "allgemein", tage(8)).await;
+    let dauer = beginn.elapsed();
+
+    assert!(
+        dauer < NACHSCHUB_REICHT_NICHT,
+        "bis zur 26. Anfrage {dauer:?}"
+    );
+    assert_eq!(status(&fehler), vec![erwartet; 25]);
+    assert_eq!(danach.status, 429, "{}", danach.json);
+    assert_eq!(danach.json["grenze"], "kennung");
+}
+
+#[tokio::test]
+async fn vorab_vor_dem_koerper_unlesbares_json_400() {
+    koerperfehler_kosten_die_vorab_einheit("application/json", "{", 400).await;
+}
+
+#[tokio::test]
+async fn vorab_vor_dem_koerper_falscher_content_type_415() {
+    koerperfehler_kosten_die_vorab_einheit("text/plain", r#"{"tage":8}"#, 415).await;
+}
+
+#[tokio::test]
+async fn vorab_vor_dem_koerper_zu_gross_413() {
+    let zu_gross = format!(r#"{{"tage":8,"x":"{}"}}"#, "x".repeat(1_024));
+    koerperfehler_kosten_die_vorab_einheit("application/json", &zu_gross, 413).await;
+}
