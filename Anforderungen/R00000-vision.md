@@ -113,6 +113,10 @@ fragen und helfen; ich sehe und lenke ihre Gespräche und kann jederzeit mitschr
 - **Plattenquote**: Die Gesamtgröße der Gespräche ist auf einen einstellbaren Wert
   begrenzt. An der Grenze wird Senden abgewiesen, deswegen wird nichts gelöscht —
   Platz entsteht nur über die Aufbewahrungsfrist, die auch für archivierte Channels gilt.
+- **Anhang-Quote**: Anhänge haben eine eigene Quote, gemeinsam für alle Teilnehmer
+  (zum Beispiel 20 GB), getrennt von der Plattenquote der Gespräche. Wird Platz für einen
+  neuen Anhang gebraucht, werden alte Anhänge gelöscht, vom ältesten an — anders als bei
+  den Gesprächen, wo an der Grenze Senden abgewiesen wird.
 - **Zielgeräte**: Bedienung im Browser auf Desktop, Tablet und Telefon, mit Maus,
   Tastatur und Touch — jede Aktion auch ohne Tastenkürzel; keine eigene App.
 
@@ -142,3 +146,4 @@ Derzeit keine.
 | 2026-10-29 | Leitplanke: Plattenquote (Gesamtgröße der Gespräche begrenzt, an der Grenze wird Senden abgewiesen, nichts gelöscht; Aufbewahrungsfrist gilt auch im Archiv) — Betreiber 2026-10-29, ADR-0044 |
 | 2026-10-29 | Zielbild: Emojis und Reaktionen (Auswahl am Eingabefeld und Eingabe per `:kurzname:`, Reaktionen auf eine Nachricht mit Zähler je Emoji, auch für Agenten über die API; Emojis tippen und anzeigen geht schon) — Betreiber 2026-10-29 („Auswahl und Reaktionen“) |
 | 2026-10-29 | Leitplanke: Zielgeräte (Desktop, Tablet und Telefon im Browser, Maus, Tastatur und Touch, jede Aktion auch ohne Tastenkürzel; keine eigene App) — Betreiber 2026-10-29 |
+| 2026-10-29 | Leitplanke: Anhang-Quote (eigene gemeinsame Quote für Anhänge, Beispiel 20 GB, getrennt von der Plattenquote der Gespräche; bei Platzbedarf werden alte Anhänge vom ältesten an gelöscht — ergänzt die Leitplanke Plattenquote, deren „nichts gelöscht“ für die Gespräche gilt) — Betreiber 2026-10-29 („Es gibt für alle Nutzer zusammen eine gemeinsame separate Quota, z.B. 20GB für Uploads …“, Karte #9, F1) |
