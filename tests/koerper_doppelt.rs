@@ -13,6 +13,8 @@ use serde_json::{Value, json};
 use std::time::{Duration, Instant};
 
 const DOPPELT_TEXT: &str = r#"{"text":"a","text":"b"}"#;
+/// Derselbe Schlüssel, einmal als `\u0074ext` kodiert (wörtlicher Backslash im Körper, kein Rust-Escape).
+const DOPPELT_KODIERT: &str = r#"{"text":"a","\u0074ext":"b"}"#;
 
 /// Beliebige Methode und Pfad mit rohem JSON-Körper, wie ihn ein fremdes Werkzeug schickt.
 async fn roh(
@@ -73,7 +75,7 @@ async fn doppelte_schluessel_werden_auf_allen_vier_routen_abgewiesen_und_nichts_
         basis,
         nachrichten,
         Some(&token),
-        r#"{"text":"a","text":"b"}"#,
+        DOPPELT_KODIERT,
     )
     .await;
     let zweites = roh(
@@ -123,6 +125,8 @@ async fn doppelte_schluessel_werden_auf_allen_vier_routen_abgewiesen_und_nichts_
     )
     .await;
 
+    assert_ne!(DOPPELT_KODIERT, DOPPELT_TEXT, "die Variante muss kodiert sein");
+    assert!(DOPPELT_KODIERT.contains(r"\u0074"), "kein Escape im Körper");
     ist_doppelt(&doppelt, "text");
     ist_doppelt(&dekodiert, "text");
     ist_doppelt(&zweites, "x");
