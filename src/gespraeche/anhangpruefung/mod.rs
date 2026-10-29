@@ -4,6 +4,7 @@
 mod art;
 pub mod bild;
 pub mod exif;
+pub mod medien;
 mod name;
 
 pub use art::{Art, DATEI};
