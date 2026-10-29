@@ -232,3 +232,47 @@ for (const variante of [{ titel: '(a) Strom meldet 401 zuerst', sendenZuerst: fa
     expect(a.fehler).toEqual([]);
   });
 }
+
+// Nacharbeit #36, code-reviewer A1: der Sekundentakt der Leiste gehört der Hauptansicht — nach dem 409 des stillen
+// Beitritts (Strom meldete die Trennung, dann die 401) und dem Neubeitritt zählt keine abgelöste Ansicht weiter, auch
+// nicht nach zwei Folgen. Gezählt werden die Aufrufe von `leisteZeigen` aus setInterval.
+test('Sekundentakt der Leiste: nach 409 und Neubeitritt 0 Takte, auch nach zwei Folgen', async ({ browser }) => {
+  test.setTimeout(60000);
+  instanz = await instanzStarten({
+    port: await freierPort(),
+    umgebung: { LOCALCHATA_JETZT: JETZT },
+    vorbereiten: (ordner) => channelAnlegen(ordner, 'allgemein'),
+  });
+  const a = await kontextOeffnen(browser, { serverWegErwartet: true, zusaetzlich: { [BEITRETEN]: [409], [STROM]: [401] } });
+  kontexte.push(a.kontext);
+  await a.kontext.addInitScript(() => {
+    window.leisteTakte = 0;
+    const planen = window.setInterval;
+    window.setInterval = (rueckruf, ms, ...rest) => {
+      if (rueckruf.name !== 'leisteZeigen') {
+        return planen(rueckruf, ms, ...rest);
+      }
+      return planen(() => {
+        window.leisteTakte += 1;
+        rueckruf();
+      }, ms, ...rest);
+    };
+  });
+  await imBrowserBeitreten(a.page, instanz.adresse, 'shoff');
+
+  for (const [belegt, neu] of [['shoff', 'shoff-2'], ['shoff-2', 'shoff-3']]) {
+    await instanz.beenden();
+    await expect(leiste(a.page)).toHaveText(/^⚠ Verbindung verloren/);
+    await expect.poll(() => a.page.evaluate(() => window.leisteTakte), { timeout: 10000 }).toBeGreaterThan(0);
+    await instanz.starten();
+    await beitreten(instanz.adresse, belegt, { art: 'mensch', herkunft: '127.0.0.2' });
+    await expect(a.page.getByLabel('Name')).toBeVisible({ timeout: 20000 });
+    await alsBeitreten(a.page, neu);
+    await expect(leiste(a.page)).toBeHidden();
+
+    await a.page.evaluate(() => { window.leisteTakte = 0; });
+    await a.page.waitForTimeout(2500);
+    expect(await a.page.evaluate(() => window.leisteTakte)).toBe(0);
+  }
+  expect(a.fehler).toEqual([]);
+});

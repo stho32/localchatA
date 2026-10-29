@@ -167,17 +167,20 @@ function wiederverbindenEinrichten({ mitte, verlauf, senden, abrufen, ansagen },
     countdownStellen();
   }
 
-  // Der Countdown zählt im Sekundentakt nur, solange die Warnung steht — ein Zeitgeber für die eine Leiste.
+  // Der Countdown zählt im Sekundentakt nur, solange die Warnung steht — ein Zeitgeber für die eine Leiste, solange die
+  // Hauptansicht steht.
   function countdownStellen() {
     const SEKUNDE_MS = 1000;
-    if (anzeige.getrennt && countdown === null) {
+    const zaehlen = anzeige.getrennt && !signal.aborted;
+    if (zaehlen && countdown === null) {
       countdown = setInterval(leisteZeigen, SEKUNDE_MS);
     }
-    if (!anzeige.getrennt && countdown !== null) {
+    if (!zaehlen && countdown !== null) {
       clearInterval(countdown);
       countdown = null;
     }
   }
+  signal.addEventListener('abort', countdownStellen);
 
   function meldungSetzen(text) {
     const STEHT_MS = 4000;
