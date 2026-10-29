@@ -151,7 +151,7 @@ pub fn vorlauf_melden(vorlauf_ms: u64) -> bool {
 pub fn vorlauf_text(vorlauf_ms: u64) -> String {
     let minuten = vorlauf_ms / 60_000;
     format!(
-        "Nachrichtenzeit läuft der Systemuhr {} h {:02} min voraus (Uhr zurückgestellt?) — Zeiten bleiben streng steigend, bis die Uhr aufholt.",
+        "Nachrichtenzeit läuft der Systemuhr {} h {:02} min voraus (Uhr zurückgestellt?) — Zeiten bleiben streng steigend, bis die Uhr aufholt",
         minuten / 60,
         minuten % 60
     )
@@ -189,13 +189,21 @@ mod tests {
         assert!(vorlauf_melden(60_001));
     }
 
+    /// R00020 F0070 „Vorlauf ohne Punkt“: der Text ist ein Episodentext und endet ohne Satzzeichen.
     #[test]
     fn der_text_nennt_stunden_und_minuten_abgerundet() {
         assert_eq!(
             vorlauf_text(7_410_002),
-            "Nachrichtenzeit läuft der Systemuhr 2 h 03 min voraus (Uhr zurückgestellt?) — Zeiten bleiben streng steigend, bis die Uhr aufholt."
+            "Nachrichtenzeit läuft der Systemuhr 2 h 03 min voraus (Uhr zurückgestellt?) — Zeiten bleiben streng steigend, bis die Uhr aufholt"
         );
         assert!(vorlauf_text(61_001).contains(" 0 h 01 min voraus"));
+        for vorlauf_ms in [61_001, 7_410_002, 90_000_000] {
+            let text = vorlauf_text(vorlauf_ms);
+            assert!(
+                crate::protokoll::episodentexte::regelgerecht(&text),
+                "{text}"
+            );
+        }
     }
 
     use super::*;

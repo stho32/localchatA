@@ -539,7 +539,7 @@ mod tests {
         assert_eq!(nach_zweien.len(), 1, "{nach_zweien:#?}");
         assert!(
             nach_zweien[0].contains(
-                "Nachrichtenzeit läuft der Systemuhr 0 h 01 min voraus (Uhr zurückgestellt?) — Zeiten bleiben streng steigend, bis die Uhr aufholt. — Episode beginnt | "
+                "Nachrichtenzeit läuft der Systemuhr 0 h 01 min voraus (Uhr zurückgestellt?) — Zeiten bleiben streng steigend, bis die Uhr aufholt — Episode beginnt | "
             ),
             "{nach_zweien:#?}"
         );

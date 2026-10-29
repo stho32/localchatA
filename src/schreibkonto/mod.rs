@@ -122,7 +122,7 @@ fn ablegen<S: std::hash::Hash + Eq>(
     }
 }
 
-/// Über 1.024 Einträgen fallen alle Eimer weg, die bis `jetzt` wieder voll sind.
+/// Bei mehr als 1.024 Einträgen fallen alle Eimer weg, die bis `jetzt` wieder voll sind.
 fn aufraeumen(tabellen: &mut Tabellen, jetzt: crate::uhr::Zeit) {
     if tabellen.kennungen.len() > DURCHGANG_AB {
         tabellen

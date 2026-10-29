@@ -75,12 +75,9 @@ async fn die_bremse_ist_eine_episode_mit_zahl_und_dauer() {
     let alle = zeilen(wurzel.path(), HEUTE);
     let konto = mit(&alle, "WARNING", "schreibkonto");
     assert_eq!(konto.len(), 2, "{konto:#?}");
-    assert!(
-        konto[0].contains("Episode beginnt | ")
-            && konto[0].contains("kennung=beta@127.0.0.1")
-            && konto[0].contains("grenze=kennung"),
-        "{konto:#?}"
-    );
+    // R00020 F0070 „Bremse mit einem Gedankenstrich“ (US-6): die Beginn-Zeile wörtlich, auf stderr dieselbe.
+    let beginn = " WARNING schreibkonto Senden gebremst: zu viele Nachrichten — Episode beginnt | kennung=beta@127.0.0.1 grenze=kennung";
+    assert!(konto[0].ends_with(beginn), "{konto:#?}");
     assert!(
         konto[1].contains(&format!("Episode endet: {k} in ")),
         "{konto:#?}"
@@ -95,6 +92,7 @@ async fn die_bremse_ist_eine_episode_mit_zahl_und_dauer() {
         2,
         "{fehler:#?}"
     );
+    assert!(fehler.iter().any(|z| z.ends_with(beginn)), "{fehler:#?}");
     assert!(
         !fehler
             .iter()
@@ -293,7 +291,10 @@ async fn us5_die_ende_zeile_der_bremse_zaehlt_je_grenze() {
         let enden = ende_von_beta(&zeilen(wurzel.path(), HEUTE));
         assert_eq!(enden.len(), 1, "{enden:#?}");
         println!("429 an beta: herkunft {h}, kennung {k}; {}", enden[0]);
-        let klammer = format!(" — Episode endet: {} in ", h + k);
+        let klammer = format!(
+            " WARNING schreibkonto Senden gebremst: zu viele Nachrichten — Episode endet: {} in ",
+            h + k
+        );
         let schluss = format!(" s (herkunft {h}; kennung {k}) | kennung=beta@127.0.0.1");
         assert!(
             enden[0].contains(&klammer) && enden[0].ends_with(&schluss),
