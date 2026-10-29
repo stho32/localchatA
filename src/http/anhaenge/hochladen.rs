@@ -15,7 +15,10 @@ use crate::gespraeche::anhangeingang::{Abbruchgrund, Beginnfehler, Kopf, Platz, 
 use crate::gespraeche::anhangid::Anhangid;
 use crate::gespraeche::anhangpruefung::Art;
 use crate::gespraeche::anhangpruefung::erkenner::Erkenner;
+use crate::gespraeche::anhangpruefung::tilger::port::Abbruch;
+use crate::gespraeche::anhangpruefung::tilger::{Getilgt, tilgen};
 use crate::gespraeche::hochladefristen::{Fristart, Fristen, STUECKFRIST, gesamtfrist};
+use crate::protokoll::episoden::Auftreten;
 use crate::protokoll::{Bereich, Kontext, Schluessel, Stufe};
 use axum::Json;
 use axum::body::{Body, Bytes};
@@ -66,6 +69,34 @@ pub async fn hochladen(
         koerper.into_data_stream(),
     )
     .await;
+    match &ergebnis {
+        Ergebnis::Fertig {
+            getilgt: Some(getilgt),
+            ..
+        } => zustand.protokoll.eintragen(
+            Stufe::Debug,
+            Bereich::Anhang,
+            "Metadaten getilgt",
+            Kontext::neu()
+                .mit(Schluessel::Art, getilgt.art)
+                .mit(Schluessel::Bloecke, getilgt.bloecke)
+                .mit(Schluessel::Ort, if getilgt.ort { "ja" } else { "nein" }),
+        ),
+        Ergebnis::Metadaten(grund) => zustand.protokoll.episode(Auftreten {
+            stufe: Stufe::Warning,
+            bereich: Bereich::Anhang,
+            text: crate::protokoll::episodentexte::METADATEN_NICHT_TILGBAR,
+            quelle: teilnehmer.herkunft.to_string(),
+            kontext: Kontext::neu()
+                .mit(Schluessel::Herkunft, teilnehmer.herkunft)
+                .mit(Schluessel::Grund, *grund),
+            art: None,
+            verworfen: None,
+            bytes: None,
+            anzeige: None,
+        }),
+        _ => {}
+    }
     if let Ergebnis::Fehler(grund) | Ergebnis::Platte { grund, .. } = &ergebnis {
         zustand.protokoll.eintragen(
             Stufe::Error,
@@ -89,7 +120,10 @@ pub enum Ergebnis {
         bytes: u64,
         art: Art,
         gueltig_bis: crate::uhr::Zeit,
+        getilgt: Option<Getilgt>,
     },
+    /// Nicht sicher tilgbar (422 `metadaten`): Teildatei gelöscht, Eintrag verworfen, Anspruch frei.
+    Metadaten(&'static str),
     /// Stück- oder Gesamtfrist (408).
     Frist(Fristart),
     /// Das Lebensende kam während des Hochladens (408).
@@ -119,6 +153,13 @@ impl Raeumer {
         let _ = self.gespraeche.anhangablage().teil_loeschen(&self.id);
         self.gespraeche
             .hochladen_abbrechen(&self.id, self.generation);
+    }
+
+    /// Nicht tilgbar: Teildatei weg, Eintrag verworfen.
+    fn verwerfen(mut self) {
+        self.erledigt = true;
+        self.gespraeche
+            .hochladen_verwerfen(&self.id, self.generation);
     }
 
     fn erledigt(mut self) {
@@ -230,9 +271,40 @@ where
             }
         }
     }
-    drop(teil);
+    let getilgt = match tilgen_unter_bank(&bank, teil).await {
+        Ok(getilgt) => getilgt,
+        Err(Abbruch::Metadaten(grund)) => {
+            raeumer.verwerfen();
+            return Ergebnis::Metadaten(grund);
+        }
+        Err(Abbruch::Platte(fehler)) => {
+            raeumer.abbrechen();
+            return schreibfehler(&gespraeche, &fehler);
+        }
+    };
     let art = erkenner.map_or_else(Art::datei, |erkenner| erkenner.ergebnis());
-    abschliessen(gespraeche, raeumer, platz, art).await
+    abschliessen(gespraeche, raeumer, platz, art, getilgt).await
+}
+
+/// Nach dem letzten Byte, vor `rename`: der Tilger im Blocking-Thread unter einer Erlaubnis der Hochladebank — keine
+/// Sperre, nicht die Werkbank, außerhalb der Gesamtfrist (ADR-0047 Ergänzung F4 Regel 1).
+async fn tilgen_unter_bank(
+    bank: &Arc<Semaphore>,
+    teil: Option<Box<dyn Teildatei>>,
+) -> Result<Option<Getilgt>, Abbruch> {
+    let Some(teil) = teil else {
+        return Err(Abbruch::Platte(std::io::Error::other("Teildatei fehlt")));
+    };
+    let erlaubnis = Arc::clone(bank)
+        .acquire_owned()
+        .await
+        .map_err(|_| Abbruch::Platte(std::io::Error::other("Hochladebank geschlossen")))?;
+    tokio::task::spawn_blocking(move || {
+        let _erlaubnis = erlaubnis;
+        tilgen(teil.as_ref())
+    })
+    .await
+    .map_err(|fehler| Abbruch::Platte(std::io::Error::other(fehler.to_string())))?
 }
 
 /// `rename` ohne Überschreiben und der Übergang `laeuft` → `fertig`; wer verliert, räumt seine Datei.
@@ -241,6 +313,7 @@ async fn abschliessen(
     raeumer: Raeumer,
     platz: Platz,
     art: Art,
+    getilgt: Option<Getilgt>,
 ) -> Ergebnis {
     let umbenannt = {
         let gespraeche = Arc::clone(&gespraeche);
@@ -271,6 +344,7 @@ async fn abschliessen(
                 bytes: platz.bytes,
                 art,
                 gueltig_bis,
+                getilgt,
             }
         }
         Err(verloren) => {
@@ -431,6 +505,7 @@ fn beantworten(ergebnis: Ergebnis, wer: &str) -> Response {
             bytes,
             art,
             gueltig_bis,
+            ..
         } => (
             StatusCode::OK,
             Json(json!({
@@ -443,6 +518,15 @@ fn beantworten(ergebnis: Ergebnis, wer: &str) -> Response {
                     "hoehe": art.hoehe,
                     "gueltig_bis": zeit_als_text(&gueltig_bis),
                 }
+            })),
+        )
+            .into_response(),
+        Ergebnis::Metadaten(grund) => (
+            StatusCode::UNPROCESSABLE_ENTITY,
+            Json(json!({
+                "fehler": "Nicht hochgeladen: die Datei ist beschädigt — Ortsangaben ließen sich nicht sicher entfernen.",
+                "regel": "metadaten",
+                "grund": grund,
             })),
         )
             .into_response(),

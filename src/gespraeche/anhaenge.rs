@@ -138,6 +138,18 @@ impl Gespraeche {
         abgebrochen
     }
 
+    /// Nicht tilgbar: Eintrag weg, Anspruch frei, Teildatei weg (ADR-0047 Ergänzung F4 Regel 5).
+    pub fn hochladen_verwerfen(&self, id: &Anhangid, generation: u64) -> bool {
+        let verworfen = {
+            let mut stand = sperren(&self.schreiben);
+            let verworfen = stand.eingang.hochladung_verwerfen(id, generation);
+            self.eingang_spiegeln(&stand.eingang);
+            verworfen
+        };
+        let _ = self.anhangablage.teil_loeschen(id);
+        verworfen
+    }
+
     /// `DELETE` der eigenen ID (Regel 3): Eintrag weg, Reservierung sofort frei, ein laufender `PUT` endet als
     /// Abbruch; danach, ohne Sperre, Teil- und fertige Datei weg. Fremde, unbekannte, gebundene IDs: nichts.
     pub fn anhang_verwerfen(&self, kennung: &Kennung, id: &Anhangid) -> Option<Verworfen> {

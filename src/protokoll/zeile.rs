@@ -130,6 +130,8 @@ pub enum Schluessel {
     AlterMs,
     /// Tag einer Tagesdatei bzw. eines Anhang-Ordners (`JJJJ-MM-TT`).
     Tag,
+    /// Gedeutete Blöcke des Tilgers.
+    Bloecke,
     /// Eine gespeicherte Anhangdatei, nur als Präfix `<hhmmssmmm>-<n>` (ADR-0047 Ergänzung Gate Regel 3).
     Anhang,
 }
@@ -171,6 +173,7 @@ impl Schluessel {
             Schluessel::AlterMs => "alter_ms",
             Schluessel::Tag => "tag",
             Schluessel::Anhang => "anhang",
+            Schluessel::Bloecke => "bloecke",
         }
     }
 }

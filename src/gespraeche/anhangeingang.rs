@@ -385,6 +385,15 @@ impl Eingang {
         true
     }
 
+    /// Nicht tilgbar (422 `metadaten`): der laufende Eintrag dieser Generation ist weg, sein Anspruch frei wie bei
+    /// `DELETE`.
+    pub fn hochladung_verwerfen(&mut self, id: &Anhangid, generation: u64) -> bool {
+        if self.laufender(id, generation).is_err() {
+            return false;
+        }
+        self.eintraege.remove(id).is_some()
+    }
+
     /// `DELETE` der eigenen ID: Eintrag weg, Reservierung frei, ein laufender `PUT` endet als Abbruch. Fremde,
     /// unbekannte und schon genommene IDs: nichts.
     pub fn verwerfen(&mut self, kennung: &Kennung, id: &Anhangid) -> Option<Verworfen> {
