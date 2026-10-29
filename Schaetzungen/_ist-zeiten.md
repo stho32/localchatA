@@ -584,3 +584,12 @@ Nie vom User erfragen.
 | 2026-10-29 | R00022 Betriebsprotokoll nach den Reviews #8 | B0349 Überholten Ereignisstrom melden | Standard | 0,4h | 0,40h | 0,40h | autonom (entw2) |
 | 2026-10-29 | R00036 Tabs folgen dem Beitritt | Nacharbeit B1, B2, Fokus; R00037 Netz aus | Nacharbeit | — | 1,00h | 1,00h | autonom (entw2) |
 | 2026-10-29 | R00029 Anhänge über die API | Nacharbeit Teil A (Reviews #9, #51–#57) | Nacharbeit | — | 1,00h | 1,00h | autonom (entw2) |
+| 2026-10-30 | R00029 Anhänge über die API | B0581 offen und laufend zählen | Standard | 0,4h | 0,13h | 0,13h | autonom (entw2) |
+| 2026-10-30 | R00029 Anhänge über die API | B0582 jede PUT-Antwort schließt | Standard | 0,4h | 0,03h | 0,03h | autonom (entw2) |
+| 2026-10-30 | R00029 Anhänge über die API | B0583 Wurzel channels echter Ordner | Standard | 0,4h | 0,03h | 0,03h | autonom (entw2) |
+| 2026-10-30 | R00029 Anhänge über die API | B0587 Stufe der Startzeile | Standard | 0,4h | 0,03h | 0,03h | autonom (entw2) |
+| 2026-10-30 | R00029 Anhänge über die API | B0584 Marken der ftyp-Box | Standard | 0,4h | 0,05h | 0,05h | autonom (entw2) |
+| 2026-10-30 | R00029 Anhänge über die API | B0585 AVIF-Maße | Standard | 0,4h | 0,05h | 0,05h | autonom (entw2) |
+| 2026-10-30 | R00029 Anhänge über die API | Nacharbeit mpf Speicher | Standard | 0,4h | 0,05h | 0,05h | autonom (entw2) |
+| 2026-10-30 | R00029 Anhänge über die API | B0586 Puffer und Kopfgrenze (ohne QS4) | Standard | 0,4h | 0,05h | 0,05h | autonom (entw2) |
+| 2026-10-30 | R00029 Anhänge über die API | Gate und Anpassungen Teil B | Konsolidierung | — | 0,75h | 0,75h | autonom (entw2) |
