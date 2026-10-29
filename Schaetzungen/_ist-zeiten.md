@@ -327,3 +327,8 @@ Nie vom User erfragen.
 | 2026-10-28 | R00012 Senden bei Störungen | B0251 Ansage bündeln | Standard | 0,4h | 0,01h | 0,01h | autonom |
 | 2026-10-28 | R00012 Senden bei Störungen | B0252 Ansage verdrahten | Standard | 0,4h | 0,00h | 0,00h | autonom |
 | 2026-10-28 | R00012 Senden bei Störungen | Mutanten, Zeittests, Gate, Gelerntes | Konsolidierung | — | 0,33h | 0,33h | autonom |
+| 2026-10-28 | R00011 Nachricht senden | B0328 Sperrordnung mit echter Sperrkonkurrenz belegt | Nacharbeit | 0,4h | 0,05h | 0,05h | autonom |
+| 2026-10-28 | R00011 Nachricht senden | B0327 Puffer vor dem ersten Block belegt | Nacharbeit | 0,4h | 0,05h | 0,05h | autonom |
+| 2026-10-28 | R00011 Nachricht senden | B0326 Nachricht während des letzten Nachlade-Abrufs übernehmen | Nacharbeit | 2-4h | 0,12h | 0,12h | autonom |
+| 2026-10-28 | R00011 Nachricht senden | B0329 Auslauf baut sich mit dem Lesen ab | Nacharbeit | 2-4h | 0,20h | 0,20h | autonom |
+| 2026-10-28 | R00011 Nachricht senden | Nacharbeit #8: Mutanten, Gate | Nacharbeit | — | 0,03h | 0,03h | autonom |
