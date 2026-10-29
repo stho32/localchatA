@@ -150,7 +150,7 @@ function bedienen(zustand, { setzen, statusZeigen, neuOeffnen }, signal) {
 function dialogZeichnen(channel) {
   const gesperrt = channel.frist_tage === null;
   const feld = element('input', {
-    id: 'lc-frist', className: 'lc-feld lc-feld-zahl', type: 'number', min: 1, max: 3650, step: 1, disabled: gesperrt,
+    id: 'lc-frist', className: 'lc-feld lc-feld-zahl', type: 'text', autocomplete: 'off', spellcheck: false, disabled: gesperrt,
   });
   feld.setAttribute('inputmode', 'numeric');
   feld.setAttribute('aria-describedby', 'lc-frist-hinweis lc-frist-fehler');

@@ -21,6 +21,13 @@ test('fristPruefen: 0, 3651 und alles außer Ziffern ist ungültig mit der Fehle
   }
 });
 
+test('fristPruefen: Leerraum um oder in der Zahl ist ungültig (B0389: das Feld liefert den Rohtext)', () => {
+  for (const text of [' 30', '30 ', '3 0', '30\t']) {
+    assert.deepEqual(fristPruefen(text), { gueltig: false, fehler: FEHLER }, JSON.stringify(text));
+  }
+  assert.deepEqual(fristPruefen('30'), { gueltig: true, tage: 30 });
+});
+
 test('fristText: „· 7 Tage“, Singular „· 1 Tag“, gesperrt bei null', () => {
   assert.equal(fristText(7), '· 7 Tage');
   assert.equal(fristText(1), '· 1 Tag');
