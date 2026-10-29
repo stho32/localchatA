@@ -434,3 +434,4 @@ Nie vom User erfragen.
 | 2026-10-29 | R00019 Frist gehärtet | B0320 Verlängern ohne Auflisten | Standard | 0,4h | 0,08h | 0,08h | autonom |
 | 2026-10-29 | R00019 Frist gehärtet | B0321 Frist-Abweisungen im Bereich frist | Standard | 0,4h | 0,07h | 0,07h | autonom |
 | 2026-10-29 | R00019 Frist gehärtet | Mutanten, Gelerntes, Gate | Konsolidierung | — | 0,20h | 0,20h | autonom |
+| 2026-10-29 | R00020 Senden gehärtet Teil 2 | B0334 Nacharbeit: 413-Satz je Route wörtlich geprüft | Nacharbeit | — | 0,40h | 0,40h | autonom |
