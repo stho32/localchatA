@@ -22,6 +22,8 @@ struct Lauf {
     _wurzel: tempfile::TempDir,
     /// Die Adresse, über die angefragt wird (lokale Adresse der Verbindung).
     ueber: IpAddr,
+    /// stderr des Programms, zeilenweise mitgelesen.
+    stderr: std::sync::Arc<std::sync::Mutex<Vec<String>>>,
 }
 
 /// Startet das Programm mit `argumente` auf Port 0, Testuhr, `TZ=Europe/Berlin` und `umgebung`.
@@ -35,11 +37,12 @@ fn starten(argumente: &[&str], umgebung: &[(&str, &str)]) -> Lauf {
     let mut umgebung_gesamt = vec![("LOCALCHATA_JETZT", JETZT), ("TZ", "Europe/Berlin")];
     umgebung_gesamt.extend(umgebung);
     let mut instanz = starten_mit(wurzel.path(), &alle, &umgebung_gesamt);
-    instanz.stderr_mitschreiben();
+    let stderr = instanz.stderr_mitschreiben();
     Lauf {
         instanz,
         _wurzel: wurzel,
         ueber: IpAddr::from([127, 0, 0, 1]),
+        stderr,
     }
 }
 
@@ -745,24 +748,113 @@ fn f0080_die_ursprungsregel_bleibt_rebinding_ist_offen() {
     let vorflug = lauf.anfragen(
         "OPTIONS /api/beitreten",
         &boese,
-        &["Origin: http://boese.example", "Access-Control-Request-Method: POST"],
+        &[
+            "Origin: http://boese.example",
+            "Access-Control-Request-Method: POST",
+        ],
         "",
     );
     assert_eq!(vorflug.status, 405);
     assert!(
-        !vorflug.kopf.iter().any(|(name, _)| name.starts_with("access-control-allow-")),
+        !vorflug
+            .kopf
+            .iter()
+            .any(|(name, _)| name.starts_with("access-control-allow-")),
         "{:?}",
         vorflug.kopf
     );
-    assert!(lauf.gesundheit("127.0.0.1").inhalt.contains("\"sitzungen\":0"));
+    assert!(
+        lauf.gesundheit("127.0.0.1")
+            .inhalt
+            .contains("\"sitzungen\":0")
+    );
 
     let origin = format!("Origin: http://{boese}");
-    let rebinding = beitreten(&lauf, &boese, &[&origin, "Sec-Fetch-Site: same-origin"], "beta");
+    let rebinding = beitreten(
+        &lauf,
+        &boese,
+        &[&origin, "Sec-Fetch-Site: same-origin"],
+        "beta",
+    );
     assert_eq!(rebinding.status, 201, "{}", rebinding.inhalt);
 
-    assert_eq!(lauf.gesundheit("boese.example").header("cross-origin-opener-policy"), None);
     assert_eq!(
-        lauf.gesundheit("127.0.0.1").header("cross-origin-opener-policy"),
+        lauf.gesundheit("boese.example")
+            .header("cross-origin-opener-policy"),
+        None
+    );
+    assert_eq!(
+        lauf.gesundheit("127.0.0.1")
+            .header("cross-origin-opener-policy"),
         Some("same-origin")
     );
+}
+
+const RISIKO: &str = "--alle-namen ist aktiv: jeder Host-Name wird angenommen — eine fremde Website, die ein Teilnehmer öffnet, kann über DNS-Rebinding Channels mitlesen, Nachrichten schreiben und über die Frist Verläufe löschen.";
+
+/// Kriterium F0080 „Sichtbar“ (US-9, Matrix I8–I11): WARNING vor der Startzeile in der Datei und auf stderr,
+/// `alle_namen` im Health-Check; ohne den Schalter `false` und keine solche Zeile.
+#[test]
+fn f0080_der_schalter_ist_sichtbar_in_protokoll_stderr_und_gesundheit() {
+    let mit_option = starten(&["--alle-namen"], &[]);
+    let mit_umgebung = starten(&[], &[("LOCALCHATA_ALLE_NAMEN", "1")]);
+    for lauf in [&mit_option, &mit_umgebung] {
+        assert!(
+            lauf.gesundheit("127.0.0.1")
+                .inhalt
+                .contains("\"alle_namen\":true")
+        );
+        let protokoll = lauf.protokoll();
+        let warnung = protokoll
+            .iter()
+            .position(|zeile| zeile.contains(" WARNING grenzschutz ") && zeile.contains(RISIKO))
+            .unwrap_or_else(|| panic!("WARNING fehlt: {protokoll:?}"));
+        let bereit = protokoll
+            .iter()
+            .position(|zeile| zeile.contains("Instanz bereit"))
+            .expect("Instanz bereit");
+        assert!(warnung < bereit, "{protokoll:?}");
+        let stderr = lauf.stderr.lock().expect("stderr").clone();
+        assert!(
+            stderr
+                .iter()
+                .any(|zeile| zeile.contains(" WARNING grenzschutz ") && zeile.contains(RISIKO)),
+            "{stderr:?}"
+        );
+    }
+
+    for umgebung in [
+        &[][..],
+        &[("LOCALCHATA_ALLE_NAMEN", "0")][..],
+        &[("LOCALCHATA_ALLE_NAMEN", "")][..],
+    ] {
+        let ohne = starten(&[], umgebung);
+        assert!(
+            ohne.gesundheit("127.0.0.1")
+                .inhalt
+                .contains("\"alle_namen\":false"),
+            "{umgebung:?}"
+        );
+        assert!(
+            !ohne
+                .protokoll()
+                .iter()
+                .any(|zeile| zeile.contains("--alle-namen ist aktiv")),
+            "{umgebung:?}"
+        );
+        assert_eq!(ohne.gesundheit("boese.example").status, 403);
+    }
+}
+
+/// Matrix I13: Option geht vor `LOCALCHATA_ALLE_NAMEN=0`.
+#[test]
+fn i13_die_option_geht_der_umgebung_vor() {
+    let lauf = starten(&["--alle-namen"], &[("LOCALCHATA_ALLE_NAMEN", "0")]);
+
+    assert!(
+        lauf.gesundheit("127.0.0.1")
+            .inhalt
+            .contains("\"alle_namen\":true")
+    );
+    assert!(erlaubt(&lauf.gesundheit("boese.example")));
 }

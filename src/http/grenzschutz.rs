@@ -218,6 +218,11 @@ impl Grenzschutz {
         self
     }
 
+    /// Ist `--alle-namen` an? (Health-Check)
+    pub fn alle_namen(&self) -> bool {
+        self.alle_namen
+    }
+
     pub fn mit_auskunft(mut self, auskunft: Arc<Auskunft>) -> Self {
         self.auskunft = Some(auskunft);
         self

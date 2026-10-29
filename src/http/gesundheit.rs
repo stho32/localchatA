@@ -38,6 +38,8 @@ pub struct Gesundheit {
     letzte_exception: Option<String>,
     aufgaben_ausgefallen: Vec<&'static str>,
     abgewiesen: AbgewiesenStand,
+    /// `--alle-namen` an (ADR-0045 Regel 9).
+    alle_namen: bool,
 }
 
 /// Antwortet der Port, ist die Instanz bereit: geladen wird vor dem Binden (A00003).
@@ -79,6 +81,7 @@ pub async fn beantworten(State(zustand): State<Arc<Zustand>>) -> Json<Gesundheit
             .map(zeit_als_text),
         aufgaben_ausgefallen: protokoll.ausgefallen,
         abgewiesen: protokoll.abgewiesen,
+        alle_namen: zustand.grenzschutz.alle_namen(),
     })
 }
 
@@ -144,7 +147,8 @@ mod tests {
                 "letzter_error": null,
                 "letzte_exception": null,
                 "aufgaben_ausgefallen": [],
-                "abgewiesen": {"zu_gross": 0, "kein_json": 0, "kaputt": 0, "abgebrochen": 0, "zu_langsam": 0}
+                "abgewiesen": {"zu_gross": 0, "kein_json": 0, "kaputt": 0, "abgebrochen": 0, "zu_langsam": 0},
+                "alle_namen": false
             })
         );
     }

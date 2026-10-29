@@ -174,6 +174,14 @@ async fn starten(
     let protokoll =
         Arc::new(Protokoll::oeffnen(&ordner, Arc::clone(&uhr), stufe).mit_episodenruhe(ruhe));
     crate::protokoll::haken_setzen(Arc::clone(&protokoll));
+    if auftrag.alle_namen {
+        protokoll.eintragen(
+            Stufe::Warning,
+            Bereich::Grenzschutz,
+            allenamen::RISIKO,
+            Kontext::neu(),
+        );
+    }
     let bereinigt_am = uhr.jetzt().date_naive();
     protokoll.bereinigen(bereinigt_am, Anlass::Start);
     let laufen = nach_der_sperre(
