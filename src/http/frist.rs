@@ -1,12 +1,15 @@
 //! Frist setzen (R00008 F0033, ADR-0031): `PUT /api/channels/{name}/frist {tage}` mit Sitzung. Prüfreihenfolge
-//! (Regel 2): Grenzschutz 403, Sitzung 401, Körper 415/413/400 → unbekannter Channel 404 → Wert 422 `frist` →
-//! defekte Einstellungen 409 `einstellungen-defekt` → beim Verkürzen ohne Bestätigung Ordner nicht lesbar 500
-//! (Ergänzung R00019) oder Rückfrage 409 `bestaetigen` → 200 `{channel, entfallen}`. Die Arbeit am Verzeichnis läuft
+//! (Regel 2): Grenzschutz 403, Sitzung 401, Vorab-Buchung 429 → Körper 415/413/400 → unbekannter Channel 404 → Wert
+//! 422 `frist` → Rest-Buchung 429 → defekte Einstellungen 409 `einstellungen-defekt` → beim Verkürzen ohne
+//! Bestätigung Ordner nicht lesbar 500 (Ergänzung R00019) oder Rückfrage 409 `bestaetigen` → 200 `{channel,
+//! entfallen}`. Am Schreibkonto kostet eine Änderung 10 Einheiten, 1 vorab und 9 vor dem Setzen; der unbekannte
+//! Channel bucht den Rest vor der 404 (R00021, ADR-0036 Ergänzung Karte #31 (b)). Die Arbeit am Verzeichnis läuft
 //! über `spawn_blocking`.
 
 use super::Zustand;
 use super::abbruch::{Abgebrochen, Grenzort, abbruch_beantworten};
 use super::anfrageprotokoll::mit_regel;
+use super::bremse::{Gegenstand, gebremst_melden};
 use super::channels::channel_als_json;
 use super::koerper::{Koerperfehler, Koerperort, json_lesen, koerperfehler_beantworten};
 use super::teilnehmer::Teilnehmer;
@@ -35,6 +38,8 @@ const REGEL_FRIST: &str = "frist";
 const REGEL_BESTAETIGT: &str = "bestaetigt";
 const REGEL_BESTAETIGEN: &str = "bestaetigen";
 const REGEL_EINSTELLUNGEN_DEFEKT: &str = "einstellungen-defekt";
+/// Volle Kosten einer Friständerung am Schreibkonto (ADR-0036 Ergänzung Karte #31 (b) Regel 1).
+const KOSTEN: u32 = 10;
 
 pub async fn setzen(
     teilnehmer: Teilnehmer,
@@ -43,6 +48,15 @@ pub async fn setzen(
     kopf: HeaderMap,
     koerper: Body,
 ) -> Response {
+    let konto = &zustand.schreibkonto;
+    if let Err(gebremst) = konto.vorab(&teilnehmer.kennung, teilnehmer.herkunft, KOSTEN) {
+        return gebremst_melden(
+            &zustand.protokoll,
+            gebremst,
+            Gegenstand::Aenderungen,
+            &teilnehmer,
+        );
+    }
     let ort = Koerperort {
         protokoll: &zustand.protokoll,
         route: ROUTE,
@@ -53,11 +67,28 @@ pub async fn setzen(
         Ok(koerper) => koerper,
         Err(fehler) => return koerper_abgewiesen(fehler),
     };
+    let wunsch = wunsch_lesen(&zustand.gespraeche, &name, &koerper);
+    if kostet_den_rest(&wunsch)
+        && let Err(gebremst) = konto.rest(&teilnehmer.kennung, teilnehmer.herkunft, KOSTEN)
+    {
+        return gebremst_melden(
+            &zustand.protokoll,
+            gebremst,
+            Gegenstand::Aenderungen,
+            &teilnehmer,
+        );
+    }
+    let Wunsch { tage, bestaetigt } = match wunsch {
+        Ok(wunsch) => wunsch,
+        Err(abweisung) => return abgewiesen(abweisung, &name, &teilnehmer.kennung),
+    };
     let gespraeche = Arc::clone(&zustand.gespraeche);
     let gewuenscht = name.clone();
     let kennung = teilnehmer.kennung.clone();
     let ergebnis = tokio::task::spawn_blocking(move || {
-        pruefen_und_setzen(&gespraeche, &gewuenscht, &koerper, &kennung)
+        gespraeche
+            .frist_setzen(&gewuenscht, tage, bestaetigt, &kennung)
+            .map_err(Abweisung::Frist)
     })
     .await;
     match ergebnis {
@@ -79,14 +110,7 @@ pub async fn setzen(
             );
             Abweisung::Frist(Fristfehler::TageNichtErmittelt { ordner, ursache }).beantworten(&name)
         }
-        Ok(Err(abweisung)) => {
-            let regel = abweisung.regelschluessel();
-            mit_regel(
-                abweisung.beantworten(&name),
-                regel,
-                Some(teilnehmer.kennung.als_text()),
-            )
-        }
+        Ok(Err(abweisung)) => abgewiesen(abweisung, &name, &teilnehmer.kennung),
         Err(abgebrochen) => abbruch_beantworten(
             &zustand.protokoll,
             &Abgebrochen::from(abgebrochen),
@@ -108,13 +132,15 @@ enum Abweisung {
     Frist(Fristfehler),
 }
 
-/// Channel vor Wert vor Defekt (ADR-0031 Regel 2.2–2.4); `bestaetigt` fehlt = `false`, sonst ein Wahrheitswert.
-fn pruefen_und_setzen(
-    gespraeche: &Gespraeche,
-    name: &str,
-    koerper: &Value,
-    von: &Kennung,
-) -> Result<FristGesetzt, Abweisung> {
+/// Was die Anfrage setzen will, nachdem Channel und Wert geprüft sind.
+struct Wunsch {
+    tage: u32,
+    bestaetigt: bool,
+}
+
+/// Channel vor Wert (ADR-0031 Regel 2.2, 2.3); `bestaetigt` fehlt = `false`, sonst ein Wahrheitswert. Defekte
+/// Einstellungen und die Rückfrage prüft erst `frist_setzen`.
+fn wunsch_lesen(gespraeche: &Gespraeche, name: &str, koerper: &Value) -> Result<Wunsch, Abweisung> {
     if !gespraeche.channel_bekannt(name) {
         return Err(Abweisung::Unbekannt);
     }
@@ -123,9 +149,19 @@ fn pruefen_und_setzen(
         None => false,
         Some(wert) => wert.as_bool().ok_or(Abweisung::Regel(REGEL_BESTAETIGT))?,
     };
-    gespraeche
-        .frist_setzen(name, tage, bestaetigt, von)
-        .map_err(Abweisung::Frist)
+    Ok(Wunsch { tage, bestaetigt })
+}
+
+/// Ein ungültiger Wert (422) kostet nur die Vorab-Einheit; alles andere, auch der unbekannte Channel, die vollen
+/// Kosten (R00021 „Was eine Anfrage kostet“).
+fn kostet_den_rest(wunsch: &Result<Wunsch, Abweisung>) -> bool {
+    !matches!(wunsch, Err(Abweisung::Regel(_)))
+}
+
+/// Eine Abweisung mit ihrem Regelschlüssel fürs Protokoll (ADR-0042 Ergänzung #24 Punkt 3).
+fn abgewiesen(abweisung: Abweisung, name: &str, von: &Kennung) -> Response {
+    let regel = abweisung.regelschluessel();
+    mit_regel(abweisung.beantworten(name), regel, Some(von.als_text()))
 }
 
 /// Eine wirksame Änderung, dann was die Pflege tat — derselbe Wert schreibt nichts (R00017).

@@ -199,6 +199,19 @@ impl Lauf {
         assert_eq!(channel.status, 201, "{}", channel.inhalt);
     }
 
+    /// Eine neue Sitzung derselben Herkunft über das IP-Literal, nur für E6 einer Zeile.
+    fn frist_token(&self) -> String {
+        let beitritt = self.anfrage(
+            "POST /api/beitreten",
+            &self.ip_host(),
+            &["Content-Type: application/json".to_string()],
+            &format!(r#"{{"name":"f{}"}}"#, self.namen),
+        );
+        assert_eq!(beitritt.status, 201, "{}", beitritt.inhalt);
+        let wert: serde_json::Value = serde_json::from_str(&beitritt.inhalt).expect("JSON");
+        wert["token"].as_str().expect("Token").to_string()
+    }
+
     /// Sitzungen, Nachrichten und die Liste der Channels (mit Frist) — „keine Wirkung“ heißt: gleich.
     fn stand(&self) -> (String, String, String) {
         let host = self.ip_host();
@@ -246,6 +259,13 @@ impl Lauf {
         let vorher = self.stand();
         self.namen += 1;
         let sitzung = format!("{SITZUNG}: {}", self.token);
+        // Eine Friständerung kostet 10 von 30 Einheiten der Kennung (R00021): wo E6 durchgeht, setzt eine eigene
+        // Sitzung je Zeile die Frist, damit die Kontrollsitzung nicht nach drei Zeilen gebremst wird.
+        let frist_sitzung = if erwartet == Erwartet::Ok {
+            format!("{SITZUNG}: {}", self.frist_token())
+        } else {
+            sitzung.clone()
+        };
         let json = "Content-Type: application/json".to_string();
         let schreibend: Vec<String> = match ursprung {
             Ursprung::Standard => vec![
@@ -272,6 +292,8 @@ impl Lauf {
         let lesend_mit_token = mit(std::slice::from_ref(&sitzung));
         let mut schreibend_mit_token = schreibend.clone();
         schreibend_mit_token.extend([json.clone(), sitzung.clone()]);
+        let mut frist_kopf = schreibend.clone();
+        frist_kopf.extend([json.clone(), frist_sitzung]);
         let mut beitreten_kopf = schreibend.clone();
         beitreten_kopf.push(json.clone());
         let name = format!(r#"{{"name":"m{}"}}"#, self.namen);
@@ -302,7 +324,7 @@ impl Lauf {
             (
                 "E6",
                 "PUT /api/channels/srev/frist",
-                mit(&schreibend_mit_token),
+                mit(&frist_kopf),
                 r#"{"tage":30}"#.to_string(),
                 200,
             ),

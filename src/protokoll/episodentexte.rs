@@ -15,6 +15,7 @@ pub const NAMENSAUFLOESUNG_ZU_LANGSAM: &str = "Namensauflösung zu langsam";
 pub const NICHT_GESPEICHERT: &str = "Nachricht nicht gespeichert";
 pub const QUOTE_ERREICHT: &str = "Senden abgewiesen: Quote erreicht";
 pub const GEBREMST: &str = "Senden gebremst: zu viele Nachrichten";
+pub const FRIST_GEBREMST: &str = "Frist gebremst: zu viele Änderungen";
 
 /// Ein Episodentext endet ohne Satzzeichen und trägt höchstens einen Gedankenstrich (vor Folge oder Ausweg);
 /// gilt auch für den Vorlauftext aus `uhr`.
@@ -52,6 +53,7 @@ mod tests {
         nicht_gespeichert: NICHT_GESPEICHERT = "Nachricht nicht gespeichert";
         quote_erreicht: QUOTE_ERREICHT = "Senden abgewiesen: Quote erreicht";
         gebremst: GEBREMST = "Senden gebremst: zu viele Nachrichten";
+        frist_gebremst: FRIST_GEBREMST = "Frist gebremst: zu viele Änderungen";
     }
 
     /// Die Regel selbst: jedes verbotene Satzzeichen am Ende und ein zweiter Gedankenstrich fallen auf.

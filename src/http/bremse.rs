@@ -1,7 +1,13 @@
-//! Die Antwort der Bremse (ADR-0036 Regel 4, Ergänzung Karte #31 (b) Regel 3): 429 `{fehler, grenze,
-//! wieder_in_ms}` mit `Retry-After` für jede Route, die am Schreibkonto bucht; der Text nennt, wovon es zu viele gab.
+//! Die Bremse an jeder Route, die am Schreibkonto bucht (ADR-0036 Regeln 4, 7, Ergänzung Karte #31 (b) Regel 3):
+//! eine Episode `WARNING schreibkonto` je Kennung und Gegenstand, dazu 429 `{fehler, grenze, wieder_in_ms}` mit
+//! `Retry-After`; Text und Episode nennen, wovon es zu viele gab.
 
+use super::teilnehmer::Teilnehmer;
 use crate::gespraeche::Kennung;
+use crate::protokoll::episoden::Auftreten;
+use crate::protokoll::episodentexte;
+use crate::protokoll::grenze::Grenzart;
+use crate::protokoll::{Bereich, Kontext, Protokoll, Schluessel, Stufe};
 use crate::schreibkonto::{Gebremst, Grenze};
 use axum::Json;
 use axum::http::StatusCode;
@@ -14,10 +20,6 @@ use std::net::IpAddr;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Gegenstand {
     Nachrichten,
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "die Frist bucht erst mit B0343")
-    )]
     Aenderungen,
 }
 
@@ -28,10 +30,60 @@ impl Gegenstand {
             Gegenstand::Aenderungen => "Änderungen",
         }
     }
+
+    /// Der Text ist Teil des Episodenschlüssels: Senden und Frist derselben Kennung sind zwei Episoden.
+    fn episodentext(self) -> &'static str {
+        match self {
+            Gegenstand::Nachrichten => episodentexte::GEBREMST,
+            Gegenstand::Aenderungen => episodentexte::FRIST_GEBREMST,
+        }
+    }
+}
+
+/// Jede 429 der Bremse zählt in die Episode ihres Gegenstands je Kennung (R00016, R00021).
+pub fn gebremst_melden(
+    protokoll: &Protokoll,
+    gebremst: Gebremst,
+    gegenstand: Gegenstand,
+    teilnehmer: &Teilnehmer,
+) -> Response {
+    protokoll.episode(gebremst_auftreten(
+        teilnehmer.kennung.als_text(),
+        gebremst.grenze,
+        gegenstand,
+    ));
+    gebremst_beantworten(
+        gebremst,
+        gegenstand,
+        &teilnehmer.kennung,
+        teilnehmer.herkunft,
+    )
+}
+
+/// Das Auftreten einer 429 der Bremse: Quelle ist die Kennung; die Grenze zählt als Art, damit die Ende-Zeile je
+/// Grenze zählt (ADR-0042 Ergänzung Karte #31 Punkt 2), und steht als `grenze=` nur in der Beginn-Zeile (Punkt 4).
+fn gebremst_auftreten(wer: &str, grenze: Grenze, gegenstand: Gegenstand) -> Auftreten {
+    let grenze = match grenze {
+        Grenze::Kennung => Grenzart::Kennung,
+        Grenze::Herkunft => Grenzart::Herkunft,
+    };
+    Auftreten {
+        stufe: Stufe::Warning,
+        bereich: Bereich::Schreibkonto,
+        text: gegenstand.episodentext(),
+        quelle: wer.to_string(),
+        kontext: Kontext::neu()
+            .mit(Schluessel::Kennung, wer)
+            .mit_nur_beginn(Schluessel::Grenze, grenze),
+        art: Some(grenze.als_text()),
+        verworfen: None,
+        bytes: None,
+        anzeige: None,
+    }
 }
 
 /// 429 mit `Retry-After` = ⌈`wieder_in_ms` / 1.000⌉, mindestens 1; die Sekunden im Text sind `Retry-After`.
-pub fn gebremst_beantworten(
+fn gebremst_beantworten(
     gebremst: Gebremst,
     gegenstand: Gegenstand,
     kennung: &Kennung,
@@ -63,6 +115,79 @@ mod tests {
     use super::*;
     use serde_json::Value;
     use std::time::Duration;
+
+    /// R00020 F0070 „Ende-Zeile rein“ (ADR-0042 Ergänzung Karte #31 Punkt 7): 6 × `kennung` und 2 × `herkunft`
+    /// in einer Episode → die Ende-Zeile zählt je Grenze, trägt `kennung=` und kein `grenze=`; nur `kennung` →
+    /// „(kennung 6)“ ohne „herkunft 0“. Die Beginn-Zeile behält `grenze=` des ersten Auftretens.
+    #[test]
+    fn die_ende_zeile_der_bremse_zaehlt_je_grenze_mit_dem_kontext_der_quelle() {
+        use crate::protokoll::testhilfe::{im_speicher, zeit};
+        let (protokoll, speicher, uhr, _) =
+            im_speicher("2026-10-28T12:00:00+01:00", Stufe::Information);
+        let folge = [
+            Grenze::Herkunft,
+            Grenze::Kennung,
+            Grenze::Kennung,
+            Grenze::Kennung,
+            Grenze::Herkunft,
+            Grenze::Kennung,
+            Grenze::Kennung,
+            Grenze::Kennung,
+        ];
+        for (sekunde, grenze) in folge.into_iter().enumerate() {
+            uhr.stellen(zeit(&format!("2026-10-28T12:00:0{sekunde}+01:00")));
+            protokoll.episode(gebremst_auftreten(
+                "beta@127.0.0.1",
+                grenze,
+                Gegenstand::Nachrichten,
+            ));
+            protokoll.episode(gebremst_auftreten(
+                "gamma@127.0.0.1",
+                Grenze::Kennung,
+                Gegenstand::Nachrichten,
+            ));
+        }
+        uhr.stellen(zeit("2026-10-28T12:02:00+01:00"));
+        protokoll.episoden_schliessen();
+
+        let konto: Vec<String> = speicher
+            .zeilen()
+            .into_iter()
+            .filter(|zeile| zeile.contains(" WARNING schreibkonto "))
+            .collect();
+        let von = |wer: &str, art: &str| -> Vec<String> {
+            konto
+                .iter()
+                .filter(|z| z.contains(wer) && z.contains(art))
+                .cloned()
+                .collect()
+        };
+        assert_eq!(konto.len(), 4, "{konto:#?}");
+        assert_eq!(
+            von("beta@", "Episode beginnt"),
+            [konto[0].clone()],
+            "{konto:#?}"
+        );
+        assert!(
+            konto[0].ends_with(" — Episode beginnt | kennung=beta@127.0.0.1 grenze=herkunft"),
+            "{konto:#?}"
+        );
+        let beta_ende = von("beta@", "Episode endet");
+        assert_eq!(beta_ende.len(), 1, "{konto:#?}");
+        assert!(
+            beta_ende[0].ends_with(
+                " — Episode endet: 8 in 7 s (herkunft 2; kennung 6) | kennung=beta@127.0.0.1"
+            ),
+            "{konto:#?}"
+        );
+        let gamma_ende = von("gamma@", "Episode endet");
+        assert_eq!(gamma_ende.len(), 1, "{konto:#?}");
+        assert!(
+            gamma_ende[0]
+                .ends_with(" — Episode endet: 8 in 7 s (kennung 8) | kennung=gamma@127.0.0.1"),
+            "{konto:#?}"
+        );
+    }
 
     async fn teile(antwort: Response) -> (u16, Option<String>, Value) {
         let status = antwort.status().as_u16();

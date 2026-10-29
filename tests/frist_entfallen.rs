@@ -165,11 +165,13 @@ async fn us8_us10_verkuerzen_fragt_mit_zahlen_zurueck_und_aendert_nichts() {
         grenze.json["fehler"],
         "Mit dieser Frist entfällt sofort 1 Tagesdatei mit 2 Nachrichten bis 2026-10-20 — mit \"bestaetigt\":true erneut senden."
     );
+    // Drei Anfragen bis zur Vorschau kosten die 30 Einheiten von `beta` (R00021); die 422 fragt `gamma`.
+    let gamma = beitreten(&eins, &instanz, "gamma").await;
     for bestaetigt in [json!("ja"), json!(1), Value::Null] {
         let abgewiesen = frist_setzen(
             &eins,
             &instanz,
-            &beta,
+            &gamma,
             "allgemein",
             json!({ "tage": 7, "bestaetigt": bestaetigt }),
         )

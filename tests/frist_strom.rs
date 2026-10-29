@@ -77,8 +77,10 @@ async fn us13_us14_die_neue_frist_kommt_im_strom_an_derselbe_wert_nicht() {
 
     let derselbe = frist_setzen(&eins, &instanz, &beta, "allgemein", json!({ "tage": 30 })).await;
     let abgewiesen = frist_setzen(&eins, &instanz, &beta, "allgemein", json!({ "tage": 0 })).await;
+    // 30, 30, 0 kosten `beta` 21 von 30 Einheiten (R00021); die nächste Änderung setzt `gamma`.
+    let gamma = beitreten(&eins, &instanz, "gamma").await;
     let einunddreissig =
-        frist_setzen(&eins, &instanz, &beta, "allgemein", json!({ "tage": 31 })).await;
+        frist_setzen(&eins, &instanz, &gamma, "allgemein", json!({ "tage": 31 })).await;
     assert_eq!(
         (derselbe.status, abgewiesen.status, einunddreissig.status),
         (200, 422, 200)

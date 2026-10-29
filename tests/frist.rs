@@ -208,12 +208,17 @@ async fn us4_grenzschutz_unbekannter_channel_und_keine_sitzung() {
     assert_eq!(fremd.status, 403, "{}", fremd.json);
     assert_eq!(kein_json.status, 415, "{}", kein_json.json);
     assert_eq!(kaputt.status, 400, "{}", kaputt.json);
-    for (name, koerper) in [
+    // Eine 404 kostet 10 Einheiten der Kennung (R00021): jede Zeile mit eigener Kennung.
+    for (nummer, (name, koerper)) in [
         ("fehlt", json!({ "tage": 30 })),
         ("Allgemein", json!({ "tage": 30 })),
         ("fehlt", json!({ "tage": 0 })),
-    ] {
-        let unbekannt = frist_setzen(&eins, &instanz, &beta, name, koerper).await;
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let wer = beitreten(&eins, &instanz, &format!("unbekannt{nummer}")).await;
+        let unbekannt = frist_setzen(&eins, &instanz, &wer, name, koerper).await;
         assert_eq!(unbekannt.status, 404, "{name} → {}", unbekannt.json);
         assert!(unbekannt.json["fehler"].is_string(), "{}", unbekannt.json);
     }
