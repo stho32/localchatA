@@ -429,3 +429,8 @@ Nie vom User erfragen.
 | 2026-10-29 | R00020 Senden gehärtet Teil 2 | B0336 Schreibkonto-Episode zählt je Grenze | Standard | 0,4h | 0,08h | 0,08h | autonom |
 | 2026-10-29 | R00020 Senden gehärtet Teil 2 | B0337 Episodentexte an einer Stelle, Gedankenstrich | Standard | 0,4h | 0,15h | 0,15h | autonom |
 | 2026-10-29 | R00020 Senden gehärtet Teil 2 | Mutanten, Gate, Gelerntes | Konsolidierung | — | 0,15h | 0,15h | autonom |
+| 2026-10-29 | R00019 Frist gehärtet | B0322 Löschfehler nach dem Setzen mit Kennung | Standard | 0,4h | 0,10h | 0,10h | autonom |
+| 2026-10-29 | R00019 Frist gehärtet | B0319 Tage nicht ermittelt melden | Standard | 0,4h | 0,08h | 0,08h | autonom |
+| 2026-10-29 | R00019 Frist gehärtet | B0320 Verlängern ohne Auflisten | Standard | 0,4h | 0,08h | 0,08h | autonom |
+| 2026-10-29 | R00019 Frist gehärtet | B0321 Frist-Abweisungen im Bereich frist | Standard | 0,4h | 0,07h | 0,07h | autonom |
+| 2026-10-29 | R00019 Frist gehärtet | Mutanten, Gelerntes, Gate | Konsolidierung | — | 0,20h | 0,20h | autonom |
