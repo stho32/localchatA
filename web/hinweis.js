@@ -1,5 +1,6 @@
 // Hinweiszeile unter dem Feld (ADR-0038 Regel 4), rein: aus dem Ergebnis der Textregel (textregel.js) die Stufe und
 // der Text — unter 15.000 Bytes nichts, ab da „noch n Zeichen“ (n = 16.384 − Bytes), bei einem Verstoß der Fehler mit ⚠.
+// Ein Text nur aus Leerraum hat keinen Hinweis, gleich wie lang (R00025 F0086).
 import { TEXT_HOECHSTENS_BYTES } from './textregel.js';
 
 // → { stufe: 'leer' | 'zaehlen' | 'fehler', text }
@@ -11,7 +12,7 @@ export function hinweis(ergebnis) {
   if (ergebnis.art === 'zeichen') {
     return { stufe: 'fehler', text: `⚠ Steuerzeichen ${ergebnis.zeichen} an Stelle ${ergebnis.stelle + 1} — bitte entfernen.` };
   }
-  if (ergebnis.bytes < ZAEHLEN_AB_BYTES) {
+  if (ergebnis.art === 'leer' || ergebnis.bytes < ZAEHLEN_AB_BYTES) {
     return { stufe: 'leer', text: '' };
   }
   return { stufe: 'zaehlen', text: `noch ${zahl(TEXT_HOECHSTENS_BYTES - ergebnis.bytes)} Zeichen` };
