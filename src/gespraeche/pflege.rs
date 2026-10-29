@@ -141,7 +141,7 @@ impl Gespraeche {
                         let vorher = self.belegung.weg(bytes);
                         self.unter_90_melden(vorher, vorher.saturating_sub(bytes), anlass);
                     }
-                    if let Err(ursache) = self.anhaenge_entfallen(&gespraech, tag) {
+                    if let Err(ursache) = self.anhaenge_entfallen(&gespraech, tag, anlass) {
                         fehler.push(Pflegebericht::NichtEntfallen {
                             channel: name.clone(),
                             datei: format!(
@@ -187,6 +187,7 @@ impl Gespraeche {
         &self,
         gespraech: &Gespraech,
         tag: NaiveDate,
+        anlass: &Pflegeanlass,
     ) -> std::io::Result<()> {
         self.anhangablage.tag_entfernen(gespraech, tag)?;
         let weg = self.anhangverzeichnis.tag_entfernen(gespraech, tag);
@@ -195,6 +196,11 @@ impl Gespraeche {
             std::sync::atomic::Ordering::SeqCst,
             |gebunden| Some(gebunden.saturating_sub(weg)),
         );
+        self.anhangschwelle_pruefen(match anlass {
+            Pflegeanlass::Start => "start",
+            Pflegeanlass::Tageswechsel => "tageswechsel",
+            Pflegeanlass::FristGesetzt { .. } => "frist_gesetzt",
+        });
         Ok(())
     }
 }

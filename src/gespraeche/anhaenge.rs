@@ -54,7 +54,61 @@ pub struct Anhangkennzahlen {
     pub geloescht: u64,
 }
 
+/// Ein Wechsel über bzw. unter 90 % der Anhang-Quote, gemessen an `gebunden` (nie an `gebunden + reserviert`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Anhangschwelle {
+    Ueber {
+        gebunden: u64,
+        hoechstens: u64,
+    },
+    Unter {
+        gebunden: u64,
+        hoechstens: u64,
+        grund: &'static str,
+    },
+}
+
+pub type AnhangschwelleMelden = std::sync::Arc<dyn Fn(&Anhangschwelle) + Send + Sync>;
+
 impl Gespraeche {
+    /// Hängt die Meldungen der Warnschwelle an (im Start: das Betriebsprotokoll).
+    pub fn mit_anhangschwelle_melden(
+        self,
+        anhangschwelle_melden: AnhangschwelleMelden,
+    ) -> Gespraeche {
+        Gespraeche {
+            anhangschwelle_melden,
+            ..self
+        }
+    }
+
+    /// Warnschwelle (B0515, ADR-0042 Ergänzung „F1′“, Muster ADR-0044 Regel 7): steigt `gebunden` über 90 % der
+    /// Anhang-Quote, einmal `Ueber`; fällt es wieder darunter, einmal `Unter` mit dem Grund (`geloescht`, `start`,
+    /// `tageswechsel`, `frist_gesetzt`). Ohne Anhang-Quote nichts.
+    pub fn anhangschwelle_pruefen(&self, grund: &'static str) {
+        let Some(hoechstens) = self.anhangquote else {
+            return;
+        };
+        let gebunden = self.anhangzaehler.gebunden.load(Ordering::SeqCst);
+        let ueber = u128::from(gebunden) * 10 > u128::from(hoechstens) * 9;
+        if self.anhangschwelle.swap(ueber, Ordering::SeqCst) == ueber {
+            return;
+        }
+        let meldung = if ueber {
+            Anhangschwelle::Ueber {
+                gebunden,
+                hoechstens,
+            }
+        } else {
+            Anhangschwelle::Unter {
+                gebunden,
+                hoechstens,
+                grund,
+            }
+        };
+        (self.anhangschwelle_melden)(&meldung);
+    }
+
     /// Anmelden (ADR-0046 Regel 1 Schritte 3–7 mit Ergänzungen „Karte #9 Gate“ und „F1′“): Name → `zu_gross` →
     /// unter der Schreibsperre offene Hochladungen → Platte → Anhang-Quote (`voll` | `hochladungen`) → Anspruch über
     /// die ganze Länge (`A += z`) und Eintrag `angemeldet`.
@@ -1174,7 +1228,11 @@ mod tests {
         assert_eq!(gespraeche.anhangkennzahlen().gebunden, 7 * MIB);
 
         gespraeche
-            .anhaenge_entfallen(&Gespraech::channel("allgemein"), tag_29())
+            .anhaenge_entfallen(
+                &Gespraech::channel("allgemein"),
+                tag_29(),
+                &crate::gespraeche::Pflegeanlass::Tageswechsel,
+            )
             .expect("entfallen");
 
         assert_eq!(
@@ -1240,6 +1298,86 @@ mod tests {
             None,
         );
         assert!(gesendet.is_err(), "eine gelöschte ID ist verbraucht");
+    }
+
+    /// B0515: die Schwelle wechselt nur über `gebunden` — Anmeldungen ändern nichts (Mutante „Schwelle über G + A“);
+    /// das Fallen durch Entfallen nennt den Anlass.
+    #[test]
+    fn warnschwelle_nur_ueber_gebunden() {
+        let gemeldet = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let (gespraeche, _, ids) = neun_und_einer();
+        let gespraeche = Arc::try_unwrap(gespraeche)
+            .ok()
+            .expect("allein")
+            .mit_anhangschwelle_melden({
+                let gemeldet = Arc::clone(&gemeldet);
+                Arc::new(move |meldung: &Anhangschwelle| {
+                    gemeldet.lock().expect("Liste").push(meldung.clone())
+                })
+            });
+        assert_eq!(gespraeche.anhangkennzahlen().gebunden, 10 * MIB);
+        gespraeche.anhangschwelle_pruefen("start");
+        assert!(
+            gemeldet.lock().expect("Liste").is_empty(),
+            "schon beim Binden über 90 %"
+        );
+        let bob = kennung("bob@127.0.0.1");
+        gespraeche.anhaenge_loeschen(&bob, &ids[..1], true, |_| true);
+        assert_eq!(
+            gemeldet.lock().expect("Liste").last(),
+            Some(&Anhangschwelle::Unter {
+                gebunden: 9 * MIB,
+                hoechstens: 10 * MIB,
+                grund: "geloescht"
+            })
+        );
+        gespraeche
+            .anhang_anmelden(&bob, bob.herkunft().expect("Herkunft"), "x.bin", MIB)
+            .expect("angemeldet");
+        gespraeche.anhangschwelle_pruefen("geloescht");
+        assert_eq!(gemeldet.lock().expect("Liste").len(), 1, "A zählt nicht");
+    }
+
+    #[test]
+    fn warnschwelle_faellt_durch_entfallen_mit_dem_anlass() {
+        for (anlass, grund) in [
+            (crate::gespraeche::Pflegeanlass::Start, "start"),
+            (
+                crate::gespraeche::Pflegeanlass::Tageswechsel,
+                "tageswechsel",
+            ),
+            (
+                crate::gespraeche::Pflegeanlass::FristGesetzt {
+                    von: kennung("bob@127.0.0.1"),
+                },
+                "frist_gesetzt",
+            ),
+        ] {
+            let gemeldet = Arc::new(std::sync::Mutex::new(Vec::new()));
+            let (gespraeche, _, _) = neun_und_einer();
+            let gespraeche = Arc::try_unwrap(gespraeche)
+                .ok()
+                .expect("allein")
+                .mit_anhangschwelle_melden({
+                    let gemeldet = Arc::clone(&gemeldet);
+                    Arc::new(move |meldung: &Anhangschwelle| {
+                        gemeldet.lock().expect("Liste").push(meldung.clone())
+                    })
+                });
+            gespraeche.anhangschwelle_pruefen("start");
+            gespraeche
+                .anhaenge_entfallen(&Gespraech::channel("allgemein"), tag_29(), &anlass)
+                .expect("entfallen");
+            assert_eq!(
+                gemeldet.lock().expect("Liste").last(),
+                Some(&Anhangschwelle::Unter {
+                    gebunden: MIB,
+                    hoechstens: 10 * MIB,
+                    grund
+                }),
+                "{grund}"
+            );
+        }
     }
 
     #[test]

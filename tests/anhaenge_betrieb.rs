@@ -338,3 +338,86 @@ async fn debug_ereignisse() {
         );
     }
 }
+
+/// Warnschwelle (B0515): neun gebunden (G = 90 %) → keine Warnung; ein weiterer Anhang von 1 Byte → genau eine
+/// `WARNING anhang Anhänge belegen 90 % der Anhangquote` mit `gebunden=9502720 hoechstens=10485760`; eine
+/// Anmeldung ändert nichts; bestätigtes Löschen von 1 MiB → genau eine `INFORMATION … wieder unter 90 %` mit
+/// `grund=geloescht`.
+#[tokio::test]
+async fn warnschwelle_der_anhang_quote() {
+    let wurzel = ordner();
+    let instanz = starten(wurzel.path(), &[], &[]);
+    let basis = instanz.adresse.clone();
+    let beta = Absender::von("127.0.0.1");
+    let token = beitreten(&beta, &basis, "beta", Some("agent")).await;
+    let mut ids = Vec::new();
+    for nummer in 0..10 {
+        let laenge = if nummer < 9 { 1_048_576 } else { 1 };
+        let id = ablegen(
+            &beta,
+            &basis,
+            &token,
+            &format!("n{nummer}.bin"),
+            vec![1u8; laenge],
+        )
+        .await;
+        let koerper = serde_json::json!({"text": "", "anhaenge": [id]})
+            .to_string()
+            .into_bytes();
+        assert_eq!(
+            roh_senden(
+                &beta,
+                &basis,
+                Some(&token),
+                "allgemein",
+                "application/json",
+                koerper
+            )
+            .await
+            .status,
+            201
+        );
+        ids.push(id);
+        if nummer == 8 {
+            assert!(
+                zeilen_mit(wurzel.path(), "Anhänge belegen 90 %").is_empty(),
+                "genau 90 % warnt nicht"
+            );
+        }
+    }
+    id(&anmelden(&beta, &basis, &token, "a.bin", 65_536).await);
+    let geloescht = beta
+        .anfrage(
+            reqwest::Method::POST,
+            format!("{basis}api/anhaenge/loeschen"),
+        )
+        .header("Content-Type", "application/json")
+        .header("X-LocalchatA-Sitzung", &token)
+        .body(serde_json::json!({"ids": [ids[0]], "bestaetigt": true}).to_string())
+        .send()
+        .await
+        .expect("Löschen");
+    assert_eq!(geloescht.status(), 200);
+    drop(instanz);
+
+    let ueber = zeilen_mit(
+        wurzel.path(),
+        "WARNING anhang Anhänge belegen 90 % der Anhangquote",
+    );
+    assert_eq!(ueber.len(), 1, "{ueber:#?}");
+    assert!(
+        ueber[0].ends_with("| gebunden=9502720 hoechstens=10485760"),
+        "{}",
+        ueber[0]
+    );
+    let unter = zeilen_mit(
+        wurzel.path(),
+        "INFORMATION anhang Anhänge wieder unter 90 % der Anhangquote",
+    );
+    assert_eq!(unter.len(), 1, "{unter:#?}");
+    assert!(
+        unter[0].ends_with("| gebunden=8454144 hoechstens=10485760 grund=geloescht"),
+        "{}",
+        unter[0]
+    );
+}

@@ -184,6 +184,7 @@ impl Gespraeche {
                 });
             }
         }
+        self.anhangschwelle_pruefen("geloescht");
         let mut bericht = self.bericht(ergebnisse, Vec::new(), dateien);
         bericht.umfang = umfang(aufrufer, erfolge.iter());
         bericht.je_gespraech = je_gespraech(&erfolge);

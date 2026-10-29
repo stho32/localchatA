@@ -29,7 +29,9 @@ mod verzeichnis;
 pub mod wiederholung;
 
 pub use crate::anwesenheit::Art;
-pub use anhaenge::{Anhangkennzahlen, Anmeldefehler, STANDARD_ANHANGQUOTE};
+pub use anhaenge::{
+    Anhangkennzahlen, Anhangschwelle, AnhangschwelleMelden, Anmeldefehler, STANDARD_ANHANGQUOTE,
+};
 pub use frist::{FRIST_MAX, FRIST_MIN, Frist, STANDARD_FRIST_TAGE, frist_in_spanne};
 pub use kennung::Kennung;
 pub use logablage::{Angehaengt, Dateiablage, Gespraech, Logablage};
@@ -165,6 +167,9 @@ pub struct Gespraeche {
     anhangverzeichnis: anhangverzeichnis::Anhangverzeichnis,
     /// Was beim Laden der Anhänge übergangen wurde (`WARNING laden`).
     anhangbefunde: Vec<Anhangladebefund>,
+    /// Ob `gebunden` über 90 % der Anhang-Quote steht (B0515); gewechselt nur über `anhangschwelle_pruefen`.
+    anhangschwelle: std::sync::atomic::AtomicBool,
+    anhangschwelle_melden: anhaenge::AnhangschwelleMelden,
 }
 
 /// Ein beim Laden übergangener Anhang bzw. ein Anhang-Ordner, der sich nicht öffnen ließ (ADR-0046 Regel 7 und
@@ -331,6 +336,8 @@ impl Gespraeche {
             anhangablage: Arc::new(anhangablage::KeineAnhangablage),
             anhangverzeichnis: anhangverzeichnis::Anhangverzeichnis::default(),
             anhangbefunde: Vec::new(),
+            anhangschwelle: std::sync::atomic::AtomicBool::new(false),
+            anhangschwelle_melden: Arc::new(|_: &anhaenge::Anhangschwelle| {}),
             zufall: Arc::new(crate::zufall::Betriebssystemzufall),
         })
     }
@@ -507,6 +514,7 @@ impl Gespraeche {
         self.anhangzaehler
             .gebunden
             .fetch_add(gebunden, Ordering::SeqCst);
+        self.anhangschwelle_pruefen("gebunden");
         for zeile in &zeilen {
             self.anhangverzeichnis
                 .eintragen(anhangverzeichnis::Eintrag::neu(

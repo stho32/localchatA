@@ -447,7 +447,7 @@ async fn kein_rueckgaengig() {
         200
     );
 
-    let hoch = hochladen(beta, g.basis(), token, &g.a, vec![7; MIB as usize]).await;
+    let hoch = hochladen(beta, g.basis(), token, &g.a, vec![7; 10]).await;
     let gesendet = senden_mit(beta, g.basis(), token, "allgemein", &[&g.a]).await;
 
     assert_eq!(

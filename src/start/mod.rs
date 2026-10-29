@@ -416,6 +416,7 @@ async fn nach_der_sperre(
             .mit_anhangablage(Arc::new(anhangdateien))
             .mit_wiederholung(wiederholspeicher(testgrenze))
             .mit_quote_melden(quote_melden(&protokoll))
+            .mit_anhangschwelle_melden(anhangschwelle_melden(&protokoll))
             .mit_verdraengt_melden(verdraengt_melden(&protokoll))
             .mit_veroeffentlichen(bus::channels_veroeffentlichen(&bus))
             .mit_nachricht_veroeffentlichen(bus::nachrichten_veroeffentlichen(&bus)),
@@ -439,6 +440,7 @@ async fn nach_der_sperre(
         );
     }
     quote_beim_start_melden(&gespraeche, &protokoll);
+    gespraeche.anhangschwelle_pruefen("start");
     let gepflegt_am = uhr.jetzt().date_naive();
     frist_pflegen(&gespraeche, gepflegt_am, Pflegeanlass::Start, &protokoll);
     let anwesenheit = Arc::new(
@@ -658,6 +660,39 @@ fn verfall_melden(protokoll: &Protokoll, verfallen: &crate::gespraeche::anhangei
         "Anmeldung verfallen",
         kontext,
     );
+}
+
+/// Die Warnschwelle der Anhang-Quote ins Protokoll (B0515, ADR-0042 Ergänzung „F1′“).
+fn anhangschwelle_melden(protokoll: &Arc<Protokoll>) -> crate::gespraeche::AnhangschwelleMelden {
+    let protokoll = Arc::clone(protokoll);
+    Arc::new(
+        move |meldung: &crate::gespraeche::Anhangschwelle| match meldung {
+            crate::gespraeche::Anhangschwelle::Ueber {
+                gebunden,
+                hoechstens,
+            } => protokoll.eintragen(
+                Stufe::Warning,
+                Bereich::Anhang,
+                "Anhänge belegen 90 % der Anhangquote",
+                Kontext::neu()
+                    .mit(Schluessel::Gebunden, *gebunden)
+                    .mit(Schluessel::Hoechstens, *hoechstens),
+            ),
+            crate::gespraeche::Anhangschwelle::Unter {
+                gebunden,
+                hoechstens,
+                grund,
+            } => protokoll.eintragen(
+                Stufe::Information,
+                Bereich::Anhang,
+                "Anhänge wieder unter 90 % der Anhangquote",
+                Kontext::neu()
+                    .mit(Schluessel::Gebunden, *gebunden)
+                    .mit(Schluessel::Hoechstens, *hoechstens)
+                    .mit(Schluessel::Grund, *grund),
+            ),
+        },
+    )
 }
 
 /// Pflegt alle Channels nach ihrer Frist und trägt jeden Bericht ins Protokoll ein (R00017: nie selbst auf stderr).
