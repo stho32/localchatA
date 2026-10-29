@@ -376,7 +376,8 @@ fn verdraengt_zeilen(ordner: &std::path::Path) -> Vec<String> {
 /// die Zahl der Sätze „Wichtig“, die Episodenzeilen und den Zähler.
 async fn wichtig_unter_last(umgebung: &[(&str, &str)]) -> (ApiAntwort, usize, Vec<String>, u64) {
     let wurzel = ordner();
-    let instanz = starten(wurzel.path(), umgebung);
+    let mut instanz = starten(wurzel.path(), umgebung);
+    let _stderr = instanz.stderr_mitschreiben();
     let basis = &instanz.adresse;
     let alfa = Absender::von("127.0.0.1");
     let token = beitreten(&alfa, basis, "alfa", Some("agent")).await;
