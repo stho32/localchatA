@@ -106,19 +106,9 @@ pub async fn hochladen(
                 anzeige: None,
             });
         }
-        Ergebnis::Metadaten(grund) => zustand.protokoll.episode(Auftreten {
-            stufe: Stufe::Warning,
-            bereich: Bereich::Anhang,
-            text: crate::protokoll::episodentexte::METADATEN_NICHT_TILGBAR,
-            quelle: teilnehmer.herkunft.to_string(),
-            kontext: Kontext::neu()
-                .mit(Schluessel::Herkunft, teilnehmer.herkunft)
-                .mit(Schluessel::Grund, *grund),
-            art: None,
-            verworfen: None,
-            bytes: None,
-            anzeige: None,
-        }),
+        Ergebnis::Metadaten(grund) => zustand
+            .protokoll
+            .episode(metadaten_auftreten(teilnehmer.herkunft, grund)),
         _ => {}
     }
     if let Ergebnis::Fehler(grund) | Ergebnis::Platte { grund, .. } = &ergebnis {
@@ -614,6 +604,24 @@ fn abgewiesen(fehler: Beginnfehler, wer: &str) -> Response {
     mit_regel(antwort, regel, Some(wer))
 }
 
+/// Quelle der Episode „Metadaten nicht tilgbar“ ist die Herkunft; der Grund (welche Prüfung scheiterte) gehört
+/// dem einzelnen Auftreten und steht nur in der Beginn-Zeile (ADR-0042 Ergänzung Karte #66).
+fn metadaten_auftreten(herkunft: std::net::IpAddr, grund: &str) -> Auftreten {
+    Auftreten {
+        stufe: Stufe::Warning,
+        bereich: Bereich::Anhang,
+        text: crate::protokoll::episodentexte::METADATEN_NICHT_TILGBAR,
+        quelle: herkunft.to_string(),
+        kontext: Kontext::neu()
+            .mit(Schluessel::Herkunft, herkunft)
+            .mit_nur_beginn(Schluessel::Grund, grund),
+        art: None,
+        verworfen: None,
+        bytes: None,
+        anzeige: None,
+    }
+}
+
 fn beantworten(ergebnis: Ergebnis, wer: &str) -> Response {
     match ergebnis {
         Ergebnis::Fertig {
@@ -714,6 +722,28 @@ mod tests {
     use std::sync::Barrier;
 
     const MIB: u64 = 1_048_576;
+
+    /// R00038 B0591 (Bestandsaufnahme): zwei Hochladungen derselben Herkunft scheitern an verschiedenen Prüfungen →
+    /// Beginn mit `grund=` der ersten, Ende nur `herkunft=`.
+    #[test]
+    fn die_ende_zeile_der_metadaten_nennt_nur_die_herkunft() {
+        use crate::protokoll::Stufe;
+        use crate::protokoll::testhilfe::{im_speicher, zeit};
+        let (protokoll, speicher, uhr, _) =
+            im_speicher("2026-10-28T12:00:00+01:00", Stufe::Information);
+        let herkunft = "10.0.0.9".parse().expect("IP");
+        for grund in ["MPF-Index unlesbar", "über 100.000 Blöcke"] {
+            protokoll.episode(metadaten_auftreten(herkunft, grund));
+        }
+        uhr.stellen(zeit("2026-10-28T12:01:00+01:00"));
+        protokoll.episoden_schliessen();
+
+        let zeilen = speicher.zeilen();
+        assert_eq!(zeilen.len(), 2, "{zeilen:#?}");
+        assert!(zeilen[0].contains("grund="), "{zeilen:#?}");
+        assert!(zeilen[1].contains("Episode endet: 2 in "), "{zeilen:#?}");
+        assert!(zeilen[1].ends_with("| herkunft=10.0.0.9"), "{zeilen:#?}");
+    }
 
     struct Aufbau {
         gespraeche: Arc<Gespraeche>,
