@@ -147,21 +147,23 @@ pub fn starten(ordner: &Path, argumente: &[&str]) -> Instanz {
 
 /// Wie `starten`, mit zusätzlichen Umgebungsvariablen und mitgelesenem stderr.
 pub fn starten_mit(ordner: &Path, argumente: &[&str], umgebung: &[(&str, &str)]) -> Instanz {
-    let ohne_anhangquote = !argumente.contains(&"--anhangquote")
-        && !umgebung
-            .iter()
-            .any(|(name, _)| *name == "LOCALCHATA_ANHANGQUOTE");
+    let ohne = |option: &str, variable: &str| {
+        !argumente.contains(&option) && !umgebung.iter().any(|(name, _)| *name == variable)
+    };
     let mut befehl = Command::new(PROGRAMM);
-    if ohne_anhangquote {
-        // Die Standard-Anhang-Quote von 20 GiB trägt ein Test-tmpfs nicht — ohne Vorgabe meldete jeder Start
-        // `WARNING start Platte trägt die Quoten nicht` (R00029 B0516). Den Standard selbst prüft
-        // `starten_wie_ausgeliefert`.
+    // Die Standard-Quoten (Anhänge 20 GiB, Text 4 GiB) trägt ein Test-tmpfs nicht — ohne Vorgabe meldete jeder Start
+    // „Platte trägt die Quoten nicht“, und das Gate hinge am freien Platz der Test-Platte (R00029 B0516, Befund #55
+    // S1). Die Standards selbst prüft `starten_wie_ausgeliefert`.
+    if ohne("--anhangquote", "LOCALCHATA_ANHANGQUOTE") {
         befehl.env("LOCALCHATA_ANHANGQUOTE", "1GiB");
+    }
+    if ohne("--plattenquote", "LOCALCHATA_PLATTENQUOTE") {
+        befehl.env("LOCALCHATA_PLATTENQUOTE", "1GiB");
     }
     starten_befehl(ordner, &mut befehl, argumente, umgebung)
 }
 
-/// Wie `starten_mit`, aber ohne Vorgabe der Anhang-Quote — der Start wie ausgeliefert.
+/// Wie `starten_mit`, aber ohne Vorgabe der Quoten — der Start wie ausgeliefert.
 pub fn starten_wie_ausgeliefert(
     ordner: &Path,
     argumente: &[&str],

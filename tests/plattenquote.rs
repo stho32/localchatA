@@ -18,7 +18,12 @@ fn starten_um(ordner: &Path, weitere_argumente: &[&str], umgebung: &[(&str, &str
         ("TZ", "Europe/Berlin"),
     ];
     alle.extend_from_slice(umgebung);
-    starten_mit(ordner, &argumente, &alle)
+    if weitere_argumente.is_empty() && umgebung.is_empty() {
+        // Ohne Angabe gilt der Standard der Plattenquote — `starten_mit` gäbe 1 GiB vor.
+        gemeinsam::starten_wie_ausgeliefert(ordner, &argumente, &alle)
+    } else {
+        starten_mit(ordner, &argumente, &alle)
+    }
 }
 
 /// Ruft mit dem Ordner und den lokalen Optionen auf, ohne auf eine Startzeile zu warten.
