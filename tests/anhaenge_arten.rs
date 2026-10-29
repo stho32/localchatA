@@ -144,3 +144,68 @@ async fn jede_zeile_der_tabelle_ueber_das_programm() {
         assert_eq!(verwerfen(&beta, basis, &token, &id).await, 204);
     }
 }
+
+/// Befund #51 B3, R00029 F0098 „Über das Programm“: `hochkant.jpg` (4000 × 3000, `Orientation` 6) gesendet → die
+/// angezeigten Maße 3000 × 4000 stehen gleich in der Senden-Antwort, im Ereignis des Stroms, im Verlauf und als
+/// `3000x4000` in der Metazeile der Tagesdatei.
+#[tokio::test]
+async fn nach_dem_senden_stehen_ueberall_die_angezeigten_masse() {
+    use gemeinsam::senden::{roh_senden, verlauf};
+    use gemeinsam::strom::Strom;
+    let wurzel = ordner();
+    let instanz = starten(wurzel.path(), &[], &[]);
+    let basis = instanz.adresse.as_str();
+    let beta = Absender::von("127.0.0.1");
+    let alpha = Absender::von("127.0.0.2");
+    let token = beitreten(&beta, basis, "beta", Some("agent")).await;
+    let token_alpha = beitreten(&alpha, basis, "alpha", Some("mensch")).await;
+    let mut strom = Strom::oeffnen(&alpha, basis, &token_alpha).await;
+    let foto = dateien::hochkant_jpg();
+    let angemeldet = id(&anmelden(&beta, basis, &token, "hochkant.jpg", foto.len() as u64).await);
+    assert_eq!(
+        hochladen(&beta, basis, &token, &angemeldet, foto)
+            .await
+            .status,
+        200
+    );
+
+    let gesendet = roh_senden(
+        &beta,
+        basis,
+        Some(&token),
+        "allgemein",
+        "application/json",
+        json!({"text": "", "anhaenge": [angemeldet]})
+            .to_string()
+            .into_bytes(),
+    )
+    .await;
+
+    assert_eq!(gesendet.status, 201, "{}", gesendet.json);
+    let masse = |anhang: &Value| {
+        (
+            anhang["art"].clone(),
+            anhang["breite"].clone(),
+            anhang["hoehe"].clone(),
+        )
+    };
+    let erwartet = (json!("image/jpeg"), json!(3000), json!(4000));
+    assert_eq!(masse(&gesendet.json["nachricht"]["anhaenge"][0]), erwartet);
+    let ereignis = strom
+        .bis(std::time::Duration::from_secs(5), |e| {
+            e.data["art"] == "nachricht"
+        })
+        .await
+        .expect("Ereignis");
+    assert_eq!(masse(&ereignis.data["nachricht"]["anhaenge"][0]), erwartet);
+    let gelesen = verlauf(&alpha, basis, &token_alpha, "allgemein").await;
+    assert_eq!(masse(&gelesen["nachrichten"][0]["anhaenge"][0]), erwartet);
+    let tag = &gesendet.json["nachricht"]["zeit"].as_str().expect("zeit")[..10];
+    let satz = std::fs::read_to_string(wurzel.path().join(format!("channels/allgemein/{tag}.log")))
+        .expect("Tag");
+    let metazeile = satz
+        .lines()
+        .find(|zeile| zeile.starts_with(&format!("+ anhang: {angemeldet} ")))
+        .expect("Metazeile");
+    assert!(metazeile.contains(" image/jpeg 3000x4000 "), "{metazeile}");
+}
