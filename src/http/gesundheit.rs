@@ -52,6 +52,18 @@ pub struct Gesundheit {
     quote_abgewiesen: u64,
     /// Wiederholschlüssel, die seit dem Start vor Ablauf verdrängt wurden (ADR-0043 Ergänzung Karte #36).
     schluessel_verdraengt: u64,
+    /// Anhang-Quote in Bytes, `null` bei `aus` (ADR-0043 Ergänzungen „F1“, „F1′“).
+    anhangquote: Option<u64>,
+    /// `G + A`: gebundene Anhänge samt Waisen plus Ansprüche offener Hochladungen.
+    anhang_belegt: u64,
+    /// `A`: Ansprüche offener Hochladungen im Zählmaß.
+    reserviert: u64,
+    /// Offene Hochladungen (angemeldet, laufend, fertig, nicht gebunden).
+    hochladungen: u64,
+    /// Belegte Erlaubnisse der Hochladebank, Momentwert.
+    hochladebank_belegt: usize,
+    /// 507 `quote` an Anmeldungen seit dem Start, beide Gründe.
+    anhang_abgewiesen: u64,
 }
 
 /// Antwortet der Port, ist die Instanz bereit: geladen wird vor dem Binden (A00003).
@@ -61,6 +73,7 @@ pub struct Gesundheit {
 /// (ADR-0017, B0103).
 pub async fn beantworten(State(zustand): State<Arc<Zustand>>) -> Json<Gesundheit> {
     let kennzahlen = zustand.gespraeche.kennzahlen();
+    let anhaenge = zustand.gespraeche.anhangkennzahlen();
     let betrieb = zustand.anwesenheit.betrieb();
     let protokoll = zustand.protokoll.kennzahlen();
     Json(Gesundheit {
@@ -100,6 +113,13 @@ pub async fn beantworten(State(zustand): State<Arc<Zustand>>) -> Json<Gesundheit
         plattenquote: kennzahlen.plattenquote,
         quote_abgewiesen: kennzahlen.quote_abgewiesen,
         schluessel_verdraengt: kennzahlen.schluessel_verdraengt,
+        anhangquote: anhaenge.anhangquote,
+        anhang_belegt: anhaenge.gebunden.saturating_add(anhaenge.reserviert),
+        reserviert: anhaenge.reserviert,
+        hochladungen: anhaenge.hochladungen,
+        hochladebank_belegt: super::anhaenge::hochladen::HOCHLADEBANK
+            .saturating_sub(zustand.hochladebank.available_permits()),
+        anhang_abgewiesen: anhaenge.abgewiesen,
     })
 }
 
@@ -178,7 +198,13 @@ mod tests {
                 "alle_namen": false,
                 "plattenquote": 4_294_967_296_u64,
                 "quote_abgewiesen": 0,
-                "schluessel_verdraengt": 0
+                "schluessel_verdraengt": 0,
+                "anhangquote": 21_474_836_480_u64,
+                "anhang_belegt": 0,
+                "reserviert": 0,
+                "hochladungen": 0,
+                "hochladebank_belegt": 0,
+                "anhang_abgewiesen": 0,
             })
         );
     }

@@ -62,7 +62,9 @@ pub async fn schicht(
     }
     let abweisung = antwort.extensions().get::<Abweisung>();
     let grund = abweisung.map_or(je_status, |abweisung| abweisung.regel);
-    let ziel = muster.clone().unwrap_or_else(|| prozent_dekodiert(&pfad));
+    let ziel = muster
+        .clone()
+        .unwrap_or_else(|| ids_gekuerzt(&prozent_dekodiert(&pfad)));
     let mut kontext = Kontext::neu()
         .mit(Schluessel::Route, format!("{methode} {ziel}"))
         .mit(Schluessel::Status, status);
@@ -138,6 +140,15 @@ fn bereich(methode: &str, muster: &str) -> Bereich {
     }
 }
 
+/// Nach dem Dekodieren jedes Segment, das mit einer ID beginnt (26 Zeichen aus `[A-Za-z2-7]`), auf 6 Zeichen und
+/// `…` (ADR-0047 Ergänzung Karte #9 Gate Regel 2) — in jedem Pfad, auch ohne Routenmuster.
+fn ids_gekuerzt(pfad: &str) -> String {
+    pfad.split('/')
+        .map(crate::gespraeche::anhangid::im_protokoll)
+        .collect::<Vec<_>>()
+        .join("/")
+}
+
 /// `%0a` → Zeilenumbruch usw.; ungültige Folgen bleiben, wie sie sind; Bytes als UTF-8 (verlustbehaftet).
 fn prozent_dekodiert(pfad: &str) -> String {
     let bytes = pfad.as_bytes();
@@ -165,6 +176,31 @@ fn prozent_dekodiert(pfad: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// M18 (rein): nach dem Dekodieren gekürzt — prozentkodiert, groß geschrieben, mit Anhängsel; andere Segmente
+    /// bleiben (Mutante „kürzen vor dem Dekodieren“: `%6B…` bliebe ganz).
+    #[test]
+    fn ids_im_pfad_werden_nach_dem_dekodieren_gekuerzt() {
+        let id = "k3v7q2m5xpc4h6n6tewaz2b5yr";
+        assert_eq!(
+            ids_gekuerzt(&format!("/anhaenge/{id}/x")),
+            "/anhaenge/k3v7q2…/x"
+        );
+        assert_eq!(
+            ids_gekuerzt(&format!("/api/anhaenge/{id}/")),
+            "/api/anhaenge/k3v7q2…/"
+        );
+        let kodiert = format!("/anhaenge/%6B{}", &id[1..]);
+        assert_eq!(
+            ids_gekuerzt(&prozent_dekodiert(&kodiert)),
+            "/anhaenge/k3v7q2…"
+        );
+        assert_eq!(
+            ids_gekuerzt(&format!("/x/{}", id.to_uppercase())),
+            "/x/K3V7Q2…"
+        );
+        assert_eq!(ids_gekuerzt("/api/gibtsnicht"), "/api/gibtsnicht");
+    }
 
     #[test]
     fn prozent_folgen_werden_dekodiert_ungueltige_bleiben() {
