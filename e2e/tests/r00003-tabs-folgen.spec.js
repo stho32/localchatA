@@ -289,10 +289,19 @@ test('Klick im Wettlauf: zwei Tabs klicken zugleich, beide zeigen dieselbe Kennu
   await a.getByLabel('Name').fill('shoff');
   await b.getByLabel('Name').fill('bert');
 
-  await Promise.all([
-    a.getByRole('button', { name: 'Beitreten' }).click(),
-    b.getByRole('button', { name: 'Beitreten' }).click(),
-  ]);
+  // Der Beitritt wird gehalten, bis beide Klicks angekommen sind (beide Formulare gesperrt): so liegen die Klicks sicher
+  // vor jedem Beitritt, ohne Wettlauf um die Zeit zwischen ihnen.
+  let beitrittFreigeben = null;
+  const gehalten = new Promise((weiter) => { beitrittFreigeben = weiter; });
+  await context.route('**/api/beitreten', async (route) => {
+    await gehalten;
+    await route.continue();
+  });
+  await a.getByRole('button', { name: 'Beitreten' }).click();
+  await b.getByRole('button', { name: 'Beitreten' }).click();
+  await expect(a.locator('form')).toHaveAttribute('aria-busy', 'true');
+  await expect(b.locator('form')).toHaveAttribute('aria-busy', 'true');
+  beitrittFreigeben();
 
   await expect(a.getByRole('banner').locator('.lc-me')).toContainText('@127.0.0.1');
   await expect(b.getByRole('banner').locator('.lc-me')).toContainText('@127.0.0.1');
