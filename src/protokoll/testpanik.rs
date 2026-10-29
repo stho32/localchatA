@@ -24,7 +24,11 @@ pub struct Testpanikfehler {
 
 impl fmt::Display for Testpanikfehler {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{VARIABLE} kennt nur verlauf und takt: {:?}", self.wert)
+        write!(
+            f,
+            "{VARIABLE} kennt nur verlauf und takt: {}",
+            super::in_anfuehrung(&self.wert)
+        )
     }
 }
 
@@ -82,6 +86,19 @@ impl Testpanik {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// R00018 F0062: der Wert steht in „…“, Steuerzeichen escaped wie im Protokoll.
+    #[test]
+    fn die_meldung_nennt_den_wert_in_anfuehrung_mit_escape() {
+        let meldung = Testpanikfehler {
+            wert: "la\u{1b}ut".to_string(),
+        }
+        .to_string();
+
+        assert!(meldung.contains("„la\\u{1b}ut“"), "{meldung}");
+        assert!(!meldung.contains('\u{1b}'), "{meldung}");
+        assert!(!meldung.contains('"'), "{meldung}");
+    }
 
     #[test]
     fn verlauf_geraet_genau_einmal_in_panik() {

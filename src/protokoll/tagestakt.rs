@@ -270,7 +270,7 @@ mod tests {
     }
 
     #[tokio::test(start_paused = true)]
-    async fn panik_einer_tagesaufgabe_eine_error_zeile_b_laeuft_nachster_versuch_am_naechsten_tag()
+    async fn panik_einer_tagesaufgabe_eine_error_zeile_b_laeuft_naechster_versuch_am_naechsten_tag()
     {
         let mut t = aufbau(
             "2026-10-28T12:00:00+01:00",

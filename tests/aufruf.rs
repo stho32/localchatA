@@ -36,6 +36,50 @@ fn us4_hilfe_zeigt_die_aufrufzeile_mit_allen_optionen_und_endet_mit_exit_null() 
     assert_eq!(ende.stderr, "");
 }
 
+/// R00018 F0062: `--protokoll-stufe <stufe>` steht auf eigener Zeile, die Erklärung darunter eingerückt wie bei
+/// `--erreichbar-als`; keine ihrer Zeilen ist länger als die längste übrige Zeile der Hilfe.
+#[test]
+fn die_hilfe_zeigt_die_protokollstufe_auf_eigener_zeile_wie_erreichbar_als() {
+    let ende = aufrufen(&["--hilfe"]);
+    let zeilen: Vec<&str> = ende.stdout.lines().collect();
+    let einzug = |zeile: &str| zeile.len() - zeile.trim_start().len();
+    let stelle = |option: &str| {
+        zeilen
+            .iter()
+            .position(|zeile| zeile.trim_start() == option)
+            .unwrap_or_else(|| panic!("keine eigene Zeile {option}: {}", ende.stdout))
+    };
+
+    let stufe = stelle("--protokoll-stufe <stufe>");
+    let erreichbar = stelle("--erreichbar-als <name>");
+
+    assert_eq!(ende.exit, Some(0));
+    assert_eq!(einzug(zeilen[stufe]), einzug(zeilen[erreichbar]));
+    assert_eq!(
+        einzug(zeilen[stufe + 1]),
+        einzug(zeilen[erreichbar + 1]),
+        "{}",
+        ende.stdout
+    );
+    let block: Vec<usize> = (stufe..zeilen.len())
+        .take_while(|&nummer| {
+            nummer == stufe || einzug(zeilen[nummer]) == einzug(zeilen[stufe + 1])
+        })
+        .collect();
+    let laengste_uebrige = (0..zeilen.len())
+        .filter(|nummer| !block.contains(nummer))
+        .map(|nummer| zeilen[nummer].chars().count())
+        .max()
+        .unwrap_or(0);
+    for nummer in block {
+        assert!(
+            zeilen[nummer].chars().count() <= laengste_uebrige,
+            "{}",
+            zeilen[nummer]
+        );
+    }
+}
+
 #[test]
 fn us4_unbekannte_option_endet_mit_exit_zwei_und_verweist_auf_die_hilfe() {
     let ende = aufrufen(&["--gibtsnicht"]);

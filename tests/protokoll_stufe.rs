@@ -37,6 +37,32 @@ fn eine_falsche_stufe_in_der_umgebung_ist_exit_2_ohne_logs() {
     assert!(!wurzel.path().join("logs").exists());
 }
 
+/// R00018 F0062: die Exit-2-Meldungen nennen den Wert in „…“, nicht in Rust-Anführung.
+#[test]
+fn exit_2_meldungen_nennen_den_wert_in_deutschen_anfuehrungszeichen() {
+    for (variable, wert) in [
+        ("LOCALCHATA_PROTOKOLL_STUFE", "laut"),
+        ("LOCALCHATA_EPISODE_RUHE_MS", "abc"),
+        ("LOCALCHATA_TESTPANIK", "laut"),
+    ] {
+        let wurzel = tempfile::tempdir().expect("Wegwerf-Ordner");
+        let ordner = wurzel.path().display().to_string();
+        let mut argumente = vec![ordner.as_str()];
+        argumente.extend_from_slice(&LOKAL);
+
+        let ende = aufrufen_mit(&argumente, &[(variable, wert)]);
+
+        assert_eq!(ende.exit, Some(2), "{variable}: {}", ende.stderr);
+        let zeile = ende
+            .stderr
+            .lines()
+            .find(|zeile| zeile.contains(variable))
+            .unwrap_or_else(|| panic!("{variable} nicht genannt: {}", ende.stderr));
+        assert!(zeile.contains(&format!("„{wert}“")), "{zeile}");
+        assert!(!zeile.contains(&format!("\"{wert}\"")), "{zeile}");
+    }
+}
+
 #[test]
 fn us12_eine_falsche_stufe_als_option_ist_exit_2_ohne_logs() {
     let wurzel = tempfile::tempdir().expect("Wegwerf-Ordner");

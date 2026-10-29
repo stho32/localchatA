@@ -2,6 +2,7 @@
 //! Millisekunden, Standard 60.000; 0, leer oder keine Zahl ist ein Fehler (Exit 2).
 
 use super::episoden::RUHE;
+use super::in_anfuehrung;
 use std::ffi::OsStr;
 use std::fmt;
 use std::time::Duration;
@@ -17,8 +18,8 @@ impl fmt::Display for Ruhefehler {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
-            "{VARIABLE} ist keine ganze Zahl von Millisekunden ab 1: {:?} — z. B. 1000",
-            self.wert
+            "{VARIABLE} ist keine ganze Zahl von Millisekunden ab 1: {} — z. B. 1000",
+            in_anfuehrung(&self.wert)
         )
     }
 }
@@ -43,6 +44,19 @@ pub fn aus_umgebung(wert: Option<&OsStr>) -> Result<Duration, Ruhefehler> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// R00018 F0062: der Wert steht in „…“, Steuerzeichen escaped wie im Protokoll.
+    #[test]
+    fn die_meldung_nennt_den_wert_in_anfuehrung_mit_escape() {
+        let meldung = Ruhefehler {
+            wert: "la\u{1b}ut".to_string(),
+        }
+        .to_string();
+
+        assert!(meldung.contains("„la\\u{1b}ut“"), "{meldung}");
+        assert!(!meldung.contains('\u{1b}'), "{meldung}");
+        assert!(!meldung.contains('"'), "{meldung}");
+    }
 
     #[test]
     fn ohne_wert_60_s_sonst_die_millisekunden() {

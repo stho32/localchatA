@@ -283,7 +283,7 @@ pub fn aufrufen_mit(argumente: &[&str], umgebung: &[(&str, &str)]) -> Ende {
 #[derive(Debug)]
 pub struct RohAntwort {
     pub status: u16,
-    /// Header-Namen klein geschrieben, in der Reihenfolge der Antwort.
+    /// Header-Namen kleingeschrieben, in der Reihenfolge der Antwort.
     pub kopf: Vec<(String, String)>,
     pub inhalt: String,
 }

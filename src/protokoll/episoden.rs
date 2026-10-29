@@ -191,7 +191,7 @@ impl Episode {
         let teile: Vec<String> = self
             .je_art
             .iter()
-            .map(|(art, n)| format!("{art} {n}"))
+            .map(|(art, n)| format!("{} {n}", art_im_text(art)))
             .chain(
                 self.je_verworfen
                     .iter()
@@ -220,6 +220,17 @@ impl Episode {
             format!("{}{quelle} — {zusatz}", self.text),
             kontext,
         )
+    }
+}
+
+/// Die Art eines Auftretens im Text der Ende-Zeile: Körperfehler in Worten (R00018 F0062), im Schlüssel `art=` und
+/// in `abgewiesen` bleibt der Schlüssel (`zu_gross` …); andere Arten (Grenzen) stehen, wie sie sind.
+fn art_im_text(art: &str) -> &str {
+    match art {
+        "zu_gross" => "zu groß",
+        "kein_json" => "kein JSON",
+        "zu_langsam" => "zu langsam",
+        andere => andere,
     }
 }
 
@@ -385,7 +396,7 @@ mod tests {
 
         assert_eq!(
             ende[0].text,
-            "Körper abgewiesen — Episode endet: 3 in 0 s (kaputt 1; zu_gross 2; verworfen vollständig 2)"
+            "Körper abgewiesen — Episode endet: 3 in 0 s (kaputt 1; zu groß 2; verworfen vollständig 2)"
         );
         assert_eq!(ende[0].kontext.wert(Schluessel::Bytes), Some("6000"));
     }

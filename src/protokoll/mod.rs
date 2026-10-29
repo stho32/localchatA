@@ -12,7 +12,7 @@ pub mod wache;
 pub mod zaehler;
 pub mod zeile;
 
-pub use zeile::{Bereich, Eintrag, Kontext, Schluessel, Stufe};
+pub use zeile::{Bereich, Eintrag, Kontext, Schluessel, Stufe, in_anfuehrung};
 
 use crate::uhr::{Uhr, Zeit};
 use bereinigung::{Anlass, Bereinigung};

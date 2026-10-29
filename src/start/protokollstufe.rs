@@ -2,7 +2,7 @@
 //! dem Standard `information`; dazu, woher sie kommt. Rein.
 
 use super::aufruf::{ERLAUBTE_STUFEN, stufe_lesen};
-use crate::protokoll::Stufe;
+use crate::protokoll::{Stufe, in_anfuehrung};
 use std::ffi::OsStr;
 use std::fmt;
 
@@ -18,8 +18,8 @@ impl fmt::Display for Stufenfehler {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
-            "{VARIABLE} ist keine Protokollstufe: {:?} — erlaubt sind {ERLAUBTE_STUFEN}",
-            self.wert
+            "{VARIABLE} ist keine Protokollstufe: {} — erlaubt sind {ERLAUBTE_STUFEN}",
+            in_anfuehrung(&self.wert)
         )
     }
 }
@@ -49,6 +49,19 @@ pub fn wirksame_stufe(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// R00018 F0062: der Wert steht in „…“, Steuerzeichen escaped wie im Protokoll.
+    #[test]
+    fn die_meldung_nennt_den_wert_in_anfuehrung_mit_escape() {
+        let meldung = Stufenfehler {
+            wert: "la\u{1b}ut".to_string(),
+        }
+        .to_string();
+
+        assert!(meldung.contains("„la\\u{1b}ut“"), "{meldung}");
+        assert!(!meldung.contains('\u{1b}'), "{meldung}");
+        assert!(!meldung.contains('"'), "{meldung}");
+    }
 
     #[test]
     fn option_vor_umgebung_vor_standard() {

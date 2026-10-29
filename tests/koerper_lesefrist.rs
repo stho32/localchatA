@@ -57,7 +57,7 @@ async fn verbinden(port: u16, herkunft: &str) -> TcpStream {
 #[derive(Debug)]
 struct Ausgang {
     status: Option<u16>,
-    /// Kopfzeilen der Antwort, Namen klein geschrieben.
+    /// Kopfzeilen der Antwort, Namen kleingeschrieben.
     kopf: Vec<String>,
     inhalt: String,
     zu: bool,

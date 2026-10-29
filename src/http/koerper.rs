@@ -582,7 +582,7 @@ mod tests {
         );
         assert!(
             warnungen[1].contains(
-                " Körper abgewiesen — Episode endet: 2 in 0 s (abgebrochen 1; zu_gross 1; "
+                " Körper abgewiesen — Episode endet: 2 in 0 s (abgebrochen 1; zu groß 1; "
             ),
             "{warnungen:#?}"
         );

@@ -255,6 +255,12 @@ fn text_neutralisieren(roh: &str) -> String {
     neutralisieren_mit(roh, TEXT_HOECHSTENS, |zeichen| zeichen == '|')
 }
 
+/// Ein fremder Wert für eine Meldung an Menschen (stderr): in „…“, Steuer- und Richtungszeichen escaped und gekürzt
+/// wie im Protokoll — statt der Rust-Anführung aus `{:?}` (R00018 F0062).
+pub fn in_anfuehrung(roh: &str) -> String {
+    format!("„{}“", neutralisieren(roh, WERT_HOECHSTENS))
+}
+
 /// Escape (CWE-117) und Kürzung: `\` → `\\`; Steuer-, Zeilentrenner- und Richtungszeichen → `\u{…}` in
 /// Kleinbuchstaben-Hex; länger als `hoechstens` Zeichen → gekürzt mit `…` am Ende, nie mitten in einem Escape.
 pub fn neutralisieren(roh: &str, hoechstens: usize) -> String {

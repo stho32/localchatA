@@ -125,7 +125,10 @@ async fn gegenprobe(stufe: &[&str]) {
         warnungen[1].contains("— Episode endet: 200 "),
         "{warnungen:#?}"
     );
-    assert!(warnungen[1].contains("zu_gross 200"), "{warnungen:#?}");
+    assert!(
+        warnungen[1].contains("(zu groß 200; verworfen vollständig 200)"),
+        "{warnungen:#?}"
+    );
     assert!(
         warnungen[1].contains("verworfen vollständig 200"),
         "{warnungen:#?}"

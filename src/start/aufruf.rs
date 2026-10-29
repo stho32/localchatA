@@ -16,8 +16,9 @@ pub const HILFE: &str = concat!(
     "                    Host-Name, unter dem die Instanz zusätzlich antwortet (mehrfach erlaubt);\n",
     "                    IP-Adressen, localhost und der Rechnername gelten immer; Namen des eigenen Netzes\n",
     "                    (Rückwärtsname der Adresse, .local, .home.arpa, .internal, einteilig) gelten automatisch\n",
-    "  --protokoll-stufe <stufe>  Mindeststufe des Betriebsprotokolls unter <ordner>/logs/: debug, information (Standard), warning, error;\n",
-    "                    auch über LOCALCHATA_PROTOKOLL_STUFE\n",
+    "  --protokoll-stufe <stufe>\n",
+    "                    Mindeststufe des Betriebsprotokolls unter <ordner>/logs/: debug, information\n",
+    "                    (Standard), warning, error; auch über LOCALCHATA_PROTOKOLL_STUFE\n",
     "  --alle-namen      jeden Host-Namen annehmen, ohne Namensauflösung; auch über LOCALCHATA_ALLE_NAMEN=1\n",
     "                    Risiko: eine fremde Website, die ein Teilnehmer öffnet, kann über DNS-Rebinding Channels mitlesen, Nachrichten schreiben und über die Frist Verläufe löschen.\n",
     "  --hilfe           diese Hilfe zeigen\n",
@@ -349,7 +350,10 @@ mod tests {
                 .contains("[--protokoll-stufe <stufe>]"),
             "{HILFE}"
         );
-        assert!(HILFE.contains("--protokoll-stufe <stufe>  Mindeststufe des Betriebsprotokolls unter <ordner>/logs/: debug, information (Standard), warning, error;"), "{HILFE}");
+        assert!(
+            HILFE.contains("  --protokoll-stufe <stufe>\n                    Mindeststufe des Betriebsprotokolls unter <ordner>/logs/: debug, information\n                    (Standard), warning, error;"),
+            "{HILFE}"
+        );
         assert!(HILFE.contains("LOCALCHATA_PROTOKOLL_STUFE"), "{HILFE}");
     }
 
