@@ -4,6 +4,10 @@
 //! Zwei Implementierungen: Dateisystem (Produktion) und Speicher (Tests mit Schranken und Fehlern).
 
 use super::anhangid::Anhangid;
+use super::anhangpfade;
+use super::anhangverzeichnis::Tagesdatei;
+use super::logablage::Gespraech;
+use chrono::NaiveDate;
 use std::fs::File;
 use std::io;
 use std::os::unix::fs::FileExt;
@@ -16,6 +20,22 @@ pub trait Teildatei: Send + Sync {
     fn lesen_an(&self, pos: u64, puffer: &mut [u8]) -> io::Result<usize>;
     fn schreiben_an(&self, pos: u64, bytes: &[u8]) -> io::Result<()>;
     fn laenge(&self) -> io::Result<u64>;
+}
+
+/// Eine gebundene Anhangdatei zum Lesen per Position (Ausliefern).
+pub trait Anhangdatei: Send + Sync {
+    fn lesen_an(&self, pos: u64, puffer: &mut [u8]) -> io::Result<usize>;
+    fn laenge(&self) -> io::Result<u64>;
+}
+
+impl Anhangdatei for File {
+    fn lesen_an(&self, pos: u64, puffer: &mut [u8]) -> io::Result<usize> {
+        self.read_at(puffer, pos)
+    }
+
+    fn laenge(&self) -> io::Result<u64> {
+        Ok(self.metadata()?.len())
+    }
 }
 
 /// Was beim Leeren des Eingangs beim Start stehen blieb: Symlinks und Unterordner (`WARNING laden`).
@@ -34,6 +54,36 @@ pub trait Anhangablage: Send + Sync {
     fn eingang_loeschen(&self, id: &Anhangid) -> io::Result<()>;
     /// Löscht nur `.eingang/<id>.teil` (Abbruch eines `PUT`); fehlt sie, gilt sie als gelöscht.
     fn teil_loeschen(&self, id: &Anhangid) -> io::Result<()>;
+    /// Binden: `.eingang/<id>` → `<gespräch>/anhaenge/<tag>/<datei>` ohne Überschreiben; `anhaenge` und der Tag
+    /// werden bei Bedarf angelegt, nie über einen Symlink (`ELOOP`/`ENOTDIR` ist ein Fehler).
+    fn binden(
+        &self,
+        id: &Anhangid,
+        gespraech: &Gespraech,
+        tag: NaiveDate,
+        datei: &str,
+    ) -> io::Result<()>;
+    /// Zurücklegen nach gescheitertem Binden: `<tag>/<datei>` → `.eingang/<id>` ohne Überschreiben.
+    fn zuruecklegen(
+        &self,
+        gespraech: &Gespraech,
+        tag: NaiveDate,
+        datei: &str,
+        id: &Anhangid,
+    ) -> io::Result<()>;
+    /// Die regulären Dateien in `anhaenge/<tag>/` mit ihrer Länge; ein Symlink im Pfad ist ein Fehler.
+    fn tag_dateien(&self, gespraech: &Gespraech, tag: NaiveDate) -> io::Result<Vec<Tagesdatei>>;
+    /// Eine gebundene Datei zum Lesen, `O_NOFOLLOW` in jeder Komponente.
+    fn zum_lesen(
+        &self,
+        gespraech: &Gespraech,
+        tag: NaiveDate,
+        datei: &str,
+    ) -> io::Result<Box<dyn Anhangdatei>>;
+    /// Kürzt eine gebundene Datei auf 0 Bytes; fehlt sie, ist das Erfolg.
+    fn kuerzen(&self, gespraech: &Gespraech, tag: NaiveDate, datei: &str) -> io::Result<()>;
+    /// Entfernt `anhaenge/<tag>` ohne einem Symlink zu folgen (ADR-0046 Ergänzung „Karte #9 Security-Gate“ Regel 4).
+    fn tag_entfernen(&self, gespraech: &Gespraech, tag: NaiveDate) -> io::Result<()>;
 }
 
 /// Ohne Ablage für Anhänge (Gespräche ohne Start, Tests ohne Anhänge): jeder Zugriff scheitert.
@@ -53,6 +103,30 @@ impl Anhangablage for KeineAnhangablage {
     }
 
     fn teil_loeschen(&self, _: &Anhangid) -> io::Result<()> {
+        Ok(())
+    }
+
+    fn binden(&self, _: &Anhangid, _: &Gespraech, _: NaiveDate, _: &str) -> io::Result<()> {
+        Err(ohne_ablage())
+    }
+
+    fn zuruecklegen(&self, _: &Gespraech, _: NaiveDate, _: &str, _: &Anhangid) -> io::Result<()> {
+        Err(ohne_ablage())
+    }
+
+    fn tag_dateien(&self, _: &Gespraech, _: NaiveDate) -> io::Result<Vec<Tagesdatei>> {
+        Ok(Vec::new())
+    }
+
+    fn zum_lesen(&self, _: &Gespraech, _: NaiveDate, _: &str) -> io::Result<Box<dyn Anhangdatei>> {
+        Err(io::Error::from(io::ErrorKind::NotFound))
+    }
+
+    fn kuerzen(&self, _: &Gespraech, _: NaiveDate, _: &str) -> io::Result<()> {
+        Err(ohne_ablage())
+    }
+
+    fn tag_entfernen(&self, _: &Gespraech, _: NaiveDate) -> io::Result<()> {
         Ok(())
     }
 }
@@ -87,6 +161,8 @@ impl std::fmt::Display for Eingangsfehler {
 
 /// Die Ablage im Dateisystem: gehaltene Deskriptoren des Instanzordners und des Eingangs.
 pub struct Anhangdateien {
+    /// Der Instanzordner (der vom Betreiber genannte Pfad darf selbst ein Symlink sein — seine Wahl).
+    instanz: rustix::fd::OwnedFd,
     eingang: rustix::fd::OwnedFd,
 }
 
@@ -120,7 +196,15 @@ impl Anhangdateien {
         )
         .map_err(|fehler| platte(fehler.into()))?;
         let stehen = leeren(&eingang).map_err(platte)?;
-        Ok((Anhangdateien { eingang }, stehen))
+        let instanz = rustix::fs::open(
+            ordner,
+            rustix::fs::OFlags::DIRECTORY
+                | rustix::fs::OFlags::CLOEXEC
+                | rustix::fs::OFlags::RDONLY,
+            rustix::fs::Mode::empty(),
+        )
+        .map_err(|fehler| platte(fehler.into()))?;
+        Ok((Anhangdateien { instanz, eingang }, stehen))
     }
 }
 
@@ -224,6 +308,54 @@ impl Anhangablage for Anhangdateien {
 
     fn teil_loeschen(&self, id: &Anhangid) -> io::Result<()> {
         loeschen_falls_da(&self.eingang, &teilname(id))
+    }
+
+    fn binden(
+        &self,
+        id: &Anhangid,
+        gespraech: &Gespraech,
+        tag: NaiveDate,
+        datei: &str,
+    ) -> io::Result<()> {
+        let ziel = anhangpfade::tag_anlegen(&self.instanz, gespraech, tag)?;
+        umbenennen_ohne_ueberschreiben(&self.eingang, id.als_text(), &ziel, datei)
+    }
+
+    fn zuruecklegen(
+        &self,
+        gespraech: &Gespraech,
+        tag: NaiveDate,
+        datei: &str,
+        id: &Anhangid,
+    ) -> io::Result<()> {
+        let quelle = anhangpfade::tag(&self.instanz, gespraech, tag)?;
+        umbenennen_ohne_ueberschreiben(&quelle, datei, &self.eingang, id.als_text())
+    }
+
+    fn tag_dateien(&self, gespraech: &Gespraech, tag: NaiveDate) -> io::Result<Vec<Tagesdatei>> {
+        anhangpfade::tag_dateien(&self.instanz, gespraech, tag)
+    }
+
+    fn zum_lesen(
+        &self,
+        gespraech: &Gespraech,
+        tag: NaiveDate,
+        datei: &str,
+    ) -> io::Result<Box<dyn Anhangdatei>> {
+        Ok(Box::new(anhangpfade::zum_lesen(
+            &self.instanz,
+            gespraech,
+            tag,
+            datei,
+        )?))
+    }
+
+    fn kuerzen(&self, gespraech: &Gespraech, tag: NaiveDate, datei: &str) -> io::Result<()> {
+        anhangpfade::kuerzen(&self.instanz, gespraech, tag, datei)
+    }
+
+    fn tag_entfernen(&self, gespraech: &Gespraech, tag: NaiveDate) -> io::Result<()> {
+        anhangpfade::tag_entfernen(&self.instanz, gespraech, tag)
     }
 }
 
@@ -371,6 +503,72 @@ mod tests {
         assert_eq!(
             std::fs::read(wurzel.path().join("echt").join(id(1).als_text())).expect("echt"),
             b"abc"
+        );
+    }
+
+    /// Binden und Zurücklegen relativ zu den gehaltenen Deskriptoren, nie überschreibend; `anhaenge` als Symlink
+    /// → Fehler, die Datei bleibt im Eingang, im fremden Ordner kommt nichts an (M45′, M39).
+    #[test]
+    fn binden_und_zuruecklegen_ueber_deskriptoren() {
+        let wurzel = tempfile::tempdir().expect("Wegwerf-Ordner");
+        std::fs::create_dir_all(wurzel.path().join("channels/c")).expect("Channel");
+        let (ablage, _) = Anhangdateien::oeffnen(wurzel.path()).expect("geöffnet");
+        let c = Gespraech::channel("c");
+        let tag = NaiveDate::from_ymd_opt(2026, 10, 29).expect("Tag");
+        let mut teil = ablage.teil_anlegen(&id(1)).expect("Teil");
+        teil.anhaengen(b"inhalt").expect("geschrieben");
+        ablage.teil_abschliessen(&id(1)).expect("fertig");
+
+        ablage
+            .binden(&id(1), &c, tag, "140000000-1-x.bin")
+            .expect("gebunden");
+        let gebunden = wurzel
+            .path()
+            .join("channels/c/anhaenge/2026-10-29/140000000-1-x.bin");
+        assert_eq!(std::fs::read(&gebunden).expect("da"), b"inhalt");
+        assert_eq!(
+            ablage.tag_dateien(&c, tag).expect("Dateien"),
+            vec![Tagesdatei {
+                name: "140000000-1-x.bin".into(),
+                laenge: 6
+            }]
+        );
+        assert_eq!(
+            ablage
+                .zum_lesen(&c, tag, "140000000-1-x.bin")
+                .expect("lesbar")
+                .laenge()
+                .expect("Länge"),
+            6
+        );
+        ablage
+            .zuruecklegen(&c, tag, "140000000-1-x.bin", &id(1))
+            .expect("zurück");
+        assert!(!gebunden.exists());
+        assert!(
+            wurzel
+                .path()
+                .join(".eingang")
+                .join(id(1).als_text())
+                .exists()
+        );
+
+        std::fs::write(&gebunden, b"vorhanden").expect("untergeschoben");
+        assert!(ablage.binden(&id(1), &c, tag, "140000000-1-x.bin").is_err());
+        assert_eq!(std::fs::read(&gebunden).expect("bleibt"), b"vorhanden");
+
+        let fremd = tempfile::tempdir().expect("fremd");
+        std::fs::remove_dir_all(wurzel.path().join("channels/c/anhaenge")).expect("weg");
+        symlink(fremd.path(), wurzel.path().join("channels/c/anhaenge")).expect("Symlink");
+        assert!(ablage.binden(&id(1), &c, tag, "140000000-1-x.bin").is_err());
+        assert_eq!(std::fs::read_dir(fremd.path()).expect("fremd").count(), 0);
+        assert!(
+            wurzel
+                .path()
+                .join(".eingang")
+                .join(id(1).als_text())
+                .exists(),
+            "bleibt im Eingang"
         );
     }
 

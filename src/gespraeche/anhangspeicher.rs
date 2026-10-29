@@ -1,9 +1,12 @@
 //! Speicher-Attrappe der Anhangablage für Tests ohne Platte: Eingang als Namen → Bytes, mit Fehlern beim n-ten
 //! Stück, einem untergeschobenen Ziel und einer Schranke vor dem Abschluss (Wettläufe, M23, M24, M39).
 
-use super::anhangablage::{Anhangablage, Teildatei};
+use super::anhangablage::{Anhangablage, Anhangdatei, Teildatei};
 use super::anhangid::Anhangid;
-use std::collections::BTreeMap;
+use super::anhangverzeichnis::Tagesdatei;
+use super::logablage::Gespraech;
+use chrono::NaiveDate;
+use std::collections::{BTreeMap, BTreeSet};
 use std::io;
 use std::sync::{Arc, Barrier, Mutex};
 
@@ -24,6 +27,18 @@ struct Innen {
     groesstes_lesen: usize,
     groesstes_schreiben: usize,
     lesevorgaenge: usize,
+    /// Gebundene Anhänge je (Gespräch, Tag, Datei).
+    anhaenge: BTreeMap<(Gespraech, NaiveDate, String), Vec<u8>>,
+    /// Das n-te Binden (ab 1) scheitert.
+    binden_scheitert: Option<usize>,
+    gebunden: usize,
+    zuruecklegen_scheitert: bool,
+    /// Diese Dateien lassen sich nicht kürzen (wie `ELOOP`).
+    kuerzen_scheitert: BTreeSet<String>,
+    /// Vor dem nächsten Kürzen zweimal an dieser Schranke warten.
+    vor_kuerzen: Option<Arc<Barrier>>,
+    /// Ein Leser bekommt nach dem ersten Lesen 0 Bytes (die Datei wurde inzwischen gekürzt).
+    nach_erstem_lesen_leer: bool,
 }
 
 impl Anhangspeicher {
@@ -69,6 +84,37 @@ impl Anhangspeicher {
 
     pub fn lesevorgaenge(&self) -> usize {
         self.innen().lesevorgaenge
+    }
+
+    pub fn anhaenge(&self) -> BTreeMap<(Gespraech, NaiveDate, String), Vec<u8>> {
+        self.innen().anhaenge.clone()
+    }
+
+    pub fn anhang_setzen(&self, gespraech: &Gespraech, tag: NaiveDate, datei: &str, bytes: &[u8]) {
+        self.innen()
+            .anhaenge
+            .insert((gespraech.clone(), tag, datei.to_string()), bytes.to_vec());
+    }
+
+    /// Das n-te Binden (ab 1) scheitert.
+    pub fn binden_scheitert(&self, nummer: usize) {
+        self.innen().binden_scheitert = Some(nummer);
+    }
+
+    pub fn zuruecklegen_scheitert(&self) {
+        self.innen().zuruecklegen_scheitert = true;
+    }
+
+    pub fn kuerzen_scheitert(&self, datei: &str) {
+        self.innen().kuerzen_scheitert.insert(datei.to_string());
+    }
+
+    pub fn vor_kuerzen_warten(&self, schranke: Arc<Barrier>) {
+        self.innen().vor_kuerzen = Some(schranke);
+    }
+
+    pub fn nach_erstem_lesen_leer(&self) {
+        self.innen().nach_erstem_lesen_leer = true;
     }
 }
 
@@ -118,6 +164,136 @@ impl Anhangablage for Anhangspeicher {
     fn teil_loeschen(&self, id: &Anhangid) -> io::Result<()> {
         self.innen().eingang.remove(&teilname(id));
         Ok(())
+    }
+
+    fn binden(
+        &self,
+        id: &Anhangid,
+        gespraech: &Gespraech,
+        tag: NaiveDate,
+        datei: &str,
+    ) -> io::Result<()> {
+        let mut innen = self.innen();
+        innen.gebunden += 1;
+        if innen.binden_scheitert == Some(innen.gebunden) {
+            return Err(io::Error::other("Binden scheitert (Attrappe)"));
+        }
+        let schluessel = (gespraech.clone(), tag, datei.to_string());
+        if innen.anhaenge.contains_key(&schluessel) {
+            return Err(io::Error::from(io::ErrorKind::AlreadyExists));
+        }
+        let bytes = innen
+            .eingang
+            .remove(id.als_text())
+            .ok_or_else(|| io::Error::from(io::ErrorKind::NotFound))?;
+        innen.anhaenge.insert(schluessel, bytes);
+        Ok(())
+    }
+
+    fn zuruecklegen(
+        &self,
+        gespraech: &Gespraech,
+        tag: NaiveDate,
+        datei: &str,
+        id: &Anhangid,
+    ) -> io::Result<()> {
+        let mut innen = self.innen();
+        if innen.zuruecklegen_scheitert {
+            return Err(io::Error::other("Zurücklegen scheitert (Attrappe)"));
+        }
+        if innen.eingang.contains_key(id.als_text()) {
+            return Err(io::Error::from(io::ErrorKind::AlreadyExists));
+        }
+        let bytes = innen
+            .anhaenge
+            .remove(&(gespraech.clone(), tag, datei.to_string()))
+            .ok_or_else(|| io::Error::from(io::ErrorKind::NotFound))?;
+        innen.eingang.insert(id.als_text().to_string(), bytes);
+        Ok(())
+    }
+
+    fn tag_dateien(&self, gespraech: &Gespraech, tag: NaiveDate) -> io::Result<Vec<Tagesdatei>> {
+        Ok(self
+            .innen()
+            .anhaenge
+            .iter()
+            .filter(|((g, t, _), _)| g == gespraech && *t == tag)
+            .map(|((_, _, name), bytes)| Tagesdatei {
+                name: name.clone(),
+                laenge: bytes.len() as u64,
+            })
+            .collect())
+    }
+
+    fn zum_lesen(
+        &self,
+        gespraech: &Gespraech,
+        tag: NaiveDate,
+        datei: &str,
+    ) -> io::Result<Box<dyn Anhangdatei>> {
+        let innen = self.innen();
+        let bytes = innen
+            .anhaenge
+            .get(&(gespraech.clone(), tag, datei.to_string()))
+            .cloned()
+            .ok_or_else(|| io::Error::from(io::ErrorKind::NotFound))?;
+        Ok(Box::new(SpeicherAnhang {
+            bytes,
+            leer_nach_erstem: innen.nach_erstem_lesen_leer,
+            gelesen: std::sync::atomic::AtomicBool::new(false),
+        }))
+    }
+
+    fn kuerzen(&self, gespraech: &Gespraech, tag: NaiveDate, datei: &str) -> io::Result<()> {
+        let schranke = self.innen().vor_kuerzen.take();
+        if let Some(schranke) = schranke {
+            schranke.wait();
+            schranke.wait();
+        }
+        let mut innen = self.innen();
+        if innen.kuerzen_scheitert.contains(datei) {
+            return Err(io::Error::from_raw_os_error(
+                rustix::io::Errno::LOOP.raw_os_error(),
+            ));
+        }
+        if let Some(bytes) = innen
+            .anhaenge
+            .get_mut(&(gespraech.clone(), tag, datei.to_string()))
+        {
+            bytes.clear();
+        }
+        Ok(())
+    }
+
+    fn tag_entfernen(&self, gespraech: &Gespraech, tag: NaiveDate) -> io::Result<()> {
+        self.innen()
+            .anhaenge
+            .retain(|(g, t, _), _| !(g == gespraech && *t == tag));
+        Ok(())
+    }
+}
+
+struct SpeicherAnhang {
+    bytes: Vec<u8>,
+    leer_nach_erstem: bool,
+    gelesen: std::sync::atomic::AtomicBool,
+}
+
+impl Anhangdatei for SpeicherAnhang {
+    fn lesen_an(&self, pos: u64, puffer: &mut [u8]) -> io::Result<usize> {
+        if self.leer_nach_erstem && self.gelesen.swap(true, std::sync::atomic::Ordering::SeqCst) {
+            return Ok(0);
+        }
+        let anfang = usize::try_from(pos)
+            .unwrap_or(usize::MAX)
+            .min(self.bytes.len());
+        let n = puffer.len().min(self.bytes.len() - anfang);
+        puffer[..n].copy_from_slice(&self.bytes[anfang..anfang + n]);
+        Ok(n)
+    }
+
+    fn laenge(&self) -> io::Result<u64> {
+        Ok(self.bytes.len() as u64)
     }
 }
 

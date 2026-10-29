@@ -5,6 +5,7 @@ mod anhaenge;
 pub mod anhangablage;
 pub mod anhangeingang;
 pub mod anhangid;
+pub mod anhangpfade;
 pub mod anhangpruefung;
 pub mod anhangquote;
 #[cfg(test)]
