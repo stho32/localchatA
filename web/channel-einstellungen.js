@@ -4,7 +4,9 @@
 // und dem Fokus auf „Zurück“, der den Satz als Beschreibung trägt; ein gesperrter Dialog trägt den Sperrhinweis als
 // Beschreibung (WCAG 4.1.3, 1.3.1). Fehler bleiben im offenen Dialog, die Eingabe steht noch; Esc und „Abbrechen“
 // schließen, der Fokus kehrt zum Auslöser zurück.
-import { fristPruefen, bestaetigungText, statusText, inzwischenText, fehlerDerAntwort } from './frist.js';
+import {
+  fristPruefen, bestaetigungText, statusText, inzwischenText, fehlerDerAntwort, versuchZaehlen, mitVersuch,
+} from './frist.js';
 
 const HINWEIS = 'Ältere Tage entfallen. Heute zählt mit. Standard: 7 Tage.';
 
@@ -56,6 +58,18 @@ export function einstellungenEinrichten({ wurzel, setzen, statusZeigen, neuOeffn
 function bedienen(zustand, { setzen, statusZeigen, neuOeffnen }, signal) {
   const { teile, name } = zustand;
   let schritt = 1;
+  let versuch = null;
+
+  // Ein Fehlversuch: gleicher Schlüssel wie der vorige, solange die Zeile stand, zählt weiter (ADR-0033 Ergänzung
+  // Karte #27, Regel 2).
+  function fehlversuchMelden(angezeigt) {
+    let vorher = versuch;
+    if (teile.fehler.hidden) {
+      vorher = null;
+    }
+    versuch = versuchZaehlen(vorher, angezeigt.schluessel);
+    fehlerZeigen(teile, { ...angezeigt, text: mitVersuch(angezeigt.text, versuch.versuch) });
+  }
 
   async function senden(tage, bestaetigt) {
     zustand.laeuft = true;
@@ -79,7 +93,7 @@ function bedienen(zustand, { setzen, statusZeigen, neuOeffnen }, signal) {
     }
     schritt = 1;
     ersterSchritt(teile);
-    fehlerZeigen(teile, fehlerDerAntwort(antwort, eintreffenMs));
+    fehlversuchMelden(fehlerDerAntwort(antwort, eintreffenMs));
     teile.feld.focus();
   }
 
@@ -90,7 +104,7 @@ function bedienen(zustand, { setzen, statusZeigen, neuOeffnen }, signal) {
     }
     const geprueft = fristPruefen(teile.feld.value);
     if (!geprueft.gueltig) {
-      fehlerZeigen(teile, pruefFehler(geprueft));
+      fehlversuchMelden(pruefFehler(geprueft));
       teile.feld.focus();
       return;
     }
@@ -197,7 +211,7 @@ function schalterSperren(teile, gesperrt) {
 }
 
 function pruefFehler(geprueft) {
-  return { text: geprueft.fehler, eingabeFalsch: true };
+  return { text: geprueft.fehler, schluessel: geprueft.fehler, eingabeFalsch: true };
 }
 
 // fehler null räumt die Fehlerzeile weg; sonst ⚠ und Text, das Feld nur bei einem Prüffehler mit aria-invalid.

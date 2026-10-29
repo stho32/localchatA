@@ -152,3 +152,60 @@ test('429 im Dialog (US-13, B0543): „⚠ Zu viele Änderungen von … — wied
   await expect(a.page.getByRole('banner').locator('.lc-head-frist')).toHaveText('· 8 Tage');
   expect(a.fehler).toEqual([]);
 });
+
+// Zählt Änderungen an der Fehlerzeile, damit sichtbar ist, dass ein Bildschirmleser den Text neu bekommt.
+function fehlerzeileBeobachten(page) {
+  return page.evaluate(() => {
+    window.lcFehlerzeileGeaendert = 0;
+    new MutationObserver(() => { window.lcFehlerzeileGeaendert += 1; })
+      .observe(document.querySelector('#lc-frist-fehler'), { subtree: true, childList: true, characterData: true });
+  });
+}
+const fehlerzeileGeaendert = (page) => page.evaluate(() => window.lcFehlerzeileGeaendert);
+
+async function nochmalEnter(page) {
+  const antwort = page.waitForResponse((r) => r.url().endsWith(ROUTE));
+  await feld(page).press('Enter');
+  return (await antwort).status();
+}
+
+test('Wiederholter Fehlversuch (US-14, B0542): zweites Enter „(2. Versuch)“ mit Änderung der Zeile, drittes „(3. Versuch)“, nach 31 von vorn', async ({ browser }) => {
+  await starten();
+  ordnerSchreibschuetzen();
+  const a = await dialogOeffnen(browser);
+  expect(await speichern(a.page, 30)).toBe(500);
+  await expect(fehlerzeile(a.page)).toHaveText(SCHREIBFEHLER);
+  await fehlerzeileBeobachten(a.page);
+
+  expect(await nochmalEnter(a.page)).toBe(500);
+  await expect(fehlerzeile(a.page)).toHaveText(`${SCHREIBFEHLER} (2. Versuch)`);
+  expect(await fehlerzeileGeaendert(a.page)).toBeGreaterThan(0);
+  expect(await nochmalEnter(a.page)).toBe(500);
+  await expect(fehlerzeile(a.page)).toHaveText(`${SCHREIBFEHLER} (3. Versuch)`);
+
+  // Die drei 500 haben die 30 Einheiten von A verbraucht (R00021); die vierte Antwort ist dieselbe 500, gestellt.
+  await a.page.route(`**${ROUTE}`, (route) => route.fulfill({
+    status: 500, contentType: 'application/json', body: JSON.stringify({ fehler: SCHREIBFEHLER.slice(2) }),
+  }));
+  await feld(a.page).fill('31');
+  await expect(fehlerzeile(a.page)).toBeHidden();
+  expect(await nochmalEnter(a.page)).toBe(500);
+  await expect(fehlerzeile(a.page)).toHaveText(SCHREIBFEHLER);
+  await feldUnmarkiertMitEingabe(a.page, '31');
+  expect(a.fehler).toEqual([]);
+});
+
+test('Wiederholter Fehlversuch, Variante 429 (B0542): eine zweite 429 direkt danach endet auf „(2. Versuch)“', async ({ browser }) => {
+  await starten();
+  const a = await dialogOeffnen(browser, { zusaetzlich: { [ROUTE]: [429] } });
+  await dreimalGespeichert(a.page);
+  await feld(a.page).fill('9');
+  expect(await nochmalEnter(a.page)).toBe(429);
+  await expect(fehlerzeile(a.page)).toHaveText(/wieder möglich ab \d\d:\d\d:\d\d\.$/);
+
+  expect(await nochmalEnter(a.page)).toBe(429);
+
+  await expect(fehlerzeile(a.page)).toHaveText(/^⚠ Zu viele Änderungen von abcdefghijklm@127\.0\.0\.1 — wieder möglich ab \d\d:\d\d:\d\d\. \(2\. Versuch\)$/);
+  await feldUnmarkiertMitEingabe(a.page, '9');
+  expect(a.fehler).toEqual([]);
+});

@@ -1,7 +1,7 @@
 // Unit-Tests der Frist im Browser (R00008 F0037, B0193, B0194; ADR-0033 Regel 3; node --test).
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { fristPruefen, fristText, bestaetigungText, statusText, inzwischenText, fehlerDerAntwort, wiederMoeglichAb } from '../../web/frist.js';
+import { fristPruefen, fristText, bestaetigungText, statusText, inzwischenText, fehlerDerAntwort, wiederMoeglichAb, versuchZaehlen, mitVersuch } from '../../web/frist.js';
 
 const FEHLER = 'Frist: ganze Zahl von 1 bis 3650 Tagen.';
 
@@ -83,7 +83,7 @@ test('fehlerDerAntwort: nur die 422 frist ist ein Prüffehler, jede andere Antwo
   const antwort = (status, daten) => ({ serverWeg: false, status, daten });
   assert.deepEqual(
     fehlerDerAntwort(antwort(422, { regel: 'frist', fehler: 'Die Frist ist eine ganze Zahl.' })),
-    { text: 'Die Frist ist eine ganze Zahl.', eingabeFalsch: true },
+    { text: 'Die Frist ist eine ganze Zahl.', schluessel: 'Die Frist ist eine ganze Zahl.', eingabeFalsch: true },
   );
   for (const [status, daten] of [
     [500, { fehler: 'Frist nicht gesetzt — x.' }],
@@ -91,18 +91,18 @@ test('fehlerDerAntwort: nur die 422 frist ist ein Prüffehler, jede andere Antwo
     [409, { regel: 'einstellungen-defekt', fehler: 'kaputt.' }],
     [422, { regel: 'bestaetigt', fehler: 'bestaetigt falsch.' }],
   ]) {
-    assert.deepEqual(fehlerDerAntwort(antwort(status, daten)), { text: daten.fehler, eingabeFalsch: false }, String(status));
+    assert.deepEqual(fehlerDerAntwort(antwort(status, daten)), { text: daten.fehler, schluessel: daten.fehler, eingabeFalsch: false }, String(status));
   }
 });
 
 test('fehlerDerAntwort: ohne fehler „Nicht gespeichert (Status n) — später erneut versuchen.“, ohne Antwort „Verbindung prüfen“', () => {
   assert.deepEqual(
     fehlerDerAntwort({ serverWeg: false, status: 502, daten: null }),
-    { text: 'Nicht gespeichert (Status 502) — später erneut versuchen.', eingabeFalsch: false },
+    { text: 'Nicht gespeichert (Status 502) — später erneut versuchen.', schluessel: 'Nicht gespeichert (Status 502) — später erneut versuchen.', eingabeFalsch: false },
   );
   assert.deepEqual(
     fehlerDerAntwort({ serverWeg: true, status: 0, daten: null }),
-    { text: 'Nicht gespeichert — Verbindung prüfen.', eingabeFalsch: false },
+    { text: 'Nicht gespeichert — Verbindung prüfen.', schluessel: 'Nicht gespeichert — Verbindung prüfen.', eingabeFalsch: false },
   );
 });
 
@@ -125,6 +125,36 @@ test('fehlerDerAntwort: die 429 nimmt den Teil vor „ — “ und setzt die Uhr
   };
   assert.deepEqual(
     fehlerDerAntwort(antwort, eintreffen),
-    { text: 'Zu viele Änderungen von abcdefghijklm@127.0.0.1 — wieder möglich ab 14:03:22.', eingabeFalsch: false },
+    {
+      text: 'Zu viele Änderungen von abcdefghijklm@127.0.0.1 — wieder möglich ab 14:03:22.',
+      schluessel: 'Zu viele Änderungen von abcdefghijklm@127.0.0.1',
+      eingabeFalsch: false,
+    },
   );
+});
+
+// R00019 F0066 „Wiederholter Fehlversuch“ (ADR-0033 Ergänzung Karte #27, Regel 2): gleicher Schlüssel zählt weiter,
+// ein anderer oder eine weggeräumte Zeile (vorher null) beginnt bei 1; die 429 zählt ohne die Uhrzeit.
+test('versuchZaehlen und mitVersuch: S, S, S → ohne Zusatz, „(2. Versuch)“, „(3. Versuch)“; anderer Schlüssel und weggeräumt beginnen neu', () => {
+  const erster = versuchZaehlen(null, 'S');
+  const zweiter = versuchZaehlen(erster, 'S');
+  const dritter = versuchZaehlen(zweiter, 'S');
+  assert.equal(mitVersuch('S', erster.versuch), 'S');
+  assert.equal(mitVersuch('S', zweiter.versuch), 'S (2. Versuch)');
+  assert.equal(mitVersuch('S', dritter.versuch), 'S (3. Versuch)');
+  assert.equal(versuchZaehlen(dritter, 'T').versuch, 1);
+  assert.equal(versuchZaehlen(null, 'S').versuch, 1);
+});
+
+test('versuchZaehlen: zwei 429 mit verschiedener Uhrzeit zählen als zweiter Versuch', () => {
+  const antwort = (wartezeit) => ({
+    serverWeg: false,
+    status: 429,
+    daten: { fehler: 'Zu viele Änderungen von a@127.0.0.1 — wieder möglich in 10 s.', wieder_in_ms: wartezeit },
+  });
+  const eintreffen = new Date(2026, 9, 28, 14, 3, 12, 400).getTime();
+  const erste = fehlerDerAntwort(antwort(9600), eintreffen);
+  const zweite = fehlerDerAntwort(antwort(9600), eintreffen + 1000);
+  assert.notEqual(erste.text, zweite.text);
+  assert.equal(versuchZaehlen(versuchZaehlen(null, erste.schluessel), zweite.schluessel).versuch, 2);
 });

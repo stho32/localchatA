@@ -82,23 +82,28 @@ function datumAusgeschrieben(tag) {
   return `${tagImMonat}. ${MONATE[monat - 1]} ${jahr}`;
 }
 
-// Fehlerzeile nach einer Antwort (ADR-0033 Ergänzung Karte #27, Regeln 1 und 3) → { text, eingabeFalsch }: nur die
+// Fehlerzeile nach einer Antwort (ADR-0033 Ergänzung Karte #27, Regeln 1 bis 3) → { text, schluessel, eingabeFalsch }: nur die
 // 422 `frist` ist ein Prüffehler; ein Serverfehler sagt, dass die Eingabe stimmt, und nennt einen Ausweg; die 429
 // nennt die Uhrzeit, ab der es wieder geht — eine Restzeit veraltete, solange der Dialog offen steht.
 // eintreffenMs: Uhr des Browsers beim Eintreffen der Antwort.
 export function fehlerDerAntwort({ serverWeg, status, daten }, eintreffenMs) {
   if (serverWeg) {
-    return { text: 'Nicht gespeichert — Verbindung prüfen.', eingabeFalsch: false };
+    return angezeigt('Nicht gespeichert — Verbindung prüfen.', false);
   }
   const eingabeFalsch = status === 422 && daten !== null && daten.regel === 'frist';
   if (status === 429 && daten !== null && typeof daten.fehler === 'string') {
     const wer = daten.fehler.split(' — ')[0];
-    return { text: `${wer} — wieder möglich ab ${wiederMoeglichAb(eintreffenMs, daten.wieder_in_ms)}.`, eingabeFalsch };
+    return { text: `${wer} — wieder möglich ab ${wiederMoeglichAb(eintreffenMs, daten.wieder_in_ms)}.`, schluessel: wer, eingabeFalsch };
   }
   if (daten !== null && typeof daten.fehler === 'string') {
-    return { text: daten.fehler, eingabeFalsch };
+    return angezeigt(daten.fehler, eingabeFalsch);
   }
-  return { text: `Nicht gespeichert (Status ${status}) — später erneut versuchen.`, eingabeFalsch };
+  return angezeigt(`Nicht gespeichert (Status ${status}) — später erneut versuchen.`, eingabeFalsch);
+}
+
+// Ohne Uhrzeit ist der angezeigte Text selbst der Schlüssel, unter dem Fehlversuche gezählt werden.
+function angezeigt(text, eingabeFalsch) {
+  return { text, schluessel: text, eingabeFalsch };
 }
 
 // Ortszeit „HH:MM:SS“ von Eintreffen + Wartezeit, auf die volle Sekunde aufgerundet — ohne toLocaleTimeString, damit
@@ -106,4 +111,22 @@ export function fehlerDerAntwort({ serverWeg, status, daten }, eintreffenMs) {
 export function wiederMoeglichAb(eintreffenMs, wiederInMs) {
   const ab = new Date(Math.ceil((eintreffenMs + wiederInMs) / 1000) * 1000);
   return [ab.getHours(), ab.getMinutes(), ab.getSeconds()].map((teil) => String(teil).padStart(2, '0')).join(':');
+}
+
+
+// Fehlversuche mit gleichem Schlüssel (ADR-0033 Ergänzung Karte #27, Regel 2); vorher null heißt: die Fehlerzeile war
+// weggeräumt oder der Dialog neu → { schluessel, versuch }.
+export function versuchZaehlen(vorher, schluessel) {
+  if (vorher !== null && vorher.schluessel === schluessel) {
+    return { schluessel, versuch: vorher.versuch + 1 };
+  }
+  return { schluessel, versuch: 1 };
+}
+
+// Ab dem zweiten Versuch ändert der Zusatz den Text, und die Region role="alert" sagt ihn neu an.
+export function mitVersuch(text, versuch) {
+  if (versuch < 2) {
+    return text;
+  }
+  return `${text} (${versuch}. Versuch)`;
 }
