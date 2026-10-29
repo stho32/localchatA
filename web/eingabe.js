@@ -1,5 +1,5 @@
 // Eingabe unter dem Verlauf (ADR-0038 Regeln 1–4, 7, Designsystem Eingabe).
-import { textPruefen } from './textregel.js';
+import { textPruefen, nurLeerraum } from './textregel.js';
 import { hinweis, hinweisAnsagen } from './hinweis.js';
 
 const IME_TASTENCODE = 229;
@@ -14,7 +14,7 @@ export function taste(ereignis, text) {
   if (ereignis.shiftKey) {
     return 'zeile';
   }
-  if (text.trim() === '') {
+  if (nurLeerraum(text)) {
     return null;
   }
   return 'senden';

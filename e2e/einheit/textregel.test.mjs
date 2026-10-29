@@ -2,7 +2,7 @@
 // Textregel des Servers in R00011 F0041, src/gespraeche/textregel.rs; node --test).
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { textPruefen } from '../../web/textregel.js';
+import { textPruefen, nurLeerraum } from '../../web/textregel.js';
 
 test('die Grenze liegt bei 16 384 Bytes UTF-8 (Mutanten 16 383/16 385 und „Zeichen statt Bytes“ werden rot)', () => {
   assert.deepEqual(textPruefen('a'.repeat(16384)), { art: 'ok', bytes: 16384 });
@@ -44,4 +44,15 @@ test('nur Leerraum ist leer und geht vor Länge', () => {
   assert.equal(textPruefen('').art, 'leer');
   assert.equal(textPruefen(' \n\t ').art, 'leer');
   assert.equal(textPruefen(' '.repeat(16385)).art, 'leer');
+});
+
+// R00020 F0071 „Leerraum wie beim Server“ (B0351; Abnahme-Probe aus ADR-0038 Ergänzung Karte #31): leer ist, was nur
+// aus Zeichen der Unicode-Eigenschaft White_Space besteht — dieselbe Klasse wie char::is_whitespace des Servers.
+test('nur Leerraum: White_Space ist leer, U+FEFF und U+200B sind es nicht', () => {
+  for (const leer of ['', ' \n\t', '\u00A0', '\u0085', '\u3000']) {
+    assert.equal(nurLeerraum(leer), true, JSON.stringify(leer));
+  }
+  for (const nichtLeer of ['\uFEFF', '\u200B', 'a']) {
+    assert.equal(nurLeerraum(nichtLeer), false, JSON.stringify(nichtLeer));
+  }
 });

@@ -28,6 +28,12 @@ test('Text nur aus Leerraum sendet nicht', () => {
   assert.equal(taste(ohne, ' \t'), null);
 });
 
+// R00020 F0071 „Leerraum wie beim Server“ (B0351): Enter urteilt mit der Leer-Regel der Textregel, nicht mit trim().
+test('Enter mit U+0085 sendet nicht, mit U+FEFF sendet es — wie der Server urteilt', () => {
+  assert.equal(taste(ohne, '\u0085'), null);
+  assert.equal(taste(ohne, '\uFEFF'), 'senden');
+});
+
 test('eine andere Taste tut nichts', () => {
   assert.equal(taste(mit({ key: 'a', keyCode: 65 }), 'Hallo'), null);
 });

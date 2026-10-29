@@ -6,7 +6,7 @@ export const TEXT_HOECHSTENS_BYTES = 16384;
 
 export function textPruefen(text) {
   const bytes = new TextEncoder().encode(text).length;
-  if (/^\p{White_Space}*$/u.test(text)) {
+  if (nurLeerraum(text)) {
     return { art: 'leer', bytes };
   }
   if (bytes > TEXT_HOECHSTENS_BYTES) {
@@ -17,6 +17,12 @@ export function textPruefen(text) {
     return { art: 'ok', bytes };
   }
   return { art: 'zeichen', bytes, ...verboten };
+}
+
+// Leer ist ein Text nur aus Zeichen der Unicode-Eigenschaft White_Space — dieselbe Klasse wie char::is_whitespace des
+// Servers; U+FEFF und U+200B gehören nicht dazu (ADR-0038 Ergänzung Karte #31).
+export function nurLeerraum(text) {
+  return /^\p{White_Space}*$/u.test(text);
 }
 
 function erstesVerbotenes(zeichen) {
