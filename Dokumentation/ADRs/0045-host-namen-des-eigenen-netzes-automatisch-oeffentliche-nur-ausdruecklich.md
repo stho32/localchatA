@@ -1,8 +1,8 @@
-# ADR-0045: Host-Namen — Namen des eigenen Netzes gelten automatisch, öffentliche Namen nur ausdrücklich; Abweisung als Seite mit Ausweg
+# ADR-0045: Host-Namen — Namen des eigenen Netzes gelten automatisch, öffentliche Namen nur ausdrücklich, Schalter `--alle-namen` für bewusste Ausnahmen; Abweisung als Seite mit Ausweg
 
-**Status**: Vorgeschlagen
+**Status**: Akzeptiert
 **Datum**: 2026-10-29
-**Entscheider**: Claude (autonom, architekt, Auftrag des Directors, Karte #35)
+**Entscheider**: Claude (autonom, architekt, Auftrag des Directors, Karte #35); Richtung und Schalter `--alle-namen`: Betreiber, 2026-10-29 (über den Director)
 **Kontext-Anforderung**: — (Befund des Betreibers 2026-10-29, Karte #35; ändert ADR-0014 Regel 1, alle übrigen Regeln von ADR-0014 gelten unverändert)
 **Erprobt durch**: Wegwerf-Probe im Scratchpad, 2026-10-29, Rechner `nuc5` im Netz einer Fritz!Box (Rust, `dns-lookup` 4.0.2 für die Rückwärtsauflösung, `std::net::ToSocketAddrs` vorwärts, „eigene Adresse“ = `UdpSocket::bind((ip, 0))` gelingt): Rückwärtsauflösung `192.168.178.65` → `nuc5.fritz.box` (3,7 ms), ULA-IPv6 → `nuc5.fritz.box`, `127.0.0.1` → `localhost`, fremde LAN-Adresse `192.168.178.1` → `fritz.box`, nicht vergebene `10.255.255.1` → `NoName` (24 ms); Vorwärts `nuc5.fritz.box` → 5 Adressen, darunter eigene (5 ms), `nuc5.local` → eigene (141 ms), **`gibtsnicht.local` → keine Adresse nach 5,0 s** (mDNS-Zeitgrenze), `gibtsnicht.fritz.box` → keine (7 ms); Bind-Probe: `127.0.0.2`, LAN-, ULA- und globale IPv6-Adressen → eigen, `8.8.8.8` und `192.0.2.1` → fremd (`EADDRNOTAVAIL`). Außerdem: der Router filtert öffentliche Namen, die auf private oder Loopback-Adressen zeigen (`localtest.me` → `127.0.0.1` bei `1.1.1.1`, lokal ohne Antwort; `example.com` löst auf) — der Rebind-Schutz der Fritz!Box. Die Probe lief außerhalb des Projekts und ist gelöscht.
 
@@ -49,7 +49,7 @@
 
 Es überwiegt, dass D den Normalfall des Betreibers — den Namen, den der Router dem Rechner gibt — ohne Startoption und ohne Bedienung löst, während die Grenze dort bleibt, wo die Sicherheit tatsächlich entsteht: bei der Frage, **wer** die Namensauflösung beantwortet, nicht **was** sie antwortet. In Kauf genommen: ein öffentlicher DNS-Name, der auf die Instanz zeigt, bleibt ohne `--erreichbar-als` abgewiesen; die Abweisung sagt es in Worten, die ein Teilnehmer versteht, und nennt die Adresse, die sofort funktioniert. A ist verworfen, weil sie das Schutzziel von ADR-0014 vollständig aufgibt; C ohne Bestätigungsseite übernommen, weil eine Verwaltungsfunktion der Vision widerspricht und gerade den Angreifernamen am leichtesten freigibt; E verworfen, weil sie den Namen aus der Adresszeile nimmt.
 
-Die Entscheidung bleibt **Vorgeschlagen**, bis der Betreiber die Frage zu öffentlichen Namen beantwortet hat (Bericht an den Director, Karte #35) und die Abhängigkeitsprobe (Folgeaufgaben) im Projekt grün ist.
+**Entscheidung des Betreibers (2026-10-29, über den Director, nach Erklärung des Rebinding-Risikos):** Standard bleibt D — Namen des eigenen Netzes automatisch, öffentliche Namen nur ausdrücklich; Option A als Standard verworfen. Dazu ein bewusster Schalter `--alle-namen` für Ausnahmen (Regel 9). **Akzeptiert**, weil die Richtung entschieden ist und die Wegwerf-Probe die Bibliothek funktional trägt; Bedingung: die Abhängigkeitsprobe `dns-lookup` mit Fault-Injection ist die **erste Bubble** vor dem Bau (Folgeaufgaben, Vorschlag an den planer). Scheitert sie, entsteht eine neue ADR (z. B. Rückwärtsauflösung über einen anderen Weg), diese wird nicht umgeschrieben.
 
 Regeln — **ersetzen ADR-0014 Regel 1**; Regeln 2 bis 6 von ADR-0014 und ihre Ergänzungen gelten unverändert:
 
@@ -65,6 +65,11 @@ Regeln — **ersetzen ADR-0014 Regel 1**; Regeln 2 bis 6 von ADR-0014 und ihre E
    - Zeit über den Uhr-Provider ([X00007](../Architektur/Aspekte/X00007-zeit.md)), Auflösung über den Provider `Namensauskunft` — beide im Test ersetzt.
 7. **Abweisung als Seite.** Ein abgewiesener Host bekommt weiter **403**. Fragt ein Browser nach einem Dokument (`Sec-Fetch-Dest: document` oder `Accept` enthält `text/html`), ist der Körper eine **HTML-Seite** (`text/html; charset=utf-8`, `lang="de"`, ohne Stil, ohne Skript — die CSP aus ADR-0014 Regel 5 bleibt unverändert): Überschrift „Diese Adresse ist für localchatA nicht freigegeben“, ein Satz für den Teilnehmer mit **klickbarem Link auf `http://<lokale Adresse>:<port>/`** (IPv6 in Klammern), ein Satz für den Betreiber („Der Betreiber kann den Namen <name> mit `--erreichbar-als <name>` beim Start freigeben.“), ein Satz zum Warum („Schutz davor, dass fremde Websites über einen umgeleiteten Namen mitlesen“). Der abgewiesene Name erscheint nur HTML-maskiert. Alle anderen (API, Agent, curl) bekommen den Text wie bisher, ergänzt um die Adresse. Kein Redirect (Option E).
 8. **Protokoll** ([ADR-0042](0042-stufen-ereigniskatalog-episoden-und-tagesgrenze-des-betriebsprotokolls.md)): Abweisung wie bisher als Episode `grenzschutz` je Herkunft; neu je Cache-Eintrag einmal **Information** „Host-Name über Rückwärtsauflösung erlaubt“ bzw. „… über lokalen Namensraum erlaubt“ mit Name und lokaler Adresse; Zeitgrenze der Auflösung als **Warning**-Episode „Namensauflösung zu langsam“ (Bereich `grenzschutz`).
+9. **Schalter `--alle-namen`** (Aufruf, nicht Standard; Umgebung `LOCALCHATA_ALLE_NAMEN=1`, `0` oder leer = aus, jeder andere Wert Exit 2; die Option geht der Umgebung vor wie bei `--protokoll-stufe`, ADR-0043):
+   - **Wirkung:** jeder Host-Anteil, der die Normalform (Regel 1) erfüllt, ist erlaubt; Regeln 2–5 entfallen, die Namensauskunft wird **nie** gefragt (keine Auflösung, keine Abweisungsseite für Namen). Ein fehlender oder unlesbarer `Host` bleibt 403.
+   - **Bleibt aktiv:** ADR-0014 Regeln 2 bis 6 vollständig — Origin muss `http://<Host>` sein, `Sec-Fetch-Site` `same-origin`/`none`, keine CORS-Freigabe, JSON-Pflicht, Sicherheitsheader. Begründung: Regel 2 schützt gegen **CSRF**, nicht gegen Rebinding — eine fremde Seite *ohne* umgebogenen Namen sendet `Origin: http://boese.example` an `Host: <instanz>` und wird weiter abgewiesen; ohne Regel 2 könnte jede Website im Browser eines Teilnehmers beitreten und schreiben, auch ohne DNS-Kontrolle. Der Schalter öffnet also nur den Rebinding-Weg (Angreifer braucht einen eigenen Namen und muss ihn umbiegen), nicht den einfacheren CSRF-Weg. COOP folgt unverändert der Ergänzung #4 zu ADR-0014.
+   - **Sichtbar:** beim Start, nach dem Öffnen des Protokolls und vor der Startzeile, ein **WARNING** im Betriebsprotokoll (Bereich `grenzschutz`, ab Warning auch auf stderr, ADR-0040): „--alle-namen ist aktiv: jeder Host-Name wird angenommen — eine fremde Website, die ein Teilnehmer öffnet, kann über DNS-Rebinding Channels mitlesen, Nachrichten schreiben und über die Frist Verläufe löschen.“ `--hilfe` nennt die Option mit demselben Risikosatz auf eigener Zeile. `/api/gesundheit` meldet `alle_namen: true|false`, damit ein Betreiber den Zustand ohne Logdatei sieht.
+   - Kein Umschalten zur Laufzeit; der Schalter gilt für die ganze Instanz.
 
 ### Schnitt
 
@@ -85,20 +90,23 @@ Regeln — **ersetzen ADR-0014 Regel 1**; Regeln 2 bis 6 von ADR-0014 und ihre E
 - Der erste Zugriff über einen neuen Namen kann bis zu 1 s warten; ein nicht vorhandener `.local`-Name wird bis zu 60 s lang ohne neue Auflösung abgewiesen, ein gerade neu vergebener Rückwärtsname erst nach Ablauf des Negativ-Caches erlaubt.
 - Wer im LAN mDNS, LLMNR oder die Rückwärtszone fälschen kann, kann einen Namen erlauben lassen — er spricht die Instanz aber ohnehin direkt an (Restrisiko (a) aus ADR-0014, unverändert).
 - Neue Abhängigkeit `dns-lookup` (getnameinfo hinter einer sicheren Schnittstelle).
+- Mit `--alle-namen` ist DNS-Rebinding bewusst wieder offen (Risiko im Startprotokoll, in `--hilfe` und im Health-Check sichtbar); CSRF bleibt durch ADR-0014 Regel 2 geschlossen.
 
 **Durchsetzung (Makro, Aspekte [X00002](../Architektur/Aspekte/X00002-benutzerrechte.md), [X00003](../Architektur/Aspekte/X00003-authentifizierung-und-sitzung.md)):**
 - Unit-Tests der reinen Operation `host_urteil` als Matrix (Regeln 1–5) mit der Testimplementierung der Namensauskunft; die Angriffsmatrix schreibt der `security-reviewer` vor dem Bau.
 - Integrationstest über das echte Programm mit `LOCALCHATA_TESTNAMEN`: erlaubter Rückwärtsname → 200; öffentlicher Name auf die eigene Adresse → 403, und die Namensauskunft wurde **nicht** gefragt; HTML-Seite bei `Accept: text/html`, Text bei `Accept: application/json`; Sicherheitsheader auf der Seite.
 - Mutationsprobe je Wächter (Normalform, Label-Grenze, „nur lokaler Namensraum löst auf“, „eigene Adresse“, Zeitgrenze, Cache-Ablauf).
 - Release-Probe: `LOCALCHATA_TESTNAMEN` wird im Release-Build nicht gelesen (wie `LOCALCHATA_TESTPANIK`).
+- Integrationstest `--alle-namen` und `LOCALCHATA_ALLE_NAMEN=1`: `Host: boese.example` → 200; `POST` mit `Origin: http://andere.example` → 403; WARNING-Zeile im Protokoll und auf stderr; `alle_namen: true` im Health-Check; `LOCALCHATA_ALLE_NAMEN=ja` → Exit 2; ohne Schalter `alle_namen: false`.
 - Review-Punkt: keine Auflösung außerhalb der Namensauskunft, keine Auflösung für Namen außerhalb des lokalen Namensraums.
 
 **Folgeentscheidungen / Aufgaben:**
-- [ ] Abhängigkeitsprobe `dns-lookup` im Projekt (Skill `dependency-probe`): Rückwärtsauflösung unter Linux mit `nss-mdns`, Verhalten bei hängendem Resolver (Zeitgrenze, Faden läuft aus), Lizenz, Build unter Windows im CI, falls vorhanden.
+- [ ] **Erste Bubble, vor dem Bau:** Abhängigkeitsprobe `dns-lookup` im Projekt (Skill `dependency-probe`): Rückwärtsauflösung unter Linux mit `nss-mdns`, Verhalten bei hängendem Resolver (Zeitgrenze, Faden läuft aus), Lizenz, Build unter Windows im CI, falls vorhanden.
 - [ ] Annahmeschleife setzt die lokale Adresse je Verbindung (A00003).
 - [ ] Namensauskunft als Provider mit Testimplementierung und Testknopf; Grenzschutz mit Cache, Semaphore, Zeitgrenze; Abweisungsseite.
+- [ ] Aufruf um `--alle-namen` erweitern, Umgebung `LOCALCHATA_ALLE_NAMEN`, WARNING beim Start, Feld `alle_namen` im Health-Check (Regel 9).
 - [ ] `--hilfe` und Abweisungstext nennen, dass Namen des eigenen Netzes automatisch gelten.
-- [ ] `AI-Team/umgebung.md` (Director): Testknopf `LOCALCHATA_TESTNAMEN` eintragen, sobald gebaut.
+- [ ] `AI-Team/umgebung.md` (Director): Testknopf `LOCALCHATA_TESTNAMEN` und Schalter `--alle-namen`/`LOCALCHATA_ALLE_NAMEN` eintragen, sobald gebaut.
 
 ## Quellen / Bezuege
 
