@@ -14,7 +14,6 @@ pub const VARIABLE: &str = "LOCALCHATA_TESTNAMEN";
 
 /// Die drei Fragen an die Namensauflösung. Jede Antwort ist vollständig: ein Fehler ist „keine Namen“, „keine
 /// Adressen“ bzw. „nicht eigen“ — nie eine Panik.
-#[cfg_attr(not(test), allow(dead_code))] // vorübergehend: verdrahtet mit B0373
 pub trait Namensauskunft: Send + Sync {
     fn namen_der_adresse(&self, adresse: IpAddr) -> Vec<String>;
     fn adressen_des_namens(&self, name: &str) -> Vec<IpAddr>;
@@ -22,7 +21,6 @@ pub trait Namensauskunft: Send + Sync {
 }
 
 /// Eine Adresse ist eigen, wenn sich ein UDP-Socket an sie binden lässt (Loopback zählt; ADR-0045 Regel 4).
-#[cfg_attr(not(test), allow(dead_code))] // vorübergehend: verdrahtet mit B0373
 pub fn bind_gelingt(adresse: IpAddr) -> bool {
     UdpSocket::bind((adresse, 0)).is_ok()
 }

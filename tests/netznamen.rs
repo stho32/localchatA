@@ -297,3 +297,108 @@ fn release_testnamen_werden_nicht_gelesen() {
     let kaputt = starten(&[], &[("LOCALCHATA_TESTNAMEN", "quatsch")]);
     assert!(erlaubt(&kaputt.gesundheit("127.0.0.1")));
 }
+
+// ---------------------------------------------------------------------------------------------------------
+// F0078 Name im lokalen Namensraum
+// ---------------------------------------------------------------------------------------------------------
+
+/// Kriterium „Über das echte Programm“ (Matrix C1, C3, C4, A6, D1, C11, C12, K6).
+#[test]
+fn f0078_lokale_namen_auf_eigene_adressen_oeffnen_andere_nicht() {
+    let lauf = mit_testnamen(&[]);
+
+    for name in ["chat.local", "chat", "nas.home.arpa", "dienst.internal"] {
+        let antwort = lauf.gesundheit(name);
+        assert!(
+            erlaubt(&antwort),
+            "{name}: {} {}",
+            antwort.status,
+            antwort.inhalt
+        );
+    }
+    for name in [
+        "drucker.local",
+        "local.boese.example",
+        "evil-local",
+        "chat.fritz.box",
+        "x.localhost",
+    ] {
+        assert_eq!(lauf.gesundheit(name).status, 403, "{name}");
+    }
+
+    let freigegeben = mit_testnamen(&["--erreichbar-als", "chat.fritz.box"]);
+    assert!(erlaubt(&freigegeben.gesundheit("chat.fritz.box")));
+}
+
+/// Kriterium „Gefragt / nicht gefragt“ (E6; Matrix C1, C2, D1, C12, C13).
+#[test]
+fn f0078_ein_lokaler_name_wird_einmal_gefragt_andere_nie_vorwaerts() {
+    let lauf = mit_testnamen(&[]);
+
+    for name in ["chat.local", "chat.local", "CHAT.LOCAL", "chat.local."] {
+        assert!(erlaubt(&lauf.gesundheit(name)), "{name}");
+    }
+    for name in [
+        "local.boese.example",
+        "x.localhost",
+        "2130706433",
+        "0x7f000001",
+    ] {
+        assert_eq!(lauf.gesundheit(name).status, 403, "{name}");
+    }
+
+    assert_eq!(lauf.gefragt("vorwaerts", "chat.local"), 1);
+    for name in [
+        "local.boese.example",
+        "x.localhost",
+        "2130706433",
+        "0x7f000001",
+    ] {
+        assert_eq!(lauf.gefragt("vorwaerts", name), 0, "{name}");
+    }
+}
+
+/// Kriterium „Protokoll“ (Matrix C1): zwei Anfragen → genau eine Information mit Name und Adresse.
+#[test]
+fn f0078_zweimal_chat_local_eine_information() {
+    let lauf = mit_testnamen(&[]);
+
+    assert!(erlaubt(&lauf.gesundheit("chat.local")));
+    assert!(erlaubt(&lauf.gesundheit("chat.local")));
+
+    let gemeldet = lauf.erlaubt_gemeldet("Host-Name über lokalen Namensraum erlaubt", "chat.local");
+    assert_eq!(gemeldet.len(), 1, "{gemeldet:?}");
+    assert_eq!(wert(&gemeldet[0], "adresse").as_deref(), Some("127.0.0.1"));
+}
+
+/// Matrix C5–C7, C10 (L2; E1): gemischte Antwort erlaubt; unspezifiziert, Multicast, Broadcast abgewiesen, ohne
+/// „eigen?“ zu fragen; ein Name ohne Antwort abgewiesen.
+#[test]
+fn c5_c7_c10_gemischt_erlaubt_unspezifiziert_multicast_broadcast_nie() {
+    let lauf = starten(
+        &[],
+        &[
+            (
+                "LOCALCHATA_TESTNAMEN",
+                "mix.local=192.0.2.1,127.0.0.1;null.local=0.0.0.0;null6.local=::;mc.local=224.0.0.251;bc.local=255.255.255.255",
+            ),
+            ("LOCALCHATA_PROTOKOLL_STUFE", "debug"),
+        ],
+    );
+
+    assert!(erlaubt(&lauf.gesundheit("mix.local")));
+    for name in [
+        "null.local",
+        "null6.local",
+        "mc.local",
+        "bc.local",
+        "gibtsnicht.local",
+    ] {
+        assert_eq!(lauf.gesundheit(name).status, 403, "{name}");
+        assert_eq!(lauf.gefragt("vorwaerts", name), 1, "{name}");
+    }
+    for adresse in ["0.0.0.0", "::", "224.0.0.251", "255.255.255.255"] {
+        assert_eq!(lauf.gefragt("eigen", adresse), 0, "{adresse}");
+    }
+    assert_eq!(lauf.gefragt("eigen", "127.0.0.1"), 1);
+}

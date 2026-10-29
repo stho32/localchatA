@@ -2,7 +2,10 @@
 //! Ursprung sie Wirkung annimmt (gegen CSRF).
 
 use super::auskunft::{Abfrage, Auskunft};
-use super::hostnamen::{FesteNamen, Grund, host_urteil, normalform};
+use super::hostnamen::{
+    FesteNamen, Grund, host_urteil, im_lokalen_namensraum, normalform, zeigt_auf_eigene,
+};
+use super::namensauskunft::Namensauskunft;
 use crate::protokoll::episoden::Auftreten;
 use crate::protokoll::{Bereich, Kontext, Protokoll, Schluessel, Stufe};
 use crate::start::ausliefern::LokaleAdresse;
@@ -157,8 +160,9 @@ impl Grenzschutz {
     }
 
     /// Urteil über den `Host` einer Anfrage, die über die lokale Adresse `lokal` kam: IP-Literal erlaubt; ein
-    /// Name nur in Normalform (Regel 1), dann fest (Regel 2) oder als Rückwärtsname von `lokal` (Regel 3); alles
-    /// andere abgewiesen (Regel 5). Ein Wert, der sich nicht als Host mit optionalem Port lesen lässt, nie.
+    /// Name nur in Normalform (Regel 1), dann fest (Regel 2), als Rückwärtsname von `lokal` (Regel 3) oder im
+    /// lokalen Namensraum mit eigener Adresse (Regel 4) — nur dort wird vorwärts aufgelöst; alles andere
+    /// abgewiesen (Regel 5). Ein Wert, der sich nicht als Host mit optionalem Port lesen lässt, nie.
     pub async fn host_pruefen(
         &self,
         host: Option<&str>,
@@ -186,14 +190,25 @@ impl Grenzschutz {
         let (Some(auskunft), Some(lokal)) = (&self.auskunft, lokal) else {
             return Err(abgewiesen());
         };
+        let lokal = lokal.to_canonical();
         let namen = auskunft.namen_der_adresse(lokal).await.unwrap_or_default();
-        let grund = host_urteil(&normal, &self.feste, || namen).ok_or_else(abgewiesen)?;
-        auskunft.erlaubt_melden(
-            &Abfrage::Rueckwaerts(lokal.to_canonical()),
-            &normal,
-            lokal.to_canonical(),
-        );
-        Ok(grund)
+        if let Some(grund) = host_urteil(&normal, &self.feste, || namen) {
+            auskunft.erlaubt_melden(&Abfrage::Rueckwaerts(lokal), &normal, lokal);
+            return Ok(grund);
+        }
+        if !im_lokalen_namensraum(&normal) {
+            return Err(abgewiesen());
+        }
+        let name = normal.clone();
+        let urteilen = move |port: &dyn Namensauskunft| {
+            let adressen = port.adressen_des_namens(&name);
+            zeigt_auf_eigene(&adressen, &mut |adresse| port.ist_eigene_adresse(adresse))
+        };
+        if auskunft.urteil_ueber(&normal, urteilen).await != Some(true) {
+            return Err(abgewiesen());
+        }
+        auskunft.erlaubt_melden(&Abfrage::Vorwaerts(normal.clone()), &normal, lokal);
+        Ok(Grund::LokalerNamensraum)
     }
 }
 

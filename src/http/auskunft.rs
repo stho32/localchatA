@@ -27,7 +27,6 @@ pub const HOECHSTENS_EINTRAEGE: usize = 256;
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Abfrage {
     Rueckwaerts(IpAddr),
-    #[cfg_attr(not(test), allow(dead_code))] // vorübergehend: verdrahtet mit B0373
     Vorwaerts(String),
 }
 
@@ -118,7 +117,6 @@ impl Auskunft {
     }
 
     /// Das Urteil über einen Namen; `urteilen` fragt die Namensauskunft (vorwärts, eigen?) und entscheidet.
-    #[cfg_attr(not(test), allow(dead_code))] // vorübergehend: verdrahtet mit B0373
     pub async fn urteil_ueber(
         &self,
         name: &str,

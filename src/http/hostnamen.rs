@@ -39,19 +39,16 @@ fn ist_zahl(label: &str) -> bool {
 
 /// Endet `name` (in Normalform) auf `suffix`, und zwar an einer Label-Grenze? `evil-local` und
 /// `local.evil.example` enden nicht auf `local`.
-#[cfg_attr(not(test), allow(dead_code))] // vorübergehend: verdrahtet mit B0373
 pub fn endet_auf_label(name: &str, suffix: &str) -> bool {
     name.strip_suffix(suffix)
         .is_some_and(|davor| davor.ends_with('.'))
 }
 
 /// Suffixe des lokalen Namensraums (ADR-0045 Regel 4): mDNS, RFC 8375, ICANN 2024.
-#[cfg_attr(not(test), allow(dead_code))] // vorübergehend: verdrahtet mit B0373
 const LOKALE_SUFFIXE: [&str; 3] = ["local", "home.arpa", "internal"];
 
 /// Liegt der Name (in Normalform) im lokalen Namensraum — einteilig oder unter `.local`, `.home.arpa`,
 /// `.internal` an einer Label-Grenze? Nur dann wird er vorwärts aufgelöst; kein abgeleitetes Suffix.
-#[cfg_attr(not(test), allow(dead_code))] // vorübergehend: verdrahtet mit B0373
 pub fn im_lokalen_namensraum(name: &str) -> bool {
     !name.contains('.')
         || LOKALE_SUFFIXE
@@ -61,7 +58,6 @@ pub fn im_lokalen_namensraum(name: &str) -> bool {
 
 /// Zeigt die Antwort der Vorwärtsauflösung auf eine eigene Adresse? Jede Adresse wird kanonisch; unspezifizierte,
 /// Multicast und `255.255.255.255` sind nie eigen, ohne dass `eigen` gefragt wird (E1).
-#[cfg_attr(not(test), allow(dead_code))] // vorübergehend: verdrahtet mit B0373
 pub fn zeigt_auf_eigene(adressen: &[IpAddr], eigen: &mut dyn FnMut(IpAddr) -> bool) -> bool {
     adressen
         .iter()
@@ -72,7 +68,6 @@ pub fn zeigt_auf_eigene(adressen: &[IpAddr], eigen: &mut dyn FnMut(IpAddr) -> bo
 
 /// Unspezifiziert (`0.0.0.0`, `::`), Multicast (`224.0.0.0/4`, `ff00::/8`) und der Broadcast — `bind` gelänge
 /// für sie, und eine Sinkhole-Antwort `0.0.0.0` hieße sonst „zeigt auf mich“ (E1).
-#[cfg_attr(not(test), allow(dead_code))] // vorübergehend: verdrahtet mit B0373
 fn nie_eigen(adresse: &IpAddr) -> bool {
     adresse.is_unspecified()
         || adresse.is_multicast()
@@ -81,7 +76,7 @@ fn nie_eigen(adresse: &IpAddr) -> bool {
 
 /// Warum ein Host-Name erlaubt ist.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[allow(dead_code)] // vorübergehend: LokalerNamensraum und AlleNamen entstehen mit B0373 und B0377
+#[allow(dead_code)] // vorübergehend: AlleNamen entsteht mit B0377
 pub enum Grund {
     /// Regel 2: `localhost`, Rechnername samt `.local`, `--erreichbar-als`.
     Fest,
