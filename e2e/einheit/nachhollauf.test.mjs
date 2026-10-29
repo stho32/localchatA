@@ -537,3 +537,19 @@ test('NeuerStand bei nicht geladen und nicht gescheitert (erster Abruf unterwegs
   assert.deepEqual(port.abrufe, []);
   assert.deepEqual(fertig, []);
 });
+
+// „`getrennt` merkt sich für ihn keinen [Cursor]“ (7g): wird der Channel während der Trennung doch geladen (neue Wahl
+// bei verbundenem HTTP), holt das Wiederverbinden ab seiner jüngsten Zeit nach, nicht ab einem leeren Cursor.
+test('Trennung während eines Laden-Laufs merkt keinen Cursor: später geladen, holt das Wiederverbinden ab der jüngsten Zeit nach', async () => {
+  const { uhr, port, verlauf, lauf } = ladenLaufAnlegen({ antworten: ['haengt'] });
+
+  lauf.getrennt();
+  lauf.wiederverbunden();
+  await uhr.laufenBis(200);
+  lauf.getrennt();
+  verlauf.stand = { channel: 'a', geladen: true, gescheitert: false, juengste: t(3), neuesterImFenster: true };
+  lauf.wiederverbunden();
+  await uhr.laufenBis(300);
+
+  assert.deepEqual(port.abrufe.map((abruf) => abruf.nach), [t(3)]);
+});
