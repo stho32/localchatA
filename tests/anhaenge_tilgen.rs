@@ -525,3 +525,99 @@ async fn grosses_video_tilgen_waehrend_gesendet_wird() {
     );
     assert_eq!(teil.bytes().await.expect("Bytes").to_vec(), ausschnitt);
 }
+
+fn vmhwm(pid: u32) -> u64 {
+    std::fs::read_to_string(format!("/proc/{pid}/status"))
+        .expect("status")
+        .lines()
+        .find_map(|zeile| zeile.strip_prefix("VmHWM:"))
+        .and_then(|wert| {
+            wert.trim()
+                .trim_end_matches(" kB")
+                .trim()
+                .parse::<u64>()
+                .ok()
+        })
+        .expect("VmHWM")
+        * 1024
+}
+
+/// Ein JPEG, dessen `APP2` `MPF` (≈ 64 KiB) 2.730 gleiche `MP_ENTRY`-Tags trägt, je über denselben Bereich von 2.047
+/// Einträgen — 5.585.580 Nennungen desselben zweiten Bildes (Exif-GPS); `flut` 0 → ein einziger Tag mit zwei
+/// Einträgen (dasselbe Bild, gleich groß aufgefüllt).
+fn mpf_flut(tags: usize) -> Vec<u8> {
+    use gemeinsam::dateien::{jpeg, tiff};
+    let mut exif = b"Exif\0\0".to_vec();
+    exif.extend(tiff(
+        &[(0x0112, 3, 1, 6), (0x8825, 4, 1, 38)],
+        b"GPS48.1371N11.5754E",
+    ));
+    let zweites = jpeg(&[(0xe1, exif)], 160, 120);
+    const EINTRAEGE: usize = 2_047;
+    let mpf = |versatz: u32| {
+        let daten_ab = (8 + 2 + tags.max(1) * 12 + 4) as u32;
+        let mut mpf = b"MPF\0MM\0*\0\0\0\x08".to_vec();
+        mpf.extend((tags.max(1) as u16).to_be_bytes());
+        let zahl = if tags == 0 { 32 } else { EINTRAEGE * 16 };
+        for _ in 0..tags.max(1) {
+            mpf.extend(0xB002u16.to_be_bytes());
+            mpf.extend(7u16.to_be_bytes());
+            mpf.extend((zahl as u32).to_be_bytes());
+            mpf.extend(daten_ab.to_be_bytes());
+        }
+        mpf.extend(0u32.to_be_bytes());
+        mpf.extend([0; 16]);
+        for _ in 1..zahl / 16 {
+            mpf.extend([0, 0, 0, 0]);
+            mpf.extend((zweites.len() as u32).to_be_bytes());
+            mpf.extend(versatz.to_be_bytes());
+            mpf.extend([0, 0, 0, 0]);
+        }
+        mpf.resize(65_530, 0);
+        mpf
+    };
+    let erstes = |versatz| jpeg(&[(0xe2, mpf(versatz))], 4000, 3000);
+    let versatz = (erstes(0).len() - 10) as u32;
+    [erstes(versatz), zweites].concat()
+}
+
+/// Befund aus Teil A der Nacharbeit zu #9 (`tilger/mpf.rs`, `weitere_bilder`): viele gleiche `MP_ENTRY`-Tags ließen
+/// die Liste der weiteren Bilder auf Millionen Einträge wachsen. Probe: das präparierte JPEG → Speicherzuwachs
+/// (VmHWM) ≤ 1 MiB je Hochladung, Ergebnis wie heute (422 `metadaten`, über 100.000 Blöcke); Kontrolle: dasselbe
+/// Bild mit einem Tag → 200 ohne GPS.
+#[tokio::test]
+async fn viele_gleiche_mp_eintraege_brauchen_keinen_speicher() {
+    let wurzel = ordner();
+    let instanz = starten(wurzel.path(), &[], &[]);
+    let basis = instanz.adresse.as_str();
+    let pid = instanz.kind.id();
+    for name in ["einer1.jpg", "einer2.jpg", "einer3.jpg"] {
+        let getilgt = hochgeladen(basis, wurzel.path(), name, mpf_flut(0)).await;
+        assert!(!enthaelt(&getilgt, b"GPS48"), "Kontrolle");
+    }
+    let flut = mpf_flut(2_730);
+    assert!(flut.len() < 70_000, "{}", flut.len());
+    let vorher = vmhwm(pid);
+
+    let beta = Absender::von("127.0.0.1");
+    let token = beitreten(&beta, basis, "flut", Some("agent")).await;
+    let angemeldet = id(&anmelden(&beta, basis, &token, "flut.jpg", flut.len() as u64).await);
+    let antwort = hochladen(&beta, basis, &token, &angemeldet, flut).await;
+
+    let zuwachs = vmhwm(pid).saturating_sub(vorher);
+    assert_eq!(
+        (
+            antwort.status,
+            &antwort.json["regel"],
+            &antwort.json["grund"]
+        ),
+        (
+            422,
+            &serde_json::json!("metadaten"),
+            &serde_json::json!("über 100.000 Blöcke")
+        ),
+        "{}",
+        antwort.json
+    );
+    assert!(zuwachs <= 1_048_576, "VmHWM +{zuwachs} Bytes");
+}

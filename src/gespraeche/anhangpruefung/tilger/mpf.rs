@@ -14,7 +14,9 @@ fn metadaten<T>(grund: &'static str) -> Ergebnis<T> {
     Err(Abbruch::Metadaten(grund))
 }
 
-/// Ein JPEG samt der Bilder, die sein MP-Index nennt.
+/// Ein JPEG samt der Bilder, die sein MP-Index nennt. Zwei Durchgänge über den Index (≤ 64 KiB) statt einer Liste:
+/// erst prüfen, dass jeder Eintrag ganz in der Datei liegt, dann jedes Bild tilgen — der Speicher bleibt konstant,
+/// auch wenn viele gleiche `MP_ENTRY`-Tags Millionen Nennungen ergeben (die Blockgrenze beendet die Arbeit).
 pub fn jpeg_mit_mpf(port: &Port<'_>, zaehler: &mut Zaehler) -> Ergebnis<()> {
     let erstes = jpeg(port, 0, zaehler)?;
     let JpegBild {
@@ -24,7 +26,9 @@ pub fn jpeg_mit_mpf(port: &Port<'_>, zaehler: &mut Zaehler) -> Ergebnis<()> {
     else {
         return Ok(());
     };
-    for anfang in weitere_bilder(port, tiff, laenge)? {
+    let index = port.lesen(tiff, laenge)?;
+    weitere_bilder(port, &index, tiff, |_| Ok(()))?;
+    weitere_bilder(port, &index, tiff, |anfang| {
         if anfang <= sos
             || !port.enthaelt(anfang, 3)
             || port.lesen(anfang, 3)? != [0xFF, 0xD8, 0xFF]
@@ -32,43 +36,46 @@ pub fn jpeg_mit_mpf(port: &Port<'_>, zaehler: &mut Zaehler) -> Ergebnis<()> {
             return metadaten("MPF-Eintrag nicht ganz in der Datei");
         }
         zaehler.block()?;
-        jpeg(port, anfang, zaehler)?;
-    }
-    Ok(())
+        jpeg(port, anfang, zaehler).map(|_| ())
+    })
 }
 
-/// Die Anfänge der weiteren Bilder aus dem MP-Index (Versätze ab dem TIFF-Kopf des MPF-Segments).
-fn weitere_bilder(port: &Port<'_>, tiff: u64, laenge: u64) -> Ergebnis<Vec<u64>> {
-    let bytes = port.lesen(tiff, laenge)?;
-    let Some(ordnung) = ordnung(&bytes) else {
+/// Die Anfänge der weiteren Bilder aus dem MP-Index (Versätze ab dem TIFF-Kopf des MPF-Segments), je an `je_bild`
+/// in der Reihenfolge des Index; ein Eintrag, der nicht ganz in der Datei liegt, beendet mit `metadaten`.
+fn weitere_bilder(
+    port: &Port<'_>,
+    bytes: &[u8],
+    tiff: u64,
+    mut je_bild: impl FnMut(u64) -> Ergebnis<()>,
+) -> Ergebnis<()> {
+    let Some(ordnung) = ordnung(bytes) else {
         return metadaten("MPF ohne TIFF-Kopf");
     };
     let falsch = || Abbruch::Metadaten("MPF-Index unlesbar");
-    let ifd = ordnung.u32(&bytes, 4).ok_or_else(falsch)? as usize;
-    let anzahl = usize::from(ordnung.u16(&bytes, ifd).ok_or_else(falsch)?);
-    let mut liste = Vec::new();
+    let ifd = ordnung.u32(bytes, 4).ok_or_else(falsch)? as usize;
+    let anzahl = usize::from(ordnung.u16(bytes, ifd).ok_or_else(falsch)?);
     for nummer in 0..anzahl {
         let eintrag = ifd + 2 + nummer * 12;
-        if ordnung.u16(&bytes, eintrag).ok_or_else(falsch)? != TAG_MP_ENTRY {
+        if ordnung.u16(bytes, eintrag).ok_or_else(falsch)? != TAG_MP_ENTRY {
             continue;
         }
-        let zahl = ordnung.u32(&bytes, eintrag + 4).ok_or_else(falsch)? as usize;
-        let versatz = ordnung.u32(&bytes, eintrag + 8).ok_or_else(falsch)? as usize;
+        let zahl = ordnung.u32(bytes, eintrag + 4).ok_or_else(falsch)? as usize;
+        let versatz = ordnung.u32(bytes, eintrag + 8).ok_or_else(falsch)? as usize;
         let ende = versatz.checked_add(zahl).ok_or_else(falsch)?;
         if !zahl.is_multiple_of(EINTRAG) || ende > bytes.len() {
             return metadaten("MPF-Eintrag nicht ganz in der Datei");
         }
         for bild in (versatz..ende).step_by(EINTRAG).skip(1) {
-            let groesse = u64::from(ordnung.u32(&bytes, bild + 4).ok_or_else(falsch)?);
-            let ab = u64::from(ordnung.u32(&bytes, bild + 8).ok_or_else(falsch)?);
+            let groesse = u64::from(ordnung.u32(bytes, bild + 4).ok_or_else(falsch)?);
+            let ab = u64::from(ordnung.u32(bytes, bild + 8).ok_or_else(falsch)?);
             let anfang = tiff.checked_add(ab).ok_or_else(falsch)?;
             if !port.enthaelt(anfang, groesse) {
                 return metadaten("MPF-Eintrag nicht ganz in der Datei");
             }
-            liste.push(anfang);
+            je_bild(anfang)?;
         }
     }
-    Ok(liste)
+    Ok(())
 }
 
 #[cfg(test)]
