@@ -313,6 +313,7 @@ for (const [geraet, kontext] of [['Telefon 375 × 667', telefon(375, 667)], ['Ta
       expect(schalter.height, name).toBeGreaterThanOrEqual(44);
     }
     expect(await schriftDesFelds(a.page)).toBe('16px');
+    expect((await rand(feld(a.page))).height, 'Frist-Feld hoch').toBeGreaterThanOrEqual(44);
     await zweiterSchritt(a.page);
     const zurueckRand = await rand(zurueck(a.page));
     const verkuerzenRand = await rand(verkuerzen(a.page));
@@ -331,6 +332,7 @@ test('Touch im Dialog, Kontrollpaar 1280 × 800 ohne Touch (B0545): Schalter 28 
 
   expect((await rand(dialog(a.page).getByRole('button', { name: 'Speichern' }))).height).toBe(28);
   expect(await schriftDesFelds(a.page)).toBe('13px');
+  expect((await rand(feld(a.page))).height, 'Frist-Feld hoch ohne Touch').toBe(28);
   await zweiterSchritt(a.page);
   const zurueckRand = await rand(zurueck(a.page));
   const verkuerzenRand = await rand(verkuerzen(a.page));
