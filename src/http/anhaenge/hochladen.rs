@@ -508,6 +508,7 @@ fn beantworten(ergebnis: Ergebnis, wer: &str) -> Response {
             ..
         } => (
             StatusCode::OK,
+            [(CONNECTION, "close")],
             Json(json!({
                 "anhang": {
                     "id": id.als_text(),
