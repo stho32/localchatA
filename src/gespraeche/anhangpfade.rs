@@ -153,8 +153,9 @@ pub fn tag_dateien(
     Ok(dateien)
 }
 
-/// Die Tage in `<gespräch>/anhaenge/`: Ordner und Symlinks, deren Name ein Tag in der Schreibweise der Ablage ist,
-/// aufsteigend; fehlt `anhaenge`, keine. Ein Symlink als `anhaenge` ist ein Fehler.
+/// Die Tage in `<gespräch>/anhaenge/` (ADR-0046 Ergänzung „Review #53 B1“ T2): echte Ordner, deren Name genau
+/// `JJJJ-MM-TT` mit gültigem Datum ist, aufsteigend; Dateien, Symlinks und andere Namen gehören zu keinem Tag. Fehlt
+/// `anhaenge`, keine; ein Symlink als `anhaenge` ist ein Fehler.
 pub fn anhang_tage(instanz: &OwnedFd, gespraech: &Gespraech) -> io::Result<Vec<NaiveDate>> {
     let anhaenge = match anhaenge(instanz, gespraech) {
         Err(fehler) if fehler.kind() == io::ErrorKind::NotFound => return Ok(Vec::new()),
@@ -171,8 +172,7 @@ pub fn anhang_tage(instanz: &OwnedFd, gespraech: &Gespraech) -> io::Result<Vec<N
             continue;
         };
         let stand = rustix::fs::statat(&anhaenge, eintrag.file_name(), AtFlags::SYMLINK_NOFOLLOW)?;
-        let art = FileType::from_raw_mode(stand.st_mode);
-        if art.is_dir() || art.is_symlink() {
+        if FileType::from_raw_mode(stand.st_mode).is_dir() {
             tage.push(tag);
         }
     }

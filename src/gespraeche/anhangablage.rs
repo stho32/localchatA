@@ -73,8 +73,8 @@ pub trait Anhangablage: Send + Sync {
     ) -> io::Result<()>;
     /// Die regulären Dateien in `anhaenge/<tag>/` mit ihrer Länge; ein Symlink im Pfad ist ein Fehler.
     fn tag_dateien(&self, gespraech: &Gespraech, tag: NaiveDate) -> io::Result<Vec<Tagesdatei>>;
-    /// Die Tage in `anhaenge/` (Ordner und Symlinks mit Tagesnamen), aufsteigend — auch Tage ohne Tagesdatei
-    /// (Befund #53 B1); fehlt `anhaenge`, keine.
+    /// Die Tage in `anhaenge/` (echte Ordner mit Tagesnamen), aufsteigend — auch Tage ohne Tagesdatei (Befund #53
+    /// B1); fehlt `anhaenge`, keine.
     fn anhang_tage(&self, gespraech: &Gespraech) -> io::Result<Vec<NaiveDate>>;
     /// Eine gebundene Datei zum Lesen, `O_NOFOLLOW` in jeder Komponente.
     fn zum_lesen(
@@ -584,9 +584,9 @@ mod tests {
     }
 
     /// Teildatei: `O_EXCL` (zweimal anlegen scheitert), Abschluss ohne Überschreiben (M39), Löschen beider Namen.
-    /// Befund #53 B1: die Tage in `anhaenge/` — Ordner und Symlinks mit Tagesnamen, aufsteigend; eine Datei mit
-    /// Tagesnamen, ein anderer Name und eine andere Schreibweise zählen nicht; ohne `anhaenge` keine, als Symlink ein
-    /// Fehler.
+    /// Befund #53 B1: die Tage in `anhaenge/` — echte Ordner mit Tagesnamen, aufsteigend; eine Datei oder ein
+    /// Symlink mit Tagesnamen, ein anderer Name und eine andere Schreibweise zählen nicht; ohne `anhaenge` keine, als
+    /// Symlink ein Fehler.
     #[test]
     fn die_tage_in_anhaenge_auch_ohne_tagesdatei() {
         let wurzel = tempfile::tempdir().expect("Wegwerf-Ordner");
@@ -605,10 +605,7 @@ mod tests {
             .anhang_tage(&Gespraech::channel("c"))
             .expect("aufgelistet");
 
-        assert_eq!(
-            tage,
-            vec![tag("2026-10-20"), tag("2026-10-21"), tag("2026-10-23")]
-        );
+        assert_eq!(tage, vec![tag("2026-10-20"), tag("2026-10-21")]);
         assert_eq!(
             ablage.anhang_tage(&Gespraech::channel("d")).expect("leer"),
             Vec::<NaiveDate>::new()

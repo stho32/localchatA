@@ -37,6 +37,14 @@ pub enum Pflegebericht {
         anlass: Pflegeanlass,
         ursache: String,
     },
+    /// Die Anhänge eines Tags ließen sich nicht entfernen (seine Tagesdatei ist weg oder gab es nie); sie bleiben als
+    /// Waisen gezählt, jede nächste Pflege versucht es erneut (ADR-0046 Ergänzung „Review #53 B1“ Regel 4).
+    AnhaengeNichtEntfernt {
+        channel: Channelname,
+        tag: NaiveDate,
+        anlass: Pflegeanlass,
+        ursache: String,
+    },
     /// Der Ordner des Channels ließ sich nicht auflisten; nichts entfällt bis zum nächsten Anlass (ADR-0042
     /// Ergänzung R00019 Punkt 1). `ordner` ist `channels/<name>`, `ursache` der Text des Plattenfehlers.
     TageNichtErmittelt {
@@ -143,13 +151,9 @@ impl Gespraeche {
                         self.unter_90_melden(vorher, vorher.saturating_sub(bytes), anlass);
                     }
                     if let Err(ursache) = self.anhaenge_entfallen(&gespraech, tag, anlass) {
-                        fehler.push(Pflegebericht::NichtEntfallen {
+                        fehler.push(Pflegebericht::AnhaengeNichtEntfernt {
                             channel: name.clone(),
-                            datei: format!(
-                                "{}/anhaenge/{}",
-                                gespraech.pfad(),
-                                tag.format("%Y-%m-%d")
-                            ),
+                            tag,
                             anlass: anlass.clone(),
                             ursache: ursache.to_string(),
                         });
@@ -184,15 +188,19 @@ impl Gespraeche {
 impl Gespraeche {
     /// Nach der Tagesdatei entfallen die Anhänge des Tags (ADR-0046 Regel 9, Ergänzung „Karte #9 Security-Gate“
     /// Regel 4): über Verzeichnisdeskriptoren, nie einem Symlink folgend; erst danach aus dem Verzeichnis und `G −=` die
-    /// gewonnenen `vorhanden` samt Waisen (Gelöschte zieht der Löschende ab). Scheitert das Entfernen, bleibt der Tag
-    /// mit seinen Anhängen in Verzeichnis und Zähler.
+    /// gewonnenen `vorhanden` samt Waisen (Gelöschte zieht der Löschende ab). Scheitert das Entfernen, gehen die
+    /// Einträge nach `entfallen`, ihre Bytes bleiben als Waisen des Tags in `G`, und jede nächste Pflege versucht es
+    /// erneut — der Tag steht weiter in `anhaenge/` (ADR-0046 Ergänzung „Review #53 B1“ Regeln 3 und 4).
     pub(super) fn anhaenge_entfallen(
         &self,
         gespraech: &Gespraech,
         tag: NaiveDate,
         anlass: &Pflegeanlass,
     ) -> std::io::Result<()> {
-        self.anhangablage.tag_entfernen(gespraech, tag)?;
+        if let Err(fehler) = self.anhangablage.tag_entfernen(gespraech, tag) {
+            self.anhangverzeichnis.tag_verwaisen(gespraech, tag);
+            return Err(fehler);
+        }
         let weg = self.anhangverzeichnis.tag_entfernen(gespraech, tag);
         let _ = self.anhangzaehler.gebunden.fetch_update(
             std::sync::atomic::Ordering::SeqCst,
@@ -228,6 +236,7 @@ impl FristGesetzt {
                     tage, nachrichten, ..
                 } => Some((tage.len(), *nachrichten)),
                 Pflegebericht::NichtEntfallen { .. }
+                | Pflegebericht::AnhaengeNichtEntfernt { .. }
                 | Pflegebericht::TageNichtErmittelt { .. }
                 | Pflegebericht::Gesperrt { .. } => None,
             })

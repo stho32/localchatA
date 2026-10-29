@@ -35,6 +35,8 @@ struct Innen {
     zuruecklegen_scheitert: bool,
     /// Diese Dateien lassen sich nicht kürzen (wie `ELOOP`).
     kuerzen_scheitert: BTreeSet<String>,
+    /// Das Entfernen dieser Tage scheitert einmal (wie `EACCES`).
+    tag_entfernen_scheitert: BTreeSet<(Gespraech, NaiveDate)>,
     /// Vor dem nächsten Kürzen zweimal an dieser Schranke warten.
     vor_kuerzen: Option<Arc<Barrier>>,
     /// Ein Leser bekommt nach dem ersten Lesen 0 Bytes (die Datei wurde inzwischen gekürzt).
@@ -107,6 +109,13 @@ impl Anhangspeicher {
 
     pub fn kuerzen_scheitert(&self, datei: &str) {
         self.innen().kuerzen_scheitert.insert(datei.to_string());
+    }
+
+    /// Das nächste Entfernen von `anhaenge/<tag>` scheitert, die Dateien bleiben.
+    pub fn tag_entfernen_scheitert_einmal(&self, gespraech: &Gespraech, tag: NaiveDate) {
+        self.innen()
+            .tag_entfernen_scheitert
+            .insert((gespraech.clone(), tag));
     }
 
     pub fn vor_kuerzen_warten(&self, schranke: Arc<Barrier>) {
@@ -278,7 +287,14 @@ impl Anhangablage for Anhangspeicher {
     }
 
     fn tag_entfernen(&self, gespraech: &Gespraech, tag: NaiveDate) -> io::Result<()> {
-        self.innen()
+        let mut innen = self.innen();
+        if innen
+            .tag_entfernen_scheitert
+            .remove(&(gespraech.clone(), tag))
+        {
+            return Err(io::Error::from(io::ErrorKind::PermissionDenied));
+        }
+        innen
             .anhaenge
             .retain(|(g, t, _), _| !(g == gespraech && *t == tag));
         Ok(())

@@ -6,6 +6,10 @@ use super::pflege::{Pflegeanlass, Pflegebericht};
 use crate::protokoll::{Bereich, Eintrag, Kontext, Schluessel, Stufe};
 use chrono::NaiveDate;
 
+/// Text der Zeile, wenn die Anhänge eines Tags nicht entfernt wurden (ADR-0046 Ergänzung „Review #53 B1“ Regel 4).
+pub const ANHAENGE_NICHT_ENTFERNT: &str =
+    "Anhänge eines Tags nicht entfernt — erneuter Versuch bei der nächsten Pflege";
+
 /// Der Eintrag zu einem Pflegebericht: Entfallen als INFORMATION, ein nicht entfallener Tag und ein nicht
 /// auflistbarer Ordner als ERROR, defekte Einstellungen als WARNING (R00017, Abbildung Zeilen 2–5; R00019). Im
 /// Bereich `frist` ist `grund` immer der Anlass, ein Plattenfehler steht in `ursache` (R00019).
@@ -49,6 +53,23 @@ pub fn pflege_eintrag(bericht: &Pflegebericht) -> Eintrag {
                 Kontext::neu()
                     .mit(Schluessel::Channel, channel)
                     .mit(Schluessel::Datei, datei),
+                anlass,
+            )
+            .mit(Schluessel::Ursache, ursache),
+        ),
+        Pflegebericht::AnhaengeNichtEntfernt {
+            channel,
+            tag,
+            anlass,
+            ursache,
+        } => Eintrag::neu(
+            Stufe::Error,
+            Bereich::Frist,
+            ANHAENGE_NICHT_ENTFERNT,
+            mit_anlass(
+                Kontext::neu()
+                    .mit(Schluessel::Channel, channel)
+                    .mit(Schluessel::Tag, tag.format("%Y-%m-%d")),
                 anlass,
             )
             .mit(Schluessel::Ursache, ursache),

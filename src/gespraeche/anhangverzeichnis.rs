@@ -235,6 +235,31 @@ impl Anhangverzeichnis {
         abzuziehen.saturating_add(waisen)
     }
 
+    /// Die Anhänge eines Tags ließen sich nach seiner Tagesdatei nicht entfernen (ADR-0046 Ergänzung „Review #53 B1“
+    /// Regel 4): jeder Eintrag `vorhanden` → `entfallen` (wer gewinnt, gibt sein Zählmaß an die Waisen des Tags), alle
+    /// Einträge aus dem Verzeichnis; der Tag bleibt mit `W` — `G` ändert sich nicht. Liefert das neue `W`.
+    pub fn tag_verwaisen(&self, gespraech: &Gespraech, tag: NaiveDate) -> u64 {
+        let mut innen = self.schreibend();
+        let Some(ids) = innen
+            .tage
+            .get_mut(&(gespraech.clone(), tag))
+            .map(|eintrag| std::mem::take(&mut eintrag.ids))
+        else {
+            return 0;
+        };
+        let mut gewonnen = 0u64;
+        for id in ids {
+            if let Some(eintrag) = innen.eintraege.remove(&id)
+                && eintrag.tauschen(Zustand::Vorhanden, Zustand::Entfallen)
+            {
+                gewonnen = gewonnen.saturating_add(eintrag.z());
+            }
+        }
+        let eintrag = innen.tage.entry((gespraech.clone(), tag)).or_default();
+        eintrag.waisen = eintrag.waisen.saturating_add(gewonnen);
+        eintrag.waisen
+    }
+
     /// Lädt einen einzelnen Tag (`tag_lesen` und `tag_eintragen`); doppelt ist eine ID nur innerhalb des Tags.
     pub fn tag_laden(
         &self,

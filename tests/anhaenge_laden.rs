@@ -306,6 +306,17 @@ async fn ein_tagordner_ohne_tagesdatei_zaehlt_und_entfaellt() {
     let instanz = starten(wurzel.path(), &[], &[("LOCALCHATA_JETZT", MITTAG)]);
     assert_eq!(gesundheit(&instanz.adresse).await["anhang_belegt"], 65_536);
     drop(instanz);
+    let warnungen = laden_warnungen(wurzel.path());
+    assert!(
+        warnungen
+            .iter()
+            .any(|zeile| zeile.contains("Anhänge ohne Tagesdatei")
+                && zeile.contains("ordner=channels/allgemein")
+                && zeile.contains("tag=2026-10-28")
+                && zeile.contains("anzahl=1")
+                && zeile.contains("bytes=1")),
+        "{warnungen:#?}"
+    );
     let instanz = starten(
         wurzel.path(),
         &[],
@@ -316,35 +327,80 @@ async fn ein_tagordner_ohne_tagesdatei_zaehlt_und_entfaellt() {
     assert!(!tagordner.exists());
 }
 
-/// Befund #53 B1: die Tagesdatei entfällt, `anhaenge/<tag>/` nicht (Rechte) → `ERROR` „erneuter Versuch beim
-/// nächsten Anlass“; beim nächsten Anlass (Neustart, Rechte zurück) kommt der Versuch wirklich: Ordner weg, 0.
+/// Befund #53 B1, Abnahme-Probe „Wiederholung“ (ADR-0046 Ergänzung „Review #53 B1“): Tag 25. mit Tagesdatei und
+/// gebundenem Anhang, `anhaenge/<tag>` schreibgeschützt (0555), Frist auf 1 verkürzt → Tagesdatei weg, `ERROR`
+/// „Anhänge eines Tags nicht entfernt — erneuter Versuch bei der nächsten Pflege“, `GET` 404, `anhang_belegt`
+/// unverändert; Neustart → unverändert und `WARNING laden Anhänge ohne Tagesdatei`; Rechte zurück, Neustart → Ordner
+/// weg, 0.
 #[cfg(target_os = "linux")]
 #[tokio::test]
 async fn ein_gescheitertes_entfallen_der_anhaenge_wird_wiederholt() {
     use gemeinsam::frist::Rechte;
     let wurzel = ordner();
-    let tag = am_tag_senden(wurzel.path(), "2026-10-20T12:00:00+02:00").await;
+    let instanz = starten(
+        wurzel.path(),
+        &[],
+        &[("LOCALCHATA_JETZT", "2026-10-25T12:00:00+02:00")],
+    );
+    let (nachricht, tag) = mit_anhang_senden(&instanz.adresse, "x", vec![0; 1_000]).await;
+    drop(instanz);
+    let id = nachricht["anhaenge"][0]["id"]
+        .as_str()
+        .expect("id")
+        .to_string();
     let tagordner = wurzel
         .path()
         .join(format!("channels/allgemein/anhaenge/{tag}"));
+    let beta = Absender::von("127.0.0.1");
     {
-        let _rechte = Rechte::setzen(&tagordner, 0o500);
+        let _rechte = Rechte::setzen(&tagordner, 0o555);
+        let instanz = starten(wurzel.path(), &[], &[("LOCALCHATA_JETZT", MITTAG)]);
+        assert_eq!(gesundheit(&instanz.adresse).await["anhang_belegt"], 65_536);
+        let token = beitreten(&beta, &instanz.adresse, "beta", Some("agent")).await;
+        let gesetzt = frist_setzen(
+            &beta,
+            &instanz,
+            &token,
+            "allgemein",
+            json!({"tage": 1, "bestaetigt": true}),
+        )
+        .await;
+        assert_eq!(gesetzt.status, 200, "{}", gesetzt.json);
+        assert!(
+            !wurzel
+                .path()
+                .join(format!("channels/allgemein/{tag}.log"))
+                .exists()
+        );
+        let abgerufen = beta
+            .anfrage(
+                reqwest::Method::GET,
+                format!("{}anhaenge/{id}", instanz.adresse),
+            )
+            .send()
+            .await
+            .expect("Antwort");
+        assert_eq!(abgerufen.status(), 404);
+        assert_eq!(gesundheit(&instanz.adresse).await["anhang_belegt"], 65_536);
+        drop(instanz);
+        assert!(
+            alle_zeilen(wurzel.path()).iter().any(|zeile| zeile.contains(&format!(
+                " ERROR frist Anhänge eines Tags nicht entfernt — erneuter Versuch bei der nächsten Pflege | channel=allgemein tag={tag} grund=frist_gesetzt"
+            ))),
+            "ERROR fehlt"
+        );
+
         let instanz = starten(wurzel.path(), &[], &[("LOCALCHATA_JETZT", MITTAG)]);
         assert_eq!(gesundheit(&instanz.adresse).await["anhang_belegt"], 65_536);
         drop(instanz);
+        assert!(
+            laden_warnungen(wurzel.path())
+                .iter()
+                .any(|zeile| zeile.contains("Anhänge ohne Tagesdatei")
+                    && zeile.contains(&format!("tag={tag}"))),
+            "WARNING fehlt"
+        );
     }
-    assert!(
-        !wurzel
-            .path()
-            .join(format!("channels/allgemein/{tag}.log"))
-            .exists()
-    );
-    assert!(
-        alle_zeilen(wurzel.path())
-            .iter()
-            .any(|zeile| zeile.contains(" ERROR ") && zeile.contains("erneuter Versuch")),
-        "ERROR fehlt"
-    );
 
     let instanz = starten(wurzel.path(), &[], &[("LOCALCHATA_JETZT", MITTAG)]);
 

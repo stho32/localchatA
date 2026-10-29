@@ -283,6 +283,7 @@ impl Gespraeche {
         self.anhangablage = anhangablage;
         let beginn = std::time::Instant::now();
         let mut befunde = Vec::new();
+        let mut waisentage = Vec::new();
         let mut gelesen = Vec::new();
         {
             let verzeichnis = super::lesend(&self.verzeichnis);
@@ -294,6 +295,14 @@ impl Gespraeche {
                     let rohtext = roh.get(&tag).copied().unwrap_or_default();
                     match self.anhangablage.tag_dateien(gespraech, tag) {
                         Ok(dateien) => {
+                            if !roh.contains_key(&tag) {
+                                waisentage.push(super::Waisentag {
+                                    gespraech: gespraech.clone(),
+                                    tag,
+                                    dateien: dateien.len(),
+                                    bytes: dateien.iter().map(|datei| datei.laenge).sum(),
+                                });
+                            }
                             gelesen.push((gespraech.clone(), tag, tag_lesen(rohtext), dateien));
                         }
                         Err(fehler) => befunde.push(super::Anhangladebefund {
@@ -330,6 +339,7 @@ impl Gespraeche {
             .gebunden
             .store(gebunden, Ordering::SeqCst);
         self.anhangbefunde = befunde;
+        self.waisentage = waisentage;
         self.ladezeit += beginn.elapsed();
         self
     }
@@ -346,6 +356,11 @@ impl Gespraeche {
         alle.sort();
         alle.dedup();
         alle
+    }
+
+    /// Die Anhang-Tagordner ohne Tagesdatei beim Laden.
+    pub fn waisentage(&self) -> &[super::Waisentag] {
+        &self.waisentage
     }
 
     /// Was beim Laden der Anhänge übergangen wurde.
@@ -1074,6 +1089,71 @@ mod tests {
         assert_eq!(gespraeche.anhangkennzahlen().gebunden, 0);
         assert!(anhaenge.anhaenge().is_empty());
         assert!(gespraeche.anhangverzeichnis.finden(&id).is_none());
+    }
+
+    /// Befund #53 B1 (ADR-0046 Ergänzung „Review #53 B1“ Regeln 3, 4 und 6): das Entfernen von `anhaenge/<tag>`
+    /// scheitert einmal nach der Tagesdatei → Bericht „Anhänge nicht entfernt“, der Eintrag ist `entfallen` und nicht
+    /// mehr zu finden, `G` unverändert = `W(tag)`; die nächste Pflege findet den Tag in `anhaenge/` und entfernt ihn,
+    /// `G` 0 (Mutanten „gescheiterter Tag nicht verwaist“, „`G` beim Scheitern abgezogen“, „Tag nur aus dem Index“).
+    #[test]
+    fn ein_gescheitertes_entfernen_der_anhaenge_bleibt_gezaehlt_und_wird_wiederholt() {
+        let (gespraeche, _, anhaenge) = mit_ablage();
+        let allgemein = Gespraech::channel("allgemein");
+        let id = fertig(&gespraeche, "beta@127.0.0.1", "a.bin", &[1; 10]);
+        gespraeche
+            .senden_mit_anhaengen(
+                &allgemein,
+                &kennung("beta@127.0.0.1"),
+                Art::Agent,
+                "x",
+                std::slice::from_ref(&id),
+                None,
+            )
+            .expect("gesendet");
+        let eintrag = gespraeche.anhangverzeichnis.finden(&id).expect("da");
+        anhaenge.tag_entfernen_scheitert_einmal(&allgemein, tag_29());
+
+        let berichte = gespraeche.pflegen(
+            NaiveDate::from_ymd_opt(2026, 11, 6).expect("Tag"),
+            crate::gespraeche::Pflegeanlass::Tageswechsel,
+        );
+
+        assert!(
+            berichte.iter().any(|bericht| matches!(
+                bericht,
+                crate::gespraeche::Pflegebericht::AnhaengeNichtEntfernt { tag, .. } if *tag == tag_29()
+            )),
+            "{berichte:?}"
+        );
+        assert_eq!(
+            eintrag.zustand(),
+            crate::gespraeche::anhangverzeichnis::Zustand::Entfallen
+        );
+        assert!(gespraeche.anhangverzeichnis.finden(&id).is_none());
+        assert_eq!(gespraeche.anhangkennzahlen().gebunden, 65_536);
+        assert_eq!(
+            gespraeche
+                .anhangverzeichnis
+                .bytes_je_tag(&allgemein, tag_29()),
+            65_536,
+            "G = Σ z(vorhanden) + Σ W"
+        );
+        assert!(!anhaenge.anhaenge().is_empty());
+
+        let berichte = gespraeche.pflegen(
+            NaiveDate::from_ymd_opt(2026, 11, 7).expect("Tag"),
+            crate::gespraeche::Pflegeanlass::Tageswechsel,
+        );
+
+        assert!(berichte.is_empty(), "{berichte:?}");
+        assert_eq!(gespraeche.anhangkennzahlen().gebunden, 0);
+        assert_eq!(
+            gespraeche
+                .anhangverzeichnis
+                .bytes_je_tag(&allgemein, tag_29()),
+            0
+        );
+        assert!(anhaenge.anhaenge().is_empty());
     }
 
     /// Neun Anhänge zu 1 MiB in `allgemein` (sieben von `alice`, zwei von `bob`), einer in `technik` von `alice`.

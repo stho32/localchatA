@@ -440,6 +440,18 @@ async fn nach_der_sperre(
             kontext,
         );
     }
+    for waisentag in gespraeche.waisentage() {
+        protokoll.eintragen(
+            Stufe::Warning,
+            Bereich::Laden,
+            "Anhänge ohne Tagesdatei — sie zählen an der Anhang-Quote und entfallen mit ihrem Tag",
+            Kontext::neu()
+                .mit(Schluessel::Ordner, waisentag.gespraech.pfad())
+                .mit(Schluessel::Tag, waisentag.tag.format("%Y-%m-%d"))
+                .mit(Schluessel::Anzahl, waisentag.dateien)
+                .mit(Schluessel::Bytes, waisentag.bytes),
+        );
+    }
     quote_beim_start_melden(&gespraeche, &protokoll);
     gespraeche.anhangschwelle_pruefen("start");
     vorlauf::eintragen(&protokoll, gespraeche.zeit_vorlauf_ms());

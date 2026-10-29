@@ -167,6 +167,8 @@ pub struct Gespraeche {
     anhangverzeichnis: anhangverzeichnis::Anhangverzeichnis,
     /// Was beim Laden der Anhänge übergangen wurde (`WARNING laden`).
     anhangbefunde: Vec<Anhangladebefund>,
+    /// Anhang-Tagordner ohne Tagesdatei beim Laden (`WARNING laden Anhänge ohne Tagesdatei`).
+    waisentage: Vec<Waisentag>,
     /// Ob `gebunden` über 90 % der Anhang-Quote steht (B0515); gewechselt nur über `anhangschwelle_pruefen`.
     anhangschwelle: std::sync::atomic::AtomicBool,
     anhangschwelle_melden: anhaenge::AnhangschwelleMelden,
@@ -182,6 +184,16 @@ pub struct Anhangladebefund {
     pub zeile: Option<usize>,
     pub grund: String,
     pub datei: Option<String>,
+}
+
+/// Ein Anhang-Tagordner ohne Tagesdatei beim Laden (ADR-0046 Ergänzung „Review #53 B1“ Regel 2): alle Dateien darin
+/// sind Waisen; `bytes` ist ihre Länge zusammen, nicht das Zählmaß.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Waisentag {
+    pub gespraech: Gespraech,
+    pub tag: NaiveDate,
+    pub dateien: usize,
+    pub bytes: u64,
 }
 
 /// Meldet einen vor Ablauf verdrängten Wiederholschlüssel; gerufen nach Freigabe der Schreibsperre (Regel E1.7).
@@ -336,6 +348,7 @@ impl Gespraeche {
             anhangablage: Arc::new(anhangablage::KeineAnhangablage),
             anhangverzeichnis: anhangverzeichnis::Anhangverzeichnis::default(),
             anhangbefunde: Vec::new(),
+            waisentage: Vec::new(),
             anhangschwelle: std::sync::atomic::AtomicBool::new(false),
             anhangschwelle_melden: Arc::new(|_: &anhaenge::Anhangschwelle| {}),
             zufall: Arc::new(crate::zufall::Betriebssystemzufall),
