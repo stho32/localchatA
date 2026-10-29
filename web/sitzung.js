@@ -136,3 +136,33 @@ export async function nachAblehnung(speicher, api, abgelehntesToken, geschwister
   }
   return zustand;
 }
+
+// Tab auf dem Beitreten-Bildschirm (Karte #62, ADR-0012 Regeln 1, 4): ein Nachbar-Tab ist beigetreten, sein Token liegt
+// im Speicher. Geprüft wird es mit GET /api/ich — das Signal liefert nur das Token, die Kopfzeile braucht die Kennung.
+// `gemeldet` ist das Token aus dem Signal, sonst das im Speicher. Schreibt und löscht nie im Speicher: das Token gehört
+// dem Nachbarn. Nichts (null), wenn kein anderes als das abgelehnte Token vorliegt oder der Server es nicht bestätigt.
+export async function nachbarFolgen(speicher, api, abgelehntesToken, gemeldet = speicher.getItem(SITZUNG)) {
+  if (!gemeldet || gemeldet === abgelehntesToken) {
+    return null;
+  }
+  const ich = await api.ich(gemeldet);
+  if (ich.serverWeg || ich.status !== 200) {
+    return null;
+  }
+  return { art: 'kopfzeile', teilnehmer: ich.daten, token: gemeldet };
+}
+
+// Klick auf „Beitreten“ (Regel 6, unter der Sitzungssperre aufzurufen): zuerst dem Nachbarn folgen, sonst selbst
+// beitreten. Endet der eigene Beitritt mit einer Meldung (409, 422, anderer Fehler), vor dem Zeigen noch einmal
+// nachsehen: der Nachbar kann inzwischen beigetreten sein.
+export async function vomBildschirmBeitreten(name, speicher, api, abgelehntesToken) {
+  const nachbar = await nachbarFolgen(speicher, api, abgelehntesToken);
+  if (nachbar !== null) {
+    return nachbar;
+  }
+  const zustand = await beitreten(name, speicher, api);
+  if (zustand.art === 'kopfzeile' || zustand.art === 'serverWeg') {
+    return zustand;
+  }
+  return (await nachbarFolgen(speicher, api, abgelehntesToken)) ?? zustand;
+}

@@ -2,7 +2,7 @@
 // localStorage-Ersatz und API-Ersatz mit festen Antworten.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { beimLaden, beitreten, nachAblehnung, SITZUNG, NAME } from '../../web/sitzung.js';
+import { beimLaden, beitreten, nachAblehnung, nachbarFolgen, vomBildschirmBeitreten, SITZUNG, NAME } from '../../web/sitzung.js';
 
 const SHOFF = { kennung: 'shoff@127.0.0.1', name: 'shoff', herkunft: '127.0.0.1', art: 'mensch' };
 const SERVER_WEG = { serverWeg: true, status: 0, daten: null };
@@ -397,4 +397,128 @@ test('Befund #58 beim Laden: 401 und nichts gelingt — das abgelaufene Token is
 
     assert.equal(speicher.getItem(SITZUNG), null, name);
   }
+});
+
+// Karte #62, F0127 (ADR-0012 Ergänzung Karte #62, Regeln 1, 4, 6): Tabs auf dem Beitreten-Bildschirm folgen dem Nachbar-Tab.
+const NACHBAR = { serverWeg: false, status: 200, daten: SHOFF };
+const ABGELEHNT = { serverWeg: false, status: 401, daten: {} };
+
+function speicherMitZaehler(eintraege) {
+  const speicher = speicherMit(eintraege);
+  const entfernt = [];
+  const geschrieben = [];
+  const entfernen = speicher.removeItem;
+  const setzen = speicher.setItem;
+  speicher.removeItem = (schluessel) => { entfernt.push(schluessel); entfernen(schluessel); };
+  speicher.setItem = (schluessel, wert) => { geschrieben.push(schluessel); setzen(schluessel, wert); };
+  return { speicher, entfernt, geschrieben };
+}
+
+test('Folgen: kein Token im Speicher — nichts, keine Anfrage', async () => {
+  const api = apiMit({ ich: NACHBAR });
+
+  assert.equal(await nachbarFolgen(speicherMit(), api, null), null);
+  assert.deepEqual(api.aufrufe, []);
+});
+
+test('Folgen: das abgelehnte Token gilt nicht als Nachbar — nichts, keine Anfrage', async () => {
+  const api = apiMit({ ich: NACHBAR });
+
+  assert.equal(await nachbarFolgen(speicherMit({ [SITZUNG]: 'tot' }), api, 'tot'), null);
+  assert.deepEqual(api.aufrufe, []);
+});
+
+test('Folgen: ein anderes Token mit ich 200 — Kopfzeile mit genau diesem Token, der Speicher bleibt unberührt', async () => {
+  const { speicher, entfernt, geschrieben } = speicherMitZaehler({ [SITZUNG]: 'nachbar', [NAME]: 'shoff' });
+  const api = apiMit({ ich: NACHBAR });
+
+  const zustand = await nachbarFolgen(speicher, api, 'tot');
+
+  assert.deepEqual(zustand, { art: 'kopfzeile', teilnehmer: SHOFF, token: 'nachbar' });
+  assert.deepEqual(api.aufrufe, [['ich', 'nachbar']]);
+  assert.deepEqual([entfernt, geschrieben], [[], []]);
+});
+
+test('Folgen mit gemeldetem Token: geprüft wird das gemeldete, nicht das inzwischen gespeicherte', async () => {
+  const api = apiMit({ ich: NACHBAR });
+
+  const zustand = await nachbarFolgen(speicherMit({ [SITZUNG]: 'spaeter' }), api, 'tot', 'gemeldet');
+
+  assert.equal(zustand.token, 'gemeldet');
+  assert.deepEqual(api.aufrufe, [['ich', 'gemeldet']]);
+});
+
+test('Folgen: ich 401 und Server weg — nichts, und das Token des Nachbarn wird nie entfernt', async () => {
+  for (const antwort of [ABGELEHNT, SERVER_WEG, { serverWeg: false, status: 500, daten: {} }]) {
+    const { speicher, entfernt } = speicherMitZaehler({ [SITZUNG]: 'nachbar' });
+
+    assert.equal(await nachbarFolgen(speicher, apiMit({ ich: antwort }), 'tot'), null, String(antwort.status));
+    assert.deepEqual(entfernt, []);
+    assert.equal(speicher.getItem(SITZUNG), 'nachbar');
+  }
+});
+
+test('Klick: liegt ein Nachbar-Token im Speicher, kein beitreten — Kopfzeile mit dem Nachbarn', async () => {
+  const api = apiMit({ ich: NACHBAR, beitreten: angenommen(201) });
+
+  const zustand = await vomBildschirmBeitreten('bert', speicherMit({ [SITZUNG]: 'nachbar' }), api, 'tot');
+
+  assert.deepEqual(zustand, { art: 'kopfzeile', teilnehmer: SHOFF, token: 'nachbar' });
+  assert.deepEqual(api.aufrufe, [['ich', 'nachbar']]);
+});
+
+test('Klick: kein Token im Speicher — genau ein beitreten, Token und Name gemerkt', async () => {
+  const speicher = speicherMit();
+  const api = apiMit({ ich: NACHBAR, beitreten: angenommen(201) });
+
+  const zustand = await vomBildschirmBeitreten('shoff', speicher, api, null);
+
+  assert.deepEqual(zustand, { art: 'kopfzeile', teilnehmer: SHOFF, token: 'neu' });
+  assert.deepEqual(api.aufrufe, [['beitreten', 'shoff']]);
+  assert.deepEqual(speicher.alles(), { [SITZUNG]: 'neu', [NAME]: 'shoff' });
+});
+
+test('Klick: nur das abgelehnte Token im Speicher — es zählt nicht, genau ein beitreten', async () => {
+  const api = apiMit({ ich: NACHBAR, beitreten: angenommen(201) });
+
+  await vomBildschirmBeitreten('shoff', speicherMit({ [SITZUNG]: 'tot' }), api, 'tot');
+
+  assert.deepEqual(api.aufrufe, [['beitreten', 'shoff']]);
+});
+
+test('Klick: ein Nachbar-Token, das der Server nicht kennt (401), hindert den eigenen Beitritt nicht', async () => {
+  const api = apiMit({ ich: ABGELEHNT, beitreten: angenommen(201) });
+
+  const zustand = await vomBildschirmBeitreten('shoff', speicherMit({ [SITZUNG]: 'tot-2' }), api, 'tot');
+
+  assert.equal(zustand.art, 'kopfzeile');
+  assert.deepEqual(api.aufrufe, [['ich', 'tot-2'], ['beitreten', 'shoff']]);
+});
+
+test('Klick: beitreten ergibt 422 oder 409, und danach liegt ein Nachbar-Token im Speicher — Kopfzeile statt Meldung', async () => {
+  const antworten = [
+    { serverWeg: false, status: 422, daten: { fehler: 'f', regel: 'r', vorschlag: 'x' } },
+    { serverWeg: false, status: 409, daten: { belegt_von: 'shoff@127.0.0.1', seit: 's', vorschlag: 'shoff-2' } },
+  ];
+  for (const antwort of antworten) {
+    const speicher = speicherMit();
+    const api = apiMit({ ich: NACHBAR, beitreten: antwort });
+    const beitrittsaufruf = api.beitreten;
+    api.beitreten = async (name) => { speicher.setItem(SITZUNG, 'nachbar'); return beitrittsaufruf(name); };
+
+    const zustand = await vomBildschirmBeitreten('bert', speicher, api, null);
+
+    assert.deepEqual(zustand, { art: 'kopfzeile', teilnehmer: SHOFF, token: 'nachbar' }, String(antwort.status));
+    assert.deepEqual(api.aufrufe, [['beitreten', 'bert'], ['ich', 'nachbar']]);
+  }
+});
+
+test('Klick: beitreten ergibt 422 und es liegt kein Nachbar-Token vor — die Meldung bleibt', async () => {
+  const antwort = { serverWeg: false, status: 422, daten: { fehler: 'f', regel: 'r', vorschlag: 'x' } };
+  const api = apiMit({ ich: NACHBAR, beitreten: antwort });
+
+  const zustand = await vomBildschirmBeitreten('Jörg', speicherMit(), api, null);
+
+  assert.deepEqual(zustand, { art: 'ungueltig', name: 'Jörg', fehler: 'f', regel: 'r', vorschlag: 'x' });
+  assert.deepEqual(api.aufrufe, [['beitreten', 'Jörg']]);
 });
