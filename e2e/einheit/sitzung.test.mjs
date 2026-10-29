@@ -47,7 +47,7 @@ test('Token gültig: Kopfzeile ohne Beitritt', async () => {
 
   const zustand = await beimLaden(speicherMit({ [SITZUNG]: 'alt', [NAME]: 'shoff' }), api);
 
-  assert.deepEqual(zustand, { art: 'kopfzeile', teilnehmer: SHOFF });
+  assert.deepEqual(zustand, { art: 'kopfzeile', teilnehmer: SHOFF, token: 'alt' });
   assert.deepEqual(api.aufrufe, [['ich', 'alt']]);
 });
 
@@ -57,7 +57,7 @@ test('Token abgelaufen (401): still mit dem gemerkten Namen beitreten und das ne
 
   const zustand = await beimLaden(speicher, api);
 
-  assert.deepEqual(zustand, { art: 'kopfzeile', teilnehmer: SHOFF });
+  assert.deepEqual(zustand, { art: 'kopfzeile', teilnehmer: SHOFF, token: 'neu' });
   assert.deepEqual(api.aufrufe, [['ich', 'alt'], ['beitreten', 'shoff']]);
   assert.deepEqual(speicher.alles(), { [SITZUNG]: 'neu', [NAME]: 'shoff' });
 });
@@ -97,7 +97,7 @@ test('Beitreten: 201 und 200 führen zur Kopfzeile und merken Token und Namen', 
   for (const status of [201, 200]) {
     const speicher = speicherMit();
     const zustand = await beitreten('shoff', speicher, apiMit({ beitreten: angenommen(status) }));
-    assert.deepEqual(zustand, { art: 'kopfzeile', teilnehmer: SHOFF }, String(status));
+    assert.deepEqual(zustand, { art: 'kopfzeile', teilnehmer: SHOFF, token: 'neu' }, String(status));
     assert.deepEqual(speicher.alles(), { [SITZUNG]: 'neu', [NAME]: 'shoff' });
   }
 });
@@ -159,7 +159,7 @@ test('B1: schreibt ein anderer Tab zwischen 401 und 409 ein gültiges Token, zei
 
   const zustand = await beimLaden(speicher, api);
 
-  assert.deepEqual(zustand, { art: 'kopfzeile', teilnehmer: SHOFF });
+  assert.deepEqual(zustand, { art: 'kopfzeile', teilnehmer: SHOFF, token: 'frisch' });
   assert.deepEqual(api.aufrufe, [['ich', 'alt'], ['beitreten', 'shoff'], ['ich', 'frisch']]);
   assert.deepEqual(speicher.alles(), { [SITZUNG]: 'frisch', [NAME]: 'shoff' });
 });
@@ -171,7 +171,7 @@ test('B1: kommt das Token des anderen Tabs erst nach dem 409, wartet der Tab dar
 
   const zustand = await beimLaden(speicher, api, geschwister);
 
-  assert.deepEqual(zustand, { art: 'kopfzeile', teilnehmer: SHOFF });
+  assert.deepEqual(zustand, { art: 'kopfzeile', teilnehmer: SHOFF, token: 'frisch' });
   assert.deepEqual(api.aufrufe, [['ich', 'alt'], ['beitreten', 'shoff'], ['ich', 'frisch']]);
 });
 
@@ -211,7 +211,7 @@ test('B1: schreibt ein anderer Tab sein Token, bevor das eigene 401 ankommt, ble
 
   const zustand = await beimLaden(speicher, api);
 
-  assert.deepEqual(zustand, { art: 'kopfzeile', teilnehmer: SHOFF });
+  assert.deepEqual(zustand, { art: 'kopfzeile', teilnehmer: SHOFF, token: 'frisch' });
   assert.deepEqual(speicher.alles(), { [SITZUNG]: 'frisch', [NAME]: 'shoff' });
 });
 
@@ -241,7 +241,7 @@ test('A6: lässt sich die Sitzung nicht merken (setItem wirft), zeigt der Tab tr
 
   const zustand = await beitreten('shoff', speicher, apiMit({ beitreten: angenommen(201) }));
 
-  assert.deepEqual(zustand, { art: 'kopfzeile', teilnehmer: SHOFF });
+  assert.deepEqual(zustand, { art: 'kopfzeile', teilnehmer: SHOFF, token: 'neu' });
   assert.equal(warnungen.length, 1);
   assert.match(warnungen[0], /nicht gemerkt/);
 });
@@ -269,7 +269,7 @@ test('nach Ablehnung im Strom: Beitritt mit gemerktem Namen, ohne /api/ich', asy
 
   const zustand = await nachAblehnung(speicher, api, 'alt');
 
-  assert.deepEqual(zustand, { art: 'kopfzeile', teilnehmer: SHOFF });
+  assert.deepEqual(zustand, { art: 'kopfzeile', teilnehmer: SHOFF, token: 'neu' });
   assert.deepEqual(api.aufrufe, [['beitreten', 'shoff']]);
   assert.equal(speicher.getItem(SITZUNG), 'neu');
 });
@@ -312,7 +312,7 @@ test('nach Ablehnung im Strom: 409, der Nachbar hat schon geschrieben → Kopfze
 
   const zustand = await nachAblehnung(speicher, api, 'alt');
 
-  assert.deepEqual(zustand, { art: 'kopfzeile', teilnehmer: SHOFF });
+  assert.deepEqual(zustand, { art: 'kopfzeile', teilnehmer: SHOFF, token: 'neu-vom-nachbarn' });
   assert.deepEqual(aufrufe, [['beitreten', 'shoff'], ['ich', 'neu-vom-nachbarn']]);
 });
 
@@ -327,6 +327,6 @@ test('nach Ablehnung im Strom: 409, der Nachbar schreibt erst danach → warten,
 
   const zustand = await nachAblehnung(speicher, api, 'alt', geschwister);
 
-  assert.deepEqual(zustand, { art: 'kopfzeile', teilnehmer: SHOFF });
+  assert.deepEqual(zustand, { art: 'kopfzeile', teilnehmer: SHOFF, token: 'neu-vom-nachbarn' });
   assert.deepEqual(aufrufe, [['beitreten', 'shoff'], ['ich', 'neu-vom-nachbarn']]);
 });

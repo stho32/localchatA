@@ -1,7 +1,7 @@
 // Zustand beim Laden und nach dem Beitreten wählen (ADR-0012 „Browser“): eine Sitzung je Browser,
 // Token und zuletzt gewählter Name im localStorage des Ursprungs, alle Tabs teilen sie.
 //
-// Zustände: kopfzeile {teilnehmer} · beitreten {name} · vergeben {name, belegtVon, seit, vorschlag}
+// Zustände: kopfzeile {teilnehmer, token} · beitreten {name} · vergeben {name, belegtVon, seit, vorschlag}
 // · ungueltig {name, fehler, regel, vorschlag} · serverWeg {name} · fehler {name, fehler}
 
 export const SITZUNG = 'localchatA.sitzung';
@@ -18,7 +18,7 @@ export async function beimLaden(speicher, api, geschwister = KEINE_GESCHWISTER) 
       return { art: 'serverWeg', name: gemerkterName };
     }
     if (ich.status === 200) {
-      return { art: 'kopfzeile', teilnehmer: ich.daten };
+      return { art: 'kopfzeile', teilnehmer: ich.daten, token };
     }
     if (ich.status !== 401) {
       return { art: 'fehler', name: gemerkterName, fehler: fehlertext(ich) };
@@ -59,7 +59,7 @@ async function stillBeitreten(name, speicher, api, geschwister, abgelehntesToken
   if (ich.serverWeg || ich.status !== 200) {
     return zustand;
   }
-  return { art: 'kopfzeile', teilnehmer: ich.daten };
+  return { art: 'kopfzeile', teilnehmer: ich.daten, token: tokenEinesAnderenTabs };
 }
 
 // Mit dem gemerkten Token: lebt die Sitzung noch (nach einem Fehler oder Server weg beim Laden), ist der
@@ -74,7 +74,7 @@ export async function beitreten(name, speicher, api) {
     case 200:
     case 201:
       sitzungMerken(speicher, daten);
-      return { art: 'kopfzeile', teilnehmer: teilnehmerAus(daten) };
+      return { art: 'kopfzeile', teilnehmer: teilnehmerAus(daten), token: daten.token };
     case 409:
       return { art: 'vergeben', name, belegtVon: daten.belegt_von, seit: daten.seit, vorschlag: daten.vorschlag };
     case 422:
@@ -114,7 +114,7 @@ function teilnehmerAus(daten) {
 export async function nachAblehnung(speicher, api, abgelehntesToken, geschwister = KEINE_GESCHWISTER) {
   const token = speicher.getItem(SITZUNG);
   if (token && token !== abgelehntesToken) {
-    return { art: 'kopfzeile', teilnehmer: null };
+    return { art: 'kopfzeile', teilnehmer: null, token };
   }
   const gemerkterName = speicher.getItem(NAME) || '';
   if (!gemerkterName) {
