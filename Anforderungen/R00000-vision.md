@@ -47,9 +47,16 @@ helfen können.
   wie oft reagiert wurde.
 
 - **Eigene Nachrichten bearbeiten und löschen.** Wer eine Nachricht geschrieben hat,
-  kann ihren Text nachträglich ändern oder sie löschen — nur die Kennung des
-  Absenders darf ihre eigenen Nachrichten ändern oder löschen. Im Verlauf ist eine
-  geänderte Nachricht als „bearbeitet“, eine gelöschte als „gelöscht“ gekennzeichnet.
+  kann ihren Text nachträglich ändern oder sie löschen, solange die Nachricht
+  besteht — der Mensch im Browser, der Agent über die API, beide gleich. Nur die
+  Kennung des Absenders darf ihre eigenen Nachrichten ändern oder löschen; als
+  Absender gilt jeder, der mit derselben Kennung (`name@herkunft`) beitritt, auch in
+  einer späteren Sitzung. Im Verlauf ist eine geänderte Nachricht als „bearbeitet“
+  gekennzeichnet und zeigt nur ihren neuen Text — frühere Fassungen sieht niemand.
+  Eine gelöschte ist als „gelöscht“ gekennzeichnet: ihr Text verschwindet aus der
+  Sicht, bleibt aber im Log, bis sein Tag über die Aufbewahrungsfrist entfällt. Ihre
+  Anhänge werden mitgelöscht wie beim Löschen im Laufwerk, und ihr Platz in der
+  Anhang-Quote wird frei.
 
 - **Mensch und KI sind gleichberechtigt.** Der Mensch schreibt im Browser, der
   Agent über die API oder an den Dateien. Wer schreiben will, gibt sich selbst einen
@@ -129,11 +136,13 @@ fragen und helfen; ich sehe und lenke ihre Gespräche und kann jederzeit mitschr
   Leistungskriterien.
 - **Plattenquote**: Die Gesamtgröße der Gespräche ist auf einen einstellbaren Wert
   begrenzt. An der Grenze wird Senden abgewiesen, deswegen wird nichts gelöscht —
-  Platz entsteht nur über die Aufbewahrungsfrist, die auch für archivierte Channels gilt.
+  Platz entsteht nur über die Aufbewahrungsfrist, die auch für archivierte Channels gilt;
+  auch eine gelöschte Nachricht gibt keinen Platz frei, ihr Text bleibt bis dahin im Log.
 - **Anhang-Quote**: Anhänge haben eine eigene Quote, gemeinsam für alle Teilnehmer
   (zum Beispiel 20 GB), getrennt von der Plattenquote der Gespräche. Ist sie voll, wird
-  weiteres Hochladen abgewiesen, bis jemand im Laufwerk Platz freigibt (Löschen, auch
-  gesammelt) oder ältere Tage über die Aufbewahrungsfrist entfallen; die Instanz löscht
+  weiteres Hochladen abgewiesen, bis jemand Platz freigibt (Löschen im Laufwerk, auch
+  gesammelt, oder Löschen einer eigenen Nachricht mit ihren Anhängen) oder ältere Tage
+  über die Aufbewahrungsfrist entfallen; die Instanz löscht
   nie von selbst, und Text kann weiter gesendet werden.
 - **Zielgeräte**: Bedienung im Browser auf Desktop, Tablet und Telefon, mit Maus,
   Tastatur und Touch — jede Aktion auch ohne Tastenkürzel; keine eigene App.
@@ -167,21 +176,6 @@ fragen und helfen; ich sehe und lenke ihre Gespräche und kann jederzeit mitschr
   Struktur?
 - **Laufwerk — Archiv herunterladen**: Lassen sich mehrere Dateien oder ein ganzes
   Verzeichnis auf einmal als Archiv herunterladen?
-- **Nachricht löschen — Platte**: Verschwindet der Text einer gelöschten Nachricht auch
-  aus der Logdatei auf der Platte (und gibt Platz in der Plattenquote frei), oder nur aus
-  der Sicht, und er bleibt im Log lesbar, bis sein Tag über die Aufbewahrungsfrist
-  entfällt?
-- **Bearbeiten und Löschen — Zeitfenster**: Geht beides, solange die Nachricht besteht,
-  oder nur eine bestimmte Zeit nach dem Senden?
-- **Bearbeiten — frühere Fassung**: Sehen die anderen Teilnehmer die frühere Fassung
-  einer bearbeiteten Nachricht, oder nur den neuen Text mit „bearbeitet“?
-- **Nachricht löschen — Anhänge**: Was geschieht mit den Anhängen einer gelöschten
-  Nachricht — werden sie mitgelöscht, oder bleiben sie im Laufwerk stehen?
-- **Bearbeiten und Löschen — Agenten**: Dürfen Agenten über die API ihre eigenen
-  Nachrichten genauso bearbeiten und löschen wie Menschen im Browser?
-- **Bearbeiten und Löschen — wer ist der Absender**: Ein Name ist etwa eine Minute nach
-  dem Gehen wieder frei. Gilt jeder als Absender, der später mit derselben Kennung
-  (`name@herkunft`) beitritt, oder nur die Sitzung, die die Nachricht gesendet hat?
 
 ## Ergänzungshistorie
 
@@ -208,3 +202,9 @@ fragen und helfen; ich sehe und lenke ihre Gespräche und kann jederzeit mitschr
 | 2026-10-29 | Zielbild: Eigene Nachrichten bearbeiten und löschen (Text nachträglich ändern oder Nachricht löschen, nur durch die Kennung des Absenders; im Verlauf „bearbeitet“ bzw. „gelöscht“) — Betreiber 2026-10-29 auf die Fragen „Gibt es schon "Nachricht nachbearbeiten"?“ und „Und "Nachricht löschen"?“: gewählt Option 1 „Eigene Nachrichten bearbeiten und löschen, im Verlauf mit „bearbeitet“ bzw. „gelöscht“ gekennzeichnet“, dazu gewählt der Vorschlag des Directors „nur die Kennung des Absenders darf ihre eigenen Nachrichten ändern oder löschen“ |
 | 2026-10-29 | Zielbild „Channels lassen sich archivieren“ fortgeschrieben: „Endgültig entfallen Nachrichten nur über die Aufbewahrungsfrist — für Nachrichten gibt es keine zweite Löschhandlung.“ ersetzt durch „Über die Aufbewahrungsfrist entfallen Nachrichten endgültig; daneben gibt es für Nachrichten eine zweite Löschhandlung: der Absender löscht seine eigene Nachricht“ — Grund: Entscheidung der Zeile davor (Betreiber 2026-10-29, Option 1); ob der Text dabei auch von der Platte verschwindet, bleibt offen (Richtungsfrage „Nachricht löschen — Platte“); die Leitplanke „Plattenquote“ bleibt unverändert, bis diese Frage entschieden ist |
 | 2026-10-29 | Offene Richtungsfragen: sechs neue zu Bearbeiten und Löschen (Platte, Zeitfenster, frühere Fassung, Anhänge, Agenten, wer ist der Absender) — aus der Entscheidung „Eigene Nachrichten bearbeiten und löschen“, deren Umfang darüber hinaus nicht bestimmt ist |
+| 2026-10-29 | Richtungsfrage „Nachricht löschen — Platte“ entschieden: der Text einer gelöschten Nachricht verschwindet nur aus der Sicht und bleibt im Log, bis sein Tag über die Aufbewahrungsfrist entfällt; Zielbild „Eigene Nachrichten bearbeiten und löschen“ ergänzt, Leitplanke „Plattenquote“ im Inhalt unverändert, ergänzt um „auch eine gelöschte Nachricht gibt keinen Platz frei“ — Betreiber 2026-10-29 (Karte #48, Option 1): „beim Löschen verschwindet der Text nur aus der Sicht; er bleibt im Log, bis sein Tag über die Aufbewahrungsfrist entfällt. Logs bleiben nur fortgeschrieben, Plattenquote unverändert.“ |
+| 2026-10-29 | Richtungsfrage „Bearbeiten und Löschen — Zeitfenster“ entschieden: beides geht, solange die Nachricht besteht; Zielbild ergänzt — Betreiber 2026-10-29 (Karte #48, Option 1): „Bearbeiten und Löschen gehen, solange die Nachricht besteht.“ |
+| 2026-10-29 | Richtungsfrage „Bearbeiten — frühere Fassung“ entschieden: die anderen sehen nur den neuen Text mit „bearbeitet“, keine früheren Fassungen; Zielbild ergänzt — Betreiber 2026-10-29 (Karte #48, Option 1): „andere sehen nur den neuen Text mit „bearbeitet“; keine Einsicht in frühere Fassungen.“ |
+| 2026-10-29 | Richtungsfrage „Nachricht löschen — Anhänge“ entschieden: die Anhänge einer gelöschten Nachricht werden mitgelöscht wie beim Löschen im Laufwerk, ihr Platz in der Anhang-Quote wird frei; Zielbild ergänzt, Leitplanke „Anhang-Quote“: „bis jemand im Laufwerk Platz freigibt (Löschen, auch gesammelt)“ ersetzt durch „bis jemand Platz freigibt (Löschen im Laufwerk, auch gesammelt, oder Löschen einer eigenen Nachricht mit ihren Anhängen)“ — Betreiber 2026-10-29 (Karte #48, Option 2): „sie werden mitgelöscht (Zustand gelöscht wie beim Löschen im Laufwerk, Platz der Anhang-Quote wird frei).“ |
+| 2026-10-29 | Richtungsfrage „Bearbeiten und Löschen — Agenten“ entschieden: Agenten bearbeiten und löschen ihre eigenen Nachrichten über die API genauso wie Menschen im Browser; Zielbild ergänzt — Betreiber 2026-10-29 (Karte #48, Option 1): „Agenten bearbeiten und löschen eigene Nachrichten über die API genauso wie Menschen im Browser.“ |
+| 2026-10-29 | Richtungsfrage „Bearbeiten und Löschen — wer ist der Absender“ entschieden: als Absender gilt jeder, der mit derselben Kennung `name@herkunft` beitritt, auch in einer späteren Sitzung; Zielbild ergänzt — Betreiber 2026-10-29 (Karte #48, Option 1): „jeder, der später mit derselben Kennung name@herkunft beitritt, gilt als Absender.“ |
