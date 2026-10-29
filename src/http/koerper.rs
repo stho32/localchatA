@@ -213,6 +213,29 @@ fn json_parsen(roh: &[u8]) -> Result<Value, Koerperfehler> {
     serde_json::from_slice(roh).map_err(|_| Koerperfehler::Kaputt)
 }
 
+/// Wie `json_lesen`, liefert aber die Paare der obersten Ebene in Reihenfolge (Feldleser, ADR-0046 Ergänzung
+/// „Karte #9 Security-Gate“ L9): `Ok(None)` heißt gültiges JSON, aber kein Objekt. Nur für kleine Grenzen
+/// (Parse auf dem Worker, ADR-0010 Ergänzung Regel 2).
+pub async fn felder_lesen(
+    kopf: &HeaderMap,
+    koerper: Body,
+    grenze: usize,
+    ort: &Koerperort<'_>,
+) -> Result<Option<super::felder::Felder>, Koerperfehler> {
+    let roh = roh_lesen(kopf, koerper, grenze, KOERPER_LESEFRIST).await;
+    let gelesen = Gelesen {
+        ergebnis: roh.ergebnis.and_then(|bytes| {
+            super::felder::felder_lesen(&bytes).map_err(|_| Koerperfehler::Kaputt)
+        }),
+        bytes: roh.bytes,
+        verworfen: roh.verworfen,
+    };
+    if let Err(fehler) = gelesen.ergebnis {
+        abweisung_eintragen(kopf, ort, fehler, &gelesen);
+    }
+    gelesen.ergebnis
+}
+
 /// Wie `json_lesen` für Routen mit einer Grenze über 16 KiB (ADR-0010 Ergänzung Regel 2): gelesen wird auf dem
 /// Worker, geparst auf der Werkbank. `Err(Abgebrochen)`, wenn die Werkbank die Arbeit nicht zu Ende bringt.
 pub async fn json_lesen_auf_werkbank(

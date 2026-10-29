@@ -21,6 +21,8 @@ use std::net::IpAddr;
 pub enum Gegenstand {
     Nachrichten,
     Aenderungen,
+    /// Anmeldungen von Anhängen (ADR-0036 Ergänzung Karte #9: 1 Einheit je Anmeldung).
+    Anmeldungen,
 }
 
 impl Gegenstand {
@@ -28,6 +30,7 @@ impl Gegenstand {
         match self {
             Gegenstand::Nachrichten => "Nachrichten",
             Gegenstand::Aenderungen => "Änderungen",
+            Gegenstand::Anmeldungen => "Anmeldungen",
         }
     }
 
@@ -36,6 +39,7 @@ impl Gegenstand {
         match self {
             Gegenstand::Nachrichten => episodentexte::GEBREMST,
             Gegenstand::Aenderungen => episodentexte::FRIST_GEBREMST,
+            Gegenstand::Anmeldungen => episodentexte::ANHAENGE_GEBREMST,
         }
     }
 }

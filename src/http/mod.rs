@@ -3,12 +3,14 @@
 mod abbruch;
 mod abweisungsseite;
 mod anfrageprotokoll;
+mod anhaenge;
 mod auskunft;
 mod beitreten;
 mod bremse;
 mod channels;
 mod eingebettet;
 mod ereignisse;
+mod felder;
 mod frist;
 #[cfg(test)]
 mod fristspur;
@@ -84,6 +86,7 @@ pub fn router(zustand: Zustand) -> Router {
         .route("/web/{datei}", get(oberflaeche::datei))
         .route("/api/gesundheit", get(gesundheit::beantworten))
         .route("/api/beitreten", post(beitreten::beantworten))
+        .route("/api/anhaenge", post(anhaenge::anmelden))
         .route(
             "/api/channels",
             get(channels::auflisten).post(channels::anlegen),

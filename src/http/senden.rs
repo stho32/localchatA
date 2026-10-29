@@ -244,7 +244,7 @@ fn quote_melden(zustand: &Zustand, channel: &str, wer: &str, belegt: u64, hoechs
 /// Bytes in Worten für den 507-Text.
 /// Bytes in Worten für den 507-Text (R00023 F0075): ab 1 GiB in GiB, sonst in MiB, eine Nachkommastelle, halbe
 /// nach oben, ganzzahlig gerechnet; deutsches Komma, Tausenderpunkt.
-fn groesse_in_worten(bytes: u64) -> String {
+pub(super) fn groesse_in_worten(bytes: u64) -> String {
     const MIB: u128 = 1024 * 1024;
     const GIB: u128 = 1024 * MIB;
     let (einheit, name) = if u128::from(bytes) >= GIB {
@@ -365,7 +365,7 @@ fn vorlauf_eintragen(protokoll: &crate::protokoll::Protokoll, vorlauf_ms: u64) {
 }
 
 /// `17020` → `17.020`.
-fn mit_tausenderpunkt(zahl: usize) -> String {
+pub(super) fn mit_tausenderpunkt(zahl: usize) -> String {
     let ziffern = zahl.to_string();
     let mut text = String::new();
     for (stelle, ziffer) in ziffern.chars().enumerate() {

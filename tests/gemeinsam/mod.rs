@@ -1,6 +1,7 @@
 //! Startet das echte Programm `localchatA` und liest die Adresse aus der Startzeile (ADR-0009).
 #![allow(dead_code)]
 
+pub mod anhaenge;
 pub mod frist;
 #[cfg(target_os = "linux")]
 pub mod herkunft;

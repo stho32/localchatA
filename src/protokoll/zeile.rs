@@ -57,6 +57,8 @@ pub enum Bereich {
     Koerper,
     /// Plattenquote (ADR-0042 Ergänzung Karte #34).
     Quote,
+    /// Anhänge (ADR-0042 Ergänzung Karte #9 I0010).
+    Anhang,
 }
 
 impl Bereich {
@@ -78,6 +80,7 @@ impl Bereich {
             Bereich::Programmfehler => "programmfehler",
             Bereich::Koerper => "körper",
             Bereich::Quote => "quote",
+            Bereich::Anhang => "anhang",
         }
     }
 }

@@ -119,6 +119,9 @@ fn bereich(methode: &str, muster: &str) -> Bereich {
         ("POST", "/api/channels/{name}/nachrichten") => Bereich::Senden,
         ("GET", "/api/channels/{name}/nachrichten") => Bereich::Verlauf,
         (_, muster) if muster.starts_with("/api/channels") => Bereich::Channels,
+        (_, muster) if muster.starts_with("/api/anhaenge") || muster.starts_with("/anhaenge") => {
+            Bereich::Anhang
+        }
         (_, muster)
             if [
                 "/api/beitreten",
