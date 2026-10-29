@@ -3,7 +3,7 @@
 //! 429 (1 Einheit vorab) · 415/400/413/408 · 422 (B0505) · 409 `bestaetigen` · 429 (Rest-Buchung) · 200.
 
 use super::super::Zustand;
-use super::super::anfrageprotokoll::mit_regel;
+use super::super::anfrageprotokoll::{mit_regel, mit_regel_und};
 use super::super::bremse::{Gegenstand, gebremst_melden};
 use super::super::koerper::{Koerperfehler, Koerperort, felder_lesen, koerperfehler_beantworten};
 use super::super::senden::groesse_in_worten;
@@ -92,7 +92,12 @@ pub async fn loeschen(
     match geloescht {
         Ok((Loeschen::Bestaetigen(umfang), _)) => {
             let antwort = (StatusCode::CONFLICT, Json(rueckfrage(umfang))).into_response();
-            mit_regel(antwort, "bestaetigen", Some(&wer))
+            mit_regel_und(
+                antwort,
+                "bestaetigen",
+                Some(&wer),
+                vec![(Schluessel::Anhaenge, umfang.anhaenge.to_string())],
+            )
         }
         Ok((Loeschen::Gebremst, Some(gebremst))) => gebremst_melden(
             &zustand.protokoll,

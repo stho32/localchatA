@@ -176,6 +176,30 @@ async fn rueckfrage_aendert_nichts() {
     );
 }
 
+/// Befund #55 B2 (ADR-0042 Katalog Z. 367, B0511): die 409 „Löschen nicht bestätigt“ steht als `DEBUG` mit `kennung`
+/// und `anhaenge` (Zahl der Anhänge der Rückfrage), genau einmal.
+#[tokio::test]
+async fn die_rueckfrage_steht_mit_kennung_und_anhaenge_im_protokoll() {
+    let g = gegeben_mit(&["--protokoll-stufe", "debug"]).await;
+    let (gamma, token) = &g.gamma;
+
+    let antwort = loeschen(gamma, g.basis(), token, json!({"ids": [g.a, g.b]})).await;
+
+    assert_eq!(antwort.status, 409);
+    let zeilen: Vec<String> = gemeinsam::protokoll::alle_zeilen(g.pfad())
+        .into_iter()
+        .filter(|zeile| zeile.contains("status=409"))
+        .collect();
+    assert_eq!(zeilen.len(), 1, "{zeilen:#?}");
+    assert!(
+        zeilen[0].ends_with(
+            " DEBUG anhang Anfrage abgewiesen | route=\"POST /api/anhaenge/loeschen\" status=409 kennung=gamma@127.0.0.1 anhaenge=2 grund=bestaetigen"
+        ),
+        "{}",
+        zeilen[0]
+    );
+}
+
 /// Löschen mit Bestätigung: 200 mit Ergebnis je ID und Platz; die Datei hat 0 Bytes und ihren Namen; der Verlauf
 /// zeigt die Nachricht von `beta` weiter.
 #[tokio::test]

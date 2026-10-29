@@ -17,18 +17,31 @@ use std::sync::Arc;
 pub struct Eingetragen;
 
 /// Erweiterung an einer abweisenden Antwort: welche Regel griff (festes ASCII-Wort in `snake_case` aus dem Code,
-/// nie eine Eingabe) und, falls bekannt, wer anfragte.
+/// nie eine Eingabe), falls bekannt, wer anfragte, und weitere Schlüssel, die der Katalog für diese Abweisung verlangt.
 #[derive(Debug, Clone)]
 pub struct Abweisung {
     pub regel: &'static str,
     pub kennung: Option<String>,
+    pub zusatz: Vec<(Schluessel, String)>,
 }
 
 /// Hängt die Regel und die Kennung an eine abweisende Antwort (ADR-0042 Ergänzung #24 Punkt 3).
-pub fn mit_regel(mut antwort: Response, regel: &'static str, kennung: Option<&str>) -> Response {
+pub fn mit_regel(antwort: Response, regel: &'static str, kennung: Option<&str>) -> Response {
+    mit_regel_und(antwort, regel, kennung, Vec::new())
+}
+
+/// Wie `mit_regel`, mit weiteren Schlüsseln des Katalogs; sie stehen in der Zeile nach der Kennung, vor `grund`
+/// (z. B. `anhaenge` der Rückfrage beim Löschen, ADR-0042 Katalog „Löschen nicht bestätigt“).
+pub fn mit_regel_und(
+    mut antwort: Response,
+    regel: &'static str,
+    kennung: Option<&str>,
+    zusatz: Vec<(Schluessel, String)>,
+) -> Response {
     antwort.extensions_mut().insert(Abweisung {
         regel,
         kennung: kennung.map(str::to_string),
+        zusatz,
     });
     antwort
 }
@@ -78,6 +91,9 @@ pub async fn schicht(
         (Some(kennung), _) => kontext = kontext.mit(Schluessel::Kennung, kennung),
         (None, Some(herkunft)) => kontext = kontext.mit(Schluessel::Herkunft, herkunft),
         (None, None) => {}
+    }
+    for (schluessel, wert) in abweisung.map_or(&[][..], |abweisung| &abweisung.zusatz) {
+        kontext = kontext.mit(*schluessel, wert);
     }
     protokoll.eintragen(
         Stufe::Debug,

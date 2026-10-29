@@ -762,23 +762,29 @@ fn anhangquote_beim_start_melden(protokoll: &Protokoll, platz: &Startplatz) {
             "Platte trägt die Quoten nicht",
             Kontext::neu()
                 .mit(Schluessel::Frei, platz.frei)
-                .mit(Schluessel::Belegt, platz.log_bytes)
+                .mit(Schluessel::Plattenquote, quote_als_text(platz.plattenquote))
+                .mit(Schluessel::Anhangquote, quote_als_text(platz.anhangquote))
                 .mit(Schluessel::AnhangBelegt, platz.anhang_belegt),
         );
     }
-    if let Some(hoechstens) = platz
+    if let Some(anhangquote) = platz
         .anhangquote
-        .filter(|hoechstens| platz.anhang_belegt > *hoechstens)
+        .filter(|anhangquote| platz.anhang_belegt > *anhangquote)
     {
         protokoll.eintragen(
             Stufe::Warning,
             Bereich::Start,
             "Anhänge belegen mehr als die Anhangquote",
             Kontext::neu()
-                .mit(Schluessel::AnhangBelegt, platz.anhang_belegt)
-                .mit(Schluessel::Hoechstens, hoechstens),
+                .mit(Schluessel::Anhangquote, anhangquote)
+                .mit(Schluessel::AnhangBelegt, platz.anhang_belegt),
         );
     }
+}
+
+/// Eine Quote im Kontext: Bytes, `aus` als `aus` (Katalog, ADR-0043 Ergänzung „Karte #9 Nacharbeit F2“ Regel 3).
+fn quote_als_text(quote: Option<u64>) -> String {
+    quote.map_or_else(|| "aus".to_string(), |bytes| bytes.to_string())
 }
 
 /// Pflegt alle Channels nach ihrer Frist und trägt jeden Bericht ins Protokoll ein (R00017: nie selbst auf stderr).
@@ -1246,6 +1252,81 @@ mod tests {
             frist_pflegen(&gespraeche, heute, Pflegeanlass::Tageswechsel, &protokoll);
 
             assert_eq!(quote_zeilen(&speicher), erwartet, "{quote:?}");
+        }
+    }
+
+    /// Befund #55 B2 (ADR-0042 Katalog Z. 355, ADR-0043 Ergänzung „Karte #9 Nacharbeit F2“ Regeln 3 und 5): die
+    /// Startzeilen tragen die Schlüssel des Katalogs — `frei`, `plattenquote`, `anhangquote`, `anhang_belegt` (eine
+    /// Quote `aus` als `aus`; nicht `belegt`) bzw. `anhangquote`, `anhang_belegt` (nicht `hoechstens`). Die Stufe ist
+    /// nicht Gegenstand (Entscheidung offen für diese Nacharbeit).
+    #[test]
+    fn die_startzeilen_zur_anhangquote_tragen_die_schluessel_des_katalogs() {
+        const GIB: u64 = 1_073_741_824;
+        for (platz, erwartet) in [
+            (
+                Startplatz {
+                    frei: 10 * GIB,
+                    log_bytes: 0,
+                    anhang_belegt: 0,
+                    plattenquote: Some(4 * GIB),
+                    anhangquote: Some(20 * GIB),
+                },
+                vec![
+                    "start Platte trägt die Quoten nicht | frei=10737418240 plattenquote=4294967296 anhangquote=21474836480 anhang_belegt=0",
+                ],
+            ),
+            (
+                Startplatz {
+                    frei: 10 * GIB,
+                    log_bytes: 5,
+                    anhang_belegt: 7,
+                    plattenquote: None,
+                    anhangquote: Some(20 * GIB),
+                },
+                vec![
+                    "start Platte trägt die Quoten nicht | frei=10737418240 plattenquote=aus anhangquote=21474836480 anhang_belegt=7",
+                ],
+            ),
+            (
+                Startplatz {
+                    frei: 30 * GIB,
+                    log_bytes: 0,
+                    anhang_belegt: 2_097_152,
+                    plattenquote: Some(4 * GIB),
+                    anhangquote: Some(1_048_576),
+                },
+                vec![
+                    "start Anhänge belegen mehr als die Anhangquote | anhangquote=1048576 anhang_belegt=2097152",
+                ],
+            ),
+            (
+                Startplatz {
+                    frei: 30 * GIB,
+                    log_bytes: 0,
+                    anhang_belegt: 0,
+                    plattenquote: Some(4 * GIB),
+                    anhangquote: Some(20 * GIB),
+                },
+                vec![],
+            ),
+        ] {
+            let (protokoll, speicher, _, _) =
+                im_speicher("2026-10-28T12:00:00+01:00", Stufe::Debug);
+
+            anhangquote_beim_start_melden(&protokoll, &platz);
+
+            let zeilen: Vec<String> = speicher
+                .zeilen()
+                .into_iter()
+                .filter(|zeile| zeile.contains(" start "))
+                .map(|zeile| {
+                    zeile
+                        .split_once(" start ")
+                        .map(|(_, rest)| format!("start {rest}"))
+                        .expect("start")
+                })
+                .collect();
+            assert_eq!(zeilen, erwartet);
         }
     }
 
