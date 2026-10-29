@@ -20,6 +20,8 @@ pub(crate) struct Testauskunft {
     pub(crate) fragen: Mutex<Vec<String>>,
     /// Je Schlüssel: so lange hängt jede Frage danach (blockierender Schlaf), ohne Tor.
     pub(crate) haengt: Mutex<HashMap<String, Duration>>,
+    /// Je Schlüssel: die nächste Frage danach endet in einer Panik.
+    pub(crate) panik: Mutex<HashSet<String>>,
 }
 
 impl Testauskunft {
@@ -67,6 +69,14 @@ impl Testauskunft {
             .insert(name.to_string(), adressen.iter().map(|a| ip(a)).collect());
     }
 
+    /// Die nächste Frage nach `schluessel` endet in einer Panik.
+    pub(crate) fn panik_bei(&self, schluessel: &str) {
+        self.panik
+            .lock()
+            .expect("Panik")
+            .insert(schluessel.to_string());
+    }
+
     pub(crate) fn oeffnen(&self, schluessel: &str) {
         self.gesperrt.lock().expect("Tor").remove(schluessel);
         self.tor.notify_all();
@@ -110,6 +120,9 @@ impl Testauskunft {
             std::thread::sleep(dauer);
         }
         self.laufend.fetch_sub(1, Ordering::SeqCst);
+        if self.panik.lock().expect("Panik").remove(schluessel) {
+            panic!("Testpanik in der Namensauskunft für {schluessel}");
+        }
     }
 }
 

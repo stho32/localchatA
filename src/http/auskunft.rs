@@ -1242,6 +1242,85 @@ mod tests {
         assert_eq!(urteil(&a.auskunft, "x.local").await, Some(true));
     }
 
+    /// Leitet Paniken des Fadens `namensauskunft` wie der Haken des Programms (`protokoll::haken_setzen`) in
+    /// `protokoll`; alle anderen an den Haken davor. Der Haken ist prozessweit — er bleibt, gibt aber nur diesen
+    /// Faden um.
+    fn panikhaken_fuer_die_auskunft(protokoll: Arc<Protokoll>) {
+        let davor = std::panic::take_hook();
+        std::panic::set_hook(Box::new(move |info| {
+            let faden = std::thread::current().name().map(str::to_string);
+            if faden.as_deref() != Some("namensauskunft") {
+                return davor(info);
+            }
+            let text = info
+                .payload()
+                .downcast_ref::<String>()
+                .cloned()
+                .unwrap_or_default();
+            protokoll.panik_melden(&crate::protokoll::Panik {
+                ort: info
+                    .location()
+                    .map(|ort| format!("{}:{}", ort.file(), ort.line())),
+                thread: "namensauskunft".to_string(),
+                text,
+            });
+        }));
+    }
+
+    /// Kriterium „Nacharbeit Karte #35: Panik“ (Code-Review #35 A2, ADR-0045 Ergänzung Punkt 3), Probe wörtlich:
+    /// „Panik beim ersten Mal, +59 s abgewiesen ohne Frage, +61 s erlaubt“; dazu EXCEPTION mit Ort, und eine Panik
+    /// während einer Auffrischung → abgewiesen (Mutante „ohne `catch_unwind`“).
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn eine_panik_in_der_aufloesung_weist_den_namen_sechzig_sekunden_ab() {
+        let test = Testauskunft::mit(&[], &[("x.local", &["127.0.0.1"])]);
+        let (protokoll, speicher, uhr, _) = im_speicher(START, Stufe::Debug);
+        let auskunft = Auskunft::neu(
+            Arc::clone(&test) as Arc<dyn Namensauskunft>,
+            Arc::clone(&uhr) as Arc<dyn Uhr>,
+            Arc::clone(&protokoll),
+        );
+        panikhaken_fuer_die_auskunft(protokoll);
+        test.panik_bei("x.local");
+
+        assert_eq!(begrenzt(urteil(&auskunft, "x.local")).await, Some(false));
+        let ausnahmen: Vec<String> = speicher
+            .zeilen()
+            .into_iter()
+            .filter(|zeile| zeile.contains(" EXCEPTION programmfehler Testpanik"))
+            .collect();
+        assert_eq!(ausnahmen.len(), 1, "{ausnahmen:?}");
+        assert!(
+            ausnahmen[0].contains("ort=src/http/testauskunft.rs:"),
+            "{ausnahmen:?}"
+        );
+        uhr.stellen(zeit("2026-10-29T12:00:59+01:00"));
+        assert_eq!(urteil(&auskunft, "x.local").await, Some(false));
+        assert_eq!(test.fragen("vorwaerts", "x.local"), 1);
+        uhr.stellen(zeit("2026-10-29T12:01:01+01:00"));
+        assert_eq!(begrenzt(urteil(&auskunft, "x.local")).await, Some(true));
+        assert_eq!(test.fragen("vorwaerts", "x.local"), 2);
+
+        uhr.stellen(zeit("2026-10-29T12:06:02+01:00"));
+        test.panik_bei("x.local");
+        assert_eq!(
+            urteil(&auskunft, "x.local").await,
+            Some(true),
+            "Gnadenfrist"
+        );
+        let abfrage = Abfrage::Vorwaerts("x.local".into());
+        bis(|| {
+            test.fragen("vorwaerts", "x.local") == 3
+                && auskunft.erlaubnis.available_permits() == GLEICHZEITIG
+        })
+        .await;
+        bis(|| auskunft.ist_fertig(&abfrage)).await;
+        assert_eq!(
+            urteil(&auskunft, "x.local").await,
+            Some(false),
+            "nach der Panik der Auffrischung"
+        );
+    }
+
     /// Rechenbeispiel „Ohne Erlaubnis keine Auflösung“ (E3, Matrix F6): zwei laufen; `neu.local` sofort abgewiesen,
     /// 0 Fragen, kein Eintrag; danach 1 Frage, erlaubt.
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
