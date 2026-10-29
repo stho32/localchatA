@@ -143,7 +143,11 @@ body { background: var(--kd-bg); color: var(--kd-ink); font-family: var(--font-s
 .lc-msg.lc-fehlgeschlagen .lc-body { color: var(--kd-ink); }
 /* Schalter an einer fehlgeschlagenen Nachricht (Baustein Nachricht, ADR-0038 Regel 5) */
 .lc-send-schalter { display: flex; flex-wrap: wrap; gap: var(--kd-space-8); margin-top: var(--kd-space-4); }
-.lc-send-schalter button { height: var(--kd-row); padding: 0 var(--kd-space-8); border: 1px solid var(--kd-line-strong); background: var(--kd-surface); color: var(--kd-ink); font-weight: 600; cursor: pointer; }
+.lc-send-schalter button { height: var(--kd-row); padding: 0 var(--kd-space-8); border: 1px solid var(--kd-line-strong); background: var(--kd-surface); color: var(--kd-ink); font-weight: 600; cursor: pointer; touch-action: manipulation; }
+/* Verworfen auf Zeit (R00025 F0085): eine Zeile an der Stelle der Nachricht, gedämpft auf kd-surface */
+.lc-verworfen { display: flex; flex-wrap: wrap; align-items: center; column-gap: var(--kd-space-8); padding: var(--kd-space-4) var(--kd-space-12); background: var(--kd-surface); }
+.lc-verworfen-text { font-size: 12px; line-height: 20px; color: var(--kd-ink-muted); }
+.lc-verworfen .lc-send-schalter { margin-top: 0; }
 /* Auf Touch-Geräten trifft der Daumen 44 px (UX-Vorprüfung #41 S7); der Abstand von 8 px kommt aus gap */
 @media (pointer: coarse) {
   .lc-send-schalter button { min-width: 44px; height: 44px; }

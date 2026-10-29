@@ -199,7 +199,7 @@ export function verlaufAnlegen({ abrufen, schalter = () => {} }) {
   ausstehend.addEventListener('click', (ereignis) => {
     const geklickt = ereignis.target.closest('button[data-aktion]');
     if (geklickt !== null) {
-      schalter(geklickt.dataset.aktion, geklickt.closest('.lc-msg').dataset.schluessel);
+      schalter(geklickt.dataset.aktion, geklickt.closest('[data-schluessel]').dataset.schluessel);
     }
   });
   log.addEventListener('keydown', (ereignis) => {
@@ -427,7 +427,7 @@ export function verlaufAnlegen({ abrufen, schalter = () => {} }) {
   }
 
   function ausstehendZeichnen() {
-    const eigene = vorlaeufige.filter((vorlaeufig) => vorlaeufig.channel === offenerName && vorlaeufig.zustand !== 'verworfen');
+    const eigene = vorlaeufige.filter((vorlaeufig) => vorlaeufig.channel === offenerName);
     ausstehend.replaceChildren(...eigene.map((vorlaeufig) => vorlaeufigZeichnen(vorlaeufig, eigeneKennung)));
   }
 
@@ -629,6 +629,9 @@ function leerHinweis(name) {
 // Eine eigene Nachricht unterwegs („wird gesendet …“ mit ◌) oder fehlgeschlagen (⚠ und Grund in kd-danger), mit dem
 // Kopf der eigenen Kennung, ohne Zeit (Baustein Nachricht).
 function vorlaeufigZeichnen(vorlaeufig, kennung) {
+  if (vorlaeufig.zustand === 'verworfen') {
+    return verworfenZeichnen(vorlaeufig);
+  }
   const artikel = nachrichtZeichnen({ von: kennung, art: 'mensch', text: vorlaeufig.text });
   artikel.classList.add('lc-vorlaeufig');
   const zeile = element('div', { className: 'lc-send' });
@@ -647,6 +650,17 @@ function vorlaeufigZeichnen(vorlaeufig, kennung) {
     schalterZeichnen('Verwerfen', 'verwerfen'),
   ]));
   return artikel;
+}
+
+// Eine verworfene Nachricht (R00025 F0085): 5 s lang an ihrer Stelle „Verworfen“ mit „Rückgängig“, ohne den Text und
+// ohne eigene Region, nicht höher als die Nachricht.
+function verworfenZeichnen(vorlaeufig) {
+  const zeile = element('div', { className: 'lc-vorlaeufig lc-verworfen' }, [
+    element('span', { className: 'lc-verworfen-text', textContent: 'Verworfen' }),
+    element('div', { className: 'lc-send-schalter' }, [schalterZeichnen('Rückgängig', 'rueckgaengig')]),
+  ]);
+  zeile.dataset.schluessel = vorlaeufig.schluessel;
+  return zeile;
 }
 
 function schalterZeichnen(beschriftung, aktion) {
