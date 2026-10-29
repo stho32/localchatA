@@ -305,3 +305,66 @@ async fn us5_die_ende_zeile_der_bremse_zaehlt_je_grenze() {
     }
     panic!("drei ungültige Läufe (h = 0 oder k = 0)");
 }
+
+/// R00022 F0073 B0347 „Gelungenes Senden auf Debug“ (Abnahme-Probe wörtlich): ein gelungenes `POST …/nachrichten`
+/// auf Stufe Debug → genau eine `DEBUG senden Nachricht gesendet | channel=allgemein kennung=beta@127.0.0.1
+/// anzahl=5 dauer_ms=…`; der Text „Hallo“ steht nicht im Protokoll. Die Wiederholung mit bekanntem Schlüssel (200)
+/// trägt zusätzlich `grund=wiederholung`; auf Stufe Information keine Zeile.
+#[tokio::test]
+async fn ein_gelungenes_senden_ist_auf_debug_eine_zeile_ohne_text() {
+    for debug in [true, false] {
+        let wurzel = ordner();
+        let umgebung: &[(&str, &str)] = if debug {
+            &[("LOCALCHATA_PROTOKOLL_STUFE", "debug")]
+        } else {
+            &[]
+        };
+        let mut instanz = starten(wurzel.path(), umgebung);
+        let beta = Absender::von("127.0.0.1");
+        let token = beitreten(&beta, &instanz.adresse, "beta", None).await;
+
+        let antwort = senden(&beta, &instanz.adresse, &token, "allgemein", "Hallo").await;
+        let mit_schluessel = || {
+            beta.anfrage(
+                reqwest::Method::POST,
+                format!("{}api/channels/allgemein/nachrichten", instanz.adresse),
+            )
+            .header("X-LocalchatA-Sitzung", token.clone())
+            .header("Idempotency-Key", "k1")
+            .json(&serde_json::json!({ "text": "Hallo" }))
+        };
+        let neu = gemeinsam::api_antwort(mit_schluessel()).await;
+        let wieder = gemeinsam::api_antwort(mit_schluessel()).await;
+        assert!(instanz.signal_und_warten("TERM").success());
+
+        assert_eq!(antwort.status, 201, "{}", antwort.json);
+        assert_eq!((neu.status, wieder.status), (201, 200));
+        let alle = zeilen(wurzel.path(), HEUTE);
+        let gesendet = mit(&alle, "DEBUG", "senden");
+        if !debug {
+            assert!(alle.iter().all(|z| !z.contains(" DEBUG ")), "{alle:#?}");
+            continue;
+        }
+        assert_eq!(gesendet.len(), 3, "{alle:#?}");
+        for zeile in &gesendet {
+            assert!(
+                zeile.contains(
+                    " DEBUG senden Nachricht gesendet | channel=allgemein kennung=beta@127.0.0.1 anzahl=5"
+                ),
+                "{zeile}"
+            );
+            assert!(
+                gemeinsam::protokoll::wert(zeile, "dauer_ms").is_some(),
+                "{zeile}"
+            );
+        }
+        assert!(!gesendet[0].contains("grund="), "{}", gesendet[0]);
+        assert!(!gesendet[1].contains("grund="), "{}", gesendet[1]);
+        assert!(
+            gesendet[2].contains("grund=wiederholung"),
+            "{}",
+            gesendet[2]
+        );
+        assert!(alle.iter().all(|z| !z.contains("Hallo")), "{alle:#?}");
+    }
+}

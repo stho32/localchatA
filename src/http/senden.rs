@@ -28,6 +28,7 @@ use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use serde_json::{Value, json};
 use std::sync::Arc;
+use std::time::Instant;
 
 const ROUTE: &str = "POST /api/channels/{name}/nachrichten";
 
@@ -46,6 +47,7 @@ pub async fn senden(
     kopf: HeaderMap,
     koerper: Body,
 ) -> Response {
+    let eintritt = Instant::now();
     if let Err(gebremst) =
         zustand
             .schreibkonto
@@ -105,6 +107,7 @@ pub async fn senden(
             Some(&wer),
         );
     };
+    let text_bytes = text.len();
     let kosten = kosten_senden(text.len());
     if let Err(gebremst) =
         zustand
@@ -136,9 +139,20 @@ pub async fn senden(
     match ergebnis {
         Ok(Ok(Gesendet::Neu(nachricht))) => {
             vorlauf::eintragen(&zustand.protokoll, zustand.gespraeche.zeit_vorlauf_ms());
+            gesendet_melden(&zustand, &name, &wer, text_bytes, eintritt, None);
             gesendet(StatusCode::CREATED, &name, &nachricht)
         }
-        Ok(Ok(Gesendet::Wiederholt(nachricht))) => gesendet(StatusCode::OK, &name, &nachricht),
+        Ok(Ok(Gesendet::Wiederholt(nachricht))) => {
+            gesendet_melden(
+                &zustand,
+                &name,
+                &wer,
+                text_bytes,
+                eintritt,
+                Some("wiederholung"),
+            );
+            gesendet(StatusCode::OK, &name, &nachricht)
+        }
         Ok(Err(Sendefehler::SchluesselAnders)) => mit_regel(
             schluessel_abgewiesen(SCHLUESSEL_ANDERS),
             "schluessel_anders",
@@ -179,6 +193,31 @@ pub async fn senden(
 fn unbekannt(name: &str) -> Response {
     let fehler = format!("# {name} gibt es nicht.");
     (StatusCode::NOT_FOUND, Json(json!({ "fehler": fehler }))).into_response()
+}
+
+/// `DEBUG senden Nachricht gesendet` (R00022 F0073): Channel, Kennung, Bytes des Texts als `anzahl` und die Zeit vom
+/// Eintritt in den Handler bis zum Schreiben; bei einer Wiederholung mit bekanntem Schlüssel `grund=wiederholung` —
+/// nie der Text.
+fn gesendet_melden(
+    zustand: &Zustand,
+    channel: &str,
+    wer: &str,
+    text_bytes: usize,
+    eintritt: Instant,
+    grund: Option<&str>,
+) {
+    let kontext = Kontext::neu()
+        .mit(Schluessel::Channel, channel)
+        .mit(Schluessel::Kennung, wer)
+        .mit(Schluessel::Anzahl, text_bytes)
+        .mit(Schluessel::DauerMs, eintritt.elapsed().as_millis());
+    let kontext = match grund {
+        Some(grund) => kontext.mit(Schluessel::Grund, grund),
+        None => kontext,
+    };
+    zustand
+        .protokoll
+        .eintragen(Stufe::Debug, Bereich::Senden, "Nachricht gesendet", kontext);
 }
 
 fn gesendet(status: StatusCode, channel: &str, nachricht: &Nachricht) -> Response {
