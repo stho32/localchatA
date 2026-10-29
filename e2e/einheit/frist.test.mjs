@@ -1,7 +1,10 @@
 // Unit-Tests der Frist im Browser (R00008 F0037, B0193, B0194; ADR-0033 Regel 3; node --test).
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { fristPruefen, fristText, bestaetigungText, statusText, inzwischenText, fehlerDerAntwort, wiederMoeglichAb, versuchZaehlen, mitVersuch } from '../../web/frist.js';
+import {
+  fristPruefen, fristText, bestaetigungText, statusText, inzwischenText, inzwischenZurueckText, fehlerDerAntwort,
+  wiederMoeglichAb, versuchZaehlen, mitVersuch,
+} from '../../web/frist.js';
 
 const FEHLER = 'Frist: ganze Zahl von 1 bis 3650 Tagen.';
 
@@ -75,6 +78,14 @@ test('inzwischenText: die fremde Änderung im offenen Dialog', () => {
   assert.equal(inzwischenText(31), 'Inzwischen geändert: 31 Tage.');
   assert.equal(inzwischenText(1), 'Inzwischen geändert: 1 Tag.');
   assert.equal(inzwischenText(null), 'Inzwischen geändert: Frist gesperrt.');
+});
+
+// R00019 F0083 „Zweiter Schritt folgt fremder Änderung“: nach dem Rücksprung sagt der Hinweis, wie man erfährt, was
+// jetzt entfiele.
+test('inzwischenZurueckText: der Rücksprung aus dem zweiten Schritt verweist aufs erneute Speichern', () => {
+  assert.equal(inzwischenZurueckText(7), 'Inzwischen geändert: 7 Tage — erneut speichern, um zu sehen, was entfällt.');
+  assert.equal(inzwischenZurueckText(1), 'Inzwischen geändert: 1 Tag — erneut speichern, um zu sehen, was entfällt.');
+  assert.equal(inzwischenZurueckText(null), 'Inzwischen geändert: Frist gesperrt.');
 });
 
 // R00019 F0066 „Fehlerzeile unterscheidet Eingabe und Server“ (ADR-0033 Ergänzung Karte #27, Regel 1): nur die 422

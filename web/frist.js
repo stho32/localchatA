@@ -55,6 +55,14 @@ export function inzwischenText(tage) {
   return `Inzwischen geändert: ${tageText(tage)}.`;
 }
 
+// Nach dem Rücksprung aus dem zweiten Schritt (R00019 F0083): erst ein neues Speichern sagt, was jetzt entfiele.
+export function inzwischenZurueckText(tage) {
+  if (tage === null) {
+    return inzwischenText(tage);
+  }
+  return `Inzwischen geändert: ${tageText(tage)} — erneut speichern, um zu sehen, was entfällt.`;
+}
+
 function tageText(anzahl) {
   if (anzahl === 1) {
     return '1 Tag';

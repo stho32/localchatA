@@ -5,7 +5,8 @@
 // Beschreibung (WCAG 4.1.3, 1.3.1). Fehler bleiben im offenen Dialog, die Eingabe steht noch; Esc und „Abbrechen“
 // schließen, der Fokus kehrt zum Auslöser zurück.
 import {
-  fristPruefen, bestaetigungText, statusText, inzwischenText, fehlerDerAntwort, versuchZaehlen, mitVersuch,
+  fristPruefen, bestaetigungText, statusText, inzwischenText, inzwischenZurueckText, fehlerDerAntwort, versuchZaehlen,
+  mitVersuch,
 } from './frist.js';
 
 const HINWEIS = 'Ältere Tage entfallen. Heute zählt mit. Standard: 7 Tage.';
@@ -21,7 +22,7 @@ export function einstellungenEinrichten({ wurzel, setzen, statusZeigen, neuOeffn
       return;
     }
     const teile = dialogZeichnen(channel);
-    offen = { name: channel.name, frist: channel.frist_tage, laeuft: false, teile };
+    offen = { name: channel.name, frist: channel.frist_tage, laeuft: false, teile, fremdGeaendert: () => {} };
     const zustand = offen;
     const abmelden = new AbortController();
     teile.dialog.addEventListener('close', () => {
@@ -49,7 +50,7 @@ export function einstellungenEinrichten({ wurzel, setzen, statusZeigen, neuOeffn
       return;
     }
     offen.frist = channel.frist_tage;
-    offen.teile.inzwischen.textContent = ` ${inzwischenText(channel.frist_tage)}`;
+    offen.fremdGeaendert(channel.frist_tage);
   }
 
   return { oeffnen, channelGeaendert };
@@ -96,6 +97,19 @@ function bedienen(zustand, { setzen, statusZeigen, neuOeffnen }, signal) {
     fehlversuchMelden(fehlerDerAntwort(antwort, eintreffenMs));
     teile.feld.focus();
   }
+
+  // Im zweiten Schritt stimmt der Satz nicht mehr, und „Frist verkürzen“ könnte eine inzwischen kürzere Frist still
+  // verlängern: zurück in den ersten Schritt, erst ein neues Speichern fragt den Server (R00019 F0083).
+  zustand.fremdGeaendert = (frist) => {
+    if (schritt === 1) {
+      teile.inzwischen.textContent = ` ${inzwischenText(frist)}`;
+      return;
+    }
+    schritt = 1;
+    ersterSchritt(teile);
+    teile.inzwischen.textContent = ` ${inzwischenZurueckText(frist)}`;
+    teile.feld.focus();
+  };
 
   teile.formular.addEventListener('submit', (ereignis) => {
     ereignis.preventDefault();
@@ -198,6 +212,7 @@ function zweiterSchritt(teile, satz) {
 
 function ersterSchritt(teile) {
   teile.feld.readOnly = false;
+  teile.bestaetigung.textContent = '';
   teile.bestaetigung.hidden = true;
   teile.abbrechen.hidden = false;
   teile.speichern.hidden = false;
