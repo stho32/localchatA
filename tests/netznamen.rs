@@ -402,3 +402,244 @@ fn c5_c7_c10_gemischt_erlaubt_unspezifiziert_multicast_broadcast_nie() {
     }
     assert_eq!(lauf.gefragt("eigen", "127.0.0.1"), 1);
 }
+
+// ---------------------------------------------------------------------------------------------------------
+// F0079 Abweisung als verständliche Seite
+// ---------------------------------------------------------------------------------------------------------
+
+const CSP: &str = "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'";
+const UEBERSCHRIFT: &str = "Diese Adresse ist für localchatA nicht freigegeben";
+
+impl Lauf {
+    /// Roh, Zeilen wie gegeben (ohne automatischen Host).
+    fn roh(&self, zeilen: &[&str]) -> RohAntwort {
+        roh_anfragen(
+            SocketAddr::new(self.ueber, self.port()),
+            &zeilen.join("\r\n"),
+            "",
+        )
+    }
+
+    fn eigene_adresse(&self) -> String {
+        format!("http://{}/", SocketAddr::new(self.ueber, self.port()))
+    }
+}
+
+/// ABW-H: 403, HTML-Seite mit Link auf die lokale Adresse, Header-Satz (CSP unverändert), kein `Location`.
+fn ist_seite(antwort: &RohAntwort, link: &str) {
+    assert_eq!(antwort.status, 403, "{}", antwort.inhalt);
+    assert_eq!(
+        antwort.header("content-type"),
+        Some("text/html; charset=utf-8")
+    );
+    assert!(antwort.inhalt.contains(UEBERSCHRIFT), "{}", antwort.inhalt);
+    assert!(
+        antwort
+            .inhalt
+            .contains(&format!("<a href=\"{link}\">{link}</a>")),
+        "{}",
+        antwort.inhalt
+    );
+    assert_eq!(antwort.header("content-security-policy"), Some(CSP));
+    assert_eq!(antwort.header("x-content-type-options"), Some("nosniff"));
+    assert_eq!(antwort.header("x-frame-options"), Some("DENY"));
+    assert_eq!(antwort.header("location"), None);
+}
+
+/// ABW-T: 403, Text mit Name und Adresse, kein HTML.
+fn ist_text(antwort: &RohAntwort, name: &str, link: &str) {
+    assert_eq!(antwort.status, 403, "{}", antwort.inhalt);
+    assert_eq!(
+        antwort.header("content-type"),
+        Some("text/plain; charset=utf-8")
+    );
+    for teil in [
+        name.to_string(),
+        link.to_string(),
+        format!("--erreichbar-als {name}"),
+        "Namen des eigenen Netzes gelten automatisch".to_string(),
+    ] {
+        assert!(antwort.inhalt.contains(&teil), "{teil}: {}", antwort.inhalt);
+    }
+    assert!(!antwort.inhalt.contains("<html"), "{}", antwort.inhalt);
+}
+
+/// Kriterium „Browser bekommt die Seite“ (US-6, Matrix A5, G1, G3 a/b).
+#[test]
+fn f0079_ein_browser_dokument_bekommt_die_seite() {
+    let lauf = mit_testnamen(&[]);
+    let host = format!("boese.example:{}", lauf.port());
+    let link = lauf.eigene_adresse();
+
+    let accept = lauf.anfragen("GET /", &host, &["Accept: text/html"], "");
+    let dest = lauf.anfragen(
+        "GET /",
+        &host,
+        &["Sec-Fetch-Dest: document", "Accept: */*"],
+        "",
+    );
+    let beides = lauf.anfragen(
+        "GET /api/gesundheit",
+        &host,
+        &["Accept: text/html,*/*", "Sec-Fetch-Dest: document"],
+        "",
+    );
+
+    ist_seite(&accept, &link);
+    assert!(accept.inhalt.contains(
+        "Der Betreiber kann den Namen boese.example mit --erreichbar-als boese.example beim Start freigeben."
+    ));
+    ist_seite(&dest, &link);
+    ist_seite(&beides, &link);
+    assert_eq!(beides.header("cache-control"), Some("no-store"));
+}
+
+/// Matrix G1: der Link nennt den Port der lokalen Adresse, nicht den des Host-Kopfs.
+#[test]
+fn g1_der_link_nennt_den_port_der_lokalen_adresse() {
+    let lauf = mit_testnamen(&[]);
+
+    let antwort = lauf.anfragen("GET /", "boese.example:9999", &["Accept: text/html"], "");
+
+    ist_seite(&antwort, &lauf.eigene_adresse());
+    assert!(!antwort.inhalt.contains(":9999/"), "{}", antwort.inhalt);
+}
+
+/// Kriterium „Agent bekommt Text“ (US-8, Matrix G3 c/d).
+#[test]
+fn f0079_ein_agent_bekommt_text_mit_der_adresse() {
+    let lauf = mit_testnamen(&[]);
+    let host = format!("boese.example:{}", lauf.port());
+    let link = lauf.eigene_adresse();
+
+    ist_text(
+        &lauf.anfragen(
+            "GET /api/gesundheit",
+            &host,
+            &["Accept: application/json"],
+            "",
+        ),
+        "boese.example",
+        &link,
+    );
+    ist_text(
+        &lauf.anfragen("GET /api/gesundheit", &host, &[], ""),
+        "boese.example",
+        &link,
+    );
+    ist_text(
+        &lauf.anfragen("GET /", &host, &["Accept: */*"], ""),
+        "boese.example",
+        &link,
+    );
+}
+
+/// Matrix G4: die Seite auch auf einer Schreibroute — ohne Wirkung.
+#[test]
+fn g4_seite_auf_der_schreibroute_ohne_beitritt() {
+    let lauf = mit_testnamen(&[]);
+    let host = format!("boese.example:{}", lauf.port());
+
+    let antwort = lauf.anfragen(
+        "POST /api/beitreten",
+        &host,
+        &[
+            "Accept: text/html",
+            "Content-Type: application/json",
+            &format!("Origin: http://{host}"),
+        ],
+        r#"{"name":"beta"}"#,
+    );
+
+    ist_seite(&antwort, &lauf.eigene_adresse());
+    let gesundheit = lauf.gesundheit("127.0.0.1");
+    assert!(
+        gesundheit.inhalt.contains("\"sitzungen\":0"),
+        "{}",
+        gesundheit.inhalt
+    );
+}
+
+/// Matrix G2 (roh): der Name erscheint nur maskiert.
+#[test]
+fn g2_der_name_wird_in_der_seite_maskiert() {
+    let lauf = mit_testnamen(&[]);
+    for (host, maskiert) in [
+        (
+            "<img src=x onerror=alert(1)>",
+            "&lt;img src=x onerror=alert(1)&gt;",
+        ),
+        ("a\"b'c&d.local", "a&quot;b&#39;c&amp;d.local"),
+        (
+            "</h1><script>x</script>",
+            "&lt;/h1&gt;&lt;script&gt;x&lt;/script&gt;",
+        ),
+    ] {
+        let antwort = lauf.roh(&[
+            "GET / HTTP/1.1",
+            &format!("Host: {host}"),
+            "Accept: text/html",
+        ]);
+        ist_seite(&antwort, &lauf.eigene_adresse());
+        assert!(
+            antwort.inhalt.contains(maskiert),
+            "{host}: {}",
+            antwort.inhalt
+        );
+        assert!(!antwort.inhalt.contains("<img"), "{}", antwort.inhalt);
+        assert!(!antwort.inhalt.contains("<script"), "{}", antwort.inhalt);
+    }
+}
+
+/// Kriterium „Ohne Host“ (E4, Matrix G5, D9, D10).
+#[test]
+fn f0079_ohne_host_seite_ohne_namen_text_doppelt_ohne_seite() {
+    let lauf = mit_testnamen(&[]);
+    let link = lauf.eigene_adresse();
+
+    let seite = lauf.roh(&["GET / HTTP/1.0", "Accept: text/html"]);
+    ist_seite(&seite, &link);
+    assert!(
+        !seite.inhalt.contains("--erreichbar-als"),
+        "{}",
+        seite.inhalt
+    );
+
+    let leer = lauf.roh(&["GET / HTTP/1.1", "Host: ", "Accept: text/html"]);
+    ist_seite(&leer, &link);
+    assert!(!leer.inhalt.contains("--erreichbar-als"), "{}", leer.inhalt);
+
+    let text = lauf.roh(&["GET / HTTP/1.0", "Accept: */*"]);
+    assert_eq!(text.status, 403);
+    assert_eq!(
+        text.header("content-type"),
+        Some("text/plain; charset=utf-8")
+    );
+    assert!(text.inhalt.contains("nennt keinen Host"), "{}", text.inhalt);
+    assert!(text.inhalt.contains(&link), "{}", text.inhalt);
+
+    let host = format!("Host: 127.0.0.1:{}", lauf.port());
+    for zweiter in [host.as_str(), "Host: boese.example"] {
+        let doppelt = lauf.roh(&["GET / HTTP/1.1", &host, zweiter, "Accept: text/html"]);
+        assert_eq!(doppelt.status, 403, "{}", doppelt.inhalt);
+        assert_ne!(
+            doppelt.header("content-type"),
+            Some("text/html; charset=utf-8")
+        );
+        assert!(!doppelt.inhalt.contains("<html"), "{}", doppelt.inhalt);
+    }
+}
+
+/// Matrix E4, E5: der Link bei IPv6 in Klammern, bei Dual-Stack über IPv4 ohne `::ffff:`.
+#[test]
+fn e4_e5_der_link_bei_ipv6_und_dual_stack() {
+    let v6 = starten(&["--host", "::"], &[]).ueber("::1");
+    let v4 = starten(&["--host", "::"], &[]);
+
+    let ueber_v6 = v6.anfragen("GET /", "boese.example", &["Accept: text/html"], "");
+    let ueber_v4 = v4.anfragen("GET /", "boese.example", &["Accept: text/html"], "");
+
+    ist_seite(&ueber_v6, &format!("http://[::1]:{}/", v6.port()));
+    ist_seite(&ueber_v4, &format!("http://127.0.0.1:{}/", v4.port()));
+    assert!(!ueber_v4.inhalt.contains("::ffff:"), "{}", ueber_v4.inhalt);
+}

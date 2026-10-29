@@ -1,6 +1,7 @@
 //! Grenzschutz (ADR-0014): welche Host-Namen die Instanz anspricht (gegen DNS-Rebinding) und von welchem
 //! Ursprung sie Wirkung annimmt (gegen CSRF).
 
+use super::abweisungsseite;
 use super::auskunft::{Abfrage, Auskunft};
 use super::hostnamen::{
     FesteNamen, Grund, host_urteil, im_lokalen_namensraum, normalform, zeigt_auf_eigene,
@@ -12,8 +13,8 @@ use crate::start::ausliefern::LokaleAdresse;
 use axum::Json;
 use axum::extract::{ConnectInfo, Request, State};
 use axum::http::header::{
-    CACHE_CONTROL, CONTENT_SECURITY_POLICY, CONTENT_TYPE, HOST, HeaderName, HeaderValue, ORIGIN,
-    REFERRER_POLICY, X_CONTENT_TYPE_OPTIONS, X_FRAME_OPTIONS,
+    ACCEPT, CACHE_CONTROL, CONTENT_SECURITY_POLICY, CONTENT_TYPE, HOST, HeaderName, HeaderValue,
+    ORIGIN, REFERRER_POLICY, X_CONTENT_TYPE_OPTIONS, X_FRAME_OPTIONS,
 };
 use axum::http::{HeaderMap, Method, StatusCode};
 use axum::middleware::Next;
@@ -35,7 +36,7 @@ pub async fn schicht(
     let lokal = anfrage
         .extensions()
         .get::<LokaleAdresse>()
-        .map(|LokaleAdresse(lokal)| lokal.ip());
+        .map(|LokaleAdresse(lokal)| *lokal);
     let mut antwort = match abweisung(&schutz, anfrage.method(), anfrage.headers(), lokal).await {
         Some((abweisung, ereignis, kopf)) => {
             abweisung_eintragen(&protokoll, &anfrage, ereignis, &kopf);
@@ -89,13 +90,15 @@ async fn abweisung(
     schutz: &Grenzschutz,
     methode: &Method,
     kopf: &HeaderMap,
-    lokal: Option<IpAddr>,
+    lokal: Option<SocketAddr>,
 ) -> Option<(Response, &'static str, HeaderName)> {
     let host = einziger_wert(kopf, &HOST);
-    if let Err(abgewiesen) = schutz.host_pruefen(host, lokal).await {
-        let text = [(CONTENT_TYPE, "text/plain; charset=utf-8")];
+    if let Err(abgewiesen) = schutz
+        .host_pruefen(host, lokal.map(|lokal| lokal.ip()))
+        .await
+    {
         return Some((
-            (StatusCode::FORBIDDEN, text, abgewiesen.to_string()).into_response(),
+            host_abweisung(&abgewiesen, kopf, lokal),
             "Anfrage mit fremdem Host abgewiesen",
             HOST,
         ));
@@ -118,6 +121,58 @@ async fn abweisung(
             ))
         }
     }
+}
+
+/// 403 für einen abgewiesenen Host (ADR-0045 Regel 7, E4): ein Browser-Dokument bekommt die Seite mit dem Link
+/// auf die lokale Adresse (ohne Namen, wenn der Host fehlt oder leer ist), alle anderen den Text; ein doppelter
+/// `Host` nie die Seite. Kein Redirect.
+fn host_abweisung(
+    abgewiesen: &HostAbgewiesen,
+    kopf: &HeaderMap,
+    lokal: Option<SocketAddr>,
+) -> Response {
+    let name = abgewiesen.name.as_deref().filter(|name| !name.is_empty());
+    let doppelt = kopf.get_all(HOST).iter().count() > 1;
+    match lokal {
+        Some(lokal) if browser_dokument(kopf) && !doppelt => {
+            let html = [(CONTENT_TYPE, "text/html; charset=utf-8")];
+            (
+                StatusCode::FORBIDDEN,
+                html,
+                abweisungsseite::seite(name, lokal),
+            )
+                .into_response()
+        }
+        _ => {
+            let text = [(CONTENT_TYPE, "text/plain; charset=utf-8")];
+            let name = if doppelt {
+                abgewiesen.name.as_deref()
+            } else {
+                name
+            };
+            (
+                StatusCode::FORBIDDEN,
+                text,
+                abweisungsseite::text(name, lokal),
+            )
+                .into_response()
+        }
+    }
+}
+
+/// Fragt ein Browser nach einem Dokument? `Sec-Fetch-Dest: document` oder `Accept` mit `text/html`.
+fn browser_dokument(kopf: &HeaderMap) -> bool {
+    let ziel = HeaderName::from_static("sec-fetch-dest");
+    let dokument = kopf
+        .get_all(ziel)
+        .iter()
+        .any(|wert| wert.as_bytes().eq_ignore_ascii_case(b"document"));
+    let html = kopf.get_all(ACCEPT).iter().any(|wert| {
+        String::from_utf8_lossy(wert.as_bytes())
+            .to_ascii_lowercase()
+            .contains("text/html")
+    });
+    dokument || html
 }
 
 /// Der Wert einer Kopfzeile, die höchstens einmal vorkommen darf. Mehrfach oder kein Text gilt als
