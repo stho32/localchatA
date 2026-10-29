@@ -5,9 +5,12 @@
 pub const DATEI: &str = "application/octet-stream";
 
 /// Die eine Stelle der Disposition (R00029 „Disposition“, Befund #53 A1): `inline` für alle Arten der Tabelle außer
-/// `application/octet-stream` und Text über 16 MiB — gilt beim Erkennen wie beim Ausliefern.
+/// `application/octet-stream`, HEIC und HEIF (Download, ADR-0047 Ergänzung „Karte #9 Nacharbeit F3 und F4“) und Text
+/// über 16 MiB — gilt beim Erkennen wie beim Ausliefern.
 pub fn inline(typ: &str, bytes: u64) -> bool {
-    typ != DATEI && !(typ == super::erkenner::TEXT && bytes > super::text::TEXT_INLINE_HOECHSTENS)
+    let download = [DATEI, super::medien::HEIC_TYP, super::medien::HEIF_TYP];
+    !download.contains(&typ)
+        && !(typ == super::erkenner::TEXT && bytes > super::text::TEXT_INLINE_HOECHSTENS)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

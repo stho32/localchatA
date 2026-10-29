@@ -209,3 +209,108 @@ async fn nach_dem_senden_stehen_ueberall_die_angezeigten_masse() {
         .expect("Metazeile");
     assert!(metazeile.contains(" image/jpeg 3000x4000 "), "{metazeile}");
 }
+
+/// MOV ohne `ftyp`: erste Box `mdat`, dahinter `moov` mit `udta/©xyz`.
+fn mov_ohne_ftyp() -> Vec<u8> {
+    let boxe = |typ: &[u8], inhalt: &[u8]| {
+        let mut bytes = ((8 + inhalt.len()) as u32).to_be_bytes().to_vec();
+        bytes.extend(typ);
+        bytes.extend(inhalt);
+        bytes
+    };
+    let ort = b"+52.5200+013.4050/";
+    let mut wert = (ort.len() as u16).to_be_bytes().to_vec();
+    wert.extend([0x15, 0xc7]);
+    wert.extend(ort);
+    let mut moov = boxe(b"mvhd", &[0; 100]);
+    moov.extend(boxe(b"udta", &boxe(b"\xa9xyz", &wert)));
+    let mut bytes = boxe(b"mdat", b"MEDIENDATEN-MEDIENDATEN");
+    bytes.extend(boxe(b"moov", &moov));
+    bytes
+}
+
+/// ADR-0047 Ergänzung „Karte #9 Nacharbeit F3 und F4“, Erste Tests (Integration): ein HEIC-Foto (Hauptmarke `heic`)
+/// → `Content-Type: image/heic`, `Content-Disposition: attachment; filename*=…`, Verlauf ohne Maße; ein AVIF →
+/// `image/avif` inline; eine MOV-Datei ohne `ftyp` → `application/octet-stream`, `attachment`, Bytes byte-gleich
+/// (nicht getilgt).
+#[tokio::test]
+async fn heif_familie_und_mov_ohne_ftyp_ueber_das_programm() {
+    use gemeinsam::anhaenge::ablegen;
+    use gemeinsam::senden::{roh_senden, verlauf};
+    let wurzel = ordner();
+    let instanz = starten(wurzel.path(), &[], &[]);
+    let basis = instanz.adresse.as_str();
+    let beta = Absender::von("127.0.0.1");
+    let token = beitreten(&beta, basis, "beta", Some("agent")).await;
+    let mov = mov_ohne_ftyp();
+    let faelle = [
+        (
+            "foto.heic",
+            dateien::mp4(b"heic", None),
+            "image/heic",
+            "attachment",
+        ),
+        (
+            "foto.avif",
+            dateien::mp4(b"avif", None),
+            "image/avif",
+            "inline",
+        ),
+        (
+            "alt.mov",
+            mov.clone(),
+            "application/octet-stream",
+            "attachment",
+        ),
+    ];
+    let mut ids = Vec::new();
+    for (name, inhalt, _, _) in &faelle {
+        ids.push(ablegen(&beta, basis, &token, name, inhalt.clone()).await);
+    }
+    let gesendet = roh_senden(
+        &beta,
+        basis,
+        Some(&token),
+        "allgemein",
+        "application/json",
+        json!({"text": "", "anhaenge": ids})
+            .to_string()
+            .into_bytes(),
+    )
+    .await;
+    assert_eq!(gesendet.status, 201, "{}", gesendet.json);
+    let gelesen = verlauf(&beta, basis, &token, "allgemein").await;
+
+    for (nummer, ((name, _, typ, disposition), id)) in faelle.iter().zip(&ids).enumerate() {
+        let anhang = &gelesen["nachrichten"][0]["anhaenge"][nummer];
+        assert_eq!(
+            (&anhang["art"], &anhang["breite"], &anhang["hoehe"]),
+            (&json!(typ), &Value::Null, &Value::Null),
+            "{name}"
+        );
+        let antwort = reqwest::get(format!("{basis}anhaenge/{id}"))
+            .await
+            .expect("Antwort");
+        let kopf = |name: &str| {
+            antwort
+                .headers()
+                .get(name)
+                .and_then(|wert| wert.to_str().ok())
+                .unwrap_or_default()
+                .to_string()
+        };
+        assert_eq!(kopf("content-type"), *typ, "{name}");
+        let disp = kopf("content-disposition");
+        assert!(
+            disp.starts_with(&format!("{disposition}; filename=")) && disp.contains("filename*="),
+            "{name}: {disp}"
+        );
+        if *name == "alt.mov" {
+            assert_eq!(
+                antwort.bytes().await.expect("Bytes").to_vec(),
+                mov,
+                "nicht getilgt"
+            );
+        }
+    }
+}

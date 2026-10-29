@@ -63,11 +63,14 @@ impl Erkenner {
 }
 
 /// Die Arten der Tabelle — gegen sie prüft das Laden die Metazeile (M17).
-pub const ARTEN: [&str; 13] = [
+pub const ARTEN: [&str; 16] = [
     "image/png",
     "image/jpeg",
     "image/gif",
     "image/webp",
+    super::medien::AVIF_TYP,
+    super::medien::HEIC_TYP,
+    super::medien::HEIF_TYP,
     "application/pdf",
     "video/mp4",
     "audio/mp4",
@@ -128,6 +131,59 @@ mod tests {
         assert_eq!((svg.typ, svg.inline, svg.breite), (TEXT, true, None));
         let mit_nul = art(b"<svg><script>\0</script></svg>");
         assert_eq!((mit_nul.typ, mit_nul.inline), (DATEI, false));
+    }
+
+    /// `ftyp` mit Hauptmarke, Version 0 und den kompatiblen Marken.
+    fn ftyp_mit(haupt: &[u8; 4], kompatibel: &[&[u8; 4]]) -> Vec<u8> {
+        let mut bytes = ((16 + 4 * kompatibel.len()) as u32).to_be_bytes().to_vec();
+        bytes.extend(b"ftyp");
+        bytes.extend(haupt);
+        bytes.extend([0, 0, 0, 0]);
+        for marke in kompatibel {
+            bytes.extend(*marke);
+        }
+        bytes
+    }
+
+    /// ADR-0047 Ergänzung „Karte #9 Nacharbeit F3 und F4“, Erste Tests (Unit Erkenner, wörtlich): alle Marken der
+    /// `ftyp`-Box, zuerst AVIF, dann HEIC, dann HEIF, dann MP4 wie bisher; `image/avif` inline, `image/heic` und
+    /// `image/heif` attachment (Mutanten „nur Hauptmarke“, „`mif1` vor `avif` geprüft“, „HEIC inline“).
+    #[test]
+    fn die_marken_der_ftyp_box() {
+        for (haupt, kompatibel, typ, inline) in [
+            (b"avif", &[b"mif1", b"miaf"][..], "image/avif", true),
+            (b"mif1", &[b"avif"][..], "image/avif", true),
+            (b"avis", &[][..], "image/avif", true),
+            (b"heic", &[b"mif1"][..], "image/heic", false),
+            (b"mif1", &[][..], "image/heif", false),
+            (b"msf1", &[b"hevc"][..], "image/heic", false),
+            (b"isom", &[b"heic"][..], "image/heic", false),
+            (b"isom", &[b"mp42"][..], "video/mp4", true),
+            (b"mp42", &[b"isom"][..], "video/mp4", true),
+            (b"M4A ", &[b"isom"][..], "audio/mp4", true),
+            (b"qt  ", &[][..], DATEI, false),
+        ] {
+            let art = art(&ftyp_mit(haupt, kompatibel));
+            assert_eq!(
+                (art.typ, art.inline),
+                (typ, inline),
+                "{} {kompatibel:?}",
+                String::from_utf8_lossy(haupt)
+            );
+        }
+        let mut ungerade = ftyp_mit(b"isom", &[b"heic"]);
+        ungerade.extend([b'a', b'v']);
+        ungerade[3] += 2;
+        assert_eq!(
+            art(&ungerade).typ,
+            "image/heic",
+            "Rest hinter der letzten vollen Marke übergangen"
+        );
+        assert!(
+            ARTEN.contains(&"image/avif")
+                && ARTEN.contains(&"image/heic")
+                && ARTEN.contains(&"image/heif")
+        );
     }
 
     /// Text über 16 MiB → `attachment` (Betreiber F3; Mutante „Text über 16 MiB inline“).

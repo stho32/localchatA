@@ -1,5 +1,5 @@
-//! Medienart (B0434, ADR-0047 Frage 3): PDF, MP4 (`ftyp` ab Byte 4, Boxgröße 16–4.096; `M4A `/`M4B ` Audio,
-//! `qt  ` keine), WebM (EBML, `DocType` `webm`; `matroska` keine), Ogg (Version 0; Opus und Vorbis Audio, Theora
+//! Medienart (B0434, B0584, ADR-0047 Frage 3): PDF, ISOBMFF (`ftyp` ab Byte 4, Boxgröße 16–4.096; nach allen
+//! Marken AVIF, HEIC, HEIF, sonst nach der Hauptmarke `M4A `/`M4B ` Audio, `qt  ` keine, jede andere MP4), WebM (EBML, `DocType` `webm`; `matroska` keine), Ogg (Version 0; Opus und Vorbis Audio, Theora
 //! Video), MP3 (`ID3` v2–4 oder zwei gültige Rahmenköpfe Layer III). Rein, auf den ersten höchstens 64 KiB; jede
 //! Länge mit Überlaufprüfung, jede Schleife schreitet fort oder endet.
 
@@ -20,18 +20,46 @@ pub fn medien(kopf: &[u8]) -> Option<&'static str> {
     mp3(kopf)
 }
 
-/// `Some(Some(art))` MP4, `Some(None)` ein `ftyp`, das kein MP4 ist (`qt  `), `None` kein `ftyp`.
+/// Marken der HEIF-Familie (ADR-0047 Ergänzung „Karte #9 Nacharbeit F3 und F4“ Regel 2).
+const AVIF: [&[u8; 4]; 2] = [b"avif", b"avis"];
+const HEIC: [&[u8; 4]; 6] = [b"heic", b"heix", b"heim", b"heis", b"hevc", b"hevx"];
+const HEIF: [&[u8; 4]; 2] = [b"mif1", b"msf1"];
+
+/// `Some(Some(art))` ISOBMFF mit Art, `Some(None)` ein `ftyp`, das keine Art hat (`qt  `), `None` kein `ftyp`.
+/// Alle Marken zählen — Hauptmarke und kompatible —, zuerst AVIF, dann HEIC, dann HEIF, dann MP4 nach der Hauptmarke.
 fn mp4(kopf: &[u8]) -> Option<Option<&'static str>> {
     let groesse = u32::from_be_bytes(kopf.get(0..4)?.try_into().ok()?);
     if kopf.get(4..8)? != b"ftyp" || !(16..=4_096).contains(&groesse) {
         return None;
     }
-    Some(match kopf.get(8..12)? {
-        b"M4A " | b"M4B " => Some("audio/mp4"),
-        b"qt  " => None,
-        _ => Some("video/mp4"),
+    let haupt = kopf.get(8..12)?;
+    let kompatibel = kopf.get(16..(groesse as usize).min(kopf.len()))?;
+    let marken: Vec<&[u8]> = std::iter::once(haupt)
+        .chain(kompatibel.chunks_exact(4))
+        .collect();
+    let unter = |familie: &[&[u8; 4]]| {
+        marken
+            .iter()
+            .any(|marke| familie.iter().any(|f| f.as_slice() == *marke))
+    };
+    Some(if unter(&AVIF) {
+        Some(AVIF_TYP)
+    } else if unter(&HEIC) {
+        Some(HEIC_TYP)
+    } else if unter(&HEIF) {
+        Some(HEIF_TYP)
+    } else {
+        match haupt {
+            b"M4A " | b"M4B " => Some("audio/mp4"),
+            b"qt  " => None,
+            _ => Some("video/mp4"),
+        }
     })
 }
+
+pub const AVIF_TYP: &str = "image/avif";
+pub const HEIC_TYP: &str = "image/heic";
+pub const HEIF_TYP: &str = "image/heif";
 
 /// Eine EBML-Zahl variabler Länge ab `stelle`: (Wert ohne Marke, Länge); `mit_marke` für IDs.
 fn vint(bytes: &[u8], stelle: usize, mit_marke: bool) -> Option<(u64, usize)> {
