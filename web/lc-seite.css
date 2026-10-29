@@ -32,12 +32,20 @@ body { background: var(--kd-bg); color: var(--kd-ink); font-family: var(--font-s
 
 /* Kopfzeile und Kennung (Bausteine Kopfzeile, Kennung) */
 #app { min-height: 100%; }
-/* Die Zone „Ort“ nimmt den freien Platz und kürzt zuerst die Beschreibung; die Navigation ist leer, bis die Suche kommt (I0011) */
+/* Die Zone „Ort“ nimmt den freien Platz und kürzt zuerst die Beschreibung; die Navigation ist leer, bis die Suche kommt (I0011).
+   Ab 480 px bricht die Kopfzeile nach Inhalt um (ADR-0027 Ergänzung „Karte #27 UX“, R00019 F0065): der Browser setzt die
+   Bedienung in Zeile 2, genau dann, wenn Zone und Bedienung nicht nebeneinander passen — ohne Grenze in px, ohne JS */
 .lc-head { min-height: var(--kd-header); background: var(--kd-header-bg); color: var(--kd-header-ink); display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; gap: var(--kd-space-16); padding: 0 var(--kd-space-8) 0 var(--kd-space-12); }
 .lc-head :focus-visible { outline-color: var(--lc-focus-header); }
 .lc-head-ort { display: flex; align-items: baseline; gap: var(--kd-space-8); white-space: nowrap; min-width: 0; overflow: hidden; }
 .lc-head-inst { font-family: var(--font-mono); font-size: 12px; color: var(--kd-header-muted); min-width: 0; overflow: hidden; text-overflow: ellipsis; flex: 0 1 auto; }
-.lc-head-desc { font-size: 12px; line-height: 16px; color: var(--kd-header-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; flex: 0 100 auto; }
+.lc-head-desc { font-size: 12px; line-height: 16px; color: var(--kd-header-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; flex: 1 1 0; contain: inline-size; }
+@media (min-width: 480px) {
+  .lc-head { display: flex; flex-wrap: wrap; align-items: center; column-gap: var(--kd-space-16); row-gap: 0; }
+  .lc-head-ort { flex: 1 1 auto; min-height: 40px; }
+  .lc-head-bed { flex: 0 1 auto; min-width: 0; min-height: 40px; }
+  .lc-head-nav:empty { display: none; }
+}
 @media (max-width: 719px) { .lc-head-desc, .lc-head-frist { display: none; } }
 .lc-head-chan { font-size: 14px; line-height: 20px; font-weight: 600; min-width: 0; overflow: hidden; text-overflow: ellipsis; flex: 0 1 auto; }
 /* Der Schalter schrumpft nicht mit: erst geben Beschreibung und Instanzname Platz ab; passt der Name allein nicht,
@@ -68,6 +76,10 @@ body { background: var(--kd-bg); color: var(--kd-ink); font-family: var(--font-s
   .lc-head { min-height: 44px; }
   .lc-head-schalter { height: 44px; min-width: 44px; align-items: center; }
 }
+/* Umgebrochen ergeben 44 (Zone mit dem 44-px-Schalter) + 36 zusammen 80 px wie unter 480 px */
+@media (pointer: coarse) and (min-width: 480px) {
+  .lc-head-bed { min-height: 36px; }
+}
 .lc-hbtn { height: 28px; padding: 0 var(--kd-space-8); background: transparent; border: 0; color: var(--kd-header-ink); cursor: pointer; font-weight: 600; }
 .lc-hbtn:hover, .lc-hbtn[aria-expanded="true"] { background: var(--kd-header-surface); }
 .lc-hbtn .lc-count { font-family: var(--font-mono); font-size: 11px; color: var(--kd-header-muted); }
@@ -80,8 +92,9 @@ body { background: var(--kd-bg); color: var(--kd-ink); font-family: var(--font-s
    Statusspalte für „weg in 1:00“ ließe sonst keine 17 Mono-Zeichen ungebrochen (claude-entwickler) */
 :root { --lc-members: 264px; }
 
-/* Hauptansicht (Bildschirm 4.2): Kopfzeile, Mitte, rechts die Teilnehmer; nur die Mitte und die Liste scrollen */
-.lc-app { height: 100%; display: grid; grid-template-rows: minmax(var(--kd-header), auto) minmax(0, 1fr); }
+/* Hauptansicht (Bildschirm 4.2): Kopfzeile, Mitte, rechts die Teilnehmer; nur die Mitte und die Liste scrollen. Die eine
+   Spalte hat keine Mindestbreite aus dem Inhalt, sonst weitete der nicht umbrechbare Name der Kopfzeile das Fenster */
+.lc-app { height: 100%; display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(var(--kd-header), auto) minmax(0, 1fr); }
 .lc-main { grid-row: 2; display: grid; grid-template-columns: var(--lc-sidebar) minmax(0, 1fr) var(--lc-members); min-height: 0; }
 .lc-main.ohne-teilnehmer { grid-template-columns: var(--lc-sidebar) minmax(0, 1fr); }
 .lc-center { position: relative; min-width: 0; min-height: 0; overflow: hidden; display: flex; flex-direction: column; background: var(--kd-surface); }
