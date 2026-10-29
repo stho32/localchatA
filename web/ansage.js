@@ -67,9 +67,15 @@ function abstandErreicht(zustand, jetztMs) {
   return zustand.letzteAnsageMs === null || jetztMs - zustand.letzteAnsageMs >= ABSTAND_MS;
 }
 
+const SATZENDE = /[.!?…]$/;
+
+function trenner(text) {
+  return SATZENDE.test(text) ? ' ' : '. ';
+}
+
 // Der Schreiber der Ansage-Region: leert sie und setzt im nächsten Bild den Text, damit auch derselbe Text wieder
 // angesagt wird. Alle Ansagen bis zu diesem Bild gehen zusammengezogen hinaus — in der Reihenfolge des Eintreffens, mit
-// „. “ verbunden, gleiche einmal; nie gewinnt nur die letzte (R00025 F0084, ADR-0038 Ergänzung „Karte #36
+// „. “ verbunden (nach „.“, „!“, „?“ oder „…“ am Ende nur „ “), gleiche einmal; nie gewinnt nur die letzte (R00025 F0084, ADR-0038 Ergänzung „Karte #36
 // UX-Vorprüfung“ Punkt 3).
 export function ansageSchreiberAnlegen({ schreiben, imNaechstenBild }) {
   let wartende = [];
@@ -83,7 +89,7 @@ export function ansageSchreiberAnlegen({ schreiben, imNaechstenBild }) {
     imNaechstenBild(() => {
       const texte = [...new Set(wartende)];
       wartende = [];
-      schreiben(texte.join('. '));
+      schreiben(texte.reduce((summe, text) => summe + trenner(summe) + text));
     });
   };
 }

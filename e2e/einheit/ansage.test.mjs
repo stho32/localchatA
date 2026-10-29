@@ -115,6 +115,30 @@ test('Sofort-Ansagen im selben Bild erreichen die Region zusammengezogen, gleich
   assert.deepEqual(geschrieben, ['', 'Frist auf 3 Tage gesetzt. Verbindung verloren', '', 'Wieder verbunden']);
 });
 
+// R00033 F0124 B0552: nach einem Satzzeichen am Ende folgt nur ein Leerzeichen, nie „..“ (rechtschreib-reviewer #36).
+test('zusammengezogene Ansagen tragen keinen doppelten Punkt', () => {
+  const zusammengezogen = (...texte) => {
+    const geschrieben = [];
+    let bild = null;
+    const sagen = ansageSchreiberAnlegen({
+      schreiben: (text) => geschrieben.push(text),
+      imNaechstenBild: (rueckruf) => {
+        bild = rueckruf;
+      },
+    });
+    texte.forEach(sagen);
+    bild();
+    return geschrieben[1];
+  };
+
+  assert.equal(zusammengezogen('a.', 'b'), 'a. b');
+  assert.equal(zusammengezogen('a', 'b'), 'a. b');
+  assert.equal(zusammengezogen('a…', 'b'), 'a… b');
+  assert.equal(zusammengezogen('a.', 'b.'), 'a. b.');
+  assert.equal(zusammengezogen('a!', 'b?', 'c'), 'a! b? c');
+  assert.equal(zusammengezogen('a', 'a'), 'a');
+});
+
 test('eine Sofort-Ansage mit Text geht unverändert und außerhalb der Bündelung hinaus', () => {
   const gesammelt = ansage(ANSAGE_LEER, fremd(), 0).zustand;
   const zweite = ansage(gesammelt, fremd(), 1000).zustand;
