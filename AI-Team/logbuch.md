@@ -148,3 +148,8 @@ Eine Zeile je Auftrag an eine Rolle und je Retrospektive.
 | 2026-10-29 | #30 | Detailplanung → Entwicklung | entwickler | läuft | — | R00020 Teil 1 (9 Bubbles) |
 | 2026-10-29 | #34 | Architektur → Detailplanung | architekt | bestanden | 0:08 | Betreiber: Plattenquote als Quote; ADR-0044 (507, 4 GiB, nichts gelöscht); Betreiber: Frist gilt im Archiv; Vision ergänzt |
 | 2026-10-29 | #35 | Architektur → Detailplanung | architekt | bestanden | 0:15 | Vorrang (Betreiber: DNS-Namen); Betreiber nach Erklärung Rebinding: eigene Netznamen automatisch, HTML-Seite, --alle-namen; ADR-0045; Angriffsmatrix beim security-reviewer |
+| 2026-10-29 | #8 | Auto-Reviews → Nacharbeit | code-reviewer | befund | — | enge Wiederholung: B1/B2 geschlossen, B3 Sperrordnungs-Test nur 3/20 rot → Nacharbeit 2 (Label nacharbeit-auto-reviews-2); UX S1 geschlossen |
+| 2026-10-29 | #22 | Auto-Reviews → Nacharbeit | code-, ux-, security-, rechtschreib-, observability-reviewer | befund | — | Muss: Nachholen verliert Nachrichten (Live-Konkurrenz, Fehlerfall), Takt/Entwurf-Wechsel ungetestet; Sollte → Härtung; planer plant |
+| 2026-10-29 | #26, #35 | Detailplanung | architekt, planer | bestanden | — | Vorbehalte #26 entschieden (grenze/hoechstens, 408, Ende-Episoden, Option vor Umgebung); ADR-0045 E1–E8 + Angriffsmatrix; Bubbles nachgezogen |
+| 2026-10-29 | #30 | Entwicklung → Auto-Reviews | entwickler | bestanden | 0:26 | R00020 Teil 1, Gate 862/0, E2E 227/272; 5 Reviews |
+| 2026-10-29 | #35 | Detailplanung → Entwicklung | entwickler | läuft | — | Vorrang: I0024 Netznamen (R00024), erste Bubble Abhängigkeitsprobe dns-lookup |
