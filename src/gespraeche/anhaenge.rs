@@ -922,6 +922,55 @@ mod tests {
         assert_eq!(verlauf.nachrichten[0].anhaenge.len(), 1);
     }
 
+    /// B0443: der Tag entfällt (Frist 7, gepflegt am 6. November) → Tagesdatei und `anhaenge/<tag>/` sind weg, `G`
+    /// zählt ihre Bytes nicht mehr, das Verzeichnis kennt die ID nicht mehr (Mutante „Entfallen vergisst
+    /// Anhangbytes“).
+    #[test]
+    fn mit_dem_tag_entfallen_die_anhaenge_samt_ihren_bytes() {
+        let (gespraeche, _, anhaenge) = mit_ablage();
+        let id = fertig(&gespraeche, "beta@127.0.0.1", "a.bin", &[1; 10]);
+        gespraeche
+            .senden_mit_anhaengen(
+                &Gespraech::channel("allgemein"),
+                &kennung("beta@127.0.0.1"),
+                Art::Agent,
+                "x",
+                std::slice::from_ref(&id),
+                None,
+            )
+            .expect("gesendet");
+        anhaenge.anhang_setzen(
+            &Gespraech::channel("allgemein"),
+            tag_29(),
+            "999999999-1-waise.bin",
+            b"w",
+        );
+        gespraeche
+            .anhangverzeichnis
+            .waise(&Gespraech::channel("allgemein"), tag_29(), 65_536);
+        gespraeche
+            .anhangzaehler
+            .gebunden
+            .fetch_add(65_536, Ordering::SeqCst);
+        assert_eq!(gespraeche.anhangkennzahlen().gebunden, 2 * 65_536);
+
+        let berichte = gespraeche.pflegen(
+            NaiveDate::from_ymd_opt(2026, 11, 6).expect("Tag"),
+            crate::gespraeche::Pflegeanlass::Tageswechsel,
+        );
+
+        assert!(
+            berichte.iter().all(|bericht| matches!(
+                bericht,
+                crate::gespraeche::Pflegebericht::Entfallen { .. }
+            )),
+            "{berichte:?}"
+        );
+        assert_eq!(gespraeche.anhangkennzahlen().gebunden, 0);
+        assert!(anhaenge.anhaenge().is_empty());
+        assert!(gespraeche.anhangverzeichnis.finden(&id).is_none());
+    }
+
     #[test]
     fn standard_der_anhang_quote_ist_20_gib() {
         let ablage = Arc::new(Speicherablage::neu());

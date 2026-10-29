@@ -141,6 +141,18 @@ impl Gespraeche {
                         let vorher = self.belegung.weg(bytes);
                         self.unter_90_melden(vorher, vorher.saturating_sub(bytes), anlass);
                     }
+                    if let Err(ursache) = self.anhaenge_entfallen(&gespraech, tag) {
+                        fehler.push(Pflegebericht::NichtEntfallen {
+                            channel: name.clone(),
+                            datei: format!(
+                                "{}/anhaenge/{}",
+                                gespraech.pfad(),
+                                tag.format("%Y-%m-%d")
+                            ),
+                            anlass: anlass.clone(),
+                            ursache: ursache.to_string(),
+                        });
+                    }
                     entfallen.push(tag);
                 }
                 Err(ursache) => fehler.push(Pflegebericht::NichtEntfallen {
@@ -163,6 +175,27 @@ impl Gespraeche {
         }
         berichte.extend(fehler);
         berichte
+    }
+}
+
+impl Gespraeche {
+    /// Nach der Tagesdatei entfallen die Anhänge des Tags (ADR-0046 Regel 9, Ergänzung „Karte #9 Security-Gate“
+    /// Regel 4): über Verzeichnisdeskriptoren, nie einem Symlink folgend; erst danach aus dem Verzeichnis und `G −=` die
+    /// gewonnenen `vorhanden` samt Waisen (Gelöschte zieht der Löschende ab). Scheitert das Entfernen, bleibt der Tag
+    /// mit seinen Anhängen in Verzeichnis und Zähler.
+    pub(super) fn anhaenge_entfallen(
+        &self,
+        gespraech: &Gespraech,
+        tag: NaiveDate,
+    ) -> std::io::Result<()> {
+        self.anhangablage.tag_entfernen(gespraech, tag)?;
+        let weg = self.anhangverzeichnis.tag_entfernen(gespraech, tag);
+        let _ = self.anhangzaehler.gebunden.fetch_update(
+            std::sync::atomic::Ordering::SeqCst,
+            std::sync::atomic::Ordering::SeqCst,
+            |gebunden| Some(gebunden.saturating_sub(weg)),
+        );
+        Ok(())
     }
 }
 

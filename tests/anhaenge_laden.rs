@@ -4,6 +4,7 @@ mod gemeinsam;
 
 use gemeinsam::Absender;
 use gemeinsam::anhaenge::{ablegen, gesundheit, starten};
+use gemeinsam::frist::{KURZ_VOR_MITTERNACHT, MITTAG, frist_setzen};
 use gemeinsam::protokoll::alle_zeilen;
 use gemeinsam::senden::{beitreten, ordner, roh_senden, verlauf};
 use serde_json::{Value, json};
@@ -129,4 +130,166 @@ async fn ein_tag_als_symlink_bleibt_ohne_anhaenge() {
             .any(|w| w.contains(&format!("tag={tag}")) && w.contains("channels/allgemein")),
         "{warnungen:#?}"
     );
+}
+
+/// Sendet am `jetzt` eine Nachricht mit 1.000 Bytes und stoppt; liefert den Tag.
+async fn am_tag_senden(ordner: &Path, jetzt: &str) -> String {
+    let instanz = starten(ordner, &[], &[("LOCALCHATA_JETZT", jetzt)]);
+    let (_, tag) = mit_anhang_senden(&instanz.adresse, "x", vec![0; 1_000]).await;
+    tag
+}
+
+/// Entfallen beim Start (Frist 7): Nachricht mit Anhang vom 20. Oktober, Start am 28. → Tagesdatei und
+/// `anhaenge/<tag>/` entfallen, beide Zähler zählen sie nicht; ein Symlink im Tag auf eine fremde Datei ist weg, sein
+/// Ziel bleibt.
+#[tokio::test]
+async fn mit_dem_tag_entfallen_die_anhaenge() {
+    let wurzel = ordner();
+    let tag = am_tag_senden(wurzel.path(), "2026-10-20T12:00:00+02:00").await;
+    let fremd = tempfile::tempdir().expect("fremd");
+    std::fs::write(fremd.path().join("ziel"), b"bleibt").expect("Ziel");
+    let anhaenge = wurzel
+        .path()
+        .join(format!("channels/allgemein/anhaenge/{tag}"));
+    symlink(fremd.path().join("ziel"), anhaenge.join("zeiger")).expect("Symlink");
+
+    let instanz = starten(wurzel.path(), &[], &[("LOCALCHATA_JETZT", MITTAG)]);
+
+    let stand = gesundheit(&instanz.adresse).await;
+    assert_eq!(
+        (stand["anhang_belegt"].as_u64(), stand["log_bytes"].as_u64()),
+        (Some(0), Some(0))
+    );
+    assert!(std::fs::symlink_metadata(&anhaenge).is_err());
+    assert!(
+        !wurzel
+            .path()
+            .join(format!("channels/allgemein/{tag}.log"))
+            .exists()
+    );
+    assert_eq!(
+        std::fs::read(fremd.path().join("ziel")).expect("Ziel"),
+        b"bleibt"
+    );
+}
+
+/// `anhaenge` als Symlink auf einen fremden Ordner mit gleichnamigem Tag → im fremden Ordner ist nichts gelöscht; der
+/// Tag hat beim Laden keinen Eintrag (Symlink im Pfad, B0442), zählt also 0, und das Entfallen meldet sich als nicht
+/// entfallen.
+#[tokio::test]
+async fn entfallen_folgt_keinem_symlink_auf_anhaenge() {
+    let wurzel = ordner();
+    let tag = am_tag_senden(wurzel.path(), "2026-10-20T12:00:00+02:00").await;
+    let anhaenge = wurzel.path().join("channels/allgemein/anhaenge");
+    let fremd = tempfile::tempdir().expect("fremd");
+    std::fs::create_dir_all(fremd.path().join(&tag)).expect("fremder Tag");
+    for eintrag in std::fs::read_dir(anhaenge.join(&tag)).expect("Tag") {
+        let eintrag = eintrag.expect("Eintrag");
+        std::fs::copy(
+            eintrag.path(),
+            fremd.path().join(&tag).join(eintrag.file_name()),
+        )
+        .expect("Kopie");
+    }
+    std::fs::rename(&anhaenge, wurzel.path().join("echte-anhaenge")).expect("weg");
+    symlink(fremd.path(), &anhaenge).expect("Symlink");
+
+    let instanz = starten(wurzel.path(), &[], &[("LOCALCHATA_JETZT", MITTAG)]);
+
+    assert_eq!(gesundheit(&instanz.adresse).await["anhang_belegt"], 0);
+    drop(instanz);
+    assert_eq!(
+        std::fs::read_dir(fremd.path().join(&tag))
+            .expect("fremd")
+            .count(),
+        1,
+        "nichts gelöscht"
+    );
+    assert!(
+        std::fs::symlink_metadata(&anhaenge)
+            .expect("Link")
+            .file_type()
+            .is_symlink()
+    );
+}
+
+/// `anhaenge/<tag>` als Symlink auf einen fremden Ordner → nur der Link ist weg, sein Ziel bleibt (Mutante
+/// „`remove_dir_all` auf dem vollen Pfad“).
+#[tokio::test]
+async fn ein_tag_als_symlink_entfaellt_nur_als_link() {
+    let wurzel = ordner();
+    let tag = am_tag_senden(wurzel.path(), "2026-10-20T12:00:00+02:00").await;
+    let tagordner = wurzel
+        .path()
+        .join(format!("channels/allgemein/anhaenge/{tag}"));
+    let fremd = tempfile::tempdir().expect("fremd");
+    std::fs::write(fremd.path().join("x"), b"x").expect("x");
+    std::fs::remove_dir_all(&tagordner).expect("weg");
+    symlink(fremd.path(), &tagordner).expect("Symlink");
+
+    let instanz = starten(wurzel.path(), &[], &[("LOCALCHATA_JETZT", MITTAG)]);
+    drop(instanz);
+
+    assert!(
+        std::fs::symlink_metadata(&tagordner).is_err(),
+        "nur der Link ist weg"
+    );
+    assert_eq!(std::fs::read(fremd.path().join("x")).expect("x"), b"x");
+}
+
+/// Verkürzen der Frist: Nachricht mit Anhang vom 26. Oktober, Start am 28. (Frist 7: bleibt), `PUT frist {tage: 1}`
+/// → der 26. entfällt samt `anhaenge/<tag>/`, `anhang_belegt` 0.
+#[tokio::test]
+async fn beim_verkuerzen_der_frist_entfallen_die_anhaenge() {
+    let wurzel = ordner();
+    let tag = am_tag_senden(wurzel.path(), "2026-10-26T12:00:00+01:00").await;
+    let instanz = starten(wurzel.path(), &[], &[("LOCALCHATA_JETZT", MITTAG)]);
+    assert_eq!(gesundheit(&instanz.adresse).await["anhang_belegt"], 65_536);
+    let beta = Absender::von("127.0.0.1");
+    let token = beitreten(&beta, &instanz.adresse, "beta", Some("agent")).await;
+
+    let gesetzt = frist_setzen(
+        &beta,
+        &instanz,
+        &token,
+        "allgemein",
+        json!({"tage": 1, "bestaetigt": true}),
+    )
+    .await;
+
+    assert_eq!(gesetzt.status, 200, "{}", gesetzt.json);
+    assert_eq!(gesundheit(&instanz.adresse).await["anhang_belegt"], 0);
+    assert!(
+        !wurzel
+            .path()
+            .join(format!("channels/allgemein/anhaenge/{tag}"))
+            .exists()
+    );
+}
+
+/// Tageswechsel: Nachricht mit Anhang vom 22. Oktober, Start 2 s vor Mitternacht am 28. (bleibt), nach Mitternacht
+/// entfällt der 22. samt Anhängen ohne Neustart.
+#[tokio::test]
+async fn beim_tageswechsel_entfallen_die_anhaenge() {
+    let wurzel = ordner();
+    let tag = am_tag_senden(wurzel.path(), "2026-10-22T12:00:00+02:00").await;
+    let instanz = starten(
+        wurzel.path(),
+        &[],
+        &[("LOCALCHATA_JETZT", KURZ_VOR_MITTERNACHT)],
+    );
+    assert_eq!(gesundheit(&instanz.adresse).await["anhang_belegt"], 65_536);
+    let tagordner = wurzel
+        .path()
+        .join(format!("channels/allgemein/anhaenge/{tag}"));
+
+    let beginn = std::time::Instant::now();
+    while gesundheit(&instanz.adresse).await["anhang_belegt"] != 0
+        && beginn.elapsed() < std::time::Duration::from_secs(10)
+    {
+        tokio::time::sleep(std::time::Duration::from_millis(25)).await;
+    }
+
+    assert_eq!(gesundheit(&instanz.adresse).await["anhang_belegt"], 0);
+    assert!(!tagordner.exists());
 }
