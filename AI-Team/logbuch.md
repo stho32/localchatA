@@ -153,3 +153,6 @@ Eine Zeile je Auftrag an eine Rolle und je Retrospektive.
 | 2026-10-29 | #26, #35 | Detailplanung | architekt, planer | bestanden | — | Vorbehalte #26 entschieden (grenze/hoechstens, 408, Ende-Episoden, Option vor Umgebung); ADR-0045 E1–E8 + Angriffsmatrix; Bubbles nachgezogen |
 | 2026-10-29 | #30 | Entwicklung → Auto-Reviews | entwickler | bestanden | 0:26 | R00020 Teil 1, Gate 862/0, E2E 227/272; 5 Reviews |
 | 2026-10-29 | #35 | Detailplanung → Entwicklung | entwickler | läuft | — | Vorrang: I0024 Netznamen (R00024), erste Bubble Abhängigkeitsprobe dns-lookup |
+| 2026-10-29 | #8 | Nacharbeit → Auto-Reviews | entwickler (entw2) | bestanden | 0:19 | Nacharbeit 2: Sperrordnungstest erzwingt Überlappung (cfg(test)-Naht), M14 20/20 rot; enge Wiederholung code-reviewer |
+| 2026-10-29 | #30 | Auto-Reviews → Nacharbeit | code-, ux-, security-, rechtschreib-, observability-reviewer | befund | — | Muss: erste neue = erste des Tages verdeckt Kontext; entw2 baut; sonst bestanden |
+| 2026-10-29 | #22 | Nacharbeit | planer | bestanden | 0:14 | Nacharbeit B0390–B0395 (stiller Neuversuch beim Nachholen), R00012 nachgezogen; Härtung R00025 als #36 (Architektur) |
