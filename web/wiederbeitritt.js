@@ -18,8 +18,10 @@ export function wiederbeitrittAnlegen({ speicher, api, sperre, gelungen, geschei
 
   async function beitreten(abgelehntesToken) {
     const zustand = await sperre((geschwister) => sitzung.nachAblehnung(speicher, api, abgelehntesToken, geschwister));
+    // Das eben geprüfte Token, nie neu aus dem Speicher: ohne Web Locks kann ein Nachbar-Tab ihn inzwischen geleert
+    // haben (Befund #58), oder er hat das neue Token nie angenommen.
     if (zustand.art === 'kopfzeile') {
-      gelungen(speicher.getItem(sitzung.SITZUNG));
+      gelungen(zustand.token);
     } else {
       gescheitert(zustand);
     }

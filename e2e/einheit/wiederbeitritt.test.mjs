@@ -91,3 +91,63 @@ test('scheitert der stille Beitritt, geht der Zustand an gescheitert, nicht an g
   assert.deepEqual(gelungen, []);
   assert.deepEqual(gescheitert.map((z) => z.art), ['vergeben']);
 });
+
+// Befund #58 (Härtung #49, r00004 B2 unter Last): ohne Web Locks kann nach dem 409 der gemeinsame Speicher leer sein —
+// das eigene tokenVergessen löscht im Wettlauf über localStorage auch das eben geschriebene Token des Nachbar-Tabs.
+// Abnahme-Probe wörtlich: Speicher nach dem 409 leer, geschwister.neuesToken liefert 'neu', ich('neu') 200 →
+// gelungen(['neu']), nie das Token neu aus dem Speicher (heute [null]: der Strom wartet ewig auf ein Token).
+test('Befund #58: gelungen bekommt das geprüfte Token des Nachbar-Tabs, nicht null', async () => {
+  const speicher = speicherMit({ [SITZUNG]: 'alt', [NAME]: 'shoff' });
+  const api = {
+    beitreten: async () => ({ status: 409, daten: { belegt_von: 'shoff@127.0.0.1', seit: 'x', vorschlag: 'shoff-2' } }),
+    ich: async (token) => ({ status: token === 'neu' ? 200 : 401, daten: { name: 'shoff' } }),
+  };
+  const gelungen = [];
+  const wiederBeitreten = wiederbeitrittAnlegen({
+    speicher, api, sperre: (arbeit) => arbeit({ neuesToken: async () => 'neu' }),
+    gelungen: (token) => gelungen.push(token), gescheitert: () => {},
+  });
+
+  const zustand = await wiederBeitreten('alt');
+
+  assert.equal(zustand.art, 'kopfzeile');
+  assert.deepEqual(gelungen, ['neu']);
+});
+
+// Befund #58, Klasse: auf jedem der drei Wege zum Erfolg bekommt gelungen das Token, das eben geprüft bzw. vergeben
+// wurde — auch wenn ein Nachbar-Tab den Speicher zwischen Prüfung und Meldung leert oder der Speicher nichts annimmt.
+const WEGE = [
+  { weg: 'Token eines anderen Tabs im Speicher', speicher: { [SITZUNG]: 'vom-anderen-tab', [NAME]: 'shoff' }, beitritt: NEU, nachbar: null, erwartet: 'vom-anderen-tab' },
+  { weg: 'eigener Beitritt 201', speicher: { [SITZUNG]: 'alt', [NAME]: 'shoff' }, beitritt: NEU, nachbar: null, erwartet: 'neu' },
+  { weg: '409, Token des Nachbar-Tabs über das storage-Ereignis', speicher: { [SITZUNG]: 'alt', [NAME]: 'shoff' }, beitritt: { status: 409, daten: { belegt_von: 'shoff@127.0.0.1', seit: 'x', vorschlag: 'shoff-2' } }, nachbar: 'vom-nachbarn', erwartet: 'vom-nachbarn' },
+];
+for (const { weg, speicher: eintraege, beitritt, nachbar, erwartet } of WEGE) {
+  for (const stoerung of ['Nachbar-Tab leert den Speicher nach der Prüfung', 'Speicher nimmt nichts an']) {
+    test(`Befund #58 (${weg}, ${stoerung}): gelungen bekommt ${erwartet}`, async () => {
+      const speicher = speicherMit(eintraege);
+      if (stoerung === 'Speicher nimmt nichts an') {
+        speicher.setItem = () => { throw new Error('QuotaExceededError'); };
+      }
+      const api = { ...apiMit(beitritt), ich: async (token) => ({ status: token === nachbar ? 200 : 401, daten: { name: 'shoff' } }) };
+      const gelungen = [];
+      const wiederBeitreten = wiederbeitrittAnlegen({
+        speicher,
+        api,
+        sperre: async (arbeit) => {
+          const zustand = await arbeit({ neuesToken: async () => nachbar });
+          if (stoerung === 'Nachbar-Tab leert den Speicher nach der Prüfung') {
+            speicher.removeItem(SITZUNG);
+          }
+          return zustand;
+        },
+        gelungen: (token) => gelungen.push(token),
+        gescheitert: () => {},
+      });
+
+      const zustand = await wiederBeitreten('alt');
+
+      assert.equal(zustand.art, 'kopfzeile');
+      assert.deepEqual(gelungen, [erwartet]);
+    });
+  }
+}
