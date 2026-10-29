@@ -208,3 +208,9 @@ pub fn mp3() -> Vec<u8> {
     bytes.extend(&rahmen);
     bytes
 }
+
+/// Ein echtes AVIF 4032 × 3024 (einfarbig, 460 Bytes), erzeugt mit `ffmpeg -f lavfi -i
+/// "color=c=0x336699:s=4032x3024,format=yuv420p" -frames:v 1 -c:v libaom-av1 -still-picture 1 foto.avif`.
+pub fn avif_foto() -> Vec<u8> {
+    include_bytes!("foto-4032x3024.avif").to_vec()
+}

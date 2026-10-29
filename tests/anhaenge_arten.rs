@@ -314,3 +314,50 @@ async fn heif_familie_und_mov_ohne_ftyp_ueber_das_programm() {
         }
     }
 }
+
+/// ADR-0047 Ergänzung „Karte #9 Nacharbeit F3 und F4“, Erste Tests (Integration): ein echtes AVIF-Foto (ffmpeg,
+/// 4032 × 3024) hochladen und senden → `GET /anhaenge/<id>` mit `Content-Type: image/avif`, `inline`, CSP `sandbox`;
+/// Verlauf `art: "image/avif"`, `breite` 4032, `hoehe` 3024.
+#[tokio::test]
+async fn ein_avif_foto_kommt_mit_seinen_massen() {
+    use gemeinsam::anhaenge::ablegen;
+    use gemeinsam::senden::{roh_senden, verlauf};
+    let wurzel = ordner();
+    let instanz = starten(wurzel.path(), &[], &[]);
+    let basis = instanz.adresse.as_str();
+    let beta = Absender::von("127.0.0.1");
+    let token = beitreten(&beta, basis, "beta", Some("agent")).await;
+    let id = ablegen(&beta, basis, &token, "foto.avif", dateien::avif_foto()).await;
+    let gesendet = roh_senden(
+        &beta,
+        basis,
+        Some(&token),
+        "allgemein",
+        "application/json",
+        json!({"text": "", "anhaenge": [id]})
+            .to_string()
+            .into_bytes(),
+    )
+    .await;
+    assert_eq!(gesendet.status, 201, "{}", gesendet.json);
+
+    let anhang = &verlauf(&beta, basis, &token, "allgemein").await["nachrichten"][0]["anhaenge"][0];
+    assert_eq!(
+        (&anhang["art"], &anhang["breite"], &anhang["hoehe"]),
+        (&json!("image/avif"), &json!(4032), &json!(3024))
+    );
+    let antwort = reqwest::get(format!("{basis}anhaenge/{id}"))
+        .await
+        .expect("Antwort");
+    let kopf = |name: &str| {
+        antwort
+            .headers()
+            .get(name)
+            .and_then(|wert| wert.to_str().ok())
+            .unwrap_or_default()
+            .to_string()
+    };
+    assert_eq!(kopf("content-type"), "image/avif");
+    assert!(kopf("content-disposition").starts_with("inline;"));
+    assert!(kopf("content-security-policy").starts_with("sandbox"));
+}

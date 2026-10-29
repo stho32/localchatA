@@ -3,8 +3,9 @@
 //! Name und `Content-Type` des Senders zählen nie. Rein.
 
 use super::art::{Art, DATEI, inline};
+use super::avif;
 use super::bild::bild;
-use super::medien::medien;
+use super::medien::{AVIF_TYP, medien};
 use super::text::Textpruefer;
 
 /// Für Signaturen werden höchstens so viele Bytes gelesen.
@@ -43,11 +44,15 @@ impl Erkenner {
             };
         }
         if let Some(typ) = medien(&self.kopf) {
+            let (breite, hoehe) = (typ == AVIF_TYP)
+                .then(|| avif::masse(&self.kopf))
+                .flatten()
+                .unzip();
             return Art {
                 typ,
                 inline: inline(typ, self.bytes),
-                breite: None,
-                hoehe: None,
+                breite,
+                hoehe,
             };
         }
         if self.text.ist_text() {

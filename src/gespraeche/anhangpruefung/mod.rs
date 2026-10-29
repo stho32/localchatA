@@ -2,6 +2,7 @@
 //! gespeichert und als welche Art sie ausgeliefert wird. Rein — keine Platte, keine Uhr.
 
 mod art;
+mod avif;
 pub mod bild;
 pub mod erkenner;
 pub mod exif;
