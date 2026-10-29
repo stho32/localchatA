@@ -413,3 +413,13 @@ Nie vom User erfragen.
 | 2026-10-29 | R00023 Plattenquote | Lesen, Ausgangslauf, Mutanten, Gate, Gelerntes | Konsolidierung | — | 0,22h | 0,22h | autonom |
 | 2026-10-29 | R00024 Netznamen | B0485 Nacharbeit: Prozessende ohne Aufräumen der C-Bibliothek | Nacharbeit | — | 0,30h | 0,30h | autonom |
 | 2026-10-29 | R00023 Plattenquote | B0486 Nacharbeit: 507-Text groß nach Doppelpunkt | Nacharbeit | 0,4h | 0,17h | 0,17h | autonom |
+| 2026-10-29 | R00027 Senden-Knopf | B0413 Bereit-Regel sendbar | Standard | 0,4h | 0,03h | 0,03h | autonom |
+| 2026-10-29 | R00027 Senden-Knopf | B0414 Knopf zeichnen | Standard | 0,4h | 0,15h | 0,15h | autonom |
+| 2026-10-29 | R00027 Senden-Knopf | B0415 Knopf verdrahten | Standard | 0,4h | 0,08h | 0,08h | autonom |
+| 2026-10-29 | R00027 Senden-Knopf | B0480 Fokusring | Standard | 0,4h | 0,02h | 0,02h | autonom |
+| 2026-10-29 | R00027 Senden-Knopf | B0481 Kein Zoom | Standard | 0,4h | 0,02h | 0,02h | autonom |
+| 2026-10-29 | R00027 Senden-Knopf | B0482 Schalter Touch | Standard | 0,4h | 0,02h | 0,02h | autonom |
+| 2026-10-29 | R00027 Senden-Knopf | B0483 Taste mit Zeigerart | Standard | 0,4h | 0,02h | 0,02h | autonom |
+| 2026-10-29 | R00027 Senden-Knopf | B0484 Zeigerart je Tastendruck | Standard | 0,4h | 0,02h | 0,02h | autonom |
+| 2026-10-29 | R00027 Senden-Knopf | B0416 Designsystem | Standard | 0,4h | 0,02h | 0,02h | autonom |
+| 2026-10-29 | R00027 Senden-Knopf | Mutanten, Gate 1, Fix Tab-Reihenfolge, Gate 2 | Konsolidierung | — | 0,35h | 0,35h | autonom |
