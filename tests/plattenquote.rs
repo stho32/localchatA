@@ -318,6 +318,41 @@ async fn an_der_quote_ist_senden_507_und_platz_entsteht_ueber_die_frist() {
     let wieder =
         gemeinsam::senden::senden(&absender, &instanz.adresse, &beta, "allgemein", TEXT).await;
     assert_eq!(wieder.status, 201, "{}", wieder.json);
+
+    let zeilen = quote_zeilen(wurzel.path());
+    assert_eq!(
+        zeilen.first().map(String::as_str),
+        Some("WARNING quote Gespräche belegen 90 % der Quote | belegt=1048276 hoechstens=1048576")
+    );
+    assert!(
+        zeilen.contains(&format!(
+            "INFORMATION quote Gespräche wieder unter 90 % der Quote | belegt={} hoechstens=1048576 grund=frist_gesetzt",
+            3 * SATZ
+        )),
+        "{zeilen:#?}"
+    );
+    let alle = alle_zeilen(wurzel.path());
+    let warnung = alle
+        .iter()
+        .position(|zeile| zeile.contains(" WARNING quote Gespräche belegen 90 % der Quote"))
+        .expect("90-%-Zeile");
+    let bereit = alle
+        .iter()
+        .position(|zeile| zeile.contains(" INFORMATION start Instanz bereit"))
+        .expect("Start-Eintrag");
+    assert!(
+        warnung < bereit,
+        "nach dem Laden, vor der ersten Anfrage: {alle:#?}"
+    );
+}
+
+/// Die `quote`-Zeilen des Protokolls ab der Stufe, ohne Zeitstempel.
+fn quote_zeilen(ordner: &Path) -> Vec<String> {
+    alle_zeilen(ordner)
+        .into_iter()
+        .filter(|zeile| zeile.contains(" quote "))
+        .map(|zeile| zeile.split_once(' ').expect("Zeitstempel").1.to_string())
+        .collect()
 }
 
 /// F0075 „Was an der Quote weiter geht“ (US-6): Lesen 200, Channel anlegen 201, Frist verlängern 200 mit `delta`;

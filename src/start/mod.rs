@@ -324,9 +324,11 @@ async fn nach_der_sperre(
     let gespraeche = Arc::new(
         verlauf_laden(&ordner, Arc::clone(&uhr), &protokoll)?
             .mit_quote(quote.hoechstens())
+            .mit_quote_melden(quote_melden(&protokoll))
             .mit_veroeffentlichen(bus::channels_veroeffentlichen(&bus))
             .mit_nachricht_veroeffentlichen(bus::nachrichten_veroeffentlichen(&bus)),
     );
+    quote_beim_start_melden(&gespraeche, &protokoll);
     let gepflegt_am = uhr.jetzt().date_naive();
     frist_pflegen(&gespraeche, gepflegt_am, Pflegeanlass::Start, &protokoll);
     let anwesenheit = Arc::new(
@@ -455,6 +457,33 @@ fn verlauf_laden(
         );
     }
     Ok(gespraeche)
+}
+
+/// Meldungen der Quote ins Betriebsprotokoll (ADR-0044 Regel 7).
+fn quote_melden(protokoll: &Arc<Protokoll>) -> crate::gespraeche::quote::QuoteMelden {
+    let protokoll = Arc::clone(protokoll);
+    Arc::new(move |meldung: &crate::gespraeche::quote::Quotemeldung| {
+        let eintrag = crate::gespraeche::quote::meldung_eintrag(meldung);
+        protokoll.eintragen(
+            eintrag.stufe,
+            eintrag.bereich,
+            eintrag.text,
+            eintrag.kontext,
+        );
+    })
+}
+
+/// Nach dem Laden einmal: über der Quote bzw. über 90 % steht eine WARNING; geladen ist trotzdem alles.
+fn quote_beim_start_melden(gespraeche: &Gespraeche, protokoll: &Protokoll) {
+    if let Some(meldung) = gespraeche.quote_beim_start() {
+        let eintrag = crate::gespraeche::quote::meldung_eintrag(&meldung);
+        protokoll.eintragen(
+            eintrag.stufe,
+            eintrag.bereich,
+            eintrag.text,
+            eintrag.kontext,
+        );
+    }
 }
 
 /// Pflegt alle Channels nach ihrer Frist und trägt jeden Bericht ins Protokoll ein (R00017: nie selbst auf stderr).
@@ -653,5 +682,147 @@ mod tests {
                 "2026-10-28T12:00:00.000+01:00 DEBUG sitzung Sitzung offline | kennung=alpha@127.0.0.2",
             ]
         );
+    }
+
+    /// Ein gültiger Satz von genau `bytes` Bytes für die Speicherablage.
+    fn satz_mit(zeit: &str, bytes: usize) -> String {
+        let kopf = format!("@ {zeit} a@127.0.0.9\n");
+        format!("{kopf}  {}\n\n", "x".repeat(bytes - kopf.len() - 4))
+    }
+
+    /// Gespräche aus der Speicherablage mit `allgemein` und Tagen der Größen `tage` (Datum, Bytes), Quote, Meldungen
+    /// ins Protokoll im Speicher.
+    fn gespraeche_mit(
+        tage: &[(&str, usize)],
+        quote: Option<u64>,
+        protokoll: &Arc<Protokoll>,
+    ) -> Gespraeche {
+        use crate::gespraeche::{Gespraech, Speicherablage};
+        let ablage = Arc::new(Speicherablage::neu());
+        let allgemein = Gespraech::channel("allgemein");
+        ablage.gespraech_anlegen(&allgemein);
+        for (tag, bytes) in tage {
+            ablage.tag_setzen(
+                &allgemein,
+                chrono::NaiveDate::parse_from_str(tag, "%Y-%m-%d").expect("Tag"),
+                &satz_mit(&format!("{tag}T09:00:00.000+01:00"), *bytes),
+            );
+        }
+        let uhr = Arc::new(crate::uhr::GestellteUhr::neu(zeit(
+            "2026-10-28T12:00:00+01:00",
+        )));
+        Gespraeche::laden(ablage, uhr)
+            .expect("geladen")
+            .mit_quote(quote)
+            .mit_quote_melden(quote_melden(protokoll))
+    }
+
+    fn quote_zeilen(speicher: &crate::protokoll::senke::Speicher) -> Vec<String> {
+        speicher
+            .zeilen()
+            .into_iter()
+            .filter(|zeile| zeile.contains(" quote "))
+            .map(|zeile| zeile.split_once(' ').expect("Zeitstempel").1.to_string())
+            .collect()
+    }
+
+    /// B0362 (R00023 F0076 „Wechsel melden“, Speicher-Senke, Quote 1.000; Sätze ab 53 Bytes, darum 790 + 60
+    /// geladen): Senden über 90 % → genau eine WARNING; noch einmal → keine; Verkürzen nimmt den 790-Byte-Tag →
+    /// genau eine INFORMATION mit `grund=frist_gesetzt`.
+    #[test]
+    fn wechsel_beim_senden_und_verkuerzen_stehen_je_einmal_im_protokoll() {
+        let (protokoll, speicher, _, _) = im_speicher("2026-10-28T12:00:00+01:00", Stufe::Debug);
+        let gespraeche = gespraeche_mit(
+            &[("2026-10-26", 790), ("2026-10-27", 60)],
+            Some(1_000),
+            &protokoll,
+        );
+        let allgemein = crate::gespraeche::Gespraech::channel("allgemein");
+        let beta = Kennung::bilden("beta@127.0.0.1").expect("Kennung");
+
+        gespraeche
+            .senden(&allgemein, &beta, crate::anwesenheit::Art::Agent, "1")
+            .expect("gesendet");
+        gespraeche
+            .senden(&allgemein, &beta, crate::anwesenheit::Art::Agent, "2")
+            .expect("gesendet");
+        gespraeche
+            .frist_setzen("allgemein", 2, true, &beta)
+            .expect("verkürzt");
+
+        assert_eq!(
+            quote_zeilen(&speicher),
+            [
+                "WARNING quote Gespräche belegen 90 % der Quote | belegt=915 hoechstens=1000",
+                "INFORMATION quote Gespräche wieder unter 90 % der Quote | belegt=190 hoechstens=1000 grund=frist_gesetzt",
+            ]
+        );
+    }
+
+    /// Dieselbe Zeile beim Tageswechsel trägt `grund=tageswechsel`; mit `aus` gibt es keine `quote`-Zeile.
+    #[test]
+    fn der_tageswechsel_meldet_mit_seinem_grund_aus_meldet_nichts() {
+        for (quote, erwartet) in [
+            (
+                Some(1_000),
+                vec![
+                    "WARNING quote Gespräche belegen 90 % der Quote | belegt=915 hoechstens=1000",
+                    "INFORMATION quote Gespräche wieder unter 90 % der Quote | belegt=125 hoechstens=1000 grund=tageswechsel",
+                ],
+            ),
+            (None, vec![]),
+        ] {
+            let (protokoll, speicher, _, _) =
+                im_speicher("2026-10-28T12:00:00+01:00", Stufe::Debug);
+            let gespraeche = gespraeche_mit(
+                &[("2026-10-26", 790), ("2026-10-27", 60)],
+                quote,
+                &protokoll,
+            );
+            let beta = Kennung::bilden("beta@127.0.0.1").expect("Kennung");
+            gespraeche
+                .senden(
+                    &crate::gespraeche::Gespraech::channel("allgemein"),
+                    &beta,
+                    crate::anwesenheit::Art::Agent,
+                    "1",
+                )
+                .expect("gesendet");
+
+            let heute = chrono::NaiveDate::parse_from_str("2026-11-03", "%Y-%m-%d").expect("Tag");
+            frist_pflegen(&gespraeche, heute, Pflegeanlass::Tageswechsel, &protokoll);
+
+            assert_eq!(quote_zeilen(&speicher), erwartet, "{quote:?}");
+        }
+    }
+
+    /// B0362 (R00023 F0076 „Start“, Speicher-Senke): über der Quote nur „mehr als die Quote“, über 90 % die
+    /// 90-%-Zeile, mit `aus` nichts. Mutante „keine Prüfung beim Start“ wird rot.
+    #[test]
+    fn der_start_meldet_den_stand_der_quote_einmal() {
+        for (bytes, quote, erwartet) in [
+            (
+                1_001,
+                Some(1_000),
+                vec![
+                    "WARNING quote Gespräche belegen mehr als die Quote — Senden wird abgewiesen | belegt=1001 hoechstens=1000",
+                ],
+            ),
+            (
+                950,
+                Some(1_000),
+                vec!["WARNING quote Gespräche belegen 90 % der Quote | belegt=950 hoechstens=1000"],
+            ),
+            (900, Some(1_000), vec![]),
+            (2_000, None, vec![]),
+        ] {
+            let (protokoll, speicher, _, _) =
+                im_speicher("2026-10-28T12:00:00+01:00", Stufe::Debug);
+            let gespraeche = gespraeche_mit(&[("2026-10-27", bytes)], quote, &protokoll);
+
+            quote_beim_start_melden(&gespraeche, &protokoll);
+
+            assert_eq!(quote_zeilen(&speicher), erwartet, "{bytes} {quote:?}");
+        }
     }
 }

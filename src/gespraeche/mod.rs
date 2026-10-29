@@ -114,6 +114,7 @@ pub struct Gespraeche {
     hoechstens: Option<u64>,
     /// Σ Bytes aller Tage im Index — Invariante `belegt = Σ Verlauf::bytes()` (ADR-0044 Regel 2).
     belegung: quote::Belegung,
+    quote_melden: quote::QuoteMelden,
 }
 
 struct Schreibstand {
@@ -251,6 +252,7 @@ impl Gespraeche {
             nachricht_veroeffentlichen: Arc::new(|_: &Gespraech, _: &Nachricht| {}),
             hoechstens: Some(quote::STANDARD_BYTES),
             belegung: quote::Belegung::neu(geladen.belegt),
+            quote_melden: Arc::new(|_: &quote::Quotemeldung| {}),
         })
     }
 
@@ -339,8 +341,9 @@ impl Gespraeche {
                 grund: fehler.to_string(),
             })?;
         verlauf.anhaengen(tag, &satz, angehaengt.zeilenende_ergaenzt);
-        self.belegung
-            .dazu(satzbytes + u64::from(angehaengt.zeilenende_ergaenzt));
+        let dazu = satzbytes + u64::from(angehaengt.zeilenende_ergaenzt);
+        let vorher = self.belegung.dazu(dazu);
+        self.ueber_90_melden(vorher, vorher.saturating_add(dazu));
         if let Some(schluessel) = schluessel {
             stand
                 .wiederholung
@@ -361,6 +364,39 @@ impl Gespraeche {
         let letzte = self.letzte_ms.load(Ordering::Relaxed);
         let jetzt = self.uhr.jetzt().timestamp_millis();
         u64::try_from(letzte.saturating_sub(jetzt)).unwrap_or(0)
+    }
+
+    /// Steigt `belegt` beim Senden über 90 % der Quote, einmal melden (ADR-0044 Regel 7).
+    fn ueber_90_melden(&self, vorher: u64, nachher: u64) {
+        let Some(hoechstens) = self.hoechstens else {
+            return;
+        };
+        if quote::wechsel(vorher, nachher, hoechstens) == Some(quote::Richtung::NachOben) {
+            (self.quote_melden)(&quote::Quotemeldung::Ueber90 {
+                belegt: nachher,
+                hoechstens,
+            });
+        }
+    }
+
+    /// Fällt `belegt` beim Entfallen wieder unter 90 % der Quote, einmal melden mit dem Anlass (ADR-0044 Regel 7).
+    fn unter_90_melden(&self, vorher: u64, nachher: u64, anlass: &Pflegeanlass) {
+        let Some(hoechstens) = self.hoechstens else {
+            return;
+        };
+        if quote::wechsel(vorher, nachher, hoechstens) == Some(quote::Richtung::NachUnten) {
+            (self.quote_melden)(&quote::Quotemeldung::Unter90 {
+                belegt: nachher,
+                hoechstens,
+                anlass: anlass.clone(),
+            });
+        }
+    }
+
+    /// Der Stand der Quote nach dem Laden: über der Quote oder über 90 %, sonst nichts; ohne Quote nichts.
+    pub fn quote_beim_start(&self) -> Option<quote::Quotemeldung> {
+        self.hoechstens
+            .and_then(|hoechstens| quote::beim_start(self.belegt(), hoechstens))
     }
 
     /// Bytes, die die Gespräche belegen (ADR-0044 Regel 2).
@@ -391,6 +427,14 @@ impl Gespraeche {
 }
 
 impl Gespraeche {
+    /// Hängt die Meldungen der Quote an (im Start: das Betriebsprotokoll); ohne sie gehen sie an niemanden.
+    pub fn mit_quote_melden(self, quote_melden: quote::QuoteMelden) -> Gespraeche {
+        Gespraeche {
+            quote_melden,
+            ..self
+        }
+    }
+
     /// Setzt die Plattenquote in Bytes; `None` heißt aus (ADR-0044 Regel 11).
     pub fn mit_quote(self, hoechstens: Option<u64>) -> Gespraeche {
         Gespraeche { hoechstens, ..self }

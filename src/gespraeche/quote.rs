@@ -1,6 +1,9 @@
 //! Plattenquote der Gespräche (ADR-0044): die Grenze in Bytes und der Zähler `belegt`, beide hält Gespräche
 //! (A00006 Ergänzung Karte #34).
 
+use super::pflege::Pflegeanlass;
+use crate::protokoll::{Bereich, Eintrag, Kontext, Schluessel, Stufe};
+use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 /// Standard 4 GiB (ADR-0044 Regel 3): Normalwoche ≈ 1,6 GB und Bestand des Lastprofils ≈ 2,65 GB liegen unter der
@@ -26,6 +29,80 @@ pub fn wechsel(vorher: u64, nachher: u64, hoechstens: u64) -> Option<Richtung> {
         (false, true) => Some(Richtung::NachOben),
         (true, false) => Some(Richtung::NachUnten),
         _ => None,
+    }
+}
+
+/// Was der Betreiber über die Quote lesen soll (ADR-0044 Regel 7): über 90 % beim Senden oder Start, über der Quote
+/// beim Start, wieder unter 90 % beim Entfallen mit dem Anlass der Pflege.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Quotemeldung {
+    Ueber90 {
+        belegt: u64,
+        hoechstens: u64,
+    },
+    UeberQuote {
+        belegt: u64,
+        hoechstens: u64,
+    },
+    Unter90 {
+        belegt: u64,
+        hoechstens: u64,
+        anlass: Pflegeanlass,
+    },
+}
+
+/// Nimmt Meldungen der Quote entgegen (im Start: das Betriebsprotokoll); gerufen auch unter der Schreibsperre.
+pub type QuoteMelden = Arc<dyn Fn(&Quotemeldung) + Send + Sync>;
+
+/// Die Meldung als Eintrag im Bereich `quote` (ADR-0042 Ergänzung Karte #34). Rein.
+pub fn meldung_eintrag(meldung: &Quotemeldung) -> Eintrag {
+    let stand = |belegt: u64, hoechstens: u64| {
+        Kontext::neu()
+            .mit(Schluessel::Belegt, belegt)
+            .mit(Schluessel::Hoechstens, hoechstens)
+    };
+    match meldung {
+        Quotemeldung::Ueber90 { belegt, hoechstens } => Eintrag::neu(
+            Stufe::Warning,
+            Bereich::Quote,
+            "Gespräche belegen 90 % der Quote",
+            stand(*belegt, *hoechstens),
+        ),
+        Quotemeldung::UeberQuote { belegt, hoechstens } => Eintrag::neu(
+            Stufe::Warning,
+            Bereich::Quote,
+            "Gespräche belegen mehr als die Quote — Senden wird abgewiesen",
+            stand(*belegt, *hoechstens),
+        ),
+        Quotemeldung::Unter90 {
+            belegt,
+            hoechstens,
+            anlass,
+        } => Eintrag::neu(
+            Stufe::Information,
+            Bereich::Quote,
+            "Gespräche wieder unter 90 % der Quote",
+            stand(*belegt, *hoechstens).mit(Schluessel::Grund, grund(anlass)),
+        ),
+    }
+}
+
+fn grund(anlass: &Pflegeanlass) -> &'static str {
+    match anlass {
+        Pflegeanlass::Start => "start",
+        Pflegeanlass::Tageswechsel => "tageswechsel",
+        Pflegeanlass::FristGesetzt { .. } => "frist_gesetzt",
+    }
+}
+
+/// Der Stand beim Start (ADR-0044 Regel 7): über der Quote, sonst über 90 %, sonst nichts.
+pub fn beim_start(belegt: u64, hoechstens: u64) -> Option<Quotemeldung> {
+    if belegt > hoechstens {
+        Some(Quotemeldung::UeberQuote { belegt, hoechstens })
+    } else if ueber_90(belegt, hoechstens) {
+        Some(Quotemeldung::Ueber90 { belegt, hoechstens })
+    } else {
+        None
     }
 }
 
@@ -375,5 +452,26 @@ pub(super) mod tests {
         assert!(!ueber_90(3_865_470_566, STANDARD_BYTES));
         assert!(ueber_90(3_865_470_567, STANDARD_BYTES));
         assert!(ueber_90(u64::MAX, u64::MAX));
+    }
+
+    /// Jeder Anlass trägt seinen `grund`; die Mutante „grund immer start“ wird rot.
+    #[test]
+    fn die_meldung_unter_90_nennt_den_anlass() {
+        use super::{Quotemeldung, meldung_eintrag};
+        for (anlass, grund) in [
+            (Pflegeanlass::Start, "start"),
+            (Pflegeanlass::Tageswechsel, "tageswechsel"),
+            (Pflegeanlass::FristGesetzt { von: beta() }, "frist_gesetzt"),
+        ] {
+            let eintrag = meldung_eintrag(&Quotemeldung::Unter90 {
+                belegt: 72,
+                hoechstens: 1_000,
+                anlass,
+            });
+            assert_eq!(
+                eintrag.kontext.wert(crate::protokoll::Schluessel::Grund),
+                Some(grund)
+            );
+        }
     }
 }

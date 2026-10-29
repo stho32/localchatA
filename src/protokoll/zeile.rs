@@ -55,6 +55,8 @@ pub enum Bereich {
     Zeit,
     Programmfehler,
     Koerper,
+    /// Plattenquote (ADR-0042 Ergänzung Karte #34).
+    Quote,
 }
 
 impl Bereich {
@@ -75,6 +77,7 @@ impl Bereich {
             Bereich::Zeit => "zeit",
             Bereich::Programmfehler => "programmfehler",
             Bereich::Koerper => "körper",
+            Bereich::Quote => "quote",
         }
     }
 }

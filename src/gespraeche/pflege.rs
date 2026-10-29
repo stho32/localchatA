@@ -127,7 +127,8 @@ impl Gespraeche {
                 Ok(()) => {
                     if let Some((saetze, bytes)) = verlauf.tag_entfernen(tag) {
                         nachrichten += saetze;
-                        self.belegung.weg(bytes);
+                        let vorher = self.belegung.weg(bytes);
+                        self.unter_90_melden(vorher, vorher.saturating_sub(bytes), anlass);
                     }
                     entfallen.push(tag);
                 }
