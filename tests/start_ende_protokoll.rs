@@ -72,3 +72,28 @@ async fn eine_beim_ende_offene_episode_endet_vor_beendet() {
     );
     assert!(signal < enden[0] && enden[0] < beendet, "{zeilen:#?}");
 }
+
+/// B0384 (R00014 „Ort“): `logs/` liegt nach dem Start da, auch wenn die Mindeststufe noch nichts schreibt;
+/// gegengeprüft: eine falsche Stufe aus der Umgebung ist Exit 2 ohne `logs/`.
+#[test]
+fn logs_liegt_nach_dem_start_auch_auf_stufe_warning_da() {
+    let wurzel = tempfile::tempdir().expect("Wegwerf-Ordner");
+    let mut argumente = LOKAL.to_vec();
+    argumente.extend_from_slice(&["--protokoll-stufe", "warning"]);
+
+    let instanz = starten_mit(wurzel.path(), &argumente, &[]);
+
+    assert!(
+        wurzel.path().join("logs").is_dir(),
+        "nach der Startzeile {}",
+        instanz.startzeile
+    );
+
+    let falsch = tempfile::tempdir().expect("Wegwerf-Ordner");
+    let ordner = falsch.path().display().to_string();
+    let mut argumente = vec![ordner.as_str()];
+    argumente.extend_from_slice(&LOKAL);
+    let ende = gemeinsam::aufrufen_mit(&argumente, &[("LOCALCHATA_PROTOKOLL_STUFE", "laut")]);
+    assert_eq!(ende.exit, Some(2), "{}", ende.stderr);
+    assert!(!falsch.path().join("logs").exists());
+}
