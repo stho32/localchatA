@@ -7,7 +7,7 @@ mod gemeinsam;
 
 use gemeinsam::langsam::{nicht_lesend_oeffnen, riesig_anlegen, server_seitig_offen};
 use gemeinsam::strom::Strom;
-use gemeinsam::{Absender, Instanz, aufrufen, starten_mit};
+use gemeinsam::{Absender, Instanz, aufrufen, gesundheit, starten_mit};
 use serde_json::json;
 use std::time::Duration;
 use tokio::time::Instant;
@@ -87,7 +87,52 @@ async fn k5_nicht_lesende_verbindungen_schliesst_die_instanz_nach_der_sendefrist
             "server-seitig zu nach {dauer:?}, erlaubt [3,6 s; 5,8 s] — alle: {dauern:?}"
         );
     }
+    abriss_spur_pruefen(&instanz, wurzel.path()).await;
     drop(offen);
+}
+
+/// R00018 F0060 (Gate K5 mit Spur, ADR-0042 Ergänzung #24 Punkt 7): nach den vier Abrissen genau eine Beginn-Zeile
+/// der Abriss-Episode für die Herkunft der vier Verbindungen, ohne `grenze=`, und `abgerissen: 4`. Gewartet wird
+/// auf das Merkmal (Zähler 4), höchstens 10 s — die Spur entsteht, wenn die Verbindung server-seitig endet.
+async fn abriss_spur_pruefen(instanz: &Instanz, ordner: &std::path::Path) {
+    let bis = Instant::now() + Duration::from_secs(10);
+    let mut abgerissen = serde_json::Value::Null;
+    while Instant::now() < bis {
+        abgerissen = gesundheit(&instanz.adresse).await.1["abgerissen"].clone();
+        if abgerissen == 4 {
+            break;
+        }
+        tokio::time::sleep(ABTASTUNG).await;
+    }
+    let zeilen = alle_protokollzeilen(ordner);
+    let abrisse: Vec<&String> = zeilen
+        .iter()
+        .filter(|zeile| {
+            zeile.contains(" WARNING verbindung Verbindung an der Abrissgrenze geschlossen")
+        })
+        .collect();
+
+    assert_eq!(abgerissen, 4, "abgerissen nach 10 s");
+    assert_eq!(abrisse.len(), 1, "{abrisse:#?}");
+    assert!(
+        abrisse[0].ends_with(
+            " WARNING verbindung Verbindung an der Abrissgrenze geschlossen — Episode beginnt | herkunft=127.0.0.2 hoechstens=4000"
+        ),
+        "{abrisse:#?}"
+    );
+}
+
+/// Alle Zeilen aller Tagesdateien unter `logs/` — die Instanz läuft mit der echten Uhr.
+fn alle_protokollzeilen(ordner: &std::path::Path) -> Vec<String> {
+    let mut zeilen = Vec::new();
+    for datei in std::fs::read_dir(ordner.join("logs"))
+        .expect("logs/")
+        .flatten()
+    {
+        let inhalt = std::fs::read_to_string(datei.path()).unwrap_or_default();
+        zeilen.extend(inhalt.lines().map(str::to_string));
+    }
+    zeilen
 }
 
 /// K6 (US-4): ein lesender Ereignisstrom bei Herzschlag 2 s ist 12 s (3 × Abrissgrenze) nach dem Antwortkopf

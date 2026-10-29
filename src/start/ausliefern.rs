@@ -2,7 +2,7 @@
 //! Kopf-Zeitgrenze, keine Verbindungsgrenze und kein Ende nach Frist kennt (Security-Review, CWE-400).
 //! Sie setzt je Verbindung die kanonische Gegenstelle als `ConnectInfo` — die Herkunft (ADR-0012).
 
-use super::abriss::Abrissspur;
+use super::abriss::{Abrissspur, Beobachtet};
 use super::abrisspflege::Pflege;
 use super::annahmefehler::annahmefehler_eintragen;
 use super::ende::Ende;
@@ -72,13 +72,14 @@ pub async fn ausliefern(
                         let protokoll = Arc::clone(&protokoll);
                         let abrissgrenze = pflege.abrissgrenze();
                         verbindungen.spawn(async move {
+                            let (strom, erster_fehler) = Beobachtet::neu(strom);
                             let ergebnis = bedienen(strom, app, platz, ende).await;
                             Abrissspur {
                                 protokoll: &protokoll,
                                 herkunft: gegenstelle.ip(),
                                 grenze: abrissgrenze,
                             }
-                            .verbindung_endete(&ergebnis);
+                            .verbindung_endete(&ergebnis, erster_fehler.get());
                             verbindung.beendet();
                         });
                     }
@@ -161,7 +162,7 @@ fn kanonisch(gegenstelle: SocketAddr) -> SocketAddr {
 /// den Aufrufer: nur ein Abriss an der Abrissgrenze wird eingetragen (als Episode, ADR-0042 Ergänzung #24
 /// Punkt 7); andere Enden (Kopf-Zeitgrenze, Abbruch der Gegenstelle) betreffen nur die Verbindung selbst.
 async fn bedienen(
-    strom: TcpStream,
+    strom: Beobachtet<TcpStream>,
     app: Router,
     _platz: Platz,
     mut ende: Ende,

@@ -1,13 +1,93 @@
 //! Abriss an der Abrissgrenze erkennen (R00018 F0060, ADR-0042 Ergänzung #24 Punkt 7): eine Verbindung, die der
-//! Kernel nach der Sendefrist oder bei stillem Abriss schließt, endet mit `ETIMEDOUT` — irgendwo in der
-//! Quellenkette des Fehlers, den `serve_connection` liefert.
+//! Kernel nach der Sendefrist oder bei stillem Abriss schließt, liefert beim Lesen oder Schreiben `ETIMEDOUT`.
+//! Probe aus dem Gate K5 (2026-10-29): hyper reicht diesen Fehler nicht durch — `serve_connection` endet mit
+//! `Ok(())`. Deshalb beobachtet `Beobachtet` den Strom selbst und merkt sich den ersten Ein-/Ausgabefehler;
+//! eingeordnet wird er wie ein Fehler aus `serve_connection` (die Einordnung folgt der Probe).
 
 use crate::protokoll::episoden::Auftreten;
 use crate::protokoll::{Bereich, Kontext, Protokoll, Schluessel, Stufe};
 use std::error::Error;
 use std::io;
 use std::net::IpAddr;
+use std::pin::Pin;
+use std::sync::{Arc, OnceLock};
+use std::task::{Context, Poll};
 use std::time::Duration;
+use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
+
+/// Ein Strom, der seinen ersten Ein-/Ausgabefehler festhält, ohne etwas daran zu ändern.
+pub struct Beobachtet<S> {
+    strom: S,
+    erster_fehler: Arc<OnceLock<io::Error>>,
+}
+
+impl<S> Beobachtet<S> {
+    /// Der beobachtete Strom und der Platz, an dem sein erster Fehler steht.
+    pub fn neu(strom: S) -> (Beobachtet<S>, Arc<OnceLock<io::Error>>) {
+        let erster_fehler = Arc::new(OnceLock::new());
+        let beobachtet = Beobachtet {
+            strom,
+            erster_fehler: Arc::clone(&erster_fehler),
+        };
+        (beobachtet, erster_fehler)
+    }
+
+    fn merken<T>(&self, ergebnis: Poll<io::Result<T>>) -> Poll<io::Result<T>> {
+        if let Poll::Ready(Err(fehler)) = &ergebnis {
+            let kopie = match fehler.raw_os_error() {
+                Some(nummer) => io::Error::from_raw_os_error(nummer),
+                None => io::Error::from(fehler.kind()),
+            };
+            let _ = self.erster_fehler.set(kopie);
+        }
+        ergebnis
+    }
+}
+
+impl<S: AsyncRead + Unpin> AsyncRead for Beobachtet<S> {
+    fn poll_read(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        puffer: &mut ReadBuf<'_>,
+    ) -> Poll<io::Result<()>> {
+        let ergebnis = Pin::new(&mut self.strom).poll_read(cx, puffer);
+        self.merken(ergebnis)
+    }
+}
+
+impl<S: AsyncWrite + Unpin> AsyncWrite for Beobachtet<S> {
+    fn poll_write(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        daten: &[u8],
+    ) -> Poll<io::Result<usize>> {
+        let ergebnis = Pin::new(&mut self.strom).poll_write(cx, daten);
+        self.merken(ergebnis)
+    }
+
+    fn poll_write_vectored(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        teile: &[io::IoSlice<'_>],
+    ) -> Poll<io::Result<usize>> {
+        let ergebnis = Pin::new(&mut self.strom).poll_write_vectored(cx, teile);
+        self.merken(ergebnis)
+    }
+
+    fn is_write_vectored(&self) -> bool {
+        self.strom.is_write_vectored()
+    }
+
+    fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        let ergebnis = Pin::new(&mut self.strom).poll_flush(cx);
+        self.merken(ergebnis)
+    }
+
+    fn poll_shutdown(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        let ergebnis = Pin::new(&mut self.strom).poll_shutdown(cx);
+        self.merken(ergebnis)
+    }
+}
 
 /// Was eine Verbindung braucht, um ihren Abriss einzutragen: Protokoll, Herkunft, Abrissgrenze (falls gepflegt).
 pub struct Abrissspur<'a> {
@@ -17,13 +97,20 @@ pub struct Abrissspur<'a> {
 }
 
 impl Abrissspur<'_> {
-    /// Endete die Verbindung mit einem Abriss, zählt er in `abgerissen` (immer) und geht als WARNING-Episode je
-    /// Herkunft ins Protokoll — `herkunft`, `hoechstens` = Abrissgrenze in ms, ohne `grenze` (es gibt nur eine Art).
-    pub fn verbindung_endete<E: Error + 'static>(&self, ergebnis: &Result<(), E>) {
-        let Err(fehler) = ergebnis else {
-            return;
-        };
-        if !ist_abriss(fehler) {
+    /// Endete die Verbindung mit einem Abriss — im Ergebnis oder im ersten Fehler des Stroms —, zählt er in
+    /// `abgerissen` (immer) und geht als WARNING-Episode je Herkunft ins Protokoll: `herkunft`, `hoechstens` =
+    /// Abrissgrenze in ms, ohne `grenze` (es gibt nur eine Art).
+    pub fn verbindung_endete<E: Error + 'static>(
+        &self,
+        ergebnis: &Result<(), E>,
+        erster_fehler: Option<&io::Error>,
+    ) {
+        let im_ergebnis = ergebnis
+            .as_ref()
+            .err()
+            .is_some_and(|fehler| ist_abriss(fehler));
+        let im_strom = erster_fehler.is_some_and(|fehler| ist_abriss(fehler));
+        if !(im_ergebnis || im_strom) {
             return;
         }
         self.protokoll.abriss_zaehlen();
@@ -115,10 +202,19 @@ mod tests {
             grenze: Some(Duration::from_millis(4000)),
         };
 
-        spur.verbindung_endete(&Err(Eingepackt(io::Error::from(io::ErrorKind::TimedOut))));
-        spur.verbindung_endete(&Err(io::Error::from(io::ErrorKind::TimedOut)));
-        spur.verbindung_endete(&Err(io::Error::from(io::ErrorKind::ConnectionReset)));
-        spur.verbindung_endete::<io::Error>(&Ok(()));
+        let abgelaufen = io::Error::from(io::ErrorKind::TimedOut);
+        let zurueckgesetzt = io::Error::from(io::ErrorKind::ConnectionReset);
+        spur.verbindung_endete(
+            &Err(Eingepackt(io::Error::from(io::ErrorKind::TimedOut))),
+            None,
+        );
+        spur.verbindung_endete::<io::Error>(&Ok(()), Some(&abgelaufen));
+        spur.verbindung_endete(&Err(zurueckgesetzt), None);
+        spur.verbindung_endete::<io::Error>(
+            &Ok(()),
+            Some(&io::Error::from(io::ErrorKind::BrokenPipe)),
+        );
+        spur.verbindung_endete::<io::Error>(&Ok(()), None);
 
         assert_eq!(
             speicher.zeilen(),
@@ -128,5 +224,50 @@ mod tests {
         );
         assert_eq!(protokoll.kennzahlen().abgerissen, 2);
         assert_eq!(protokoll.zaehlerstand().warnings, 2);
+    }
+
+    /// Ein Strom, dessen Schreiben scheitert wie eine abgerissene Verbindung (ETIMEDOUT).
+    struct Abgerissen;
+
+    impl AsyncRead for Abgerissen {
+        fn poll_read(
+            self: Pin<&mut Self>,
+            _cx: &mut Context<'_>,
+            _puffer: &mut ReadBuf<'_>,
+        ) -> Poll<io::Result<()>> {
+            Poll::Ready(Ok(()))
+        }
+    }
+
+    impl AsyncWrite for Abgerissen {
+        fn poll_write(
+            self: Pin<&mut Self>,
+            _cx: &mut Context<'_>,
+            _daten: &[u8],
+        ) -> Poll<io::Result<usize>> {
+            Poll::Ready(Err(io::Error::from_raw_os_error(110)))
+        }
+
+        fn poll_flush(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+            Poll::Ready(Ok(()))
+        }
+
+        fn poll_shutdown(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+            Poll::Ready(Err(io::Error::from(io::ErrorKind::NotConnected)))
+        }
+    }
+
+    /// Der Beobachter hält den ersten Fehler fest, auch wenn der Aufrufer ihn verschluckt; spätere ändern ihn nicht.
+    #[tokio::test]
+    async fn der_erste_fehler_des_stroms_bleibt_stehen() {
+        use tokio::io::AsyncWriteExt;
+        let (mut strom, erster_fehler) = Beobachtet::neu(Abgerissen);
+
+        let _ = strom.write_all(b"Antwort").await;
+        let _ = strom.shutdown().await;
+
+        let fehler = erster_fehler.get().expect("erster Fehler");
+        assert_eq!(fehler.kind(), io::ErrorKind::TimedOut);
+        assert!(ist_abriss(fehler));
     }
 }
