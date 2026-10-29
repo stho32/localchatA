@@ -507,3 +507,4 @@ Nie vom User erfragen.
 | 2026-10-29 | R00035 Verlauf nach Ausfall | B0564 Abnahme-Probe P1 | Standard | 0,4h | 0,05h | 0,05h | autonom (entw2) |
 | 2026-10-29 | R00035 Verlauf nach Ausfall | Mutanten und Zusatztest | Konsolidierung | — | 0,03h | 0,03h | autonom (entw2) |
 | 2026-10-29 | R00035 Verlauf nach Ausfall | Gate und Rebase | Konsolidierung | — | 0,23h | 0,23h | autonom (entw2) |
+| 2026-10-29 | R00032 Doppelte Schlüssel abweisen | Nacharbeit B1, B2 (linear), S1 | Nacharbeit | — | 0,50h | 0,50h | autonom (entw2) |
