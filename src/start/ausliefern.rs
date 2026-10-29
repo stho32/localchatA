@@ -3,6 +3,7 @@
 //! Sie setzt je Verbindung die kanonische Gegenstelle als `ConnectInfo` — die Herkunft (ADR-0012).
 
 use super::abrisspflege::Pflege;
+use super::annahmefehler::annahmefehler_eintragen;
 use super::ende::Ende;
 use super::verbindungen::{Belegung, Platz, Verbindungsgrenzen};
 use crate::protokoll::episoden::Auftreten;
@@ -73,7 +74,10 @@ pub async fn ausliefern(
                         });
                     }
                 }
-                Err(_) => tokio::time::sleep(ANNAHMEPAUSE).await,
+                Err(fehler) => {
+                    annahmefehler_eintragen(&protokoll, &fehler);
+                    tokio::time::sleep(ANNAHMEPAUSE).await;
+                }
             },
         }
     }
