@@ -147,3 +147,14 @@ pub fn im_eingang(ordner: &Path) -> Vec<String> {
     namen.sort();
     namen
 }
+
+/// `DELETE <basis>api/anhaenge/<id>`; liefert den Status.
+pub async fn verwerfen(absender: &Absender, basis: &str, token: &str, id: &str) -> u16 {
+    api_antwort(
+        absender
+            .anfrage(reqwest::Method::DELETE, format!("{basis}api/anhaenge/{id}"))
+            .header("X-LocalchatA-Sitzung", token),
+    )
+    .await
+    .status
+}

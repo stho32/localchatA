@@ -14,6 +14,7 @@ use crate::gespraeche::anhangablage::Teildatei;
 use crate::gespraeche::anhangeingang::{Abbruchgrund, Beginnfehler, Kopf, Platz, Verloren};
 use crate::gespraeche::anhangid::Anhangid;
 use crate::gespraeche::anhangpruefung::Art;
+use crate::gespraeche::anhangpruefung::erkenner::Erkenner;
 use crate::gespraeche::hochladefristen::{Fristart, Fristen, STUECKFRIST, gesamtfrist};
 use crate::protokoll::{Bereich, Kontext, Schluessel, Stufe};
 use axum::Json;
@@ -176,6 +177,7 @@ where
         }
     };
     let mut puffer: Vec<u8> = Vec::with_capacity(STUECK);
+    let mut erkenner = Some(Erkenner::neu());
     let mut gelesen: u64 = 0;
     loop {
         let (frist, art) = fristen.naechste();
@@ -207,10 +209,12 @@ where
                 puffer.extend_from_slice(&stueck);
                 let am_ende = gelesen >= platz.bytes;
                 if puffer.len() >= STUECK || (am_ende && !puffer.is_empty()) {
-                    let geschrieben = schreiben(&bank, teil.take(), std::mem::take(&mut puffer)).await;
+                    let geschrieben =
+                        schreiben(&bank, teil.take(), erkenner.take(), std::mem::take(&mut puffer)).await;
                     match geschrieben {
-                        Ok((zurueck, leer)) => {
+                        Ok((zurueck, erkannt, leer)) => {
                             teil = Some(zurueck);
+                            erkenner = Some(erkannt);
                             puffer = leer;
                             platz.geschrieben.store(gelesen.min(platz.bytes), Ordering::Relaxed);
                         }
@@ -227,12 +231,17 @@ where
         }
     }
     drop(teil);
-    abschliessen(gespraeche, raeumer, platz).await
+    let art = erkenner.map_or_else(Art::datei, |erkenner| erkenner.ergebnis());
+    abschliessen(gespraeche, raeumer, platz, art).await
 }
 
 /// `rename` ohne Überschreiben und der Übergang `laeuft` → `fertig`; wer verliert, räumt seine Datei.
-async fn abschliessen(gespraeche: Arc<Gespraeche>, raeumer: Raeumer, platz: Platz) -> Ergebnis {
-    let art = Art::datei();
+async fn abschliessen(
+    gespraeche: Arc<Gespraeche>,
+    raeumer: Raeumer,
+    platz: Platz,
+    art: Art,
+) -> Ergebnis {
     let umbenannt = {
         let gespraeche = Arc::clone(&gespraeche);
         let id = platz.id.clone();
@@ -272,13 +281,15 @@ async fn abschliessen(gespraeche: Arc<Gespraeche>, raeumer: Raeumer, platz: Plat
     }
 }
 
-/// Ein Stück in einem Blocking-Thread unter einer Erlaubnis der Hochladebank — nie die Werkbank, nie eine Sperre.
+/// Ein Stück in einem Blocking-Thread unter einer Erlaubnis der Hochladebank — nie die Werkbank, nie eine Sperre;
+/// dort sieht auch der Erkenner das Stück (Art und Maße aus dem Inhalt, A00018).
 async fn schreiben(
     bank: &Arc<Semaphore>,
     teil: Option<Box<dyn Teildatei>>,
+    erkenner: Option<Erkenner>,
     puffer: Vec<u8>,
-) -> std::io::Result<(Box<dyn Teildatei>, Vec<u8>)> {
-    let Some(mut teil) = teil else {
+) -> std::io::Result<(Box<dyn Teildatei>, Erkenner, Vec<u8>)> {
+    let (Some(mut teil), Some(mut erkenner)) = (teil, erkenner) else {
         return Err(std::io::Error::other("Teildatei fehlt"));
     };
     let erlaubnis = Arc::clone(bank)
@@ -288,9 +299,10 @@ async fn schreiben(
     tokio::task::spawn_blocking(move || {
         let _erlaubnis = erlaubnis;
         teil.anhaengen(&puffer)?;
+        erkenner.stueck(&puffer);
         let mut leer = puffer;
         leer.clear();
-        Ok((teil, leer))
+        Ok((teil, erkenner, leer))
     })
     .await
     .map_err(|fehler| std::io::Error::other(fehler.to_string()))?
@@ -585,7 +597,11 @@ mod tests {
             panic!("fertig erwartet: {ergebnis:?}");
         };
         assert_eq!(bytes, 10);
-        assert_eq!(art, Art::datei());
+        assert_eq!(
+            art.typ,
+            crate::gespraeche::anhangpruefung::erkenner::TEXT,
+            "der Erkenner sah die Stücke"
+        );
         assert_eq!(gueltig_bis, zeit("2026-10-29T12:15:00.000+01:00"));
         let eingang = aufbau.ablage.eingang();
         assert_eq!(

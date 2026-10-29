@@ -28,7 +28,7 @@ async fn hochladen_legt_die_datei_in_den_eingang() {
     let id = id(&anmelden(&beta, &instanz.adresse, &token, "bericht.pdf", 307_200).await);
 
     let vorher = chrono::Utc::now();
-    let antwort = hochladen(&beta, &instanz.adresse, &token, &id, vec![0x42; 307_200]).await;
+    let antwort = hochladen(&beta, &instanz.adresse, &token, &id, vec![0x00; 307_200]).await;
 
     assert_eq!(antwort.status, 200, "{}", antwort.json);
     let anhang = &antwort.json["anhang"];

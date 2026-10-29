@@ -3,6 +3,7 @@
 
 mod art;
 pub mod bild;
+pub mod erkenner;
 pub mod exif;
 pub mod medien;
 mod name;
