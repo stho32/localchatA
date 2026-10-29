@@ -4,6 +4,7 @@
 pub mod bild;
 pub mod isobmff;
 pub mod minimal;
+pub mod mpf;
 pub mod port;
 
 use port::{Abbruch, Ergebnis};
