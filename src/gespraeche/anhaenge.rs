@@ -499,7 +499,7 @@ mod tests {
                 hoechstens: 10 * MIB
             }))
         );
-        for _ in 0..4 {
+        for _ in 0..10 {
             anmelden(&gespraeche, "beta@127.0.0.1", 1).expect("201");
         }
         assert_eq!(

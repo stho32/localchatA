@@ -1,12 +1,17 @@
 //! R00029 F0097 — Anmelden über das echte Programm (B0427): Hauptweg, Abweisungen der Anmeldung, Namensregel,
-//! zu groß, offene Hochladungen, laufende Hochladungen belegen den Platz, Platte.
+//! zu groß, offene und laufende Hochladungen je Kennung, laufende Hochladungen belegen den Platz, Platte.
 
 mod gemeinsam;
 
 use gemeinsam::Absender;
-use gemeinsam::anhaenge::{MIB, Q, ablegen, anmelden, anmelden_roh, gesundheit, id, starten};
+use gemeinsam::anhaenge::{
+    MIB, Q, ablegen, anmelden, anmelden_roh, gesundheit, hochladen, id, roh_antwort, roh_oeffnen,
+    starten,
+};
 use gemeinsam::senden::{beitreten, ordner, roh_senden};
 use serde_json::json;
+use std::time::Duration;
+use tokio::io::AsyncWriteExt;
 
 fn ist_id(text: &str) -> bool {
     text.len() == 26
@@ -271,40 +276,112 @@ async fn volle_anhang_quote_507_voll_woertlich() {
     );
 }
 
-/// R00029 „Offene Hochladungen“: die fünfte Anmeldung einer Kennung 429 `offen_kennung` 4 mit `Retry-After: 5`;
-/// vier Kennungen einer Herkunft mit je vier → die erste einer fünften Kennung 429 `offen_herkunft` 16.
+/// ADR-0046 Ergänzung „Karte #9 Nacharbeit F1“, Erste Tests (Integration, wörtlich) und R00029 „Text mit zehn
+/// Anhängen“: zehn Dateien zu je 1 KiB anmelden → zehnmal 201, je `PUT` 200; eine elfte Anmeldung vor dem Senden →
+/// 429 `offen_kennung` 10 mit `Retry-After: 5`; Senden mit zehn IDs → 201 mit zehn Metazeilen in Sendefolge. Fünf
+/// `PUT` derselben Kennung gleichzeitig (Körper verzögert) → genau einer 429 `laufend_kennung` 4 mit
+/// `Connection: close`, danach derselbe `PUT` → 200.
 #[tokio::test]
-async fn offene_hochladungen_je_kennung_und_herkunft() {
+async fn zehn_offen_und_vier_laufend_je_kennung() {
     let wurzel = ordner();
-    let instanz = starten(wurzel.path(), &[], &[]);
+    let instanz = starten(wurzel.path(), &["--anhangquote", "64MiB"], &[]);
     let basis = instanz.adresse.as_str();
-    let zweite = Absender::von("127.0.0.2");
-    let mut tokens = Vec::new();
-    for name in ["a", "b", "c", "d", "e"] {
-        tokens.push(beitreten(&zweite, basis, name, Some("agent")).await);
+    let beta = Absender::von("127.0.0.1");
+    let token = beitreten(&beta, basis, "beta", Some("agent")).await;
+    let mut ids = Vec::new();
+    for nummer in 0..10 {
+        let angemeldet =
+            id(&anmelden(&beta, basis, &token, &format!("d{nummer}.bin"), 1_024).await);
+        let antwort = hochladen(&beta, basis, &token, &angemeldet, vec![nummer; 1_024]).await;
+        assert_eq!(antwort.status, 200, "{}", antwort.json);
+        ids.push(angemeldet);
     }
-    for token in &tokens[..4] {
-        for _ in 0..4 {
-            id(&anmelden(&zweite, basis, token, "x", 1).await);
-        }
-    }
-    let fuenfte = anmelden(&zweite, basis, &tokens[0], "x", 1).await;
-    assert_eq!(fuenfte.status, 429, "{}", fuenfte.json);
-    assert_eq!(fuenfte.json["grenze"], "offen_kennung");
-    assert_eq!(fuenfte.json["hoechstens"], 4);
+    let elfte = anmelden(&beta, basis, &token, "elf.bin", 1_024).await;
     assert_eq!(
-        fuenfte.kopf.get("retry-after").map(|w| w.to_str().ok()),
+        (
+            elfte.status,
+            &elfte.json["grenze"],
+            &elfte.json["hoechstens"]
+        ),
+        (429, &json!("offen_kennung"), &json!(10)),
+        "{}",
+        elfte.json
+    );
+    assert_eq!(
+        elfte.json["fehler"],
+        "Nicht angemeldet: höchstens 10 Dateien gleichzeitig offen — erst senden oder abbrechen."
+    );
+    assert_eq!(
+        elfte.kopf.get("retry-after").map(|w| w.to_str().ok()),
         Some(Some("5"))
     );
+    let gesendet = roh_senden(
+        &beta,
+        basis,
+        Some(&token),
+        "allgemein",
+        "application/json",
+        json!({"text": "zehn", "anhaenge": ids})
+            .to_string()
+            .into_bytes(),
+    )
+    .await;
+    assert_eq!(gesendet.status, 201, "{}", gesendet.json);
+    let reihenfolge: Vec<&str> = gesendet.json["nachricht"]["anhaenge"]
+        .as_array()
+        .expect("Liste")
+        .iter()
+        .map(|anhang| anhang["id"].as_str().expect("id"))
+        .collect();
+    assert_eq!(
+        reihenfolge,
+        ids.iter().map(String::as_str).collect::<Vec<_>>()
+    );
 
-    let herkunft = anmelden(&zweite, basis, &tokens[4], "x", 1).await;
-    assert_eq!(herkunft.status, 429);
-    assert_eq!(herkunft.json["grenze"], "offen_herkunft");
-    assert_eq!(herkunft.json["hoechstens"], 16);
-
-    let erste = Absender::von("127.0.0.1");
-    let andere = beitreten(&erste, basis, "beta", Some("agent")).await;
-    id(&anmelden(&erste, basis, &andere, "x", 1).await);
+    let mut fuenf = Vec::new();
+    for _ in 0..5 {
+        let angemeldet = id(&anmelden(&beta, basis, &token, "f.bin", 1_024).await);
+        let kopf = format!(
+            "PUT /api/anhaenge/{angemeldet} HTTP/1.1\r\nHost: 127.0.0.1\r\nX-LocalchatA-Sitzung: {token}\r\nContent-Type: application/octet-stream\r\nContent-Length: 1024"
+        );
+        fuenf.push((
+            angemeldet,
+            roh_oeffnen(instanz.port(), "127.0.0.1", &kopf).await,
+        ));
+    }
+    let mut abgewiesen = Vec::new();
+    let mut laufend = Vec::new();
+    for (angemeldet, mut verbindung) in fuenf {
+        let antwort = roh_antwort(&mut verbindung, Duration::from_millis(1_500)).await;
+        if antwort.is_empty() {
+            laufend.push(verbindung);
+        } else {
+            abgewiesen.push((angemeldet, antwort));
+        }
+    }
+    assert_eq!(abgewiesen.len(), 1, "{abgewiesen:?}");
+    let (wieder, antwort) = abgewiesen.remove(0);
+    assert!(antwort.starts_with("HTTP/1.1 429"), "{antwort}");
+    let klein = antwort.to_ascii_lowercase();
+    assert!(
+        klein.contains("connection: close") && klein.contains("retry-after: 5"),
+        "{antwort}"
+    );
+    assert!(
+        antwort.contains("\"grenze\":\"laufend_kennung\"") && antwort.contains("\"hoechstens\":4"),
+        "{antwort}"
+    );
+    assert!(
+        antwort.contains("Gerade zu viele Hochladungen — gleich noch einmal versuchen."),
+        "{antwort}"
+    );
+    for mut verbindung in laufend {
+        verbindung.write_all(&[1u8; 1_024]).await.expect("Körper");
+        let antwort = roh_antwort(&mut verbindung, Duration::from_secs(5)).await;
+        assert!(antwort.starts_with("HTTP/1.1 200"), "{antwort}");
+    }
+    let nochmal = hochladen(&beta, basis, &token, &wieder, vec![2u8; 1_024]).await;
+    assert_eq!(nochmal.status, 200, "{}", nochmal.json);
 }
 
 /// R00029 „Platte“: mit `--anhangquote aus` → 1 PiB → 507 `platte` mit `frei` > 0, nichts reserviert.

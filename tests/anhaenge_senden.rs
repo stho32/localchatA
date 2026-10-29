@@ -147,8 +147,7 @@ async fn nur_ein_anhang_ohne_text() {
 }
 
 /// Drei Anhänge zu 1, 65.536 und 65.537 Bytes zählen 200.704 an der Anhang-Quote; die Liste in Sendefolge mit
-/// `-1-` bis `-3-`. (Zehn Anhänge einer Kennung sind nicht herstellbar: je Kennung höchstens 4 offene Hochladungen —
-/// gemeldet; die Grenze 10 prüft der Körper.)
+/// `-1-` bis `-3-`; mehr als zehn weist der Körper ab (zehn Anhänge einer Kennung: `tests/anhaenge_anmelden.rs`).
 #[tokio::test]
 async fn mehrere_anhaenge_in_sendefolge_und_ihr_zaehlmass() {
     let wurzel = ordner();

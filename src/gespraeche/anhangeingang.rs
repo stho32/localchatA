@@ -13,10 +13,14 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use tokio::sync::watch;
 
-/// Offene Hochladungen je Kennung (angemeldet, laufend, fertig).
-pub const OFFEN_JE_KENNUNG: usize = 4;
-/// Offene Hochladungen je Herkunft (angemeldet, laufend, fertig).
-pub const OFFEN_JE_HERKUNFT: usize = 16;
+/// Offene Hochladungen je Kennung (angemeldet, laufend, fertig; Ergänzung „Karte #9 Nacharbeit F1“ Regel 1).
+pub const OFFEN_JE_KENNUNG: usize = 10;
+/// Laufende Hochladungen je Kennung.
+pub const LAUFEND_JE_KENNUNG: usize = 4;
+/// Offene Hochladungen je Herkunft (10 × 70 Kennungen des Lastprofils).
+pub const OFFEN_JE_HERKUNFT: usize = 700;
+/// Laufende Hochladungen je Herkunft.
+pub const LAUFEND_JE_HERKUNFT: usize = 16;
 /// Laufende Hochladungen gesamt (Ergänzung „Karte #9 Gate“ Regel 3: nur `laeuft`).
 pub const LAUFEND_GESAMT: usize = 64;
 /// Mindestrate einer Übertragung in Bytes je Sekunde (1 MiB/s, Regel 2.4).
@@ -51,12 +55,15 @@ pub enum Abbruchgrund {
     Lebensende,
 }
 
-/// Welche Grenze der offenen Hochladungen gegriffen hat (429 mit `grenze` und `hoechstens`).
+/// Welche Grenze der Hochladungen gegriffen hat (429 mit `grenze` und `hoechstens`): offen bzw. laufend je Kennung
+/// und je Herkunft, laufend gesamt (`offen_gesamt`, Name wie gebaut).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Offen {
     Kennung,
     Herkunft,
     Gesamt,
+    LaufendKennung,
+    LaufendHerkunft,
 }
 
 impl Offen {
@@ -65,6 +72,8 @@ impl Offen {
             Offen::Kennung => "offen_kennung",
             Offen::Herkunft => "offen_herkunft",
             Offen::Gesamt => "offen_gesamt",
+            Offen::LaufendKennung => "laufend_kennung",
+            Offen::LaufendHerkunft => "laufend_herkunft",
         }
     }
 
@@ -73,6 +82,8 @@ impl Offen {
             Offen::Kennung => OFFEN_JE_KENNUNG,
             Offen::Herkunft => OFFEN_JE_HERKUNFT,
             Offen::Gesamt => LAUFEND_GESAMT,
+            Offen::LaufendKennung => LAUFEND_JE_KENNUNG,
+            Offen::LaufendHerkunft => LAUFEND_JE_HERKUNFT,
         }
     }
 }
@@ -99,7 +110,7 @@ pub enum Beginnfehler {
     Abgelaufen,
     Laeuft,
     Fertig,
-    OffenGesamt,
+    Grenze(Offen),
     Typ,
     OhneLaenge,
     Laenge { erwartet: u64 },
@@ -231,38 +242,125 @@ enum Zustand {
     },
 }
 
+/// Offene (angemeldet, laufend, fertig) und laufende Einträge eines Schlüssels.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+struct Zaehlung {
+    offen: usize,
+    laufend: usize,
+}
+
+/// Zählungen je Kennung und je Herkunft und laufend gesamt (Regel 4 der Ergänzung „Karte #9 Nacharbeit F1“).
+#[derive(Debug, Default)]
+struct Zaehler {
+    je_kennung: HashMap<Kennung, Zaehlung>,
+    je_herkunft: HashMap<IpAddr, Zaehlung>,
+    laufend: usize,
+}
+
+/// Richtung eines Übergangs an den Zählern.
+#[derive(Debug, Clone, Copy)]
+enum Schritt {
+    Plus,
+    Minus,
+}
+
+impl Zaehler {
+    fn offen_pruefen(&self, kennung: &Kennung, herkunft: IpAddr) -> Result<(), Offen> {
+        if self.kennung(kennung).offen >= OFFEN_JE_KENNUNG {
+            return Err(Offen::Kennung);
+        }
+        if self.herkunft(herkunft).offen >= OFFEN_JE_HERKUNFT {
+            return Err(Offen::Herkunft);
+        }
+        self.gesamt_pruefen()
+    }
+
+    /// Beginn eines `PUT`: je Kennung 4, dann je Herkunft 16, dann gesamt 64 laufend.
+    fn laufend_pruefen(&self, kennung: &Kennung, herkunft: IpAddr) -> Result<(), Offen> {
+        if self.kennung(kennung).laufend >= LAUFEND_JE_KENNUNG {
+            return Err(Offen::LaufendKennung);
+        }
+        if self.herkunft(herkunft).laufend >= LAUFEND_JE_HERKUNFT {
+            return Err(Offen::LaufendHerkunft);
+        }
+        self.gesamt_pruefen()
+    }
+
+    fn gesamt_pruefen(&self) -> Result<(), Offen> {
+        if self.laufend >= LAUFEND_GESAMT {
+            return Err(Offen::Gesamt);
+        }
+        Ok(())
+    }
+
+    fn kennung(&self, kennung: &Kennung) -> Zaehlung {
+        self.je_kennung.get(kennung).copied().unwrap_or_default()
+    }
+
+    fn herkunft(&self, herkunft: IpAddr) -> Zaehlung {
+        self.je_herkunft.get(&herkunft).copied().unwrap_or_default()
+    }
+
+    /// Ein Eintrag kommt in den Eingang oder geht: offen, und laufend, wenn er läuft.
+    fn offen(&mut self, eintrag: &Eintrag, schritt: Schritt) {
+        let laeuft = matches!(eintrag.zustand, Zustand::Laeuft { .. });
+        self.aendern(&eintrag.kennung, eintrag.herkunft, schritt, |z| {
+            &mut z.offen
+        });
+        if laeuft {
+            self.laufend_aendern(eintrag, schritt);
+        }
+    }
+
+    /// Ein Eintrag beginnt oder endet zu laufen.
+    fn laufend_aendern(&mut self, eintrag: &Eintrag, schritt: Schritt) {
+        self.aendern(&eintrag.kennung, eintrag.herkunft, schritt, |z| {
+            &mut z.laufend
+        });
+        self.laufend = schreiten(self.laufend, schritt);
+    }
+
+    fn aendern(
+        &mut self,
+        kennung: &Kennung,
+        herkunft: IpAddr,
+        schritt: Schritt,
+        feld: fn(&mut Zaehlung) -> &mut usize,
+    ) {
+        let je_kennung = self.je_kennung.entry(kennung.clone()).or_default();
+        *feld(je_kennung) = schreiten(*feld(je_kennung), schritt);
+        if *je_kennung == Zaehlung::default() {
+            self.je_kennung.remove(kennung);
+        }
+        let je_herkunft = self.je_herkunft.entry(herkunft).or_default();
+        *feld(je_herkunft) = schreiten(*feld(je_herkunft), schritt);
+        if *je_herkunft == Zaehlung::default() {
+            self.je_herkunft.remove(&herkunft);
+        }
+    }
+}
+
+fn schreiten(wert: usize, schritt: Schritt) -> usize {
+    match schritt {
+        Schritt::Plus => wert + 1,
+        Schritt::Minus => wert.saturating_sub(1),
+    }
+}
+
 /// Alle Einträge des Eingangs.
 #[derive(Debug, Default)]
 pub struct Eingang {
     eintraege: HashMap<Anhangid, Eintrag>,
+    zaehler: Zaehler,
     /// Verfallene IDs: Kennung und bis wann sie noch `abgelaufen` antworten.
     grabsteine: HashMap<Anhangid, (Kennung, Zeit)>,
     generation: u64,
 }
 
 impl Eingang {
-    /// Je Kennung 4 und je Herkunft 16 über alle drei Zustände, gesamt 64 nur über `laeuft`.
+    /// Anmelden: je Kennung 10, dann je Herkunft 700 offen (alle drei Zustände), dann gesamt 64 laufend — O(1).
     pub fn offen_pruefen(&self, kennung: &Kennung, herkunft: IpAddr) -> Result<(), Offen> {
-        let je_kennung = self
-            .eintraege
-            .values()
-            .filter(|eintrag| &eintrag.kennung == kennung)
-            .count();
-        if je_kennung >= OFFEN_JE_KENNUNG {
-            return Err(Offen::Kennung);
-        }
-        let je_herkunft = self
-            .eintraege
-            .values()
-            .filter(|eintrag| eintrag.herkunft == herkunft)
-            .count();
-        if je_herkunft >= OFFEN_JE_HERKUNFT {
-            return Err(Offen::Herkunft);
-        }
-        if self.laufend() >= LAUFEND_GESAMT {
-            return Err(Offen::Gesamt);
-        }
-        Ok(())
+        self.zaehler.offen_pruefen(kennung, herkunft)
     }
 
     /// Nimmt eine geprüfte Anmeldung auf (Quote und Platte prüft Gespräche davor): Zustand `angemeldet`,
@@ -281,18 +379,16 @@ impl Eingang {
         self.offen_pruefen(kennung, herkunft)?;
         let lebensende = lebensende(jetzt, bytes);
         let anlauf_bis = anlauf(jetzt, lebensende);
-        self.eintraege.insert(
-            id.clone(),
-            Eintrag {
-                kennung: kennung.clone(),
-                herkunft,
-                name: name.to_string(),
-                ascii: ascii.to_string(),
-                bytes,
-                lebensende,
-                zustand: Zustand::Angemeldet { anlauf_bis },
-            },
-        );
+        let eintrag = Eintrag {
+            kennung: kennung.clone(),
+            herkunft,
+            name: name.to_string(),
+            ascii: ascii.to_string(),
+            bytes,
+            lebensende,
+            zustand: Zustand::Angemeldet { anlauf_bis },
+        };
+        self.einfuegen(id.clone(), eintrag);
         Ok(Anmeldung {
             id,
             anlauf_bis,
@@ -300,7 +396,8 @@ impl Eingang {
         })
     }
 
-    /// `PUT` beginnt: 404 · 409 · 429 `offen_gesamt` · 415 · 411 · 422 `laenge`, sonst `laeuft`.
+    /// `PUT` beginnt: 404 · 409 · 429 `laufend_kennung` | `laufend_herkunft` | `offen_gesamt` · 415 · 411 · 422
+    /// `laenge`, sonst `laeuft`.
     pub fn beginnen(
         &mut self,
         kennung: &Kennung,
@@ -308,7 +405,6 @@ impl Eingang {
         kopf: Kopf,
         jetzt: Zeit,
     ) -> Result<Platz, Beginnfehler> {
-        let laufend = self.laufend();
         let Some(eintrag) = self
             .eintraege
             .get_mut(id)
@@ -326,9 +422,9 @@ impl Eingang {
         if jetzt > anlauf_bis || jetzt > eintrag.lebensende {
             return Err(Beginnfehler::Abgelaufen);
         }
-        if laufend >= LAUFEND_GESAMT {
-            return Err(Beginnfehler::OffenGesamt);
-        }
+        self.zaehler
+            .laufend_pruefen(&eintrag.kennung, eintrag.herkunft)
+            .map_err(Beginnfehler::Grenze)?;
         if !kopf.typ_passt {
             return Err(Beginnfehler::Typ);
         }
@@ -346,6 +442,7 @@ impl Eingang {
             signal,
             geschrieben: Arc::clone(&geschrieben),
         };
+        self.zaehler.laufend_aendern(eintrag, Schritt::Plus);
         Ok(Platz {
             id: id.clone(),
             name: eintrag.name.clone(),
@@ -367,8 +464,9 @@ impl Eingang {
         art: Art,
         jetzt: Zeit,
     ) -> Result<Zeit, Verloren> {
-        let eintrag = self.laufender(id, generation)?;
+        let eintrag = laufender(&mut self.eintraege, &self.grabsteine, id, generation)?;
         let gueltig_bis = plus_ms(jetzt, u128::from(FERTIG_MS));
+        self.zaehler.laufend_aendern(eintrag, Schritt::Minus);
         eintrag.zustand = Zustand::Fertig { gueltig_bis, art };
         Ok(gueltig_bis)
     }
@@ -376,9 +474,10 @@ impl Eingang {
     /// Ein `PUT` bricht ab (Frist, Lesefehler, Client weg, Schreibfehler): `laeuft` → `angemeldet` mit
     /// Anlauffrist `min(jetzt + 60 s, lebensende)`; das Lebensende bleibt. `false`, wenn er schon verloren hatte.
     pub fn abbrechen(&mut self, id: &Anhangid, generation: u64, jetzt: Zeit) -> bool {
-        let Ok(eintrag) = self.laufender(id, generation) else {
+        let Ok(eintrag) = laufender(&mut self.eintraege, &self.grabsteine, id, generation) else {
             return false;
         };
+        self.zaehler.laufend_aendern(eintrag, Schritt::Minus);
         eintrag.zustand = Zustand::Angemeldet {
             anlauf_bis: anlauf(jetzt, eintrag.lebensende),
         };
@@ -388,10 +487,10 @@ impl Eingang {
     /// Nicht tilgbar (422 `metadaten`): der laufende Eintrag dieser Generation ist weg, sein Anspruch frei wie bei
     /// `DELETE`.
     pub fn hochladung_verwerfen(&mut self, id: &Anhangid, generation: u64) -> bool {
-        if self.laufender(id, generation).is_err() {
+        if laufender(&mut self.eintraege, &self.grabsteine, id, generation).is_err() {
             return false;
         }
-        self.eintraege.remove(id).is_some()
+        self.entfernen(id).is_some()
     }
 
     /// `DELETE` der eigenen ID: Eintrag weg, Reservierung frei, ein laufender `PUT` endet als Abbruch. Fremde,
@@ -404,7 +503,7 @@ impl Eingang {
         {
             return None;
         }
-        let eintrag = self.eintraege.remove(id)?;
+        let eintrag = self.entfernen(id)?;
         let (laufend, fertig) = match &eintrag.zustand {
             Zustand::Laeuft { signal, .. } => {
                 signal.send_replace(Some(Abbruchgrund::Verworfen));
@@ -446,7 +545,7 @@ impl Eingang {
         Ok(ids
             .iter()
             .filter_map(|id| {
-                self.eintraege.remove(id).map(|eintrag| Genommen {
+                self.entfernen(id).map(|eintrag| Genommen {
                     id: id.clone(),
                     eintrag,
                 })
@@ -457,7 +556,7 @@ impl Eingang {
     /// Nach gescheitertem Binden: die Einträge unverändert zurück — Lebensende und Gültigkeit bleiben.
     pub fn zuruecklegen(&mut self, genommen: Vec<Genommen>) {
         for Genommen { id, eintrag } in genommen {
-            self.eintraege.insert(id, eintrag);
+            self.einfuegen(id, eintrag);
         }
     }
 
@@ -473,7 +572,7 @@ impl Eingang {
             .collect();
         let mut verfallen = Vec::new();
         for id in faellig {
-            let Some(eintrag) = self.eintraege.remove(&id) else {
+            let Some(eintrag) = self.entfernen(&id) else {
                 continue;
             };
             let (laufend, fertig) = match &eintrag.zustand {
@@ -507,6 +606,7 @@ impl Eingang {
     /// Beim Start: der Eingang ist leer (die Dateien leert die Logablage).
     pub fn leeren(&mut self) {
         self.eintraege.clear();
+        self.zaehler = Zaehler::default();
         self.grabsteine.clear();
     }
 
@@ -539,10 +639,7 @@ impl Eingang {
     }
 
     pub fn laufend(&self) -> usize {
-        self.eintraege
-            .values()
-            .filter(|eintrag| matches!(eintrag.zustand, Zustand::Laeuft { .. }))
-            .count()
+        self.zaehler.laufend
     }
 
     /// Ob die ID im Eingang liegt (eigene wie fremde) — für die Route Löschen ist sie `unbekannt`.
@@ -550,15 +647,19 @@ impl Eingang {
         self.eintraege.contains_key(id)
     }
 
-    fn laufender(&mut self, id: &Anhangid, generation: u64) -> Result<&mut Eintrag, Verloren> {
-        let grabstein = self.grabsteine.contains_key(id);
-        match self.eintraege.get_mut(id) {
-            Some(eintrag) if matches!(eintrag.zustand, Zustand::Laeuft { generation: g, .. } if g == generation) => {
-                Ok(eintrag)
-            }
-            _ if grabstein => Err(Verloren::Abgelaufen),
-            _ => Err(Verloren::Unbekannt),
+    /// Jeder Eintrag kommt hierüber in den Eingang — die Zähler gehen mit.
+    fn einfuegen(&mut self, id: Anhangid, eintrag: Eintrag) {
+        self.zaehler.offen(&eintrag, Schritt::Plus);
+        if let Some(alt) = self.eintraege.insert(id, eintrag) {
+            self.zaehler.offen(&alt, Schritt::Minus);
         }
+    }
+
+    /// Jeder Eintrag verlässt den Eingang hierüber — die Zähler gehen mit.
+    fn entfernen(&mut self, id: &Anhangid) -> Option<Eintrag> {
+        let eintrag = self.eintraege.remove(id)?;
+        self.zaehler.offen(&eintrag, Schritt::Minus);
+        Some(eintrag)
     }
 
     /// `Some(())`, wenn die ID dieser Kennung verfallen ist (Grabstein); sonst unbekannt — auch für fremde.
@@ -595,6 +696,22 @@ impl Eintrag {
             Zustand::Laeuft { .. } => jetzt > self.lebensende,
             Zustand::Fertig { gueltig_bis, .. } => jetzt > *gueltig_bis,
         }
+    }
+}
+
+/// Der laufende Eintrag dieser Generation; sonst `abgelaufen` (Grabstein) oder `unbekannt`.
+fn laufender<'a>(
+    eintraege: &'a mut HashMap<Anhangid, Eintrag>,
+    grabsteine: &HashMap<Anhangid, (Kennung, Zeit)>,
+    id: &Anhangid,
+    generation: u64,
+) -> Result<&'a mut Eintrag, Verloren> {
+    match eintraege.get_mut(id) {
+        Some(eintrag) if matches!(eintrag.zustand, Zustand::Laeuft { generation: g, .. } if g == generation) => {
+            Ok(eintrag)
+        }
+        _ if grabsteine.contains_key(id) => Err(Verloren::Abgelaufen),
+        _ => Err(Verloren::Unbekannt),
     }
 }
 
@@ -822,86 +939,196 @@ mod tests {
         );
     }
 
-    /// Erste Tests der Ergänzung „Karte #9 Gate“: zwei Herkünfte mit je 16 `angemeldet` sperren niemanden; 64
-    /// `laeuft` → das 65. `beginnen` 429 `offen_gesamt`, der Eintrag bleibt `angemeldet`; die 17. Anmeldung einer
-    /// Herkunft → `offen_herkunft`; die 5. einer Kennung → `offen_kennung` (Mutante „`offen_gesamt` zählt
-    /// `angemeldet`“).
-    #[test]
-    fn offene_hochladungen_je_kennung_herkunft_und_laufend_gesamt() {
-        let mut eingang = Eingang::default();
-        let mut nummer = 0;
-        for herkunft in ["127.0.0.2", "127.0.0.3"] {
-            for name in ["a", "b", "c", "d"] {
-                let wer = kennung(&format!("{name}@{herkunft}"));
-                for _ in 0..4 {
-                    nummer += 1;
-                    anmelden(&mut eingang, nummer, &wer, 1, t(0));
-                }
+    /// Invariante der Regel 4: jeder Zähler = Zählung durch Durchlauf; kein Zähler steht auf 0.
+    fn invariante(eingang: &Eingang) {
+        let mut je_kennung: HashMap<Kennung, Zaehlung> = HashMap::new();
+        let mut je_herkunft: HashMap<IpAddr, Zaehlung> = HashMap::new();
+        let mut laufend = 0;
+        for eintrag in eingang.eintraege.values() {
+            let laeuft = usize::from(matches!(eintrag.zustand, Zustand::Laeuft { .. }));
+            for zaehlung in [
+                je_kennung.entry(eintrag.kennung.clone()).or_default(),
+                je_herkunft.entry(eintrag.herkunft).or_default(),
+            ] {
+                zaehlung.offen += 1;
+                zaehlung.laufend += laeuft;
             }
+            laufend += laeuft;
         }
-        assert_eq!(eingang.anzahl(), 32);
-        anmelden(&mut eingang, 999, &beta(), 1, t(0));
-        let fuenfte = kennung("e@127.0.0.2");
+        assert_eq!(eingang.zaehler.je_kennung, je_kennung, "je Kennung");
+        assert_eq!(eingang.zaehler.je_herkunft, je_herkunft, "je Herkunft");
+        assert_eq!(eingang.zaehler.laufend, laufend, "laufend gesamt");
+    }
+
+    fn anmelden_als(eingang: &mut Eingang, nummer: u128, wer: &Kennung) -> Result<Anhangid, Offen> {
+        let herkunft = wer.herkunft().expect("Herkunft");
+        let anmeldung = eingang.anmelden(id(nummer), wer, herkunft, "x", "x", 1, t(0));
+        invariante(eingang);
+        anmeldung.map(|anmeldung| anmeldung.id)
+    }
+
+    fn beginnen_als(
+        eingang: &mut Eingang,
+        wer: &Kennung,
+        id: &Anhangid,
+    ) -> Result<Platz, Beginnfehler> {
+        let platz = eingang.beginnen(wer, id, kopf(1), t(1));
+        invariante(eingang);
+        platz
+    }
+
+    /// ADR-0046 Ergänzung „Karte #9 Nacharbeit F1“, Erste Tests (Unit, wörtlich): 10 offen und 4 laufend je
+    /// Kennung, 700 offen und 16 laufend je Herkunft, 64 laufend gesamt; fertige zählen offen; nach jedem Schritt
+    /// die Invariante der Regel 4 (Mutanten „fertig zählt nicht offen“, „angemeldet zählt laufend“, „Grenze 9/11
+    /// bzw. 3/5“, „Zähler in `zuruecklegen` nicht geändert“).
+    #[test]
+    fn offen_und_laufend_je_kennung_herkunft_und_gesamt() {
+        let mut eingang = Eingang::default();
+        let alpha = kennung("alpha@127.0.0.1");
+        let ids: Vec<Anhangid> = (1..=10)
+            .map(|nummer| anmelden_als(&mut eingang, nummer, &alpha).expect("ok"))
+            .collect();
+        assert_eq!(anmelden_als(&mut eingang, 11, &alpha), Err(Offen::Kennung));
+        assert_eq!(Offen::Kennung.hoechstens(), 10);
+
+        let mut plaetze: Vec<Platz> = ids[..4]
+            .iter()
+            .map(|id| beginnen_als(&mut eingang, &alpha, id).expect("läuft"))
+            .collect();
         assert_eq!(
-            eingang
-                .anmelden(id(1_000), &fuenfte, ip("127.0.0.2"), "x", "x", 1, t(0))
-                .map(|_| ()),
-            Err(Offen::Herkunft)
+            beginnen_als(&mut eingang, &alpha, &ids[4]).map(|_| ()),
+            Err(Beginnfehler::Grenze(Offen::LaufendKennung))
         );
-        for _ in 0..3 {
-            nummer += 1;
-            anmelden(
-                &mut eingang,
-                2_000 + nummer,
-                &kennung("f@127.0.0.9"),
-                1,
-                t(0),
-            );
-        }
-        anmelden(&mut eingang, 3_000, &kennung("f@127.0.0.9"), 1, t(0));
+        assert_eq!(Offen::LaufendKennung.hoechstens(), 4);
+        assert_eq!(Offen::LaufendKennung.grenze(), "laufend_kennung");
+        assert_eq!(eingang.laufend(), 4, "die fünfte bleibt angemeldet");
+
+        let platz = plaetze.remove(0);
+        eingang
+            .abschliessen(&ids[0], platz.generation, Art::datei(), t(2))
+            .expect("fertig");
+        invariante(&eingang);
+        beginnen_als(&mut eingang, &alpha, &ids[4]).expect("die fünfte läuft");
         assert_eq!(
-            eingang
-                .anmelden(
-                    id(3_001),
-                    &kennung("f@127.0.0.9"),
-                    ip("127.0.0.9"),
-                    "x",
-                    "x",
-                    1,
-                    t(0)
-                )
-                .map(|_| ()),
-            Err(Offen::Kennung)
+            anmelden_als(&mut eingang, 11, &alpha),
+            Err(Offen::Kennung),
+            "fertige zählen offen"
         );
 
-        let mut laufend = Eingang::default();
-        let mut ids = Vec::new();
+        let genommen = eingang.nehmen(&alpha, &ids[..1], t(3)).expect("genommen");
+        invariante(&eingang);
+        eingang.zuruecklegen(genommen);
+        invariante(&eingang);
+        assert_eq!(anmelden_als(&mut eingang, 11, &alpha), Err(Offen::Kennung));
+        eingang.nehmen(&alpha, &ids[..1], t(3)).expect("gebunden");
+        invariante(&eingang);
+        anmelden_als(&mut eingang, 11, &alpha).expect("nach dem Binden");
+
+        let mut nummer = 1_000;
+        for k in 0..70 {
+            let wer = kennung(&format!("k{k}@127.0.0.2"));
+            for _ in 0..10 {
+                nummer += 1;
+                anmelden_als(&mut eingang, nummer, &wer).expect("ok");
+            }
+        }
+        assert_eq!(
+            anmelden_als(&mut eingang, 9_999, &kennung("k70@127.0.0.2")),
+            Err(Offen::Herkunft)
+        );
+        assert_eq!(Offen::Herkunft.hoechstens(), 700);
+
+        for k in 0..17 {
+            let wer = kennung(&format!("l{k}@127.0.0.3"));
+            nummer += 1;
+            let angemeldet = anmelden_als(&mut eingang, nummer, &wer).expect("ok");
+            let ergebnis = beginnen_als(&mut eingang, &wer, &angemeldet).map(|_| ());
+            if k < 16 {
+                assert_eq!(ergebnis, Ok(()), "{k}");
+            } else {
+                assert_eq!(ergebnis, Err(Beginnfehler::Grenze(Offen::LaufendHerkunft)));
+            }
+        }
+        assert_eq!(Offen::LaufendHerkunft.hoechstens(), 16);
+        assert_eq!(Offen::LaufendHerkunft.grenze(), "laufend_herkunft");
+
+        let mut gesamt = Eingang::default();
+        let mut wartend = Vec::new();
         for herkunft in 2..=6 {
             for name in ["a", "b", "c", "d"] {
                 let wer = kennung(&format!("{name}@127.0.0.{herkunft}"));
                 for _ in 0..4 {
                     nummer += 1;
-                    let anmeldung = anmelden(&mut laufend, 10_000 + nummer, &wer, 1, t(0));
-                    ids.push((wer.clone(), anmeldung.id));
+                    wartend.push((
+                        wer.clone(),
+                        anmelden_als(&mut gesamt, nummer, &wer).expect("ok"),
+                    ));
                 }
             }
         }
-        for (wer, id) in &ids[..64] {
-            laufend.beginnen(wer, id, kopf(1), t(1)).expect("läuft");
+        for (wer, id) in &wartend[..64] {
+            beginnen_als(&mut gesamt, wer, id).expect("läuft");
         }
-        let (wer, fuenfundsechzigste) = &ids[64];
+        let (wer, fuenfundsechzigste) = &wartend[64];
         assert_eq!(
-            laufend
-                .beginnen(wer, fuenfundsechzigste, kopf(1), t(1))
-                .map(|_| ()),
-            Err(Beginnfehler::OffenGesamt)
+            beginnen_als(&mut gesamt, wer, fuenfundsechzigste).map(|_| ()),
+            Err(Beginnfehler::Grenze(Offen::Gesamt))
         );
-        assert_eq!(laufend.laufend(), 64);
         assert_eq!(
-            laufend.offen_pruefen(&kennung("z@127.0.0.1"), ip("127.0.0.1")),
+            gesamt.offen_pruefen(&kennung("z@127.0.0.1"), ip("127.0.0.1")),
             Err(Offen::Gesamt)
         );
-        assert_eq!(laufend.anzahl(), 80, "der 65. bleibt angemeldet");
+        assert_eq!(gesamt.anzahl(), 80, "der 65. bleibt angemeldet");
+    }
+
+    /// Jeder Übergang hält die Zähler (Pre-Mortem „ein Übergang vergisst einen Zähler“): abbrechen, verwerfen
+    /// (angemeldet, laufend, fertig), Verwerfen einer Hochladung, ablaufen in allen drei Zuständen, leeren.
+    #[test]
+    fn jeder_uebergang_haelt_die_zaehler() {
+        let mut eingang = Eingang::default();
+        let wer = beta();
+        let ids: Vec<Anhangid> = (1..=8)
+            .map(|nummer| anmelden_als(&mut eingang, nummer, &wer).expect("ok"))
+            .collect();
+        let platz = beginnen_als(&mut eingang, &wer, &ids[0]).expect("läuft");
+        assert!(eingang.abbrechen(&ids[0], platz.generation, t(2)));
+        invariante(&eingang);
+        let platz = beginnen_als(&mut eingang, &wer, &ids[1]).expect("läuft");
+        assert!(eingang.hochladung_verwerfen(&ids[1], platz.generation));
+        invariante(&eingang);
+        beginnen_als(&mut eingang, &wer, &ids[2]).expect("läuft");
+        eingang.verwerfen(&wer, &ids[2]).expect("laufend verworfen");
+        invariante(&eingang);
+        eingang
+            .verwerfen(&wer, &ids[3])
+            .expect("angemeldet verworfen");
+        invariante(&eingang);
+        let platz = beginnen_als(&mut eingang, &wer, &ids[4]).expect("läuft");
+        eingang
+            .abschliessen(&ids[4], platz.generation, Art::datei(), t(2))
+            .expect("fertig");
+        eingang.verwerfen(&wer, &ids[4]).expect("fertig verworfen");
+        invariante(&eingang);
+        let platz = beginnen_als(&mut eingang, &wer, &ids[5]).expect("läuft");
+        eingang
+            .abschliessen(&ids[5], platz.generation, Art::datei(), t(2))
+            .expect("fertig");
+        beginnen_als(&mut eingang, &wer, &ids[6]).expect("läuft");
+        assert_eq!(
+            eingang.ablaufen(t(60_002)).len(),
+            3,
+            "angemeldet, abgebrochen, laufend"
+        );
+        invariante(&eingang);
+        assert_eq!(eingang.ablaufen(t(2 + 15 * 60_000 + 1)).len(), 1, "fertig");
+        invariante(&eingang);
+        assert!(
+            eingang.zaehler.je_kennung.is_empty(),
+            "Zähler auf 0 entfernt"
+        );
+        anmelden_als(&mut eingang, 20, &wer).expect("ok");
+        eingang.leeren();
+        invariante(&eingang);
     }
 
     /// Reihenfolge der Abweisungen am `PUT`: unbekannt (auch fremd) → laeuft/fertig → 415 → 411 → 422 `laenge`.

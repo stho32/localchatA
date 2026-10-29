@@ -1,6 +1,6 @@
 //! Stücke schreiben (B0429, ADR-0046 Regel 2 mit Ergänzungen „Karte #9 Gate“ Regeln 1, 3, 5, 6, 8 und „F1′“ Regel
-//! 3): `PUT /api/anhaenge/{id}` mit Sitzung. Vor dem ersten gelesenen Byte 404 · 409 · 429 `offen_gesamt` · 415 ·
-//! 411 · 422 `laenge`, je mit `Connection: close` und nie `100 Continue` (der Körper wird nicht angefasst). Danach
+//! 3, „Karte #9 Nacharbeit F1“ Regel 3): `PUT /api/anhaenge/{id}` mit Sitzung. Vor dem ersten gelesenen Byte 404 ·
+//! 409 · 429 `laufend_kennung` | `laufend_herkunft` | `offen_gesamt` · 415 · 411 · 422 `laenge`, je mit `Connection: close` und nie `100 Continue` (der Körper wird nicht angefasst). Danach
 //! ohne Quote-Prüfung stückweise unter der Hochladebank nach `.eingang/<id>.teil` → `rename` ohne Überschreiben →
 //! 200. Frist, Lesefehler, Client weg, Schreibfehler, `DELETE` und Lebensende brechen ab: die Teildatei ist weg,
 //! die Anmeldung gilt weiter bis `min(jetzt + 60 s, Lebensende)`.
@@ -562,13 +562,13 @@ fn abgewiesen(fehler: Beginnfehler, wer: &str) -> Response {
                 json!({ "fehler": "Diese Datei ist schon hochgeladen — jetzt senden.", "regel": "fertig" }),
                 None,
             ),
-            Beginnfehler::OffenGesamt => (
+            Beginnfehler::Grenze(grenze) => (
                 StatusCode::TOO_MANY_REQUESTS,
-                "offen_gesamt",
+                grenze.grenze(),
                 json!({
-                    "fehler": "Zu viele laufende Hochladungen in dieser Instanz — gleich noch einmal versuchen.",
-                    "grenze": "offen_gesamt",
-                    "hoechstens": crate::gespraeche::anhangeingang::LAUFEND_GESAMT,
+                    "fehler": super::anmelden::grenze_text(grenze),
+                    "grenze": grenze.grenze(),
+                    "hoechstens": grenze.hoechstens(),
                 }),
                 Some("5"),
             ),

@@ -374,24 +374,29 @@ fn quote_abgewiesen(stand: &Quotestand, grund: &str, fehler: String) -> impl Int
 
 /// 429 `{fehler, grenze, hoechstens}` mit `Retry-After: 5`.
 fn offen_abgewiesen(offen: Offen) -> Response {
-    let wer = match offen {
-        Offen::Kennung => "je Teilnehmer",
-        Offen::Herkunft => "je Adresse (alle Teilnehmer dieser Adresse zusammen)",
-        Offen::Gesamt => "laufende in dieser Instanz",
-    };
     (
         StatusCode::TOO_MANY_REQUESTS,
         [(RETRY_AFTER, "5")],
         Json(json!({
-            "fehler": format!(
-                "Zu viele offene Hochladungen — höchstens {} {wer}; erst hochladen, senden oder abbrechen.",
-                offen.hoechstens()
-            ),
+            "fehler": grenze_text(offen),
             "grenze": offen.grenze(),
             "hoechstens": offen.hoechstens(),
         })),
     )
         .into_response()
+}
+
+/// Text des 429 je Grenze (ADR-0046 Ergänzung „Karte #9 Nacharbeit F1“ Regel 2): nur `offen_kennung` liegt in der
+/// Hand des Teilnehmers.
+pub(super) fn grenze_text(offen: Offen) -> &'static str {
+    match offen {
+        Offen::Kennung => {
+            "Nicht angemeldet: höchstens 10 Dateien gleichzeitig offen — erst senden oder abbrechen."
+        }
+        Offen::Herkunft | Offen::Gesamt | Offen::LaufendKennung | Offen::LaufendHerkunft => {
+            "Gerade zu viele Hochladungen — gleich noch einmal versuchen."
+        }
+    }
 }
 
 /// 422 `name` mit `grund` (`leer` | `laenge` | `zeichen` | `punkte`).

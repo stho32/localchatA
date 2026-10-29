@@ -30,29 +30,32 @@ async fn k1(basis: &str, absender: &Absender, token: &str) {
     assert_eq!(antwort.status, 200, "K1: {}", antwort.json);
 }
 
-/// K1, K2 und M21: 127.0.0.2 und .3 je 4 Kennungen × 4 Anmeldungen à 1 Byte → die 17. von 127.0.0.2 429
-/// `offen_herkunft` (K2); `beta@127.0.0.1` meldet an und lädt hoch (K1) — der Eingang ist nicht sperrbar.
+/// K1, K2 und M21: 127.0.0.2 und .3 je 4 Kennungen × 10 Anmeldungen à 1 Byte → die 11. von `a2` 429
+/// `offen_kennung` (K2; ADR-0046 Ergänzung „Karte #9 Nacharbeit F1“: je Herkunft 700 offen, die Grenze der
+/// Herkunft prüft der Unit-Test des Eingangs); `beta@127.0.0.1` meldet an und lädt hoch (K1) — der Eingang ist nicht
+/// sperrbar.
 #[tokio::test]
 async fn kontrollpaar_und_eingang_nicht_sperrbar() {
     let wurzel = ordner();
     let instanz = starten(wurzel.path(), &[], &[]);
     let basis = instanz.adresse.as_str();
+    let mut tokens = Vec::new();
     for herkunft in ["127.0.0.2", "127.0.0.3"] {
         let absender = Absender::von(herkunft);
         for name in ["a", "b", "c", "d"] {
             let name = format!("{name}{}", &herkunft[8..]);
             let token = beitreten(&absender, basis, &name, Some("agent")).await;
-            for _ in 0..4 {
+            for _ in 0..10 {
                 id(&anmelden(&absender, basis, &token, "x", 1).await);
             }
+            tokens.push(token);
         }
     }
     let zweite = Absender::von("127.0.0.2");
-    let fuenfte = beitreten(&zweite, basis, "e", Some("agent")).await;
-    let k2 = anmelden(&zweite, basis, &fuenfte, "x", 1).await;
+    let k2 = anmelden(&zweite, basis, &tokens[0], "x", 1).await;
     assert_eq!(
         (k2.status, &k2.json["grenze"]),
-        (429, &serde_json::json!("offen_herkunft")),
+        (429, &serde_json::json!("offen_kennung")),
         "K2"
     );
 
