@@ -472,7 +472,7 @@ Nie vom User erfragen.
 | 2026-10-29 | Karte #49 Härtung E2E: wacklige Tests unter Last | H49 Rahmen: Kontexte enden mit dem Test, Port-Probe, Klassenwächter; US-15-Farbprobe; Z14- und B2-Ursachenprobe; vier Läufe unter Last (16:45–17:20) | Härtung | — | 0,58h | 0,58h | autonom |
 | 2026-10-29 | Befund #58: Strom bleibt nach Wiederbeitritt ohne SharedWorker stehen | B0410 Befund #58: Abnahme-Probe und Klasse (6 Wege), Struktur Token im Zustand, Fix, Muster Ladeweg (E2E Speicher nimmt nichts an), zweite Gestalt removeItem im Wettlauf, B2 120× unter Last, Gate (17:16–17:35) | Befund | — | 0,32h | 0,32h | autonom |
 | 2026-10-29 | R00033 Senden bei Störungen nach den Reviews #36 | B0552 Zusammengezogene Ansage ohne doppelten Punkt (17:05–17:07) | Standard | 0,4h | 0,05h | 0,05h | autonom |
-| 2026-10-29 | R00033 Senden bei Störungen nach den Reviews #36 | B0553 Wächter „Uhr zurück“ belegt (17:12–17:25, davon ≈ 8 min Warten auf Last unter 6) | Standard | 0,4h | 0,2h | 0,2h | autonom |
-| 2026-10-29 | R00033 Senden bei Störungen nach den Reviews #36 | B0554 Schreibweisen in Tests und Kommentaren (17:25–17:26) | Standard | 0,4h | 0,02h | 0,02h | autonom |
-| 2026-10-29 | R00033 Senden bei Störungen nach den Reviews #36 | B0551 Wartezeile beschreibt das Namensfeld (17:27–17:40) | Standard | 0,4h | 0,2h | 0,2h | autonom |
-| 2026-10-29 | R00033 Senden bei Störungen nach den Reviews #36 | B0550 Countdown bleibt bei 320 px ganz (17:40–17:58, Messung in drei Viewports, Last) | Standard | 2-4h | 0,5h | 0,5h | autonom |
+| 2026-10-29 | R00033 Senden bei Störungen nach den Reviews #36 | B0553 Wächter „Uhr zurück“ belegt (17:07–17:16, davon ≈ 8 min Warten auf Last unter 6) | Standard | 0,4h | 0,2h | 0,2h | autonom |
+| 2026-10-29 | R00033 Senden bei Störungen nach den Reviews #36 | B0554 Schreibweisen in Tests und Kommentaren (17:16–17:17) | Standard | 0,4h | 0,02h | 0,02h | autonom |
+| 2026-10-29 | R00033 Senden bei Störungen nach den Reviews #36 | B0551 Wartezeile beschreibt das Namensfeld (17:17–17:27, mit E2E-Lauf) | Standard | 0,4h | 0,2h | 0,2h | autonom |
+| 2026-10-29 | R00033 Senden bei Störungen nach den Reviews #36 | B0550 Countdown bleibt bei 320 px ganz (17:11–17:34, Messung in drei Viewports, Mutante; verschränkt mit B0551–B0553) | Standard | 2-4h | 0,5h | 0,5h | autonom |
