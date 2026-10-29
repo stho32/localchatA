@@ -29,6 +29,8 @@ pub(super) struct Zaehler {
     pub(super) hochladungen: AtomicU64,
     /// 507 `quote` an Anmeldungen seit dem Start, beide Gründe (ADR-0043 Ergänzung „F1′“).
     pub(super) abgewiesen: AtomicU64,
+    /// Gelöschte Anhänge seit dem Start (Health `anhaenge_geloescht`).
+    pub(super) geloescht: AtomicU64,
 }
 
 /// Warum eine Anmeldung abgewiesen wird; nichts ist beansprucht.
@@ -49,6 +51,7 @@ pub struct Anhangkennzahlen {
     pub reserviert: u64,
     pub hochladungen: u64,
     pub abgewiesen: u64,
+    pub geloescht: u64,
 }
 
 impl Gespraeche {
@@ -189,6 +192,7 @@ impl Gespraeche {
             reserviert: self.anhangzaehler.reserviert.load(Ordering::SeqCst),
             hochladungen: self.anhangzaehler.hochladungen.load(Ordering::SeqCst),
             abgewiesen: self.anhangzaehler.abgewiesen.load(Ordering::SeqCst),
+            geloescht: self.anhangzaehler.geloescht.load(Ordering::SeqCst),
         }
     }
 
@@ -989,6 +993,267 @@ mod tests {
         assert_eq!(gespraeche.anhangkennzahlen().gebunden, 0);
         assert!(anhaenge.anhaenge().is_empty());
         assert!(gespraeche.anhangverzeichnis.finden(&id).is_none());
+    }
+
+    /// Neun Anhänge zu 1 MiB in `allgemein` (sieben von `alice`, zwei von `bob`), einer in `technik` von `alice`.
+    fn neun_und_einer() -> (
+        Arc<Gespraeche>,
+        Arc<crate::gespraeche::anhangspeicher::Anhangspeicher>,
+        Vec<Anhangid>,
+    ) {
+        let (gespraeche, _, speicher) = mit_ablage();
+        let mut ids = Vec::new();
+        for nummer in 0..10 {
+            let wer = if (7..9).contains(&nummer) {
+                "bob@127.0.0.1"
+            } else {
+                "alice@127.0.0.1"
+            };
+            let channel = if nummer == 9 { "technik" } else { "allgemein" };
+            let id = fertig(
+                &gespraeche,
+                wer,
+                &format!("t{nummer}.bin"),
+                &vec![nummer as u8; MIB as usize],
+            );
+            gespraeche
+                .senden_mit_anhaengen(
+                    &Gespraech::channel(channel),
+                    &kennung(wer),
+                    Art::Agent,
+                    "x",
+                    std::slice::from_ref(&id),
+                    None,
+                )
+                .expect("gesendet");
+            ids.push(id);
+        }
+        (gespraeche, speicher, ids)
+    }
+
+    fn zustand(
+        gespraeche: &Gespraeche,
+        id: &Anhangid,
+    ) -> crate::gespraeche::anhangverzeichnis::Zustand {
+        gespraeche
+            .anhangverzeichnis
+            .finden(id)
+            .expect("Eintrag")
+            .zustand()
+    }
+
+    /// B0507 „Drei Schritte und Wettläufe“ (ADR-0046 Ergänzung „F1′“ „Erste Tests“): Rückfrage ändert nichts;
+    /// während des Kürzens ist `t1` schon `geloescht`, aber der Platz noch nicht frei; danach G um 2 MiB kleiner;
+    /// erneut → `schon_geloescht`; `ELOOP` → `fehler` und wieder `vorhanden`; Entfallen des Tages zieht nur die
+    /// vorhandenen ab (Mutanten „Platz frei vor dem Kürzen“, „Löschen ohne Bestätigung“, „Entfallen zieht Gelöschte
+    /// ab“).
+    #[test]
+    fn loeschen_in_drei_schritten() {
+        use crate::gespraeche::anhangverzeichnis::Zustand;
+        use crate::gespraeche::loeschen::{Einzelergebnis, Loeschen, Umfang};
+        let (gespraeche, speicher, ids) = neun_und_einer();
+        let bob = kennung("bob@127.0.0.1");
+        assert_eq!(gespraeche.anhangkennzahlen().gebunden, 10 * MIB);
+
+        let rueckfrage =
+            gespraeche.anhaenge_loeschen(&bob, &ids[..2], false, |_| panic!("keine Buchung"));
+        assert_eq!(
+            rueckfrage,
+            Loeschen::Bestaetigen(Umfang {
+                anhaenge: 2,
+                bytes: 2 * MIB,
+                gespraeche: 1,
+                fremde: 2
+            })
+        );
+        assert_eq!(
+            (
+                zustand(&gespraeche, &ids[0]),
+                gespraeche.anhangkennzahlen().gebunden
+            ),
+            (Zustand::Vorhanden, 10 * MIB)
+        );
+
+        let schranke = Arc::new(std::sync::Barrier::new(2));
+        speicher.vor_kuerzen_warten(Arc::clone(&schranke));
+        let faden = {
+            let (gespraeche, ids, bob) = (Arc::clone(&gespraeche), ids[..2].to_vec(), bob.clone());
+            std::thread::spawn(move || {
+                gespraeche.anhaenge_loeschen(&bob, &ids, true, |einheiten| einheiten == 1)
+            })
+        };
+        schranke.wait();
+        assert_eq!(zustand(&gespraeche, &ids[0]), Zustand::Geloescht);
+        assert_eq!(
+            gespraeche.anhangkennzahlen().gebunden,
+            10 * MIB,
+            "Platz erst nach dem Kürzen frei"
+        );
+        schranke.wait();
+        let Loeschen::Geloescht(bericht) = faden.join().expect("Faden") else {
+            panic!("gelöscht erwartet");
+        };
+        assert_eq!(
+            bericht
+                .ergebnisse
+                .iter()
+                .map(|(_, e)| *e)
+                .collect::<Vec<_>>(),
+            vec![Einzelergebnis::Geloescht, Einzelergebnis::Geloescht]
+        );
+        assert_eq!(
+            bericht.umfang,
+            Umfang {
+                anhaenge: 2,
+                bytes: 2 * MIB,
+                gespraeche: 1,
+                fremde: 2
+            }
+        );
+        assert_eq!(gespraeche.anhangkennzahlen().gebunden, 8 * MIB);
+        assert_eq!(bericht.platz.belegt, 8 * MIB);
+        assert_eq!(bericht.je_gespraech.len(), 1);
+        assert_eq!(gespraeche.anhangkennzahlen().geloescht, 2);
+
+        let erneut = gespraeche.anhaenge_loeschen(&bob, &ids[..1], false, |_| {
+            panic!("keine Buchung ohne Wirkung")
+        });
+        let Loeschen::Geloescht(erneut) = erneut else {
+            panic!("sofort 200 erwartet")
+        };
+        assert_eq!(erneut.ergebnisse[0].1, Einzelergebnis::SchonGeloescht);
+
+        let t3 = gespraeche
+            .anhangverzeichnis
+            .finden(&ids[2])
+            .expect("t3")
+            .datei
+            .clone();
+        speicher.kuerzen_scheitert(&t3);
+        let Loeschen::Geloescht(gescheitert) =
+            gespraeche.anhaenge_loeschen(&bob, &ids[2..3], true, |_| true)
+        else {
+            panic!("Bericht erwartet");
+        };
+        assert_eq!(
+            (gescheitert.ergebnisse[0].1, gescheitert.fehler),
+            (Einzelergebnis::Fehler, 1)
+        );
+        assert_eq!(
+            (
+                zustand(&gespraeche, &ids[2]),
+                gespraeche.anhangkennzahlen().gebunden
+            ),
+            (Zustand::Vorhanden, 8 * MIB)
+        );
+
+        let gebremst = gespraeche.anhaenge_loeschen(&bob, &ids[3..4], true, |_| false);
+        assert_eq!(
+            (gebremst, zustand(&gespraeche, &ids[3])),
+            (Loeschen::Gebremst, Zustand::Vorhanden)
+        );
+
+        let berichte = gespraeche.pflegen(
+            NaiveDate::from_ymd_opt(2026, 11, 6).expect("Tag"),
+            crate::gespraeche::Pflegeanlass::Tageswechsel,
+        );
+        assert!(!berichte.is_empty());
+        assert_eq!(
+            gespraeche.anhangkennzahlen().gebunden,
+            0,
+            "allgemein und technik entfallen am selben Tag"
+        );
+    }
+
+    /// Entfallen gegen Gelöschte: der Tag von `allgemein` entfällt allein → G sinkt nur um die sechs vorhandenen.
+    #[test]
+    fn entfallen_zieht_geloeschte_nicht_ab() {
+        let (gespraeche, _, ids) = neun_und_einer();
+        let bob = kennung("bob@127.0.0.1");
+        gespraeche.anhaenge_loeschen(&bob, &ids[..3], true, |_| true);
+        assert_eq!(gespraeche.anhangkennzahlen().gebunden, 7 * MIB);
+
+        gespraeche
+            .anhaenge_entfallen(&Gespraech::channel("allgemein"), tag_29())
+            .expect("entfallen");
+
+        assert_eq!(
+            gespraeche.anhangkennzahlen().gebunden,
+            MIB,
+            "nur technik bleibt"
+        );
+    }
+
+    /// Zwei gleichzeitige Löschungen derselben ID → genau ein `geloescht`, ein `schon_geloescht`; ein Eintrag im
+    /// Zwischenzustand `entfallen` ist `unbekannt` (L6); eine gelöschte ID beim Senden → `unbekannt` (L14, M38).
+    #[test]
+    fn wettlaeufe_und_zwischenzustaende() {
+        use crate::gespraeche::anhangverzeichnis::Zustand;
+        use crate::gespraeche::loeschen::{Einzelergebnis, Loeschen};
+        let (gespraeche, _, ids) = neun_und_einer();
+        let faeden: Vec<_> = (0..2)
+            .map(|_| {
+                let (gespraeche, id) = (Arc::clone(&gespraeche), ids[0].clone());
+                std::thread::spawn(move || {
+                    match gespraeche.anhaenge_loeschen(
+                        &kennung("bob@127.0.0.1"),
+                        &[id],
+                        true,
+                        |_| true,
+                    ) {
+                        Loeschen::Geloescht(bericht) => bericht.ergebnisse[0].1,
+                        anders => panic!("{anders:?}"),
+                    }
+                })
+            })
+            .collect();
+        let mut ergebnisse: Vec<Einzelergebnis> = faeden
+            .into_iter()
+            .map(|faden| faden.join().expect("Faden"))
+            .collect();
+        ergebnisse.sort_by_key(|e| e.als_text());
+        assert_eq!(
+            ergebnisse,
+            vec![Einzelergebnis::Geloescht, Einzelergebnis::SchonGeloescht]
+        );
+        assert_eq!(gespraeche.anhangkennzahlen().gebunden, 9 * MIB);
+
+        let eintrag = gespraeche.anhangverzeichnis.finden(&ids[1]).expect("t1");
+        assert!(eintrag.tauschen(Zustand::Vorhanden, Zustand::Entfallen));
+        let Loeschen::Geloescht(bericht) =
+            gespraeche.anhaenge_loeschen(&kennung("bob@127.0.0.1"), &ids[1..2], true, |_| true)
+        else {
+            panic!("Bericht erwartet");
+        };
+        assert_eq!(
+            bericht.ergebnisse[0].1,
+            Einzelergebnis::Unbekannt,
+            "entfallen ist kein schon_geloescht"
+        );
+
+        let gesendet = gespraeche.senden_mit_anhaengen(
+            &Gespraech::channel("allgemein"),
+            &kennung("alice@127.0.0.1"),
+            Art::Agent,
+            "nochmal",
+            &ids[..1],
+            None,
+        );
+        assert!(gesendet.is_err(), "eine gelöschte ID ist verbraucht");
+    }
+
+    #[test]
+    fn rest_einheiten_je_hundert() {
+        use crate::gespraeche::loeschen::rest_einheiten;
+        assert_eq!(
+            (
+                rest_einheiten(1),
+                rest_einheiten(100),
+                rest_einheiten(101),
+                rest_einheiten(500)
+            ),
+            (1, 1, 2, 5)
+        );
     }
 
     #[test]

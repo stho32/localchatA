@@ -16,6 +16,7 @@ mod frist;
 pub mod fristeintrag;
 pub mod hochladefristen;
 mod kennung;
+pub mod loeschen;
 mod logablage;
 pub mod logformat;
 mod pflege;
