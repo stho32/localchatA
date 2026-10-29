@@ -525,3 +525,55 @@ Nie vom User erfragen.
 | 2026-10-29 | R00026 Folgen und Sprung belegt | B0578 Sprungziel als reine Funktion | Standard | 0,4h | 0,07h | 0,07h | autonom (entw3) |
 | 2026-10-29 | R00026 Folgen und Sprung belegt | B0579 Schreibweisen in Dokumenten und Spec | Standard | 0,4h | 0,07h | 0,07h | autonom (entw3) |
 | 2026-10-29 | R00026 Folgen und Sprung belegt | B0580 Schreibweisen in Code-Kommentaren | Standard | 0,4h | 0,03h | 0,03h | autonom (entw3) |
+| 2026-10-29 | R00029 Anhänge über die API | B0424 Namensregel prüfen: name_pruefen weist leer, über 255 Bytes, Steuerzeichen | Standard | 0,4h | 0,10h | 0,10h | autonom (entw) |
+| 2026-10-29 | R00029 Anhänge über die API | B0425 Eingang führen: Einträge angemeldet → laeuft → fertig mit Lebensende 60 s + | Standard | 0,4h | 0,13h | 0,13h | autonom (entw) |
+| 2026-10-29 | R00029 Anhänge über die API | B0428 Hochladefristen: Stückfrist 10 s ohne 64 KiB bzw. den Rest (Tröpfeln ist ke | Standard | 0,4h | 0,08h | 0,08h | autonom (entw) |
+| 2026-10-29 | R00029 Anhänge über die API | B0426 Platz reservieren: Anmelden in Gespräche — Name, zu_gross (z > Q), unter de | Standard | 0,4h | 0,08h | 0,08h | autonom (entw) |
+| 2026-10-29 | R00029 Anhänge über die API | B0500 Anhang-Quote einstellen: --anhangquote vor LOCALCHATA_ANHANGQUOTE vor Stand | Standard | 0,4h | 0,08h | 0,08h | autonom (entw) |
+| 2026-10-29 | R00029 Anhänge über die API | B0427 Anmelden beantworten: POST /api/anhaenge mit Sitzung — 403 · 401 · 429 (1 E | Standard | 0,4h | 0,19h | 0,19h | autonom (entw) |
+| 2026-10-29 | R00029 Anhänge über die API | B0431 Eingang beim Start und im Takt: nach der Sperre .eingang per symlink_metada | Standard | 0,4h | 0,08h | 0,08h | autonom (entw) |
+| 2026-10-29 | R00029 Anhänge über die API | B0429 Stücke schreiben: PUT /api/anhaenge/{id} — vor dem ersten gelesenen Byte 40 | Standard | 0,4h | 0,14h | 0,14h | autonom (entw) |
+| 2026-10-29 | R00029 Anhänge über die API | B0430 Verwerfen: DELETE /api/anhaenge/{id} mit Sitzung → immer 204; die eigene ID | Standard | 0,4h | 0,07h | 0,07h | autonom (entw) |
+| 2026-10-29 | R00029 Anhänge über die API | B0432 Anhang-Kennzahlen und gekürzte ID: /api/gesundheit nennt anhangquote (null | Standard | 0,4h | 0,23h | 0,23h | autonom (entw) |
+| 2026-10-29 | R00029 Anhänge über die API | B0429 Probe „Abbruch und Erneut“ wartet auf das Merkmal statt auf die Teildatei: | Standard | 0,4h | 0,02h | 0,02h | autonom (entw) |
+| 2026-10-29 | R00029 Anhänge über die API | B0523 Orientierung aus IFD0 lesen: ein Leser für Erkenner und Tilger — Tag 0x0112 | Standard | 0,4h | 0,07h | 0,07h | autonom (entw) |
+| 2026-10-29 | R00029 Anhänge über die API | B0433 Bildart und Maße: PNG (IHDR als erster Chunk, eXIf vor IDAT), JPEG (erstes | Standard | 0,4h | 0,07h | 0,07h | autonom (entw) |
+| 2026-10-29 | R00029 Anhänge über die API | B0434 Medienart: PDF, MP4 (ftyp ab Byte 4 mit Boxgröße 16–4.096; M4A /M4B  Audio, | Standard | 0,4h | 0,07h | 0,07h | autonom (entw) |
+| 2026-10-29 | R00029 Anhänge über die API | B0435 Text über Stückgrenzen: Textprüfer über die ganze Datei — gültiges UTF-8 mi | Standard | 0,4h | 0,07h | 0,07h | autonom (entw) |
+| 2026-10-29 | R00029 Anhänge über die API | B0436 Art beim Hochladen: der Erkenner sieht jedes Stück im Blocking-Thread der H | Standard | 0,4h | 0,18h | 0,18h | autonom (entw) |
+| 2026-10-29 | R00029 Anhänge über die API | B0437 Metazeile schreiben und lesen: je Anhang eine Zeile + anhang: <id> <bytes> | Standard | 0,4h | 0,02h | 0,02h | autonom (entw) |
+| 2026-10-29 | R00029 Anhänge über die API | B0438 Anhangverzeichnis: Einträge je ID mit Gespräch, Tag, Datei, Bytes, Art, Maß | Standard | 0,4h | 0,20h | 0,20h | autonom (entw) |
+| 2026-10-29 | R00029 Anhänge über die API | B0524 Anhangpfade über Verzeichnisdeskriptoren: ab dem beim Start gehaltenen Desk | Standard | 0,4h | 0,09h | 0,09h | autonom (entw) |
+| 2026-10-29 | R00029 Anhänge über die API | B0439 Sendekörper mit Anhängen prüfen: {text, anhaenge?: [id, …]} — höchstens 10 | Standard | 0,4h | 0,15h | 0,15h | autonom (entw) |
+| 2026-10-29 | R00029 Anhänge über die API | B0440 Binden: Senden nimmt die IDs unter Gesprächs- und Schreibsperre (unbekannt, | Standard | 0,4h | 0,09h | 0,09h | autonom (entw) |
+| 2026-10-29 | R00029 Anhänge über die API | B0441 Antwortform mit Anhängen: jede Nachricht an der Grenze (Verlauf, 201 des Se | Standard | 0,4h | 0,16h | 0,16h | autonom (entw) |
+| 2026-10-29 | R00029 Anhänge über die API | B0442 Anhänge laden: beim Setzen der Ablage je Tag im Index die Metazeilen gegen | Standard | 0,4h | 0,28h | 0,28h | autonom (entw) |
+| 2026-10-29 | R00029 Anhänge über die API | B0443 Anhänge entfallen mit dem Tag: nach der Tagesdatei entfällt anhaenge/<tag>/ | Standard | 0,4h | 0,09h | 0,09h | autonom (entw) |
+| 2026-10-29 | R00029 Anhänge über die API | B0521 Positionsport des Tilgers: über die offene Teildatei lesen(pos, n ≤ 1 MiB, | Standard | 0,4h | 0,08h | 0,08h | autonom (entw) |
+| 2026-10-29 | R00029 Anhänge über die API | B0501 Minimales EXIF mit Orientierung: Orientation des Originals und Länge des al | Standard | 0,4h | 0,08h | 0,08h | autonom (entw) |
+| 2026-10-29 | R00029 Anhänge über die API | B0502 Bildmetadaten tilgen: über die gepufferte Kette des Positionsports (Lesepuf | Standard | 0,4h | 0,08h | 0,08h | autonom (entw) |
+| 2026-10-29 | R00029 Anhänge über die API | B0503 Ortsangaben in ISOBMFF tilgen: Datei mit ftyp → Boxen der obersten Ebene üb | Standard | 0,4h | 0,10h | 0,10h | autonom (entw) |
+| 2026-10-29 | R00029 Anhänge über die API | B0522 Weitere JPEG-Bilder über MPF tilgen: trägt das erste Bild ein APP2 mit MPF\ | Standard | 0,4h | 0,07h | 0,07h | autonom (entw) |
+| 2026-10-29 | R00029 Anhänge über die API | B0504 Tilgen beim Hochladen: nach dem letzten Byte, vor dem rename tilgt der Tilg | Standard | 0,4h | 0,10h | 0,10h | autonom (entw) |
+| 2026-10-29 | R00029 Anhänge über die API | B0444 Bereich lesen: Range-Kopfzeilen, If-Range, ETag und Länge → Ganz / Teil(a, | Standard | 0,4h | 0,09h | 0,09h | autonom (entw) |
+| 2026-10-29 | R00029 Anhänge über die API | B0445 Kopfzeilen der Anhang-Antwort: jede Antwort der Route nosniff, Cross-Origin | Standard | 0,4h | 0,08h | 0,08h | autonom (entw) |
+| 2026-10-29 | R00029 Anhänge über die API | B0467 Sicherheitsheader je Pfad: sicherheitsheader_setzen wählt die CSP nach dem | Standard | 0,4h | 0,09h | 0,09h | autonom (entw) |
+| 2026-10-29 | R00029 Anhänge über die API | B0447 Gestreamt senden: offene Datei und Bereich → Stücke zu 64 KiB ab dem Anfang | Standard | 0,4h | 0,08h | 0,08h | autonom (entw) |
+| 2026-10-29 | R00029 Anhänge über die API | B0446 Anhang ausliefern: GET und HEAD /anhaenge/{id} ohne Sitzung unter dem Grenz | Standard | 0,4h | 0,15h | 0,15h | autonom (entw) |
+| 2026-10-29 | R00029 Anhänge über die API | B0468 Angriffsmatrix Hochladen über das Programm: Kontrollpaar K1/K2 und M21 (zwe | Standard | 0,4h | 0,28h | 0,28h | autonom (entw) |
+| 2026-10-29 | R00029 Anhänge über die API | B0505 Löschkörper prüfen: {ids, bestaetigt?} über den Feldleser — Feld doppelt (4 | Standard | 0,4h | 0,11h | 0,11h | autonom (entw) |
+| 2026-10-29 | R00029 Anhänge über die API | B0507 Löschen in drei Schritten (mit B0506 Zustand je Anhang): (a) unter der Schr | Standard | 0,4h | 0,10h | 0,10h | autonom (entw) |
+| 2026-10-29 | R00029 Anhänge über die API | B0508 Route Löschen beantworten: POST /api/anhaenge/loeschen mit Sitzung, Mensch | Standard | 0,4h | 0,12h | 0,12h | autonom (entw) |
+| 2026-10-29 | R00029 Anhänge über die API | B0509 Gelöscht ausliefern: GET und HEAD /anhaenge/{id} eines gelöschten Anhangs → | Standard | 0,4h | 0,10h | 0,10h | autonom (entw) |
+| 2026-10-29 | R00029 Anhänge über die API | B0510 Gelöscht laden: eine gültige Metazeile mit regulärer Datei der Länge 0 bei | Standard | 0,4h | 0,08h | 0,08h | autonom (entw) |
+| 2026-10-29 | R00029 Anhänge über die API | B0511 Löschen im Betrieb: je bestätigter Anfrage mit Wirkung genau eine INFORMATI | Standard | 0,4h | 0,11h | 0,11h | autonom (entw) |
+| 2026-10-29 | R00029 Anhänge über die API | B0512 Angriffsmatrix Löschen über das Programm: K1; M40′ (neun gebunden, 507 voll | Standard | 0,4h | 0,10h | 0,10h | autonom (entw) |
+| 2026-10-29 | R00029 Anhänge über die API | B0513 Zustand in der Nachricht: jeder Anhang in Verlauf, Senden-Antwort, Wiederho | Standard | 0,4h | 0,11h | 0,11h | autonom (entw) |
+| 2026-10-29 | R00029 Anhänge über die API | B0514 Ereignis anhaenge: nach Schritt (c) des bestätigten Löschens je betroffenem | Standard | 0,4h | 0,24h | 0,24h | autonom (entw) |
+| 2026-10-29 | R00029 Anhänge über die API | B0525 Episode Großer Anspruch: eine angenommene Anmeldung mit z(bytes) ≥ Q/4 bei | Standard | 0,4h | 0,02h | 0,02h | autonom (entw) |
+| 2026-10-29 | R00029 Anhänge über die API | B0463 Anhang-Episoden: 408 des PUT (Stück-, Gesamtfrist, Lebensende) je Herkunft | Standard | 0,4h | 0,06h | 0,06h | autonom (entw) |
+| 2026-10-29 | R00029 Anhänge über die API | B0462 Anhang-Ereignisse: DEBUG anhang je Anmeldung (kennung, herkunft, bytes, Ein | Standard | 0,4h | 0,06h | 0,06h | autonom (entw) |
+| 2026-10-29 | R00029 Anhänge über die API | B0515 Warnschwelle der Anhang-Quote: steigt gebunden über 90 % der Anhang-Quote ( | Standard | 0,4h | 0,08h | 0,08h | autonom (entw) |
+| 2026-10-29 | R00029 Anhänge über die API | B0516 Anhang-Quote beim Start: INFORMATION start Instanz bereit nennt zusätzlich | Standard | 0,4h | 0,04h | 0,04h | autonom (entw) |
+| 2026-10-29 | R00029 Anhänge über die API | B0464 Keine Anhang-ID im Protokoll belegt: über das echte Programm auf Debug Anme | Standard | 0,4h | 0,02h | 0,02h | autonom (entw) |
+| 2026-10-29 | R00029 Anhänge über die API | B0465 B0466 Messwerkzeug examples/anhang-messung: qa3 (zwei PUT à 1 GiB, Gesundhe | Standard | 0,4h | 0,04h | 0,04h | autonom (entw) |
