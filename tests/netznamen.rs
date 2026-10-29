@@ -790,7 +790,7 @@ fn f0080_die_ursprungsregel_bleibt_rebinding_ist_offen() {
     );
 }
 
-const RISIKO: &str = "--alle-namen ist aktiv: jeder Host-Name wird angenommen — eine fremde Website, die ein Teilnehmer öffnet, kann über DNS-Rebinding Channels mitlesen, Nachrichten schreiben und über die Frist Verläufe löschen.";
+const RISIKO: &str = "--alle-namen ist aktiv: Jeder Host-Name wird angenommen — eine fremde Website, die ein Teilnehmer öffnet, kann über DNS-Rebinding Channels mitlesen, Nachrichten schreiben und über die Frist Verläufe löschen.";
 
 /// Kriterium F0080 „Sichtbar“ (US-9, Matrix I8–I11): WARNING vor der Startzeile in der Datei und auf stderr,
 /// `alle_namen` im Health-Check; ohne den Schalter `false` und keine solche Zeile.
@@ -928,9 +928,20 @@ fn i15_i16_schreibweise_mit_wert_und_hilfe() {
         "{}",
         hilfe.stdout
     );
+    // Probe des rechtschreib-reviewer (Nacharbeit #35, ADR-0045 Ergänzung Punkt 5): „Risiko: eine fremde“ 0-mal,
+    // der vollständige Satz mit „Eine“ genau einmal, auf eigener Zeile.
+    let satz = "Risiko: Eine fremde Website, die ein Teilnehmer öffnet, kann über DNS-Rebinding Channels mitlesen, Nachrichten schreiben und über die Frist Verläufe löschen.";
+    let zeilen_mit = |text: &str| {
+        hilfe
+            .stdout
+            .lines()
+            .filter(|zeile| zeile.contains(text))
+            .count()
+    };
+    assert_eq!(zeilen_mit("Risiko: eine fremde"), 0, "{}", hilfe.stdout);
+    assert_eq!(zeilen_mit(satz), 1, "{}", hilfe.stdout);
     assert!(
-        hilfe.stdout.lines().any(|zeile| zeile.trim_start()
-            == "Risiko: eine fremde Website, die ein Teilnehmer öffnet, kann über DNS-Rebinding Channels mitlesen, Nachrichten schreiben und über die Frist Verläufe löschen."),
+        hilfe.stdout.lines().any(|zeile| zeile.trim_start() == satz),
         "{}",
         hilfe.stdout
     );

@@ -24,7 +24,7 @@ pub const HILFE: &str = concat!(
     "                    Höchstgröße aller Gespräche (Tageslogs der Channels und Direktgespräche)\n",
     "                    wie 4GiB oder 512MiB, aus für keine Grenze; Standard 4GiB; auch über LOCALCHATA_PLATTENQUOTE\n",
     "  --alle-namen      jeden Host-Namen annehmen, ohne Namensauflösung; auch über LOCALCHATA_ALLE_NAMEN=1\n",
-    "                    Risiko: eine fremde Website, die ein Teilnehmer öffnet, kann über DNS-Rebinding Channels mitlesen, Nachrichten schreiben und über die Frist Verläufe löschen.\n",
+    "                    Risiko: Eine fremde Website, die ein Teilnehmer öffnet, kann über DNS-Rebinding Channels mitlesen, Nachrichten schreiben und über die Frist Verläufe löschen.\n",
     "  --hilfe           diese Hilfe zeigen\n",
     "\n",
     "Sendefrist: Das System schließt eine Verbindung, die 2 × Herzschlag (Standard: 10 s) lang nichts\n",
@@ -403,14 +403,22 @@ mod tests {
                     && zeile.contains("LOCALCHATA_ALLE_NAMEN")),
             "{HILFE}"
         );
-        let risiko = "eine fremde Website, die ein Teilnehmer öffnet, kann über DNS-Rebinding Channels mitlesen, Nachrichten schreiben und über die Frist Verläufe löschen.";
+        // Nacharbeit #35 (ADR-0045 Ergänzung Punkt 5): groß nach dem Doppelpunkt, ab „fremde Website“ wortgleich
+        // mit der WARNING.
+        let ab = "fremde Website, die ein Teilnehmer öffnet, kann über DNS-Rebinding Channels mitlesen, Nachrichten schreiben und über die Frist Verläufe löschen.";
         assert!(
             HILFE
                 .lines()
-                .any(|zeile| zeile.trim_start() == format!("Risiko: {risiko}")),
+                .any(|zeile| zeile.trim_start() == format!("Risiko: Eine {ab}")),
             "{HILFE}"
         );
-        assert!(super::super::allenamen::RISIKO.ends_with(risiko));
+        assert!(!HILFE.contains("Risiko: eine"), "{HILFE}");
+        let risiko = super::super::allenamen::RISIKO;
+        assert!(
+            risiko.starts_with("--alle-namen ist aktiv: Jeder Host-Name wird angenommen"),
+            "{risiko}"
+        );
+        assert!(risiko.ends_with(&format!(" — eine {ab}")), "{risiko}");
         assert!(HILFE.contains("gelten automatisch"), "{HILFE}");
     }
 

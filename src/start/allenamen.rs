@@ -8,7 +8,7 @@ use std::fmt;
 pub const VARIABLE: &str = "LOCALCHATA_ALLE_NAMEN";
 
 /// Der Satz, mit dem die Instanz beim Start warnt und den `--hilfe` nennt.
-pub const RISIKO: &str = "--alle-namen ist aktiv: jeder Host-Name wird angenommen — eine fremde Website, die ein Teilnehmer öffnet, kann über DNS-Rebinding Channels mitlesen, Nachrichten schreiben und über die Frist Verläufe löschen.";
+pub const RISIKO: &str = "--alle-namen ist aktiv: Jeder Host-Name wird angenommen — eine fremde Website, die ein Teilnehmer öffnet, kann über DNS-Rebinding Channels mitlesen, Nachrichten schreiben und über die Frist Verläufe löschen.";
 
 /// `LOCALCHATA_ALLE_NAMEN` ist gesetzt, aber weder `1`, `0` noch leer.
 #[derive(Debug, Clone, PartialEq, Eq)]
