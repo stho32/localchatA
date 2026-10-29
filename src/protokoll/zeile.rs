@@ -123,6 +123,8 @@ pub enum Schluessel {
     Belegt,
     /// Woher die Plattenquote kommt — eigener Schlüssel, `option` nennt die Herkunft der Protokollstufe.
     PlattenquoteOption,
+    /// Alter eines verdrängten Wiederholschlüssels in ms (ADR-0042 Ergänzung Karte #36).
+    AlterMs,
 }
 
 impl Schluessel {
@@ -159,6 +161,7 @@ impl Schluessel {
             Schluessel::Plattenquote => "plattenquote",
             Schluessel::Belegt => "belegt",
             Schluessel::PlattenquoteOption => "plattenquote_option",
+            Schluessel::AlterMs => "alter_ms",
         }
     }
 }

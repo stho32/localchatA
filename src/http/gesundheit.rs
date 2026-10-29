@@ -50,6 +50,8 @@ pub struct Gesundheit {
     plattenquote: Option<u64>,
     /// Zahl der 507 wegen der Quote seit dem Start (ADR-0044 Regel 9).
     quote_abgewiesen: u64,
+    /// Wiederholschlüssel, die seit dem Start vor Ablauf verdrängt wurden (ADR-0043 Ergänzung Karte #36).
+    schluessel_verdraengt: u64,
 }
 
 /// Antwortet der Port, ist die Instanz bereit: geladen wird vor dem Binden (A00003).
@@ -97,6 +99,7 @@ pub async fn beantworten(State(zustand): State<Arc<Zustand>>) -> Json<Gesundheit
         alle_namen: zustand.grenzschutz.alle_namen(),
         plattenquote: kennzahlen.plattenquote,
         quote_abgewiesen: kennzahlen.quote_abgewiesen,
+        schluessel_verdraengt: kennzahlen.schluessel_verdraengt,
     })
 }
 
@@ -174,7 +177,8 @@ mod tests {
                 "werkbank_belegt": 0,
                 "alle_namen": false,
                 "plattenquote": 4_294_967_296_u64,
-                "quote_abgewiesen": 0
+                "quote_abgewiesen": 0,
+                "schluessel_verdraengt": 0
             })
         );
     }

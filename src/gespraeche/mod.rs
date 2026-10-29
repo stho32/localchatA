@@ -36,7 +36,7 @@ use std::sync::{Arc, Mutex, RwLock};
 use std::time::{Duration, Instant};
 use verlaufsindex::Verlauf;
 use verzeichnis::Verzeichnis;
-use wiederholung::{Pruefung, Wiederholung};
+use wiederholung::{Pruefung, Verdraengt, Wiederholung};
 
 /// Eine Nachricht, wie sie im Log steht; die Zeit ist zugleich ihre ID (ADR-0005).
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -115,7 +115,14 @@ pub struct Gespraeche {
     /// Σ Bytes aller Tage im Index — Invariante `belegt = Σ Verlauf::bytes()` (ADR-0044 Regel 2).
     belegung: quote::Belegung,
     quote_melden: quote::QuoteMelden,
+    /// Wiederholschlüssel, die vor Ablauf weichen mussten — gezählt nach der Schreibsperre (ADR-0043 Ergänzung
+    /// Karte #36), gemeldet an `verdraengt_melden` (im Start: Episode im Betriebsprotokoll).
+    schluessel_verdraengt: std::sync::atomic::AtomicU64,
+    verdraengt_melden: VerdraengtMelden,
 }
+
+/// Meldet einen vor Ablauf verdrängten Wiederholschlüssel; gerufen nach Freigabe der Schreibsperre (Regel E1.7).
+pub type VerdraengtMelden = Arc<dyn Fn(&Verdraengt) + Send + Sync>;
 
 struct Schreibstand {
     letzte: Option<Zeit>,
@@ -192,6 +199,8 @@ pub struct Kennzahlen {
     pub plattenquote: Option<u64>,
     /// Abweisungen an der Quote seit dem Start (ADR-0044 Regel 9).
     pub quote_abgewiesen: u64,
+    /// Wiederholschlüssel, die seit dem Start vor Ablauf verdrängt wurden (ADR-0043 Ergänzung Karte #36).
+    pub schluessel_verdraengt: u64,
 }
 
 impl Gespraeche {
@@ -253,6 +262,8 @@ impl Gespraeche {
             hoechstens: Some(quote::STANDARD_BYTES),
             belegung: quote::Belegung::neu(geladen.belegt),
             quote_melden: Arc::new(|_: &quote::Quotemeldung| {}),
+            schluessel_verdraengt: std::sync::atomic::AtomicU64::new(0),
+            verdraengt_melden: Arc::new(|_: &Verdraengt| {}),
         })
     }
 
@@ -268,14 +279,15 @@ impl Gespraeche {
         art: Art,
         text: &str,
     ) -> Result<Nachricht, Sendefehler> {
-        match self.senden_mit(gespraech, von, art, text, None)? {
+        match self.senden_mit(gespraech, von, art, text, None)?.0 {
             Gesendet::Neu(nachricht) | Gesendet::Wiederholt(nachricht) => Ok(nachricht),
         }
     }
 
     /// Wie `senden`, mit Wiederholschlüssel (ADR-0034 Regel 6): unter der Schreibsperre geprüft — bekannt mit
     /// gleichem Text und Gespräch → die ursprüngliche Nachricht, nichts angehängt, nichts veröffentlicht; bekannt mit
-    /// anderem → `SchluesselAnders`; neu → senden und erst nach dem Anhängen merken.
+    /// anderem → `SchluesselAnders`; neu → senden und erst nach dem Anhängen merken. Musste dafür ein anderer
+    /// Schlüssel vor Ablauf weichen, wird das nach Freigabe der Sperren gezählt und gemeldet (Regel E1.7).
     pub fn senden_einmal(
         &self,
         gespraech: &Gespraech,
@@ -284,7 +296,13 @@ impl Gespraeche {
         text: &str,
         schluessel: &str,
     ) -> Result<Gesendet, Sendefehler> {
-        self.senden_mit(gespraech, von, art, text, Some(schluessel))
+        let (gesendet, verdraengt) =
+            self.senden_mit(gespraech, von, art, text, Some(schluessel))?;
+        if let Some(verdraengt) = verdraengt {
+            self.schluessel_verdraengt.fetch_add(1, Ordering::SeqCst);
+            (self.verdraengt_melden)(&verdraengt);
+        }
+        Ok(gesendet)
     }
 
     fn senden_mit(
@@ -294,7 +312,7 @@ impl Gespraeche {
         art: Art,
         text: &str,
         schluessel: Option<&str>,
-    ) -> Result<Gesendet, Sendefehler> {
+    ) -> Result<(Gesendet, Option<Verdraengt>), Sendefehler> {
         let verlauf = lesend(&self.verzeichnis)
             .verlaeufe
             .get(gespraech)
@@ -312,8 +330,9 @@ impl Gespraeche {
         match pruefung {
             Some(Pruefung::Anders) => return Err(Sendefehler::SchluesselAnders),
             Some(Pruefung::Wiederholt { zeit }) => {
-                return Ok(Gesendet::Wiederholt(
-                    nachricht_bilden(zeit, von, art, text).0,
+                return Ok((
+                    Gesendet::Wiederholt(nachricht_bilden(zeit, von, art, text).0),
+                    None,
                 ));
             }
             Some(Pruefung::Neu) | None => {}
@@ -344,13 +363,13 @@ impl Gespraeche {
         let dazu = satzbytes + u64::from(angehaengt.zeilenende_ergaenzt);
         let vorher = self.belegung.dazu(dazu);
         self.ueber_90_melden(vorher, vorher.saturating_add(dazu));
-        if let Some(schluessel) = schluessel {
-            let _verdraengt = stand
+        let verdraengt = schluessel.and_then(|schluessel| {
+            stand
                 .wiederholung
-                .merken(von, schluessel, gespraech, pruefsumme, zeit, jetzt);
-        }
+                .merken(von, schluessel, gespraech, pruefsumme, zeit, jetzt)
+        });
         (self.nachricht_veroeffentlichen)(gespraech, &nachricht);
-        Ok(Gesendet::Neu(nachricht))
+        Ok((Gesendet::Neu(nachricht), verdraengt))
     }
 
     /// Die jüngste Nachrichtenzeit im Ordner (als Zeitpunkt); an ihr setzt die nächste vergebene Zeit an.
@@ -422,11 +441,35 @@ impl Gespraeche {
             channels: verzeichnis.channels.len() as u64,
             plattenquote: self.hoechstens,
             quote_abgewiesen: self.belegung.abgewiesen(),
+            schluessel_verdraengt: self.schluessel_verdraengt.load(Ordering::SeqCst),
         }
     }
 }
 
 impl Gespraeche {
+    /// Ersetzt den Wiederholspeicher (Grenzen aus Unit-Tests oder dem Testknopf, ADR-0042 Ergänzung Karte #36).
+    pub fn mit_wiederholung(mut self, wiederholung: Wiederholung) -> Gespraeche {
+        self.schreiben
+            .get_mut()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .wiederholung = wiederholung;
+        self
+    }
+
+    /// Hängt die Meldung verdrängter Wiederholschlüssel an (im Start: Episode im Betriebsprotokoll).
+    pub fn mit_verdraengt_melden(self, verdraengt_melden: VerdraengtMelden) -> Gespraeche {
+        Gespraeche {
+            verdraengt_melden,
+            ..self
+        }
+    }
+
+    /// Ob die Schreibsperre gerade frei ist — nur für die Probe „nach der Sperre“.
+    #[cfg(test)]
+    fn schreibsperre_frei(&self) -> bool {
+        self.schreiben.try_lock().is_ok()
+    }
+
     /// Hängt die Meldungen der Quote an (im Start: das Betriebsprotokoll); ohne sie gehen sie an niemanden.
     pub fn mit_quote_melden(self, quote_melden: quote::QuoteMelden) -> Gespraeche {
         Gespraeche {
@@ -822,6 +865,41 @@ mod tests {
         let inhalt = ablage.inhalt(&allgemein, tag("2026-10-27")).expect("Tag");
         assert_eq!(inhalt.matches("  Hallo\n").count(), 3, "{inhalt}");
         assert_eq!(sperren(&rueckrufe).len(), 3);
+    }
+
+    /// R00025 „Nach der Sperre“ (Regel E1.7, Angriffsmatrix Zeile 15): die Meldung einer Verdrängung kommt aus dem
+    /// Senden, wenn die Schreibsperre wieder frei ist — die Senke prüft es beim Aufruf.
+    #[test]
+    fn eine_verdraengung_wird_erst_nach_freigabe_der_schreibsperre_gemeldet() {
+        use std::sync::{OnceLock, Weak};
+        let (gespraeche, _, _) = im_speicher("2026-10-27T14:07:12.345+01:00");
+        let selbst: Arc<OnceLock<Weak<Gespraeche>>> = Arc::default();
+        let frei: Arc<Mutex<Vec<bool>>> = Arc::default();
+        let gespraeche = Arc::new(
+            gespraeche
+                .mit_wiederholung(wiederholung::Wiederholung::neu(640, 1).expect("Grenzen"))
+                .mit_verdraengt_melden({
+                    let (selbst, frei) = (Arc::clone(&selbst), Arc::clone(&frei));
+                    Arc::new(move |_: &wiederholung::Verdraengt| {
+                        let gespraeche = selbst.get().and_then(Weak::upgrade).expect("Gespräche");
+                        sperren(&frei).push(gespraeche.schreibsperre_frei());
+                    })
+                }),
+        );
+        selbst.set(Arc::downgrade(&gespraeche)).expect("einmal");
+        let allgemein = Gespraech::channel("allgemein");
+
+        for (von, schluessel) in [
+            (claude(), "k1"),
+            (Kennung::bilden("beta@127.0.0.1").expect("Kennung"), "k2"),
+        ] {
+            gespraeche
+                .senden_einmal(&allgemein, &von, Art::Agent, "x", schluessel)
+                .expect("gesendet");
+        }
+
+        assert_eq!(*sperren(&frei), [true]);
+        assert_eq!(gespraeche.kennzahlen().schluessel_verdraengt, 1);
     }
 
     /// Scheitert das Anhängen, wird der Schlüssel nicht gemerkt: die Wiederholung ist ein neuer Versuch und hängt an.
