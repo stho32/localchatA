@@ -469,3 +469,4 @@ Nie vom User erfragen.
 | 2026-10-29 | R00025 Senden bei Störungen gehärtet | Abschluss: Gate, Mutanten, Schärfen, Gelerntes | Konsolidierung | — | 0,27h | 0,27h | autonom |
 | 2026-10-29 | R00025 Senden bei Störungen gehärtet | B0493 Nacharbeit: Speicher am zählenden Allokator (S2), --ignored nach S3, Doku S1 (15:17–15:28) | Nacharbeit | — | 0,18h | 0,18h | autonom |
 | 2026-10-29 | R00025 Senden bei Störungen gehärtet | B0410 Nacharbeit: Zustellung nach gescheitertem Wiederbeitritt (UX M1), Sekundentakt am signal (A1), Wächter-Test (A3) (15:37–15:56) | Nacharbeit | — | 0,32h | 0,32h | autonom |
+| 2026-10-29 | Karte #49 Härtung E2E: wacklige Tests unter Last | H49 Rahmen: Kontexte enden mit dem Test, Port-Probe, Klassenwächter; US-15-Farbprobe; Z14- und B2-Ursachenprobe; vier Läufe unter Last (16:45–17:20) | Härtung | — | 0,58h | 0,58h | autonom |
