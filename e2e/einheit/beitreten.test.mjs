@@ -2,7 +2,7 @@
 // Text oder { kennung } für Namen, Kennungen und Vorschläge.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { meldungsteile, hinweisFuer, wartendeText } from '../../web/beitreten.js';
+import { meldungsteile, hinweisFuer, wartendeText, zeichnen } from '../../web/beitreten.js';
 import { LEER, ungesendete } from '../../web/zustellung.js';
 
 process.env.TZ = 'Europe/Berlin';
@@ -81,4 +81,57 @@ test('wartende Nachrichten auf dem Beitreten-Bildschirm: keine, eine, zwei', () 
     ],
   };
   assert.equal(ungesendete(zustand), 2);
+});
+
+// R00033 F0124 B0551 (ux-reviewer #36 S3): ein DOM-Ersatz genügt, um die Verdrahtung von Wartezeile und Feld zu lesen.
+class Knoten {
+  constructor(tag) {
+    this.tag = tag;
+    this.kinder = [];
+    this.attribute = {};
+    this.classList = { toggle() {} };
+  }
+  setAttribute(name, wert) { this.attribute[name] = wert; }
+  removeAttribute(name) { delete this.attribute[name]; }
+  append(...kinder) { this.kinder.push(...kinder); }
+  replaceChildren(...kinder) { this.kinder = kinder; }
+  addEventListener() {}
+  focus() {}
+  finden(pruefung) {
+    if (pruefung(this)) {
+      return this;
+    }
+    return this.kinder.filter((k) => k instanceof Knoten).map((k) => k.finden(pruefung)).find(Boolean);
+  }
+}
+
+function beitretenZeichnen(wartende) {
+  const vorher = globalThis.document;
+  globalThis.document = { createElement: (tag) => new Knoten(tag) };
+  try {
+    const wurzel = new Knoten('div');
+    zeichnen(wurzel, { art: 'beitreten', name: '' }, { wartende, beitreten: async () => {} });
+    return wurzel;
+  } finally {
+    globalThis.document = vorher;
+  }
+}
+
+test('die Wartezeile beschreibt das Namensfeld für Bildschirmleser', () => {
+  const wurzel = beitretenZeichnen(2);
+  const feld = wurzel.finden((k) => k.id === 'lc-name');
+  const zeile = wurzel.finden((k) => k.className === 'lc-wartende');
+
+  assert.equal(zeile.textContent, '2 ungesendete Nachrichten warten auf den Beitritt — Neuladen verwirft sie.');
+  assert.ok(zeile.id, 'die Wartezeile trägt eine id');
+  assert.equal(feld.attribute['aria-describedby'], `lc-name-zweck lc-name-hinweis lc-meldung ${zeile.id}`);
+  assert.equal(zeile.attribute.role, undefined);
+});
+
+test('ohne wartende Nachrichten gibt es weder Zeile noch Verweis', () => {
+  const wurzel = beitretenZeichnen(0);
+  const feld = wurzel.finden((k) => k.id === 'lc-name');
+
+  assert.equal(wurzel.finden((k) => k.className === 'lc-wartende'), undefined);
+  assert.equal(feld.attribute['aria-describedby'], 'lc-name-zweck lc-name-hinweis lc-meldung');
 });

@@ -5,6 +5,7 @@ import { pruefen } from './namensregel.js';
 
 const LEER = { art: 'leer' };
 const OHNE_MELDUNG = { art: 'beitreten' };
+const WARTENDE_ID = 'lc-wartende';
 
 export function zeichnen(wurzel, zustand, aktionen) {
   const feld = element('input', {
@@ -12,7 +13,7 @@ export function zeichnen(wurzel, zustand, aktionen) {
     value: feldinhalt(zustand),
   });
   feld.setAttribute('autocapitalize', 'none');
-  feld.setAttribute('aria-describedby', 'lc-name-zweck lc-name-hinweis lc-meldung');
+  feld.setAttribute('aria-describedby', beschreibung(aktionen.wartende));
   const schalter = element('button', { type: 'submit', className: 'lc-btn primary', textContent: 'Beitreten' });
   const hinweisRegel = element('span', { className: 'lc-hinweis-regel' });
   const hinweisVorschlag = element('span', { className: 'lc-hinweis-vorschlag' });
@@ -78,7 +79,14 @@ function wartendeZeile(anzahl = 0) {
   if (text === '') {
     return [];
   }
-  return [element('p', { className: 'lc-wartende', textContent: text })];
+  return [element('p', { id: WARTENDE_ID, className: 'lc-wartende', textContent: text })];
+}
+
+// Die Wartezeile beschreibt das Namensfeld (ux-reviewer #36 S3): der Bildschirm setzt den Fokus ins Feld, der
+// Bildschirmleser liest sie mit; ohne Zeile keine Referenz.
+function beschreibung(wartende = 0) {
+  const bisherige = 'lc-name-zweck lc-name-hinweis lc-meldung';
+  return wartendeText(wartende) === '' ? bisherige : `${bisherige} ${WARTENDE_ID}`;
 }
 
 // Teile der Meldung: Text oder { kennung } für Namen, Kennungen und Vorschläge (Mono).

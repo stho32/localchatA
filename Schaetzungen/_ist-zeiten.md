@@ -474,3 +474,4 @@ Nie vom User erfragen.
 | 2026-10-29 | R00033 Senden bei Störungen nach den Reviews #36 | B0552 Zusammengezogene Ansage ohne doppelten Punkt (17:05–17:07) | Standard | 0,4h | 0,05h | 0,05h | autonom |
 | 2026-10-29 | R00033 Senden bei Störungen nach den Reviews #36 | B0553 Wächter „Uhr zurück“ belegt (17:12–17:25, davon ≈ 8 min Warten auf Last unter 6) | Standard | 0,4h | 0,2h | 0,2h | autonom |
 | 2026-10-29 | R00033 Senden bei Störungen nach den Reviews #36 | B0554 Schreibweisen in Tests und Kommentaren (17:25–17:26) | Standard | 0,4h | 0,02h | 0,02h | autonom |
+| 2026-10-29 | R00033 Senden bei Störungen nach den Reviews #36 | B0551 Wartezeile beschreibt das Namensfeld (17:27–17:40) | Standard | 0,4h | 0,2h | 0,2h | autonom |
