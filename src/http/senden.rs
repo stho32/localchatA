@@ -98,16 +98,6 @@ pub async fn senden(
             return mit_regel(text_abgewiesen(fehler), regel, Some(&wer));
         }
     };
-    if !anhaenge.is_empty() {
-        return mit_regel(
-            sendekoerper_abgewiesen(Sendekoerperfehler::Anhang {
-                id: anhaenge[0].als_text().to_string(),
-                grund: "unbekannt",
-            }),
-            "anhang",
-            Some(&wer),
-        );
-    }
     let Ok(schluessel) = schluessel_lesen(&kopf) else {
         return mit_regel(
             schluessel_abgewiesen(SCHLUESSEL_FORMAT),
@@ -132,11 +122,15 @@ pub async fn senden(
     let gespraech = Gespraech::channel(&name);
     let von = teilnehmer.kennung.clone();
     let art = teilnehmer.art;
-    let ergebnis = tokio::task::spawn_blocking(move || match schluessel {
-        Some(schluessel) => gespraeche.senden_einmal(&gespraech, &von, art, &text, &schluessel),
-        None => gespraeche
-            .senden(&gespraech, &von, art, &text)
-            .map(Gesendet::Neu),
+    let ergebnis = tokio::task::spawn_blocking(move || {
+        gespraeche.senden_mit_anhaengen(
+            &gespraech,
+            &von,
+            art,
+            &text,
+            &anhaenge,
+            schluessel.as_deref(),
+        )
     })
     .await;
     match ergebnis {
@@ -159,6 +153,23 @@ pub async fn senden(
         Ok(Err(Sendefehler::Quote { belegt, hoechstens })) => {
             quote_melden(&zustand, &name, &wer, belegt, hoechstens);
             mit_regel(quote_erreicht(belegt, hoechstens), "quote", Some(&wer))
+        }
+        Ok(Err(Sendefehler::Anhang { id, grund })) => mit_regel(
+            sendekoerper_abgewiesen(Sendekoerperfehler::Anhang {
+                id: id.als_text().to_string(),
+                grund: grund.als_text(),
+            }),
+            "anhang",
+            Some(&wer),
+        ),
+        Ok(Err(Sendefehler::Binden {
+            tag,
+            datei,
+            grund,
+            waisen,
+        })) => {
+            nicht_gebunden(&zustand, &name, &wer, tag, &datei, &grund, &waisen);
+            nicht_gespeichert_antwort()
         }
         Err(abbruch) => abgebrochen(&zustand, &Abgebrochen::from(abbruch), &wer, &name),
     }
@@ -233,6 +244,49 @@ fn nicht_gespeichert(
     (
         StatusCode::INTERNAL_SERVER_ERROR,
         Json(json!({ "fehler": fehler })),
+    )
+        .into_response()
+}
+
+/// 500 nach gescheitertem Binden (ADR-0046 Regel 6): `ERROR senden` mit Gespräch, Tag und Datei nur als Präfix;
+/// je Waise eine weitere Zeile — nie Anhang-ID oder Anzeigename (M19).
+fn nicht_gebunden(
+    zustand: &Zustand,
+    channel: &str,
+    wer: &str,
+    tag: chrono::NaiveDate,
+    datei: &str,
+    grund: &str,
+    waisen: &[String],
+) {
+    zustand.protokoll.eintragen(
+        Stufe::Error,
+        Bereich::Senden,
+        "Anhang nicht gebunden — die Nachricht ist nicht gesendet, die Anhänge liegen wieder im Eingang",
+        Kontext::neu()
+            .mit(Schluessel::Channel, channel)
+            .mit(Schluessel::Kennung, wer)
+            .mit(Schluessel::Tag, tag.format("%Y-%m-%d"))
+            .mit(Schluessel::Datei, datei)
+            .mit(Schluessel::Grund, grund),
+    );
+    for waise in waisen {
+        zustand.protokoll.eintragen(
+            Stufe::Error,
+            Bereich::Senden,
+            "Zurücklegen gescheitert — die Datei bleibt als Waise im Tag und zählt an der Anhang-Quote",
+            Kontext::neu()
+                .mit(Schluessel::Channel, channel)
+                .mit(Schluessel::Tag, tag.format("%Y-%m-%d"))
+                .mit(Schluessel::Datei, waise.as_str()),
+        );
+    }
+}
+
+fn nicht_gespeichert_antwort() -> Response {
+    (
+        StatusCode::INTERNAL_SERVER_ERROR,
+        Json(json!({ "fehler": "Nicht gespeichert — der Server konnte nicht schreiben." })),
     )
         .into_response()
 }

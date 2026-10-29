@@ -128,6 +128,8 @@ pub enum Schluessel {
     PlattenquoteOption,
     /// Alter eines verdrängten Wiederholschlüssels in ms (ADR-0042 Ergänzung Karte #36).
     AlterMs,
+    /// Tag einer Tagesdatei bzw. eines Anhang-Ordners (`JJJJ-MM-TT`).
+    Tag,
 }
 
 impl Schluessel {
@@ -165,6 +167,7 @@ impl Schluessel {
             Schluessel::Belegt => "belegt",
             Schluessel::PlattenquoteOption => "plattenquote_option",
             Schluessel::AlterMs => "alter_ms",
+            Schluessel::Tag => "tag",
         }
     }
 }

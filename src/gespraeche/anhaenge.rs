@@ -226,7 +226,7 @@ impl Gespraeche {
     }
 
     /// `A` und die Zahl offener Hochladungen nach einem Übergang des Eingangs in die Atomics (unter der Sperre).
-    fn eingang_spiegeln(&self, eingang: &super::anhangeingang::Eingang) {
+    pub(super) fn eingang_spiegeln(&self, eingang: &super::anhangeingang::Eingang) {
         self.anhangzaehler
             .reserviert
             .store(eingang.reserviert(), Ordering::SeqCst);
@@ -240,10 +240,12 @@ impl Gespraeche {
 mod tests {
     use super::super::*;
     use super::*;
+    use crate::anwesenheit::Art;
     use crate::gespraeche::anhangquote::Quotestand;
     use crate::gespraeche::platte::Gestellt;
     use crate::uhr::GestellteUhr;
     use crate::zufall::FesteFolge;
+    use chrono::NaiveDate;
 
     const MIB: u64 = 1_048_576;
 
@@ -388,6 +390,427 @@ mod tests {
         assert!(verfallen[0].ohne_hochladen);
         let kennzahlen = gespraeche.anhangkennzahlen();
         assert_eq!((kennzahlen.reserviert, kennzahlen.hochladungen), (0, 0));
+    }
+
+    /// Gespräche mit Speicherablage, Anhangspeicher, fester Uhr (12:00:00.000) und Channels `allgemein`, `technik`.
+    fn mit_ablage() -> (
+        Arc<Gespraeche>,
+        Arc<Speicherablage>,
+        Arc<crate::gespraeche::anhangspeicher::Anhangspeicher>,
+    ) {
+        let ablage = Arc::new(Speicherablage::neu());
+        ablage.gespraech_anlegen(&Gespraech::channel("allgemein"));
+        ablage.gespraech_anlegen(&Gespraech::channel("technik"));
+        let anhaenge = Arc::new(crate::gespraeche::anhangspeicher::Anhangspeicher::neu());
+        let uhr = Arc::new(GestellteUhr::neu(
+            chrono::DateTime::parse_from_rfc3339("2026-10-29T12:00:00.000+01:00").expect("Zeit"),
+        ));
+        let gespraeche = Gespraeche::laden(ablage.clone(), uhr)
+            .expect("geladen")
+            .mit_anhangquote(Some(10 * MIB))
+            .mit_anhangablage(anhaenge.clone())
+            .mit_zufall(Arc::new(FesteFolge::neu(1..=100)));
+        (Arc::new(gespraeche), ablage, anhaenge)
+    }
+
+    /// Anmelden, hochladen (über den Eingang der Attrappe) und abschließen: eine fertige ID.
+    fn fertig(gespraeche: &Gespraeche, wer: &str, name: &str, bytes: &[u8]) -> Anhangid {
+        let wer = kennung(wer);
+        let anmeldung = gespraeche
+            .anhang_anmelden(
+                &wer,
+                wer.herkunft().expect("Herkunft"),
+                name,
+                bytes.len() as u64,
+            )
+            .expect("angemeldet");
+        let kopf = super::super::anhangeingang::Kopf {
+            typ_passt: true,
+            laenge: Some(bytes.len() as u64),
+        };
+        let platz = gespraeche
+            .hochladen_beginnen(&wer, &anmeldung.id, kopf)
+            .expect("läuft");
+        let mut teil = gespraeche
+            .anhangablage()
+            .teil_anlegen(&anmeldung.id)
+            .expect("Teil");
+        teil.anhaengen(bytes).expect("geschrieben");
+        gespraeche
+            .anhangablage()
+            .teil_abschliessen(&anmeldung.id)
+            .expect("fertig");
+        gespraeche
+            .hochladen_abschliessen(
+                &anmeldung.id,
+                platz.generation,
+                crate::gespraeche::anhangpruefung::Art::datei(),
+            )
+            .expect("abgeschlossen");
+        anmeldung.id
+    }
+
+    fn tag_29() -> NaiveDate {
+        NaiveDate::from_ymd_opt(2026, 10, 29).expect("Tag")
+    }
+
+    /// Invarianten (ADR-0046 Ergänzung „F1′“ Regel 1): `G = Σ z(vorhandene) + W` über alle Tage, `A = Σ z` im Eingang.
+    fn invarianten(gespraeche: &Gespraeche, tage: &[(&str, NaiveDate)]) {
+        let g: u64 = tage
+            .iter()
+            .map(|(channel, tag)| {
+                gespraeche
+                    .anhangverzeichnis
+                    .bytes_je_tag(&Gespraech::channel(channel), *tag)
+            })
+            .sum();
+        let kennzahlen = gespraeche.anhangkennzahlen();
+        assert_eq!(kennzahlen.gebunden, g, "G");
+        assert_eq!(
+            kennzahlen.reserviert,
+            sperren(&gespraeche.schreiben).eingang.reserviert(),
+            "A"
+        );
+        assert!(kennzahlen.gebunden + kennzahlen.reserviert <= 10 * MIB);
+    }
+
+    /// B0440 Hauptweg: zwei Anhänge, Text leer → die Dateien liegen unter `anhaenge/<tag>/<hhmmssmmm>-<n>-<ascii>`, der
+    /// Satz trägt beide Metazeilen in Sendefolge, `A → G` in einem Schritt, das Verzeichnis kennt Satzzeit, Absender
+    /// und Zustand; der Eingang ist leer.
+    #[test]
+    fn senden_bindet_die_anhaenge_in_den_tag_der_nachricht() {
+        let (gespraeche, ablage, anhaenge) = mit_ablage();
+        let eins = fertig(&gespraeche, "beta@127.0.0.1", "Bericht März.pdf", &[1; 10]);
+        let zwei = fertig(&gespraeche, "beta@127.0.0.1", "b.bin", &[2; 65_537]);
+        assert_eq!(gespraeche.anhangkennzahlen().reserviert, 65_536 + 69_632);
+
+        let gesendet = gespraeche
+            .senden_mit_anhaengen(
+                &Gespraech::channel("allgemein"),
+                &kennung("beta@127.0.0.1"),
+                Art::Agent,
+                "",
+                &[eins.clone(), zwei.clone()],
+                None,
+            )
+            .expect("gesendet");
+
+        let Gesendet::Neu(nachricht) = gesendet else {
+            panic!("neu erwartet")
+        };
+        assert_eq!(nachricht.text, "");
+        let dateien: Vec<&str> = nachricht
+            .anhaenge
+            .iter()
+            .map(|anhang| anhang.datei.as_str())
+            .collect();
+        assert_eq!(
+            dateien,
+            vec!["120000000-1-Bericht_M_rz.pdf", "120000000-2-b.bin"]
+        );
+        let gebunden = anhaenge.anhaenge();
+        assert_eq!(gebunden.len(), 2);
+        assert_eq!(
+            gebunden[&(
+                Gespraech::channel("allgemein"),
+                tag_29(),
+                "120000000-1-Bericht_M_rz.pdf".to_string()
+            )],
+            vec![1; 10]
+        );
+        assert!(anhaenge.eingang().is_empty());
+        let inhalt = ablage
+            .inhalt(&Gespraech::channel("allgemein"), tag_29())
+            .expect("Tag");
+        assert!(inhalt.contains(&format!("+ anhang: {} 10 application/octet-stream - 120000000-1-Bericht_M_rz.pdf Bericht März.pdf\n", eins.als_text())), "{inhalt}");
+        let kennzahlen = gespraeche.anhangkennzahlen();
+        assert_eq!(
+            (
+                kennzahlen.gebunden,
+                kennzahlen.reserviert,
+                kennzahlen.hochladungen
+            ),
+            (65_536 + 69_632, 0, 0)
+        );
+        let eintrag = gespraeche.anhangverzeichnis.finden(&eins).expect("Eintrag");
+        assert_eq!(eintrag.satzzeit, nachricht.zeit);
+        assert_eq!(eintrag.absender.als_text(), "beta@127.0.0.1");
+        assert_eq!(
+            eintrag.zustand(),
+            crate::gespraeche::anhangverzeichnis::Zustand::Vorhanden
+        );
+        invarianten(&gespraeche, &[("allgemein", tag_29())]);
+
+        let erneut = gespraeche.senden_mit_anhaengen(
+            &Gespraech::channel("allgemein"),
+            &kennung("beta@127.0.0.1"),
+            Art::Agent,
+            "x",
+            std::slice::from_ref(&eins),
+            None,
+        );
+        assert_eq!(
+            erneut,
+            Err(Sendefehler::Anhang {
+                id: eins,
+                grund: super::super::anhangeingang::Nehmgrund::Unbekannt
+            })
+        );
+    }
+
+    /// „Nichts halb“: scheitert das zweite Binden oder das Anhängen des Satzes → beide Dateien wieder im Eingang,
+    /// kein Satz, kein Ereignis, `A` unverändert, die IDs danach sendbar (Mutante „Bindung zieht `reserviert` nicht
+    /// ab“ fällt im Hauptweg).
+    #[test]
+    fn nichts_halb_wenn_binden_oder_anhaengen_scheitert() {
+        let (gespraeche, ablage, anhaenge) = mit_ablage();
+        let ereignisse: Arc<std::sync::Mutex<usize>> = Arc::default();
+        let gespraeche = Arc::new(
+            Arc::try_unwrap(gespraeche)
+                .ok()
+                .expect("allein")
+                .mit_nachricht_veroeffentlichen({
+                    let ereignisse = Arc::clone(&ereignisse);
+                    Arc::new(move |_: &Gespraech, _: &Nachricht| *sperren(&ereignisse) += 1)
+                }),
+        );
+        let eins = fertig(&gespraeche, "beta@127.0.0.1", "a.bin", &[1; 3]);
+        let zwei = fertig(&gespraeche, "beta@127.0.0.1", "b.bin", &[2; 3]);
+        let vorher = gespraeche.anhangkennzahlen();
+        let senden = |gespraeche: &Gespraeche| {
+            gespraeche.senden_mit_anhaengen(
+                &Gespraech::channel("allgemein"),
+                &kennung("beta@127.0.0.1"),
+                Art::Agent,
+                "x",
+                &[eins.clone(), zwei.clone()],
+                None,
+            )
+        };
+
+        anhaenge.binden_scheitert(2);
+        assert!(
+            matches!(senden(&gespraeche), Err(Sendefehler::Binden { ref waisen, .. }) if waisen.is_empty())
+        );
+        assert_eq!(anhaenge.eingang().len(), 2);
+        assert!(anhaenge.anhaenge().is_empty());
+        assert_eq!(
+            ablage.inhalt(&Gespraech::channel("allgemein"), tag_29()),
+            None
+        );
+        assert_eq!(gespraeche.anhangkennzahlen(), vorher);
+
+        ablage.fehler_nach(5);
+        assert!(matches!(
+            senden(&gespraeche),
+            Err(Sendefehler::Ablage { .. })
+        ));
+        assert_eq!(anhaenge.eingang().len(), 2);
+        assert!(anhaenge.anhaenge().is_empty());
+        assert_eq!(gespraeche.anhangkennzahlen(), vorher);
+        assert_eq!(*sperren(&ereignisse), 0);
+        invarianten(&gespraeche, &[("allgemein", tag_29())]);
+
+        assert!(
+            matches!(senden(&gespraeche), Ok(Gesendet::Neu(_))),
+            "danach sendbar"
+        );
+        assert_eq!(*sperren(&ereignisse), 1);
+        invarianten(&gespraeche, &[("allgemein", tag_29())]);
+    }
+
+    /// Scheitert das Zurücklegen, bleibt die Datei als Waise im Tag: sie zählt an `G`, verlässt den Eingang, der
+    /// Fehler nennt sie nur als Präfix; die Invarianten halten.
+    #[test]
+    fn eine_datei_die_nicht_zurueck_kann_bleibt_als_waise() {
+        let (gespraeche, _, anhaenge) = mit_ablage();
+        let eins = fertig(&gespraeche, "beta@127.0.0.1", "geheim.bin", &[1; 3]);
+        let zwei = fertig(&gespraeche, "beta@127.0.0.1", "b.bin", &[2; 3]);
+        anhaenge.binden_scheitert(2);
+        anhaenge.zuruecklegen_scheitert();
+
+        let fehler = gespraeche.senden_mit_anhaengen(
+            &Gespraech::channel("allgemein"),
+            &kennung("beta@127.0.0.1"),
+            Art::Agent,
+            "x",
+            &[eins, zwei],
+            None,
+        );
+
+        let Err(Sendefehler::Binden { waisen, datei, .. }) = fehler else {
+            panic!("{fehler:?}")
+        };
+        assert_eq!(waisen, vec!["120000000-1".to_string()]);
+        assert_eq!(datei, "120000000-2");
+        let kennzahlen = gespraeche.anhangkennzahlen();
+        assert_eq!(
+            (kennzahlen.gebunden, kennzahlen.reserviert),
+            (65_536, 65_536)
+        );
+        invarianten(&gespraeche, &[("allgemein", tag_29())]);
+    }
+
+    /// M39: liegt das Ziel `anhaenge/<tag>/<datei>` schon da → Rückbau, das vorhandene Ziel bleibt byte-gleich.
+    #[test]
+    fn ein_vorhandenes_ziel_beim_binden_wird_nie_ueberschrieben() {
+        let (gespraeche, _, anhaenge) = mit_ablage();
+        let eins = fertig(&gespraeche, "beta@127.0.0.1", "a.bin", &[1; 3]);
+        anhaenge.anhang_setzen(
+            &Gespraech::channel("allgemein"),
+            tag_29(),
+            "120000000-1-a.bin",
+            b"vorhanden",
+        );
+
+        let fehler = gespraeche.senden_mit_anhaengen(
+            &Gespraech::channel("allgemein"),
+            &kennung("beta@127.0.0.1"),
+            Art::Agent,
+            "x",
+            std::slice::from_ref(&eins),
+            None,
+        );
+
+        assert!(
+            matches!(fehler, Err(Sendefehler::Binden { .. })),
+            "{fehler:?}"
+        );
+        assert_eq!(
+            anhaenge.anhaenge()[&(
+                Gespraech::channel("allgemein"),
+                tag_29(),
+                "120000000-1-a.bin".to_string()
+            )],
+            b"vorhanden"
+        );
+        assert!(anhaenge.eingang().contains_key(eins.als_text()));
+    }
+
+    /// M23: dieselbe ID in zwei Sendungen in zwei Channels (gleichzeitig) → genau eine bindet, die andere 422
+    /// `anhang`/`unbekannt`; fremde ID → `fremd`; nicht fertig → `unvollstaendig`.
+    #[test]
+    fn dieselbe_id_in_zwei_sendungen_bindet_genau_einmal() {
+        let (gespraeche, _, _) = mit_ablage();
+        let id = fertig(&gespraeche, "beta@127.0.0.1", "a.bin", &[1; 3]);
+        let schranke = Arc::new(std::sync::Barrier::new(2));
+        let faden: Vec<_> = ["allgemein", "technik"]
+            .into_iter()
+            .map(|channel| {
+                let (gespraeche, schranke, id) =
+                    (Arc::clone(&gespraeche), Arc::clone(&schranke), id.clone());
+                std::thread::spawn(move || {
+                    schranke.wait();
+                    gespraeche.senden_mit_anhaengen(
+                        &Gespraech::channel(channel),
+                        &kennung("beta@127.0.0.1"),
+                        Art::Agent,
+                        "x",
+                        &[id],
+                        None,
+                    )
+                })
+            })
+            .collect();
+        let ergebnisse: Vec<_> = faden
+            .into_iter()
+            .map(|faden| faden.join().expect("Faden"))
+            .collect();
+        assert_eq!(
+            ergebnisse
+                .iter()
+                .filter(|ergebnis| matches!(ergebnis, Ok(Gesendet::Neu(_))))
+                .count(),
+            1
+        );
+        assert_eq!(
+            ergebnisse
+                .iter()
+                .filter(|ergebnis| matches!(
+                    ergebnis,
+                    Err(Sendefehler::Anhang {
+                        grund: super::super::anhangeingang::Nehmgrund::Unbekannt,
+                        ..
+                    })
+                ))
+                .count(),
+            1
+        );
+
+        let fremd = fertig(&gespraeche, "gamma@127.0.0.1", "g.bin", &[1; 3]);
+        let antwort = gespraeche.senden_mit_anhaengen(
+            &Gespraech::channel("allgemein"),
+            &kennung("beta@127.0.0.1"),
+            Art::Agent,
+            "x",
+            std::slice::from_ref(&fremd),
+            None,
+        );
+        assert_eq!(
+            antwort,
+            Err(Sendefehler::Anhang {
+                id: fremd,
+                grund: super::super::anhangeingang::Nehmgrund::Fremd
+            })
+        );
+        let wer = kennung("beta@127.0.0.1");
+        let halb = gespraeche
+            .anhang_anmelden(&wer, wer.herkunft().expect("Herkunft"), "h.bin", 5)
+            .expect("angemeldet")
+            .id;
+        let antwort = gespraeche.senden_mit_anhaengen(
+            &Gespraech::channel("allgemein"),
+            &wer,
+            Art::Agent,
+            "x",
+            std::slice::from_ref(&halb),
+            None,
+        );
+        assert_eq!(
+            antwort,
+            Err(Sendefehler::Anhang {
+                id: halb,
+                grund: super::super::anhangeingang::Nehmgrund::Unvollstaendig
+            })
+        );
+    }
+
+    /// M23: ein `DELETE` und der Sekundentakt warten während des Bindens auf die Sperre und finden danach nichts —
+    /// die Bindung gelingt.
+    #[test]
+    fn verwerfen_und_ablaufen_waehrend_des_bindens_warten_auf_die_sperre() {
+        let (gespraeche, _, _) = mit_ablage();
+        let id = fertig(&gespraeche, "beta@127.0.0.1", "a.bin", &[1; 3]);
+        let senden = {
+            let (gespraeche, id) = (Arc::clone(&gespraeche), id.clone());
+            std::thread::spawn(move || {
+                let verlauf = lesend(&gespraeche.verzeichnis)
+                    .verlaeufe
+                    .get(&Gespraech::channel("allgemein"))
+                    .cloned()
+                    .expect("Verlauf");
+                let _gespraechssperre = sperren(&verlauf);
+                std::thread::sleep(std::time::Duration::from_millis(50));
+                drop(_gespraechssperre);
+                gespraeche.senden_mit_anhaengen(
+                    &Gespraech::channel("allgemein"),
+                    &kennung("beta@127.0.0.1"),
+                    Art::Agent,
+                    "x",
+                    &[id],
+                    None,
+                )
+            })
+        };
+        let gesendet = senden.join().expect("Faden");
+        assert!(matches!(gesendet, Ok(Gesendet::Neu(_))));
+        assert_eq!(
+            gespraeche.anhang_verwerfen(&kennung("beta@127.0.0.1"), &id),
+            None,
+            "gebunden: ohne Wirkung"
+        );
+        assert!(gespraeche.anhaenge_ablaufen().is_empty());
+        assert!(gespraeche.anhangverzeichnis.finden(&id).is_some());
     }
 
     #[test]

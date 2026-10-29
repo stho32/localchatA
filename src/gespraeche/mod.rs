@@ -82,6 +82,20 @@ pub enum Sendefehler {
     SchluesselAnders,
     /// Der Satz brächte die Gespräche über die Plattenquote; nichts angehängt (ADR-0044 Regel 2).
     Quote { belegt: u64, hoechstens: u64 },
+    /// Ein Anhang lässt sich nicht senden (422 `anhang`, ADR-0046 Regel 5); nichts genommen.
+    Anhang {
+        id: anhangid::Anhangid,
+        grund: anhangeingang::Nehmgrund,
+    },
+    /// Binden scheiterte (auch: Ziel vorhanden, Symlink im Pfad); zurückgebaut, kein Satz (ADR-0046 Regel 6).
+    /// `datei` nur als Präfix; `waisen`: Präfixe der Dateien, deren Zurücklegen scheiterte — sie bleiben als Waise
+    /// im Tag.
+    Binden {
+        tag: NaiveDate,
+        datei: String,
+        grund: String,
+        waisen: Vec<String>,
+    },
 }
 
 /// Was `senden_einmal` getan hat: neu angehängt, oder dieselbe Nachricht schon gesendet — dann mit ihrer
@@ -102,6 +116,10 @@ impl fmt::Display for Sendefehler {
             }
             Sendefehler::Quote { belegt, hoechstens } => {
                 write!(f, "Quote erreicht: {belegt} von {hoechstens} Bytes belegt")
+            }
+            Sendefehler::Anhang { grund, .. } => write!(f, "Anhang {}", grund.als_text()),
+            Sendefehler::Binden { datei, grund, .. } => {
+                write!(f, "Anhang {datei} nicht gebunden: {grund}")
             }
         }
     }
@@ -142,6 +160,8 @@ pub struct Gespraeche {
     anhangablage: Arc<dyn anhangablage::Anhangablage>,
     /// Zufall der Anhang-IDs (ADR-0047 Frage 2).
     zufall: Arc<dyn crate::zufall::Zufall>,
+    /// Gebundene Anhänge (A00016).
+    anhangverzeichnis: anhangverzeichnis::Anhangverzeichnis,
 }
 
 /// Meldet einen vor Ablauf verdrängten Wiederholschlüssel; gerufen nach Freigabe der Schreibsperre (Regel E1.7).
@@ -294,6 +314,7 @@ impl Gespraeche {
             anhangzaehler: anhaenge::Zaehler::default(),
             plattenauskunft: Arc::new(platte::Unbegrenzt),
             anhangablage: Arc::new(anhangablage::KeineAnhangablage),
+            anhangverzeichnis: anhangverzeichnis::Anhangverzeichnis::default(),
             zufall: Arc::new(crate::zufall::Betriebssystemzufall),
         })
     }
@@ -310,7 +331,7 @@ impl Gespraeche {
         art: Art,
         text: &str,
     ) -> Result<Nachricht, Sendefehler> {
-        match self.senden_mit(gespraech, von, art, text, None)?.0 {
+        match self.senden_mit(gespraech, von, art, text, &[], None)?.0 {
             Gesendet::Neu(nachricht) | Gesendet::Wiederholt(nachricht) => Ok(nachricht),
         }
     }
@@ -327,8 +348,23 @@ impl Gespraeche {
         text: &str,
         schluessel: &str,
     ) -> Result<Gesendet, Sendefehler> {
+        self.senden_mit_anhaengen(gespraech, von, art, text, &[], Some(schluessel))
+    }
+
+    /// Wie `senden_einmal`, mit Anhängen (ADR-0046 Regeln 5, 6): die IDs werden unter Gesprächs- und Schreibsperre
+    /// genommen, in den Tag der Nachricht gebunden, dann der Satz mit ihren Metazeilen angehängt; scheitert das,
+    /// liegen die Dateien wieder im Eingang und kein Satz steht im Log. Ohne Schlüssel keine Wiederholprüfung.
+    pub fn senden_mit_anhaengen(
+        &self,
+        gespraech: &Gespraech,
+        von: &Kennung,
+        art: Art,
+        text: &str,
+        anhaenge: &[anhangid::Anhangid],
+        schluessel: Option<&str>,
+    ) -> Result<Gesendet, Sendefehler> {
         let (gesendet, verdraengt) =
-            self.senden_mit(gespraech, von, art, text, Some(schluessel))?;
+            self.senden_mit(gespraech, von, art, text, anhaenge, schluessel)?;
         if let Some(verdraengt) = verdraengt {
             self.schluessel_verdraengt.fetch_add(1, Ordering::SeqCst);
             (self.verdraengt_melden)(&verdraengt);
@@ -342,6 +378,7 @@ impl Gespraeche {
         von: &Kennung,
         art: Art,
         text: &str,
+        ids: &[anhangid::Anhangid],
         schluessel: Option<&str>,
     ) -> Result<(Gesendet, Option<Verdraengt>), Sendefehler> {
         let verlauf = lesend(&self.verzeichnis)
@@ -352,7 +389,7 @@ impl Gespraeche {
         let mut verlauf = sperren(&verlauf);
         let mut stand = sperren(&self.schreiben);
         let jetzt = self.uhr.jetzt();
-        let pruefsumme = wiederholung::pruefsumme(text);
+        let pruefsumme = wiederholung::pruefsumme_mit(text, ids);
         let pruefung = schluessel.map(|schluessel| {
             stand
                 .wiederholung
@@ -361,39 +398,111 @@ impl Gespraeche {
         match pruefung {
             Some(Pruefung::Anders) => return Err(Sendefehler::SchluesselAnders),
             Some(Pruefung::Wiederholt { zeit }) => {
+                let zeilen = self.anhangzeilen_der_ids(ids);
                 return Ok((
-                    Gesendet::Wiederholt(nachricht_bilden(zeit, von, art, text).0),
+                    Gesendet::Wiederholt(nachricht_bilden(zeit, von, art, text, zeilen).0),
                     None,
                 ));
             }
             Some(Pruefung::Neu) | None => {}
         }
+        let genommen = if ids.is_empty() {
+            Vec::new()
+        } else {
+            stand
+                .eingang
+                .nehmen(von, ids, jetzt)
+                .map_err(|fehler| Sendefehler::Anhang {
+                    id: fehler.id,
+                    grund: fehler.grund,
+                })?
+        };
         let zeit = crate::uhr::naechste_zeit(jetzt, stand.letzte);
         stand.letzte = Some(zeit);
         self.letzte_ms
             .store(zeit.timestamp_millis(), Ordering::Relaxed);
-        let (nachricht, satz) = nachricht_bilden(zeit, von, art, text);
+        let zeilen = anhangzeilen_bilden(zeit, &genommen);
+        let (nachricht, satz) = nachricht_bilden(zeit, von, art, text, zeilen.clone());
         let satzbytes = satz.len() as u64;
-        if let Some(hoechstens) = self.hoechstens {
-            self.belegung
-                .pruefen(satzbytes, hoechstens)
-                .map_err(|ueber| Sendefehler::Quote {
-                    belegt: ueber.belegt,
-                    hoechstens: ueber.hoechstens,
-                })?;
+        if let Some(hoechstens) = self.hoechstens
+            && let Err(ueber) = self.belegung.pruefen(satzbytes, hoechstens)
+        {
+            stand.eingang.zuruecklegen(genommen);
+            return Err(Sendefehler::Quote {
+                belegt: ueber.belegt,
+                hoechstens: ueber.hoechstens,
+            });
         }
         let tag = nachricht.zeit.date_naive();
-        let angehaengt = self
-            .ablage
-            .anhaengen(gespraech, tag, &satz)
-            .map_err(|fehler| Sendefehler::Ablage {
-                datei: gespraech.tagesdatei(tag),
+        let gescheitert =
+            genommen
+                .iter()
+                .zip(&zeilen)
+                .enumerate()
+                .find_map(|(nummer, (eintrag, zeile))| {
+                    self.anhangablage
+                        .binden(&eintrag.id, gespraech, tag, &zeile.datei)
+                        .err()
+                        .map(|fehler| (nummer, fehler))
+                });
+        if let Some((nummer, fehler)) = gescheitert {
+            let datei = anhangverzeichnis::praefix(&zeilen[nummer].datei);
+            let waisen = self.zurueckbauen(
+                &mut stand.eingang,
+                gespraech,
+                tag,
+                genommen,
+                &zeilen[..nummer],
+            );
+            return Err(Sendefehler::Binden {
+                tag,
+                datei,
                 grund: fehler.to_string(),
-            })?;
+                waisen,
+            });
+        }
+        let angehaengt = match self.ablage.anhaengen(gespraech, tag, &satz) {
+            Ok(angehaengt) => angehaengt,
+            Err(fehler) => {
+                let waisen =
+                    self.zurueckbauen(&mut stand.eingang, gespraech, tag, genommen, &zeilen);
+                if !waisen.is_empty() {
+                    return Err(Sendefehler::Binden {
+                        tag,
+                        datei: gespraech.tagesdatei(tag),
+                        grund: fehler.to_string(),
+                        waisen,
+                    });
+                }
+                return Err(Sendefehler::Ablage {
+                    datei: gespraech.tagesdatei(tag),
+                    grund: fehler.to_string(),
+                });
+            }
+        };
         verlauf.anhaengen(tag, &satz, angehaengt.zeilenende_ergaenzt);
         let dazu = satzbytes + u64::from(angehaengt.zeilenende_ergaenzt);
         let vorher = self.belegung.dazu(dazu);
         self.ueber_90_melden(vorher, vorher.saturating_add(dazu));
+        let gebunden: u64 = zeilen
+            .iter()
+            .map(|zeile| anhangquote::zaehlmass(zeile.bytes))
+            .sum();
+        self.anhangzaehler
+            .gebunden
+            .fetch_add(gebunden, Ordering::SeqCst);
+        for zeile in &zeilen {
+            self.anhangverzeichnis
+                .eintragen(anhangverzeichnis::Eintrag::neu(
+                    zeile,
+                    gespraech,
+                    tag,
+                    zeit,
+                    von,
+                    anhangverzeichnis::Zustand::Vorhanden,
+                ));
+        }
+        self.eingang_spiegeln(&stand.eingang);
         let verdraengt = schluessel.and_then(|schluessel| {
             stand
                 .wiederholung
@@ -401,6 +510,60 @@ impl Gespraeche {
         });
         (self.nachricht_veroeffentlichen)(gespraech, &nachricht);
         Ok((Gesendet::Neu(nachricht), verdraengt))
+    }
+
+    /// Rückbau eines gescheiterten Bindens (ADR-0046 Regel 6): jede schon gebundene Datei zurück in den Eingang
+    /// (ohne Überschreiben), dann die Einträge unverändert zurück. Scheitert das Zurücklegen, bleibt die Datei als
+    /// Waise im Tag: sie zählt an `G`, ihr Eintrag verlässt den Eingang (Invarianten aus „F1′“ Regel 1). Liefert die
+    /// Präfixe der Waisen.
+    fn zurueckbauen(
+        &self,
+        eingang: &mut anhangeingang::Eingang,
+        gespraech: &Gespraech,
+        tag: NaiveDate,
+        genommen: Vec<anhangeingang::Genommen>,
+        gebunden: &[logformat::Anhangzeile],
+    ) -> Vec<String> {
+        let mut waisen = Vec::new();
+        let mut zurueck = Vec::new();
+        for eintrag in genommen {
+            let zeile = gebunden.iter().find(|zeile| zeile.id == eintrag.id);
+            match zeile {
+                Some(zeile) => {
+                    match self
+                        .anhangablage
+                        .zuruecklegen(gespraech, tag, &zeile.datei, &eintrag.id)
+                    {
+                        Ok(()) => zurueck.push(eintrag),
+                        Err(_) => {
+                            let z = anhangquote::zaehlmass(eintrag.bytes());
+                            self.anhangverzeichnis.waise(gespraech, tag, z);
+                            self.anhangzaehler.gebunden.fetch_add(z, Ordering::SeqCst);
+                            waisen.push(anhangverzeichnis::praefix(&zeile.datei));
+                        }
+                    }
+                }
+                None => zurueck.push(eintrag),
+            }
+        }
+        eingang.zuruecklegen(zurueck);
+        self.eingang_spiegeln(eingang);
+        waisen
+    }
+
+    /// Die Metazeilen zu gebundenen IDs (für die Antwort auf eine Wiederholung).
+    fn anhangzeilen_der_ids(&self, ids: &[anhangid::Anhangid]) -> Vec<logformat::Anhangzeile> {
+        ids.iter()
+            .filter_map(|id| self.anhangverzeichnis.finden(id))
+            .map(|eintrag| logformat::Anhangzeile {
+                id: eintrag.id.clone(),
+                bytes: eintrag.bytes,
+                art: eintrag.art,
+                masse: eintrag.masse,
+                datei: eintrag.datei.clone(),
+                name: eintrag.name.clone(),
+            })
+            .collect()
     }
 
     /// Die jüngste Nachrichtenzeit im Ordner (als Zeitpunkt); an ihr setzt die nächste vergebene Zeit an.
@@ -731,17 +894,47 @@ fn lesend<T>(sperre: &RwLock<T>) -> std::sync::RwLockReadGuard<'_, T> {
 }
 
 /// Die Nachricht mit ihrem Satz; der Text so, wie die Verlauf-API ihn später liefert (ADR-0034 Regel 4).
-fn nachricht_bilden(zeit: Zeit, von: &Kennung, art: Art, text: &str) -> (Nachricht, String) {
+fn nachricht_bilden(
+    zeit: Zeit,
+    von: &Kennung,
+    art: Art,
+    text: &str,
+    anhaenge: Vec<logformat::Anhangzeile>,
+) -> (Nachricht, String) {
     let mut nachricht = Nachricht {
         zeit,
         von: von.clone(),
         art: Some(art),
         text: text.to_string(),
-        anhaenge: Vec::new(),
+        anhaenge,
     };
     let satz = logformat::satz(&nachricht);
     nachricht.text = logformat::text(&satz);
     (nachricht, satz)
+}
+
+/// Die Metazeilen der genommenen Anhänge: gespeicherter Name `<hhmmssmmm>-<n>-<ascii>` aus der lokalen Zeit der
+/// Nachricht und der Sendefolge ab 1 (ADR-0046 Regel 4).
+fn anhangzeilen_bilden(
+    zeit: Zeit,
+    genommen: &[anhangeingang::Genommen],
+) -> Vec<logformat::Anhangzeile> {
+    let stempel = zeit.format("%H%M%S%3f").to_string();
+    genommen
+        .iter()
+        .enumerate()
+        .map(|(nummer, eintrag)| {
+            let art = eintrag.art();
+            logformat::Anhangzeile {
+                id: eintrag.id.clone(),
+                bytes: eintrag.bytes(),
+                art: art.typ,
+                masse: art.breite.zip(art.hoehe),
+                datei: format!("{stempel}-{}-{}", nummer + 1, eintrag.ascii()),
+                name: eintrag.name().to_string(),
+            }
+        })
+        .collect()
 }
 
 fn schreibend<T>(sperre: &RwLock<T>) -> std::sync::RwLockWriteGuard<'_, T> {
