@@ -498,3 +498,60 @@ async fn kuerzen_folgt_keinem_symlink() {
     assert_eq!(gesundheit(g.basis()).await["anhang_belegt"], vorher);
     assert_eq!(abrufen(gamma, g.basis(), &g.c).await, 404);
 }
+
+/// Gelöscht ausliefern (B0509, M14, M44′): `GET` und `HEAD /anhaenge/a` → 410 `text/plain` mit dem Text, CSP
+/// `sandbox`, `nosniff`, `Cache-Control: no-store` — auch mit `If-None-Match: "<a>"` und mit `Range` (nie 304, nie
+/// 206); ohne Gespräch, Tag oder Name im Körper.
+#[tokio::test]
+async fn geloescht_antwortet_410_vor_etag_und_bereich() {
+    let g = gegeben().await;
+    let (gamma, token) = &g.gamma;
+    assert_eq!(
+        loeschen(
+            gamma,
+            g.basis(),
+            token,
+            json!({"ids": [g.a], "bestaetigt": true})
+        )
+        .await
+        .status,
+        200
+    );
+    let etag = format!("\"{}\"", g.a);
+
+    for (methode, kopf) in [
+        (reqwest::Method::GET, vec![]),
+        (reqwest::Method::HEAD, vec![]),
+        (reqwest::Method::GET, vec![("if-none-match", etag.as_str())]),
+        (reqwest::Method::GET, vec![("range", "bytes=0-9")]),
+    ] {
+        let mut anfrage = gamma.anfrage(methode.clone(), format!("{}anhaenge/{}", g.basis(), g.a));
+        for (name, wert) in &kopf {
+            anfrage = anfrage.header(*name, *wert);
+        }
+        let antwort = anfrage.send().await.expect("Antwort");
+        let wert = |name: &str| {
+            antwort
+                .headers()
+                .get(name)
+                .and_then(|w| w.to_str().ok())
+                .unwrap_or("")
+                .to_string()
+        };
+        assert_eq!(antwort.status(), 410, "{methode} {kopf:?}");
+        assert_eq!(
+            wert("content-security-policy"),
+            "sandbox; default-src 'none'"
+        );
+        assert_eq!(wert("x-content-type-options"), "nosniff");
+        assert_eq!(wert("cache-control"), "no-store");
+        assert_eq!(wert("content-type"), "text/plain; charset=utf-8");
+        assert_eq!(wert("cross-origin-resource-policy"), "same-origin");
+        if methode == reqwest::Method::GET {
+            assert_eq!(
+                antwort.text().await.expect("Text"),
+                "Dieser Anhang wurde gelöscht. Die Nachricht bleibt."
+            );
+        }
+    }
+}

@@ -21,6 +21,7 @@ use axum::response::{IntoResponse, Response};
 use std::sync::Arc;
 
 pub const NICHT_DA: &str = "Diesen Anhang gibt es nicht (mehr).";
+pub const GELOESCHT: &str = "Dieser Anhang wurde gelöscht. Die Nachricht bleibt.";
 
 pub async fn ausliefern(
     State(zustand): State<Arc<Zustand>>,
@@ -32,8 +33,10 @@ pub async fn ausliefern(
     else {
         return nicht_da();
     };
-    if eintrag.zustand() != Anhangzustand::Vorhanden {
-        return nicht_da();
+    match eintrag.zustand() {
+        Anhangzustand::Vorhanden => {}
+        Anhangzustand::Geloescht => return geloescht(),
+        Anhangzustand::Entfallen => return nicht_da(),
     }
     let etag = kopfzeilen::etag(eintrag.id.als_text());
     if passt_schon(&kopf, &etag) {
@@ -148,6 +151,26 @@ fn nicht_da() -> Response {
     )
         .into_response();
     kopfzeilen::route(antwort.headers_mut());
+    antwort
+}
+
+/// 410 nach `finden` und vor `If-None-Match` und `Range` (ADR-0047 Ergänzung „F1′“ Regel 1): ein alter ETag ergibt
+/// nie 304; ohne Gespräch, Tag und Name (M44′).
+fn geloescht() -> Response {
+    let mut antwort = (
+        StatusCode::GONE,
+        [(
+            axum::http::header::CONTENT_TYPE,
+            "text/plain; charset=utf-8",
+        )],
+        GELOESCHT,
+    )
+        .into_response();
+    kopfzeilen::route(antwort.headers_mut());
+    antwort.headers_mut().insert(
+        axum::http::header::CACHE_CONTROL,
+        axum::http::HeaderValue::from_static("no-store"),
+    );
     antwort
 }
 
