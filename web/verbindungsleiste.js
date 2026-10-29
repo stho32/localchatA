@@ -1,10 +1,14 @@
 // Leiste oben im Verlauf (Designsystem VerlaufsMarken „Verbindung“, ADR-0037 Regel 7), rein: getrennt → „Verbindung
-// verloren“ als Fehler; nach dem Nachholen 4 s lang „✓ Wieder verbunden · n nachgeladen“.
+// verloren“ als Fehler; nach dem Nachholen 4 s lang „✓ Wieder verbunden · n nachgeladen“ bzw. „· Verlauf geladen“.
 
-// ergebnis des Nachholens: { art: 'nachgeholt', zahl } | { art: 'neu' }
+// ergebnis des Nachholens: { art: 'nachgeholt', zahl } | { art: 'neu' } | { art: 'geladen' } (ein nie geladener
+// Channel, ADR-0037 Ergänzung „Karte #61“, 7k)
 export function wiederVerbundenText(ergebnis) {
   if (ergebnis.art === 'neu') {
     return '✓ Wieder verbunden · neueste geladen';
+  }
+  if (ergebnis.art === 'geladen') {
+    return '✓ Wieder verbunden · Verlauf geladen';
   }
   if (ergebnis.zahl === 0) {
     return '✓ Wieder verbunden';

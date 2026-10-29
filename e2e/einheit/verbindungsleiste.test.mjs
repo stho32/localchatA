@@ -10,6 +10,11 @@ test('Text nach dem Nachholen: Zahl mit Tausenderpunkt, ohne Zahl bei 0, „neue
   assert.equal(wiederVerbundenText({ art: 'neu' }), '✓ Wieder verbunden · neueste geladen');
 });
 
+// R00035 „Text der Leiste“ (ADR-0037 Ergänzung „Karte #61“, 7k): nach dem Laden eines nie geladenen Channels.
+test('Text nach dem Laden: „✓ Wieder verbunden · Verlauf geladen“', () => {
+  assert.equal(wiederVerbundenText({ art: 'geladen' }), '✓ Wieder verbunden · Verlauf geladen');
+});
+
 test('die Meldung steht 4 s: bei 3.999 ms sichtbar, bei 4.000 ms weg', () => {
   const zustand = { getrennt: false, meldung: '✓ Wieder verbunden · 3 nachgeladen', meldungSeitMs: 1000 };
 
