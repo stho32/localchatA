@@ -65,6 +65,8 @@ pub enum Sendefehler {
     Ablage { datei: String, grund: String },
     /// Der Wiederholschlüssel gehört zu einem anderen Text oder Gespräch (ADR-0034 Regel 6).
     SchluesselAnders,
+    /// Der Satz brächte die Gespräche über die Plattenquote; nichts angehängt (ADR-0044 Regel 2).
+    Quote { belegt: u64, hoechstens: u64 },
 }
 
 /// Was `senden_einmal` getan hat: neu angehängt, oder dieselbe Nachricht schon gesendet — dann mit ihrer
@@ -82,6 +84,9 @@ impl fmt::Display for Sendefehler {
             Sendefehler::Ablage { datei, grund } => write!(f, "{datei} nicht geschrieben: {grund}"),
             Sendefehler::SchluesselAnders => {
                 write!(f, "Schlüssel gehört zu einer anderen Nachricht")
+            }
+            Sendefehler::Quote { belegt, hoechstens } => {
+                write!(f, "Quote erreicht: {belegt} von {hoechstens} Bytes belegt")
             }
         }
     }
@@ -314,6 +319,15 @@ impl Gespraeche {
         self.letzte_ms
             .store(zeit.timestamp_millis(), Ordering::Relaxed);
         let (nachricht, satz) = nachricht_bilden(zeit, von, art, text);
+        let satzbytes = satz.len() as u64;
+        if let Some(hoechstens) = self.hoechstens {
+            self.belegung
+                .pruefen(satzbytes, hoechstens)
+                .map_err(|ueber| Sendefehler::Quote {
+                    belegt: ueber.belegt,
+                    hoechstens: ueber.hoechstens,
+                })?;
+        }
         let tag = nachricht.zeit.date_naive();
         let angehaengt = self
             .ablage
@@ -323,6 +337,8 @@ impl Gespraeche {
                 grund: fehler.to_string(),
             })?;
         verlauf.anhaengen(tag, &satz, angehaengt.zeilenende_ergaenzt);
+        self.belegung
+            .dazu(satzbytes + u64::from(angehaengt.zeilenende_ergaenzt));
         if let Some(schluessel) = schluessel {
             stand
                 .wiederholung

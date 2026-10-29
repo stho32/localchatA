@@ -128,6 +128,7 @@ pub async fn senden(
         Ok(Err(Sendefehler::Ablage { datei, grund })) => {
             nicht_gespeichert(&zustand, &name, &wer, &datei, &grund)
         }
+        Ok(Err(Sendefehler::Quote { belegt, hoechstens })) => quote_erreicht(belegt, hoechstens),
         Err(abbruch) => abgebrochen(&zustand, &Abgebrochen::from(abbruch), &wer, &name),
     }
 }
@@ -201,6 +202,15 @@ fn nicht_gespeichert(
     (
         StatusCode::INTERNAL_SERVER_ERROR,
         Json(json!({ "fehler": fehler })),
+    )
+        .into_response()
+}
+
+/// 507 an der Plattenquote (ADR-0044 Regel 4), ohne `Retry-After`.
+fn quote_erreicht(belegt: u64, hoechstens: u64) -> Response {
+    (
+        StatusCode::INSUFFICIENT_STORAGE,
+        Json(json!({ "regel": "quote", "belegt": belegt, "hoechstens": hoechstens })),
     )
         .into_response()
 }
