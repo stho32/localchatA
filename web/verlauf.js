@@ -49,6 +49,9 @@ export function verlaufAnlegen({ abrufen, schalter = () => {} }) {
   // Zeitpunkte aller Nachrichten, die der Tab im offenen Channel angenommen hat — geladen oder live, bis zum
   // Neu-Öffnen (R00025 F0084: „n nachgeladen“ zählt nur, was erst das Nachholen brachte).
   let angenommen = new Set();
+  // Zeitpunkte aller Nachrichten, die im Fenster stehen, aus ihm gefallen oder nur gezählt sind — der Abgleich für
+  // Neues geht gegen sie alle, nicht nur gegen den jüngsten Block (ADR-0037 Ergänzung „Karte #36 Wortlaut“ Punkt 3).
+  let eingeordnet = new Set();
   let vorlaeufige = [];
   const buendler = buendlerAnlegen({ einfuegen: jeFrameEinfuegen });
 
@@ -222,6 +225,7 @@ export function verlaufAnlegen({ abrufen, schalter = () => {} }) {
     ersteNeue = null;
     nurGezaehlte = [];
     angenommen = new Set();
+    eingeordnet = new Set();
     auslauf.style.height = '';
     ladenBeendet();
     log.setAttribute('aria-label', `Verlauf # ${name}`);
@@ -245,6 +249,7 @@ export function verlaufAnlegen({ abrufen, schalter = () => {} }) {
       return;
     }
     angenommenMerken(ergebnis.block.nachrichten);
+    eingeordnetMerken(ergebnis.block.nachrichten);
     fenster = { bloecke: [ergebnis.block.nachrichten], aelter: ergebnis.block.aelter, neuer: false };
     juengste = ergebnis.block.nachrichten[ergebnis.block.nachrichten.length - 1].zeit;
     const knoten = gegliedertZeichnen(ergebnis.block.nachrichten, null, heute);
@@ -285,6 +290,21 @@ export function verlaufAnlegen({ abrufen, schalter = () => {} }) {
     return unbekannte.size;
   }
 
+  // Je Zeitpunkt der erste Eintrag, der noch nirgends eingeordnet ist.
+  function nochNichtEingeordnet(eintraege) {
+    const imStapel = new Set();
+    return eintraege.filter((eintrag) => {
+      const zeitpunkt = Date.parse(eintrag.nachricht.zeit);
+      const neu = !eingeordnet.has(zeitpunkt) && !imStapel.has(zeitpunkt);
+      imStapel.add(zeitpunkt);
+      return neu;
+    });
+  }
+
+  function eingeordnetMerken(nachrichten) {
+    nachrichten.forEach((nachricht) => eingeordnet.add(Date.parse(nachricht.zeit)));
+  }
+
   function angenommenMerken(nachrichten) {
     nachrichten.forEach((nachricht) => angenommen.add(Date.parse(nachricht.zeit)));
   }
@@ -315,7 +335,12 @@ export function verlaufAnlegen({ abrufen, schalter = () => {} }) {
     return inhalt.getBoundingClientRect().height + ausstehend.getBoundingClientRect().height;
   }
 
-  function nachrichtenEinfuegen(eintraege) {
+  function nachrichtenEinfuegen(alleEintraege) {
+    const eintraege = nochNichtEingeordnet(alleEintraege);
+    if (eintraege.length === 0) {
+      return;
+    }
+    eingeordnetMerken(eintraege.map((eintrag) => eintrag.nachricht));
     const fremde = eintraege.filter((eintrag) => !eintrag.eigen).length;
     const neuesterImFenster = fenster === null || !fenster.neuer;
     const lage = folgenOderZaehlen(abstandUnten(), zeilenhoehe(), neuesterImFenster);
@@ -468,6 +493,7 @@ export function verlaufAnlegen({ abrufen, schalter = () => {} }) {
   // selben Task vor dem nächsten Bild (ADR-0026 Regel 3).
   function blockEinfuegen(block, richtung) {
     angenommenMerken(block.nachrichten);
+    eingeordnetMerken(block.nachrichten);
     const anker = ankerMerken(log, inhalt);
     const ergebnis = einfuegen(fenster, block, richtung, masse());
     if (block.nachrichten.length > 0) {

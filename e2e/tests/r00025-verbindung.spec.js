@@ -254,6 +254,8 @@ async function ansagenMitschreiben(page) {
 // nachgeladen“. Die Uhr startet beim Wiedereinschalten des Netzes; gemessen wird ereignisgenau.
 test('Ansage (Z14): „Verbindung verloren“, nach dem Wiederverbinden binnen 2 s „Wieder verbunden · 3 nachgeladen“', async ({ browser }) => {
   instanz = await sendenStarten({ anzahl: 5 });
+  const a = await kontextOeffnen(browser);
+  await imBrowserBeitreten(a.page, instanz.adresse, 'shoff');
   const b = await kontextOeffnen(browser);
   await imBrowserBeitreten(b.page, instanz.adresse, 'anna');
   await expect(b.page.getByRole('log').locator('.lc-msg')).toHaveCount(5);
@@ -265,6 +267,9 @@ test('Ansage (Z14): „Verbindung verloren“, nach dem Wiederverbinden binnen 2
   for (const text of ['g1', 'g2', 'g3']) {
     expect((await senden(instanz.adresse, token, 'allgemein', text)).status).toBe(201);
   }
+  // Die Ereignisse zu g1–g3 sind verteilt (A zeigt g3), bevor B wieder online geht — sonst käme g3 live an und zählte
+  // nach V9 richtig nicht als nachgeladen.
+  await expect(a.page.locator('.lc-log-inhalt .lc-msg .lc-body', { hasText: /^g3$/ })).toHaveCount(1);
   const beginn = Date.now();
   await b.kontext.setOffline(false);
   await expect.poll(angesagt, { intervals: [25], timeout: 10000 }).toContain('Wieder verbunden · 3 nachgeladen');
@@ -292,5 +297,77 @@ test('Gescheitertes Nachholen: keine Ansage „Wieder verbunden“, solange der 
   await b.page.waitForTimeout(3500);
 
   expect((await angesagt()).some((text) => text.includes('Wieder verbunden'))).toBe(false);
+  expect(unerwartet(b.fehler)).toEqual([]);
+});
+
+// „Abgleich gegen alle bekannten Zeiten“ (Abnahme-Probe Code-Review #22 A-a, wörtlich: „400 Nachrichten, erster Abruf
+// hängt, hochscrollen bis der neueste Block abfällt, zurück, Durchlass → jede Zeit genau einmal“). Lesart: `alpha` hat
+// 400 Nachrichten; B ist am Ende, Strom getrennt, `beta` sendet 3; Strom wieder, der erste `nach=`-Abruf wird gehalten;
+// B scrollt hoch, bis der neueste Block aus dem Fenster fällt (ADR-0026), und zurück zum Ende; dann Durchlass → je
+// `data-zeit` genau eine Zeile, g1–g3 je einmal (Mutante „Abgleich nur gegen den jüngsten Block“ wird rot). Mit Blöcken
+// zu 100 und Abwurf erst über 5 Blöcken fällt bei 400 Nachrichten kein Block — die Probe nutzt 1.000. Damit die
+// Blockgrenze beim Zurückscrollen zwischen g1–g3 fällt, kommen vor der Trennung 98 Nachrichten live an.
+test('Abgleich gegen alle bekannten Zeiten: hochgescrollt während des Nachholens, danach jede Zeit genau einmal', async ({ browser }) => {
+  test.setTimeout(90000);
+  instanz = await sendenStarten({ anzahl: 1000 });
+  const b = await kontextOeffnen(browser, { breite: 1280 });
+  await imBrowserBeitreten(b.page, instanz.adresse, 'anna');
+  const log = b.page.locator('.lc-log');
+  await expect(b.page.getByRole('log').locator('.lc-msg').last()).toBeVisible();
+  for (let kennung = 0; kennung < 4; kennung += 1) {
+    const live = await beitreten(instanz.adresse, `live${kennung}`);
+    for (let nummer = 0; nummer < 25 && kennung * 25 + nummer < 98; nummer += 1) {
+      expect((await senden(instanz.adresse, live, 'allgemein', `l${kennung * 25 + nummer}`)).status).toBe(201);
+    }
+  }
+  await expect(b.page.locator('.lc-log-inhalt .lc-msg .lc-body', { hasText: /^l97$/ })).toHaveCount(1);
+  const neuesteZeit = await b.page.getByRole('log').locator('.lc-msg').last().getAttribute('data-zeit');
+  const token = await beitreten(instanz.adresse, 'beta');
+  await netzAus(b);
+  for (const text of ['g1', 'g2', 'g3']) {
+    expect((await senden(instanz.adresse, token, 'allgemein', text)).status).toBe(201);
+  }
+  let durchlassen = null;
+  const gehalten = new Promise((fertig) => { durchlassen = fertig; });
+  let ersterNachholAbruf = true;
+  await b.page.route((adresse) => adresse.searchParams.has('nach'), async (route) => {
+    if (ersterNachholAbruf) {
+      ersterNachholAbruf = false;
+      await gehalten;
+    }
+    await route.continue();
+  });
+
+  await netzAn(b);
+  const istGeladen = () => log.evaluate((element) => element.dataset.laedt === undefined);
+  for (let schritt = 0; schritt < 40; schritt += 1) {
+    await log.evaluate((element) => { element.scrollTop = 0; });
+    await b.page.waitForTimeout(100);
+    await expect.poll(istGeladen).toBe(true);
+    if (await b.page.locator(`.lc-msg[data-zeit="${neuesteZeit}"]`).count() === 0) {
+      break;
+    }
+  }
+  await expect(b.page.locator(`.lc-msg[data-zeit="${neuesteZeit}"]`)).toHaveCount(0);
+  for (let schritt = 0; schritt < 40; schritt += 1) {
+    await log.evaluate((element) => { element.scrollTop = element.scrollHeight; });
+    await b.page.waitForTimeout(100);
+    await expect.poll(istGeladen).toBe(true);
+    if (await b.page.locator(`.lc-msg[data-zeit="${neuesteZeit}"]`).count() > 0) {
+      await log.evaluate((element) => { element.scrollTop = element.scrollHeight; });
+      break;
+    }
+  }
+  await expect(b.page.locator(`.lc-msg[data-zeit="${neuesteZeit}"]`)).toHaveCount(1);
+  durchlassen();
+  await expect(b.page.locator('.lc-leiste-fehler')).toHaveCount(0, { timeout: 15000 });
+  await b.page.waitForTimeout(500);
+
+  const zeiten = await b.page.locator('.lc-log-inhalt .lc-msg[data-zeit]').evaluateAll((zeilen) => zeilen.map((zeile) => zeile.dataset.zeit));
+  const doppelt = zeiten.filter((zeit, stelle) => zeiten.indexOf(zeit) !== stelle);
+  expect(doppelt).toEqual([]);
+  for (const text of ['g1', 'g2', 'g3']) {
+    await expect(b.page.locator('.lc-log-inhalt .lc-msg .lc-body', { hasText: new RegExp(`^${text}$`) })).toHaveCount(1);
+  }
   expect(unerwartet(b.fehler)).toEqual([]);
 });
