@@ -4,7 +4,8 @@
 // die Node-Tests mit gestellter Zeit (e2e/einheit/verbindungsleiste.test.mjs, live.test.mjs, verteiler.test.mjs).
 const { test, expect } = require('./rahmen');
 const { sendenStarten, kontextOeffnen, imBrowserBeitreten, beitreten, senden, eingabe } = require('./senden-hilfen');
-const { leiste, netzAus, netzAn } = require('./r00012-hilfen');
+const { leiste, netzAus, netzAn, bestaetigt, vorlaeufige } = require('./r00012-hilfen');
+const { freierPort, sichtbarNach } = require('./hilfen');
 const { GERAETE, geraetOeffnen } = require('./r00027-hilfen');
 
 let instanz;
@@ -378,3 +379,108 @@ test('Abgleich gegen alle bekannten Zeiten: hochgescrollt während des Nachholen
   }
   expect(unerwartet(b.fehler)).toEqual([]);
 });
+
+// Abnahme-Probe P1 (Karte #61, R00035, ADR-0037 Ergänzung „Karte #61“, wörtlich): „Erstes Laden in einer Störung (E2E,
+// Ausnahmeweg, zwei Kontexte, Instanz auf festem Port): `# allgemein` enthält 3 Nachrichten (über die API angelegt). A
+// ist beigetreten; der Abruf `GET /api/channels/allgemein/nachrichten` von A wird beim Öffnen 2,5 s gehalten
+// (`page.route`), 0,5 s nach seinem Beginn wird die Instanz beendet; der gehaltene Abruf scheitert, A zeigt „⚠ Verlauf
+// nicht geladen — Verbindung prüfen.“ und „⚠ Verbindung verloren“. Dann wird die Instanz neu gestartet (Route
+// aufgehoben). → Binnen 5 s ab dem Neustart zeigt A die 3 Nachrichten je genau einmal, keinen Hinweis „Verlauf nicht
+// geladen“ mehr, und die Leiste „✓ Wieder verbunden · Verlauf geladen“ erscheint erst, wenn die Nachrichten sichtbar
+// sind. Danach sendet B (anderer Kontext) eine Nachricht → sie erscheint in A binnen 1 s (Z1) genau einmal; dann sendet
+// A eine Nachricht → sie steht in A genau einmal bestätigt (kein „wird gesendet …“ übrig).“ Je einmal mit und ohne
+// SharedWorker. Lesart: die Uhr des Neustarts startet, wenn die Startzeile der neuen Instanz gelesen ist; B tritt nach
+// dem Neustart im Browser bei (Sitzungen überleben den Neustart nicht), die Uhr von Z1 startet nach B's Enter.
+const NICHT_GELADEN = '⚠ Verlauf nicht geladen — Verbindung prüfen.';
+const NEUSTART_MS = 5000;
+const Z1_MS = 1000;
+
+/// Merkt sich im Browser, wie viele Nachrichten im Verlauf standen, als die Leiste zum ersten Mal „Wieder verbunden“
+/// zeigte — im selben Augenblick, vor dem nächsten Bild.
+async function meldungBeobachten(page) {
+  await page.evaluate(() => {
+    window.nachrichtenBeiMeldung = null;
+    const leisteElement = document.querySelector('.lc-center > .lc-leiste');
+    new MutationObserver(() => {
+      const meldet = leisteElement.textContent.includes('Wieder verbunden');
+      if (meldet && window.nachrichtenBeiMeldung === null) {
+        window.nachrichtenBeiMeldung = document.querySelectorAll('.lc-log-inhalt .lc-msg').length;
+      }
+    }).observe(leisteElement, { childList: true, characterData: true, subtree: true });
+  });
+  return () => page.evaluate(() => window.nachrichtenBeiMeldung);
+}
+
+for (const [ohneSharedWorker, weg] of [[false, 'mit'], [true, 'ohne']]) {
+  test(`Erstes Laden in einer Störung (P1, ${weg} SharedWorker): nach der Rückkehr steht der Verlauf, danach erscheinen fremde und eigene Nachrichten`, async ({ browser }) => {
+    test.setTimeout(60000);
+    instanz = await sendenStarten({ port: await freierPort() });
+    const token = await beitreten(instanz.adresse, 'beta');
+    for (const text of ['v1', 'v2', 'v3']) {
+      expect((await senden(instanz.adresse, token, 'allgemein', text)).status).toBe(201);
+    }
+    const a = await kontextOeffnen(browser, { serverWegErwartet: true });
+    if (ohneSharedWorker) {
+      await a.kontext.addInitScript(() => { delete window.SharedWorker; });
+    }
+    let abrufBegonnen = null;
+    const begonnen = new Promise((melden) => { abrufBegonnen = melden; });
+    const ersterAbruf = (adresse) => adresse.pathname === '/api/channels/allgemein/nachrichten' && !adresse.searchParams.has('nach');
+    await a.page.route(ersterAbruf, async (route) => {
+      abrufBegonnen();
+      await new Promise((weiter) => setTimeout(weiter, 2500));
+      await route.continue().catch(() => {});
+    }, { times: 1 });
+
+    await imBrowserBeitreten(a.page, instanz.adresse, 'shoff');
+    await begonnen;
+    await a.page.waitForTimeout(500);
+    await instanz.beenden();
+    // „Dann“ heißt: sobald beides zu sehen ist, ereignisgenau — im Raster von toHaveText fiele der Neustart bis zu 1 s
+    // später in den Rückzug des Stroms (Versuche 1 s, 3 s, 8 s nach dem Ende), und der nächste Versuch käme erst 5 s danach.
+    await sichtbarNach(a.page, ({ hinweis }) => {
+      const mitte = document.querySelector('.lc-mitte-hinweis');
+      const oben = document.querySelector('.lc-center > .lc-leiste');
+      return mitte !== null && mitte.textContent === hinweis && oben.textContent.startsWith('⚠ Verbindung verloren');
+    }, { argument: { hinweis: NICHT_GELADEN }, ab: Date.now(), timeout: 10000 });
+    await expect(a.page.locator('.lc-mitte-hinweis')).toHaveText(NICHT_GELADEN);
+    await expect(leiste(a.page)).toHaveText(/^⚠ Verbindung verloren/);
+    await a.page.unroute(ersterAbruf);
+    const nachrichtenBeiMeldung = await meldungBeobachten(a.page);
+    await instanz.starten();
+    const neustart = Date.now();
+
+    const geladenNach = await sichtbarNach(a.page, () => document.querySelectorAll('.lc-log-inhalt .lc-msg').length >= 3, {
+      ab: neustart, timeout: 10000,
+    });
+    test.info().annotations.push({ type: 'Neustart bis Verlauf ms', description: String(geladenNach) });
+    expect(geladenNach).toBeLessThan(NEUSTART_MS);
+    for (const text of ['v1', 'v2', 'v3']) {
+      await expect(bestaetigt(a.page, text)).toHaveCount(1);
+    }
+    await expect(a.page.getByText(NICHT_GELADEN)).toHaveCount(0);
+    await expect(leiste(a.page)).toHaveText('✓ Wieder verbunden · Verlauf geladen', { timeout: 5000 });
+    expect(await nachrichtenBeiMeldung()).toBe(3);
+
+    const b = await kontextOeffnen(browser);
+    await imBrowserBeitreten(b.page, instanz.adresse, 'anna');
+    await eingabe(b.page).fill('Hallo aus B');
+    await eingabe(b.page).press('Enter');
+    const gesendet = Date.now();
+    const z1 = await sichtbarNach(a.page, () => [...document.querySelectorAll('.lc-log-inhalt .lc-msg .lc-body')]
+      .some((body) => body.textContent === 'Hallo aus B'), { ab: gesendet, timeout: 5000 });
+    test.info().annotations.push({ type: 'Z1 ms', description: String(z1) });
+    expect(z1).toBeLessThan(Z1_MS);
+    await expect(bestaetigt(a.page, 'Hallo aus B')).toHaveCount(1);
+
+    await eingabe(a.page).fill('Hallo aus A');
+    await eingabe(a.page).press('Enter');
+    await expect(bestaetigt(a.page, 'Hallo aus A')).toHaveCount(1, { timeout: 5000 });
+    await expect(vorlaeufige(a.page)).toHaveCount(0);
+    await a.page.waitForTimeout(500);
+    await expect(bestaetigt(a.page, 'Hallo aus A')).toHaveCount(1);
+    await expect(bestaetigt(a.page, 'Hallo aus B')).toHaveCount(1);
+    expect(a.fehler).toEqual([]);
+    expect(b.fehler).toEqual([]);
+  });
+}

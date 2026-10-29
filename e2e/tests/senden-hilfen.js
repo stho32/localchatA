@@ -11,9 +11,10 @@ const JETZT = '2026-10-28T15:00:00.000+01:00';
 const ERZEUGER = path.resolve(__dirname, '../../target/debug/examples/verlauf-erzeugen');
 
 /// Startet mit Uhr 15:00, `allgemein` mit `anzahl` erzeugten Nachrichten (0: leer), die bis `erzeugtBis` reichen
-/// (Standard: die Uhr der Instanz), und leerem `technik`.
-async function sendenStarten({ anzahl = 0, erzeugtBis = JETZT, vorbereiten = () => {} } = {}) {
+/// (Standard: die Uhr der Instanz), und leerem `technik`; ein fester `port` behält den Ursprung über einen Neustart.
+async function sendenStarten({ anzahl = 0, erzeugtBis = JETZT, port = 0, vorbereiten = () => {} } = {}) {
   return instanzStarten({
+    port,
     umgebung: { LOCALCHATA_JETZT: JETZT },
     vorbereiten: async (ordner) => {
       channelAnlegen(ordner, 'allgemein');
