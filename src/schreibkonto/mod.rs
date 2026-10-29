@@ -1,6 +1,7 @@
 //! Schreibkonto (A00014, ADR-0036): zwei Token-Eimer je Kennung und je Herkunft, nur im Speicher. Gebucht wird
 //! in zwei Schritten (Regel 3): `vorab` 1 Einheit vor dem Lesen des Körpers, `rest` die übrigen Kosten nach allen
-//! 4xx-Prüfungen — jeweils an beiden Eimern, alles oder nichts, unter einer Sperre.
+//! 4xx-Prüfungen — jeweils an beiden Eimern, alles oder nichts, unter einer Sperre. Es bucht das Senden und das
+//! Setzen der Frist (Ergänzung Karte #31 (b)).
 
 pub mod eimer;
 
@@ -48,9 +49,16 @@ impl Schreibkonto {
         }
     }
 
-    /// 1 Einheit nach der Sitzung, vor dem Lesen des Körpers; wird nie erstattet.
-    pub fn vorab(&self, kennung: &Kennung, herkunft: IpAddr) -> Result<(), Gebremst> {
-        self.abbuchen(kennung, herkunft, 1, 1)
+    /// 1 Einheit nach der Sitzung, vor dem Lesen des Körpers; wird nie erstattet. `wieder_in` rechnet bis die
+    /// `volle_kosten` tragen, soweit sie vor dem Lesen feststehen (Senden 1, Frist 10; ADR-0036 Ergänzung Karte #31
+    /// (b) Regel 2).
+    pub fn vorab(
+        &self,
+        kennung: &Kennung,
+        herkunft: IpAddr,
+        volle_kosten: u32,
+    ) -> Result<(), Gebremst> {
+        self.abbuchen(kennung, herkunft, 1, u64::from(volle_kosten.max(1)))
     }
 
     /// Der Rest der Kosten (`kosten` − 1) nach allen 4xx-Prüfungen; `wieder_in` bis die vollen Kosten tragen.
@@ -202,14 +210,14 @@ mod tests {
         let (konto, uhr) = konto();
         let a = kennung("a@10.0.0.1");
         for nummer in 0..30 {
-            assert_eq!(konto.vorab(&a, ip("10.0.0.1")), Ok(()), "{nummer}");
+            assert_eq!(konto.vorab(&a, ip("10.0.0.1"), 1), Ok(()), "{nummer}");
         }
 
-        let einunddreissigste = konto.vorab(&a, ip("10.0.0.1"));
+        let einunddreissigste = konto.vorab(&a, ip("10.0.0.1"), 1);
         uhr.stellen(t(999));
-        let nach_999 = konto.vorab(&a, ip("10.0.0.1"));
+        let nach_999 = konto.vorab(&a, ip("10.0.0.1"), 1);
         uhr.stellen(t(1_000));
-        let nach_1000 = konto.vorab(&a, ip("10.0.0.1"));
+        let nach_1000 = konto.vorab(&a, ip("10.0.0.1"), 1);
 
         assert_eq!(einunddreissigste, gebremst(Grenze::Kennung, 1_000));
         assert_eq!(nach_999, gebremst(Grenze::Kennung, 1));
@@ -225,12 +233,12 @@ mod tests {
         for nummer in 0..4 {
             let k = kennung(&format!("k{nummer}@10.0.0.1"));
             for _ in 0..30 {
-                assert_eq!(konto.vorab(&k, ip("10.0.0.1")), Ok(()));
+                assert_eq!(konto.vorab(&k, ip("10.0.0.1"), 1), Ok(()));
             }
         }
 
-        let fuenfte = konto.vorab(&kennung("k4@10.0.0.1"), ip("10.0.0.1"));
-        let andere = konto.vorab(&kennung("x@10.0.0.2"), ip("10.0.0.2"));
+        let fuenfte = konto.vorab(&kennung("k4@10.0.0.1"), ip("10.0.0.1"), 1);
+        let andere = konto.vorab(&kennung("x@10.0.0.2"), ip("10.0.0.2"), 1);
 
         assert_eq!(fuenfte, gebremst(Grenze::Herkunft, 125));
         assert_eq!(andere, Ok(()));
@@ -244,18 +252,18 @@ mod tests {
         for nummer in 0..4 {
             let k = kennung(&format!("k{nummer}@10.0.0.1"));
             for _ in 0..30 {
-                konto.vorab(&k, ip("10.0.0.1")).expect("frei");
+                konto.vorab(&k, ip("10.0.0.1"), 1).expect("frei");
             }
         }
         let e = kennung("e@10.0.0.1");
 
         assert_eq!(
-            konto.vorab(&e, ip("10.0.0.1")),
+            konto.vorab(&e, ip("10.0.0.1"), 1),
             gebremst(Grenze::Herkunft, 125)
         );
         uhr.stellen(t(15_000));
         let durch = (0..31)
-            .take_while(|_| konto.vorab(&e, ip("10.0.0.1")).is_ok())
+            .take_while(|_| konto.vorab(&e, ip("10.0.0.1"), 1).is_ok())
             .count();
         assert_eq!(durch, 30);
     }
@@ -265,13 +273,13 @@ mod tests {
         let (konto, uhr) = konto();
         let a = kennung("a@10.0.0.1");
         for _ in 0..30 {
-            konto.vorab(&a, ip("10.0.0.1")).expect("frei");
+            konto.vorab(&a, ip("10.0.0.1"), 1).expect("frei");
         }
 
         uhr.stellen(t(-3_600_000));
 
         assert_eq!(
-            konto.vorab(&a, ip("10.0.0.1")),
+            konto.vorab(&a, ip("10.0.0.1"), 1),
             gebremst(Grenze::Kennung, 1_000)
         );
     }
@@ -284,9 +292,9 @@ mod tests {
             let (konto, uhr) = konto();
             let a = kennung("a@10.0.0.1");
             for _ in 0..28 {
-                konto.vorab(&a, ip("10.0.0.1")).expect("frei");
+                konto.vorab(&a, ip("10.0.0.1"), 1).expect("frei");
             }
-            let vorab = konto.vorab(&a, ip("10.0.0.1"));
+            let vorab = konto.vorab(&a, ip("10.0.0.1"), 1);
             let rest = konto.rest(&a, ip("10.0.0.1"), 4);
             (konto, uhr, a, vorab, rest)
         };
@@ -295,17 +303,72 @@ mod tests {
 
         uhr.stellen(t(2_999));
         let nach_2999 = konto
-            .vorab(&a, ip("10.0.0.1"))
+            .vorab(&a, ip("10.0.0.1"), 1)
             .and_then(|()| konto.rest(&a, ip("10.0.0.1"), 4));
         spaeter_uhr.stellen(t(3_000));
         let nach_3000 = spaeter
-            .vorab(&b, ip("10.0.0.1"))
+            .vorab(&b, ip("10.0.0.1"), 1)
             .and_then(|()| spaeter.rest(&b, ip("10.0.0.1"), 4));
 
         assert_eq!(vorab, Ok(()));
         assert_eq!(rest, gebremst(Grenze::Kennung, 3_000));
         assert!(nach_2999.is_err(), "{nach_2999:?}");
         assert_eq!(nach_3000, Ok(()));
+    }
+
+    /// Eine Friständerung, wie die Route sie bucht (R00021): vorab mit den vollen Kosten 10, dann der Rest 9.
+    fn aendern(konto: &Schreibkonto, wer: &Kennung, herkunft: &str) -> Result<(), Gebremst> {
+        konto
+            .vorab(wer, ip(herkunft), 10)
+            .and_then(|()| konto.rest(wer, ip(herkunft), 10))
+    }
+
+    /// R00021 F0072 „Vorab mit den vollen Kosten“ (ADR-0036 Ergänzung Karte #31 (b), erster Test): voller Eimer,
+    /// 3 × (vorab 10, Rest 9) → ok; der 4. `vorab` → `Gebremst { kennung, 10.000 ms }`; nach 9.999 ms gebremst,
+    /// nach 10.000 ms ok. Mutanten „vorab nennt 1“ (1.000 ms) und „Rest 0“ (4. vorab ok) werden rot.
+    #[test]
+    fn der_vorab_schritt_rechnet_bis_die_vollen_kosten_tragen() {
+        let nach_drei = || {
+            let (konto, uhr) = konto();
+            let a = kennung("a@10.0.0.1");
+            for nummer in 0..3 {
+                assert_eq!(konto.vorab(&a, ip("10.0.0.1"), 10), Ok(()), "{nummer}");
+                assert_eq!(konto.rest(&a, ip("10.0.0.1"), 10), Ok(()), "{nummer}");
+            }
+            (konto, uhr, a)
+        };
+        let (konto, uhr, a) = nach_drei();
+        let (spaeter, spaeter_uhr, b) = nach_drei();
+
+        let vierte = konto.vorab(&a, ip("10.0.0.1"), 10);
+        uhr.stellen(t(9_999));
+        let nach_9999 = aendern(&konto, &a, "10.0.0.1");
+        spaeter_uhr.stellen(t(10_000));
+        let nach_10000 = aendern(&spaeter, &b, "10.0.0.1");
+
+        assert_eq!(vierte, gebremst(Grenze::Kennung, 10_000));
+        assert!(nach_9999.is_err(), "{nach_9999:?}");
+        assert_eq!(nach_10000, Ok(()));
+    }
+
+    /// R00021 F0072 „Herkunft“: vier Kennungen von 10.0.0.1 je 3 × (vorab 10, Rest 9) → ok; der Vorab-Schritt einer
+    /// fünften → `Gebremst { herkunft, 1.250 ms }`; eine Kennung von 10.0.0.2 → ok. Mutante „Herkunft bucht nur die
+    /// Vorab-Einheit“ wird rot.
+    #[test]
+    fn vier_kennungen_einer_adresse_leeren_die_herkunft_mit_drei_aenderungen_je_kennung() {
+        let (konto, _) = konto();
+        for nummer in 0..4 {
+            let k = kennung(&format!("k{nummer}@10.0.0.1"));
+            for runde in 0..3 {
+                assert_eq!(aendern(&konto, &k, "10.0.0.1"), Ok(()), "{nummer}/{runde}");
+            }
+        }
+
+        let fuenfte = konto.vorab(&kennung("k4@10.0.0.1"), ip("10.0.0.1"), 10);
+        let andere = aendern(&konto, &kennung("x@10.0.0.2"), "10.0.0.2");
+
+        assert_eq!(fuenfte, gebremst(Grenze::Herkunft, 1_250));
+        assert_eq!(andere, Ok(()));
     }
 
     /// Reichen beide nicht, nennt `grenze` den Eimer, der länger braucht.
@@ -315,12 +378,12 @@ mod tests {
         for nummer in 0..4 {
             let k = kennung(&format!("k{nummer}@10.0.0.1"));
             for _ in 0..30 {
-                konto.vorab(&k, ip("10.0.0.1")).expect("frei");
+                konto.vorab(&k, ip("10.0.0.1"), 1).expect("frei");
             }
         }
 
         assert_eq!(
-            konto.vorab(&kennung("k0@10.0.0.1"), ip("10.0.0.1")),
+            konto.vorab(&kennung("k0@10.0.0.1"), ip("10.0.0.1"), 1),
             gebremst(Grenze::Kennung, 1_000)
         );
     }
@@ -339,14 +402,14 @@ mod tests {
         for nummer in 0..1_025_u32 {
             let herkunft = format!("10.0.{}.{}", nummer / 256, nummer % 256);
             konto
-                .vorab(&kennung(&format!("k@{herkunft}")), ip(&herkunft))
+                .vorab(&kennung(&format!("k@{herkunft}")), ip(&herkunft), 1)
                 .expect("frei");
         }
         assert_eq!(eintraege(&konto), (1_025, 1_025));
 
         uhr.stellen(t(30_000));
         konto
-            .vorab(&kennung("neu@10.9.9.9"), ip("10.9.9.9"))
+            .vorab(&kennung("neu@10.9.9.9"), ip("10.9.9.9"), 1)
             .expect("frei");
 
         assert_eq!(eintraege(&konto), (1, 1));
@@ -357,7 +420,7 @@ mod tests {
     fn ein_voller_eimer_wird_beim_zugriff_entfernt() {
         let (konto, uhr) = konto();
         let a = kennung("a@10.0.0.1");
-        konto.vorab(&a, ip("10.0.0.1")).expect("frei");
+        konto.vorab(&a, ip("10.0.0.1"), 1).expect("frei");
         uhr.stellen(t(1_000));
 
         konto.rest(&a, ip("10.0.0.1"), 1).expect("frei");

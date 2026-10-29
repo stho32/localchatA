@@ -37,6 +37,10 @@ const ROUTE: &str = "POST /api/channels/{name}/nachrichten";
 /// 98.315 Bytes (`{"text":"` + 16.384 × `\u0061` + `"}`); mit 30 % Reserve 127.810, gerundet auf 128 KiB.
 pub const SENDEN_GRENZE: usize = 131_072;
 
+/// Die Kosten einer Nachricht stehen erst nach dem Lesen fest; der Vorab-Schritt rechnet mit der kleinsten (1),
+/// R00011 und ADR-0036 Regel 3 unverändert (R00021 „Senden unverändert“).
+const VORAB_SENDEN: u32 = 1;
+
 pub async fn senden(
     teilnehmer: Teilnehmer,
     State(zustand): State<Arc<Zustand>>,
@@ -44,9 +48,10 @@ pub async fn senden(
     kopf: HeaderMap,
     koerper: Body,
 ) -> Response {
-    if let Err(gebremst) = zustand
-        .schreibkonto
-        .vorab(&teilnehmer.kennung, teilnehmer.herkunft)
+    if let Err(gebremst) =
+        zustand
+            .schreibkonto
+            .vorab(&teilnehmer.kennung, teilnehmer.herkunft, VORAB_SENDEN)
     {
         return gebremst_melden(&zustand, gebremst, &teilnehmer);
     }
