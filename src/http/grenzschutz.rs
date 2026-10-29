@@ -71,19 +71,29 @@ fn abweisung_eintragen(
             || "unbekannt".to_string(),
             |ConnectInfo(gegenstelle)| gegenstelle.ip().to_string(),
         );
-    protokoll.episode(Auftreten {
+    protokoll.episode(abweisung_auftreten(
+        ereignis,
+        herkunft,
+        &format!("{kopf}: {wert}"),
+    ));
+}
+
+/// Quelle der Episode ist die Herkunft; der abgewiesene Kopf mit seinem Wert gehört dem einzelnen Auftreten und
+/// steht nur in der Beginn-Zeile (ADR-0042 Ergänzung Karte #66).
+fn abweisung_auftreten(ereignis: &'static str, herkunft: String, grund: &str) -> Auftreten {
+    Auftreten {
         stufe: Stufe::Warning,
         bereich: Bereich::Grenzschutz,
         text: ereignis,
         quelle: herkunft.clone(),
         kontext: Kontext::neu()
             .mit(Schluessel::Herkunft, herkunft)
-            .mit(Schluessel::Grund, format!("{kopf}: {wert}")),
+            .mit_nur_beginn(Schluessel::Grund, grund),
         art: None,
         verworfen: None,
         bytes: None,
         anzeige: None,
-    });
+    }
 }
 
 /// Die Antwort auf eine Abweisung, dazu Ereignis und Kopf, an dem sie hing.
@@ -491,6 +501,34 @@ impl fmt::Display for HostAbgewiesen {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// R00038 B0591 (Bestandsaufnahme): zwei Abweisungen derselben Herkunft mit verschiedenem Host → Beginn mit
+    /// `grund=` des ersten Kopfes, Ende nur `herkunft=`.
+    #[test]
+    fn die_ende_zeile_der_abweisung_nennt_nur_die_herkunft() {
+        use crate::protokoll::Stufe;
+        use crate::protokoll::testhilfe::{im_speicher, zeit};
+        let (protokoll, speicher, uhr, _) =
+            im_speicher("2026-10-28T12:00:00+01:00", Stufe::Information);
+        for host in ["boese.example", "andere.example"] {
+            protokoll.episode(abweisung_auftreten(
+                "Anfrage mit fremdem Host abgewiesen",
+                "10.0.0.9".into(),
+                &format!("host: {host}"),
+            ));
+        }
+        uhr.stellen(zeit("2026-10-28T12:01:00+01:00"));
+        protokoll.episoden_schliessen();
+
+        let zeilen = speicher.zeilen();
+        assert_eq!(zeilen.len(), 2, "{zeilen:#?}");
+        assert!(
+            zeilen[0].ends_with("| herkunft=10.0.0.9 grund=\"host: boese.example\""),
+            "{zeilen:#?}"
+        );
+        assert!(zeilen[1].contains("Episode endet: 2 in "), "{zeilen:#?}");
+        assert!(zeilen[1].ends_with("| herkunft=10.0.0.9"), "{zeilen:#?}");
+    }
 
     impl Grenzschutz {
         /// Das Urteil ohne Auskunft und ohne lokale Adresse — nur Normalform und feste Namen.
