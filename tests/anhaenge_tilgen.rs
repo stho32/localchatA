@@ -10,7 +10,7 @@ use gemeinsam::anhaenge::{
 };
 use gemeinsam::dateien::{hochkant_jpg, mp4, pdf};
 use gemeinsam::protokoll::alle_zeilen;
-use gemeinsam::senden::{beitreten, ordner, senden};
+use gemeinsam::senden::{beitreten, ordner, roh_senden, senden};
 use serde_json::json;
 use std::path::Path;
 
@@ -413,4 +413,115 @@ async fn drei_mal_metadaten_nicht_tilgbar_ist_eine_episode() {
         .filter(|z| z.contains("Metadaten nicht tilgbar") && !z.contains("Episode"))
         .count();
     assert_eq!(einzeln, 0, "{zeilen:#?}");
+}
+
+/// MP4 von 256 MiB mit `mdat` zuerst und `moov` am Ende (mit `©xyz`).
+fn mp4_256_mib_moov_am_ende() -> Vec<u8> {
+    let boxe_kopf = |typ: &[u8], laenge: usize| {
+        let mut bytes = ((8 + laenge) as u32).to_be_bytes().to_vec();
+        bytes.extend(typ);
+        bytes
+    };
+    let ort = b"+52.5200+013.4050/";
+    let mut xyz = boxe_kopf(b"\xa9xyz", 4 + ort.len());
+    xyz.extend((ort.len() as u16).to_be_bytes());
+    xyz.extend([0x15, 0xc7]);
+    xyz.extend(ort);
+    let mut udta = boxe_kopf(b"udta", xyz.len());
+    udta.extend(xyz);
+    let mut moov = boxe_kopf(b"moov", 108 + udta.len());
+    moov.extend(boxe_kopf(b"mvhd", 100));
+    moov.extend([0; 100]);
+    moov.extend(udta);
+    let mut ftyp = boxe_kopf(b"ftyp", 16);
+    ftyp.extend(b"isom\0\0\x02\0isommp41");
+    let mdat_inhalt = 256 * MIB as usize - ftyp.len() - moov.len() - 8;
+    let mut bytes = ftyp;
+    bytes.extend(boxe_kopf(b"mdat", mdat_inhalt));
+    bytes.extend((0..mdat_inhalt).map(|n| (n % 251) as u8));
+    bytes.extend(moov);
+    bytes
+}
+
+/// Befund #51 B2 (a), R00029 „Gleichzeitig“ (M50): Hochladen und Tilgen einer MP4 von 256 MiB mit `moov` am Ende,
+/// während `alpha` jede Sekunde sendet → jedes Senden 201 (Gate ohne Zeitmaß); Länge = Anmeldung, Ort genullt; nach
+/// dem Senden stimmt `Content-Range` eines Teilabrufs, die Bytes sind die des Originals.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn grosses_video_tilgen_waehrend_gesendet_wird() {
+    let wurzel = ordner();
+    let instanz = starten(wurzel.path(), &["--anhangquote", "1GiB"], &[]);
+    let basis = instanz.adresse.clone();
+    let beta = Absender::von("127.0.0.1");
+    let alpha = Absender::von("127.0.0.2");
+    let token = beitreten(&beta, &basis, "beta", Some("agent")).await;
+    let token_alpha = beitreten(&alpha, &basis, "alpha", Some("mensch")).await;
+    let video = mp4_256_mib_moov_am_ende();
+    let laenge = video.len() as u64;
+    assert_eq!(laenge, 256 * MIB);
+    let ausschnitt = video[200_000_000..200_000_100].to_vec();
+    let angemeldet = id(&anmelden(&beta, &basis, &token, "lang.mp4", laenge).await);
+
+    let hochladung = {
+        let (basis, token, angemeldet) = (basis.clone(), token.clone(), angemeldet.clone());
+        tokio::spawn(async move {
+            let beta = Absender::von("127.0.0.1");
+            hochladen(&beta, &basis, &token, &angemeldet, video).await
+        })
+    };
+    let mut gesendet = Vec::new();
+    while !hochladung.is_finished() {
+        gesendet.push(
+            senden(&alpha, &basis, &token_alpha, "allgemein", "währenddessen")
+                .await
+                .status,
+        );
+        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+    }
+    let antwort = hochladung.await.expect("Hochladung");
+
+    assert_eq!(antwort.status, 200, "{}", antwort.json);
+    assert!(!gesendet.is_empty());
+    assert!(gesendet.iter().all(|status| *status == 201), "{gesendet:?}");
+    assert_eq!(antwort.json["anhang"]["bytes"], laenge);
+    let eingang = wurzel.path().join(".eingang").join(&angemeldet);
+    assert_eq!(std::fs::metadata(&eingang).expect("Eingang").len(), laenge);
+    let ende = {
+        use std::os::unix::fs::FileExt;
+        let mut ende = vec![0u8; 300];
+        std::fs::File::open(&eingang)
+            .expect("Eingang")
+            .read_exact_at(&mut ende, laenge - 300)
+            .expect("Ende");
+        ende
+    };
+    assert!(!enthaelt(&ende, b"+52.5200"), "Ort genullt");
+    let mit = roh_senden(
+        &beta,
+        &basis,
+        Some(&token),
+        "allgemein",
+        "application/json",
+        json!({"text": "", "anhaenge": [angemeldet]})
+            .to_string()
+            .into_bytes(),
+    )
+    .await;
+    assert_eq!(mit.status, 201, "{}", mit.json);
+    let teil = alpha
+        .anfrage(
+            reqwest::Method::GET,
+            format!("{basis}anhaenge/{angemeldet}"),
+        )
+        .header("Range", "bytes=200000000-200000099")
+        .send()
+        .await
+        .expect("Teilabruf");
+    assert_eq!(teil.status(), 206);
+    assert_eq!(
+        teil.headers()
+            .get("content-range")
+            .and_then(|wert| wert.to_str().ok()),
+        Some(format!("bytes 200000000-200000099/{laenge}").as_str())
+    );
+    assert_eq!(teil.bytes().await.expect("Bytes").to_vec(), ausschnitt);
 }
