@@ -159,3 +159,4 @@ Eine Zeile je Auftrag an eine Rolle und je Retrospektive.
 | 2026-10-29 | #22/#36 | Architektur | architekt | bestanden | 0:12 | ADR-Ergänzungen 0012/0015/0034/0037/0038/0042/0043: stiller Neuversuch beim Nachholen, eine Warnung, Rückgängig 5 s, H_k 640/H_g 36.000, ein Weg zum Wiederbeitritt |
 | 2026-10-29 | #30 | Nacharbeit → Auto-Reviews | entwickler (entw2) | bestanden | 0:10 | Kontext unter „Gestern“ am Tageswechsel; enge Wiederholung code-reviewer |
 | 2026-10-29 | #8 | Entwicklertest → Abnahme | entwicklertester | bestanden | 0:45 | 31 Szenarien, M2 p90 7 ms, Z9 0 %; Anmerkung: Reload während des Sendens verliert den Text |
+| 2026-10-29 | #30 | Entwicklertest → Abnahme | entwicklertester | bestanden | 0:20 | Sprung mit Kontext auch am Tageswechsel, Pille, HTML als Text, Fehlgeschlagene bleibt unten |
