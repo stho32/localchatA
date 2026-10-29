@@ -82,7 +82,7 @@ async fn die_anhang_quote_kommt_aus_option_umgebung_oder_standard() {
         alle.extend_from_slice(argumente);
         let mut mit_tz = vec![("TZ", "Europe/Berlin")];
         mit_tz.extend_from_slice(umgebung);
-        let instanz = gemeinsam::starten_mit(wurzel.path(), &alle, &mit_tz);
+        let instanz = gemeinsam::starten_wie_ausgeliefert(wurzel.path(), &alle, &mit_tz);
         assert_eq!(
             gesundheit(&instanz.adresse).await["anhangquote"],
             erwartet,

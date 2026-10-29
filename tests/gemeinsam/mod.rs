@@ -147,7 +147,36 @@ pub fn starten(ordner: &Path, argumente: &[&str]) -> Instanz {
 
 /// Wie `starten`, mit zusätzlichen Umgebungsvariablen und mitgelesenem stderr.
 pub fn starten_mit(ordner: &Path, argumente: &[&str], umgebung: &[(&str, &str)]) -> Instanz {
-    let kind = Command::new(PROGRAMM)
+    let ohne_anhangquote = !argumente.contains(&"--anhangquote")
+        && !umgebung
+            .iter()
+            .any(|(name, _)| *name == "LOCALCHATA_ANHANGQUOTE");
+    let mut befehl = Command::new(PROGRAMM);
+    if ohne_anhangquote {
+        // Die Standard-Anhang-Quote von 20 GiB trägt ein Test-tmpfs nicht — ohne Vorgabe meldete jeder Start
+        // `WARNING start Platte trägt die Quoten nicht` (R00029 B0516). Den Standard selbst prüft
+        // `starten_wie_ausgeliefert`.
+        befehl.env("LOCALCHATA_ANHANGQUOTE", "1GiB");
+    }
+    starten_befehl(ordner, &mut befehl, argumente, umgebung)
+}
+
+/// Wie `starten_mit`, aber ohne Vorgabe der Anhang-Quote — der Start wie ausgeliefert.
+pub fn starten_wie_ausgeliefert(
+    ordner: &Path,
+    argumente: &[&str],
+    umgebung: &[(&str, &str)],
+) -> Instanz {
+    starten_befehl(ordner, &mut Command::new(PROGRAMM), argumente, umgebung)
+}
+
+fn starten_befehl(
+    ordner: &Path,
+    befehl: &mut Command,
+    argumente: &[&str],
+    umgebung: &[(&str, &str)],
+) -> Instanz {
+    let kind = befehl
         .arg(ordner)
         .args(argumente)
         .envs(umgebung.iter().copied())
