@@ -62,6 +62,12 @@ body { background: var(--kd-bg); color: var(--kd-ink); font-family: var(--font-s
   .lc-head-schalter { max-width: 100%; }
   .lc-me { line-height: 16px; }
 }
+/* Mit grobem Zeiger ist `# name ▾` ein Ziel von 44 × 44 px; die Leiste wächst dafür ab 480 px auf 44 px, das Token
+   kd-header bleibt 40 px (ADR-0033 Ergänzung Karte #27); unter 480 px passt er in Zeile 1 */
+@media (pointer: coarse) {
+  .lc-head { min-height: 44px; }
+  .lc-head-schalter { height: 44px; min-width: 44px; align-items: center; }
+}
 .lc-hbtn { height: 28px; padding: 0 var(--kd-space-8); background: transparent; border: 0; color: var(--kd-header-ink); cursor: pointer; font-weight: 600; }
 .lc-hbtn:hover, .lc-hbtn[aria-expanded="true"] { background: var(--kd-header-surface); }
 .lc-hbtn .lc-count { font-family: var(--font-mono); font-size: 11px; color: var(--kd-header-muted); }

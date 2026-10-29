@@ -236,3 +236,32 @@ for (const [art, herkunft, laenge] of [['IPv4', '192.168.100.200', 48], ['IPv6, 
     expect(a.fehler).toEqual([]);
   });
 }
+
+// Kriterium „Touch-Ziel“ (UX-Vorprüfung #27 Sollte, ADR-0033 Ergänzung Karte #27): mit grobem Zeiger ist der Schalter
+// mindestens 44 × 44 px, liegt ganz in der Kopfzeile und ist an allen vier Ecken zu treffen.
+for (const geraet of [...TELEFONE, ...TABLETS]) {
+  test(`Touch-Ziel (B0541, ${geraet[0]} × ${geraet[1]} mit Touch): # entwicklung ▾ mindestens 44 × 44 px, ganz in der Kopfzeile, Ecken treffen`, async ({ browser }) => {
+    const a = await geoeffnet(browser, mitTouch(geraet));
+
+    const mass = await a.page.evaluate(vermessen);
+
+    expect(mass.schalter.width).toBeGreaterThanOrEqual(44);
+    expect(mass.schalter.height).toBeGreaterThanOrEqual(44);
+    expect(ganzIn(mass.schalter, mass.kopf), 'Schalter ganz in .lc-head').toBe(true);
+    expect(mass.trifftEcken, 'elementFromPoint an den vier Ecken').toBe(true);
+    if (geraet[0] < 480) {
+      expect(mass.kopf.height).toBe(80);
+    }
+    expect(a.fehler).toEqual([]);
+  });
+}
+
+test('Touch-Ziel, Kontrollpaar 1280 × 800 ohne Touch (B0541): Schalter 28 px hoch, Kopfzeile 40 px', async ({ browser }) => {
+  const a = await geoeffnet(browser, ohneTouch([1280, 800]));
+
+  const mass = await a.page.evaluate(vermessen);
+
+  expect(mass.schalter.height).toBe(28);
+  expect(mass.kopf.height).toBe(40);
+  expect(a.fehler).toEqual([]);
+});
