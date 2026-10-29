@@ -1,5 +1,5 @@
 // Eingabe unter dem Verlauf (ADR-0038 Regeln 1–4, 7, Designsystem Eingabe).
-import { textPruefen, nurLeerraum } from './textregel.js';
+import { textPruefen, nurLeerraum, steuerzeichenEntfernen } from './textregel.js';
 import { hinweis, hinweisAnsagen } from './hinweis.js';
 
 const IME_TASTENCODE = 229;
@@ -45,7 +45,11 @@ export function eingabeAnlegen({ senden, entwurf, ansagen }) {
   knopf.setAttribute('aria-describedby', zeile.id);
   const aktionen = element('div', { className: 'lc-comp-aktionen' }, [knopf]);
   const kasten = element('div', { className: 'lc-comp-box' }, [feld, aktionen]);
-  const rahmen = element('div', { className: 'lc-comp' }, [kasten, zeile]);
+  // Neben, nicht in der Hinweiszeile: deren Text ist die Beschreibung von Feld und Knopf (R00025 F0086, V17).
+  const bereinigen = element('button', { type: 'button', textContent: 'Steuerzeichen entfernen' });
+  const bereinigenGruppe = element('div', { className: 'lc-send-schalter lc-comp-bereinigen', hidden: true }, [bereinigen]);
+  const hinweisReihe = element('div', { className: 'lc-comp-hinweisreihe' }, [zeile, bereinigenGruppe]);
+  const rahmen = element('div', { className: 'lc-comp' }, [kasten, hinweisReihe]);
   let channel = null;
   let gezeigt = hinweis(textPruefen(''));
 
@@ -55,7 +59,9 @@ export function eingabeAnlegen({ senden, entwurf, ansagen }) {
   }
 
   function hinweisZeigen() {
-    const neu = hinweis(textPruefen(feld.value));
+    const ergebnis = textPruefen(feld.value);
+    const neu = hinweis(ergebnis);
+    bereinigenGruppe.hidden = ergebnis.art !== 'zeichen';
     zeile.textContent = neu.text;
     zeile.classList.toggle('lc-fehler', neu.stufe === 'fehler');
     if (neu.stufe === 'fehler') {
@@ -102,6 +108,22 @@ export function eingabeAnlegen({ senden, entwurf, ansagen }) {
     }
   });
   knopf.addEventListener('click', absenden);
+  // Erst der Klick nimmt die verbotenen Zeichen aus dem Feld — ohne ihn wird nichts umgeformt (R00025 F0086).
+  bereinigen.addEventListener('pointerdown', (ereignis) => {
+    if (document.activeElement === feld) {
+      ereignis.preventDefault();
+    }
+  });
+  bereinigen.addEventListener('click', () => {
+    const bereinigt = steuerzeichenEntfernen(feld.value);
+    feld.value = bereinigt.text;
+    hoeheAnpassen(feld);
+    textBewerten();
+    entwurf.eingabe(channel, feld.value);
+    feld.focus();
+    feld.setSelectionRange(feld.value.length, feld.value.length);
+    ansagen({ art: 'sofort', text: entferntText(bereinigt.entfernt) });
+  });
   let kompositionLaeuft = false;
   feld.addEventListener('compositionstart', () => {
     kompositionLaeuft = true;
@@ -150,6 +172,13 @@ export function eingabeAnlegen({ senden, entwurf, ansagen }) {
     },
     fokussieren: () => feld.focus(),
   };
+}
+
+function entferntText(anzahl) {
+  if (anzahl === 1) {
+    return '1 Steuerzeichen entfernt';
+  }
+  return `${anzahl} Steuerzeichen entfernt`;
 }
 
 function zeigerart() {

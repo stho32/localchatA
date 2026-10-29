@@ -151,6 +151,11 @@ body { background: var(--kd-bg); color: var(--kd-ink); font-family: var(--font-s
 /* Hinweiszeile unter dem Feld (ADR-0038 Regel 4): 20 px, gedämpft; als Fehler in kd-danger */
 .lc-comp-hinweis { margin: 0; min-height: 20px; font-size: 12px; line-height: 20px; color: var(--kd-ink-muted); overflow-wrap: anywhere; }
 .lc-comp-hinweis.lc-fehler { color: var(--kd-danger); font-weight: 600; }
+/* Hinweiszeile mit dem Schalter „Steuerzeichen entfernen“ daneben; in der roten Zeile bleibt er neutral (R00025 F0086) */
+.lc-comp-hinweisreihe { display: flex; flex-wrap: wrap; align-items: flex-start; column-gap: var(--kd-space-8); }
+.lc-comp-hinweisreihe .lc-comp-hinweis { flex: 1 1 12em; min-width: 0; }
+.lc-comp-bereinigen[hidden] { display: none; }
+.lc-comp-bereinigen button { touch-action: manipulation; }
 /* Leiste oben im Verlauf (Baustein VerlaufsMarken „Verbindung“): 28 px; verloren in kd-danger */
 .lc-leiste { flex: none; min-height: var(--kd-row); display: flex; align-items: center; padding: 0 var(--kd-space-12); font-size: 12px; font-weight: 600; color: var(--kd-ink-muted); background: var(--kd-surface); border-bottom: 1px solid var(--kd-line); overflow-wrap: anywhere; }
 .lc-leiste.lc-leiste-fehler { color: var(--kd-danger); }
