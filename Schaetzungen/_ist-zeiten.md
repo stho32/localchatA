@@ -499,3 +499,11 @@ Nie vom User erfragen.
 | 2026-10-29 | R00032 Doppelte Schlüssel abweisen | B0548 Senden nennt das weitere Feld vor text | Standard | 0,4h | 0,08h | 0,08h | autonom (entw3) |
 | 2026-10-29 | R00032 Doppelte Schlüssel abweisen | B0549 Doppelte Schlüssel über alle vier Routen geprobt (inkl. Mutanten) | Standard | 0,4h | 0,50h | 0,50h | autonom (entw3) |
 | 2026-10-29 | R00032 Doppelte Schlüssel abweisen | Gate und Rebase | Konsolidierung | — | 0,42h | 0,42h | autonom (entw3) |
+| 2026-10-29 | R00035 Verlauf nach Ausfall | Lesen und P1 rot | Standard | 0,4h | 0,10h | 0,10h | autonom (entw2) |
+| 2026-10-29 | R00035 Verlauf nach Ausfall | B0560 Verlauf meldet sein Laden | Standard | 0,4h | 0,03h | 0,03h | autonom (entw2) |
+| 2026-10-29 | R00035 Verlauf nach Ausfall | B0561 Laden-Lauf im Nachhol-Lauf | Standard | 0,4h | 0,03h | 0,03h | autonom (entw2) |
+| 2026-10-29 | R00035 Verlauf nach Ausfall | B0563 Meldung Verlauf geladen | Standard | 0,4h | 0,02h | 0,02h | autonom (entw2) |
+| 2026-10-29 | R00035 Verlauf nach Ausfall | B0562 Hauptansicht verdrahtet das Laden | Standard | 0,4h | 0,03h | 0,03h | autonom (entw2) |
+| 2026-10-29 | R00035 Verlauf nach Ausfall | B0564 Abnahme-Probe P1 | Standard | 0,4h | 0,05h | 0,05h | autonom (entw2) |
+| 2026-10-29 | R00035 Verlauf nach Ausfall | Mutanten und Zusatztest | Konsolidierung | — | 0,03h | 0,03h | autonom (entw2) |
+| 2026-10-29 | R00035 Verlauf nach Ausfall | Gate und Rebase | Konsolidierung | — | 0,23h | 0,23h | autonom (entw2) |
