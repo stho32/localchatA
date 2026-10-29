@@ -94,6 +94,7 @@ fn grund(status: u16) -> Option<&'static str> {
         413 => "zu_gross",
         415 => "kein_json",
         422 => "regel",
+        507 => "quote",
         _ => return None,
     })
 }

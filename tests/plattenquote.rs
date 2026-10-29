@@ -278,6 +278,13 @@ async fn an_der_quote_ist_senden_507_und_platz_entsteht_ueber_die_frist() {
         })
     );
     assert_eq!(heute_datei(wurzel.path()), vorher);
+    assert_eq!(
+        quote_zeilen(wurzel.path())
+            .iter()
+            .filter(|zeile| zeile.contains("Senden abgewiesen: Quote erreicht — Episode beginnt"))
+            .count(),
+        1
+    );
     strom.mitlesen(std::time::Duration::from_millis(500)).await;
     let nachrichten = strom
         .ereignisse
@@ -427,4 +434,73 @@ async fn ohne_quote_wird_ueber_1_mib_angenommen() {
     assert_eq!(gesundheit["plattenquote"], serde_json::Value::Null);
     assert_eq!(gesundheit["quote_abgewiesen"], 0);
     assert_eq!(gesundheit["log_bytes"], 1_048_600);
+}
+
+// ---- F0076 Abweisungen als Episode (B0363) ----
+
+const BEGINN: &str = "WARNING quote Senden abgewiesen: Quote erreicht — Episode beginnt | kennung=beta@127.0.0.1 channel=allgemein belegt=1048519 hoechstens=1048576";
+
+/// F0076 „Episode je Kennung“ (US-8): an der Quote sendet `beta` dreimal → drei 507, genau eine Beginn-Zeile (auch
+/// auf stderr), drei DEBUG-Zeilen; nach 2 s Ruhe die Ende-Zeile mit 3. Mutante „je 507 eine WARNING“ wird rot.
+#[tokio::test]
+async fn die_abweisungen_einer_kennung_sind_eine_episode() {
+    let wurzel = quote_ordner(GELADEN);
+    let mut instanz = quote_starten(
+        wurzel.path(),
+        &["--plattenquote", "1MiB", "--protokoll-stufe", "debug"],
+        &[("LOCALCHATA_EPISODE_RUHE_MS", "2000")],
+    );
+    let stderr = instanz.stderr_mitschreiben();
+    let absender = gemeinsam::Absender::von("127.0.0.1");
+    let beta = gemeinsam::senden::beitreten(&absender, &instanz.adresse, "beta", None).await;
+
+    let mut status = Vec::new();
+    for _ in 0..6 {
+        let antwort =
+            gemeinsam::senden::senden(&absender, &instanz.adresse, &beta, "allgemein", TEXT).await;
+        status.push(antwort.status);
+    }
+
+    assert_eq!(status, [201, 201, 201, 507, 507, 507]);
+    let ende = tokio::time::Instant::now() + std::time::Duration::from_secs(15);
+    while !quote_zeilen(wurzel.path())
+        .iter()
+        .any(|zeile| zeile.contains("Episode endet"))
+        && tokio::time::Instant::now() < ende
+    {
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    }
+    let zeilen = quote_zeilen(wurzel.path());
+    let beginn: Vec<&String> = zeilen
+        .iter()
+        .filter(|z| z.contains("Episode beginnt"))
+        .collect();
+    assert_eq!(beginn, [BEGINN], "{zeilen:#?}");
+    let ende: Vec<&String> = zeilen
+        .iter()
+        .filter(|z| z.contains("Episode endet"))
+        .collect();
+    assert_eq!(ende.len(), 1, "{zeilen:#?}");
+    assert!(
+        ende[0]
+            .starts_with("WARNING quote Senden abgewiesen: Quote erreicht — Episode endet: 3 in "),
+        "{zeilen:#?}"
+    );
+    let debug: Vec<String> = alle_zeilen(wurzel.path())
+        .into_iter()
+        .filter(|z| z.contains(" DEBUG ") && z.contains(" status=507 "))
+        .collect();
+    assert_eq!(debug.len(), 3, "{debug:#?}");
+    assert!(
+        debug
+            .iter()
+            .all(|z| z.contains(" kennung=beta@127.0.0.1 ") && z.ends_with(" grund=quote")),
+        "{debug:#?}"
+    );
+    let gespiegelt = stderr.lock().expect("stderr").clone();
+    assert_eq!(
+        gespiegelt.iter().filter(|z| z.ends_with(BEGINN)).count(),
+        1,
+        "{gespiegelt:#?}"
+    );
 }

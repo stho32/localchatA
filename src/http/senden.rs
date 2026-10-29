@@ -128,7 +128,10 @@ pub async fn senden(
         Ok(Err(Sendefehler::Ablage { datei, grund })) => {
             nicht_gespeichert(&zustand, &name, &wer, &datei, &grund)
         }
-        Ok(Err(Sendefehler::Quote { belegt, hoechstens })) => quote_erreicht(belegt, hoechstens),
+        Ok(Err(Sendefehler::Quote { belegt, hoechstens })) => {
+            quote_melden(&zustand, &name, &wer, belegt, hoechstens);
+            mit_regel(quote_erreicht(belegt, hoechstens), "quote", Some(&wer))
+        }
         Err(abbruch) => abgebrochen(&zustand, &Abgebrochen::from(abbruch), &wer, &name),
     }
 }
@@ -204,6 +207,26 @@ fn nicht_gespeichert(
         Json(json!({ "fehler": fehler })),
     )
         .into_response()
+}
+
+/// Jede 507 der Quote zählt in eine Episode `WARNING quote` je Kennung (ADR-0044 Regel 8); die einzelne Abweisung
+/// trägt die Schicht des Anfrageprotokolls als DEBUG ein.
+fn quote_melden(zustand: &Zustand, channel: &str, wer: &str, belegt: u64, hoechstens: u64) {
+    zustand.protokoll.episode(Auftreten {
+        stufe: Stufe::Warning,
+        bereich: Bereich::Quote,
+        text: "Senden abgewiesen: Quote erreicht",
+        quelle: wer.to_string(),
+        kontext: Kontext::neu()
+            .mit(Schluessel::Kennung, wer)
+            .mit(Schluessel::Channel, channel)
+            .mit(Schluessel::Belegt, belegt)
+            .mit(Schluessel::Hoechstens, hoechstens),
+        art: None,
+        verworfen: None,
+        bytes: None,
+        anzeige: None,
+    });
 }
 
 /// Bytes in Worten für den 507-Text.
