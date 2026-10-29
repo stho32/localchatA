@@ -66,6 +66,20 @@ test('(d) eigene Kennung mit anderem Text bestätigt nicht und geht als fremde w
   assert.equal(zustand.vorlaeufige[0].zustand, 'wird gesendet');
 });
 
+// R00020 F0071 „Bestätigen nur im eigenen Channel“ (B0338, Code-Review #8 A1).
+test('eigene Kennung und gleicher Text aus einem anderen Channel bestätigt nicht; aus dem eigenen Channel schon', () => {
+  const ausTechnik = nachricht('4', 'x');
+  const ausAllgemein = nachricht('5', 'x');
+  const { zustand, ausgaben } = ablauf(senden('x'), ereignis(ausTechnik, 'technik'), ereignis(ausAllgemein, 'allgemein'));
+
+  assert.equal(ausgaben[1].bestaetigt, null);
+  assert.deepEqual(ausgaben[1].fremd, { channel: 'technik', nachricht: ausTechnik });
+  assert.deepEqual(ausgaben[1].zustand.vorlaeufige.map((v) => [v.text, v.zustand]), [['x', 'wird gesendet']]);
+  assert.deepEqual(ausgaben[2].bestaetigt, { channel: 'allgemein', nachricht: ausAllgemein });
+  assert.equal(ausgaben[2].fremd, null);
+  assert.deepEqual(zustand.vorlaeufige, []);
+});
+
 test('(e) Fehlerantworten machen fehlgeschlagen mit Grund, und der nächste Auftrag läuft', () => {
   const { zustand, ausgaben } = ablauf(
     senden('a'),
