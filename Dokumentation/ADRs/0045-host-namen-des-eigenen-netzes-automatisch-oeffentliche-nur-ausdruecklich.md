@@ -115,3 +115,214 @@ Regeln — **ersetzen ADR-0014 Regel 1**; Regeln 2 bis 6 von ADR-0014 und ihre E
 - Code: `src/http/grenzschutz.rs` (`abweisung`, `Grenzschutz::name_freigegeben`, `host_erlaubt`), `src/start/rechnername.rs`, `src/start/ausliefern.rs`
 - Vision R00000, Leitplanken und „Ausdrücklich nicht Ziel“; Befund des Betreibers 2026-10-29 über den Auftrag des Directors (Karte #35)
 - RFC 6762 (Multicast DNS, `.local` nur im Segment), RFC 8375 (`home.arpa`), ICANN-Beschluss 2024 zu `.internal` (reserviert für private Nutzung); W3C Fetch Metadata (`Sec-Fetch-Dest`)
+
+## Ergänzungen
+
+### 2026-10-29 — Angriffsmatrix Karte #35
+
+Der `security-reviewer` hat vor dem Bau die Angriffsmatrix geschrieben (Abschnitt [„Angriffsmatrix“](#angriffsmatrix) unten). Sie zeigt drei Lücken im Wortlaut der Regeln — „eigene Adresse“ ist zu weit, Anfragen ohne Erlaubnis der Semaphore sind ungeregelt, die Regeln 3 und 6 widersprechen sich — und schlägt acht Entscheidungen E1–E8 vor. Entschieden vom architekt (autonom, Auftrag des Directors, Karte #35); der Status bleibt **Akzeptiert**, weil jede Entscheidung die Regeln präzisiert oder enger macht und keine die Richtung des Betreibers berührt. Die Regeln oben werden nicht umgeschrieben; wo sie und diese Ergänzung voneinander abweichen, gilt die Ergänzung.
+
+1. **E1 — „eigene Adresse“ (Regel 4): Empfehlung übernommen.** Vor jeder Prüfung wird eine Adresse aus der Vorwärtsauflösung kanonisch (`IpAddr::to_canonical()`, `::ffff:127.0.0.1` → `127.0.0.1`). **Nie eigen** sind, ohne die Namensauskunft zu fragen: unspezifizierte Adressen (`0.0.0.0`, `::`), Multicast (`224.0.0.0/4`, `ff00::/8`) und der Broadcast `255.255.255.255`. Erst danach entscheidet `UdpSocket::bind((ip, 0))`. Der Ausschluss ist Teil der reinen Operation (Urteil im lokalen Namensraum), nicht der echten Namensauskunft — damit gilt er auch mit dem Testknopf und ist eine eigene Mutante. Grund: `bind` gelingt für diese Adressen (Probe des `security-reviewer`; nachgeprobt auf `nuc5` am 2026-10-29 mit Python, gleicher Systemaufruf), eine Sinkhole-Antwort `0.0.0.0` hieße sonst „zeigt auf mich“, und Browser verbinden `0.0.0.0` unter Linux und macOS mit Loopback.
+   - *Erwogen und verworfen:* „eigen“ als Gleichheit mit der **lokalen Adresse der Verbindung** (wie Regel 3, ohne `bind`). Stärke: Positivkriterium ohne Systemaufruf, schließt alle `bind`-Eigenheiten auf einmal. Verworfen, weil das Urteil dann von der Verbindung abhängt und der Cache je Name statt eines Urteils die Adressliste halten müsste (Info-Zeile „einmal je Eintrag“ und Lebensdauer „erlaubt/nicht erlaubt“ würden je Verbindung neu bestimmt), und weil der Gewinn nur innerhalb von Restrisiko (a) liegt (nächster Punkt). Ebenso verworfen: Schnittstellen aufzählen (weitere Abhängigkeit, in ADR-0014 schon verworfen).
+   - *Bekannte Lücke, in Kauf genommen:* `bind` gelingt auch für den **gerichteten Broadcast** des eigenen Netzes (`192.168.178.255`, nachgeprobt) und bei `net.ipv4.ip_nonlocal_bind=1` für jede Adresse. Ohne Aufzählung der Schnittstellen ist das nicht erkennbar. Ausnutzen kann es nur, wer die Antwort eines lokalen Namens bestimmt (mDNS, `hosts`, Zone der Suchdomäne) — das ist Restrisiko (a) aus ADR-0014, unverändert.
+2. **E2 — numerische Namen: Empfehlung übernommen, als Regel gefasst.** Ein Host-Anteil, der kein IP-Literal ist (Regel 2 prüft streng mit `IpAddr::from_str`) und dessen **letztes Label eine Zahl ist** — nur Ziffern, oder `0x`/`0X` gefolgt von höchstens Hexziffern (Prüfung „ends in a number“ des WHATWG-URL-Standards) —, ist **abgewiesen ohne Auflösung**. Das trifft `2130706433`, `0x7f000001`, `127.1`, `1.2.3.4.5`. Gehört zur Normalform (Regel 1). Grund: `getaddrinfo` liest solche Namen als IPv4 (geprobt), ein Browser sendet sie nie (er schreibt sie als IP-Literal); so bleibt die Zahlendeutung aus der Namensauskunft heraus, und kein echter Nutzer ist ausgeschlossen.
+3. **E3 — ohne Erlaubnis keine Auflösung (Regel 6): Empfehlung übernommen.** Eine Anfrage, die eine neue Auflösung bräuchte, versucht die Erlaubnis der Semaphore **ohne zu warten** (`try_acquire`). Bekommt sie keine, ist ihr Name für diese Anfrage nicht erlaubt (Abweisung nach Regel 7, sofort) — sie startet keine Auflösung, legt keinen Wartenden an und schreibt **keinen** Cache-Eintrag. Den Cache schreibt nur eine gestartete Auflösung: ihr Ergebnis oder ihre Zeitgrenze. Unverändert: läuft für den Schlüssel schon eine Auflösung, wartet die Anfrage bis zu 1 s auf diese (das ist keine Warteschlange vor der Semaphore). Grund: sonst wächst unter Flut eine Warteschlange, oder ein rechtmäßiger Name wird 60 s lang gesperrt (Matrix F1, F6). In Kauf genommen: ein Teilnehmer mit neuem Namen, der mitten in eine Flut gerät, sieht die Abweisungsseite mit dem Link auf die IP-Adresse und kommt nach der Flut über den Namen herein.
+4. **E4 — kein Host bei einem Browser-Dokument: Empfehlung übernommen.** Fehlt der `Host` oder ist er leer und fragt ein Browser nach einem Dokument (Auslöser wie Regel 7), ist der Körper die HTML-Seite aus Regel 7 **ohne Namen**: Überschrift, Satz für den Teilnehmer mit Link auf `http://<lokale Adresse>:<port>/`, Satz zum Warum; der Satz für den Betreiber entfällt, weil es keinen Namen zum Freigeben gibt. Status 403, Text für alle anderen wie bisher („nennt keinen Host“), ergänzt um die Adresse. Ein doppelter `Host` bleibt 403 ohne Seite (Matrix D9).
+5. **E5 — Origin-Vergleich: Empfehlung übernommen.** ADR-0014 Regel 2 bleibt wörtlich: `Origin` muss gleich `http://<Host-Kopf, wie gesendet>` sein; die Normalform aus Regel 1 gilt nur für das Urteil über den Namen, nie für den Vergleich mit `Origin`. Grund: Browser senden `Host` und `Origin` in derselben Schreibweise; eine Normalisierung des Vergleichs wäre ein zweiter Ort, an dem CSRF-Schutz falsch werden kann (Matrix D11, D12).
+6. **E6 — Fragen an die Namensauskunft beobachtbar: Empfehlung übernommen.** Jede Frage, die der Grenzschutz an die Namensauskunft stellt, schreibt **vor** der Frage eine **DEBUG**-Zeile (Bereich `grenzschutz`, Ereignis „Namensauskunft gefragt“, Felder `art=vorwaerts|rueckwaerts|eigen`, `schluessel` = Name bzw. kanonische Adresse). Geschrieben von der Auskunft mit Cache (nicht von der Implementierung des Ports), damit sie mit der echten Namensauskunft und mit dem Testknopf gleich entsteht. Die Menge ist begrenzt: Fragen gibt es nur bei Cache-Fehlschlag und mit Erlaubnis der Semaphore (E3), dazu das Tagesbudget für Debug aus [ADR-0042](0042-stufen-ereigniskatalog-episoden-und-tagesgrenze-des-betriebsprotokolls.md). Eintrag in den Ereigniskatalog von ADR-0042. Grund: ohne diese Zeile sind „nicht gefragt“-Zeilen über das echte Programm (Matrix A1, H1, I1) nicht prüfbar; L1 prüft weiter mit dem Zähler der Tabelle.
+7. **E7 — `--alle-namen` neben falscher Umgebung: Empfehlung übernommen.** `--alle-namen` zusammen mit einem ungültigen `LOCALCHATA_ALLE_NAMEN` (`ja`, `true`, `2`, ` 1`) ist **Exit 2** mit Meldung, die die Variable nennt, wie `--protokoll-stufe` ([ADR-0043](0043-protokollstufe-einstellen-und-kennzahlen-im-health-check.md), `src/start/protokollstufe.rs`, Test `eine_falsche_umgebung_ist_ein_fehler_auch_neben_der_option`). „Option geht vor“ (Regel 9) heißt also: ein **gültiger** Wert der Umgebung wird überstimmt, ein ungültiger bleibt ein Fehler.
+8. **E8 — Lesart von Regel 6 neben Regel 3: Empfehlung übernommen.** „Ein öffentlicher Name löst nie eine Auflösung aus“ heißt: **nie eine Vorwärtsauflösung**. Die Rückwärtsfrage aus Regel 3 hängt nicht am Namen, sondern am Schlüssel lokale Adresse; sie läuft für jeden Namen, der an Regel 2 scheitert und die Normalform erfüllt — auch für öffentlich aussehende wie `nuc5.fritz.box`, sonst wäre Regel 3 leer —, und zwar **höchstens einmal je lokaler Adresse und Cache-Lebensdauer**. Ihre Zahl ist durch die erreichbaren eigenen Adressen begrenzt (von außen nur die LAN-Adressen; der Bereich `127.0.0.0/8` nur vom Rechner selbst) und zusätzlich durch die Semaphore. Die Durchsetzung oben („Namensauskunft wurde **nicht** gefragt“) lautet damit: **nicht vorwärts** gefragt (Matrix A1, F7); die Rückwärtsfrage ist dort „R: C“.
+
+**Durchsetzung, ergänzt:** Die Angriffsmatrix unten ist das Kriterium „Angriffsmatrix“ aus [R00024](../../Anforderungen/R00024-instanz-ueber-ihren-netznamen-oeffnen.md): jede Zeile außer L2r ein Test über die angegebene Linie, jede Zeile mit Wächter rot unter dessen Mutante. Neue Mutanten neben den sechs aus „Durchsetzung“: „Ausschluss unspezifiziert/Multicast/Broadcast“ (E1, Matrix C6, C7), „numerischer Name ohne Auflösung“ (E2, C13), „ohne Erlaubnis kein Cache-Eintrag“ (E3, F6). Die Zeilen L2r (echtes DNS, B7, B8, F1 echt) fährt der Entwicklertest von Hand auf einem Rechner im LAN.
+
+## Angriffsmatrix
+
+Übernommen vom `security-reviewer` (Karte #35, vor dem Bau, geprobt an `b0aa2a0`), inhaltlich unverändert; nur die Überschriften sind um zwei Ebenen eingerückt. Die dort offenen Entscheidungen E1–E8 sind in der Ergänzung oben entschieden — alle wie empfohlen. Vorsicht beim Lesen: „E1“ bis „E8“ steht in der Matrix dreifach — als Endpunkt (Kopf), als Zeile (Abschnitt IPv6) und als Entscheidung; Verweise auf Entscheidungen heißen immer „Entscheidung E…“.
+
+### Angriffsmatrix #35: Host-Namen nach ADR-0045 (Rebinding bleibt zu, Namen des eigenen Netzes gelten, `--alle-namen` öffnet nur Rebinding)
+
+**Schutzziel:** Eine fremde Website, die ein Teilnehmer öffnet, bekommt nie die Rechte eines Teilnehmers: sie kann weder beitreten noch Verläufe lesen, schreiben oder über die Frist löschen. Das gilt auch über einen umgebogenen DNS-Namen (Rebinding) und ohne ihn (CSRF). Die Ausnahme ist `--alle-namen`: dort ist nur Rebinding bewusst offen.
+**Akteure:** A0 fremde Website im Browser eines Teilnehmers (Internet, besitzt öffentliche Namen) · A1 Client ohne Browser (curl, Agent) · A3 Teilnehmer über einen erlaubten Namen (Kontrolle). Der Angreifer im LAN, der mDNS, LLMNR oder die Rückwärtszone fälscht, ist Restrisiko (a) aus ADR-0014 und gehört nicht in die Matrix.
+**Linien (Prüfebene):** L1 Unit- und Integrationstest im Prozess mit der Fake-Namensauskunft und der Testuhr · L2 echtes Programm über die Annahmeschleife, Namensauskunft über `LOCALCHATA_TESTNAMEN` (Debug-Build) · L2r echtes Programm mit echtem DNS und mDNS, nur von Hand auf einem Rechner im LAN · L3 Proxy: nicht abgedeckt, weil das Projekt keinen hat (ADR-0010).
+**Endpunkte:** E1 `GET /` · E2 `POST /api/beitreten` · E3 `GET /api/channels` · E4 `GET /api/channels/srev/nachrichten` · E5 `POST /api/channels/srev/nachrichten` · E6 `PUT /api/channels/srev/frist {"tage":30}` · E7 `GET /api/ereignisse` · E8 `GET /api/gesundheit`. Auf E3 bis E7 liegt das Token einer Kontrollsitzung derselben Herkunft.
+**Standard der Anfrage:** `Accept: */*`. Auf E2, E5 und E6 werden `Origin: http://<Host-Kopf wörtlich>` und `Sec-Fetch-Site: same-origin` gesendet; das ist genau die Lage nach einem Rebinding. Abweichungen stehen in der Zeile.
+
+**Erwartete Antworten (Kürzel):**
+- **OK**: E1 200 html · E2 201 · E3 200 · E4 200 · E5 201 · E6 200 · E7 200 `text/event-stream` · E8 200.
+- **ABW-T**: alle acht Endpunkte 403 `text/plain; charset=utf-8`. Der Text nennt den Namen und `http://<lokale Adresse>:<Port>/`. Keine Wirkung: keine Sitzung, keine Nachricht, keine Frist geändert, keine Tagesdatei gelöscht. Der Header-Satz aus ADR-0014 Regel 5 ist vorhanden, unter `/api/` mit `no-store`.
+- **ABW-H**: wie ABW-T, aber `text/html; charset=utf-8` als Seite nach Regel 7 (Prüfpunkte in G1 und G2).
+- **CSRF**: E1, E3, E4, E7 und E8 200 (lesend). E2, E5 und E6 403 `application/json` `{fehler}` ohne Wirkung. Kein `Access-Control-Allow-*`.
+
+**Spalte „gefragt?“**: V = Vorwärtsauflösung des Namens (Schlüssel Name), R = Rückwärtsauflösung der lokalen Adresse (Schlüssel Adresse). „R: C“ heißt: höchstens einmal je lokaler Adresse und Cache-Lebensdauer.
+**Spalte „heute“**: geprobt an b0aa2a0, Debug-Build, eigene Instanz. ✔ heißt, die Zeile antwortet schon heute wie verlangt (Kontrollzeile, bleibt als Regression drin). ✗ heißt, die Zeile ist heute rot.
+**Kontrollpaar:** K1 (heute und danach OK) gegen A1 (heute und danach ABW-T, V nicht gefragt). Färbt eine Probe K1 rot, misst sie nichts.
+
+#### K: Kontrollen
+
+| # | Variante | Host-Kopf | lokale Adresse | Namensauskunft (gestellt) | Schalter | Origin / Sec-Fetch-Site | erwartet | gefragt? | heute | Linie |
+|---|---|---|---|---|---|---|---|---|---|---|
+| K1 | IP-Literal | `127.0.0.1:P` | 127.0.0.1 | – | – | Standard | OK | V nein · R nein | ✔ OK | L2 |
+| K2 | `localhost` | `localhost:P` | 127.0.0.1 | – | – | Standard | OK | nein · nein | ✔ OK | L2 |
+| K3 | Rechnername, `.local` dazu, Groß/Klein | `nuc5:P`, `nuc5.local:P`, `NUC5.LOCAL:P` | 127.0.0.1 | – | – | Standard | OK | nein · nein | ✔ OK | L2 |
+| K4 | IPv6-Literal | `[::1]:P` (`--host ::`) | ::1 | – | – | Standard | OK | nein · nein | ✔ (E8 geprobt) | L2 |
+| K5 | IPv4-mapped-Literal | `[::ffff:127.0.0.1]:P` | 127.0.0.1 | – | – | Standard | OK | nein · nein | ✔ (E1) | L2 |
+| K6 | `--erreichbar-als` | `chat.lan:P` | 127.0.0.1 | – | `--erreichbar-als chat.lan` | Standard | OK | nein · nein | ✔ OK | L2 |
+| K7 | Agent ohne Origin und ohne Sec-Fetch-Site | `127.0.0.1:P` | 127.0.0.1 | – | – | keine | OK | nein · nein | ✔ | L2 |
+
+#### A: Rebinding über einen öffentlichen Namen (Regel 5): nie erlaubt, nie vorwärts aufgelöst
+
+| # | Variante | Host-Kopf | lokale Adresse | Namensauskunft (gestellt) | Schalter | Origin / Sec-Fetch-Site | erwartet | gefragt? | heute | Linie |
+|---|---|---|---|---|---|---|---|---|---|---|
+| A1 | öffentlicher Name auf Loopback | `boese.example:P` | 127.0.0.1 | `boese.example=127.0.0.1` | – | Standard | ABW-T | **V nein** · R: C | ✔ ABW-T | L1, L2 |
+| A2 | öffentlicher Name auf LAN-IP | `boese.example:P` | 127.0.0.2 (für die LAN-IP) | `boese.example=127.0.0.2` | – | Standard | ABW-T | V nein · R: C | ✔ | L1, L2 |
+| A3 | öffentlicher Name auf `::1` | `boese.example:P` | ::1 (`--host ::`) | `boese.example=::1` | – | Standard | ABW-T | V nein · R: C | ✔ (begründet, gleicher Pfad) | L1, L2 |
+| A4 | Rebinding-Dienste und Unterdomänen | `rebind.boese.example:P`, `localtest.me:P`, `127.0.0.1.nip.io:P` | 127.0.0.1 | jeweils `=127.0.0.1` | – | Standard | ABW-T | V nein · R: C | ✔ ABW-T | L2 |
+| A5 | öffentlicher Name, Browser fragt Dokument | `boese.example:P` | 127.0.0.1 | `boese.example=127.0.0.1` | – | `Accept: text/html`, `Sec-Fetch-Dest: document` | ABW-H | V nein · R: C | ✗ (`text/plain`) | L2 |
+| A6 | Name unter der Router-Domäne, aber nicht der Rückwärtsname | `andere.fritz.box:P` | 127.0.0.2 | `127.0.0.2>nuc5.fritz.box`, `andere.fritz.box=127.0.0.2` | – | Standard | ABW-T (kein abgeleitetes Suffix) | V nein · R: C | ✔ ABW-T | L1, L2 |
+| A7 | Suffix des Rückwärtsnamens selbst | `fritz.box:P` | 127.0.0.2 | `127.0.0.2>nuc5.fritz.box` | – | Standard | ABW-T | V nein · R: C | ✔ | L1, L2 |
+| A8 | Tarnung `.lan`, `.home`, `.corp` | `chat.lan:P` | 127.0.0.1 | `chat.lan=127.0.0.1` | – | Standard | ABW-T | V nein · R: C | ✔ ABW-T | L1, L2 |
+
+#### B: Rückwärtsname der angesprochenen Adresse (Regel 3)
+
+Aufbau L2: `--host 0.0.0.0`, Anfrage über `127.0.0.2` bzw. `127.0.0.1`. Beide sind eigene Adressen mit verschiedenem Rückwärtsnamen. Der Test braucht so keine LAN-Adresse.
+
+| # | Variante | Host-Kopf | lokale Adresse | Namensauskunft (gestellt) | Schalter | Origin / Sec-Fetch-Site | erwartet | gefragt? | heute | Linie |
+|---|---|---|---|---|---|---|---|---|---|---|
+| B1 | Rückwärtsname der Verbindung | `chat.fritz.box:P` | 127.0.0.2 | `127.0.0.2>chat.fritz.box` | – | Standard | OK; einmal Information „Host-Name über Rückwärtsauflösung erlaubt“ mit Name und Adresse | V nein · R ja (1×, 2. Anfrage aus Cache) | ✗ ABW-T | L1, L2 |
+| B2 | gleicher Name über eine **andere** eigene Adresse | `chat.fritz.box:P` | 127.0.0.1 | `127.0.0.2>chat.fritz.box`, `127.0.0.1>localhost` | – | Standard | ABW-T | V nein · R ja | ✔ ABW-T | L1, L2 |
+| B3 | Normalform beidseitig | `Chat.Fritz.Box.:P` | 127.0.0.2 | `127.0.0.2>CHAT.fritz.box.` | – | Origin `http://Chat.Fritz.Box.:P` | OK | V nein · R: C | ✗ | L1, L2 |
+| B4 | nur Präfix bzw. Verlängerung des Rückwärtsnamens | `chat.fritz.box.boese.example:P`, `chat.fritz:P` | 127.0.0.2 | `127.0.0.2>chat.fritz.box` | – | Standard | ABW-T | V nein · R: C | ✔ | L1, L2 |
+| B5 | Adresse ohne Rückwärtsnamen | `chat.fritz.box:P` | 127.0.0.3 | kein Eintrag für 127.0.0.3 | – | Standard | ABW-T; 2. Anfrage innerhalb von 60 s ohne neue Frage | V nein · R ja, dann 60 s Cache | ✔ ABW-T | L1, L2 |
+| B6 | Dual-Stack: die lokale Adresse kommt als `::ffff:127.0.0.2` | `chat.fritz.box:P` | `::ffff:127.0.0.2` (`--host ::`, Anfrage über 127.0.0.2) | `127.0.0.2>chat.fritz.box` | – | Standard | OK (Schlüssel kanonisch 127.0.0.2) | V nein · R ja | ✗ | L2 |
+| B7 | echt: Router-Name über die LAN-Adresse | `nuc5.fritz.box:P` | 192.168.178.65 | echtes DNS (PTR → `nuc5.fritz.box`) | – | Standard | OK | V nein · R ja | ✗ ABW-T | L2r |
+| B8 | echt: Router-Name über Loopback | `nuc5.fritz.box:P` | 127.0.0.1 | echtes DNS | – | Standard | ABW-T | V nein · R ja | ✔ ABW-T | L2r |
+
+#### C: Lokaler Namensraum (Regel 4): einteilig, `.local`, `.home.arpa`, `.internal`
+
+| # | Variante | Host-Kopf | lokale Adresse | Namensauskunft (gestellt) | Schalter | Origin / Sec-Fetch-Site | erwartet | gefragt? | heute | Linie |
+|---|---|---|---|---|---|---|---|---|---|---|
+| C1 | `.local` auf eigene Adresse | `x.local:P` | 127.0.0.1 | `x.local=127.0.0.1` | – | Standard | OK; einmal Information „… über lokalen Namensraum erlaubt“ | V ja (1×, dann 5 min Cache) | ✗ ABW-T (`LOCALCHATA_TESTNAMEN` heute wirkungslos, geprobt) | L1, L2 |
+| C2 | Schreibweisen desselben Namens | `x.local.:P`, `X.LOCAL:P` | 127.0.0.1 | `x.local=127.0.0.1` | – | Origin = Host-Kopf wörtlich | OK; **ein** Cache-Eintrag für alle drei Schreibweisen | V ja (insgesamt 1×) | ✗ ABW-T | L1, L2 |
+| C3 | die übrigen Suffixe und einteilige Namen | `x.home.arpa:P`, `x.internal:P`, `chat:P` | 127.0.0.1 | jeweils `=127.0.0.1` | – | Standard | OK | V ja | ✗ ABW-T | L1, L2 |
+| C4 | lokaler Name auf **fremde** Adresse | `drucker.local:P` | 127.0.0.1 | `drucker.local=192.0.2.1` | – | Standard | ABW-T; 2. Anfrage innerhalb von 60 s ohne neue Frage | V ja, dann 60 s Cache | ✔ ABW-T | L1, L2 |
+| C5 | gemischte Antwort mit einer eigenen Adresse | `mix.local:P` | 127.0.0.1 | `mix.local=192.0.2.1,127.0.0.1` | – | Standard | OK | V ja | ✗ | L1, L2 |
+| C6 | unspezifizierte Adresse | `null.local:P`, `null6.local:P` | 127.0.0.1 | `null.local=0.0.0.0`, `null6.local=::` | – | Standard | ABW-T (Entscheidung E1) | V ja | ✔ ABW-T | L1, L2 |
+| C7 | Multicast und Broadcast | `mc.local:P`, `bc.local:P` | 127.0.0.1 | `mc.local=224.0.0.251`, `bc.local=255.255.255.255` | – | Standard | ABW-T (Entscheidung E1) | V ja | ✔ ABW-T | L1, L2 |
+| C8 | IPv4-mapped in der Antwort | `map.local:P` | 127.0.0.1 | `map.local=::ffff:127.0.0.1` | – | Standard | OK (kanonisch 127.0.0.1) | V ja | ✗ | L1 |
+| C9 | nur Link-local ohne Zone | `ll.local:P` | 127.0.0.1 | `ll.local=fe80::1` | – | Standard | ABW-T | V ja | ✔ | L1 |
+| C10 | lokaler Name ohne Antwort | `gibtsnicht.local:P` | 127.0.0.1 | kein Eintrag | – | Standard | ABW-T; 60 s Negativ-Cache | V ja (1× je 60 s) | ✔ ABW-T | L1, L2 |
+| C11 | „`-local`“ ist kein `.local`, aber einteilig | `boese-local:P` | 127.0.0.1 | `boese-local=192.0.2.1` | – | Standard | ABW-T | V ja (als einteiliger Name) | ✔ ABW-T | L1, L2 |
+| C12 | `*.localhost` ist nicht im Namensraum | `x.localhost:P` | 127.0.0.1 | – | – | Standard | ABW-T | V nein · R: C | ✔ ABW-T | L1, L2 |
+| C13 | numerischer einteiliger Name, den `getaddrinfo` als IPv4 liest | `2130706433:P`, `0x7f000001:P` | 127.0.0.1 | – (echte Auflösung ergäbe 127.0.0.1, geprobt) | – | Standard | ABW-T ohne Auflösung (Entscheidung E2) | V nein · R nein | ✔ ABW-T | L1, L2 |
+| C14 | Kurzform `127.1` (zweiteilig, Zahl) | `127.1:P` | 127.0.0.1 | – | – | Standard | ABW-T | V nein · R nein | ✔ ABW-T | L1 |
+
+#### D: Normalform (Regel 1): abgewiesen, **ohne** Auflösung
+
+| # | Variante | Host-Kopf | lokale Adresse | Namensauskunft (gestellt) | Schalter | Origin / Sec-Fetch-Site | erwartet | gefragt? | heute | Linie |
+|---|---|---|---|---|---|---|---|---|---|---|
+| D1 | `.local` mitten im Namen, Suffix nur an Label-Grenze | `local.boese.example:P`, `nuc5.local.boese.example:P`, `boese.local.example:P` | 127.0.0.1 | jeweils `=127.0.0.1` | – | Standard | ABW-T | V nein · R: C | ✔ ABW-T | L1, L2 |
+| D2 | Zeichen außerhalb `[a-z0-9.-]` | `x_y.local`, `x%2elocal`, `a@nuc5.local`, `nuc5 .local`, `nuc5<TAB>.local`, `<img src=x onerror=alert(1)>` | 127.0.0.1 | `x_y.local=127.0.0.1` usw. | – | Standard | ABW-T | V nein · R nein | ✔ ABW-T | L1, L2 (roh über Socket) |
+| D3 | UTF-8 statt Punycode | `bücher.local` (roh) | 127.0.0.1 | `bücher.local=127.0.0.1` | – | Standard | ABW-T | V nein · R nein | ✔ ABW-T | L2 (roh) |
+| D4 | Punycode wird nicht umgewandelt | `xn--bcher-kva.local:P` | 127.0.0.1 | `xn--bcher-kva.local=127.0.0.1` | – | Standard | OK | V ja (genau mit `xn--…`) | ✗ ABW-T | L1, L2 |
+| D5 | Label 63 Zeichen | `a{63}.local` | 127.0.0.1 | `a{63}.local=127.0.0.1` | – | Standard | OK | V ja | ✗ ABW-T | L1 |
+| D6 | Label 64 Zeichen | `a{64}.local` | 127.0.0.1 | `a{64}.local=127.0.0.1` | – | Standard | ABW-T | V nein · R nein | ✔ ABW-T | L1, L2 |
+| D7 | gesamt 253 bzw. 254 Zeichen (ohne Punkt am Ende) | 253 Zeichen auf `.local` · 254 Zeichen | 127.0.0.1 | jeweils `=127.0.0.1` | – | Standard | 253: OK · 254: ABW-T | 253: V ja · 254: V nein · R nein | ✗ / ✔ | L1 |
+| D8 | leere Labels | `a..local`, `.local`, `nuc5.local..`, `.` | 127.0.0.1 | – | – | Standard | ABW-T | V nein · R nein | ✔ ABW-T | L1, L2 |
+| D9 | doppelter Host (gleich oder verschieden) | `Host: 127.0.0.1` zweimal; `127.0.0.1` und `boese.example` | 127.0.0.1 | – | – | Standard | 403, kein Wert gilt | V nein · R nein | ✔ 403 | L2 (roh) |
+| D10 | kein Host, leerer Host, HTTP/1.0 ohne Host | – / leer | 127.0.0.1 | – | – | Standard | 403 „nennt keinen Host“ (leer: ABW-T) | V nein · R nein | ✔ 403 | L2 (roh) |
+| D11 | Punkt am Ende bei einem Namen aus Regel 2, eigener Origin | `nuc5.local.:P` | 127.0.0.1 | – | – | Origin `http://nuc5.local.:P` | OK | V nein · R nein | ✗ ABW-T | L1, L2 |
+| D12 | Punkt am Ende, Origin ohne Punkt | `nuc5.local.:P` | 127.0.0.1 | – | – | Origin `http://nuc5.local:P` | CSRF (Origin wird wörtlich mit dem Host-Kopf verglichen, Entscheidung E5) | V nein · R nein | ✗ ABW-T | L1, L2 |
+
+#### E: IPv6-Literal und Zone
+
+| # | Variante | Host-Kopf | lokale Adresse | Namensauskunft (gestellt) | Schalter | Origin / Sec-Fetch-Site | erwartet | gefragt? | heute | Linie |
+|---|---|---|---|---|---|---|---|---|---|---|
+| E1 | Zone im Literal | `[fe80::1%25eth0]:P`, `[fe80::1%eth0]:P` | 127.0.0.1 | – | – | Standard | ABW-T | V nein · R nein | ✔ ABW-T | L1, L2 |
+| E2 | IPv6 ohne Klammern bzw. Klammer offen | `::1`, `[::1`, `[::1]x` | 127.0.0.1 | – | – | Standard | ABW-T | V nein · R nein | ✔ ABW-T | L1 |
+| E3 | IPv4 in Klammern | `[127.0.0.1]` | 127.0.0.1 | – | – | Standard | ABW-T | V nein · R nein | ✔ (Unit-Test) | L1 |
+| E4 | Link in der Seite bei IPv6 | `boese.example:P` | ::1 | – | – | `Accept: text/html` | ABW-H mit `href="http://[::1]:P/"` | V nein · R: C | ✗ | L2 |
+| E5 | Link bei Dual-Stack | `boese.example:P` | `::ffff:127.0.0.1` (`--host ::`, über 127.0.0.1) | – | – | `Accept: text/html` | ABW-H mit `href="http://127.0.0.1:P/"`, nicht `::ffff:` | V nein · R: C | ✗ | L2 |
+
+#### F: Flut und Verfügbarkeit (Regel 6): ohne Konto, mit frei wählbarem `Host`
+
+L1: Fake-Namensauskunft mit einstellbarer Verzögerung und einem Zähler für gleichzeitige Aufrufe, Testuhr. L2r: echtes mDNS (`gibtsnicht.local` braucht 5 s, ADR-0045-Probe).
+
+| # | Variante | Host-Kopf | lokale Adresse | Namensauskunft (gestellt) | Schalter | Origin / Sec-Fetch-Site | erwartet | gefragt? | heute | Linie |
+|---|---|---|---|---|---|---|---|---|---|---|
+| F1 | 300 verschiedene zufällige `.local`-Namen, 50 gleichzeitig | `r<zufall>.local:P` | 127.0.0.1 | jede Frage dauert 5 s, keine Antwort | – | Standard | jede Anfrage ABW-T nach ≤ 1 s (+100 ms); **höchstens 2 Auflösungen gleichzeitig**; Anfragen ohne Erlaubnis starten keine Auflösung und hinterlassen keine Warteschlange (Entscheidung E3); Fäden des Prozesses höchstens Grundlinie + 2 blockierend | V höchstens 2 je 5 s | ✔ 200 × 403 in 0,26 s (heute ohne Auflösung) | L1, L2r |
+| F2 | ein Name 50× gleichzeitig, noch nicht im Cache | `same.local:P` | 127.0.0.1 | `same.local=127.0.0.1`, 300 ms Verzögerung | – | Standard | alle OK; **genau 1** Auflösung, die anderen warten darauf | V 1× | ✗ | L1 |
+| F3 | Cache-Grenze | 300 verschiedene erlaubte Namen nacheinander, dann der erste noch einmal | 127.0.0.1 | alle `=127.0.0.1` | – | Standard | höchstens 256 Einträge; der erste wird neu gefragt, die letzten 256 nicht | V für den ersten erneut | ✗ | L1 |
+| F4 | Cache-Lebensdauer | `x.local` bzw. `gibtsnicht.local` | 127.0.0.1 | wie C1 bzw. C10 | – | Standard | erlaubt: bei 4:59 min keine neue Frage, bei 5:01 min neue Frage · nicht erlaubt: bei 59 s keine, bei 61 s neue Frage (Testuhr) | wie beschrieben | ✗ | L1 |
+| F5 | Zeitgrenze, dann der Cache | `langsam.local:P` | 127.0.0.1 | `=127.0.0.1` nach 3 s | – | Standard | 1. Anfrage ABW-T nach ≤ 1 s, dazu Warning-Episode „Namensauflösung zu langsam“ (Bereich `grenzschutz`); die Auflösung läuft zu Ende; 2. Anfrage nach 3 s OK ohne neue Frage | V 1× | ✗ | L1 |
+| F6 | rechtmäßiger Teilnehmer während der Flut | K1 sowie `x.local` (im Cache) bzw. `neu.local` (nicht im Cache) | 127.0.0.1 | `neu.local=127.0.0.1` | – | Standard | K1 OK in < 100 ms; `x.local` OK; `neu.local` darf während der Flut ABW-T sein, bekommt dadurch **keinen** Negativ-Eintrag, nach der Flut OK (Entscheidung E3) | – | ✗ | L1 |
+| F7 | Rückwärtsauflösung lässt sich nicht fluten | 300 zufällige öffentliche Namen | 127.0.0.1 | Rückwärtsfrage dauert 5 s | – | Standard | höchstens 1 Rückwärtsfrage je lokaler Adresse und Cache-Lebensdauer; alle ABW-T ≤ 1 s | V 0 · R ≤ 1 | ✗ | L1 |
+| F8 | Protokoll unter Flut | wie F1 | 127.0.0.1 | wie F1 | – | Standard | Abweisungen als Episode `grenzschutz` je Herkunft, keine Zeile je Anfrage; Information „erlaubt“ höchstens einmal je Cache-Eintrag | – | ✔ Episode (ADR-0042) | L1, L2 |
+
+#### G: Abweisungsseite (Regel 7)
+
+| # | Variante | Host-Kopf | lokale Adresse | Namensauskunft (gestellt) | Schalter | Origin / Sec-Fetch-Site | erwartet | gefragt? | heute | Linie |
+|---|---|---|---|---|---|---|---|---|---|---|
+| G1 | Inhalt und Header der Seite | `boese.example:9999` | 127.0.0.1, Port P | – | – | `Accept: text/html` auf E1 und E8 | 403 `text/html; charset=utf-8`, `<html lang="de">`, Überschrift „Diese Adresse ist für localchatA nicht freigegeben“, Link `href="http://127.0.0.1:P/"` (**Port der lokalen Adresse, nicht 9999**), Satz für den Betreiber mit `--erreichbar-als boese.example`, Satz zum Warum; kein `<script`, `<style`, `style=`, `on…=`; CSP, `nosniff`, `X-Frame-Options`, `Referrer-Policy` und CORP wie ADR-0014 Regel 5; `no-store` nur unter `/api/` | V nein · R: C | ✗ `text/plain`, ohne Adresse | L2 |
+| G2 | Maskierung des Namens | `<img src=x onerror=alert(1)>`, `a"b'c&d.local`, `</h1><script>x</script>` | 127.0.0.1 | – | – | `Accept: text/html` | ABW-H; der Name erscheint nur als `&lt;`, `&gt;`, `&quot;`, `&#39;` bzw. `&amp;`; kein rohes `<img`, `<script` und kein `onerror` als Attribut; der Name steht nie in einem Attribut | V nein · R nein | ✗ (heute als Text) | L1, L2 (roh) |
+| G3 | Auslöser der Seite | `boese.example:P` | 127.0.0.1 | – | – | (a) nur `Sec-Fetch-Dest: document` · (b) `Accept: text/html,*/*` · (c) `Accept: application/json` · (d) `Accept: */*` | (a) und (b) ABW-H; (c) und (d) ABW-T mit Adresse | V nein · R: C | ✗ (a, b) / ✗ Adresse fehlt (c, d) | L2 |
+| G4 | Seite auf einer Schreibroute | `boese.example:P` | 127.0.0.1 | – | – | `POST /api/beitreten`, `Accept: text/html` | ABW-H; keine Sitzung angelegt (E8 `sitzungen` unverändert) | V nein · R: C | ✗ | L2 |
+| G5 | kein Host, Browser-Dokument | – | 127.0.0.1 | – | – | `Accept: text/html` (HTTP/1.0) | 403 HTML ohne Namen, mit Link (Entscheidung E4) | V nein · R nein | ✗ (`text/plain`) | L2 (roh) |
+
+#### H: Testknopf `LOCALCHATA_TESTNAMEN`
+
+| # | Variante | Host-Kopf | lokale Adresse | Namensauskunft (gestellt) | Schalter | Origin / Sec-Fetch-Site | erwartet | gefragt? | heute | Linie |
+|---|---|---|---|---|---|---|---|---|---|---|
+| H1 | Debug: der Knopf hebelt Regel 5 nicht aus | `boese.example:P` | 127.0.0.1 | `LOCALCHATA_TESTNAMEN='boese.example=127.0.0.1'` | – | Standard | ABW-T | V nein (über die Debug-Zeile beobachtbar, Entscheidung E6) | ✔ ABW-T | L2 |
+| H2 | Debug: falscher Wert | – | – | `LOCALCHATA_TESTNAMEN='quatsch'`, `'x.local='`, `'x.local=999.1.1.1'`, `'>x'` | – | – | Exit 2 mit Meldung, kein Listener | – | ✗ (startet, geprobt) | L2 |
+| H3 | **Release**: der Knopf ist ohne Wirkung | `x.local:P` | 127.0.0.1 | `LOCALCHATA_TESTNAMEN='x.local=127.0.0.1'` (Release-Build) | – | Standard | ABW-T (echte Auflösung findet `x.local` nicht) | V ja, echt | ✔ (begründet: den Knopf gibt es noch nicht) | L2 (Release) |
+| H4 | Release: falscher Wert wird nicht gelesen | – | – | `LOCALCHATA_TESTNAMEN='quatsch'` (Release) | – | – | startet normal | – | ✔ (begründet) | L2 (Release) |
+
+#### I: Schalter `--alle-namen` / `LOCALCHATA_ALLE_NAMEN` (Regel 9)
+
+| # | Variante | Host-Kopf | lokale Adresse | Namensauskunft (gestellt) | Schalter | Origin / Sec-Fetch-Site | erwartet | gefragt? | heute | Linie |
+|---|---|---|---|---|---|---|---|---|---|---|
+| I1 | jeder Name gilt, ohne jede Auflösung (Rebinding bewusst offen) | `boese.example:P`, `chat.lan:P`, `x.local:P` | 127.0.0.1 | Namensauskunft, die bei jeder Frage den Test rot macht | `--alle-namen` | Standard | OK | **V nein · R nein** | ✗ Exit 2 „Unbekannte Option“ | L1, L2 |
+| I2 | CSRF bleibt zu: fremder Origin | `boese.example:P` | 127.0.0.1 | – | `--alle-namen` | Origin `http://andere.example` | CSRF | nein · nein | ✗ Exit 2 | L2 |
+| I3 | CSRF ohne DNS-Kontrolle (der einfachere Weg) | `127.0.0.1:P` | 127.0.0.1 | – | `--alle-namen` | Origin `http://boese.example` · `null` | CSRF | nein · nein | ✗ Exit 2 (ohne Schalter ✔ CSRF, geprobt) | L2 |
+| I4 | Sec-Fetch-Site | `boese.example:P` | 127.0.0.1 | – | `--alle-namen` | eigener Origin mit `same-site` bzw. `cross-site` | CSRF | nein · nein | ✗ Exit 2 | L2 |
+| I5 | Normalform bleibt | `x_y.local`, `bücher.local`, `a{64}.local`, doppelter Host, kein Host | 127.0.0.1 | – | `--alle-namen` | Standard | ABW-T bzw. 403 „keinen Host“ (mit `Accept: text/html` ABW-H) | nein · nein | ✗ Exit 2 | L2 (roh) |
+| I6 | keine CORS-Freigabe | `boese.example:P` | 127.0.0.1 | – | `--alle-namen` | `OPTIONS /api/beitreten` mit Origin `http://boese.example` | 405, kein `Access-Control-Allow-*` | nein · nein | ✗ Exit 2 (ohne Schalter ✔ 405, geprobt) | L2 |
+| I7 | COOP folgt Ergänzung #4 | `boese.example:P` bzw. `127.0.0.1:P` | 127.0.0.1 | – | `--alle-namen` | Standard | ohne COOP bzw. `same-origin` | nein · nein | ✗ Exit 2 | L1, L2 |
+| I8 | WARNING beim Start | – | – | – | `--alle-namen` | – | WARNING, Bereich `grenzschutz`, mit dem Wortlaut aus Regel 9 in `logs/<datum>.log` **und** auf stderr, **vor** der Startzeile | – | ✗ Exit 2 | L2 |
+| I9 | Gesundheit | `127.0.0.1:P` | 127.0.0.1 | – | mit / ohne Schalter | – | E8 `"alle_namen": true` bzw. `false` | – | ✗ (Feld fehlt, geprobt) | L2 |
+| I10 | Umgebung an | – | – | – | `LOCALCHATA_ALLE_NAMEN=1` | – | wie I1, I8 und I9 (`true`) | – | ✗ (wird ignoriert) | L2 |
+| I11 | Umgebung aus | – | – | – | `LOCALCHATA_ALLE_NAMEN=0` bzw. leer | – | Regeln 1–8 gelten, kein WARNING, `false` | – | ✗ (Feld fehlt) | L2 |
+| I12 | Umgebung falsch | – | – | – | `LOCALCHATA_ALLE_NAMEN=ja`, `true`, `2`, ` 1` | – | Exit 2, Meldung nennt die Variable, kein Listener | – | ✗ (startet, geprobt mit `ja`) | L2 |
+| I13 | Option geht vor | – | – | – | `--alle-namen` + `LOCALCHATA_ALLE_NAMEN=0` | – | an (`true`, WARNING) | – | ✗ | L2 |
+| I14 | Option neben einer falschen Umgebung | – | – | – | `--alle-namen` + `LOCALCHATA_ALLE_NAMEN=ja` | – | Exit 2 (Entscheidung E7, wie ADR-0043) | – | ✗ | L1, L2 |
+| I15 | Schreibweise mit Wert | – | – | – | `--alle-namen=1` | – | Exit 2 „Unbekannte Option“ | – | ✔ Exit 2 | L2 |
+| I16 | Hilfe | – | – | – | `--hilfe` | – | Zeile mit `--alle-namen` und eigene Zeile mit dem Risikosatz | – | ✗ (0 Treffer, geprobt) | L1, L2 |
+
+#### J: Ohne Schalter bleiben die Origin-Regeln unter automatisch erlaubten Namen unverändert
+
+| # | Variante | Host-Kopf | lokale Adresse | Namensauskunft (gestellt) | Schalter | Origin / Sec-Fetch-Site | erwartet | gefragt? | heute | Linie |
+|---|---|---|---|---|---|---|---|---|---|---|
+| J1 | Rückwärtsname mit fremdem Origin | `chat.fritz.box:P` | 127.0.0.2 | `127.0.0.2>chat.fritz.box` | – | Origin `http://boese.example:P` | CSRF | V nein · R: C | ✗ ABW-T (analog `nuc5.local` ✔ CSRF, geprobt) | L2 |
+| J2 | lokaler Name mit `Origin: null` | `x.local:P` | 127.0.0.1 | `x.local=127.0.0.1` | – | `Origin: null` | CSRF | V: C | ✗ (analog ✔) | L2 |
+| J3 | Origin eines **anderen** erlaubten Namens | `x.local:P` | 127.0.0.1 | `x.local=127.0.0.1` | – | Origin `http://localhost:P` bzw. `http://chat.fritz.box:P` | CSRF | V: C | ✗ (analog `nuc5.local` + `localhost` ✔ CSRF) | L2 |
+| J4 | Sec-Fetch-Site | `x.local:P` | 127.0.0.1 | `x.local=127.0.0.1` | – | eigener Origin mit `same-site` · `cross-site` | CSRF | V: C | ✗ (analog ✔) | L2 |
+| J5 | Agent ohne Origin | `x.local:P` | 127.0.0.1 | `x.local=127.0.0.1` | – | keine | OK | V: C | ✗ (analog ✔) | L2 |
+| J6 | keine CORS-Freigabe | `chat.fritz.box:P` | 127.0.0.2 | `127.0.0.2>chat.fritz.box` | – | `OPTIONS` mit fremdem Origin | 405, kein `Access-Control-Allow-*` | R: C | ✗ (analog ✔ 405) | L2 |
+
+#### Entscheidungen offen (mit Empfehlung)
+
+- **E1 Was als „eigene Adresse“ zählt.** `UdpSocket::bind((ip, 0))` gelingt auf diesem Rechner auch für `0.0.0.0`, `::`, `224.0.0.251` und `255.255.255.255`; scheitert für `fe80::1` ohne Zone (EINVAL), `8.8.8.8` und `192.0.2.1` (Probe mit Python, gleicher Systemaufruf). Empfehlung: Unspezifiziert, Multicast und Broadcast zählen nie als eigen; IPv4-mapped wird vorher kanonisch (C6–C8). Sonst zählt eine Sinkhole-Antwort `0.0.0.0` als „zeigt auf mich“, und Browser verbinden `0.0.0.0` unter Linux und macOS mit Loopback.
+- **E2 Numerische einteilige Namen** (`2130706433`, `0x7f000001`): `getaddrinfo` liest sie als 127.0.0.1 (geprobt), ein Browser sendet sie nie (der WHATWG-URL-Parser schreibt sie als `127.0.0.1`). Empfehlung: ohne Auflösung abweisen (C13). Das schließt keinen echten Nutzer aus und hält die Namensauskunft aus der Zahlendeutung heraus.
+- **E3 Anfragen ohne Erlaubnis der Semaphore.** Empfehlung: Sie stoßen keine Auflösung an, legen keine Warteschlange an und schreiben keinen Negativ-Eintrag. Nur eine gestartete Auflösung schreibt den Cache: ihr Ergebnis oder ihre Zeitgrenze (F1, F6). Sonst wächst unter Flut eine Warteschlange, oder ein rechtmäßiger Name wird 60 s lang gesperrt.
+- **E4 Kein Host bei einem Browser-Dokument:** Empfehlung: HTML-Seite ohne Namen mit Link auf die lokale Adresse (G5); Regel 7 sagt dazu nichts.
+- **E5 Origin-Vergleich:** Empfehlung: Er bleibt wörtlich gegen den Host-Kopf (ADR-0014 Regel 2) und wird nicht normalisiert (D11, D12). Browser senden Host und Origin in derselben Schreibweise.
+- **E6 „Auflösung nicht gefragt“ beobachtbar machen:** Empfehlung: Jede Frage an die Namensauskunft schreibt eine **Debug**-Zeile (Bereich `grenzschutz`, Art vorwärts/rückwärts, Schlüssel). L2 prüft sie mit `--protokoll-stufe debug`, L1 mit einem Zähler im Fake. Sonst sind A1, H1 und I1 in L2 nicht prüfbar.
+- **E7 `--alle-namen` neben einer falschen Umgebung:** Empfehlung: Exit 2 wie `eine_falsche_umgebung_ist_ein_fehler_auch_neben_der_option` (ADR-0043, `src/start/protokollstufe.rs`), I14.
+- **E8 Lesart von Regel 6** „ein öffentlicher Name löst nie eine Auflösung aus“: Das gilt für die **Vorwärts**auflösung. Die Rückwärtsfrage (Regel 3) hängt am Schlüssel lokale Adresse, ihre Zahl ist durch die eigenen Adressen begrenzt, und sie muss auch für öffentlich aussehende Namen laufen (`nuc5.fritz.box`). Der Integrationstest aus ADR-0045 („Namensauskunft wurde nicht gefragt“) prüft deshalb nur V (A1, F7).
+
+#### Nicht abgedeckt
+
+- L3 Proxy/TLS: das Projekt hat keinen (ADR-0010, ADR-0014 Ergänzung #4 b).
+- Request-Target in absolute-form mit fremder Autorität (`GET http://boese.example/` mit `Host: 127.0.0.1`): heute 200 (geprobt), danach unverändert. Ein Browser sendet absolute-form nur an einen Proxy; der setzt den `Host` auf `boese.example`, und dann greift die Matrix.
+- Angreifer im LAN, der mDNS, LLMNR oder die Rückwärtszone fälscht, sowie einteilige Namen über eine Suchdomäne, deren Zone ein Dritter pflegt: Restrisiko (a) aus ADR-0014. Ebenso `net.ipv4.ip_nonlocal_bind=1` bzw. `IP_FREEBIND` auf dem Server: dann gilt jede Adresse als eigen und Regel 4 erlaubt jeden auflösbaren lokalen Namen (hier `0`, geprobt). Hinweis für `--hilfe` bzw. das Betriebshandbuch, keine Zeile.
+- Unter Rebinding (nur mit `--alle-namen`) kann das Skript die Abweisungsseite lesen und erfährt die lokale Adresse. Das bringt nichts Neues: der Angreifer kennt das Ziel seines Umbiegens.
