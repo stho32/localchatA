@@ -486,6 +486,151 @@ async fn kein_ort_im_anhang() {
         .position(|p| p == [0xff, 0xda])
         .expect("SOS");
     assert_eq!(&bild[sos..], &foto[sos..]);
+    // Befund #53 B6: `Orientation` 6 steht genau einmal (im minimalen EXIF), in keiner Byte-Ordnung doppelt.
+    let orientierung = |muster: &[u8]| bild.windows(muster.len()).filter(|f| *f == muster).count();
+    assert_eq!(
+        orientierung(b"\x01\x12\x00\x03\x00\x00\x00\x01\x00\x06")
+            + orientierung(b"\x12\x01\x03\x00\x01\x00\x00\x00\x06\x00"),
+        1
+    );
+    // Befund #53 B6: das Video ist ab `mdat` byte-gleich.
+    let film = bereit
+        .abrufen(Method::GET, &format!("/anhaenge/{}", ids[1]), &[])
+        .await
+        .bytes()
+        .await
+        .expect("Video");
+    let mdat = video.windows(4).position(|p| p == b"mdat").expect("mdat") - 4;
+    assert_eq!(&film[mdat..], &video[mdat..]);
+}
+
+/// Befund #53 B6, R00029 „Text über 16 MiB“ an der Route (F3): 16.777.216 Bytes `a` → `text/plain`, `inline`;
+/// 16.777.217 → `text/plain`, `attachment`.
+#[tokio::test]
+async fn text_ueber_16_mib_nur_als_download() {
+    let wurzel = ordner();
+    let instanz = starten(wurzel.path(), &["--anhangquote", "64MiB"], &[]);
+    let absender = Absender::von("127.0.0.1");
+    let token = beitreten(&absender, &instanz.adresse, "beta", Some("agent")).await;
+    for (laenge, erwartet) in [(16_777_216usize, "inline"), (16_777_217, "attachment")] {
+        let id = ablegen(
+            &absender,
+            &instanz.adresse,
+            &token,
+            "gross.txt",
+            vec![b'a'; laenge],
+        )
+        .await;
+        let antwort = roh_senden(
+            &absender,
+            &instanz.adresse,
+            Some(&token),
+            "allgemein",
+            "application/json",
+            json!({"text": "", "anhaenge": [id]})
+                .to_string()
+                .into_bytes(),
+        )
+        .await;
+        assert_eq!(antwort.status, 201, "{}", antwort.json);
+
+        let abgerufen = absender
+            .anfrage(Method::HEAD, format!("{}anhaenge/{id}", instanz.adresse))
+            .send()
+            .await
+            .expect("Antwort");
+
+        assert_eq!(abgerufen.status(), 200);
+        assert!(
+            kopf(&abgerufen, "content-type").starts_with("text/plain"),
+            "{laenge}"
+        );
+        let disposition = kopf(&abgerufen, "content-disposition");
+        assert!(
+            disposition.starts_with(&format!("{erwartet};")),
+            "{laenge}: {disposition}"
+        );
+    }
+}
+
+/// Befund #53 B6, R00029 „Grenzschutz“ mit echter Sitzung: `Host: evil.example` mit der Sitzung von `beta` → 403,
+/// und die Sitzung wird nicht verlängert (`weg_um` von `beta` unverändert); Kontrolle: ein Aufruf der API mit
+/// derselben Sitzung verlängert sie.
+#[tokio::test]
+async fn grenzschutz_verlaengert_keine_sitzung() {
+    let wurzel = ordner();
+    let instanz = starten(wurzel.path(), &[], &[]);
+    let beta = Absender::von("127.0.0.1");
+    let gamma = Absender::von("127.0.0.3");
+    let token = beitreten(&beta, &instanz.adresse, "beta", Some("agent")).await;
+    let token_gamma = beitreten(&gamma, &instanz.adresse, "gamma", Some("agent")).await;
+    let id = ablegen(&beta, &instanz.adresse, &token, "a.txt", b"Hallo".to_vec()).await;
+    let gesendet = roh_senden(
+        &beta,
+        &instanz.adresse,
+        Some(&token),
+        "allgemein",
+        "application/json",
+        json!({"text": "", "anhaenge": [id]})
+            .to_string()
+            .into_bytes(),
+    )
+    .await;
+    assert_eq!(gesendet.status, 201);
+    let weg_um = || {
+        let (gamma, token_gamma, basis) = (&gamma, &token_gamma, &instanz.adresse);
+        async move {
+            let liste = gemeinsam::api_antwort(
+                gamma
+                    .anfrage(Method::GET, format!("{basis}api/teilnehmer"))
+                    .header("X-LocalchatA-Sitzung", token_gamma),
+            )
+            .await;
+            liste.json["liste"]
+                .as_array()
+                .expect("liste")
+                .iter()
+                .find(|zeile| zeile["kennung"] == "beta@127.0.0.1")
+                .expect("beta")["weg_um"]
+                .clone()
+        }
+    };
+    // Ohne Strom ist `beta` 1 s nach der letzten Anfrage `offline` und hat ein `weg_um`.
+    tokio::time::sleep(std::time::Duration::from_millis(1_200)).await;
+    let vorher = weg_um().await;
+    assert!(vorher.is_string(), "{vorher}");
+    tokio::time::sleep(std::time::Duration::from_millis(1_100)).await;
+    let ziel: SocketAddr = instanz
+        .adresse
+        .trim_start_matches("http://")
+        .trim_end_matches('/')
+        .parse()
+        .expect("Adresse");
+
+    let fremd = roh_anfragen(
+        ziel,
+        &format!(
+            "GET /anhaenge/{id} HTTP/1.1\r\nHost: evil.example\r\nX-LocalchatA-Sitzung: {token}"
+        ),
+        "",
+    );
+
+    assert_eq!(fremd.status, 403);
+    assert_eq!(weg_um().await, vorher, "Sitzung nicht verlängert");
+    let kontrolle = gemeinsam::api_antwort(
+        beta.anfrage(Method::GET, format!("{}api/teilnehmer", instanz.adresse))
+            .header("X-LocalchatA-Sitzung", &token),
+    )
+    .await;
+    assert_eq!(kontrolle.status, 200);
+    let zeit = |wert: &serde_json::Value| {
+        chrono::DateTime::parse_from_rfc3339(wert.as_str().expect("weg_um")).expect("RFC 3339")
+    };
+    let nachher = weg_um().await;
+    assert!(
+        nachher.is_string() && zeit(&nachher) > zeit(&vorher),
+        "Kontrolle: die API verlängert — {vorher} → {nachher}"
+    );
 }
 
 /// M30: nach dem Entfallen des Tags (Neustart 8 Tage später) → 404, auch mit `If-None-Match: "<id>"` (Existenz vor
