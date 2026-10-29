@@ -1,6 +1,8 @@
 //! HTTP-Schnittstelle: Router an der Systemgrenze (A00004).
 
 mod abbruch;
+#[allow(dead_code)] // vorübergehend: ausgeliefert mit B0375
+mod abweisungsseite;
 mod anfrageprotokoll;
 mod auskunft;
 mod beitreten;
