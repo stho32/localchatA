@@ -199,3 +199,8 @@ function wieVomServer(text) {
 function ergebnis(zustand, { auftrag = null, bestaetigt = null, fremd = null, wiederbeitreten = false, fehlschlag = null } = {}) {
   return { zustand, auftrag, bestaetigt, fremd, wiederbeitreten, fehlschlag };
 }
+
+// Wie viele Nachrichten nach dem nächsten Beitritt mit „Erneut senden“ dastehen: die fehlgeschlagenen.
+export function ungesendete(zustand) {
+  return zustand.vorlaeufige.filter((vorlaeufig) => vorlaeufig.zustand === 'fehlgeschlagen').length;
+}

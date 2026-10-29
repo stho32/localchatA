@@ -107,3 +107,31 @@ test('Neuladen auf dem Beitreten-Bildschirm: ungesendete sind weg, der Entwurf b
   expect(a.fehler).toEqual([]);
 });
 
+
+// „Wartende Nachrichten genannt“ (V12): mit einer ungesendeten Nachricht nennt der Beitreten-Bildschirm sie, mit zweien
+// die Mehrzahl; nach dem Beitritt ist die Zeile weg; ohne ungesendete Nachricht keine Zeile (Mutante „ohne Zeile“ rot).
+test('Wartende genannt: eine ungesendete Nachricht, nach dem Beitritt keine Zeile mehr', async ({ browser }) => {
+  const { a } = await scheiternLassen(browser);
+
+  await expect(a.page.locator('.lc-wartende')).toHaveText('1 ungesendete Nachricht wartet auf den Beitritt — Neuladen verwirft sie.');
+  await alsBeitreten(a.page, 'shoff-2');
+  await expect(a.page.locator('.lc-wartende')).toHaveCount(0);
+  expect(a.fehler).toEqual([]);
+});
+
+test('Wartende genannt: zwei ungesendete Nachrichten in der Mehrzahl', async ({ browser }) => {
+  const { a } = await scheiternLassen(browser, ['zwei']);
+
+  await expect(a.page.locator('.lc-wartende')).toHaveText('2 ungesendete Nachrichten warten auf den Beitritt — Neuladen verwirft sie.');
+  expect(a.fehler).toEqual([]);
+});
+
+test('Wartende genannt: ohne ungesendete Nachricht keine Zeile', async ({ browser }) => {
+  instanz = await sendenStarten();
+  const a = await kontextOeffnen(browser, { streng: true });
+  await a.page.goto(instanz.adresse);
+
+  await expect(a.page.getByLabel('Name')).toBeVisible();
+  await expect(a.page.locator('.lc-wartende')).toHaveCount(0);
+  expect(a.fehler).toEqual([]);
+});

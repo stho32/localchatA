@@ -30,6 +30,7 @@ export function zeichnen(wurzel, zustand, aktionen) {
     element('div', { className: 'lc-beitreten-zeile' }, [feld, schalter]),
     hinweis,
     meldung,
+    ...wartendeZeile(aktionen.wartende),
   ]);
 
   let laeuft = false;
@@ -70,6 +71,14 @@ export function zeichnen(wurzel, zustand, aktionen) {
 
   wurzel.replaceChildren(element('main', { className: 'lc-beitreten' }, [formular]));
   feld.focus();
+}
+
+function wartendeZeile(anzahl = 0) {
+  const text = wartendeText(anzahl);
+  if (text === '') {
+    return [];
+  }
+  return [element('p', { className: 'lc-wartende', textContent: text })];
 }
 
 // Teile der Meldung: Text oder { kennung } für Namen, Kennungen und Vorschläge (Mono).
@@ -176,4 +185,15 @@ function element(tag, eigenschaften = {}, kinder = []) {
   const neu = Object.assign(document.createElement(tag), eigenschaften);
   neu.append(...kinder);
   return neu;
+}
+
+// Ungesendete Nachrichten des Tabs warten auf den Beitritt (R00025 F0088, V12); ohne sie keine Zeile.
+export function wartendeText(anzahl) {
+  if (anzahl === 0) {
+    return '';
+  }
+  if (anzahl === 1) {
+    return '1 ungesendete Nachricht wartet auf den Beitritt — Neuladen verwirft sie.';
+  }
+  return `${anzahl} ungesendete Nachrichten warten auf den Beitritt — Neuladen verwirft sie.`;
 }

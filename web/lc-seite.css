@@ -19,6 +19,8 @@ body { background: var(--kd-bg); color: var(--kd-ink); font-family: var(--font-s
 .lc-beitreten-karte { width: min(100%, 420px); display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--kd-space-8); padding: var(--kd-space-24); background: var(--kd-surface); border: 1px solid var(--kd-line); }
 .lc-beitreten-titel { margin: 0; font-size: 14px; line-height: 20px; font-weight: 600; }
 .lc-zweck { margin: 0 0 var(--kd-space-8); font-size: 12px; line-height: 16px; color: var(--kd-ink-muted); }
+/* Ungesendete Nachrichten warten auf den Beitritt (R00025 F0088) */
+.lc-wartende { margin: var(--kd-space-8) 0 0; font-size: 12px; line-height: 16px; color: var(--kd-ink); overflow-wrap: anywhere; }
 .lc-beitreten-zeile { display: flex; gap: var(--kd-space-8); }
 .lc-feld { flex: 1; min-width: 0; height: var(--kd-row); padding: 0 var(--kd-space-8); border: 1px solid var(--kd-line-strong); background: var(--kd-surface); font-family: var(--font-mono); }
 .lc-hinweis { margin: 0; font-size: 12px; color: var(--kd-ink-muted); }

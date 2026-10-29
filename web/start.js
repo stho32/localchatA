@@ -9,7 +9,7 @@ import { LEER as KEINE_CHANNELS, channelsZusammenfuehren } from './channels.js';
 import { verbinden } from './live.js';
 import { sekundentaktAnlegen } from './sekundentakt.js';
 import { wiederbeitrittAnlegen } from './wiederbeitritt.js';
-import { LEER as KEINE_ZUSTELLUNG, zustellen } from './zustellung.js';
+import { LEER as KEINE_ZUSTELLUNG, zustellen, ungesendete } from './zustellung.js';
 
 const api = {
   ich: (token) => rufen('/api/ich', { token }),
@@ -35,6 +35,7 @@ function zeigen(zustand, nachEingabe = false) {
   }
   beitretenBildschirm.zeichnen(wurzel, zustand, {
     beitreten: async (name) => zeigen(await sitzung.beitreten(name, speicher, api), true),
+    wartende: ungesendete(zustellung.zustand),
   });
 }
 

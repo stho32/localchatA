@@ -2,7 +2,8 @@
 // Text oder { kennung } für Namen, Kennungen und Vorschläge.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { meldungsteile, hinweisFuer } from '../../web/beitreten.js';
+import { meldungsteile, hinweisFuer, wartendeText } from '../../web/beitreten.js';
+import { LEER, ungesendete } from '../../web/zustellung.js';
 
 process.env.TZ = 'Europe/Berlin';
 
@@ -62,4 +63,22 @@ test('Hinweis beim Tippen: leer bei gültigem, leerem oder nur aus Leerzeichen b
   assert.equal(alsText(hinweisFuer('Jörg').vorschlagsteile), ' Wie wäre joerg?');
   assert.deepEqual(kennungen(hinweisFuer('Jörg').vorschlagsteile), ['joerg']);
   assert.deepEqual(hinweisFuer('___'), { regel: `Erlaubt sind ${REGEL}.`, vorschlagsteile: [] });
+});
+
+// R00025 F0088 „Wartende Nachrichten genannt“ (B0492; UX-Vorprüfung #36 V12): keine Zeile ohne ungesendete Nachricht,
+// sonst Einzahl und Mehrzahl; gezählt werden fehlgeschlagene, nicht vorläufige und nicht verworfene.
+test('wartende Nachrichten auf dem Beitreten-Bildschirm: keine, eine, zwei', () => {
+  assert.equal(wartendeText(0), '');
+  assert.equal(wartendeText(1), '1 ungesendete Nachricht wartet auf den Beitritt — Neuladen verwirft sie.');
+  assert.equal(wartendeText(2), '2 ungesendete Nachrichten warten auf den Beitritt — Neuladen verwirft sie.');
+  const zustand = {
+    ...LEER,
+    vorlaeufige: [
+      { schluessel: 'a', channel: 'allgemein', text: 'a', zustand: 'fehlgeschlagen', grund: 'x' },
+      { schluessel: 'b', channel: 'technik', text: 'b', zustand: 'fehlgeschlagen', grund: 'x' },
+      { schluessel: 'c', channel: 'allgemein', text: 'c', zustand: 'wird gesendet' },
+      { schluessel: 'd', channel: 'allgemein', text: 'd', zustand: 'verworfen', grund: 'x' },
+    ],
+  };
+  assert.equal(ungesendete(zustand), 2);
 });
