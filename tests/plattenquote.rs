@@ -183,3 +183,213 @@ async fn die_gesundheit_nennt_die_wirksame_quote() {
         assert!(gesundheit.get("plattenquote").is_some(), "{gesundheit}");
     }
 }
+
+// ---- F0075 Senden an der Quote (B0359) ----
+
+/// Uhr der Quote-Fälle; die Tagesdatei von gestern ist der 27. Oktober.
+const JETZT: &str = "2026-10-28T12:00:00.000+01:00";
+const GESTERN: &str = "2026-10-27";
+/// Der Quote-Ordner: 300 Bytes unter 1 MiB.
+const GELADEN: u64 = 1_048_576 - 300;
+/// Text zu 17 Zeichen: Satz von `beta@127.0.0.1` (Agent) zu 81 Bytes — Kopf 47, `+ art: agent` 13, Text mit
+/// Einrückung und Abschluss 21. R00023 rechnet 81 Bytes für 30 Zeichen ohne die Metazeile; die Zahlen der
+/// Kriterien (1.048.519, 243, 1.048.600) gelten mit diesem Text unverändert (Bericht Karte #34).
+const TEXT: &str = "Quote-Probe 17 Z.";
+const SATZ: u64 = 81;
+const TEXT_507: &str = "Nicht gesendet: die Gespräche belegen 1,0 MiB, die Quote dieser Instanz ist 1,0 MiB. Platz entsteht, wenn alte Tage nach ihrer Aufbewahrungsfrist entfallen (beim nächsten Tageswechsel) oder eine Frist verkürzt wird; die Quote stellt der Betreiber beim Start mit --plattenquote ein.";
+
+fn berlin(zeitpunkt: chrono::DateTime<chrono::Utc>) -> localchata::uhr::Zeit {
+    zeitpunkt.with_timezone(&chrono::FixedOffset::east_opt(3600).expect("Versatz"))
+}
+
+/// Der Quote-Ordner über die Testhilfe aus B0359.
+fn quote_ordner(bytes: u64) -> tempfile::TempDir {
+    let wurzel = tempfile::tempdir().expect("Wegwerf-Ordner");
+    let jetzt = localchata::uhr::Zeit::parse_from_rfc3339(JETZT).expect("jetzt");
+    localchata::testdaten::quote_ordner(wurzel.path(), "allgemein", bytes, jetzt, berlin)
+        .expect("Quote-Ordner");
+    wurzel
+}
+
+fn quote_starten(ordner: &Path, argumente: &[&str], umgebung: &[(&str, &str)]) -> Instanz {
+    let mut alle = vec![("LOCALCHATA_JETZT", JETZT), ("TZ", "Europe/Berlin")];
+    alle.extend_from_slice(umgebung);
+    let mut mit = LOKAL.to_vec();
+    mit.extend_from_slice(argumente);
+    starten_mit(ordner, &mit, &alle)
+}
+
+fn heute_datei(ordner: &Path) -> Vec<u8> {
+    std::fs::read(ordner.join("channels/allgemein/2026-10-28.log")).unwrap_or_default()
+}
+
+/// Testhilfe B0359: die Tagesdatei von gestern hat genau die verlangten Bytes, Frist 7, und lädt ohne Defekt.
+#[tokio::test]
+async fn der_quote_ordner_hat_genau_die_bytes_und_laedt_ohne_defekt() {
+    for bytes in [60, 1_000, 1_025, 2_047, 4_096, GELADEN] {
+        let wurzel = quote_ordner(bytes);
+        let datei = wurzel
+            .path()
+            .join(format!("channels/allgemein/{GESTERN}.log"));
+        assert_eq!(std::fs::metadata(&datei).expect("Datei").len(), bytes);
+        assert_eq!(
+            std::fs::read_to_string(wurzel.path().join("channels/allgemein/einstellungen.toml"))
+                .expect("Einstellungen"),
+            "frist_tage = 7\n"
+        );
+        let instanz = quote_starten(wurzel.path(), &["--plattenquote", "aus"], &[]);
+        let (_, gesundheit) = gemeinsam::gesundheit(&instanz.adresse).await;
+        assert_eq!(gesundheit["log_bytes"], bytes, "{gesundheit}");
+        assert_eq!(gesundheit["defekte_zeilen"], 0, "{gesundheit}");
+    }
+}
+
+/// F0075 „507 im echten Programm“ und „Platz über die Frist“ (US-3, US-5): drei 201, dann 507 mit Grund und Ausweg;
+/// die Tagesdatei bleibt Byte für Byte, der Strom von `gamma` sieht drei Nachrichten; Health zählt; Verkürzen auf
+/// 1 Tag (409, bestätigt 200) nimmt gestern, danach wieder 201. Mutante „Prüfung nach dem Anhängen“ wird rot.
+#[tokio::test]
+async fn an_der_quote_ist_senden_507_und_platz_entsteht_ueber_die_frist() {
+    let wurzel = quote_ordner(GELADEN);
+    let instanz = quote_starten(wurzel.path(), &["--plattenquote", "1MiB"], &[]);
+    let absender = gemeinsam::Absender::von("127.0.0.1");
+    let beta = gemeinsam::senden::beitreten(&absender, &instanz.adresse, "beta", None).await;
+    let gamma = gemeinsam::senden::beitreten(&absender, &instanz.adresse, "gamma", None).await;
+    let mut strom = gemeinsam::strom::Strom::oeffnen(&absender, &instanz.adresse, &gamma).await;
+
+    for _ in 0..3 {
+        let antwort =
+            gemeinsam::senden::senden(&absender, &instanz.adresse, &beta, "allgemein", TEXT).await;
+        assert_eq!(antwort.status, 201, "{}", antwort.json);
+    }
+    let vorher = heute_datei(wurzel.path());
+    assert_eq!(vorher.len() as u64, 3 * SATZ);
+    let abgewiesen =
+        gemeinsam::senden::senden(&absender, &instanz.adresse, &beta, "allgemein", TEXT).await;
+
+    assert_eq!(abgewiesen.status, 507, "{}", abgewiesen.json);
+    assert!(abgewiesen.kopf.get("retry-after").is_none());
+    assert_eq!(
+        abgewiesen.json,
+        serde_json::json!({
+            "fehler": TEXT_507,
+            "regel": "quote",
+            "belegt": 1_048_519,
+            "hoechstens": 1_048_576
+        })
+    );
+    assert_eq!(heute_datei(wurzel.path()), vorher);
+    strom.mitlesen(std::time::Duration::from_millis(500)).await;
+    let nachrichten = strom
+        .ereignisse
+        .iter()
+        .filter(|e| e.data["art"] == "nachricht")
+        .count();
+    assert_eq!(nachrichten, 3);
+    let (_, gesundheit) = gemeinsam::gesundheit(&instanz.adresse).await;
+    assert_eq!(gesundheit["plattenquote"], 1_048_576);
+    assert_eq!(gesundheit["quote_abgewiesen"], 1);
+    assert_eq!(gesundheit["log_bytes"], 1_048_519);
+
+    let kurz = gemeinsam::frist::frist_setzen(
+        &absender,
+        &instanz,
+        &beta,
+        "allgemein",
+        serde_json::json!({ "tage": 1 }),
+    )
+    .await;
+    assert_eq!(kurz.status, 409, "{}", kurz.json);
+    let bestaetigt = gemeinsam::frist::frist_setzen(
+        &absender,
+        &instanz,
+        &beta,
+        "allgemein",
+        serde_json::json!({ "tage": 1, "bestaetigt": true }),
+    )
+    .await;
+    assert_eq!(bestaetigt.status, 200, "{}", bestaetigt.json);
+    assert!(!gemeinsam::frist::tag_da(
+        wurzel.path(),
+        "allgemein",
+        GESTERN
+    ));
+    let (_, gesundheit) = gemeinsam::gesundheit(&instanz.adresse).await;
+    assert_eq!(gesundheit["log_bytes"], 3 * SATZ);
+    let wieder =
+        gemeinsam::senden::senden(&absender, &instanz.adresse, &beta, "allgemein", TEXT).await;
+    assert_eq!(wieder.status, 201, "{}", wieder.json);
+}
+
+/// F0075 „Was an der Quote weiter geht“ (US-6): Lesen 200, Channel anlegen 201, Frist verlängern 200 mit `delta`;
+/// `beta` wiederholt mit dem Schlüssel einer angenommenen Nachricht → 200 mit der ursprünglichen, ohne Zählung.
+#[tokio::test]
+async fn an_der_quote_geht_alles_andere_weiter() {
+    let wurzel = quote_ordner(GELADEN);
+    let instanz = quote_starten(wurzel.path(), &["--plattenquote", "1MiB"], &[]);
+    let absender = gemeinsam::Absender::von("127.0.0.1");
+    let beta = gemeinsam::senden::beitreten(&absender, &instanz.adresse, "beta", None).await;
+    let delta = gemeinsam::senden::beitreten(&absender, &instanz.adresse, "delta", None).await;
+    let mit_schluessel = |schluessel: &'static str| {
+        absender
+            .anfrage(
+                reqwest::Method::POST,
+                format!("{}api/channels/allgemein/nachrichten", instanz.adresse),
+            )
+            .header("X-LocalchatA-Sitzung", beta.clone())
+            .header("Idempotency-Key", schluessel)
+            .json(&serde_json::json!({ "text": TEXT }))
+    };
+    let mut angenommen = Vec::new();
+    for schluessel in ["k1", "k2", "k3"] {
+        let antwort = gemeinsam::api_antwort(mit_schluessel(schluessel)).await;
+        assert_eq!(antwort.status, 201, "{}", antwort.json);
+        angenommen.push(antwort.json["nachricht"].clone());
+    }
+    let voll = gemeinsam::api_antwort(mit_schluessel("k4")).await;
+    assert_eq!(voll.status, 507, "{}", voll.json);
+
+    gemeinsam::senden::verlauf(&absender, &instanz.adresse, &delta, "allgemein").await;
+    let neu = absender
+        .channel_anlegen(
+            &instanz.adresse,
+            &delta,
+            serde_json::json!({ "name": "neu" }),
+        )
+        .await;
+    assert_eq!(neu.status, 201, "{}", neu.json);
+    let laenger = gemeinsam::frist::frist_setzen(
+        &absender,
+        &instanz,
+        &delta,
+        "allgemein",
+        serde_json::json!({ "tage": 30 }),
+    )
+    .await;
+    assert_eq!(laenger.status, 200, "{}", laenger.json);
+    let wiederholt = gemeinsam::api_antwort(mit_schluessel("k2")).await;
+    assert_eq!(wiederholt.status, 200, "{}", wiederholt.json);
+    assert_eq!(wiederholt.json["nachricht"], angenommen[1]);
+    let (_, gesundheit) = gemeinsam::gesundheit(&instanz.adresse).await;
+    assert_eq!(gesundheit["quote_abgewiesen"], 1);
+}
+
+/// F0075 „Ausgeschaltet“: mit `aus` viermal 201; Health `plattenquote: null`, `quote_abgewiesen: 0`, `log_bytes`
+/// zählt weiter.
+#[tokio::test]
+async fn ohne_quote_wird_ueber_1_mib_angenommen() {
+    let wurzel = quote_ordner(GELADEN);
+    let instanz = quote_starten(wurzel.path(), &["--plattenquote", "aus"], &[]);
+    let absender = gemeinsam::Absender::von("127.0.0.1");
+    let beta = gemeinsam::senden::beitreten(&absender, &instanz.adresse, "beta", None).await;
+
+    for _ in 0..4 {
+        let antwort =
+            gemeinsam::senden::senden(&absender, &instanz.adresse, &beta, "allgemein", TEXT).await;
+        assert_eq!(antwort.status, 201, "{}", antwort.json);
+    }
+
+    let (_, gesundheit) = gemeinsam::gesundheit(&instanz.adresse).await;
+    assert_eq!(gesundheit["plattenquote"], serde_json::Value::Null);
+    assert_eq!(gesundheit["quote_abgewiesen"], 0);
+    assert_eq!(gesundheit["log_bytes"], 1_048_600);
+}

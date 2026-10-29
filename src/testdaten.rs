@@ -106,3 +106,84 @@ fn nachricht(nummer: usize, zeit: Zeit) -> io::Result<Nachricht> {
         text,
     })
 }
+
+/// Testhilfe für R00023 (B0359): `<ordner>/channels/<channel>/einstellungen.toml` mit Frist 7 und eine gültige
+/// Tagesdatei von gestern (nach `jetzt`) mit genau `bytes` Bytes — Sätze von `alpha@127.0.0.2` zu je etwa 1 KiB,
+/// streng steigend ab Mitternacht im Versatz aus `ortszeit`. Vorhandenes gleichen Namens wird ersetzt.
+pub fn quote_ordner(
+    ordner: &Path,
+    channel: &str,
+    bytes: u64,
+    jetzt: Zeit,
+    ortszeit: impl Fn(DateTime<Utc>) -> Zeit,
+) -> io::Result<()> {
+    let ziel = ordner.join("channels").join(channel);
+    fs::create_dir_all(&ziel)?;
+    fs::write(ziel.join("einstellungen.toml"), "frist_tage = 7\n")?;
+    let gestern = jetzt.date_naive() - Duration::days(1);
+    let anfang = mitternacht(gestern, &ortszeit);
+    let groessen = satzgroessen(bytes)?;
+    let schritt_ms = 86_400_000 / (groessen.len() as i64 + 1);
+    if schritt_ms < 1 {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!("{bytes} Bytes passen nicht streng steigend in einen Tag"),
+        ));
+    }
+    let mut rohtext = String::new();
+    for (index, groesse) in groessen.into_iter().enumerate() {
+        let zeit = ortszeit(anfang + Duration::milliseconds(schritt_ms * (index as i64 + 1)));
+        rohtext.push_str(&satz_mit_bytes(zeit, groesse)?);
+    }
+    debug_assert_eq!(rohtext.len() as u64, bytes);
+    fs::write(ziel.join(format!("{gestern}.log")), rohtext)
+}
+
+/// Satzgröße der Testhilfe: etwa 1 KiB je Satz.
+const SATZ_ZIEL: u64 = 1024;
+/// Kleinster Satz: Kopf (48 Bytes mit `alpha@127.0.0.2`) und ein Zeichen Text mit Einrückung und Abschluss.
+const SATZ_MINDESTENS: u64 = 53;
+
+/// Teilt `bytes` in Satzgrößen zu je `SATZ_ZIEL`; ein Rest unter dem kleinsten Satz geht mit dem letzten Satz auf.
+fn satzgroessen(bytes: u64) -> io::Result<Vec<u64>> {
+    if bytes < SATZ_MINDESTENS {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!("mindestens {SATZ_MINDESTENS} Bytes"),
+        ));
+    }
+    let mut groessen = vec![SATZ_ZIEL; usize::try_from(bytes / SATZ_ZIEL).unwrap_or(usize::MAX)];
+    let rest = bytes % SATZ_ZIEL;
+    if rest >= SATZ_MINDESTENS || groessen.is_empty() {
+        groessen.push(rest);
+    } else if rest > 0 {
+        let zusammen = SATZ_ZIEL + rest;
+        groessen.pop();
+        groessen.push(zusammen / 2);
+        groessen.push(zusammen - zusammen / 2);
+    }
+    Ok(groessen)
+}
+
+/// Ein gültiger Satz von `alpha@127.0.0.2` mit genau `bytes` Bytes; der Text ist eine Zeile aus Buchstaben.
+fn satz_mit_bytes(zeit: Zeit, bytes: u64) -> io::Result<String> {
+    let von = Kennung::bilden("alpha@127.0.0.2").map_err(|_| io::Error::other("Kennung"))?;
+    let leer = logformat::satz(&Nachricht {
+        zeit,
+        von: von.clone(),
+        art: None,
+        text: "x".to_string(),
+    });
+    let laenge = usize::try_from(bytes).unwrap_or(usize::MAX) - (leer.len() - 1);
+    let text: String = "Fuellung fuer die Quote "
+        .chars()
+        .cycle()
+        .take(laenge)
+        .collect();
+    Ok(logformat::satz(&Nachricht {
+        zeit,
+        von,
+        art: None,
+        text: text.trim_end().to_string() + &"x".repeat(laenge - text.trim_end().len()),
+    }))
+}
