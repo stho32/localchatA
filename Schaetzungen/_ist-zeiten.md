@@ -412,3 +412,4 @@ Nie vom User erfragen.
 | 2026-10-29 | R00023 Plattenquote | Hinweis #26 (Schlüssel, Hilfe) | Nacharbeit | — | 0,05h | 0,05h | autonom |
 | 2026-10-29 | R00023 Plattenquote | Lesen, Ausgangslauf, Mutanten, Gate, Gelerntes | Konsolidierung | — | 0,22h | 0,22h | autonom |
 | 2026-10-29 | R00024 Netznamen | B0485 Nacharbeit: Prozessende ohne Aufräumen der C-Bibliothek | Nacharbeit | — | 0,30h | 0,30h | autonom |
+| 2026-10-29 | R00023 Plattenquote | B0486 Nacharbeit: 507-Text groß nach Doppelpunkt | Nacharbeit | 0,4h | 0,17h | 0,17h | autonom |
