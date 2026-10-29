@@ -22,6 +22,8 @@ mod oberflaeche;
 mod senden;
 mod teilnehmer;
 mod teilnehmerliste;
+#[cfg(test)]
+mod testauskunft;
 mod verlassen;
 mod werkbank;
 

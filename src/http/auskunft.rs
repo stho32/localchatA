@@ -399,111 +399,12 @@ impl Abfrage {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::http::testauskunft::{Testauskunft, ip};
     use crate::protokoll::senke::Speicher;
     use crate::protokoll::testhilfe::{im_speicher, zeit};
     use crate::uhr::GestellteUhr;
-    use std::sync::Condvar;
-    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::atomic::Ordering;
     use std::time::Instant;
-
-    /// Testauskunft: feste Antworten, je Schlüssel ein Tor (gesperrt blockiert die Frage, bis es öffnet),
-    /// zählt Fragen und die höchste Zahl gleichzeitiger Fragen.
-    #[derive(Default)]
-    struct Testauskunft {
-        rueckwaerts: HashMap<IpAddr, Vec<String>>,
-        vorwaerts: HashMap<String, Vec<IpAddr>>,
-        gesperrt: Mutex<HashSet<String>>,
-        tor: Condvar,
-        laufend: AtomicUsize,
-        hoechstens: AtomicUsize,
-        fragen: Mutex<Vec<String>>,
-    }
-
-    impl Testauskunft {
-        fn mit(rueckwaerts: &[(&str, &str)], vorwaerts: &[(&str, &[&str])]) -> Arc<Testauskunft> {
-            Arc::new(Testauskunft {
-                rueckwaerts: rueckwaerts
-                    .iter()
-                    .map(|(adresse, name)| (ip(adresse), vec![name.to_string()]))
-                    .collect(),
-                vorwaerts: vorwaerts
-                    .iter()
-                    .map(|(name, adressen)| {
-                        (name.to_string(), adressen.iter().map(|a| ip(a)).collect())
-                    })
-                    .collect(),
-                ..Testauskunft::default()
-            })
-        }
-
-        fn sperren(&self, schluessel: &str) {
-            self.gesperrt
-                .lock()
-                .expect("Tor")
-                .insert(schluessel.to_string());
-        }
-
-        fn oeffnen(&self, schluessel: &str) {
-            self.gesperrt.lock().expect("Tor").remove(schluessel);
-            self.tor.notify_all();
-        }
-
-        fn fragen(&self, art: &str, schluessel: &str) -> usize {
-            let gesucht = format!("{art} {schluessel}");
-            self.fragen
-                .lock()
-                .expect("Fragen")
-                .iter()
-                .filter(|frage| **frage == gesucht)
-                .count()
-        }
-
-        fn alle_fragen(&self) -> usize {
-            self.fragen.lock().expect("Fragen").len()
-        }
-
-        fn frage(&self, art: &str, schluessel: &str) {
-            self.fragen
-                .lock()
-                .expect("Fragen")
-                .push(format!("{art} {schluessel}"));
-            let jetzt = self.laufend.fetch_add(1, Ordering::SeqCst) + 1;
-            self.hoechstens.fetch_max(jetzt, Ordering::SeqCst);
-            // Höchstens 10 s gesperrt: bricht ein Test vorher ab, gibt der Faden trotzdem frei, sonst wartete das
-            // Ende der Laufzeit für immer auf ihn.
-            let ende = Instant::now() + Duration::from_secs(10);
-            let mut gesperrt = self.gesperrt.lock().expect("Tor");
-            while gesperrt.contains(schluessel) && Instant::now() < ende {
-                gesperrt = self
-                    .tor
-                    .wait_timeout(gesperrt, Duration::from_millis(100))
-                    .expect("Tor")
-                    .0;
-            }
-            self.laufend.fetch_sub(1, Ordering::SeqCst);
-        }
-    }
-
-    impl Namensauskunft for Testauskunft {
-        fn namen_der_adresse(&self, adresse: IpAddr) -> Vec<String> {
-            self.frage("rueckwaerts", &adresse.to_string());
-            self.rueckwaerts.get(&adresse).cloned().unwrap_or_default()
-        }
-
-        fn adressen_des_namens(&self, name: &str) -> Vec<IpAddr> {
-            self.frage("vorwaerts", name);
-            self.vorwaerts.get(name).cloned().unwrap_or_default()
-        }
-
-        fn ist_eigene_adresse(&self, adresse: IpAddr) -> bool {
-            self.frage("eigen", &adresse.to_string());
-            adresse.is_loopback()
-        }
-    }
-
-    fn ip(text: &str) -> IpAddr {
-        text.parse().expect("Adresse")
-    }
 
     const START: &str = "2026-10-29T12:00:00+01:00";
 
