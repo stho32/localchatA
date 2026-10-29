@@ -24,26 +24,25 @@ impl fmt::Display for Stufenfehler {
     }
 }
 
-/// Stufe und Herkunft (`--protokoll-stufe` | `LOCALCHATA_PROTOKOLL_STUFE` | `standard`).
+/// Stufe und Herkunft (`--protokoll-stufe` | `LOCALCHATA_PROTOKOLL_STUFE` | `standard`). Eine gültige Option
+/// übersteuert: dann wird die Umgebung nicht gelesen, auch nicht geprüft (ADR-0043 Ergänzung Karte #26).
 pub fn wirksame_stufe(
     option: Option<Stufe>,
     umgebung: Option<&OsStr>,
 ) -> Result<(Stufe, &'static str), Stufenfehler> {
-    let aus_umgebung = match umgebung {
-        None => None,
-        Some(roh) => Some(
-            roh.to_str()
-                .and_then(stufe_lesen)
-                .ok_or_else(|| Stufenfehler {
-                    wert: roh.to_string_lossy().into_owned(),
-                })?,
-        ),
+    if let Some(stufe) = option {
+        return Ok((stufe, "--protokoll-stufe"));
+    }
+    let Some(roh) = umgebung else {
+        return Ok((Stufe::Information, "standard"));
     };
-    Ok(match (option, aus_umgebung) {
-        (Some(stufe), _) => (stufe, "--protokoll-stufe"),
-        (None, Some(stufe)) => (stufe, VARIABLE),
-        (None, None) => (Stufe::Information, "standard"),
-    })
+    let stufe = roh
+        .to_str()
+        .and_then(stufe_lesen)
+        .ok_or_else(|| Stufenfehler {
+            wert: roh.to_string_lossy().into_owned(),
+        })?;
+    Ok((stufe, VARIABLE))
 }
 
 #[cfg(test)]
@@ -80,10 +79,22 @@ mod tests {
     }
 
     #[test]
-    fn eine_falsche_umgebung_ist_ein_fehler_auch_neben_der_option() {
+    /// R00018 F0082 (ADR-0043 Ergänzung Karte #26, Option A): eine gültige Option übersteuert, die Umgebung wird
+    /// nicht gelesen — auch nicht, wenn sie falsch ist (kehrt den Test aus R00014 um).
+    fn eine_gueltige_option_uebersteuert_eine_falsche_umgebung() {
         for falsch in ["laut", "exception", ""] {
-            let fehler =
-                wirksame_stufe(Some(Stufe::Error), Some(OsStr::new(falsch))).expect_err(falsch);
+            assert_eq!(
+                wirksame_stufe(Some(Stufe::Error), Some(OsStr::new(falsch))),
+                Ok((Stufe::Error, "--protokoll-stufe")),
+                "{falsch}"
+            );
+        }
+    }
+
+    #[test]
+    fn ohne_option_ist_eine_falsche_umgebung_ein_fehler() {
+        for falsch in ["laut", "exception", ""] {
+            let fehler = wirksame_stufe(None, Some(OsStr::new(falsch))).expect_err(falsch);
             let text = fehler.to_string();
             assert!(text.contains(VARIABLE), "{text}");
             assert!(

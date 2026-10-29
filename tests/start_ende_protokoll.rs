@@ -97,3 +97,39 @@ fn logs_liegt_nach_dem_start_auch_auf_stufe_warning_da() {
     assert_eq!(ende.exit, Some(2), "{}", ende.stderr);
     assert!(!falsch.path().join("logs").exists());
 }
+
+/// B0385 (ADR-0043 Ergänzung Karte #26): `--protokoll-stufe debug` übersteuert `LOCALCHATA_PROTOKOLL_STUFE=laut`;
+/// ohne die Option bleibt die falsche Umgebung Exit 2 ohne `logs/`.
+#[tokio::test]
+async fn eine_gueltige_option_uebersteuert_eine_falsche_umgebung() {
+    let wurzel = tempfile::tempdir().expect("Wegwerf-Ordner");
+    let mut argumente = LOKAL.to_vec();
+    argumente.extend_from_slice(&["--protokoll-stufe", "debug"]);
+
+    let instanz = starten_mit(
+        wurzel.path(),
+        &argumente,
+        &[("LOCALCHATA_PROTOKOLL_STUFE", "laut")],
+    );
+    let (status, gesundheit) = gemeinsam::gesundheit(&instanz.adresse).await;
+
+    assert_eq!(status, 200);
+    assert_eq!(gesundheit["protokoll_stufe"], "debug");
+    let start: Vec<String> = alle_zeilen(wurzel.path())
+        .into_iter()
+        .filter(|zeile| zeile.contains(" INFORMATION start Instanz bereit"))
+        .collect();
+    assert_eq!(start.len(), 1, "{start:#?}");
+    assert!(
+        start[0].contains(" stufe=debug option=--protokoll-stufe "),
+        "{start:#?}"
+    );
+
+    let ohne = tempfile::tempdir().expect("Wegwerf-Ordner");
+    let ordner = ohne.path().display().to_string();
+    let mut argumente = vec![ordner.as_str()];
+    argumente.extend_from_slice(&LOKAL);
+    let ende = gemeinsam::aufrufen_mit(&argumente, &[("LOCALCHATA_PROTOKOLL_STUFE", "laut")]);
+    assert_eq!(ende.exit, Some(2), "{}", ende.stderr);
+    assert!(!ohne.path().join("logs").exists());
+}
