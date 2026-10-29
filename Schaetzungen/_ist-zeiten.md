@@ -467,3 +467,4 @@ Nie vom User erfragen.
 | 2026-10-29 | R00025 Senden bei Störungen gehärtet | B0402 Rückgängig verdrahten | Standard | 0,4h | 0,10h | 0,10h | autonom |
 | 2026-10-29 | R00025 Senden bei Störungen gehärtet | B0489 Rückgängig angesagt und per Tastatur erreichbar | Standard | 0,4h | 0,12h | 0,12h | autonom |
 | 2026-10-29 | R00025 Senden bei Störungen gehärtet | Abschluss: Gate, Mutanten, Schärfen, Gelerntes | Konsolidierung | — | 0,27h | 0,27h | autonom |
+| 2026-10-29 | R00025 Senden bei Störungen gehärtet | B0493 Nacharbeit: Speicher am zählenden Allokator (S2), --ignored nach S3, Doku S1 (15:17–15:28) | Nacharbeit | — | 0,18h | 0,18h | autonom |
