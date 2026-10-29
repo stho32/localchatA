@@ -5,13 +5,15 @@
 // eine 401 tritt still wieder bei und versucht genau einmal neu; scheitert der Beitritt, wird nicht gesendet (R00025
 // F0088). Die Zustellung gehört dem Tab (`zustellung`), nicht der Hauptansicht: sie übersteht den Beitreten-Bildschirm.
 // Fehlschläge und fremde Nachrichten gehen an die Ansage.
-import { LEER, zustellen } from './zustellung.js';
+import { LEER, zustellen, naechsterVerfall } from './zustellung.js';
 
 // abschicken: async (channel, text, schluessel) → { art: 'antwort', status, daten, token } | { art: 'zeitueberschreitung'
 // | 'netzfehler' } · wiederBeitreten: async (abgelehntesToken) → zustand der Sitzung · netzAus: () → bool · ansagen:
-// (ereignis der Ansage) · zustellung: { zustand } des Tabs · jetzt: () → ms seit der Epoche
+// (ereignis der Ansage) · zustellung: { zustand, verfall } des Tabs · jetzt: () → ms seit der Epoche · zeitgeber:
+// { stellen(ms, rueckruf) → id, loeschen(id) }
 export function sendenEinrichten({
   verlauf, kennung, abschicken, wiederBeitreten, netzAus, ansagen, zustellung = { zustand: LEER }, jetzt = () => Date.now(),
+  zeitgeber = ECHTE_ZEITGEBER,
 }) {
   let offenerChannel = null;
   let zuletztGesendetMitToken = null;
@@ -32,9 +34,24 @@ export function sendenEinrichten({
       ansagen({ art: 'fehlschlag', grund: ergebnis.fehlschlag.grund });
     }
     verlauf.vorlaeufigeZeigen(zustellung.zustand.vorlaeufige);
+    verfallStellen();
     if (ergebnis.auftrag !== null) {
       auftragAusfuehren(ergebnis.auftrag, ergebnis.wiederbeitreten);
     }
+  }
+
+  // Ein Zeitgeber je Tab für die nächste fällige verworfene (ADR-0037 Ergänzung „Verworfen auf Zeit“ Regel 4); er
+  // gehört der Zustellung des Tabs, nicht dem DOM.
+  function verfallStellen() {
+    zeitgeber.loeschen(zustellung.verfall);
+    zustellung.verfall = null;
+    const faellig = naechsterVerfall(zustellung.zustand);
+    if (faellig === null) {
+      return;
+    }
+    zustellung.verfall = zeitgeber.stellen(Math.max(0, faellig - jetzt()), () => {
+      anwenden(zustellen(zustellung.zustand, { art: 'verfallen', jetzt: jetzt() }));
+    });
   }
 
   async function auftragAusfuehren({ schluessel, channel, text }, nachAblehnung) {
@@ -93,3 +110,8 @@ function neuerSchluessel() {
   const bytes = globalThis.crypto.getRandomValues(new Uint8Array(16));
   return [...bytes].map((byte) => byte.toString(16).padStart(2, '0')).join('');
 }
+
+const ECHTE_ZEITGEBER = {
+  stellen: (ms, rueckruf) => setTimeout(rueckruf, ms),
+  loeschen: (id) => clearTimeout(id),
+};

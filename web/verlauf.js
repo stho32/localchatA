@@ -429,6 +429,20 @@ export function verlaufAnlegen({ abrufen, schalter = () => {} }) {
   function ausstehendZeichnen() {
     const eigene = vorlaeufige.filter((vorlaeufig) => vorlaeufig.channel === offenerName);
     ausstehend.replaceChildren(...eigene.map((vorlaeufig) => vorlaeufigZeichnen(vorlaeufig, eigeneKennung)));
+    erneutSendenFokussieren();
+  }
+
+  // Nach „Rückgängig“ liegt der Fokus auf „Erneut senden“ der Nachricht, sobald sie wieder gezeichnet ist (R00025 F0085).
+  let fokusAufErneut = null;
+  function erneutSendenFokussieren() {
+    if (fokusAufErneut === null) {
+      return;
+    }
+    const schalterDort = ausstehend.querySelector(`[data-schluessel="${CSS.escape(fokusAufErneut)}"] button[data-aktion="erneut"]`);
+    if (schalterDort !== null) {
+      fokusAufErneut = null;
+      schalterDort.focus();
+    }
   }
 
   // Senden holt ans Ende (ADR-0037 Regel 1): steht der neueste Block nicht im Fenster, öffnet der Tab neu; der Fokus
@@ -610,6 +624,7 @@ export function verlaufAnlegen({ abrufen, schalter = () => {} }) {
     nachrichtAnnehmen,
     nachgeholtAnnehmen,
     vorlaeufigeZeigen,
+    nachRueckgaengigFokussieren: (schluessel) => { fokusAufErneut = schluessel; },
     zumEndeFuerSenden,
     kennungSetzen: (kennung) => { eigeneKennung = kennung; },
     // Woran das Nachholen ansetzt (ADR-0037 Regel 7): der offene Channel, ob sein Verlauf steht, die jüngste

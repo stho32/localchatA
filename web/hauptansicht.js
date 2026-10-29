@@ -74,6 +74,11 @@ export function zeichnen(wurzel, teilnehmer, optionen) {
   const verlauf = verlaufAnlegen({
     abrufen: optionen.verlaufAbrufen,
     schalter: (aktion, schluessel) => {
+      if (aktion === 'rueckgaengig') {
+        verlauf.nachRueckgaengigFokussieren(schluessel);
+        senden.schalter(aktion, schluessel);
+        return;
+      }
       senden.schalter(aktion, schluessel);
       eingabe.fokussieren();
     },

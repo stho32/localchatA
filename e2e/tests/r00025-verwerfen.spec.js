@@ -4,7 +4,7 @@
 // wechsel) prüft e2e/einheit/zustellung.test.mjs mit gestellter Zeit.
 const { test, expect } = require('@playwright/test');
 const { sendenStarten, kontextOeffnen, imBrowserBeitreten, eingabe } = require('./senden-hilfen');
-const { ROUTE, vorlaeufige } = require('./r00012-hilfen');
+const { ROUTE, vorlaeufige, saetzeMit, sendungenMitschreiben } = require('./r00012-hilfen');
 const { GERAETE, geraetOeffnen, box, knopf } = require('./r00027-hilfen');
 
 let instanz;
@@ -130,3 +130,56 @@ for (const [geraet, breite] of [['telefon', 320], ['telefon', 375], ['telefon', 
   });
 }
 
+/// Z15 aus R00025: Klick „Verwerfen“ → 4 s danach steht „Verworfen“ noch, spätestens 7 s danach ist die Zeile weg.
+const Z15_NOCH_DA_MS = 4000;
+const Z15_SPAETESTENS_MS = 7000;
+
+// „Rückgängig“ (Abnahme-Probe UX-Review #22 F4: „5 s „Verworfen · Rückgängig““): Klick „Verwerfen“ → an der Stelle steht
+// „Verworfen“ mit „Rückgängig“, der Fokus liegt im Feld; Klick „Rückgängig“ → `drei` zeigt wieder ⚠ „Keine Antwort vom
+// Server.“ mit „Erneut senden“ und „Verwerfen“, laut Netzprotokoll kein POST, der Fokus liegt auf „Erneut senden“
+// (Mutante „Rückgängig sendet“ wird rot).
+test('Rückgängig: „Verworfen“ an der Stelle, Klick bringt drei zurück, ohne POST, Fokus auf „Erneut senden“', async ({ browser }) => {
+  instanz = await sendenStarten();
+  const a = await kontextOeffnen(browser);
+  await imBrowserBeitreten(a.page, instanz.adresse, 'shoff');
+  const sendungen = sendungenMitschreiben(a.page);
+
+  await dreiVerwerfen(a.page);
+  await expect(verworfen(a.page).locator('.lc-verworfen-text')).toHaveText('Verworfen');
+  await expect(eingabe(a.page)).toBeFocused();
+  await rueckgaengig(a.page).click();
+
+  await expect(vorlaeufige(a.page).locator('.lc-body')).toHaveText(['drei']);
+  await expect(vorlaeufige(a.page).locator('.lc-send')).toHaveText('⚠ Keine Antwort vom Server.');
+  await expect(vorlaeufige(a.page).getByRole('button')).toHaveText(['Erneut senden', 'Verwerfen']);
+  await expect(vorlaeufige(a.page).getByRole('button', { name: 'Erneut senden' })).toBeFocused();
+  await a.page.waitForTimeout(300);
+  expect(sendungen.map((sendung) => sendung.text)).toEqual(['drei']);
+  expect(unerwartet(a.fehler)).toEqual([]);
+});
+
+// „Verfallen“ (Z15): Klick „Verwerfen“ → 4 s danach steht „Verworfen“ noch, spätestens Z15 danach ist die Zeile weg; kein
+// Satz `drei` im Log. „Rückgängig“ erhält dabei nie den Fokus. Die Uhr startet beim Klick; gemessen wird ereignisgenau.
+test('Verfallen (Z15): nach 4 s noch da, spätestens 7 s nach dem Klick weg, kein Satz', async ({ browser }) => {
+  test.setTimeout(30000);
+  instanz = await sendenStarten();
+  const a = await kontextOeffnen(browser);
+  await imBrowserBeitreten(a.page, instanz.adresse, 'shoff');
+  await erstenPostAbbrechen(a.page);
+  await eingabe(a.page).fill('drei');
+  await eingabe(a.page).press('Enter');
+  await expect(vorlaeufige(a.page).locator('.lc-send')).toHaveText('⚠ Keine Antwort vom Server.');
+
+  await vorlaeufige(a.page).getByRole('button', { name: 'Verwerfen' }).click();
+  const beginn = Date.now();
+  await a.page.waitForTimeout(Z15_NOCH_DA_MS - (Date.now() - beginn));
+  const nachVierSekunden = await verworfen(a.page).count();
+  await expect.poll(() => verworfen(a.page).count(), { intervals: [25], timeout: 10000 }).toBe(0);
+  const dauer = Date.now() - beginn;
+  test.info().annotations.push({ type: 'Z15 ms', description: String(dauer) });
+
+  expect(nachVierSekunden).toBe(1);
+  expect(dauer).toBeLessThanOrEqual(Z15_SPAETESTENS_MS);
+  expect(saetzeMit(instanz.ordner, 'allgemein', 'drei')).toBe(0);
+  expect(unerwartet(a.fehler)).toEqual([]);
+});
