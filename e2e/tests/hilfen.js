@@ -167,6 +167,24 @@ function channelAnlegenPerApi(adresse, token, name, herkunft = '127.0.0.1') {
   });
 }
 
+/// `PUT …/frist` per API von 127.0.0.1 (Agent).
+function fristPerApi(adresse, token, name, koerper) {
+  const text = JSON.stringify(koerper);
+  const ziel = new URL(`api/channels/${name}/frist`, adresse);
+  return new Promise((fertig, gescheitert) => {
+    const anfrage = http.request({
+      host: ziel.hostname, port: ziel.port, path: ziel.pathname, method: 'PUT', localAddress: '127.0.0.1',
+      headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(text), 'X-LocalchatA-Sitzung': token },
+    }, (antwort) => {
+      let inhalt = '';
+      antwort.on('data', (teil) => { inhalt += teil; });
+      antwort.on('end', () => fertig({ status: antwort.statusCode, daten: JSON.parse(inhalt) }));
+    });
+    anfrage.once('error', gescheitert);
+    anfrage.end(text);
+  });
+}
+
 /// Rahmen und Kontrast des fokussierten Elements gegen die Fläche daneben (WCAG 2.x), im Browser gerechnet.
 function fokusImBrowser() {
   function anteile(farbe) {
@@ -283,6 +301,6 @@ function grossAnlegen(ordner) {
 
 module.exports = {
   satz, channelAnlegen, grossAnlegen,
-  instanzStarten, freierPort, lanAdresse, fehlerSammeln, beitretenPerApi, channelAnlegenPerApi, fokusImBrowser, stromOeffnen, sichtbarNach,
+  instanzStarten, freierPort, lanAdresse, fehlerSammeln, beitretenPerApi, channelAnlegenPerApi, fristPerApi, fokusImBrowser, stromOeffnen, sichtbarNach,
   sichtbarMitWertNach, zeigtNichtMehrOnline, NICHT_MEHR_ONLINE,
 };

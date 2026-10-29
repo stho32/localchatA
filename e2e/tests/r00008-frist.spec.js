@@ -5,7 +5,7 @@ const fs = require('fs');
 const http = require('http');
 const path = require('path');
 const { test, expect } = require('@playwright/test');
-const { instanzStarten, fehlerSammeln, beitretenPerApi, channelAnlegen, sichtbarNach } = require('./hilfen');
+const { instanzStarten, fehlerSammeln, beitretenPerApi, fristPerApi, channelAnlegen, sichtbarNach } = require('./hilfen');
 
 const JETZT = '2026-10-28T12:00:00.000+01:00';
 
@@ -64,24 +64,6 @@ const fristText = (page) => kopf(page).locator('.lc-head-frist');
 const dialog = (page) => page.getByRole('dialog');
 const feld = (page) => dialog(page).getByLabel('Aufbewahrungsfrist');
 const statuszeile = (page) => page.getByRole('status').and(page.locator('.lc-statuszeile'));
-
-/// `PUT …/frist` per API von 127.0.0.1 (Agent).
-function fristPerApi(adresse, token, name, koerper) {
-  const text = JSON.stringify(koerper);
-  const ziel = new URL(`api/channels/${name}/frist`, adresse);
-  return new Promise((fertig, gescheitert) => {
-    const anfrage = http.request({
-      host: ziel.hostname, port: ziel.port, path: ziel.pathname, method: 'PUT', localAddress: '127.0.0.1',
-      headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(text), 'X-LocalchatA-Sitzung': token },
-    }, (antwort) => {
-      let inhalt = '';
-      antwort.on('data', (teil) => { inhalt += teil; });
-      antwort.on('end', () => fertig({ status: antwort.statusCode, daten: JSON.parse(inhalt) }));
-    });
-    anfrage.once('error', gescheitert);
-    anfrage.end(text);
-  });
-}
 
 function tagDa(tag) {
   return fs.existsSync(path.join(instanz.ordner, 'channels', 'allgemein', `${tag}.log`));
