@@ -130,6 +130,10 @@ enum Ausgabe {
         channel: String,
         nachricht: Nachricht,
     },
+    Anhaenge {
+        channel: String,
+        geloescht: Vec<(String, crate::uhr::Zeit)>,
+    },
     Herzschlag,
 }
 
@@ -144,6 +148,7 @@ impl Strom {
             Ausgabe::Channels(stand) => channels_ereignis(&stand),
             Ausgabe::Channel(wechsel) => channel_ereignis(&wechsel),
             Ausgabe::Nachricht { channel, nachricht } => nachricht_ereignis(&channel, &nachricht),
+            Ausgabe::Anhaenge { channel, geloescht } => anhaenge_ereignis(&channel, &geloescht),
             Ausgabe::Herzschlag => herzschlag_ereignis(&self.anwesenheit),
         };
         Some((Ok(ereignis), self))
@@ -178,6 +183,9 @@ impl Strom {
                     }
                     Empfang::Ereignis(Ereignis::Nachricht { channel, nachricht }) => {
                         Ausgabe::Nachricht { channel, nachricht }
+                    }
+                    Empfang::Ereignis(Ereignis::Anhaenge { channel, geloescht }) => {
+                        Ausgabe::Anhaenge { channel, geloescht }
                     }
                     Empfang::NeuerStand => {
                         let stand = self.anwesenheit.teilnehmer();
@@ -244,6 +252,19 @@ fn nachricht_ereignis(channel: &str, nachricht: &Nachricht) -> Event {
         "art": "nachricht",
         "channel": channel,
         "nachricht": NachrichtAntwort::aus(nachricht),
+    });
+    Event::default().data(ereignis.to_string())
+}
+
+/// `{"art":"anhaenge","channel":…,"geloescht":[{"id":…,"zeit":<Satzzeit>}]}` (B0514).
+fn anhaenge_ereignis(channel: &str, geloescht: &[(String, crate::uhr::Zeit)]) -> Event {
+    let ereignis = json!({
+        "art": "anhaenge",
+        "channel": channel,
+        "geloescht": geloescht
+            .iter()
+            .map(|(id, zeit)| json!({"id": id, "zeit": zeit_als_text(zeit)}))
+            .collect::<Vec<_>>(),
     });
     Event::default().data(ereignis.to_string())
 }
@@ -365,6 +386,7 @@ mod tests {
                 Ausgabe::Channels(_)
                 | Ausgabe::Channel(_)
                 | Ausgabe::Nachricht { .. }
+                | Ausgabe::Anhaenge { .. }
                 | Ausgabe::Herzschlag => {}
             }
             if neuer_stand.is_some() {

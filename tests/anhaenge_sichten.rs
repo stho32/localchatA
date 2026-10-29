@@ -4,10 +4,13 @@
 mod gemeinsam;
 
 use gemeinsam::Absender;
-use gemeinsam::anhaenge::{ablegen, starten};
+use gemeinsam::anhaenge::{MIB, ablegen, starten};
 use gemeinsam::senden::{beitreten, ordner, roh_senden, verlauf};
+use gemeinsam::strom::Strom;
 use gemeinsam::{ApiAntwort, api_antwort};
 use serde_json::{Value, json};
+use std::time::Duration;
+use tokio::time::Instant;
 
 async fn senden_mit(
     absender: &Absender,
@@ -92,4 +95,96 @@ async fn zustand_in_verlauf_und_senden() {
         gelesen["nachrichten"][1]["anhaenge"][0]["zustand"],
         "vorhanden"
     );
+}
+/// Ereignis live (B0514, QA7′): `alpha` liest den Strom; `gamma` löscht `a` (allgemein) und `b` (technik) bestätigt
+/// → genau zwei Ereignisse `anhaenge` mit ID und Satzzeit, je < 1 s nach der 200; die 409-Vorschau und ein
+/// `schon_geloescht` erzeugen keines.
+#[tokio::test]
+async fn ereignis_anhaenge_je_channel() {
+    let wurzel = ordner();
+    let instanz = starten(wurzel.path(), &[], &[]);
+    let basis = instanz.adresse.as_str();
+    let beta = Absender::von("127.0.0.1");
+    let gamma = Absender::von("127.0.0.1");
+    let alpha = Absender::von("127.0.0.2");
+    let token_beta = beitreten(&beta, basis, "beta", Some("agent")).await;
+    let token_gamma = beitreten(&gamma, basis, "gamma", Some("agent")).await;
+    let token_alpha = beitreten(&alpha, basis, "alpha", None).await;
+    let a = ablegen(&beta, basis, &token_beta, "a.bin", vec![1; MIB as usize]).await;
+    let zeit_a = senden_mit(&beta, basis, &token_beta, "allgemein", &a)
+        .await
+        .json["nachricht"]["zeit"]
+        .clone();
+    let b = ablegen(&beta, basis, &token_beta, "b.bin", vec![1; MIB as usize]).await;
+    let zeit_b = senden_mit(&beta, basis, &token_beta, "technik", &b)
+        .await
+        .json["nachricht"]["zeit"]
+        .clone();
+    let mut strom = Strom::oeffnen(&alpha, basis, &token_alpha).await;
+
+    assert_eq!(
+        loeschen(&gamma, basis, &token_gamma, json!({"ids": [a, b]}))
+            .await
+            .status,
+        409
+    );
+    let antwort = loeschen(
+        &gamma,
+        basis,
+        &token_gamma,
+        json!({"ids": [a, b], "bestaetigt": true}),
+    )
+    .await;
+    let nach_der_200 = Instant::now();
+    assert_eq!(antwort.status, 200);
+    let ist_anhaenge = |e: &gemeinsam::strom::Empfangen| e.data["art"] == "anhaenge";
+    let anzahl = |strom: &Strom| strom.ereignisse.iter().filter(|e| ist_anhaenge(e)).count();
+    while anzahl(&strom) < 2 && nach_der_200.elapsed() < Duration::from_secs(2) {
+        strom.bis(Duration::from_millis(100), ist_anhaenge).await;
+    }
+    let angekommen: Vec<gemeinsam::strom::Empfangen> = strom
+        .ereignisse
+        .iter()
+        .filter(|e| ist_anhaenge(e))
+        .cloned()
+        .collect();
+    assert_eq!(angekommen.len(), 2);
+    for ereignis in &angekommen {
+        assert!(ereignis.ankunft - nach_der_200 < Duration::from_secs(1));
+    }
+    let (erstes, zweites) = (angekommen[0].clone(), angekommen[1].clone());
+    let mut ereignisse = vec![erstes.data, zweites.data];
+    ereignisse.sort_by_key(|e| e["channel"].as_str().unwrap_or_default().to_string());
+    assert_eq!(
+        ereignisse,
+        vec![
+            json!({"art": "anhaenge", "channel": "allgemein", "geloescht": [{"id": a, "zeit": zeit_a}]}),
+            json!({"art": "anhaenge", "channel": "technik", "geloescht": [{"id": b, "zeit": zeit_b}]}),
+        ]
+    );
+
+    assert_eq!(
+        loeschen(
+            &gamma,
+            basis,
+            &token_gamma,
+            json!({"ids": [a], "bestaetigt": true})
+        )
+        .await
+        .status,
+        200
+    );
+    assert!(
+        strom
+            .bis(Duration::from_millis(500), ist_anhaenge)
+            .await
+            .is_none(),
+        "schon_geloescht ohne Ereignis"
+    );
+    let vorschau = strom
+        .ereignisse
+        .iter()
+        .filter(|e| e.data["art"] == "anhaenge")
+        .count();
+    assert_eq!(vorschau, 2, "die 409-Vorschau erzeugt keines");
 }

@@ -9,7 +9,9 @@ use super::super::koerper::{Koerperfehler, Koerperort, felder_lesen, koerperfehl
 use super::super::senden::groesse_in_worten;
 use super::super::teilnehmer::Teilnehmer;
 use super::loeschkoerper::auftrag_pruefen;
+use crate::gespraeche::Gespraech;
 use crate::gespraeche::loeschen::{Einzelergebnis, Geloescht, Loeschen, Umfang};
+use crate::live::bus::{Bus, Ereignis};
 use crate::protokoll::{Bereich, Kontext, Protokoll, Schluessel, Stufe};
 use axum::Json;
 use axum::body::Body;
@@ -100,6 +102,7 @@ pub async fn loeschen(
         ),
         Ok((Loeschen::Geloescht(bericht), _)) => {
             protokollieren(&zustand.protokoll, &teilnehmer, &bericht);
+            veroeffentlichen(&zustand.bus, &bericht);
             (StatusCode::OK, Json(ergebnis(&bericht))).into_response()
         }
         Ok((Loeschen::Gebremst, None)) | Err(_) => {
@@ -165,6 +168,23 @@ fn protokollieren(protokoll: &Protokoll, teilnehmer: &Teilnehmer, bericht: &Gelo
                     zahl(Einzelergebnis::SchonGeloescht),
                 ),
         );
+    }
+}
+
+/// Je betroffenem Channel ein Ereignis `anhaenge` mit (ID, Satzzeit) — nach Schritt (c), nie für die Vorschau oder
+/// `schon_geloescht` (B0514, ADR-0047 Ergänzung „F1′“ Regel 3). Direktgespräche erst mit I0012.
+fn veroeffentlichen(bus: &Bus, bericht: &Geloescht) {
+    for (gespraech, geloescht) in &bericht.je_gespraech {
+        let Gespraech::Channel(channel) = gespraech else {
+            continue;
+        };
+        bus.veroeffentlichen(Ereignis::Anhaenge {
+            channel: channel.clone(),
+            geloescht: geloescht
+                .iter()
+                .map(|(id, zeit)| (id.als_text().to_string(), *zeit))
+                .collect(),
+        });
     }
 }
 

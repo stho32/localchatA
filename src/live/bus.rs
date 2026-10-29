@@ -14,6 +14,12 @@ pub enum Ereignis {
         channel: String,
         nachricht: Nachricht,
     },
+    /// Gelöschte Anhänge eines Channels (ADR-0047 Ergänzung „F1′“ Regel 3): je (ID, Satzzeit); eigenes Thema,
+    /// ohne Ordnungszahl, endgültig und idempotent.
+    Anhaenge {
+        channel: String,
+        geloescht: Vec<(String, crate::uhr::Zeit)>,
+    },
 }
 
 /// Was ein Abonnent als Nächstes bekommt.
