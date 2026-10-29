@@ -38,7 +38,7 @@ export function zeichnen(wurzel, teilnehmer, optionen) {
   const einstellungen = einstellungenEinrichten({
     wurzel,
     setzen: optionen.fristSetzen,
-    statusZeigen: (text) => statusZeigen(statuszeile, text),
+    statusZeigen: statusMelden,
     neuOeffnen: (name) => verlauf.oeffnen(name),
   });
   const kopf = kopfzeile.zeichnen(wurzel, teilnehmer, {
@@ -55,16 +55,20 @@ export function zeichnen(wurzel, teilnehmer, optionen) {
   const channels = seitenleiste.anlegen();
   const mitte = element('main', { className: 'lc-center' });
   const haupt = element('div', { className: 'lc-main' }, [channels.nav, mitte, region]);
+  // Die Statuszeile hat keine eigene Rolle: ihr Text geht zugleich an die eine Ansage-Region (R00025 F0084).
   const statuszeile = element('p', { className: 'lc-statuszeile', hidden: true });
-  statuszeile.setAttribute('role', 'status');
   const ansagen = ansageEinrichten();
+  function statusMelden(text) {
+    statusZeigen(statuszeile, text);
+    ansagen.melden({ art: 'sofort', text });
+  }
   wurzel.classList.add('lc-app');
   wurzel.append(hinweis, haupt, statuszeile, ansagen.region);
   dialogEinrichten({
     wurzel,
     plus: channels.plus,
     anlegen: optionen.channelAnlegen,
-    statusZeigen: (text) => statusZeigen(statuszeile, text),
+    statusZeigen: statusMelden,
     signal: vorigeAnsichtAbmelden.signal,
   });
   einAusblendenBedienen({ schalter, region, haupt }, vorigeAnsichtAbmelden.signal);

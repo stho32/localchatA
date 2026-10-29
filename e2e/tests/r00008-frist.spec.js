@@ -63,7 +63,7 @@ const schalter = (page, name = 'allgemein') => kopf(page).getByRole('button', { 
 const fristText = (page) => kopf(page).locator('.lc-head-frist');
 const dialog = (page) => page.getByRole('dialog');
 const feld = (page) => dialog(page).getByLabel('Aufbewahrungsfrist');
-const statuszeile = (page) => page.getByRole('status').and(page.locator('.lc-statuszeile'));
+const statuszeile = (page) => page.locator('.lc-statuszeile');
 
 function tagDa(tag) {
   return fs.existsSync(path.join(instanz.ordner, 'channels', 'allgemein', `${tag}.log`));

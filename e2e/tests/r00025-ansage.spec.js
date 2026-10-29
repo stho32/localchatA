@@ -30,3 +30,22 @@ test('Hinweis: der Fehler der Hinweiszeile wird über die Ansage-Region angesagt
   expect(regionenInDerEingabe).toBe(0);
   expect(a.fehler).toEqual([]);
 });
+
+// B0411: A setzt eine Frist → die Statuszeile zeigt den Text, ohne eigene Rolle, und die Ansage-Region enthält ihn
+// (Mutante „zweite Region“ wird rot).
+test('Statuszeile: sichtbar ohne eigene Rolle, angesagt über die Ansage-Region', async ({ browser }) => {
+  instanz = await sendenStarten();
+  const a = await kontextOeffnen(browser, { streng: true });
+  await imBrowserBeitreten(a.page, instanz.adresse, 'shoff');
+
+  await a.page.getByRole('banner').getByRole('button', { name: '# allgemein — Channel-Einstellungen' }).click();
+  await a.page.getByRole('dialog').getByLabel('Aufbewahrungsfrist').fill('30');
+  await a.page.getByRole('dialog').getByLabel('Aufbewahrungsfrist').press('Enter');
+
+  const statuszeile = a.page.locator('.lc-statuszeile');
+  await expect(statuszeile).toHaveText('Frist für # allgemein: 30 Tage.');
+  expect(await statuszeile.getAttribute('role')).toBeNull();
+  expect(await statuszeile.getAttribute('aria-live')).toBeNull();
+  await expect(ansageRegion(a.page)).toHaveText('Frist für # allgemein: 30 Tage.');
+  expect(a.fehler).toEqual([]);
+});
