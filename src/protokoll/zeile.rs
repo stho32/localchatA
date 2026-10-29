@@ -1,7 +1,6 @@
 //! Formatierer des Betriebsprotokolls (ADR-0040 Regeln 3–5): die einzige Stelle, an der Text und Werte
 //! neutralisiert werden und eine Zeile entsteht. Rein, ohne Uhr und Datei.
 
-/// Höchstens so viele Zeichen hat ein Wert im Kontext (ADR-0040 Regel 4).
 use crate::uhr::Zeit;
 use std::fmt::Write;
 

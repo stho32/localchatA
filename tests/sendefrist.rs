@@ -104,7 +104,7 @@ async fn abriss_spur_pruefen(instanz: &Instanz, ordner: &std::path::Path) {
         }
         tokio::time::sleep(ABTASTUNG).await;
     }
-    let zeilen = alle_protokollzeilen(ordner);
+    let zeilen = gemeinsam::protokoll::alle_zeilen(ordner);
     let abrisse: Vec<&String> = zeilen
         .iter()
         .filter(|zeile| {
@@ -120,19 +120,6 @@ async fn abriss_spur_pruefen(instanz: &Instanz, ordner: &std::path::Path) {
         ),
         "{abrisse:#?}"
     );
-}
-
-/// Alle Zeilen aller Tagesdateien unter `logs/` — die Instanz läuft mit der echten Uhr.
-fn alle_protokollzeilen(ordner: &std::path::Path) -> Vec<String> {
-    let mut zeilen = Vec::new();
-    for datei in std::fs::read_dir(ordner.join("logs"))
-        .expect("logs/")
-        .flatten()
-    {
-        let inhalt = std::fs::read_to_string(datei.path()).unwrap_or_default();
-        zeilen.extend(inhalt.lines().map(str::to_string));
-    }
-    zeilen
 }
 
 /// K6 (US-4): ein lesender Ereignisstrom bei Herzschlag 2 s ist 12 s (3 × Abrissgrenze) nach dem Antwortkopf

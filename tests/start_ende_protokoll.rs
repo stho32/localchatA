@@ -4,29 +4,8 @@
 mod gemeinsam;
 
 use gemeinsam::starten_mit;
-use std::path::Path;
 
 const LOKAL: [&str; 5] = ["--port", "0", "--host", "127.0.0.1", "--kein-browser"];
-
-/// Alle Zeilen aller Tagesdateien unter `logs/`, nach Dateinamen (Datum) geordnet.
-fn alle_zeilen(ordner: &Path) -> Vec<String> {
-    let mut dateien: Vec<_> = std::fs::read_dir(ordner.join("logs"))
-        .expect("logs/")
-        .flatten()
-        .map(|eintrag| eintrag.path())
-        .collect();
-    dateien.sort();
-    dateien
-        .iter()
-        .flat_map(|datei| {
-            std::fs::read_to_string(datei)
-                .unwrap_or_default()
-                .lines()
-                .map(str::to_string)
-                .collect::<Vec<_>>()
-        })
-        .collect()
-}
 
 /// B0383 (ADR-0042 Ergänzung Karte #26 Punkt 2): eine beim Ende offene Episode schreibt ihre Ende-Zeile nach der
 /// ersten `INFORMATION ende` und vor „beendet“ — die Ruhe von 60 s ist nicht abgelaufen.
@@ -50,7 +29,7 @@ async fn eine_beim_ende_offene_episode_endet_vor_beendet() {
     let ende = instanz.signal_und_warten("TERM");
 
     assert_eq!(ende.code(), Some(0));
-    let zeilen = alle_zeilen(wurzel.path());
+    let zeilen = gemeinsam::protokoll::alle_zeilen(wurzel.path());
     let stelle = |teil: &str| zeilen.iter().position(|zeile| zeile.contains(teil));
     let beginn = stelle(" WARNING grenzschutz ").expect("Episode beginnt");
     assert!(zeilen[beginn].contains("— Episode beginnt"), "{zeilen:#?}");
@@ -115,7 +94,7 @@ async fn eine_gueltige_option_uebersteuert_eine_falsche_umgebung() {
 
     assert_eq!(status, 200);
     assert_eq!(gesundheit["protokoll_stufe"], "debug");
-    let start: Vec<String> = alle_zeilen(wurzel.path())
+    let start: Vec<String> = gemeinsam::protokoll::alle_zeilen(wurzel.path())
         .into_iter()
         .filter(|zeile| zeile.contains(" INFORMATION start Instanz bereit"))
         .collect();
@@ -162,7 +141,7 @@ async fn online_und_offline_sind_je_eine_debug_zeile_mit_kennung() {
     drop(strom);
 
     let sitzung = |text: &str| {
-        alle_zeilen(wurzel.path())
+        gemeinsam::protokoll::alle_zeilen(wurzel.path())
             .into_iter()
             .filter(|zeile| zeile.contains(&format!(" DEBUG sitzung {text} | ")))
             .collect::<Vec<_>>()

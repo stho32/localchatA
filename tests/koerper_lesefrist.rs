@@ -9,12 +9,14 @@
 
 mod gemeinsam;
 
+use gemeinsam::herkunft::{deskriptoren_reichen, verbinden};
+
 use gemeinsam::protokoll::{mit, wert, zeilen};
 use gemeinsam::{Instanz, gesundheit, starten_mit};
 use std::path::Path;
 use std::time::Duration;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::net::{TcpSocket, TcpStream};
+use tokio::net::TcpStream;
 use tokio::time::Instant;
 
 const GRENZE: Duration = Duration::from_millis(13_500);
@@ -29,27 +31,6 @@ fn starten_um(ordner: &Path, umgebung: &[(&str, &str)]) -> Instanz {
     ];
     alle.extend_from_slice(umgebung);
     starten_mit(ordner, &LOKAL, &alle)
-}
-
-/// Die Gesamtgrenze ist `min(512, Deskriptoren / 2)`; darunter prüfte der Test eine andere Grenze — Abbruch
-/// statt Befund (R00015, „Gemeinsam“).
-fn deskriptoren_reichen() {
-    let weich = rustix::process::getrlimit(rustix::process::Resource::Nofile).current;
-    assert!(
-        weich.is_none_or(|grenze| grenze >= 1024),
-        "Abbruch, kein Befund: ulimit -n ist {weich:?}, der Test braucht mindestens 1024"
-    );
-}
-
-async fn verbinden(port: u16, herkunft: &str) -> TcpStream {
-    let socket = TcpSocket::new_v4().expect("Socket");
-    socket
-        .bind(format!("{herkunft}:0").parse().expect("Herkunft"))
-        .expect("gebunden");
-    socket
-        .connect(format!("127.0.0.1:{port}").parse().expect("Ziel"))
-        .await
-        .expect("verbunden")
 }
 
 /// Wie eine Verbindung endete: Status und Inhalt einer Antwort (falls eine kam), `zu` = die Instanz hat

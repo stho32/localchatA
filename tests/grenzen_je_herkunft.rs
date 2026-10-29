@@ -8,32 +8,12 @@
 
 mod gemeinsam;
 
+use gemeinsam::herkunft::{deskriptoren_reichen, verbinden};
+
 use gemeinsam::wegwerf_starten;
 use std::time::Duration;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::net::{TcpSocket, TcpStream};
-
-/// Die Gesamtgrenze ist `min(512, Deskriptoren / 2)`; unter 1.024 Deskriptoren prüfte der Test eine andere
-/// Grenze — dann Abbruch statt Befund (R00015, „Gemeinsam“).
-fn deskriptoren_reichen() {
-    let weich = rustix::process::getrlimit(rustix::process::Resource::Nofile).current;
-    assert!(
-        weich.is_none_or(|grenze| grenze >= 1024),
-        "Abbruch, kein Befund: ulimit -n ist {weich:?}, der Test braucht mindestens 1024"
-    );
-}
-
-/// Eine Rohverbindung, gebunden an die Herkunft `herkunft` (Linux-Loopback 127.0.0.0/8).
-async fn verbinden(port: u16, herkunft: &str) -> TcpStream {
-    let socket = TcpSocket::new_v4().expect("Socket");
-    socket
-        .bind(format!("{herkunft}:0").parse().expect("Herkunft"))
-        .expect("gebunden");
-    socket
-        .connect(format!("127.0.0.1:{port}").parse().expect("Ziel"))
-        .await
-        .expect("verbunden")
-}
+use tokio::net::TcpStream;
 
 /// `GET /api/gesundheit` auf dieser Verbindung (sie bleibt offen) — der Status, oder `None`, wenn die Instanz
 /// die Verbindung ohne Antwort schließt.
@@ -98,7 +78,7 @@ async fn g1_160_verbindungen_einer_herkunft_werden_bedient_die_161_nicht_eine_an
     let andere_herkunft = gesundheit_auf(&mut anderswo).await;
 
     let bedient = status.iter().filter(|s| **s == Some(200)).count();
-    let platzgrenze: Vec<String> = alle_protokollzeilen(&instanz.ordner)
+    let platzgrenze: Vec<String> = gemeinsam::protokoll::alle_zeilen(&instanz.ordner)
         .into_iter()
         .filter(|zeile| {
             zeile.contains(" WARNING verbindung Verbindung an der Platzgrenze abgewiesen")
@@ -114,17 +94,4 @@ async fn g1_160_verbindungen_einer_herkunft_werden_bedient_die_161_nicht_eine_an
     assert_eq!(die_161, None, "die 161. Verbindung wird abgewiesen");
     assert_eq!(andere_herkunft, Some(200));
     drop(gehalten);
-}
-
-/// Alle Zeilen aller Tagesdateien unter `logs/` — die Instanz läuft mit der echten Uhr.
-fn alle_protokollzeilen(ordner: &std::path::Path) -> Vec<String> {
-    let mut zeilen = Vec::new();
-    for datei in std::fs::read_dir(ordner.join("logs"))
-        .expect("logs/")
-        .flatten()
-    {
-        let inhalt = std::fs::read_to_string(datei.path()).unwrap_or_default();
-        zeilen.extend(inhalt.lines().map(str::to_string));
-    }
-    zeilen
 }

@@ -11,6 +11,26 @@ pub fn zeilen(ordner: &Path, tag: &str) -> Vec<String> {
         .collect()
 }
 
+/// Alle Zeilen aller Tagesdateien unter `logs/`, nach Datum geordnet — für Instanzen mit der echten Uhr.
+pub fn alle_zeilen(ordner: &Path) -> Vec<String> {
+    let mut dateien: Vec<_> = std::fs::read_dir(ordner.join("logs"))
+        .expect("logs/")
+        .flatten()
+        .map(|eintrag| eintrag.path())
+        .collect();
+    dateien.sort();
+    dateien
+        .iter()
+        .flat_map(|datei| {
+            std::fs::read_to_string(datei)
+                .unwrap_or_default()
+                .lines()
+                .map(str::to_string)
+                .collect::<Vec<_>>()
+        })
+        .collect()
+}
+
 /// Zeilen, die Stufe und Bereich tragen (`" INFORMATION start "`).
 pub fn mit(zeilen: &[String], stufe: &str, bereich: &str) -> Vec<String> {
     let teil = format!(" {stufe} {bereich} ");

@@ -57,15 +57,6 @@ async fn riesiger_host(port: u16, von: Ipv4Addr, kopf: &str) -> u16 {
         .unwrap_or_else(|| panic!("keine Statuszeile: {}", text.lines().next().unwrap_or("")))
 }
 
-fn alle_zeilen(ordner: &std::path::Path) -> Vec<String> {
-    let mut zeilen = Vec::new();
-    for eintrag in std::fs::read_dir(ordner.join("logs")).expect("logs/") {
-        let inhalt = std::fs::read_to_string(eintrag.expect("Eintrag").path()).expect("lesbar");
-        zeilen.extend(inhalt.lines().map(str::to_string));
-    }
-    zeilen
-}
-
 #[tokio::test]
 async fn us17_dreihundert_riesige_host_koepfe_lassen_den_rss_um_hoechstens_50_mb_wachsen() {
     let instanz = wegwerf_starten();
@@ -86,7 +77,7 @@ async fn us17_dreihundert_riesige_host_koepfe_lassen_den_rss_um_hoechstens_50_mb
         zuwachs <= HOECHSTENS_ZUWACHS_KB,
         "RSS um {zuwachs} kB gewachsen (vorher {vorher} kB, nachher {nachher} kB)"
     );
-    let grenzschutz: Vec<String> = alle_zeilen(&instanz.ordner)
+    let grenzschutz: Vec<String> = gemeinsam::protokoll::alle_zeilen(&instanz.ordner)
         .into_iter()
         .filter(|zeile| zeile.contains(" WARNING grenzschutz "))
         .collect();
