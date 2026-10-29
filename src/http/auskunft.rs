@@ -363,19 +363,7 @@ impl Auskunft {
 
     /// Warning-Episode „Namensauflösung zu langsam“ (ADR-0045 Regel 8), eine Quelle für alle Schlüssel.
     fn zu_langsam(&self, abfrage: &Abfrage) {
-        self.innen.protokoll.episode(Auftreten {
-            stufe: Stufe::Warning,
-            bereich: Bereich::Grenzschutz,
-            text: crate::protokoll::episodentexte::NAMENSAUFLOESUNG_ZU_LANGSAM,
-            quelle: "namensauskunft".to_string(),
-            kontext: Kontext::neu()
-                .mit(Schluessel::Art, abfrage.art())
-                .mit(Schluessel::Schluessel, abfrage.schluessel()),
-            art: None,
-            verworfen: None,
-            bytes: None,
-            anzeige: None,
-        });
+        self.innen.protokoll.episode(zu_langsam_auftreten(abfrage));
     }
 
     #[cfg(test)]
@@ -596,9 +584,58 @@ impl Abfrage {
     }
 }
 
+/// Das Auftreten „Namensauflösung zu langsam“: die Quelle ist die Namensauskunft als Ganzes; Art und Schlüssel der
+/// einzelnen Abfrage gehören dem einzelnen Auftreten und stehen nur in der Beginn-Zeile (ADR-0042 Ergänzung
+/// Karte #66).
+fn zu_langsam_auftreten(abfrage: &Abfrage) -> Auftreten {
+    Auftreten {
+        stufe: Stufe::Warning,
+        bereich: Bereich::Grenzschutz,
+        text: crate::protokoll::episodentexte::NAMENSAUFLOESUNG_ZU_LANGSAM,
+        quelle: "namensauskunft".to_string(),
+        kontext: Kontext::neu()
+            .mit_nur_beginn(Schluessel::Art, abfrage.art())
+            .mit_nur_beginn(Schluessel::Schluessel, abfrage.schluessel()),
+        art: None,
+        verworfen: None,
+        bytes: None,
+        anzeige: None,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// R00038 B0591 (Bestandsaufnahme): zwei langsame Abfragen verschiedener Art und Namen → Beginn mit `art=` und
+    /// `schluessel=` der ersten, Ende ohne beides.
+    #[test]
+    fn die_ende_zeile_der_namensaufloesung_nennt_nicht_die_erste_abfrage() {
+        use crate::protokoll::Stufe;
+        use crate::protokoll::testhilfe::{im_speicher, zeit};
+        let (protokoll, speicher, uhr, _) =
+            im_speicher("2026-10-28T12:00:00+01:00", Stufe::Information);
+        protokoll.episode(zu_langsam_auftreten(&Abfrage::Vorwaerts(
+            "langsam.local".into(),
+        )));
+        protokoll.episode(zu_langsam_auftreten(&Abfrage::Rueckwaerts(
+            "10.0.0.5".parse().expect("IP"),
+        )));
+        uhr.stellen(zeit("2026-10-28T12:01:00+01:00"));
+        protokoll.episoden_schliessen();
+
+        let zeilen = speicher.zeilen();
+        assert_eq!(zeilen.len(), 2, "{zeilen:#?}");
+        assert!(
+            zeilen[0].ends_with("| art=vorwaerts schluessel=langsam.local"),
+            "{zeilen:#?}"
+        );
+        assert!(zeilen[1].contains("Episode endet: 2 in "), "{zeilen:#?}");
+        assert!(
+            !zeilen[1].contains("art=") && !zeilen[1].contains("schluessel="),
+            "{zeilen:#?}"
+        );
+    }
     use crate::http::testauskunft::{Testauskunft, ip};
     use crate::protokoll::senke::Speicher;
     use crate::protokoll::testhilfe::{im_speicher, zeit};
