@@ -165,7 +165,7 @@ for (const breite of [320, 375, 414]) {
 // nicht vollständig unter der Leiste.“ Mutante „ohne `scroll-padding-top`“ rot). Lesart: fokussierbar in einer
 // Nachricht ist der Schalter „Ganze Nachricht anzeigen“; Tab aus dem Verlauf führt auf den der obersten Nachricht. Der
 // Schalter liegt vorher im Scrollbereich, aber unter der Leiste — liegt er ganz außerhalb, scrollt Chromium ihn ohnehin
-// mittig, und die Probe sähe `scroll-padding-top` nicht (überlebender Mutant). Eigene Variante dazu: der fokussierte
+// mittig, und die Probe sähe `scroll-padding-top` nicht (überlebende Mutante). Eigene Variante dazu: der fokussierte
 // Schalter liegt ganz unter der Leiste, nicht nur teilweise.
 test('Fokus unter der Leiste: der per Tastatur fokussierte Schalter der obersten Nachricht liegt unter der Leiste', async ({ browser }) => {
   instanz = await sendenStarten();

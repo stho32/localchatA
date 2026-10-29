@@ -115,7 +115,7 @@ async fn eine_gueltige_option_uebersteuert_eine_falsche_umgebung() {
 
 /// B0386, Abnahme-Probe der engen Wiederholung des Code-Reviews #24 (A8, wörtlich): „Integrationstest
 /// online/offline mit LOCALCHATA_PROTOKOLL_STUFE=debug und kleiner LOCALCHATA_GNADENFRIST_MS → je eine „DEBUG
-/// sitzung Sitzung online“/„… offline“ mit kennung=; Mutant start/mod.rs:271 mit_veroeffentlichen ohne Protokoll
+/// sitzung Sitzung online“/„… offline“ mit kennung=; Mutante start/mod.rs:271 mit_veroeffentlichen ohne Protokoll
 /// muss rot werden.“ — `beta` tritt bei und öffnet den Ereignisstrom (online), schließt ihn und schweigt (offline).
 #[tokio::test]
 async fn online_und_offline_sind_je_eine_debug_zeile_mit_kennung() {

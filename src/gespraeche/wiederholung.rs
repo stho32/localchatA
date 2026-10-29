@@ -928,7 +928,7 @@ mod tests {
 
     /// Wächter „Uhr zurück“ (code-reviewer #36 A2, Abnahme-Probe wörtlich): „bei 10.000 ms merkt `a` „a1“; die Uhr
     /// springt auf 0, `b` merkt „k“; bei 600.001 ms ist „k“ neu und wird neu gemerkt; bei 610.002 ms merkt `c` „c1“.
-    /// Erwartet ist dann `pruefen(b, "k")` = `Wiederholt { zeit: 600.001 }` und 2 Einträge. Mit Mutant (Zeilen 181–183
+    /// Erwartet ist dann `pruefen(b, "k")` = `Wiederholt { zeit: 600.001 }` und 2 Einträge. Mit Mutante (Zeilen 181–183
     /// entfernt) kommt `Neu`.“ Gemeint ist der Wächter in `merken`, der einen vorhandenen Eintrag desselben Schlüssels
     /// vor dem Einfügen entfernt: sonst bliebe der alte, in der Folge hinter `a1` stehende Eintrag, und sein spätes
     /// Entfernen löschte den Verweis auf den neuen.

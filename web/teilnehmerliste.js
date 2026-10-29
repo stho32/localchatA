@@ -167,7 +167,7 @@ function zeileZeichnen(zeile, uhr) {
   return zeilenElement;
 }
 
-// Die Restzeit ist für Screenreader verborgen: der Punkt trägt den statischen Namen (ADR-0019 Regel 5).
+// Die Restzeit ist für Bildschirmleser verborgen: der Punkt trägt den statischen Namen (ADR-0019 Regel 5).
 function statuswort(form) {
   const wort = element('span', { className: 'lc-status', textContent: form.text });
   if (form.form === 'gleich-weg') {

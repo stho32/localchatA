@@ -512,7 +512,7 @@ export function teilnehmerSichtbar(fensterbreite, wunsch) {
   return fensterbreite >= SICHTBAR_AB_PX;
 }
 
-// Der Alarmtext wird nur beim Wechsel gesetzt, damit ein Screenreader ihn nicht bei jedem Versuch neu ansagt.
+// Der Alarmtext wird nur beim Wechsel gesetzt, damit ein Bildschirmleser ihn nicht bei jedem Versuch neu ansagt.
 // Solange die Verbindung fehlt, ist die Liste als „Stand unbekannt“ markiert: gedämpft, mit einem Satz, und
 // kein ● gilt mehr als sicher online. Liefert den nun gültigen Zustand.
 function verbindungZeigen({ region, standUnbekannt }, letzterZustand, zustand) {
