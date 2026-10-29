@@ -5,7 +5,7 @@
 
 use super::{Gespraech, Kennung};
 use crate::uhr::Zeit;
-use std::collections::{HashMap, VecDeque};
+use std::collections::HashMap;
 use std::fmt;
 
 /// Höchstens so viele Schlüssel je Kennung (ADR-0034 Ergänzung Karte #36: Bedarf 630 aus dem Schreibkonto + Reserve).
@@ -70,31 +70,45 @@ impl fmt::Display for Grenzfehler {
     }
 }
 
+/// Der Speicher (Regeln E1.3, E1.4): Einträge auf wiederverwendeten Plätzen, verkettet in der Folge des Merkens
+/// (gesamt) und je Kennung; je Kennung ein Index Schlüssel → Platz; je Anzahl 1 … `je_kennung` ein Fach mit den
+/// Kennungen in der Folge, in der sie diese Anzahl erreicht haben, und ein Zeiger auf das höchste besetzte Fach.
+/// Nachschlagen, Merken und jede Verdrängung sind amortisiert konstant; eine Kennung ohne Einträge verschwindet
+/// im selben Zug aus allen Strukturen.
 #[derive(Debug, Clone)]
 pub struct Wiederholung {
     je_kennung: usize,
     gesamt: usize,
-    /// Älteste zuerst — in der Folge des Merkens.
-    eintraege: VecDeque<Eintrag>,
-    /// Je Kennung mit Einträgen: Anzahl und seit wann (Folge des Merkens) sie auf dieser Anzahl steht.
-    anzahlen: HashMap<Kennung, Stand>,
-    folge: u64,
-}
-
-#[derive(Debug, Clone, Copy)]
-struct Stand {
+    eintraege: Plaetze<Eintrag>,
+    kennungen: Plaetze<Kennungsstand>,
+    nach_kennung: HashMap<Kennung, usize>,
+    /// Alle Einträge, ältester zuerst.
+    folge: Reihe,
+    /// Index = Anzahl der Einträge einer Kennung; Fach 0 bleibt leer.
+    faecher: Vec<Reihe>,
+    hoechstes_fach: usize,
     anzahl: usize,
-    seit: u64,
 }
 
 #[derive(Debug, Clone)]
 struct Eintrag {
-    kennung: Kennung,
+    kennung: usize,
     schluessel: String,
     gespraech: Gespraech,
     pruefsumme: u64,
     zeit: Zeit,
     gemerkt: Zeit,
+    in_folge: Glied,
+    in_eigenen: Glied,
+}
+
+#[derive(Debug, Clone)]
+struct Kennungsstand {
+    kennung: Kennung,
+    schluessel: HashMap<String, usize>,
+    /// Die Einträge dieser Kennung, ältester zuerst.
+    eigene: Reihe,
+    im_fach: Glied,
 }
 
 impl Default for Wiederholung {
@@ -118,9 +132,13 @@ impl Wiederholung {
         Wiederholung {
             je_kennung,
             gesamt,
-            eintraege: VecDeque::new(),
-            anzahlen: HashMap::new(),
-            folge: 0,
+            eintraege: Plaetze::neu(),
+            kennungen: Plaetze::neu(),
+            nach_kennung: HashMap::new(),
+            folge: Reihe::default(),
+            faecher: vec![Reihe::default(); je_kennung + 1],
+            hoechstes_fach: 0,
+            anzahl: 0,
         }
     }
 
@@ -132,7 +150,10 @@ impl Wiederholung {
         pruefsumme: u64,
         jetzt: Zeit,
     ) -> Pruefung {
-        let Some(eintrag) = self.finden(kennung, schluessel) else {
+        let Some(eintrag) = self
+            .platz_von(kennung, schluessel)
+            .and_then(|platz| self.eintraege.lesen(platz))
+        else {
             return Pruefung::Neu;
         };
         if abgelaufen(eintrag, jetzt) {
@@ -157,100 +178,344 @@ impl Wiederholung {
         zeit: Zeit,
         jetzt: Zeit,
     ) -> Option<Verdraengt> {
-        self.entfernen_wo(|eintrag| {
-            &eintrag.kennung == kennung && eintrag.schluessel == schluessel
-        });
-        self.entfernen_wo(|eintrag| abgelaufen(eintrag, jetzt));
-        let verdraengt = if self.anzahl(kennung) >= self.je_kennung {
-            self.aeltesten_verdraengen(kennung, Grenze::Kennung, self.je_kennung, jetzt)
-        } else if self.eintraege.len() >= self.gesamt {
-            let meiste = self.kennung_mit_den_meisten()?;
-            self.aeltesten_verdraengen(&meiste, Grenze::Gesamt, self.gesamt, jetzt)
+        if let Some(platz) = self.platz_von(kennung, schluessel) {
+            self.entfernen(platz);
+        }
+        self.abgelaufene_entfernen(jetzt);
+        let verdraengt = if self.anzahl_von(kennung) >= self.je_kennung {
+            self.aeltesten_verdraengen(kennung, Grenze::Kennung, jetzt)
+        } else if self.anzahl >= self.gesamt {
+            self.aeltesten_der_meisten_verdraengen(jetzt)
         } else {
             None
         };
-        self.eintraege.push_back(Eintrag {
-            kennung: kennung.clone(),
-            schluessel: schluessel.to_string(),
-            gespraech: gespraech.clone(),
-            pruefsumme,
-            zeit,
-            gemerkt: jetzt,
-        });
-        self.zaehlen(kennung, 1);
+        self.einfuegen(kennung, schluessel, gespraech, pruefsumme, zeit, jetzt);
         verdraengt
     }
 
-    fn anzahl(&self, kennung: &Kennung) -> usize {
-        self.anzahlen.get(kennung).map_or(0, |stand| stand.anzahl)
+    fn platz_von(&self, kennung: &Kennung, schluessel: &str) -> Option<usize> {
+        let stand = self.kennungen.lesen(*self.nach_kennung.get(kennung)?)?;
+        stand.schluessel.get(schluessel).copied()
     }
 
-    /// Die Kennung mit den meisten Einträgen; bei Gleichstand die, die am längsten auf dieser Anzahl steht.
-    fn kennung_mit_den_meisten(&self) -> Option<Kennung> {
-        self.anzahlen
-            .iter()
-            .max_by(|(_, a), (_, b)| a.anzahl.cmp(&b.anzahl).then(b.seit.cmp(&a.seit)))
-            .map(|(kennung, _)| kennung.clone())
+    fn anzahl_von(&self, kennung: &Kennung) -> usize {
+        self.nach_kennung
+            .get(kennung)
+            .and_then(|&platz| self.kennungen.lesen(platz))
+            .map_or(0, |stand| stand.schluessel.len())
+    }
+
+    /// Abgelaufene stehen vorn in der Folge des Merkens; eine zurückgestellte Uhr lässt sie später fallen.
+    fn abgelaufene_entfernen(&mut self, jetzt: Zeit) {
+        while let Some(aeltester) = self.folge.erster {
+            match self.eintraege.lesen(aeltester) {
+                Some(eintrag) if abgelaufen(eintrag, jetzt) => {
+                    self.entfernen(aeltester);
+                }
+                _ => break,
+            }
+        }
     }
 
     fn aeltesten_verdraengen(
         &mut self,
         kennung: &Kennung,
         grenze: Grenze,
-        hoechstens: usize,
         jetzt: Zeit,
     ) -> Option<Verdraengt> {
-        let stelle = self
-            .eintraege
-            .iter()
-            .position(|eintrag| &eintrag.kennung == kennung)?;
-        let eintrag = self.eintraege.remove(stelle)?;
-        self.zaehlen(kennung, -1);
-        let alter_ms = alter_ms(&eintrag, jetzt);
+        let stand = self.kennungen.lesen(*self.nach_kennung.get(kennung)?)?;
+        let aeltester = stand.eigene.erster?;
+        self.verdraengen(aeltester, grenze, jetzt)
+    }
+
+    fn aeltesten_der_meisten_verdraengen(&mut self, jetzt: Zeit) -> Option<Verdraengt> {
+        let meiste = self.faecher.get(self.hoechstes_fach)?.erster?;
+        let aeltester = self.kennungen.lesen(meiste)?.eigene.erster?;
+        self.verdraengen(aeltester, Grenze::Gesamt, jetzt)
+    }
+
+    /// Entfernt einen Eintrag; gemeldet wird er nur, wenn er noch galt.
+    fn verdraengen(&mut self, platz: usize, grenze: Grenze, jetzt: Zeit) -> Option<Verdraengt> {
+        let (kennung, eintrag) = self.entfernen(platz)?;
+        if abgelaufen(&eintrag, jetzt) {
+            return None;
+        }
+        let hoechstens = match grenze {
+            Grenze::Kennung => self.je_kennung,
+            Grenze::Gesamt => self.gesamt,
+        };
         Some(Verdraengt {
-            kennung: eintrag.kennung,
+            kennung,
             grenze,
             hoechstens,
-            alter_ms,
+            alter_ms: alter_ms(&eintrag, jetzt),
         })
     }
 
-    fn entfernen_wo(&mut self, weg: impl Fn(&Eintrag) -> bool) {
-        let mut gefallen = Vec::new();
-        self.eintraege.retain(|eintrag| {
-            let faellt = weg(eintrag);
-            if faellt {
-                gefallen.push(eintrag.kennung.clone());
-            }
-            !faellt
+    fn entfernen(&mut self, platz: usize) -> Option<(Kennung, Eintrag)> {
+        let k = self.eintraege.lesen(platz)?.kennung;
+        aushaengen(&mut self.folge, &mut self.eintraege, platz, |e| {
+            &mut e.in_folge
         });
-        for kennung in gefallen {
-            self.zaehlen(&kennung, -1);
+        if let Some(stand) = self.kennungen.schreiben(k) {
+            aushaengen(&mut stand.eigene, &mut self.eintraege, platz, |e| {
+                &mut e.in_eigenen
+            });
+        }
+        let eintrag = self.eintraege.nehmen(platz)?;
+        self.anzahl -= 1;
+        let stand = self.kennungen.schreiben(k)?;
+        stand.schluessel.remove(&eintrag.schluessel);
+        let nachher = stand.schluessel.len();
+        let kennung = stand.kennung.clone();
+        self.fach_wechseln(k, nachher + 1, nachher);
+        Some((kennung, eintrag))
+    }
+
+    fn einfuegen(
+        &mut self,
+        kennung: &Kennung,
+        schluessel: &str,
+        gespraech: &Gespraech,
+        pruefsumme: u64,
+        zeit: Zeit,
+        jetzt: Zeit,
+    ) {
+        let k = match self.nach_kennung.get(kennung) {
+            Some(&k) => k,
+            None => {
+                let k = self.kennungen.ablegen(Kennungsstand {
+                    kennung: kennung.clone(),
+                    schluessel: HashMap::new(),
+                    eigene: Reihe::default(),
+                    im_fach: Glied::default(),
+                });
+                self.nach_kennung.insert(kennung.clone(), k);
+                k
+            }
+        };
+        let platz = self.eintraege.ablegen(Eintrag {
+            kennung: k,
+            schluessel: schluessel.to_string(),
+            gespraech: gespraech.clone(),
+            pruefsumme,
+            zeit,
+            gemerkt: jetzt,
+            in_folge: Glied::default(),
+            in_eigenen: Glied::default(),
+        });
+        self.anzahl += 1;
+        anhaengen(&mut self.folge, &mut self.eintraege, platz, |e| {
+            &mut e.in_folge
+        });
+        let Some(stand) = self.kennungen.schreiben(k) else {
+            return;
+        };
+        anhaengen(&mut stand.eigene, &mut self.eintraege, platz, |e| {
+            &mut e.in_eigenen
+        });
+        let vorher = stand.schluessel.len();
+        stand.schluessel.insert(schluessel.to_string(), platz);
+        self.fach_wechseln(k, vorher, vorher + 1);
+    }
+
+    /// Die Kennung wechselt von der Anzahl `von` auf `nach`: hinten ins neue Fach; bei 0 verschwindet sie.
+    fn fach_wechseln(&mut self, k: usize, von: usize, nach: usize) {
+        if let Some(fach) = self.faecher.get_mut(von).filter(|_| von > 0) {
+            aushaengen(fach, &mut self.kennungen, k, |s| &mut s.im_fach);
+        }
+        if nach == 0 {
+            if let Some(stand) = self.kennungen.nehmen(k) {
+                self.nach_kennung.remove(&stand.kennung);
+            }
+        } else if let Some(fach) = self.faecher.get_mut(nach) {
+            anhaengen(fach, &mut self.kennungen, k, |s| &mut s.im_fach);
+            self.hoechstes_fach = self.hoechstes_fach.max(nach);
+        }
+        while self.hoechstes_fach > 0 && self.faecher[self.hoechstes_fach].erster.is_none() {
+            self.hoechstes_fach -= 1;
+        }
+    }
+}
+
+/// Glied einer verketteten Reihe über Plätze.
+#[derive(Debug, Clone, Copy, Default)]
+struct Glied {
+    vor: Option<usize>,
+    nach: Option<usize>,
+}
+
+/// Anfang und Ende einer verketteten Reihe.
+#[derive(Debug, Clone, Copy, Default)]
+struct Reihe {
+    erster: Option<usize>,
+    letzter: Option<usize>,
+}
+
+/// Plätze mit Wiederverwendung: nie mehr, als gleichzeitig belegt waren.
+#[derive(Debug, Clone)]
+struct Plaetze<T> {
+    belegt: Vec<Option<T>>,
+    frei: Vec<usize>,
+}
+
+impl<T> Plaetze<T> {
+    fn neu() -> Plaetze<T> {
+        Plaetze {
+            belegt: Vec::new(),
+            frei: Vec::new(),
         }
     }
 
-    /// Ändert die Anzahl einer Kennung um eins; ohne Einträge verschwindet sie.
-    fn zaehlen(&mut self, kennung: &Kennung, um: isize) {
-        self.folge += 1;
-        let anzahl = self.anzahl(kennung).saturating_add_signed(um);
-        if anzahl == 0 {
-            self.anzahlen.remove(kennung);
-        } else {
-            self.anzahlen.insert(
-                kennung.clone(),
-                Stand {
-                    anzahl,
-                    seit: self.folge,
-                },
-            );
+    fn ablegen(&mut self, wert: T) -> usize {
+        match self.frei.pop() {
+            Some(platz) => {
+                self.belegt[platz] = Some(wert);
+                platz
+            }
+            None => {
+                self.belegt.push(Some(wert));
+                self.belegt.len() - 1
+            }
         }
     }
 
-    fn finden(&self, kennung: &Kennung, schluessel: &str) -> Option<&Eintrag> {
-        self.eintraege
+    fn nehmen(&mut self, platz: usize) -> Option<T> {
+        let wert = self.belegt.get_mut(platz)?.take()?;
+        self.frei.push(platz);
+        Some(wert)
+    }
+
+    fn lesen(&self, platz: usize) -> Option<&T> {
+        self.belegt.get(platz)?.as_ref()
+    }
+
+    fn schreiben(&mut self, platz: usize) -> Option<&mut T> {
+        self.belegt.get_mut(platz)?.as_mut()
+    }
+}
+
+fn anhaengen<T>(
+    reihe: &mut Reihe,
+    plaetze: &mut Plaetze<T>,
+    platz: usize,
+    glied: fn(&mut T) -> &mut Glied,
+) {
+    let bisher_letzter = reihe.letzter;
+    if let Some(element) = plaetze.schreiben(platz) {
+        *glied(element) = Glied {
+            vor: bisher_letzter,
+            nach: None,
+        };
+    }
+    match bisher_letzter.and_then(|letzter| plaetze.schreiben(letzter)) {
+        Some(letzter) => glied(letzter).nach = Some(platz),
+        None => reihe.erster = Some(platz),
+    }
+    reihe.letzter = Some(platz);
+}
+
+fn aushaengen<T>(
+    reihe: &mut Reihe,
+    plaetze: &mut Plaetze<T>,
+    platz: usize,
+    glied: fn(&mut T) -> &mut Glied,
+) {
+    let Some(Glied { vor, nach }) = plaetze.schreiben(platz).map(|element| *glied(element)) else {
+        return;
+    };
+    match vor.and_then(|vor| plaetze.schreiben(vor)) {
+        Some(vorgaenger) => glied(vorgaenger).nach = nach,
+        None => reihe.erster = nach,
+    }
+    match nach.and_then(|nach| plaetze.schreiben(nach)) {
+        Some(nachfolger) => glied(nachfolger).vor = vor,
+        None => reihe.letzter = vor,
+    }
+    if let Some(element) = plaetze.schreiben(platz) {
+        *glied(element) = Glied::default();
+    }
+}
+
+/// Größen der inneren Strukturen (R00025 „Strukturen begrenzt“): je Struktur Elemente und Kennungen darin.
+#[cfg(test)]
+#[derive(Debug)]
+struct Groessen {
+    eintraege: usize,
+    strukturen: Vec<(&'static str, usize, usize)>,
+}
+
+#[cfg(test)]
+impl Groessen {
+    fn groesste_kennungszahl(&self) -> usize {
+        self.strukturen
             .iter()
-            .rev()
-            .find(|eintrag| &eintrag.kennung == kennung && eintrag.schluessel == schluessel)
+            .map(|(_, _, kennungen)| *kennungen)
+            .max()
+            .unwrap_or(0)
+    }
+
+    fn groesste_elementzahl(&self) -> usize {
+        self.strukturen
+            .iter()
+            .map(|(_, elemente, _)| *elemente)
+            .max()
+            .unwrap_or(0)
+    }
+}
+
+#[cfg(test)]
+impl Wiederholung {
+    fn groessen(&self) -> Groessen {
+        use std::collections::HashSet;
+        let reihe = |reihe: &Reihe, plaetze_nach: &dyn Fn(usize) -> Option<usize>| {
+            let mut glieder = Vec::new();
+            let mut naechster = reihe.erster;
+            while let Some(platz) = naechster {
+                glieder.push(platz);
+                naechster = plaetze_nach(platz);
+            }
+            glieder
+        };
+        let in_folge = reihe(&self.folge, &|p| self.eintraege.lesen(p)?.in_folge.nach);
+        let kennungen_in_folge: HashSet<usize> = in_folge
+            .iter()
+            .filter_map(|&p| Some(self.eintraege.lesen(p)?.kennung))
+            .collect();
+        let mut in_faechern = 0;
+        for fach in &self.faecher {
+            in_faechern += reihe(fach, &|k| self.kennungen.lesen(k)?.im_fach.nach).len();
+        }
+        let staende: Vec<&Kennungsstand> = self.kennungen.belegt.iter().flatten().collect();
+        let mut in_eigenen = 0;
+        for stand in &staende {
+            in_eigenen += reihe(&stand.eigene, &|p| self.eintraege.lesen(p)?.in_eigenen.nach).len();
+        }
+        let im_index: usize = staende.iter().map(|stand| stand.schluessel.len()).sum();
+        Groessen {
+            eintraege: self.anzahl,
+            strukturen: vec![
+                (
+                    "eintragsplaetze",
+                    self.eintraege.belegt.len(),
+                    kennungen_in_folge.len(),
+                ),
+                ("folge", in_folge.len(), kennungen_in_folge.len()),
+                (
+                    "kennungsplaetze",
+                    self.kennungen.belegt.len(),
+                    staende.len(),
+                ),
+                (
+                    "nach_kennung",
+                    self.nach_kennung.len(),
+                    self.nach_kennung.len(),
+                ),
+                ("faecher", in_faechern, in_faechern),
+                ("eigene", in_eigenen, staende.len()),
+                ("index", im_index, staende.len()),
+            ],
+        }
     }
 }
 
@@ -357,7 +622,7 @@ mod tests {
             gemerkt.pruefen(&beta, "k1", &allgemein(), pruefsumme("y"), t(700_001)),
             Pruefung::Wiederholt { zeit: t(700_000) }
         );
-        assert_eq!(gemerkt.eintraege.len(), 1);
+        assert_eq!(gemerkt.groessen().eintraege, 1);
     }
 
     fn klein(je_kennung: usize, gesamt: usize) -> Wiederholung {
@@ -634,5 +899,100 @@ mod tests {
 
         assert_eq!(meldung, None);
         assert!(!bekannt(&speicher, &opfer, "v1", 600_001));
+    }
+
+    /// Gemeinsames Präfix der Schlüssel im ungünstigen Fall (Z16): 58 gleiche Zeichen und eine laufende Nummer
+    /// mit 6 Stellen — 64 Zeichen, die längste erlaubte Form.
+    fn schluessel_mit_praefix(nummer: usize) -> String {
+        format!("{}{nummer:06}", "p".repeat(58))
+    }
+
+    /// 10.000 × `pruefen` + `merken` einer Kennung mit neuen Schlüsseln; die Dauer.
+    fn zehntausend_paare(
+        speicher: &mut Wiederholung,
+        wer: &Kennung,
+        ab: usize,
+    ) -> std::time::Duration {
+        let beginn = std::time::Instant::now();
+        for nummer in ab..ab + 10_000 {
+            let schluessel = schluessel_mit_praefix(nummer);
+            let summe = pruefsumme(&schluessel);
+            let pruefung = speicher.pruefen(wer, &schluessel, &allgemein(), summe, t(0));
+            assert_eq!(pruefung, Pruefung::Neu);
+            let _ = speicher.merken(wer, &schluessel, &allgemein(), summe, t(0), t(0));
+        }
+        beginn.elapsed()
+    }
+
+    /// R00025 „Laufzeit“ (Z16, Angriffsmatrix Zeile 13, Regel E1.3): `pruefen` + `merken` gegen einen vollen
+    /// Speicher (36.000 Einträge, Schlüssel mit gemeinsamem Präfix) dauern höchstens das Dreifache wie gegen einen
+    /// leeren — Median je Paar über 7 Runden, leer und voll abwechselnd. Lesart: „36.000 Einträge einer Kennung“
+    /// verbietet die Grenze je Kennung (640); voll heißt hier 36.000 Kennungen je ein Eintrag, die messende Kennung
+    /// trifft so bei jedem Merken die Gesamtgrenze (Auswahl der Kennung mit den meisten) und schlägt unter 36.000
+    /// Einträgen nach.
+    #[test]
+    fn pruefen_und_merken_dauern_voll_hoechstens_dreimal_so_lange_wie_leer() {
+        let messend = kennung("messend@127.0.0.1");
+        let mut voll = Wiederholung::default();
+        for nummer in 0..HOECHSTENS_GESAMT {
+            let wer = kennung(&format!("k{nummer}@127.0.0.2"));
+            let schluessel = schluessel_mit_praefix(nummer);
+            let _ = voll.merken(&wer, &schluessel, &allgemein(), 1, t(0), t(0));
+        }
+        let mut verhaeltnisse: Vec<f64> = (0..7)
+            .map(|runde| {
+                let mut leer = Wiederholung::default();
+                let ab = 1_000_000 + runde * 10_000;
+                let dauer_leer = zehntausend_paare(&mut leer, &messend, ab);
+                let dauer_voll = zehntausend_paare(&mut voll, &messend, ab);
+                dauer_voll.as_secs_f64() / dauer_leer.as_secs_f64()
+            })
+            .collect();
+        verhaeltnisse.sort_by(f64::total_cmp);
+
+        let median = verhaeltnisse[3];
+        assert!(
+            median <= 3.0,
+            "voll ÷ leer = {median:.2} (Runden {verhaeltnisse:.2?})"
+        );
+    }
+
+    /// R00025 „Strukturen begrenzt“ (10, Regel E1.4): 100.000 Kennungen je ein Schlüssel, die Uhr rückt um
+    /// 600.001 ms vor, eine Sendung → genau ein Eintrag, und keine Struktur kennt mehr Kennungen als die mit
+    /// Einträgen.
+    #[test]
+    fn nach_kennungswechsel_und_ablauf_bleibt_keine_leere_kennung_stehen() {
+        let mut speicher = Wiederholung::default();
+        for nummer in 0..100_000 {
+            let wer = kennung(&format!("k{nummer}@127.0.0.2"));
+            let _ = speicher.merken(&wer, "x", &allgemein(), 1, t(0), t(0));
+        }
+        let _ = speicher.merken(
+            &kennung("letzte@127.0.0.1"),
+            "x",
+            &allgemein(),
+            1,
+            t(1),
+            t(600_001),
+        );
+
+        let groessen = speicher.groessen();
+        assert_eq!(groessen.eintraege, 1, "{groessen:?}");
+        assert_eq!(groessen.groesste_kennungszahl(), 1, "{groessen:?}");
+    }
+
+    /// R00025 „Strukturen begrenzt“ (11, Regel E1.4; je Kennung 3, gesamt 5): eine Kennung merkt 1.000.000
+    /// Schlüssel → jede interne Struktur hält höchstens 5 + konstant viele Elemente.
+    #[test]
+    fn eine_kennung_mit_einer_million_schluesseln_haelt_jede_struktur_klein() {
+        let wer = kennung("fluter@127.0.0.1");
+        let mut speicher = klein(3, 5);
+        for nummer in 0..1_000_000 {
+            let _ = speicher.merken(&wer, &format!("s{nummer}"), &allgemein(), 1, t(0), t(0));
+        }
+
+        let groessen = speicher.groessen();
+        assert_eq!(groessen.eintraege, 3, "{groessen:?}");
+        assert!(groessen.groesste_elementzahl() <= 5 + 1, "{groessen:?}");
     }
 }
