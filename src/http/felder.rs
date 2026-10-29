@@ -5,31 +5,32 @@
 use serde::Deserializer;
 use serde::de::{MapAccess, Visitor};
 use serde_json::Value;
+use std::collections::HashSet;
 use std::fmt;
 
 /// Die Paare der obersten Ebene, wie sie im Körper stehen.
 pub type Felder = Vec<(String, Value)>;
 
-/// Gültiges JSON, aber kein Objekt (`None`) — oder kein gültiges JSON (`Err`).
+/// Gültiges JSON, aber kein Objekt (`None`) — oder kein gültiges JSON (`Err`). Ein Objekt wird genau einmal gelesen.
 pub fn felder_lesen(roh: &[u8]) -> Result<Option<Felder>, serde_json::Error> {
-    if !serde_json::from_slice::<Value>(roh)?.is_object() {
+    if roh.iter().find(|byte| !byte.is_ascii_whitespace()) != Some(&b'{') {
+        serde_json::from_slice::<Value>(roh)?;
         return Ok(None);
     }
     let mut leser = serde_json::Deserializer::from_slice(roh);
-    (&mut leser).deserialize_map(PaareSammeln).map(Some)
+    let felder = (&mut leser).deserialize_map(PaareSammeln)?;
+    leser.end()?;
+    Ok(Some(felder))
 }
 
-/// Der erste Schlüssel, der ein zweites Mal vorkommt.
+/// Der erste Schlüssel, der ein zweites Mal vorkommt — in einem Durchgang, linear in der Zahl der Schlüssel
+/// (ein Körper bis 131 072 Bytes trägt über 15 000 Schlüssel).
 pub fn doppelt(felder: &Felder) -> Option<&str> {
+    let mut gesehen = HashSet::with_capacity(felder.len());
     felder
         .iter()
-        .enumerate()
-        .find_map(|(stelle, (schluessel, _))| {
-            felder[..stelle]
-                .iter()
-                .any(|(frueher, _)| frueher == schluessel)
-                .then_some(schluessel.as_str())
-        })
+        .map(|(schluessel, _)| schluessel.as_str())
+        .find(|schluessel| !gesehen.insert(*schluessel))
 }
 
 /// Der Wert eines Schlüssels (nach der Prüfung auf Doppelte genau einer).
@@ -104,5 +105,8 @@ mod tests {
         assert_eq!(felder_lesen(b"\"x\"").expect("JSON"), None);
         assert!(felder_lesen(b"{\"a\":").is_err());
         assert!(felder_lesen(b"").is_err());
+        assert!(felder_lesen(b"{\"a\":1}x").is_err(), "Müll hinter dem Objekt");
+        assert!(felder_lesen(b"{\"a\":1}{}").is_err());
+        assert_eq!(felder_lesen(b" \n{}").expect("JSON"), Some(vec![]));
     }
 }

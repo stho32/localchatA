@@ -233,16 +233,17 @@ impl Gelesen<Vec<u8>> {
 }
 
 /// Parst den Körper; ein Objekt, dessen oberste Ebene einen Schlüssel zweimal enthält, ist `Doppelt` — `Value`
-/// behielte still den letzten (ADR-0034 Ergänzung Karte #47). Der zweite Durchgang liest die Paare in Reihenfolge.
+/// behielte still den letzten (ADR-0034 Ergänzung Karte #47). Ein Objekt wird einmal als Paare in Reihenfolge
+/// gelesen (linear in der Zahl der Schlüssel) und daraus zum `Value`.
 fn json_parsen(roh: &[u8]) -> Result<Value, Koerperfehler> {
-    let wert: Value = serde_json::from_slice(roh).map_err(|_| Koerperfehler::Kaputt)?;
-    if wert.is_object() {
-        let paare = super::felder::felder_lesen(roh).map_err(|_| Koerperfehler::Kaputt)?;
-        if let Some(feld) = paare.as_ref().and_then(super::felder::doppelt) {
-            return Err(Koerperfehler::Doppelt(feld.to_string(), None));
-        }
+    let paare = super::felder::felder_lesen(roh).map_err(|_| Koerperfehler::Kaputt)?;
+    let Some(paare) = paare else {
+        return serde_json::from_slice(roh).map_err(|_| Koerperfehler::Kaputt);
+    };
+    match super::felder::doppelt(&paare) {
+        Some(feld) => Err(Koerperfehler::Doppelt(feld.to_string(), None)),
+        None => Ok(Value::Object(paare.into_iter().collect())),
     }
-    Ok(wert)
 }
 
 /// Trägt die Kennung der Anfrage in einen `Doppelt`-Fehler ein, damit die Anfrageschicht sie nennt.
@@ -797,6 +798,45 @@ mod tests {
             json_parsen(br#"{"a":{"b":1,"b":2}}"#),
             Ok(serde_json::json!({"a": {"b": 2}})),
             "nur die oberste Ebene"
+        );
+    }
+
+    /// Objekt mit `n` verschiedenen Schlüsseln `k0 … k<n-1>`, optional endet es mit einer Wiederholung von `k0`.
+    fn viele_schluessel(n: usize, mit_wiederholung: bool) -> Vec<u8> {
+        let paare: Vec<String> = (0..n).map(|i| format!("\"k{i}\":0")).collect();
+        let ende = if mit_wiederholung { ",\"k0\":1" } else { "" };
+        format!("{{{}{ende}}}", paare.join(",")).into_bytes()
+    }
+
+    /// Kleinste Dauer von fünf Läufen (gegen Ausreißer durch Last).
+    fn kleinste_dauer(koerper: &[u8]) -> std::time::Duration {
+        (0..5)
+            .map(|_| {
+                let beginn = std::time::Instant::now();
+                let _ = std::hint::black_box(json_parsen(std::hint::black_box(koerper)));
+                beginn.elapsed()
+            })
+            .min()
+            .expect("fünf Läufe")
+    }
+
+    /// Karte #47 Nacharbeit (Security Befund 1): der Doppelt-Test wächst linear mit der Zahl der Schlüssel. 15 000
+    /// gegen 1 500 Schlüssel höchstens ≈ 20-fach (linear ≈ 10-fach, quadratisch ≈ 100-fach); die Wiederholung am
+    /// Ende wird auch bei 15 000 Schlüsseln erkannt. Mutante „quadratisch zurück“ → Verhältnis ≈ 100.
+    #[test]
+    fn der_doppelt_test_waechst_linear_mit_der_zahl_der_schluessel() {
+        let (gross, klein) = (viele_schluessel(15_000, false), viele_schluessel(1_500, false));
+
+        let (dauer_gross, dauer_klein) = (kleinste_dauer(&gross), kleinste_dauer(&klein));
+
+        let verhaeltnis = dauer_gross.as_secs_f64() / dauer_klein.as_secs_f64();
+        assert!(
+            verhaeltnis <= 20.0,
+            "15 000 Schlüssel {dauer_gross:?} gegen 1 500 {dauer_klein:?}: {verhaeltnis:.1}-fach"
+        );
+        assert_eq!(
+            json_parsen(&viele_schluessel(15_000, true)),
+            Err(Koerperfehler::Doppelt("k0".to_string(), None))
         );
     }
 

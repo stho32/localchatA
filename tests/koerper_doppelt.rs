@@ -281,3 +281,60 @@ async fn eine_doppelt_abweisung_verbraucht_den_wiederholschluessel_nicht() {
     assert_eq!(abgewiesen.status, 422, "{}", abgewiesen.json);
     assert_eq!(gesendet.status, 201, "{}", gesendet.json);
 }
+
+/// Kleinste Dauer von fünf Anfragen (gegen Ausreißer durch Last) und die letzte Antwort.
+async fn kleinste_dauer(
+    absender: &Absender,
+    basis: &str,
+    token: &str,
+    koerper: &str,
+) -> (Duration, ApiAntwort) {
+    let mut kleinste = Duration::MAX;
+    let mut letzte = None;
+    for _ in 0..5 {
+        let beginn = Instant::now();
+        let antwort = roh(
+            absender,
+            reqwest::Method::POST,
+            basis,
+            "api/channels/allgemein/nachrichten",
+            Some(token),
+            koerper,
+        )
+        .await;
+        kleinste = kleinste.min(beginn.elapsed());
+        letzte = Some(antwort);
+    }
+    (kleinste, letzte.expect("Antwort"))
+}
+
+/// Security Befund 1 (Karte #47 Nacharbeit): ein Sendekörper an der Grenze mit 15 048 Schlüsseln bindet die Werkbank
+/// nicht quadratisch — höchstens 20 × ein gleich großer Körper mit einem Schlüssel; die Wiederholung am Ende wird
+/// trotzdem erkannt. Mutante „quadratisch zurück“ → Verhältnis ≈ 100 und mehr.
+#[tokio::test]
+async fn ein_koerper_mit_15048_schluesseln_bindet_die_werkbank_nicht_quadratisch() {
+    let wurzel = ordner();
+    let instanz = starten(wurzel.path(), &[]);
+    let (basis, dora) = (&instanz.adresse, Absender::von("127.0.0.1"));
+    let token = beitreten(&dora, basis, "dora", None).await;
+    let name = |i: u32| {
+        [i / 676, i / 26 % 26, i % 26].map(|z| char::from(b'a' + u8::try_from(z).expect("< 26")))
+    };
+    let paare: Vec<String> = (0..15_047)
+        .map(|i| format!("\"{}\":0", name(i).iter().collect::<String>()))
+        .collect();
+    let viele = format!("{{{},\"aaa\":1}}", paare.join(","));
+    let kontrolle = format!("{{\"x\":\"{}\"}}", "a".repeat(viele.len() - 8));
+    assert_eq!(kontrolle.len(), viele.len());
+    assert!(viele.len() <= 131_072, "{}", viele.len());
+
+    let (dauer_viele, doppelt) = kleinste_dauer(&dora, basis, &token, &viele).await;
+    let (dauer_kontrolle, einzeln) = kleinste_dauer(&dora, basis, &token, &kontrolle).await;
+
+    ist_doppelt(&doppelt, "aaa");
+    assert_eq!(einzeln.json["feld"], "x", "{}", einzeln.json);
+    assert!(
+        dauer_viele <= dauer_kontrolle * 20,
+        "15 048 Schlüssel {dauer_viele:?} gegen Kontrollkörper {dauer_kontrolle:?}"
+    );
+}
