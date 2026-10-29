@@ -183,6 +183,32 @@ test('Scheitern im Tab (Strom zuerst): die spätere 401 des laufenden Versuchs s
   assert.deepEqual(tab.gezeigt, ['vergeben']);
 });
 
+// Nacharbeit #36, code-reviewer A3 (Wächter zustellung.js „nur, solange die Nachricht noch gesendet wird“): nach dem
+// gescheiterten Beitritt kommt die 401 des laufenden Versuchs mit einem anderen Token — ein neuer Lauf des Wiederbeitritts
+// würde gelingen (Name inzwischen frei) und senden. Erwartet: kein weiterer Beitritt, kein weiterer POST, „eins“ bleibt
+// fehlgeschlagen.
+test('Scheitern im Tab (Strom zuerst): eine spätere 401 mit anderem Token tritt nicht noch einmal bei und sendet nicht', async () => {
+  const gesendet = [];
+  let antworten = null;
+  const NAME_FREI = { status: 201, daten: { token: 'neu', name: 'shoff', kennung: 'shoff@127.0.0.1', herkunft: '127.0.0.1', art: 'mensch' } };
+  const tab = tabMitScheiterndemBeitritt(async (channel, text) => {
+    gesendet.push(text);
+    return new Promise((liefern) => { antworten = liefern; });
+  }, { beitrittsAntworten: [VERGEBEN, NAME_FREI] });
+  tab.senden.senden('eins');
+  await naechsteRunde();
+
+  await tab.wiederBeitreten('alt');
+  antworten({ ...ABGELEHNT, token: 'anders' });
+  for (let runde = 0; runde < 10; runde += 1) {
+    await naechsteRunde();
+  }
+
+  assert.deepEqual(gesendet, ['eins']);
+  assert.deepEqual(tab.zustellung.zustand.vorlaeufige.map((v) => [v.text, v.zustand]), [['eins', 'fehlgeschlagen']]);
+  assert.deepEqual(tab.gezeigt, ['vergeben']);
+});
+
 // Nacharbeit #36, ux-reviewer M1 (Abnahme-Probe, Node-Teil): die Zustellung des Tabs ist getrennt (Strom meldete die
 // Trennung, dann die 401), der stille Beitritt scheitert; nach dem Beitritt unter neuem Namen richtet die neue
 // Hauptansicht ihr Senden über dieselbe Zustellung ein → „Erneut senden“ liefert genau einen Auftrag mit demselben
