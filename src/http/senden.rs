@@ -8,13 +8,14 @@
 use super::Zustand;
 use super::abbruch::{Abgebrochen, Grenzort, abbruch_beantworten};
 use super::anfrageprotokoll::mit_regel;
+use super::bremse::{Gegenstand, gebremst_beantworten};
 use super::koerper::{
     Koerperfehler, Koerperort, json_lesen_auf_werkbank, koerperfehler_beantworten,
 };
 use super::nachrichten::NachrichtAntwort;
 use super::teilnehmer::Teilnehmer;
 use crate::gespraeche::textregel::{TEXT_HOECHSTENS_BYTES, Textfehler, text_pruefen};
-use crate::gespraeche::{Gesendet, Gespraech, Kennung, Nachricht, Sendefehler};
+use crate::gespraeche::{Gesendet, Gespraech, Nachricht, Sendefehler};
 use crate::protokoll::episoden::Auftreten;
 use crate::protokoll::grenze::Grenzart;
 use crate::protokoll::{Bereich, Kontext, Schluessel, Stufe};
@@ -24,11 +25,9 @@ use crate::uhr::{vorlauf_melden, vorlauf_text};
 use axum::Json;
 use axum::body::Body;
 use axum::extract::{Path, State};
-use axum::http::header::RETRY_AFTER;
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use serde_json::{Value, json};
-use std::net::IpAddr;
 use std::sync::Arc;
 
 const ROUTE: &str = "POST /api/channels/{name}/nachrichten";
@@ -277,7 +276,12 @@ fn gebremst_melden(zustand: &Zustand, gebremst: Gebremst, teilnehmer: &Teilnehme
     zustand
         .protokoll
         .episode(gebremst_auftreten(wer, gebremst.grenze));
-    gebremst_beantworten(gebremst, &teilnehmer.kennung, teilnehmer.herkunft)
+    gebremst_beantworten(
+        gebremst,
+        Gegenstand::Nachrichten,
+        &teilnehmer.kennung,
+        teilnehmer.herkunft,
+    )
 }
 
 /// Das Auftreten einer 429 der Bremse: Quelle ist die Kennung; die Grenze zählt als Art, damit die Ende-Zeile je
@@ -386,26 +390,6 @@ fn vorlauf_eintragen(protokoll: &crate::protokoll::Protokoll, vorlauf_ms: u64) {
         bytes: None,
         anzeige: Some(vorlauf_text(vorlauf_ms)),
     });
-}
-
-/// 429 `{fehler, grenze, wieder_in_ms}` mit `Retry-After` (B0234, ADR-0036 Regel 4).
-fn gebremst_beantworten(gebremst: Gebremst, kennung: &Kennung, herkunft: IpAddr) -> Response {
-    let wieder_in_ms = u64::try_from(gebremst.wieder_in.as_millis()).unwrap_or(u64::MAX);
-    let sekunden = wieder_in_ms.div_ceil(1_000).max(1);
-    let (grenze, wer) = match gebremst.grenze {
-        Grenze::Kennung => ("kennung", kennung.als_text().to_string()),
-        Grenze::Herkunft => (
-            "herkunft",
-            format!("{herkunft} (alle Teilnehmer dieser Adresse zusammen)"),
-        ),
-    };
-    let fehler = format!("Zu viele Nachrichten von {wer} — wieder möglich in {sekunden} s.");
-    (
-        StatusCode::TOO_MANY_REQUESTS,
-        [(RETRY_AFTER, sekunden.to_string())],
-        Json(json!({ "fehler": fehler, "grenze": grenze, "wieder_in_ms": wieder_in_ms })),
-    )
-        .into_response()
 }
 
 /// `17020` → `17.020`.
@@ -574,48 +558,6 @@ mod tests {
             .await
             .expect("Körper");
         (status, retry, serde_json::from_slice(&bytes).expect("JSON"))
-    }
-
-    /// B0234 (ADR-0036 Regel 4): 429 mit Grenze, `wieder_in_ms`, `Retry-After` = ⌈ms / 1000⌉, mindestens 1, und
-    /// dem Text je Eimer.
-    #[tokio::test]
-    async fn gebremst_ist_429_mit_retry_after_und_text_je_eimer() {
-        use std::time::Duration;
-        let beta = Kennung::bilden("beta@127.0.0.1").expect("Kennung");
-        let antwort = |grenze, ms| {
-            gebremst_beantworten(
-                Gebremst {
-                    grenze,
-                    wieder_in: Duration::from_millis(ms),
-                },
-                &beta,
-                "127.0.0.2".parse().expect("IP"),
-            )
-        };
-
-        let kennung = teile(antwort(Grenze::Kennung, 2_500)).await;
-        let herkunft = teile(antwort(Grenze::Herkunft, 125)).await;
-        let genau = teile(antwort(Grenze::Kennung, 3_000)).await;
-        let null = teile(antwort(Grenze::Kennung, 0)).await;
-
-        assert_eq!(
-            kennung,
-            (
-                429,
-                Some("3".to_string()),
-                json!({"fehler": "Zu viele Nachrichten von beta@127.0.0.1 — wieder möglich in 3 s.", "grenze": "kennung", "wieder_in_ms": 2_500})
-            )
-        );
-        assert_eq!(
-            herkunft,
-            (
-                429,
-                Some("1".to_string()),
-                json!({"fehler": "Zu viele Nachrichten von 127.0.0.2 (alle Teilnehmer dieser Adresse zusammen) — wieder möglich in 1 s.", "grenze": "herkunft", "wieder_in_ms": 125})
-            )
-        );
-        assert_eq!(genau.1.as_deref(), Some("3"));
-        assert_eq!(null.1.as_deref(), Some("1"));
     }
 
     /// R00023 F0075 „Größen in Worten“ (Rechenbeispiele): ab 1 GiB in GiB, sonst MiB, eine Nachkommastelle,
