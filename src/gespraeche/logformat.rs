@@ -2,6 +2,8 @@
 //!
 //! Rein, ohne Platte: übersetzt zwischen Rohtext einer Tagesdatei und Sätzen.
 
+use super::anhangid::Anhangid;
+use super::anhangpruefung::erkenner::ARTEN;
 use super::{Art, Kennung, Nachricht};
 use crate::uhr::Zeit;
 use chrono::DateTime;
@@ -33,8 +35,17 @@ pub fn satz(nachricht: &Nachricht) -> String {
     if let Some(art) = nachricht.art {
         satz.push_str(&format!("{ART_METAZEILE}{}\n", art_als_text(art)));
     }
+    for anhang in &nachricht.anhaenge {
+        satz.push_str(&anhangzeile(anhang));
+        satz.push('\n');
+    }
     let text = nachricht.text.replace("\r\n", "\n");
-    for zeile in text.trim_end_matches('\n').split('\n') {
+    let zeilen = text.trim_end_matches('\n');
+    if zeilen.is_empty() && !nachricht.anhaenge.is_empty() {
+        satz.push('\n');
+        return satz;
+    }
+    for zeile in zeilen.split('\n') {
         if !zeile.is_empty() {
             satz.push_str("  ");
             satz.push_str(zeile);
@@ -71,7 +82,148 @@ pub fn satz_als_nachricht(satz: &[u8]) -> Option<Nachricht> {
         von: bereich.von,
         art: art_lesen(&roh),
         text: text(&roh),
+        anhaenge: anhaenge_im_satz(&roh)
+            .into_iter()
+            .filter_map(|(_, gelesen)| gelesen.ok())
+            .collect(),
     })
+}
+
+/// Metazeile eines Anhangs (ADR-0046 Regel 7).
+const ANHANG_METAZEILE: &str = "+ anhang: ";
+
+/// Ein Anhang, wie er in seiner Metazeile steht: `+ anhang: <id> <bytes> <art> <b>x<h>|- <datei> <anzeigename>`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Anhangzeile {
+    pub id: Anhangid,
+    pub bytes: u64,
+    /// Eine Art der Tabelle (ADR-0047 Frage 3).
+    pub art: &'static str,
+    pub masse: Option<(u32, u32)>,
+    /// Gespeicherter Name `<hhmmssmmm>-<n>-<ascii>` unter `anhaenge/<tag>/`.
+    pub datei: String,
+    pub name: String,
+}
+
+/// Warum eine Metazeile `+ anhang:` nicht gilt — kein Defekt des Satzes (ADR-0004 Ergänzung Karte #9), aber kein
+/// Eintrag (M17).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Anhangbefund {
+    Id,
+    Bytes,
+    Art,
+    Masse,
+    Datei,
+    Name,
+}
+
+/// Die Metazeile eines Anhangs, ohne Zeilenende.
+pub fn anhangzeile(anhang: &Anhangzeile) -> String {
+    let masse = anhang.masse.map_or_else(
+        || "-".to_string(),
+        |(breite, hoehe)| format!("{breite}x{hoehe}"),
+    );
+    format!(
+        "{ANHANG_METAZEILE}{} {} {} {masse} {} {}",
+        anhang.id.als_text(),
+        anhang.bytes,
+        anhang.art,
+        anhang.datei,
+        anhang.name
+    )
+}
+
+/// Liest den Teil hinter `+ anhang: `; die Art ist eine der Tabelle (sie darf Leerzeichen tragen).
+pub fn anhangzeile_lesen(rest: &str) -> Result<Anhangzeile, Anhangbefund> {
+    let (id, rest) = rest.split_once(' ').ok_or(Anhangbefund::Id)?;
+    let id = Anhangid::lesen(id).ok_or(Anhangbefund::Id)?;
+    let (bytes, rest) = rest.split_once(' ').ok_or(Anhangbefund::Bytes)?;
+    if bytes.is_empty() || !bytes.bytes().all(|byte| byte.is_ascii_digit()) {
+        return Err(Anhangbefund::Bytes);
+    }
+    let bytes: u64 = bytes.parse().map_err(|_| Anhangbefund::Bytes)?;
+    if bytes == 0 {
+        return Err(Anhangbefund::Bytes);
+    }
+    let (art, rest) = ARTEN
+        .iter()
+        .find_map(|art| {
+            rest.strip_prefix(art)
+                .and_then(|rest| rest.strip_prefix(' '))
+                .map(|rest| (*art, rest))
+        })
+        .ok_or(Anhangbefund::Art)?;
+    let (masse, rest) = rest.split_once(' ').ok_or(Anhangbefund::Masse)?;
+    let masse = masse_lesen(masse)?;
+    let (datei, name) = rest.split_once(' ').ok_or(Anhangbefund::Datei)?;
+    if !datei_gueltig(datei) {
+        return Err(Anhangbefund::Datei);
+    }
+    if name.is_empty() {
+        return Err(Anhangbefund::Name);
+    }
+    Ok(Anhangzeile {
+        id,
+        bytes,
+        art,
+        masse,
+        datei: datei.to_string(),
+        name: name.to_string(),
+    })
+}
+
+/// `-` oder `<breite>x<hoehe>` mit Zahlen ab 1.
+fn masse_lesen(text: &str) -> Result<Option<(u32, u32)>, Anhangbefund> {
+    if text == "-" {
+        return Ok(None);
+    }
+    let zahl = |teil: &str| -> Option<u32> {
+        (!teil.is_empty() && teil.bytes().all(|byte| byte.is_ascii_digit()))
+            .then(|| teil.parse().ok())
+            .flatten()
+            .filter(|wert| *wert > 0)
+    };
+    let (breite, hoehe) = text.split_once('x').ok_or(Anhangbefund::Masse)?;
+    match (zahl(breite), zahl(hoehe)) {
+        (Some(breite), Some(hoehe)) => Ok(Some((breite, hoehe))),
+        _ => Err(Anhangbefund::Masse),
+    }
+}
+
+/// `<hhmmssmmm>-<n>-<ascii>`: 9 Ziffern, Bindestrich, Nummer, Bindestrich, ASCII-Teil aus `[A-Za-z0-9._-]`; nie `/`,
+/// nie `.` oder `..` als Ganzes (M17).
+pub fn datei_gueltig(datei: &str) -> bool {
+    let Some((zeit, rest)) = datei.split_at_checked(9) else {
+        return false;
+    };
+    let Some(rest) = rest.strip_prefix('-') else {
+        return false;
+    };
+    let Some((nummer, ascii)) = rest.split_once('-') else {
+        return false;
+    };
+    zeit.bytes().all(|byte| byte.is_ascii_digit())
+        && !nummer.is_empty()
+        && nummer.bytes().all(|byte| byte.is_ascii_digit())
+        && !ascii.is_empty()
+        && ascii
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b'-'))
+}
+
+/// Die Metazeilen `+ anhang:` direkt nach dem Kopf, mit ihrer Zeile im Satz (1-basiert); eingerückter Text zählt nie
+/// (M16).
+pub fn anhaenge_im_satz(satz: &str) -> Vec<(usize, Result<Anhangzeile, Anhangbefund>)> {
+    satz.split('\n')
+        .enumerate()
+        .skip(1)
+        .take_while(|(_, zeile)| zeile.starts_with("+ "))
+        .filter_map(|(nummer, zeile)| {
+            zeile
+                .strip_prefix(ANHANG_METAZEILE)
+                .map(|rest| (nummer + 1, anhangzeile_lesen(rest)))
+        })
+        .collect()
 }
 
 /// Metazeile der Art des Absenders (ADR-0034 Regel 5).
@@ -216,6 +368,169 @@ mod tests {
         defekte_roh(rohtext.as_bytes())
     }
 
+    fn anhang(
+        id: &str,
+        bytes: u64,
+        art: &'static str,
+        masse: Option<(u32, u32)>,
+        datei: &str,
+        name: &str,
+    ) -> Anhangzeile {
+        Anhangzeile {
+            id: Anhangid::lesen(id).expect("ID"),
+            bytes,
+            art,
+            masse,
+            datei: datei.to_string(),
+            name: name.to_string(),
+        }
+    }
+
+    /// B0437 (ADR-0046 Regel 7): je Anhang eine Metazeile nach `+ art:`, in Sendefolge; die Art mit Leerzeichen
+    /// (`text/plain; charset=utf-8`) und der Anzeigename mit Leerzeichen lesen sich zurück.
+    #[test]
+    fn metazeilen_der_anhaenge_schreiben_und_lesen() {
+        let mut gesendet = nachricht(
+            "2026-10-29T14:07:12.345+01:00",
+            "beta@127.0.0.1",
+            "Hier die Belege",
+        );
+        gesendet.art = Some(Art::Agent);
+        gesendet.anhaenge = vec![
+            anhang(
+                "k3v7q2m5xpc4h6n6tewaz2b5yr",
+                2_457_600,
+                "application/pdf",
+                None,
+                "140712345-1-Bericht_M_rz.pdf",
+                "Bericht März.pdf",
+            ),
+            anhang(
+                "aaaaaaaaaaaaaaaaaaaaaaaaab",
+                12,
+                "text/plain; charset=utf-8",
+                None,
+                "140712345-2-notiz.txt",
+                " zwei  Leer ",
+            ),
+            anhang(
+                "aaaaaaaaaaaaaaaaaaaaaaaaac",
+                3,
+                "image/jpeg",
+                Some((3000, 4000)),
+                "140712345-3-hochkant.jpg",
+                "hochkant.jpg",
+            ),
+        ];
+
+        let geschrieben = satz(&gesendet);
+
+        assert_eq!(
+            geschrieben,
+            "@ 2026-10-29T14:07:12.345+01:00 beta@127.0.0.1\n+ art: agent\n\
+             + anhang: k3v7q2m5xpc4h6n6tewaz2b5yr 2457600 application/pdf - 140712345-1-Bericht_M_rz.pdf Bericht März.pdf\n\
+             + anhang: aaaaaaaaaaaaaaaaaaaaaaaaab 12 text/plain; charset=utf-8 - 140712345-2-notiz.txt  zwei  Leer \n\
+             + anhang: aaaaaaaaaaaaaaaaaaaaaaaaac 3 image/jpeg 3000x4000 140712345-3-hochkant.jpg hochkant.jpg\n\
+             \x20 Hier die Belege\n\n"
+        );
+        assert_eq!(satz_als_nachricht(geschrieben.as_bytes()), Some(gesendet));
+    }
+
+    /// ADR-0004 Ergänzung Karte #9, erster Test: Kopf, `+ art: mensch`, `+ anhang: …`, Leerzeile, nächster Satz →
+    /// zwei Sätze, der erste mit Text `""` und einem Anhang; geschrieben ohne Textzeile.
+    #[test]
+    fn ein_satz_ohne_text_mit_anhang() {
+        let rohtext = "@ 2026-10-29T14:00:00.000+01:00 a@127.0.0.1\n+ art: mensch\n+ anhang: aaaaaaaaaaaaaaaaaaaaaaaaaa 5 application/octet-stream - 140000000-1-x.bin x.bin\n\n@ 2026-10-29T14:00:01.000+01:00 b@127.0.0.1\n  zwei\n\n";
+        let saetze = gueltige(rohtext);
+        assert_eq!(saetze.len(), 2);
+        assert!(defekte(rohtext).is_empty());
+        let erster = satz_als_nachricht(&rohtext.as_bytes()[saetze[0].anfang..saetze[0].ende])
+            .expect("Satz");
+        assert_eq!(erster.text, "");
+        assert_eq!(erster.anhaenge.len(), 1);
+        assert_eq!(satz(&erster), &rohtext[saetze[0].anfang..saetze[0].ende]);
+    }
+
+    /// M16: eine Zeile `+ anhang: …` im Text bleibt Text (eingerückt) — kein Anhang.
+    #[test]
+    fn eine_eingeschleuste_metazeile_bleibt_text() {
+        let gesendet = nachricht(
+            "2026-10-29T14:00:00.000+01:00",
+            "a@127.0.0.1",
+            "+ anhang: aaaaaaaaaaaaaaaaaaaaaaaaaa 1 text/plain - x x\n+ anhang: zweite",
+        );
+        let geschrieben = satz(&gesendet);
+        let gelesen = satz_als_nachricht(geschrieben.as_bytes()).expect("Satz");
+        assert!(gelesen.anhaenge.is_empty());
+        assert_eq!(gelesen.text, gesendet.text);
+        assert!(anhaenge_im_satz(&geschrieben).is_empty());
+    }
+
+    /// M17 (Form): ID falscher Form, Bytes keine Zahl oder 0, Art außerhalb der Tabelle, Maße 0, Datei mit `/`,
+    /// `..`, ohne Präfix, Name leer → je ein Befund, kein Defekt des Satzes.
+    #[test]
+    fn unplausible_metazeilen_sind_befunde() {
+        let gut = "aaaaaaaaaaaaaaaaaaaaaaaaaa 5 application/octet-stream - 140000000-1-x.bin x.bin";
+        assert!(anhangzeile_lesen(gut).is_ok());
+        for (zeile, befund) in [
+            (
+                "AAAAAAAAAAAAAAAAAAAAAAAAAA 5 application/octet-stream - 140000000-1-x.bin x.bin",
+                Anhangbefund::Id,
+            ),
+            ("zu kurz", Anhangbefund::Id),
+            (
+                "aaaaaaaaaaaaaaaaaaaaaaaaaa 0 application/octet-stream - 140000000-1-x.bin x",
+                Anhangbefund::Bytes,
+            ),
+            (
+                "aaaaaaaaaaaaaaaaaaaaaaaaaa +5 application/octet-stream - 140000000-1-x.bin x",
+                Anhangbefund::Bytes,
+            ),
+            (
+                "aaaaaaaaaaaaaaaaaaaaaaaaaa 5 image/svg+xml - 140000000-1-x.bin x",
+                Anhangbefund::Art,
+            ),
+            (
+                "aaaaaaaaaaaaaaaaaaaaaaaaaa 5 text/html - 140000000-1-x.bin x",
+                Anhangbefund::Art,
+            ),
+            (
+                "aaaaaaaaaaaaaaaaaaaaaaaaaa 5 image/png 0x5 140000000-1-x.png x",
+                Anhangbefund::Masse,
+            ),
+            (
+                "aaaaaaaaaaaaaaaaaaaaaaaaaa 5 image/png 5 140000000-1-x.png x",
+                Anhangbefund::Masse,
+            ),
+            (
+                "aaaaaaaaaaaaaaaaaaaaaaaaaa 5 application/octet-stream - ../x x",
+                Anhangbefund::Datei,
+            ),
+            (
+                "aaaaaaaaaaaaaaaaaaaaaaaaaa 5 application/octet-stream - 140000000-1-a/b x",
+                Anhangbefund::Datei,
+            ),
+            (
+                "aaaaaaaaaaaaaaaaaaaaaaaaaa 5 application/octet-stream - x.bin x",
+                Anhangbefund::Datei,
+            ),
+            (
+                "aaaaaaaaaaaaaaaaaaaaaaaaaa 5 application/octet-stream - 14000000x-1-x.bin x",
+                Anhangbefund::Datei,
+            ),
+            (
+                "aaaaaaaaaaaaaaaaaaaaaaaaaa 5 application/octet-stream - 140000000-1-x.bin ",
+                Anhangbefund::Name,
+            ),
+        ] {
+            assert_eq!(anhangzeile_lesen(zeile), Err(befund), "{zeile}");
+        }
+        let rohtext = "@ 2026-10-29T14:00:00.000+01:00 a@127.0.0.1\n+ anhang: zu kurz\n  Text\n\n";
+        assert!(defekte(rohtext).is_empty());
+        let gelesen = anhaenge_im_satz(rohtext);
+        assert_eq!(gelesen, vec![(2, Err(Anhangbefund::Id))]);
+    }
+
     #[test]
     fn zwei_saetze_und_eine_defekte_zeile_wie_im_ausgangsordner() {
         let saetze = gueltige(TAG_27);
@@ -275,6 +590,7 @@ mod tests {
             von: Kennung::bilden(von).expect("Kennung"),
             art: None,
             text: text.to_string(),
+            anhaenge: Vec::new(),
         }
     }
 
@@ -466,6 +782,7 @@ mod tests {
                 von: Kennung::bilden("alpha@127.0.0.2").expect("Kennung"),
                 art: None,
                 text: "zwei\ndrei".to_string(),
+                anhaenge: Vec::new(),
             })
         );
     }

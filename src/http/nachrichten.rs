@@ -402,6 +402,7 @@ mod tests {
             von: Kennung::bilden("beta@127.0.0.1").expect("Kennung"),
             art: Some(Art::Agent),
             text: "Hallo\nWelt".into(),
+            anhaenge: Vec::new(),
         };
 
         let agent = serde_json::to_value(NachrichtAntwort::aus(&nachricht)).expect("JSON");

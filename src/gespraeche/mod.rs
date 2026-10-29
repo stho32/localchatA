@@ -57,6 +57,8 @@ pub struct Nachricht {
     /// Art des Absenders aus der Metazeile `+ art:`; ohne sie (von Hand, ältere Sätze) keine (ADR-0034 Regel 5).
     pub art: Option<Art>,
     pub text: String,
+    /// Anhänge aus den Metazeilen `+ anhang:`, in Sendefolge (ADR-0046 Regel 7).
+    pub anhaenge: Vec<logformat::Anhangzeile>,
 }
 
 /// Ein Block des Verlaufs als Nachrichten, älteste zuerst (ADR-0025 Regel 3).
@@ -733,6 +735,7 @@ fn nachricht_bilden(zeit: Zeit, von: &Kennung, art: Art, text: &str) -> (Nachric
         von: von.clone(),
         art: Some(art),
         text: text.to_string(),
+        anhaenge: Vec::new(),
     };
     let satz = logformat::satz(&nachricht);
     nachricht.text = logformat::text(&satz);
