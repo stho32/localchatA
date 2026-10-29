@@ -157,7 +157,14 @@ async fn nach_dem_abbruch_laedt_ein_neuer_put_hoch() {
         im_eingang(wurzel.path())
     );
 
-    let erneut = hochladen(&beta, &instanz.adresse, &token, &id, vec![7; 307_200]).await;
+    // Der Abbruch wird erkannt, sobald die Instanz das Ende der Verbindung liest; bis dahin läuft der alte `PUT`
+    // (409 `laeuft`) — gewartet wird auf das Merkmal, nicht auf eine Zeit.
+    let mut erneut = hochladen(&beta, &instanz.adresse, &token, &id, vec![7; 307_200]).await;
+    let bis = Instant::now() + Duration::from_secs(5);
+    while erneut.status == 409 && Instant::now() < bis {
+        tokio::time::sleep(Duration::from_millis(20)).await;
+        erneut = hochladen(&beta, &instanz.adresse, &token, &id, vec![7; 307_200]).await;
+    }
     assert_eq!(erneut.status, 200, "{}", erneut.json);
 }
 
