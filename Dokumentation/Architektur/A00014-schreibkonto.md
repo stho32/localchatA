@@ -35,11 +35,12 @@ Uhr-Provider ([Zeit](Aspekte/X00007-zeit.md)); Kennung aus [Gespräche](A00006-g
 ## Entscheidungen
 
 - [ADR-0036: Schreibkonto gegen Flut — Token-Eimer je Kennung und je Herkunft, Kosten nach Größe, 429 mit Wartezeit; zuerst für das Senden](../ADRs/0036-schreibkonto-token-eimer-je-kennung-und-je-herkunft.md) — Akzeptiert, 2026-10-28
+- [ADR-0044: Plattenquote — die Gesamtgröße der Gespräche ist begrenzt (`--plattenquote`, Standard 4 GiB), gezählt am Verlaufsindex; an der Quote wird Senden mit 507 abgewiesen, gelöscht wird deswegen nichts](../ADRs/0044-plattenquote-gespraeche-im-index-gezaehlt-senden-507-nichts-wird-deswegen-geloescht.md) — Akzeptiert, 2026-10-29
 
 ## Offene Fragen
 
 - ~~Bucht auch `PUT /api/channels/{name}/frist`?~~ Entschieden 2026-10-28 (Karte #31): ja, pauschal 10 Einheiten am selben Konto — [ADR-0036](../ADRs/0036-schreibkonto-token-eimer-je-kennung-und-je-herkunft.md), Ergänzung Karte #31 (b).
-- Plattenquote (Deckel für die Gesprächslogs): Frage an den Betreiber aus Karte #31; die Bremse verlangsamt nur (≤ 5,7 GB/Tag je Herkunft, ADR-0036 Ergänzung Karte #31 (a)).
+- ~~Plattenquote (Deckel für die Gesprächslogs): Frage an den Betreiber aus Karte #31; die Bremse verlangsamt nur (≤ 5,7 GB/Tag je Herkunft, ADR-0036 Ergänzung Karte #31 (a)).~~ Entschieden 2026-10-29 (Karte #34, Betreiber: „Ja, als Quote“): [ADR-0044](../ADRs/0044-plattenquote-gespraeche-im-index-gezaehlt-senden-507-nichts-wird-deswegen-geloescht.md) — der Zähler liegt in [Gespräche](A00006-gespraeche.md), nicht hier; das Konto bestimmt nur, wie schnell die Quote erreicht wird.
 
 ## Notizen / Quellen
 
