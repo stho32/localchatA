@@ -81,3 +81,16 @@ function datumAusgeschrieben(tag) {
   const [jahr, monat, tagImMonat] = tag.split('-').map(Number);
   return `${tagImMonat}. ${MONATE[monat - 1]} ${jahr}`;
 }
+
+// Fehlerzeile nach einer Antwort (ADR-0033 Ergänzung Karte #27, Regel 1) → { text, eingabeFalsch }: nur die 422
+// `frist` ist ein Prüffehler; ein Serverfehler sagt, dass die Eingabe stimmt, und nennt einen Ausweg.
+export function fehlerDerAntwort({ serverWeg, status, daten }) {
+  if (serverWeg) {
+    return { text: 'Nicht gespeichert — Verbindung prüfen.', eingabeFalsch: false };
+  }
+  const eingabeFalsch = status === 422 && daten !== null && daten.regel === 'frist';
+  if (daten !== null && typeof daten.fehler === 'string') {
+    return { text: daten.fehler, eingabeFalsch };
+  }
+  return { text: `Nicht gespeichert (Status ${status}) — später erneut versuchen.`, eingabeFalsch };
+}

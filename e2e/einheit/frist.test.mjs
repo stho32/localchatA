@@ -1,7 +1,7 @@
 // Unit-Tests der Frist im Browser (R00008 F0037, B0193, B0194; ADR-0033 Regel 3; node --test).
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { fristPruefen, fristText, bestaetigungText, statusText, inzwischenText } from '../../web/frist.js';
+import { fristPruefen, fristText, bestaetigungText, statusText, inzwischenText, fehlerDerAntwort } from '../../web/frist.js';
 
 const FEHLER = 'Frist: ganze Zahl von 1 bis 3650 Tagen.';
 
@@ -75,4 +75,33 @@ test('inzwischenText: die fremde Änderung im offenen Dialog', () => {
   assert.equal(inzwischenText(31), 'Inzwischen geändert: 31 Tage.');
   assert.equal(inzwischenText(1), 'Inzwischen geändert: 1 Tag.');
   assert.equal(inzwischenText(null), 'Inzwischen geändert: Frist gesperrt.');
+});
+
+// R00019 F0066 „Fehlerzeile unterscheidet Eingabe und Server“ (ADR-0033 Ergänzung Karte #27, Regel 1): nur die 422
+// `frist` markiert die Eingabe; der Text ist der deutsche `fehler`, sonst ein eigener Satz mit Ausweg.
+test('fehlerDerAntwort: nur die 422 frist ist ein Prüffehler, jede andere Antwort lässt das Feld unmarkiert', () => {
+  const antwort = (status, daten) => ({ serverWeg: false, status, daten });
+  assert.deepEqual(
+    fehlerDerAntwort(antwort(422, { regel: 'frist', fehler: 'Die Frist ist eine ganze Zahl.' })),
+    { text: 'Die Frist ist eine ganze Zahl.', eingabeFalsch: true },
+  );
+  for (const [status, daten] of [
+    [500, { fehler: 'Frist nicht gesetzt — x.' }],
+    [404, { fehler: '# x gibt es nicht.' }],
+    [409, { regel: 'einstellungen-defekt', fehler: 'kaputt.' }],
+    [422, { regel: 'bestaetigt', fehler: 'bestaetigt falsch.' }],
+  ]) {
+    assert.deepEqual(fehlerDerAntwort(antwort(status, daten)), { text: daten.fehler, eingabeFalsch: false }, String(status));
+  }
+});
+
+test('fehlerDerAntwort: ohne fehler „Nicht gespeichert (Status n) — später erneut versuchen.“, ohne Antwort „Verbindung prüfen“', () => {
+  assert.deepEqual(
+    fehlerDerAntwort({ serverWeg: false, status: 502, daten: null }),
+    { text: 'Nicht gespeichert (Status 502) — später erneut versuchen.', eingabeFalsch: false },
+  );
+  assert.deepEqual(
+    fehlerDerAntwort({ serverWeg: true, status: 0, daten: null }),
+    { text: 'Nicht gespeichert — Verbindung prüfen.', eingabeFalsch: false },
+  );
 });

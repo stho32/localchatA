@@ -190,7 +190,7 @@ test('Ungültig (US-16): 0 → Fehlerzeile mit ⚠ und aria-invalid, Enter sende
   expect(a.fehler).toEqual([]);
 });
 
-test('Esc (US-18): schließt ohne zu speichern, der Fokus liegt auf # allgemein', async ({ browser }) => {
+test('Esc (US-18): schließt, ohne zu speichern, der Fokus liegt auf # allgemein', async ({ browser }) => {
   await starten((ordner) => fs.mkdirSync(path.join(ordner, 'channels', 'allgemein'), { recursive: true }));
   const a = await seiteMitFehlern(browser);
   await beitreten(a.page, 'shoff');

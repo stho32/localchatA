@@ -4,7 +4,7 @@
 // und dem Fokus auf „Zurück“, der den Satz als Beschreibung trägt; ein gesperrter Dialog trägt den Sperrhinweis als
 // Beschreibung (WCAG 4.1.3, 1.3.1). Fehler bleiben im offenen Dialog, die Eingabe steht noch; Esc und „Abbrechen“
 // schließen, der Fokus kehrt zum Auslöser zurück.
-import { fristPruefen, bestaetigungText, statusText, inzwischenText } from './frist.js';
+import { fristPruefen, bestaetigungText, statusText, inzwischenText, fehlerDerAntwort } from './frist.js';
 
 const HINWEIS = 'Ältere Tage entfallen. Heute zählt mit. Standard: 7 Tage.';
 
@@ -78,7 +78,7 @@ function bedienen(zustand, { setzen, statusZeigen, neuOeffnen }, signal) {
     }
     schritt = 1;
     ersterSchritt(teile);
-    fehlerZeigen(teile, fehlertext(antwort));
+    fehlerZeigen(teile, fehlerDerAntwort(antwort));
     teile.feld.focus();
   }
 
@@ -89,7 +89,7 @@ function bedienen(zustand, { setzen, statusZeigen, neuOeffnen }, signal) {
     }
     const geprueft = fristPruefen(teile.feld.value);
     if (!geprueft.gueltig) {
-      fehlerZeigen(teile, geprueft.fehler);
+      fehlerZeigen(teile, pruefFehler(geprueft));
       teile.feld.focus();
       return;
     }
@@ -101,7 +101,7 @@ function bedienen(zustand, { setzen, statusZeigen, neuOeffnen }, signal) {
       fehlerZeigen(teile, null);
       return;
     }
-    fehlerZeigen(teile, geprueft.fehler);
+    fehlerZeigen(teile, pruefFehler(geprueft));
   }, { signal });
   teile.abbrechen.addEventListener('click', () => teile.dialog.close(), { signal });
   teile.zurueck.addEventListener('click', () => {
@@ -195,26 +195,24 @@ function schalterSperren(teile, gesperrt) {
   teile.verkuerzen.disabled = gesperrt;
 }
 
-// text null räumt die Fehlerzeile weg; sonst ⚠ und Text, das Feld mit aria-invalid.
-function fehlerZeigen({ feld, fehler, fehlertext }, text) {
-  if (text === null) {
+function pruefFehler(geprueft) {
+  return { text: geprueft.fehler, eingabeFalsch: true };
+}
+
+// fehler null räumt die Fehlerzeile weg; sonst ⚠ und Text, das Feld nur bei einem Prüffehler mit aria-invalid.
+function fehlerZeigen({ feld, fehler, fehlertext }, angezeigt) {
+  if (angezeigt === null) {
     feld.removeAttribute('aria-invalid');
     fehler.hidden = true;
     return;
   }
-  fehlertext.textContent = `⚠ ${text}`;
+  fehlertext.textContent = `⚠ ${angezeigt.text}`;
   fehler.hidden = false;
-  feld.setAttribute('aria-invalid', 'true');
-}
-
-function fehlertext({ serverWeg, status, daten }) {
-  if (serverWeg) {
-    return 'Nicht gespeichert — Verbindung prüfen.';
+  if (angezeigt.eingabeFalsch) {
+    feld.setAttribute('aria-invalid', 'true');
+    return;
   }
-  if (daten !== null && typeof daten.fehler === 'string') {
-    return daten.fehler;
-  }
-  return `Nicht gespeichert (Status ${status}).`;
+  feld.removeAttribute('aria-invalid');
 }
 
 function element(tag, eigenschaften = {}, kinder = []) {
