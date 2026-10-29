@@ -199,7 +199,8 @@ test('US-15: abgewiesen — der Grund steht an der Nachricht, die Schlange läuf
     '⚠ Nicht gespeichert — der Server konnte nicht schreiben.',
     '⚠ Keine Antwort vom Server.',
   ]);
-  const farben = await fehlgeschlagen.locator('.lc-send').evaluateAll((zeilen) => {
+  // Nur die Zeilen der fehlgeschlagenen: `fünf` kann noch „wird gesendet …“ zeigen (.lc-send in kd-ink-muted).
+  const farben = await fehlgeschlagen.locator('.lc-send.lc-fehlgeschlagen').evaluateAll((zeilen) => {
     const probe = document.createElement('span');
     probe.style.color = 'var(--kd-danger)';
     document.body.append(probe);
