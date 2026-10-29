@@ -41,6 +41,11 @@ helfen können.
 - **Markdown in Nachrichten.** Nachrichten dürfen Markdown enthalten; die Oberfläche
   zeigt es formatiert.
 
+- **Emojis und Reaktionen.** Emojis lassen sich über eine Auswahl am Eingabefeld
+  oder als `:kurzname:` einfügen. Auf eine Nachricht kann jeder Teilnehmer — Mensch
+  wie Agent über die API — mit einem Emoji reagieren; die Nachricht zeigt je Emoji,
+  wie oft reagiert wurde.
+
 - **Mensch und KI sind gleichberechtigt.** Der Mensch schreibt im Browser, der
   Agent über die API oder an den Dateien. Wer schreiben will, gibt sich selbst einen
   Namen; die Herkunft, von der er kommt (IP-Adresse oder Rechnername), ergänzt ihn —
@@ -133,3 +138,4 @@ Derzeit keine.
 | 2026-10-28 | Leitplanke: Lastprofil „Team-LAN“ (20 Menschen, 50 Agenten, Spitze 30 Nachrichten/s, 100.000 Nachrichten je Channel, 50 Channels; Zustellung < 1 s, Öffnen < 500 ms, Suche < 1 s) — Betreiber 2026-10-28 |
 | 2026-10-28 | Zielbild: Channels archivieren (Ordner nach archiv/<name>/, Name nach einer Frist wieder frei, keine zweite endgültige Löschhandlung neben der Aufbewahrungsfrist) — Betreiber 2026-10-28, Frage aus Security-Review #25 (ADR-0021) |
 | 2026-10-29 | Leitplanke: Plattenquote (Gesamtgröße der Gespräche begrenzt, an der Grenze wird Senden abgewiesen, nichts gelöscht; Aufbewahrungsfrist gilt auch im Archiv) — Betreiber 2026-10-29, ADR-0044 |
+| 2026-10-29 | Zielbild: Emojis und Reaktionen (Auswahl am Eingabefeld und Eingabe per `:kurzname:`, Reaktionen auf eine Nachricht mit Zähler je Emoji, auch für Agenten über die API; Emojis tippen und anzeigen geht schon) — Betreiber 2026-10-29 („Auswahl und Reaktionen“) |
