@@ -206,11 +206,39 @@ fn nicht_gespeichert(
         .into_response()
 }
 
+/// Bytes in Worten für den 507-Text.
+/// Bytes in Worten für den 507-Text (R00023 F0075): ab 1 GiB in GiB, sonst in MiB, eine Nachkommastelle, halbe
+/// nach oben, ganzzahlig gerechnet; deutsches Komma, Tausenderpunkt.
+fn groesse_in_worten(bytes: u64) -> String {
+    const MIB: u128 = 1024 * 1024;
+    const GIB: u128 = 1024 * MIB;
+    let (einheit, name) = if u128::from(bytes) >= GIB {
+        (GIB, "GiB")
+    } else {
+        (MIB, "MiB")
+    };
+    let zehntel = (u128::from(bytes) * 20 + einheit) / (2 * einheit);
+    let ganz = usize::try_from(zehntel / 10).unwrap_or(usize::MAX);
+    format!("{},{} {name}", mit_tausenderpunkt(ganz), zehntel % 10)
+}
+
 /// 507 an der Plattenquote (ADR-0044 Regel 4), ohne `Retry-After`.
 fn quote_erreicht(belegt: u64, hoechstens: u64) -> Response {
+    let fehler = format!(
+        "Nicht gesendet: die Gespräche belegen {}, die Quote dieser Instanz ist {}. Platz entsteht, wenn alte \
+         Tage nach ihrer Aufbewahrungsfrist entfallen (beim nächsten Tageswechsel) oder eine Frist verkürzt wird; \
+         die Quote stellt der Betreiber beim Start mit --plattenquote ein.",
+        groesse_in_worten(belegt),
+        groesse_in_worten(hoechstens)
+    );
     (
         StatusCode::INSUFFICIENT_STORAGE,
-        Json(json!({ "regel": "quote", "belegt": belegt, "hoechstens": hoechstens })),
+        Json(json!({
+            "fehler": fehler,
+            "regel": "quote",
+            "belegt": belegt,
+            "hoechstens": hoechstens,
+        })),
     )
         .into_response()
 }
@@ -483,6 +511,48 @@ mod tests {
         );
         assert_eq!(genau.1.as_deref(), Some("3"));
         assert_eq!(null.1.as_deref(), Some("1"));
+    }
+
+    /// R00023 F0075 „Größen in Worten“ (Rechenbeispiele): ab 1 GiB in GiB, sonst MiB, eine Nachkommastelle,
+    /// halbe nach oben, deutsches Komma, Tausenderpunkt.
+    #[test]
+    fn groessen_in_worten() {
+        for (bytes, text) in [
+            (4_294_967_296, "4,0 GiB"),
+            (3_865_470_567, "3,6 GiB"),
+            (1_073_741_824, "1,0 GiB"),
+            (1_073_741_823, "1.024,0 MiB"),
+            (536_870_912, "512,0 MiB"),
+            (1_048_576, "1,0 MiB"),
+            (1_048_519, "1,0 MiB"),
+            (1_101_005, "1,1 MiB"),
+            (1_101_004, "1,0 MiB"),
+            (1_099_511_627_776, "1.024,0 GiB"),
+            (0, "0,0 MiB"),
+        ] {
+            assert_eq!(groesse_in_worten(bytes), text, "{bytes}");
+        }
+    }
+
+    /// B0358 (ADR-0044 Regel 4): 507 ohne `Retry-After`, `regel: "quote"`, `belegt`, `hoechstens` und der Text mit
+    /// Grund und Ausweg.
+    #[tokio::test]
+    async fn an_der_quote_ist_507_mit_grund_und_ausweg() {
+        let antwort = teile(quote_erreicht(1_048_519, 1_048_576)).await;
+
+        assert_eq!(
+            antwort,
+            (
+                507,
+                None,
+                json!({
+                    "fehler": "Nicht gesendet: die Gespräche belegen 1,0 MiB, die Quote dieser Instanz ist 1,0 MiB. Platz entsteht, wenn alte Tage nach ihrer Aufbewahrungsfrist entfallen (beim nächsten Tageswechsel) oder eine Frist verkürzt wird; die Quote stellt der Betreiber beim Start mit --plattenquote ein.",
+                    "regel": "quote",
+                    "belegt": 1_048_519,
+                    "hoechstens": 1_048_576
+                })
+            )
+        );
     }
 
     #[test]

@@ -12,12 +12,15 @@ pub const STANDARD_BYTES: u64 = 4 * 1024 * 1024 * 1024;
 #[derive(Debug, Default)]
 pub(super) struct Belegung {
     belegt: AtomicU64,
+    /// Zahl der Abweisungen an der Quote seit dem Start (ADR-0044 Regel 9).
+    abgewiesen: AtomicU64,
 }
 
 impl Belegung {
     pub(super) fn neu(belegt: u64) -> Belegung {
         Belegung {
             belegt: AtomicU64::new(belegt),
+            abgewiesen: AtomicU64::new(0),
         }
     }
 
@@ -25,13 +28,14 @@ impl Belegung {
         self.belegt.load(Ordering::SeqCst)
     }
 
-    /// Ob `bytes` mehr noch unter `hoechstens` passen (die Grenze gehört dazu).
+    /// Ob `bytes` mehr noch unter `hoechstens` passen (die Grenze gehört dazu); eine Abweisung wird gezählt.
     pub(super) fn pruefen(&self, bytes: u64, hoechstens: u64) -> Result<(), Ueber> {
         let belegt = self.stand();
         if belegt
             .checked_add(bytes)
             .is_none_or(|danach| danach > hoechstens)
         {
+            self.abgewiesen.fetch_add(1, Ordering::SeqCst);
             return Err(Ueber { belegt, hoechstens });
         }
         Ok(())
@@ -41,6 +45,10 @@ impl Belegung {
     /// Sendungen nie über die Quote (ADR-0044 Regel 2).
     pub(super) fn dazu(&self, bytes: u64) -> u64 {
         self.belegt.fetch_add(bytes, Ordering::SeqCst)
+    }
+
+    pub(super) fn abgewiesen(&self) -> u64 {
+        self.abgewiesen.load(Ordering::SeqCst)
     }
 
     /// Vermindert um `bytes` eines entfallenen Tages, ohne Schreibsperre; liefert den Stand davor. Ein gleichzeitiges
@@ -211,6 +219,7 @@ pub(super) mod tests {
         assert_eq!(gespraeche.belegt(), 820);
         assert_eq!(summe_im_index(&gespraeche), 820);
         assert_eq!(*sperren(&rueckrufe), 1);
+        assert_eq!(gespraeche.kennzahlen().quote_abgewiesen, 1);
 
         let genau = gespraeche.senden(&allgemein, &beta(), Art::Agent, &text_fuer(180));
         assert!(genau.is_ok(), "{genau:?}");

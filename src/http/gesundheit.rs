@@ -48,6 +48,8 @@ pub struct Gesundheit {
     alle_namen: bool,
     /// Wirksame Plattenquote in Bytes, `null` bei `aus` (ADR-0044 Regel 9).
     plattenquote: Option<u64>,
+    /// Zahl der 507 wegen der Quote seit dem Start (ADR-0044 Regel 9).
+    quote_abgewiesen: u64,
 }
 
 /// Antwortet der Port, ist die Instanz bereit: geladen wird vor dem Binden (A00003).
@@ -94,6 +96,7 @@ pub async fn beantworten(State(zustand): State<Arc<Zustand>>) -> Json<Gesundheit
         werkbank_belegt: zustand.werkbank.belegt(),
         alle_namen: zustand.grenzschutz.alle_namen(),
         plattenquote: kennzahlen.plattenquote,
+        quote_abgewiesen: kennzahlen.quote_abgewiesen,
     })
 }
 
@@ -170,7 +173,8 @@ mod tests {
                 "werkbank_plaetze": 2,
                 "werkbank_belegt": 0,
                 "alle_namen": false,
-                "plattenquote": 4_294_967_296_u64
+                "plattenquote": 4_294_967_296_u64,
+                "quote_abgewiesen": 0
             })
         );
     }

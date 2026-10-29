@@ -189,6 +189,8 @@ pub struct Kennzahlen {
     pub channels: u64,
     /// Wirksame Plattenquote in Bytes, `None` bei `aus` (ADR-0044 Regel 9).
     pub plattenquote: Option<u64>,
+    /// Abweisungen an der Quote seit dem Start (ADR-0044 Regel 9).
+    pub quote_abgewiesen: u64,
 }
 
 impl Gespraeche {
@@ -383,6 +385,7 @@ impl Gespraeche {
             defekte_zeilen: self.defekte.len() as u64,
             channels: verzeichnis.channels.len() as u64,
             plattenquote: self.hoechstens,
+            quote_abgewiesen: self.belegung.abgewiesen(),
         }
     }
 }
