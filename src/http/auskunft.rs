@@ -1,6 +1,6 @@
-//! Auskunft mit Cache (ADR-0045 Regel 6 mit Ergänzungen E3, E6, E8): jede Frage an die Namensauskunft läuft
-//! blockierend in `spawn_blocking`, höchstens zwei gleichzeitig; eine Anfrage wartet höchstens eine Sekunde, danach
-//! läuft die Auflösung zu Ende und füllt den Cache. Einziger Schreiber des Caches ist diese Auskunft, im Auftrag
+//! Auskunft mit Cache (ADR-0045 Regel 6 mit Ergänzungen E3, E6, E8 und „Karte #35 Nacharbeit“): jede Frage an die
+//! Namensauskunft läuft blockierend auf einem eigenen Faden, höchstens zwei gleichzeitig; eine Anfrage wartet
+//! höchstens eine Sekunde ab ihrem Eingang, danach läuft die Auflösung zu Ende und füllt den Cache. Einziger Schreiber des Caches ist diese Auskunft, im Auftrag
 //! des Grenzschutzes.
 
 use super::namensauskunft::Namensauskunft;
@@ -125,6 +125,18 @@ struct Innen {
 pub struct Auskunft {
     innen: Arc<Innen>,
     erlaubnis: Arc<Semaphore>,
+    fadenstart: Fadenstart,
+}
+
+/// Startet die Arbeit einer Auflösung auf einem eigenen Faden; im Test ersetzbar, um einen gescheiterten Start
+/// herzustellen.
+type Fadenstart = fn(Box<dyn FnOnce() + Send>) -> std::io::Result<()>;
+
+fn faden_starten(arbeit: Box<dyn FnOnce() + Send>) -> std::io::Result<()> {
+    std::thread::Builder::new()
+        .name("namensauskunft".to_string())
+        .spawn(arbeit)
+        .map(|_| ())
 }
 
 enum Nachsehen {
@@ -148,6 +160,7 @@ impl Auskunft {
                 cache: Mutex::new(Cache::default()),
             }),
             erlaubnis: Arc::new(Semaphore::new(GLEICHZEITIG)),
+            fadenstart: faden_starten,
         }
     }
 
@@ -309,7 +322,10 @@ impl Auskunft {
         Nachsehen::Warten(empfang)
     }
 
-    /// Startet die Auflösung blockierend; ihr Ergebnis ersetzt den Eintrag des Schlüssels.
+    /// Startet die Auflösung auf einem eigenen, nicht gejointen Faden (ADR-0045 Ergänzung „Karte #35 Nacharbeit“
+    /// Punkt 3): das Ende des Programms wartet nicht auf ein hängendes `getaddrinfo`. Die Erlaubnis hält der Faden
+    /// bis zu seinem Ende; ihr Ergebnis ersetzt den Eintrag. Scheitert der Start, gilt das als „ohne Antwort“ ohne
+    /// Eintrag, und die Erlaubnis ist mit der verworfenen Arbeit sofort zurück.
     fn aufloesung_starten(
         &self,
         abfrage: Abfrage,
@@ -318,7 +334,31 @@ impl Auskunft {
         erlaubnis: OwnedSemaphorePermit,
     ) {
         let innen = Arc::clone(&self.innen);
-        tokio::task::spawn_blocking(move || innen.aufloesen(abfrage, arbeit, senden, erlaubnis));
+        let schluessel = abfrage.clone();
+        let faden = Box::new(move || innen.aufloesen(abfrage, arbeit, senden, erlaubnis));
+        if (self.fadenstart)(faden).is_err() {
+            self.ohne_faden(&schluessel);
+        }
+    }
+
+    /// Nach einem gescheiterten Fadenstart: ein laufender Eintrag fällt, eine Auffrischung gilt als nicht gestartet.
+    fn ohne_faden(&self, abfrage: &Abfrage) {
+        let mut cache = self
+            .innen
+            .cache
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        match cache
+            .eintraege
+            .get_mut(abfrage)
+            .map(|eintrag| &mut eintrag.stand)
+        {
+            Some(Stand::Laeuft(_)) => {
+                cache.eintraege.remove(abfrage);
+            }
+            Some(Stand::Fertig { auffrischung, .. }) => *auffrischung = false,
+            None => {}
+        }
     }
 
     /// Warning-Episode „Namensauflösung zu langsam“ (ADR-0045 Regel 8), eine Quelle für alle Schlüssel.
@@ -1155,6 +1195,51 @@ mod tests {
         assert_eq!(test.fragen("vorwaerts", "x.local"), 1);
         assert_eq!(test.fragen("rueckwaerts", "127.0.0.2"), 1);
         erlaubnisse_freigeben(&a, &test, laeufe).await;
+    }
+
+    /// Kriterium Ende (Code-Review #35 A3, ADR-0045 Ergänzung Punkt 3): eine Laufzeit, in der eine Frage hängt
+    /// (Testauskunft blockiert bis 10 s), wird fallen gelassen → nach < 200 ms zurück (Mutante „Auflösung wieder in
+    /// `spawn_blocking`“).
+    #[test]
+    fn eine_haengende_aufloesung_haelt_das_ende_der_laufzeit_nicht_auf() {
+        let test = Testauskunft::mit(&[], &[]);
+        test.sperren("haengt.local");
+        let a = aufbau(Arc::clone(&test));
+        let laufzeit = crate::start::laufzeit::laufzeit().expect("Laufzeit");
+        let kurz = laufzeit.block_on(async {
+            let frist = tokio::time::Instant::now() + Duration::from_millis(100);
+            urteil_bis(&a.auskunft, "haengt.local", frist).await
+        });
+        assert_eq!(kurz, None);
+        assert_eq!(test.fragen("vorwaerts", "haengt.local"), 1);
+
+        let beginn = Instant::now();
+        drop(laufzeit);
+        let ende = beginn.elapsed();
+
+        test.oeffnen("haengt.local");
+        assert!(ende < Duration::from_millis(200), "{ende:?}");
+    }
+
+    /// Scheitert der Start des Fadens, gilt das als „ohne Antwort“ ohne Eintrag; die Erlaubnis ist sofort zurück und
+    /// die nächste Anfrage fragt neu.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn scheitert_der_fadenstart_gilt_es_als_ohne_antwort_ohne_eintrag() {
+        let test = Testauskunft::mit(&[], &[("x.local", &["127.0.0.1"])]);
+        let mut a = aufbau(Arc::clone(&test));
+        Arc::get_mut(&mut a.auskunft).expect("allein").fadenstart =
+            |_| Err(std::io::Error::other("kein Faden"));
+
+        assert_eq!(urteil(&a.auskunft, "x.local").await, None);
+
+        assert_eq!(test.alle_fragen(), 0);
+        assert!(
+            !a.auskunft
+                .hat_eintrag(&Abfrage::Vorwaerts("x.local".into()))
+        );
+        assert_eq!(a.auskunft.erlaubnis.available_permits(), GLEICHZEITIG);
+        Arc::get_mut(&mut a.auskunft).expect("allein").fadenstart = faden_starten;
+        assert_eq!(urteil(&a.auskunft, "x.local").await, Some(true));
     }
 
     /// Rechenbeispiel „Ohne Erlaubnis keine Auflösung“ (E3, Matrix F6): zwei laufen; `neu.local` sofort abgewiesen,
