@@ -344,3 +344,19 @@ Nie vom User erfragen.
 | 2026-10-29 | R00020 Senden gehärtet Teil 1 | Lesen, Basis-Gate, Mutanten, Gate, Gelerntes | Konsolidierung | — | 0,18h | 0,18h | autonom |
 | 2026-10-29 | R00011 Nachricht senden | B0328 Nacharbeit 2: Sperrordnungstest erzwingt die Überlappung | Nacharbeit | — | 0,32h | 0,32h | autonom |
 | 2026-10-29 | R00020 Senden gehärtet Teil 1 | B0330 Nacharbeit: Kontext unter „Gestern“ am Tageswechsel | Nacharbeit | — | 0,17h | 0,17h | autonom |
+| 2026-10-29 | R00024 Netznamen | B0364 Abhängigkeitsprobe dns-lookup | Standard | — | 0,08h | 0,08h | autonom |
+| 2026-10-29 | R00024 Netznamen | B0365 Host in Normalform | Standard | — | 0,02h | 0,02h | autonom |
+| 2026-10-29 | R00024 Netznamen | B0366 Lokale Adresse je Verbindung | Standard | — | 0,02h | 0,02h | autonom |
+| 2026-10-29 | R00024 Netznamen | B0367 Namensauskunft als Tabelle und Testknopf | Standard | — | 0,02h | 0,02h | autonom |
+| 2026-10-29 | R00024 Netznamen | B0368 Echte Namensauskunft | Standard | — | 0,02h | 0,02h | autonom |
+| 2026-10-29 | R00024 Netznamen | B0369 Host-Urteil | Standard | — | 0,02h | 0,02h | autonom |
+| 2026-10-29 | R00024 Netznamen | B0370 Auskunft mit Cache, Gleichzeitigkeit und Zeitgrenze | Standard | — | 0,07h | 0,07h | autonom |
+| 2026-10-29 | R00024 Netznamen | B0371 Rückwärtsname im Grenzschutz | Standard | — | 0,10h | 0,10h | autonom |
+| 2026-10-29 | R00024 Netznamen | B0372 Urteil im lokalen Namensraum | Standard | — | 0,02h | 0,02h | autonom |
+| 2026-10-29 | R00024 Netznamen | B0373 Vorwärtsauflösung im Grenzschutz | Standard | — | 0,03h | 0,03h | autonom |
+| 2026-10-29 | R00024 Netznamen | B0374 Abweisungsseite bilden | Standard | — | 0,02h | 0,02h | autonom |
+| 2026-10-29 | R00024 Netznamen | B0375 Seite oder Text ausliefern | Standard | — | 0,03h | 0,03h | autonom |
+| 2026-10-29 | R00024 Netznamen | B0376 Aufruf um --alle-namen | Standard | — | 0,03h | 0,03h | autonom |
+| 2026-10-29 | R00024 Netznamen | B0377 Alle Namen annehmen | Standard | — | 0,02h | 0,02h | autonom |
+| 2026-10-29 | R00024 Netznamen | B0378 Alle Namen sichtbar machen | Standard | — | 0,05h | 0,05h | autonom |
+| 2026-10-29 | R00024 Netznamen | Lesen, Angriffsmatrix L2, 17 Mutanten, Testgrenzen, Gate, Gelerntes | Konsolidierung | — | 1,17h | 1,17h | autonom |
