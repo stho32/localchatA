@@ -52,8 +52,12 @@ async fn senden_mit(
 }
 
 async fn gegeben() -> Gegeben {
+    gegeben_mit(&[]).await
+}
+
+async fn gegeben_mit(weitere: &[&str]) -> Gegeben {
     let wurzel = ordner();
-    let instanz = starten(wurzel.path(), &[], &[]);
+    let instanz = starten(wurzel.path(), weitere, &[]);
     let basis = instanz.adresse.clone();
     let beta = Absender::von("127.0.0.1");
     let gamma = Absender::von("127.0.0.1");
@@ -596,4 +600,104 @@ async fn geloescht_bleibt_nach_dem_neustart() {
         .filter(|zeile| zeile.contains("WARNING laden"))
         .collect();
     assert!(laden.is_empty(), "{laden:#?}");
+}
+
+fn zeilen_mit(ordner: &Path, text: &str) -> Vec<String> {
+    gemeinsam::protokoll::alle_zeilen(ordner)
+        .into_iter()
+        .filter(|zeile| zeile.contains(text))
+        .collect()
+}
+
+/// Protokoll und Health (B0511, K-b, M19, M51): genau eine `INFORMATION anhang Anhänge gelöscht` mit Kennung,
+/// Herkunft und Zahlen; Health `anhaenge_geloescht` 2; nie eine ID im Protokoll; eine echte und eine ausgedachte ID
+/// → genau eine weitere Zeile; einziges Kürzen scheitert → `fehler=1`; nur ausgedachte → keine `INFORMATION`, aber
+/// `DEBUG anhang Löschen ohne Wirkung`; je Datei `DEBUG anhang Anhang gelöscht` nur mit Präfix.
+#[tokio::test]
+async fn protokoll_und_health() {
+    let g = gegeben_mit(&["--protokoll-stufe", "debug"]).await;
+    let (gamma, token) = &g.gamma;
+    let ausgedacht = "b".repeat(26);
+
+    assert_eq!(
+        loeschen(
+            gamma,
+            g.basis(),
+            token,
+            json!({"ids": [g.a, g.b], "bestaetigt": true})
+        )
+        .await
+        .status,
+        200
+    );
+    assert_eq!(gesundheit(g.basis()).await["anhaenge_geloescht"], 2);
+    for _ in 0..3 {
+        loeschen(
+            gamma,
+            g.basis(),
+            token,
+            json!({"ids": [ausgedacht], "bestaetigt": true}),
+        )
+        .await;
+    }
+    let c = datei(g.pfad(), "allgemein", "c.bin");
+    let fremd = tempfile::NamedTempFile::new().expect("fremd");
+    std::fs::remove_file(&c).expect("weg");
+    std::os::unix::fs::symlink(fremd.path(), &c).expect("Symlink");
+    loeschen(
+        gamma,
+        g.basis(),
+        token,
+        json!({"ids": [g.c, ausgedacht], "bestaetigt": true}),
+    )
+    .await;
+    assert_eq!(
+        gesundheit(g.basis()).await["anhaenge_geloescht"],
+        2,
+        "ohne Wirkung zählt nicht"
+    );
+    let Gegeben {
+        wurzel,
+        instanz,
+        a,
+        b,
+        c: id_c,
+        ..
+    } = g;
+    drop(instanz);
+
+    let information = zeilen_mit(wurzel.path(), "INFORMATION anhang Anhänge gelöscht");
+    assert_eq!(information.len(), 2, "{information:#?}");
+    assert!(information[0].ends_with(
+        "| kennung=gamma@127.0.0.1 herkunft=127.0.0.1 anhaenge=2 bytes=2097152 gespraeche=2 fremde=2 fehler=0"
+    ), "{}", information[0]);
+    assert!(
+        information[1].contains("anhaenge=0") && information[1].contains("fehler=1"),
+        "{}",
+        information[1]
+    );
+    let ohne_wirkung = zeilen_mit(wurzel.path(), "DEBUG anhang Löschen ohne Wirkung");
+    assert_eq!(ohne_wirkung.len(), 3);
+    assert!(
+        ohne_wirkung[0].contains("ids=1 unbekannt=1 schon_geloescht=0"),
+        "{}",
+        ohne_wirkung[0]
+    );
+    assert_eq!(
+        zeilen_mit(wurzel.path(), "DEBUG anhang Anhang gelöscht").len(),
+        2
+    );
+    assert_eq!(
+        zeilen_mit(wurzel.path(), "ERROR anhang Löschen gescheitert").len(),
+        1
+    );
+    for zeile in gemeinsam::protokoll::alle_zeilen(wurzel.path()) {
+        for id in [&a, &b, &id_c, &ausgedacht] {
+            assert!(!zeile.contains(id.as_str()), "{id} in {zeile}");
+        }
+        assert!(
+            !zeile.contains("a.bin") && !zeile.contains("c.bin"),
+            "{zeile}"
+        );
+    }
 }

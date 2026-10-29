@@ -132,6 +132,14 @@ pub enum Schluessel {
     Tag,
     /// Gedeutete Blöcke des Tilgers.
     Bloecke,
+    /// Zahlen eines Löschens (ADR-0042 Ergänzung „F1′“).
+    Anhaenge,
+    Gespraeche,
+    Fremde,
+    Fehler,
+    Ids,
+    Unbekannt,
+    SchonGeloescht,
     /// Eine gespeicherte Anhangdatei, nur als Präfix `<hhmmssmmm>-<n>` (ADR-0047 Ergänzung Gate Regel 3).
     Anhang,
 }
@@ -174,6 +182,13 @@ impl Schluessel {
             Schluessel::Tag => "tag",
             Schluessel::Anhang => "anhang",
             Schluessel::Bloecke => "bloecke",
+            Schluessel::Anhaenge => "anhaenge",
+            Schluessel::Gespraeche => "gespraeche",
+            Schluessel::Fremde => "fremde",
+            Schluessel::Fehler => "fehler",
+            Schluessel::Ids => "ids",
+            Schluessel::Unbekannt => "unbekannt",
+            Schluessel::SchonGeloescht => "schon_geloescht",
         }
     }
 }

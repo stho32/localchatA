@@ -9,7 +9,8 @@ use super::super::koerper::{Koerperfehler, Koerperort, felder_lesen, koerperfehl
 use super::super::senden::groesse_in_worten;
 use super::super::teilnehmer::Teilnehmer;
 use super::loeschkoerper::auftrag_pruefen;
-use crate::gespraeche::loeschen::{Geloescht, Loeschen, Umfang};
+use crate::gespraeche::loeschen::{Einzelergebnis, Geloescht, Loeschen, Umfang};
+use crate::protokoll::{Bereich, Kontext, Protokoll, Schluessel, Stufe};
 use axum::Json;
 use axum::body::Body;
 use axum::extract::State;
@@ -98,11 +99,72 @@ pub async fn loeschen(
             &teilnehmer,
         ),
         Ok((Loeschen::Geloescht(bericht), _)) => {
+            protokollieren(&zustand.protokoll, &teilnehmer, &bericht);
             (StatusCode::OK, Json(ergebnis(&bericht))).into_response()
         }
         Ok((Loeschen::Gebremst, None)) | Err(_) => {
             super::super::abbruch::interner_fehler("Löschen")
         }
+    }
+}
+
+/// Betrieb (B0511, ADR-0042 Ergänzung „F1′“ und „Karte #9 Security-Gate“ P-a): mit Wirkung genau eine
+/// `INFORMATION anhang Anhänge gelöscht` (Textanfang für das Eingriffsbudget, ADR-0049), ohne Wirkung nur `DEBUG`;
+/// je Datei `DEBUG` bzw. `ERROR` — nie Anhang-ID, Anzeigename oder ASCII-Teil.
+fn protokollieren(protokoll: &Protokoll, teilnehmer: &Teilnehmer, bericht: &Geloescht) {
+    let wer = teilnehmer.kennung.als_text();
+    for datei in &bericht.dateien {
+        let ort = Kontext::neu()
+            .mit(Schluessel::Ordner, datei.gespraech.pfad())
+            .mit(Schluessel::Tag, datei.tag.format("%Y-%m-%d"))
+            .mit(Schluessel::Anhang, datei.datei.as_str())
+            .mit(Schluessel::Bytes, datei.bytes);
+        match &datei.grund {
+            None => protokoll.eintragen(Stufe::Debug, Bereich::Anhang, "Anhang gelöscht", ort),
+            Some(grund) => protokoll.eintragen(
+                Stufe::Error,
+                Bereich::Anhang,
+                "Löschen gescheitert — der Anhang bleibt",
+                ort.mit(Schluessel::Grund, grund.as_str()),
+            ),
+        }
+    }
+    if bericht.umfang.anhaenge + bericht.fehler > 0 {
+        protokoll.eintragen(
+            Stufe::Information,
+            Bereich::Anhang,
+            "Anhänge gelöscht",
+            Kontext::neu()
+                .mit(Schluessel::Kennung, wer)
+                .mit(Schluessel::Herkunft, teilnehmer.herkunft)
+                .mit(Schluessel::Anhaenge, bericht.umfang.anhaenge)
+                .mit(Schluessel::Bytes, bericht.umfang.bytes)
+                .mit(Schluessel::Gespraeche, bericht.umfang.gespraeche)
+                .mit(Schluessel::Fremde, bericht.umfang.fremde)
+                .mit(Schluessel::Fehler, bericht.fehler),
+        );
+    } else {
+        let zahl = |gesucht: Einzelergebnis| {
+            bericht
+                .ergebnisse
+                .iter()
+                .filter(|(_, ergebnis)| *ergebnis == gesucht)
+                .count()
+        };
+        protokoll.eintragen(
+            Stufe::Debug,
+            Bereich::Anhang,
+            "Löschen ohne Wirkung",
+            Kontext::neu()
+                .mit(Schluessel::Kennung, wer)
+                .mit(Schluessel::Herkunft, teilnehmer.herkunft)
+                .mit(Schluessel::Ids, bericht.ergebnisse.len())
+                .mit(Schluessel::Unbekannt, zahl(Einzelergebnis::Unbekannt))
+                .mit(
+                    Schluessel::SchonGeloescht,
+                    zahl(Einzelergebnis::SchonGeloescht),
+                ),
+        );
     }
 }
 

@@ -64,6 +64,8 @@ pub struct Gesundheit {
     hochladebank_belegt: usize,
     /// 507 `quote` an Anmeldungen seit dem Start, beide Gründe.
     anhang_abgewiesen: u64,
+    /// Gelöschte Anhänge seit dem Start (ADR-0043 Ergänzung „F1′“).
+    anhaenge_geloescht: u64,
 }
 
 /// Antwortet der Port, ist die Instanz bereit: geladen wird vor dem Binden (A00003).
@@ -120,6 +122,7 @@ pub async fn beantworten(State(zustand): State<Arc<Zustand>>) -> Json<Gesundheit
         hochladebank_belegt: super::anhaenge::hochladen::HOCHLADEBANK
             .saturating_sub(zustand.hochladebank.available_permits()),
         anhang_abgewiesen: anhaenge.abgewiesen,
+        anhaenge_geloescht: anhaenge.geloescht,
     })
 }
 
@@ -205,6 +208,7 @@ mod tests {
                 "hochladungen": 0,
                 "hochladebank_belegt": 0,
                 "anhang_abgewiesen": 0,
+                "anhaenge_geloescht": 0,
             })
         );
     }
