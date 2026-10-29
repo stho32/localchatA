@@ -18,6 +18,8 @@ Entschieden vom architekt: [ADR-0045](../Dokumentation/ADRs/0045-host-namen-des-
 
 Slices (WBS `Dokumentation/Planung/localchata.md`, alle unter I0024 Instanz über ihren Netznamen öffnen, Dialog D0001 Start und Ablage): F0077 Über den Rückwärtsnamen öffnen, F0078 Name im lokalen Namensraum, F0079 Abweisung als verständliche Seite, F0080 Schalter `--alle-namen`.
 
+Angeglichen am 2026-10-29 (planer, `/anforderung review`, Karte #35) an die Ergänzung „Angriffsmatrix Karte #35“ von ADR-0045 (Entscheidungen E1–E8, Abschnitt „Angriffsmatrix“) und an [ADR-0043](../Dokumentation/ADRs/0043-protokollstufe-einstellen-und-kennzahlen-im-health-check.md) Ergänzung Karte #26 (gültige Option übersteuert eine falsche Umgebung, E7).
+
 ## Geschäftlicher Nutzen
 
 Im Heimnetz und im kleinen Büro ist der Name, den der Router vergibt, der normale Weg zu einem Rechner. Heute weist die Instanz genau diesen Namen ab, und zwar mit einem `text/plain`, das der Teilnehmer im Browser nicht einordnen kann und dessen Ausweg (`--erreichbar-als`) nur der Betreiber hat. Mit R00024 funktioniert `http://nuc5.fritz.box:7430/` ohne Startoption, ohne Neustart und auch nach einem DHCP-Wechsel. Wo ein Name trotzdem abgewiesen wird, zeigt die Seite den Link, der sofort funktioniert, und sagt dem Betreiber, was er tun kann. Der Schutz gegen DNS-Rebinding bleibt dabei bestehen: eine fremde Website, die ein Teilnehmer öffnet, bekommt weiterhin keinen Zugriff auf Channels, Verläufe und Fristen.
@@ -29,29 +31,34 @@ Im Heimnetz und im kleinen Büro ist der Name, den der Router vergibt, der norma
 - Ein Host-Name, den die Rückwärtsauflösung der lokalen Adresse der Verbindung liefert, ist erlaubt, ohne Groß-/Kleinschreibung und mit oder ohne abschließenden Punkt.
 - Vor jeder Prüfung wird der Host-Anteil in die Normalform gebracht; was sie verletzt, ist abgewiesen, ohne dass etwas aufgelöst wird.
 - IP-Literale, `localhost`, der Rechnername samt `<rechnername>.local` und die Namen aus `--erreichbar-als` bleiben ohne Auflösung erlaubt.
-- Ein Name außerhalb des lokalen Namensraums (also jeder öffentliche Name) löst nie eine Vorwärtsauflösung aus und ist nur mit `--erreichbar-als` erlaubt.
-- Auflösungen laufen begrenzt: höchstens 2 gleichzeitig, höchstens 1 s Wartezeit je Anfrage, Ergebnisse im Cache (erlaubt 5 min, nicht erlaubt und Zeitgrenze 60 s, höchstens 256 Einträge).
-- Das Betriebsprotokoll nennt je neuem Cache-Eintrag „erlaubt“ einmal den Namen und die lokale Adresse; eine zu langsame Auflösung steht als Warning-Episode darin.
+- Ein Host-Anteil, der kein IP-Literal ist und dessen letztes Label eine Zahl ist (`2130706433`, `0x7f000001`, `127.1`, `1.2.3.4.5`), verletzt die Normalform und ist ohne Auflösung abgewiesen (E2).
+- Ein Name außerhalb des lokalen Namensraums (also jeder öffentliche Name) löst nie eine Vorwärtsauflösung aus und ist nur mit `--erreichbar-als` erlaubt. Die Rückwärtsfrage hängt an der lokalen Adresse, nicht am Namen: sie läuft für jeden Namen, der an der festen Liste scheitert und die Normalform erfüllt, höchstens einmal je lokaler Adresse und Cache-Lebensdauer (E8).
+- Auflösungen laufen begrenzt: höchstens 2 gleichzeitig, höchstens 1 s Wartezeit je Anfrage, Ergebnisse im Cache (erlaubt 5 min, nicht erlaubt und Zeitgrenze 60 s, höchstens 256 Einträge). Eine Anfrage, die eine neue Auflösung bräuchte und keine freie Erlaubnis bekommt, wartet nicht: ihr Name ist für diese Anfrage nicht erlaubt, sie startet keine Auflösung und hinterlässt keinen Cache-Eintrag; den Cache schreibt nur eine gestartete Auflösung (E3).
+- Der `Origin`-Vergleich bleibt wörtlich gegen den gesendeten `Host`-Kopf (ADR-0014 Regel 2); die Normalform gilt nur für das Urteil über den Namen (E5).
+- Das Betriebsprotokoll nennt je neuem Cache-Eintrag „erlaubt“ einmal den Namen und die lokale Adresse; eine zu langsame Auflösung steht als Warning-Episode darin. Auf Stufe debug steht vor jeder Frage an die Namensauskunft eine Zeile „Namensauskunft gefragt“ mit `art` (`vorwaerts`, `rueckwaerts`, `eigen`) und `schluessel` (E6).
 
 ### Name im lokalen Namensraum (F0078; ADR-0045 Regeln 4, 6, 8)
 
 - Ein einteiliger Name oder ein Name unter `.local`, `.home.arpa`, `.internal` ist erlaubt, wenn seine Vorwärtsauflösung mindestens eine eigene Adresse liefert (Loopback zählt).
 - Suffixe werden nur an Label-Grenzen erkannt; es gibt kein abgeleitetes Suffix (nicht aus der Suchdomäne, nicht aus dem Rückwärtsnamen).
+- Jede Adresse der Antwort wird kanonisch (`::ffff:127.0.0.1` → `127.0.0.1`); unspezifizierte Adressen (`0.0.0.0`, `::`), Multicast (`224.0.0.0/4`, `ff00::/8`) und `255.255.255.255` zählen nie als eigen, ohne dass gefragt wird (E1).
 
 ### Abweisung als verständliche Seite (F0079; ADR-0045 Regel 7)
 
 - Ein abgewiesener Host bekommt weiter 403. Fragt ein Browser nach einem Dokument, ist der Körper eine deutsche HTML-Seite ohne Stil und Skript mit einem klickbaren Link auf `http://<lokale Adresse>:<port>/`.
 - Alle anderen Clients bekommen Text mit dem Namen, der Adresse und dem Ausweg; es gibt keine Umleitung.
+- Fehlt der `Host` oder ist er leer, bekommt ein Browser-Dokument die Seite ohne Namen und ohne Satz für den Betreiber (es gibt keinen Namen zum Freigeben); alle anderen bekommen den Text „nennt keinen Host“, ergänzt um die Adresse. Ein doppelter `Host` bleibt 403 ohne Seite (E4).
 
 ### Schalter `--alle-namen` (F0080; ADR-0045 Regel 9)
 
 - `--alle-namen` oder `LOCALCHATA_ALLE_NAMEN=1` nimmt jeden Host in Normalform an, ohne die Namensauskunft zu fragen.
+- Steht `--alle-namen` im Aufruf, ist der Schalter an, und `LOCALCHATA_ALLE_NAMEN` wird nicht gelesen — auch ein falscher Wert hält den Start nicht auf. Ohne den Schalter im Aufruf ist ein Wert außer `1`, `0` und leer Exit 2 (ADR-0043 Ergänzung Karte #26, Regeln 1, 2 und 4; E7).
 - Origin- und `Sec-Fetch-Site`-Regel, CORS und Sicherheitsheader aus ADR-0014 bleiben aktiv.
 - Der Zustand ist sichtbar: als WARNING beim Start, in `--hilfe` und im Health-Check.
 
 ## Nicht-funktionale Anforderungen
 
-- **Sicherheit** (DNS-Rebinding, CWE-350; Flut, CWE-400): kein Name, den ein Angreifer im öffentlichen DNS besitzt, wird automatisch erlaubt, und keiner löst eine Auflösung aus. Mit `--alle-namen` ist der Rebinding-Weg bewusst offen, CSRF bleibt durch ADR-0014 Regel 2 geschlossen. Die Angriffsmatrix schreibt der `security-reviewer` vor dem Bau in ADR-0045; sie ist Teil dieser Anforderung (Kriterium „Angriffsmatrix“).
+- **Sicherheit** (DNS-Rebinding, CWE-350; Flut, CWE-400): kein Name, den ein Angreifer im öffentlichen DNS besitzt, wird automatisch erlaubt, und keiner löst eine Auflösung aus. Mit `--alle-namen` ist der Rebinding-Weg bewusst offen, CSRF bleibt durch ADR-0014 Regel 2 geschlossen. Die Angriffsmatrix steht in ADR-0045 (Abschnitt „Angriffsmatrix“, vom `security-reviewer` vor dem Bau geschrieben, Entscheidungen E1–E8 in der Ergänzung „Angriffsmatrix Karte #35“); sie ist Teil dieser Anforderung (Kriterium „Angriffsmatrix“).
 - **Leistung**: der Laufzeit-Takt löst nie auf; eine Anfrage wartet höchstens 1 s auf eine Auflösung. Zweck der Grenze: ein frei wählbarer `Host` darf die Instanz nicht blockieren, ein nicht vorhandener `.local`-Name kostet sonst 5 s (Probe in ADR-0045). Die Uhr startet beim Eingang der Anfrage im Grenzschutz. Erwartet sind im Heimnetz 4–141 ms (gemessen in der ADR-Probe); die Grenze liegt also weit über 130 % des erwarteten Werts. Geprüft wird die Regel exakt mit gestellter Uhr; im echten Programm gibt es kein Zeitkriterium.
 - **Plattform**: Rückwärtsauflösung über `dns-lookup` unter Linux, macOS und Windows; „eigene Adresse“ über `UdpSocket::bind((ip, 0))`.
 - **Zeit- und Konsolenkriterien** nach `AI-Team/planer.md`.
@@ -62,25 +69,28 @@ Gemeinsam für alle Integrationskriterien: Start im Debug-Build mit `localchatA 
 
 ### Sicherheit
 
-- [ ] **Angriffsmatrix ADR-0045 vollständig grün**: jede Zeile der Angriffsmatrix, die der `security-reviewer` vor dem Bau in [ADR-0045](../Dokumentation/ADRs/0045-host-namen-des-eigenen-netzes-automatisch-oeffentliche-nur-ausdruecklich.md) ergänzt (Abschnitt „Angriffsmatrix“), ist ein Test über das echte Programm und grün; jede Zeile, die einen Wächter betrifft, wird mit dessen Mutante rot.
-- [ ] **Mutationsprobe je Wächter** (ADR-0045, Durchsetzung): abgeschaltet werden einzeln Normalform, Label-Grenze, „nur der lokale Namensraum löst auf“, „eigene Adresse“, Zeitgrenze, Cache-Ablauf und „Ursprungsregel bei `--alle-namen`“; jede Mutante macht mindestens einen Test rot. Das Ergebnis steht im Bericht des Entwicklers.
+- [ ] **Angriffsmatrix ADR-0045 vollständig grün**: jede Zeile des Abschnitts „Angriffsmatrix“ in [ADR-0045](../Dokumentation/ADRs/0045-host-namen-des-eigenen-netzes-automatisch-oeffentliche-nur-ausdruecklich.md) (Gruppen K, A–J; Ergänzung „Angriffsmatrix Karte #35“, „Durchsetzung, ergänzt“) außer den Zeilen der Linie L2r ist ein Test über die angegebene Linie — L1 im Prozess mit Fake-Namensauskunft und Testuhr, L2 über das echte Programm mit `LOCALCHATA_TESTNAMEN`, L2 (Release) im Release-Build — und grün; jede Zeile, die einen Wächter betrifft, wird mit dessen Mutante rot. „V nein“ bzw. „R nein“ in L2 heißt: auf Stufe debug keine Zeile „Namensauskunft gefragt“ mit `art=vorwaerts` bzw. `art=rueckwaerts` für diesen Schlüssel (E6). Die Zeilen L2r (B7, B8, F1 echt) fährt der Entwicklertest von Hand auf einem Rechner im LAN. Zeile I14 gilt nach Entscheidung E7 und ADR-0043 Ergänzung Karte #26: `--alle-namen` + `LOCALCHATA_ALLE_NAMEN=ja` → Start mit `alle_namen: true` (der Wortlaut „Exit 2“ der Zeile ist überholt).
+- [ ] **Mutationsprobe je Wächter** (ADR-0045, Durchsetzung): abgeschaltet werden einzeln Normalform, Label-Grenze, „nur der lokale Namensraum löst auf“, „eigene Adresse“, Zeitgrenze, Cache-Ablauf und „Ursprungsregel bei `--alle-namen`“, dazu aus der Ergänzung „Angriffsmatrix Karte #35“ „Ausschluss unspezifiziert/Multicast/Broadcast“ (E1, Matrix C6, C7), „numerischer Name ohne Auflösung“ (E2, C13) und „ohne Erlaubnis kein Cache-Eintrag“ (E3, F6), sowie „Umgebung immer geprüft“ (ADR-0043 Ergänzung Karte #26, I14); jede Mutante macht mindestens einen Test rot. Das Ergebnis steht im Bericht des Entwicklers.
 
 ### F0077 Über den Rückwärtsnamen öffnen
 
 - [ ] **Abhängigkeitsprobe zuerst** (Review-Punkt; Bedingung des architekt in ADR-0045): der erste Commit dieser Interaction ist die Probe `dns-lookup` nach Skill `dependency-probe`. Sie enthält mindestens einen Happy Path (`127.0.0.1` → `localhost`) und eine Fault-Injection (nicht vergebene Adresse oder Resolver ohne Antwort → leeres Ergebnis bzw. Fehler ohne Panik, der Faden endet). Messwerte, Lizenz und Urteil stehen im Bericht. Trägt die Probe nicht, endet der Bau mit `blockiert`, und der architekt schreibt eine neue ADR.
 - [ ] **Host-Urteil** (Unit, reine Operation; erster Test aus A00004): Namensauskunft als Tabelle `192.168.178.65 → nuc5.fritz.box` (rückwärts) und `boese.example → 192.168.178.65` (vorwärts, eigen).
+  - Zuerst: `boese.example` → abgewiesen und **nie vorwärts gefragt** — die Tabelle zählt für `boese.example` 0 Vorwärtsfragen (die Rückwärtsfrage hängt an der lokalen Adresse, E8).
   - `nuc5.fritz.box:7430` über die lokale Adresse `192.168.178.65` → erlaubt mit Grund „Rückwärtsname“.
   - `nuc5.fritz.box.` und `NUC5.Fritz.Box` → erlaubt.
-  - `boese.example` → abgewiesen, und die Tabelle zählt für `boese.example` 0 Fragen.
   - `nuc5.fritz.box` über die lokale Adresse `127.0.0.1` (Tabelle ohne Eintrag dafür) → abgewiesen.
 - [ ] **Normalform** (Unit, rein):
   - `Chat.LAN.` → `chat.lan`; `xn--bcher-kva.example` bleibt unverändert.
   - Abgewiesen ohne Auflösung: `a_b.example` (Unterstrich), `a..b` (leeres Label), ein Label aus 64 Zeichen, ein Name aus 254 Zeichen. Erlaubt als Form: ein Label aus 63 Zeichen, ein Name aus 253 Zeichen.
   - `evil-local` und `local.evil.example` enden nicht auf dem Label `.local`.
+  - Numerisch (E2): `2130706433`, `0x7f000001`, `0X7F000001`, `127.1`, `1.2.3.4.5` → abgewiesen ohne Auflösung; `1.2.3.4` bleibt ein IP-Literal (feste Liste); `a1.local` und `1a.local` sind keine numerischen Namen.
 - [ ] **Rückwärtsname über das echte Programm** (Integration, Testnamen):
   - Erlaubt: `Host: nuc5.fritz.box:<p>`, `Host: NUC5.Fritz.Box:<p>`, `Host: nuc5.fritz.box.:<p>`.
   - Abgewiesen: `Host: boese.example:<p>` (die Testnamen zeigen ihn auf `127.0.0.1`, eine eigene Adresse, trotzdem 403); `Host: a_b.example:<p>`.
   - Bleibt erlaubt: `Host: 127.0.0.1:<p>`, `Host: localhost:<p>`; mit `--erreichbar-als chat.firma.de` ist `Host: chat.firma.de:<p>` erlaubt.
+  - Gefragt / nicht gefragt (E6, E8; Stufe debug über `LOCALCHATA_PROTOKOLL_STUFE=debug`): nach `Host: boese.example:<p>` enthält `heute.log` keine Zeile `DEBUG grenzschutz Namensauskunft gefragt` mit `art=vorwaerts` und `schluessel=boese.example`; nach zwei Anfragen mit `Host: nuc5.fritz.box:<p>` genau eine Zeile mit `art=rueckwaerts` und `schluessel=127.0.0.1`.
+  - Origin wörtlich (E5; der Rechnername `<r>` aus `hostname`): `POST /api/beitreten {"name":"beta"}` mit `Host: <r>.local.:<p>` und `Origin: http://<r>.local.:<p>` → 201 (Matrix D11); mit `Origin: http://<r>.local:<p>` → 403 `application/json` `{fehler}`, kein Beitritt (D12).
 - [ ] **Rückwärtsname im echten Netz** (Integration, echtes DNS; nur wenn der Rechner eine Nicht-Loopback-IPv4 `<lan-ip>` hat und `getent hosts <lan-ip>` einen Namen `<name>` liefert, sonst als übersprungen gemeldet): Start mit `--host 0.0.0.0` ohne Testnamen; `GET http://<lan-ip>:<p>/api/gesundheit` mit `Host: <name>:<p>` → erlaubt.
 - [ ] **Cache, Gleichzeitigkeit und Zeitgrenze** (Unit, gestellte Uhr, blockierende Testauskunft):
   - Gleichzeitigkeit: 4 verschiedene Namen, je Auflösung 3 s → zu keinem Zeitpunkt laufen mehr als 2 Auflösungen.
@@ -90,6 +100,9 @@ Gemeinsam für alle Integrationskriterien: Start im Debug-Build mit `localchatA 
   - Ablauf „nicht erlaubt“, Rechenbeispiel: `drucker.local` abgewiesen bei t = 0 (1 Frage), wieder bei t = 59 s (weiter 1 Frage), wieder bei t = 61 s (2 Fragen).
   - Größe: nach 257 verschiedenen Schlüsseln ist der zuerst eingetragene nicht mehr im Cache (seine nächste Anfrage fragt neu), der zuletzt eingetragene schon.
   - Die Zeitgrenze ergibt genau eine `WARNING grenzschutz`-Episode „Namensauflösung zu langsam“.
+  - Ohne Erlaubnis keine Auflösung (E3), Rechenbeispiel: zwei Auflösungen laufen ab t = 0 (je 3 s). Anfrage für `neu.local` bei t = 0,5 s → sofort abgewiesen, die Testauskunft zählt für `neu.local` 0 Fragen, der Cache hat keinen Eintrag `neu.local`. Anfrage für `neu.local` bei t = 3,1 s → 1 Frage, erlaubt.
+  - Rückwärts nicht flutbar (E8, Matrix F7): 300 verschiedene öffentliche Namen über die lokale Adresse `127.0.0.1` innerhalb von 60 s → 0 Vorwärtsfragen, höchstens 1 Rückwärtsfrage; jede Anfrage abgewiesen nach ≤ 1 s.
+  - Fragen beobachtbar (E6, Speicher-Senke auf Stufe debug): je Frage der Testauskunft steht davor genau eine Zeile `DEBUG grenzschutz Namensauskunft gefragt` mit `art` und `schluessel`; ein Cache-Treffer schreibt keine.
 - [ ] **Protokoll** (Integration, Testnamen): zwei Anfragen mit `Host: nuc5.fritz.box:<p>` → `heute.log` enthält genau eine Zeile `INFORMATION grenzschutz Host-Name über Rückwärtsauflösung erlaubt` mit `name=nuc5.fritz.box` und `adresse=127.0.0.1`.
 - [ ] **Testknopf nur im Debug-Build** (Integration):
   - Debug-Build: `LOCALCHATA_TESTNAMEN=kaputt` → Exit 2, eine Zeile auf stderr nennt `LOCALCHATA_TESTNAMEN`.
@@ -100,10 +113,12 @@ Gemeinsam für alle Integrationskriterien: Start im Debug-Build mit `localchatA 
 - [ ] **Urteil** (Unit, reine Operation; Rest des ersten Tests aus A00004): Tabelle `chat.local → 192.168.178.65` (eigen) und `drucker.local → 192.168.178.99` (fremd).
   - `chat.local` → erlaubt mit Grund „lokaler Namensraum“; `drucker.local` → abgewiesen.
   - `local.boese.example` → abgewiesen, und die Tabelle zählt dafür 0 Fragen.
+  - Kanonisch und Ausschluss (E1): `null.local → 0.0.0.0`, `null6.local → ::`, `mc.local → 224.0.0.251`, `bc.local → 255.255.255.255` → abgewiesen, „eigen?“ wird für diese Adressen nicht gefragt; `map.local → ::ffff:127.0.0.1` → „eigen?“ für `127.0.0.1` → erlaubt; `mix.local → 192.0.2.1, 127.0.0.1` → erlaubt.
 - [ ] **Über das echte Programm** (Integration, Testnamen):
   - Erlaubt: `chat.local`, `chat`, `nas.home.arpa`, `dienst.internal` (alle auf `127.0.0.1`).
   - Abgewiesen: `drucker.local` (auf `192.0.2.1`, nicht eigen); `local.boese.example`; `evil-local`.
   - Abgewiesen trotz Eintrag auf `127.0.0.1`: `chat.fritz.box` (kein abgeleitetes Suffix); mit `--erreichbar-als chat.fritz.box` erlaubt.
+  - Gefragt / nicht gefragt (E6; Stufe debug): zwei Anfragen mit `Host: chat.local:<p>`, dann `X.LOCAL:<p>` und `chat.local.:<p>` → insgesamt genau eine Zeile „Namensauskunft gefragt“ mit `art=vorwaerts` und `schluessel=chat.local`; `local.boese.example`, `x.localhost`, `2130706433` → keine Zeile mit `art=vorwaerts`.
 - [ ] **Protokoll** (Integration, Testnamen): zwei Anfragen mit `Host: chat.local:<p>` → genau eine Zeile `INFORMATION grenzschutz Host-Name über lokalen Namensraum erlaubt` mit `name=chat.local` und `adresse=127.0.0.1`.
 
 ### F0079 Abweisung als verständliche Seite
@@ -114,11 +129,13 @@ Gemeinsam für alle Integrationskriterien: Start im Debug-Build mit `localchatA 
   - Sie enthält kein `<style`, kein `style=`, kein `<script` und kein `on…=`-Attribut.
   - Lokale Adresse `::1` → Link `http://[::1]:7430/`.
   - Name `<script>x` → in der Seite nur als `&lt;script&gt;x`.
+  - Ohne Namen (E4): Überschrift und Link wie oben, Satz zum Warum; kein Satz mit `--erreichbar-als`.
 - [ ] **Browser bekommt die Seite** (Integration):
   - `GET /` mit `Host: boese.example:<p>` und `Accept: text/html` → 403, `Content-Type: text/html; charset=utf-8`, die Seite aus dem Unit-Kriterium mit dem Link `http://127.0.0.1:<p>/`.
   - Ebenso mit `Sec-Fetch-Dest: document` und `Accept: */*`.
   - Die Antwort trägt den Header-Satz aus ADR-0014 Regel 5 mit unveränderter `Content-Security-Policy` und keinen `Location`-Kopf.
-- [ ] **Agent bekommt Text** (Integration): `GET /api/gesundheit` mit `Host: boese.example:<p>` und `Accept: application/json` → 403 mit `Content-Type: text/plain; charset=utf-8`. Der Text enthält `boese.example`, `http://127.0.0.1:<p>/`, `--erreichbar-als boese.example` und „Namen des eigenen Netzes gelten automatisch“. Ohne `Accept`-Kopf gilt dasselbe. Ohne `Host`-Kopf bleibt die Antwort wie heute (`text/plain`).
+- [ ] **Agent bekommt Text** (Integration): `GET /api/gesundheit` mit `Host: boese.example:<p>` und `Accept: application/json` → 403 mit `Content-Type: text/plain; charset=utf-8`. Der Text enthält `boese.example`, `http://127.0.0.1:<p>/`, `--erreichbar-als boese.example` und „Namen des eigenen Netzes gelten automatisch“. Ohne `Accept`-Kopf gilt dasselbe.
+- [ ] **Ohne `Host`** (Integration, roh über Socket; E4, Matrix G5, D9, D10): HTTP/1.0 `GET /` ohne `Host` mit `Accept: text/html` → 403 `text/html; charset=utf-8`, Überschrift und Link `http://127.0.0.1:<p>/`, kein `--erreichbar-als`; dasselbe mit `Accept: */*` → 403 `text/plain` „nennt keinen Host“ mit `http://127.0.0.1:<p>/`; zwei `Host`-Köpfe mit `Accept: text/html` → 403 ohne Seite.
 - [ ] **Im Browser** (E2E, Playwright, Chromium mit `--host-resolver-rules=MAP boese.example 127.0.0.1`):
   - `http://boese.example:<p>/` öffnen → die Überschrift „Diese Adresse ist für localchatA nicht freigegeben“ ist sichtbar.
   - Ein Klick auf den Link öffnet `http://127.0.0.1:<p>/` mit dem Titel `localchatA`.
@@ -129,10 +146,11 @@ Gemeinsam für alle Integrationskriterien: Start im Debug-Build mit `localchatA 
 - [ ] **Aufruf** (Unit, rein; erster Test aus A00003):
   - `["/tmp/x", "--alle-namen"]` → `alle_namen: true`; ohne die Option → `false`.
   - Umgebung `LOCALCHATA_ALLE_NAMEN=1` → `true`; `0` oder leer → `false`; `ja` → Aufruffehler (Exit 2), der die Variable nennt.
-  - `--alle-namen` mit `LOCALCHATA_ALLE_NAMEN=0` → `true` (die Option geht vor); `--alle-namen` mit `LOCALCHATA_ALLE_NAMEN=ja` → Exit 2 (Muster `--protokoll-stufe`).
+  - `--alle-namen` mit `LOCALCHATA_ALLE_NAMEN=0` → `true` (die Option geht vor); `--alle-namen` mit `LOCALCHATA_ALLE_NAMEN=ja` → `true`, die Umgebung wird nicht gelesen (ADR-0043 Ergänzung Karte #26, E7; Muster `--protokoll-stufe`). Gegenprobe ohne die Option: `LOCALCHATA_ALLE_NAMEN=ja` → Exit 2. Mutante „Umgebung immer geprüft“ wird rot.
+  - Integration: `LOCALCHATA_ALLE_NAMEN=ja localchatA <ordner> --alle-namen …` → Startzeile, `/api/gesundheit` meldet `alle_namen: true`, WARNING vor der Startzeile; ohne `--alle-namen` → Exit 2, kein Listener.
   - `--hilfe` nennt `--alle-namen` und `LOCALCHATA_ALLE_NAMEN`, auf eigener Zeile den Risikosatz aus dem Kriterium „Sichtbar“, und dass Namen des eigenen Netzes automatisch gelten.
 - [ ] **Jeder Name** (Integration, `--alle-namen`, Testnamen gesetzt):
-  - `Host: boese.example:<p>` → erlaubt; die Testauskunft wird nie gefragt (Unit mit zählender Tabelle: 0 Fragen).
+  - `Host: boese.example:<p>`, `chat.lan:<p>`, `x.local:<p>` → erlaubt; die Namensauskunft wird nie gefragt (Unit mit zählender Tabelle: 0 Fragen; im echten Programm auf Stufe debug keine Zeile „Namensauskunft gefragt“, Matrix I1).
   - Abgewiesen bleibt: `Host: a_b.example:<p>`, eine Anfrage ohne `Host`-Kopf und `POST /api/beitreten` mit `Host: boese.example:<p>` und `Origin: http://andere.example:<p>`.
   - Bewusst offen (Rebinding-Weg, ADR-0045 Regel 9): `POST /api/beitreten {"name":"beta"}` mit `Host: boese.example:<p>` und `Origin: http://boese.example:<p>` → 201.
 - [ ] **Sichtbar** (Integration):
@@ -202,20 +220,20 @@ Nach Skill `test-pyramide` und ADR-0009; die Szenarien der User Story werden Tes
 
 - Abhängig von: I0004 Namen wählen und beitreten (gruen, R00003; darin F0006 Grenzschutz); F0051 Protokoll schreibt und F0055 Grenzen, Episoden und Tagesbudget (beide gruen, R00014).
 - Blockiert: keine.
-- Vor dem Bau: die Angriffsmatrix des `security-reviewer` in ADR-0045.
+- Vor dem Bau: die Angriffsmatrix des `security-reviewer` in ADR-0045 — liegt vor (Commit 2fc7c7e, Entscheidungen E1–E8; E7 nach ADR-0043 Ergänzung Karte #26, Commit 5f3b3c5).
 
 ## Offene Fragen
 
 - Keine für den Bau. Für R00024 entschieden (den Wortlaut der ADR gleicht der architekt an):
   - (1) `LOCALCHATA_TESTNAMEN` ersetzt Rückwärts- und Vorwärtsauflösung; `ist_eigene_adresse` bleibt echt. So ist „eigen“ über `127.0.0.1` und „fremd“ über `192.0.2.1` deterministisch.
   - (2) Der Text für Nicht-Browser ist nur in seinen Bestandteilen festgelegt (Name, Adresse, `--erreichbar-als <name>`, „Namen des eigenen Netzes gelten automatisch“), nicht im Wortlaut.
-  - (3) Ohne `Host`-Kopf bleibt die Abweisung `text/plain` wie heute, auch für Browser (Browser senden immer einen `Host`).
-  - (4) `--alle-namen` mit einem falschen Wert in `LOCALCHATA_ALLE_NAMEN` ergibt Exit 2, wie `--protokoll-stufe`.
-- Vor dem Bau, nicht von dieser Anforderung zu beantworten: die Angriffsmatrix (`security-reviewer`).
+  - (3) ~~Ohne `Host`-Kopf bleibt die Abweisung `text/plain` wie heute, auch für Browser.~~ Ersetzt durch Entscheidung E4 (ADR-0045 Ergänzung „Angriffsmatrix Karte #35“): ein Browser-Dokument ohne `Host` bekommt die Seite ohne Namen.
+  - (4) ~~`--alle-namen` mit einem falschen Wert in `LOCALCHATA_ALLE_NAMEN` ergibt Exit 2.~~ Ersetzt durch ADR-0043 Ergänzung Karte #26 (E7): steht der Schalter im Aufruf, wird die Umgebung nicht gelesen; Exit 2 nur ohne den Schalter.
+- Angriffsmatrix: liegt vor (ADR-0045, Abschnitt „Angriffsmatrix“, E1–E8 entschieden). Die Matrix-Zeile I14 und Regel 9 sagen noch „Exit 2“; den Wortlaut gleicht der architekt an — für diese Anforderung gilt E7.
 
 ## Manuelle Vorbereitungstätigkeiten
 
-- Der `security-reviewer` ergänzt ADR-0045 um den Abschnitt „Angriffsmatrix“, bevor gebaut wird (Director).
+- ~~Der `security-reviewer` ergänzt ADR-0045 um den Abschnitt „Angriffsmatrix“, bevor gebaut wird (Director).~~ Erledigt 2026-10-29 (Commit 2fc7c7e).
 
 ## Manuelle Nachbereitungstätigkeiten
 
@@ -251,6 +269,10 @@ Der Hebel liegt im Grenzschutz, weil dort die Frage „welcher Name?“ schon he
 - Verhalten von `getnameinfo` mit `nss-mdns` und bei hängendem Resolver ist nur aus der Wegwerf-Probe des architekt bekannt; die Probe B0364 schließt die Lücke.
 
 ## Notizen
+
+### Angriffsmatrix in den Bubbles (2026-10-29, Karte #35)
+
+E1 → B0372 (kanonisch, Ausschluss), E2 → B0365 (numerische Namen), E3 → B0370 (`try_acquire`, kein Cache-Eintrag ohne Erlaubnis), E4 → B0375 (Seite ohne Namen), E5 → B0371 (Origin wörtlich, D11/D12), E6 → B0370 (DEBUG-Zeile), B0371 und B0373 (gefragt / nicht gefragt im echten Programm), E7 → B0376 (Option vor falscher Umgebung), E8 → B0369 (nie vorwärts gefragt) und B0370 (Rückwärts höchstens einmal je lokaler Adresse). Neue Mutanten: „Ausschluss unspezifiziert/Multicast/Broadcast“, „numerischer Name ohne Auflösung“, „ohne Erlaubnis kein Cache-Eintrag“. Keine neuen Bubbles; der Umfang bleibt bei 15 Bubbles, gezählt aus der WBS.
 
 ### Verworfene Alternativen
 
