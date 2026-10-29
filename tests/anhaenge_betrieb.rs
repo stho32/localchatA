@@ -421,3 +421,114 @@ async fn warnschwelle_der_anhang_quote() {
         unter[0]
     );
 }
+
+/// Start (B0516, M46′): G = 8.454.144, Neustart mit `--anhangquote 8MiB` → `WARNING start Anhänge belegen mehr als
+/// die Anhangquote`, keine Datei verändert; `INFORMATION start` nennt `anhangquote=8388608`,
+/// `anhang_belegt=8454144`, `anhang_option=--anhangquote`; Anmelden 1 → 507 `voll`; nach bestätigtem Löschen von
+/// zwei Anhängen zu 1 MiB → 201.
+#[tokio::test]
+async fn start_mit_gesenkter_anhangquote() {
+    let wurzel = ordner();
+    let mut ids = Vec::new();
+    {
+        let instanz = starten(wurzel.path(), &[], &[]);
+        let beta = Absender::von("127.0.0.1");
+        let token = beitreten(&beta, &instanz.adresse, "beta", Some("agent")).await;
+        for nummer in 0..9 {
+            let laenge = if nummer < 8 { 1_048_576 } else { 1 };
+            let id = ablegen(
+                &beta,
+                &instanz.adresse,
+                &token,
+                &format!("n{nummer}.bin"),
+                vec![1u8; laenge],
+            )
+            .await;
+            let koerper = serde_json::json!({"text": "", "anhaenge": [id]})
+                .to_string()
+                .into_bytes();
+            assert_eq!(
+                roh_senden(
+                    &beta,
+                    &instanz.adresse,
+                    Some(&token),
+                    "allgemein",
+                    "application/json",
+                    koerper
+                )
+                .await
+                .status,
+                201
+            );
+            ids.push(id);
+        }
+        assert_eq!(
+            gesundheit(&instanz.adresse).await["anhang_belegt"],
+            8_454_144
+        );
+    }
+    let vorher: Vec<(String, u64)> = dateien(wurzel.path());
+
+    let instanz = starten(wurzel.path(), &["--anhangquote", "8MiB"], &[]);
+    let beta = Absender::von("127.0.0.1");
+    let token = beitreten(&beta, &instanz.adresse, "beta2", Some("agent")).await;
+    let voll = anmelden(&beta, &instanz.adresse, &token, "x.bin", 1).await;
+    assert_eq!(
+        (voll.status, &voll.json["grund"]),
+        (507, &serde_json::json!("voll"))
+    );
+    assert_eq!(dateien(wurzel.path()), vorher, "keine Datei verändert");
+    let antwort = beta
+        .anfrage(
+            reqwest::Method::POST,
+            format!("{}api/anhaenge/loeschen", instanz.adresse),
+        )
+        .header("Content-Type", "application/json")
+        .header("X-LocalchatA-Sitzung", &token)
+        .body(serde_json::json!({"ids": [ids[0], ids[1]], "bestaetigt": true}).to_string())
+        .send()
+        .await
+        .expect("Löschen");
+    assert_eq!(antwort.status(), 200);
+    assert_eq!(
+        anmelden(&beta, &instanz.adresse, &token, "x.bin", 1)
+            .await
+            .status,
+        201
+    );
+    drop(instanz);
+
+    let warnung = zeilen_mit(
+        wurzel.path(),
+        "WARNING start Anhänge belegen mehr als die Anhangquote",
+    );
+    assert_eq!(warnung.len(), 1, "{warnung:#?}");
+    let bereit: Vec<String> = zeilen_mit(wurzel.path(), "INFORMATION start Instanz bereit");
+    assert!(
+        bereit[1].contains("anhangquote=8388608 anhang_belegt=8454144 anhang_option=--anhangquote"),
+        "{}",
+        bereit[1]
+    );
+}
+
+fn dateien(ordner: &Path) -> Vec<(String, u64)> {
+    let anhaenge = ordner.join("channels/allgemein/anhaenge");
+    let tag = std::fs::read_dir(&anhaenge)
+        .expect("anhaenge")
+        .next()
+        .expect("Tag")
+        .expect("Tag")
+        .path();
+    let mut liste: Vec<(String, u64)> = std::fs::read_dir(tag)
+        .expect("Tag")
+        .map(|e| {
+            let e = e.expect("Eintrag");
+            (
+                e.file_name().to_string_lossy().into_owned(),
+                e.metadata().expect("Länge").len(),
+            )
+        })
+        .collect();
+    liste.sort();
+    liste
+}

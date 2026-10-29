@@ -149,6 +149,9 @@ pub enum Schluessel {
     Reserviert,
     Frei,
     Gebunden,
+    Anhangquote,
+    AnhangBelegt,
+    AnhangOption,
     /// Eine gespeicherte Anhangdatei, nur als Präfix `<hhmmssmmm>-<n>` (ADR-0047 Ergänzung Gate Regel 3).
     Anhang,
 }
@@ -204,6 +207,9 @@ impl Schluessel {
             Schluessel::Reserviert => "reserviert",
             Schluessel::Frei => "frei",
             Schluessel::Gebunden => "gebunden",
+            Schluessel::Anhangquote => "anhangquote",
+            Schluessel::AnhangBelegt => "anhang_belegt",
+            Schluessel::AnhangOption => "anhang_option",
         }
     }
 }

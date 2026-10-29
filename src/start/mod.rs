@@ -402,7 +402,7 @@ async fn nach_der_sperre(
             },
         stufe_herkunft,
         quote: (quote, quote_herkunft),
-        anhangquote: (anhangquote, _anhangquote_herkunft),
+        anhangquote: (anhangquote, anhangquote_herkunft),
         anhangdateien,
     } = startlaeufe;
     let bus = Arc::new(Bus::neu(live::KAPAZITAET));
@@ -503,7 +503,28 @@ async fn nach_der_sperre(
             .mit(Schluessel::Belegt, kennzahlen.log_bytes)
             .mit(Schluessel::PlattenquoteOption, quote_herkunft)
             .mit(Schluessel::Anzahl, kennzahlen.nachrichten)
-            .mit(Schluessel::DauerMs, kennzahlen.ladezeit_ms),
+            .mit(Schluessel::DauerMs, kennzahlen.ladezeit_ms)
+            .mit(
+                Schluessel::Anhangquote,
+                anhangquote
+                    .hoechstens()
+                    .map_or("aus".to_string(), |bytes| bytes.to_string()),
+            )
+            .mit(
+                Schluessel::AnhangBelegt,
+                gespraeche.anhangkennzahlen().gebunden,
+            )
+            .mit(Schluessel::AnhangOption, anhangquote_herkunft),
+    );
+    anhangquote_beim_start_melden(
+        &protokoll,
+        &Startplatz {
+            frei: gespraeche.platte_frei(),
+            log_bytes: kennzahlen.log_bytes,
+            anhang_belegt: gespraeche.anhangkennzahlen().gebunden,
+            plattenquote: quote.hoechstens(),
+            anhangquote: anhangquote.hoechstens(),
+        },
     );
     startzeile_schreiben(&ordner, adresse);
     if auftrag.browser_oeffnen {
@@ -695,6 +716,57 @@ fn anhangschwelle_melden(protokoll: &Arc<Protokoll>) -> crate::gespraeche::Anhan
     )
 }
 
+/// Was der Start über Platte und Quoten weiß (B0516).
+struct Startplatz {
+    frei: u64,
+    log_bytes: u64,
+    anhang_belegt: u64,
+    plattenquote: Option<u64>,
+    anhangquote: Option<u64>,
+}
+
+const GIB: u64 = 1_073_741_824;
+
+/// Trägt die Platte beide Quoten? `frei + log_bytes + anhang_belegt ≥ plattenquote + anhangquote + 1 GiB`; eine
+/// Quote `aus` zählt nicht (ADR-0043 Ergänzungen „F1“, „F1′“).
+fn platte_traegt(platz: &Startplatz) -> bool {
+    let vorhanden =
+        u128::from(platz.frei) + u128::from(platz.log_bytes) + u128::from(platz.anhang_belegt);
+    let gebraucht = u128::from(platz.plattenquote.unwrap_or(0))
+        + u128::from(platz.anhangquote.unwrap_or(0))
+        + u128::from(GIB);
+    vorhanden >= gebraucht
+}
+
+/// `WARNING start Platte trägt die Quoten nicht` und `WARNING start Anhänge belegen mehr als die Anhangquote`
+/// (gelöscht wird nichts; jede Anmeldung antwortet 507 `voll`, bis Platz entsteht).
+fn anhangquote_beim_start_melden(protokoll: &Protokoll, platz: &Startplatz) {
+    if !platte_traegt(platz) {
+        protokoll.eintragen(
+            Stufe::Warning,
+            Bereich::Start,
+            "Platte trägt die Quoten nicht",
+            Kontext::neu()
+                .mit(Schluessel::Frei, platz.frei)
+                .mit(Schluessel::Belegt, platz.log_bytes)
+                .mit(Schluessel::AnhangBelegt, platz.anhang_belegt),
+        );
+    }
+    if let Some(hoechstens) = platz
+        .anhangquote
+        .filter(|hoechstens| platz.anhang_belegt > *hoechstens)
+    {
+        protokoll.eintragen(
+            Stufe::Warning,
+            Bereich::Start,
+            "Anhänge belegen mehr als die Anhangquote",
+            Kontext::neu()
+                .mit(Schluessel::AnhangBelegt, platz.anhang_belegt)
+                .mit(Schluessel::Hoechstens, hoechstens),
+        );
+    }
+}
+
 /// Pflegt alle Channels nach ihrer Frist und trägt jeden Bericht ins Protokoll ein (R00017: nie selbst auf stderr).
 fn frist_pflegen(
     gespraeche: &Gespraeche,
@@ -856,6 +928,40 @@ mod tests {
     use crate::gespraeche::Kennung;
     use crate::name::Name;
     use crate::protokoll::testhilfe::{im_speicher, zeit};
+
+    /// B0516: `frei + log_bytes + anhang_belegt` genau eine Byte unter `plattenquote + anhangquote + 1 GiB` → trägt
+    /// nicht; genau gleich → trägt; eine Quote `aus` zählt nicht.
+    #[test]
+    fn platte_traegt_die_quoten_an_der_grenze() {
+        let platz = |frei: u64, plattenquote, anhangquote| Startplatz {
+            frei,
+            log_bytes: 100,
+            anhang_belegt: 200,
+            plattenquote,
+            anhangquote,
+        };
+        let gebraucht = 4 * GIB + 20 * GIB + GIB - 300;
+        assert!(!platte_traegt(&platz(
+            gebraucht - 1,
+            Some(4 * GIB),
+            Some(20 * GIB)
+        )));
+        assert!(platte_traegt(&platz(
+            gebraucht,
+            Some(4 * GIB),
+            Some(20 * GIB)
+        )));
+        assert!(platte_traegt(&platz(
+            gebraucht - 20 * GIB,
+            Some(4 * GIB),
+            None
+        )));
+        assert!(!platte_traegt(&platz(
+            gebraucht - 20 * GIB - 1,
+            Some(4 * GIB),
+            None
+        )));
+    }
 
     fn wechsel(stand: u64, status: Status) -> Wechsel {
         Wechsel {
