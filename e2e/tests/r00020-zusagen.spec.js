@@ -86,7 +86,7 @@ test('US-7: HTML im Nachrichtentext bleibt Text', async ({ browser }) => {
 });
 
 // US-8, „Fehlgeschlagene unter allen bestätigten“ (B0350; Abnahme-Probe aus ADR-0037 Ergänzung Karte #31, wörtlich):
-// „A sendet „x“, Route antwortet 500; danach sendet `beta` 2 → die beiden stehen über „x“, „x“ ist das letzte Element
+// „A sendet ‚x‘, Route antwortet 500; danach sendet `beta` 2 → die beiden stehen über ‚x‘, ‚x‘ ist das letzte Element
 // des Verlaufs und zeigt ⚠.“ Die 500 kommt als gestellte Antwort; erlaubt ist dazu genau ihre Konsolenzeile.
 test('US-8: die fehlgeschlagene Nachricht bleibt unter allen bestätigten', async ({ browser }) => {
   instanz = await sendenStarten({ anzahl: 5 });
