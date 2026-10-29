@@ -39,7 +39,8 @@ pub struct Gegriffen {
 
 /// Ein Auftreten an einer Platzgrenze (Verbindung, Sitzung, Channels): WARNING-Episode je Herkunft mit dem
 /// Kontext `herkunft`, `grenze`, `hoechstens`; die Grenze ist zugleich die Art des Auftretens, damit die
-/// Ende-Zeile je Grenze zählt (`(gesamt <g>; herkunft <h>)`).
+/// Ende-Zeile je Grenze zählt (`(gesamt <g>; herkunft <h>)`). `grenze` und `hoechstens` gehören dem einzelnen
+/// Auftreten und stehen nur in der Beginn-Zeile (ADR-0042 Ergänzung Karte #26 Punkt 1 und Karte #66).
 pub fn grenzauftreten(
     bereich: Bereich,
     text: &'static str,
@@ -53,8 +54,8 @@ pub fn grenzauftreten(
         quelle: herkunft.to_string(),
         kontext: Kontext::neu()
             .mit(Schluessel::Herkunft, herkunft)
-            .mit(Schluessel::Grenze, gegriffen.art)
-            .mit(Schluessel::Hoechstens, gegriffen.hoechstens),
+            .mit_nur_beginn(Schluessel::Grenze, gegriffen.art)
+            .mit_nur_beginn(Schluessel::Hoechstens, gegriffen.hoechstens),
         art: Some(gegriffen.art.als_text()),
         verworfen: None,
         bytes: None,
@@ -114,10 +115,10 @@ mod tests {
             "{zeilen:#?}"
         );
         assert!(
-            zeilen[1].contains(&format!(
-                " WARNING sitzung {SITZUNG} — Episode endet: 6 in 0 s (gesamt 1; herkunft 5)"
+            zeilen[1].ends_with(&format!(
+                " WARNING sitzung {SITZUNG} — Episode endet: 6 in 0 s (gesamt 1; herkunft 5) | herkunft=127.0.0.1"
             )),
-            "{zeilen:#?}"
+            "R00038 B0591: grenze und hoechstens gehören dem ersten Auftreten, das Ende zählt je Grenze: {zeilen:#?}"
         );
     }
 }
