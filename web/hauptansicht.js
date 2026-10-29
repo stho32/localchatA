@@ -87,7 +87,7 @@ export function zeichnen(wurzel, teilnehmer, optionen) {
     ansagen: ansagen.melden,
   });
   const eingabe = eingabeAnlegen({ senden: senden.senden, entwurf: entwurfAnlegen({ speicher: window.sessionStorage }) });
-  const wieder = wiederverbindenEinrichten({ verlauf, senden, abrufen: optionen.verlaufAbrufen }, vorigeAnsichtAbmelden.signal);
+  const wieder = wiederverbindenEinrichten({ verlauf, senden, abrufen: optionen.verlaufNachholen }, vorigeAnsichtAbmelden.signal);
   fokusTastenBedienen({ verlauf, eingabe }, vorigeAnsichtAbmelden.signal);
   const beiAuswahl = (channel) => {
     gewaehlterChannel = channel;
@@ -130,6 +130,7 @@ function wiederverbindenEinrichten({ verlauf, senden, abrufen }, signal) {
   let zustand = VERBINDUNG_ANFANG;
   let anzeige = { getrennt: false, meldung: null, meldungSeitMs: 0 };
   let ausblenden = null;
+  let nachholenAbbrechen = new AbortController();
 
   function leisteZeigen() {
     const inhalt = leisteInhalt(anzeige, Date.now());
@@ -154,7 +155,8 @@ function wiederverbindenEinrichten({ verlauf, senden, abrufen }, signal) {
     const nachholbar = vorher.channel !== null && vorher.geladen && vorher.neuesterImFenster;
     let ergebnis = { art: 'nachgeholt', nachrichten: [] };
     if (nachholbar) {
-      ergebnis = await nachholen(vorher.juengste, (cursor, n) => abrufen(vorher.channel, cursor, undefined, n));
+      const abbruch = nachholenAbbrechen.signal;
+      ergebnis = await nachholen(vorher.juengste, (cursor, n) => abrufen(vorher.channel, cursor, abbruch, n));
     }
     const nochDerselbe = verlauf.stand().channel === vorher.channel;
     if (nochDerselbe && ergebnis.art === 'nachgeholt') {
@@ -178,6 +180,8 @@ function wiederverbindenEinrichten({ verlauf, senden, abrufen }, signal) {
     const ergebnis = verbindung(zustand, ereignis);
     zustand = ergebnis.zustand;
     if (ergebnis.aktion === 'trennen') {
+      nachholenAbbrechen.abort();
+      nachholenAbbrechen = new AbortController();
       anzeige = { ...anzeige, getrennt: true };
       leisteZeigen();
       senden.getrennt();

@@ -63,6 +63,29 @@ export async function verlaufAbrufen(name, cursor, { token, signal, n = 100 }, h
   }
 }
 
+// Ein Block beim Nachholen (ADR-0037 Ergänzung Karte #22/#36, 7a): wie verlaufAbrufen, aber 10 s nach Beginn
+// abgebrochen wie das Senden — ein hängender Abruf hält Lücke und Warteschlange nicht fest. signal: Abbruch durch den
+// Aufrufer (Trennung, Channelwechsel). → { art: 'block', block } | { art: 'fehler', status } | { art: 'zeitueberschreitung' }
+// | { art: 'abgebrochen' }
+export async function verlaufNachholen(name, cursor, { token, signal, n, zeitgeber = ECHTE_ZEITGEBER }, holen = holenImBrowser) {
+  const ZEITGRENZE_MS = 10000;
+  const abbruch = new AbortController();
+  const abbrechen = () => abbruch.abort();
+  const zeitgrenze = zeitgeber.stellen(ZEITGRENZE_MS, abbrechen);
+  signal.addEventListener('abort', abbrechen);
+  try {
+    const ergebnis = await verlaufAbrufen(name, cursor, { token, signal: abbruch.signal, n }, holen);
+    const zeitUeberschritten = ergebnis.art === 'abgebrochen' && !signal.aborted;
+    if (zeitUeberschritten) {
+      return { art: 'zeitueberschreitung' };
+    }
+    return ergebnis;
+  } finally {
+    zeitgeber.loeschen(zeitgrenze);
+    signal.removeEventListener('abort', abbrechen);
+  }
+}
+
 // Eine Nachricht senden (ADR-0034, ADR-0037 Regeln 2, 4): POST {text} mit Sitzung und Wiederholschlüssel; ohne Antwort
 // bricht der Abruf 10 s nach Beginn ab. zeitgeber: { stellen(ms, rueckruf) → id, loeschen(id) }.
 // → { art: 'antwort', status, daten } | { art: 'zeitueberschreitung' } | { art: 'netzfehler' }
