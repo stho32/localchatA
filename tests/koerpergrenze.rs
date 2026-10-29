@@ -1,11 +1,14 @@
 //! R00010 Körpergrenze je Route (B0204, Befundkarte #21) — über das echte Programm. `POST /api/beitreten` und
 //! `POST /api/channels` nehmen Körper bis einschließlich 4 096 Bytes an; ab 4 097 Bytes antworten sie 413
 //! `{fehler}` mit „zu groß“ und der Grenze, ohne zu parsen (ungültiges JSON → 413, nicht 400). Die Spanne
-//! steht je Route einzeln, damit eine Grenze, die nur an einer Route sitzt, auffällt.
+//! steht je Route einzeln, damit eine Grenze, die nur an einer Route sitzt, auffällt. Den ganzen Satz der 413
+//! samt Beispiel je Route (Beitreten, Channel anlegen, Frist setzen) prüfen die Tests `b1_…` (R00020 B0334,
+//! Befund #31 B1).
 #![cfg(target_os = "linux")]
 
 mod gemeinsam;
 
+use gemeinsam::frist::channel_in_liste;
 use gemeinsam::{Absender, ApiAntwort, Instanz, api_antwort, wegwerf_starten};
 use serde_json::{Value, json};
 use std::fs;
@@ -72,6 +75,18 @@ fn zu_gross_mit_grenze(antwort: &ApiAntwort, fall: &str) {
     let fehler = antwort.json["fehler"].as_str().unwrap_or_default();
     assert!(fehler.contains("zu groß"), "{fall}: {fehler:?}");
     assert!(fehler.contains("4096 Bytes"), "{fall}: {fehler:?}");
+}
+
+/// Die 413 einer Route mit genau ihrem Satz (Befund #31 B1): der Satzschluss mit dem Beispiel schreibt jede Route
+/// selbst, deshalb steht der Wortlaut je Route vollständig im Test. Die Verbindung endet danach (`Connection: close`).
+fn zu_gross_genau(antwort: &ApiAntwort, erwartet: &str) {
+    assert_eq!(antwort.status, 413, "{}", antwort.json);
+    assert_eq!(antwort.json["fehler"], erwartet);
+    assert_eq!(
+        antwort.kopf.get("connection").map(|wert| wert.as_bytes()),
+        Some(&b"close"[..]),
+        "{erwartet}"
+    );
 }
 
 fn channel_ordner(instanz: &Instanz) -> Vec<String> {
@@ -213,4 +228,86 @@ async fn kontrolle_der_laengste_gueltige_channel_koerper_wird_angelegt() {
     assert_eq!(antwort.status, 201, "{}", antwort.json);
     assert_eq!(antwort.json["channel"]["name"], "a".repeat(32));
     assert_eq!(antwort.json["channel"]["beschreibung"], "😀".repeat(200));
+}
+
+/// Befund #31 B1, Abnahme-Probe „Channel anlegen“: ein gültiger Körper mit 4 097 Bytes → 413 mit dem ganzen Satz
+/// samt Beispiel, kein Channel-Ordner entsteht.
+#[tokio::test]
+async fn b1_channel_anlegen_413_nennt_den_ganzen_satz_mit_beispiel_und_legt_nichts_an() {
+    let instanz = wegwerf_starten();
+    let absender = Absender::von("127.0.0.2");
+    let alpha = token(&absender, &instanz, "alpha").await;
+    let koerper = aufgefuellt(&json!({ "name": "allgemein" }), GRENZE + 1);
+    assert_eq!(koerper.len(), 4097);
+
+    let antwort = senden(
+        &absender,
+        &instanz,
+        "channels",
+        Some(&alpha),
+        Some("application/json"),
+        koerper,
+    )
+    .await;
+
+    zu_gross_genau(
+        &antwort,
+        "Der Körper ist zu groß — höchstens 4096 Bytes, nur Name und Beschreibung schicken, zum Beispiel {\"name\":\"allgemein\"}.",
+    );
+    assert_eq!(channel_ordner(&instanz), Vec::<String>::new());
+}
+
+/// Befund #31 B1, Abnahme-Probe „Frist setzen“: ein gültiger Körper mit 1 025 Bytes → 413 mit dem ganzen Satz
+/// samt Beispiel; die Frist bleibt in der Liste und in `einstellungen.toml`, wie sie war.
+#[tokio::test]
+async fn b1_frist_setzen_413_nennt_den_ganzen_satz_mit_beispiel_und_laesst_die_frist() {
+    let instanz = wegwerf_starten();
+    let absender = Absender::von("127.0.0.2");
+    let alpha = token(&absender, &instanz, "alpha").await;
+    let angelegt = absender
+        .channel_anlegen(&instanz.adresse, &alpha, json!({ "name": "allgemein" }))
+        .await;
+    assert_eq!(angelegt.status, 201, "{}", angelegt.json);
+    let einstellungen = instanz.ordner.join("channels/allgemein/einstellungen.toml");
+    let datei_vorher = fs::read(&einstellungen).ok();
+    let (vorher, _) = channel_in_liste(&absender, &instanz, &alpha, "allgemein").await;
+    let koerper = aufgefuellt(&json!({ "tage": 30 }), 1025);
+    assert_eq!(koerper.len(), 1025);
+
+    let antwort = api_antwort(
+        absender
+            .anfrage(
+                reqwest::Method::PUT,
+                format!("{}api/channels/allgemein/frist", instanz.adresse),
+            )
+            .header("X-LocalchatA-Sitzung", &alpha)
+            .header("Content-Type", "application/json")
+            .body(koerper),
+    )
+    .await;
+
+    zu_gross_genau(
+        &antwort,
+        "Der Körper ist zu groß — höchstens 1024 Bytes, nur die Tage schicken, zum Beispiel {\"tage\":30}.",
+    );
+    let (danach, _) = channel_in_liste(&absender, &instanz, &alpha, "allgemein").await;
+    assert_eq!(danach["frist_tage"], vorher["frist_tage"]);
+    assert_eq!(danach["frist_tage"], 7);
+    assert_eq!(fs::read(&einstellungen).ok(), datei_vorher);
+}
+
+/// Befund #31 B1, Variante „Beitreten“: ein gültiger Körper mit 4 097 Bytes → 413 mit dem ganzen Satz samt Beispiel.
+#[tokio::test]
+async fn b1_beitreten_413_nennt_den_ganzen_satz_mit_beispiel() {
+    let instanz = wegwerf_starten();
+    let absender = Absender::von("127.0.0.1");
+    let koerper = aufgefuellt(&json!({ "name": "shoff" }), GRENZE + 1);
+    assert_eq!(koerper.len(), 4097);
+
+    let antwort = beitreten_json(&absender, &instanz, koerper).await;
+
+    zu_gross_genau(
+        &antwort,
+        "Der Körper ist zu groß — höchstens 4096 Bytes, nur Name und Art schicken, zum Beispiel {\"name\":\"shoff\"}.",
+    );
 }
