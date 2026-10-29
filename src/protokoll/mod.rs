@@ -370,8 +370,9 @@ impl Protokoll {
                 Stufe::Information,
                 Bereich::Protokoll,
                 format!(
-                    "{} ({aelteste} bis {juengste}; Aufbewahrung {} Tage; {})",
+                    "{} ({}; Aufbewahrung {} Tage; {})",
                     entfallen_als_text(bereinigung.entfallen.len()),
+                    spanne(aelteste, juengste),
                     bereinigung::AUFBEWAHRUNG_TAGE,
                     anlass.als_text()
                 ),
@@ -488,6 +489,16 @@ impl Protokoll {
             inneres.rueckfall = false;
             self.ok.store(true, Ordering::SeqCst);
         }
+    }
+}
+
+/// Das eine Datum, wenn älteste und jüngste dieselbe Datei sind, sonst „<älteste> bis <jüngste>“ (ADR-0041 Nachzug
+/// Karte #28 Punkt 3).
+fn spanne(aelteste: &NaiveDate, juengste: &NaiveDate) -> String {
+    if aelteste == juengste {
+        aelteste.to_string()
+    } else {
+        format!("{aelteste} bis {juengste}")
     }
 }
 
@@ -942,7 +953,7 @@ mod tests {
         assert_eq!(
             p.datei("2026-10-28.log"),
             [
-                "2026-10-28T12:00:00.000+01:00 INFORMATION protokoll 1 Protokolldatei entfällt (2026-10-14 bis 2026-10-14; Aufbewahrung 14 Tage; Start)"
+                "2026-10-28T12:00:00.000+01:00 INFORMATION protokoll 1 Protokolldatei entfällt (2026-10-14; Aufbewahrung 14 Tage; Start)"
             ]
         );
     }
