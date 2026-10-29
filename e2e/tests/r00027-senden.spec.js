@@ -232,17 +232,24 @@ test('Doppeltipp (Telefon): zweimal schnell getippt, genau ein POST', async ({ b
   expect(fehler).toEqual([]);
 });
 
-test('Komposition (Telefon): das sichtbare Wort wird gesendet, danach schreibt keine Tastatur es zurück', async ({ browser }) => {
+test('Komposition (Telefon): das Wort wird vor dem Leeren genau einmal beendet und gesendet, danach schreibt keine Tastatur es zurück', async ({ browser }) => {
   const { page, fehler } = await seiteAuf(browser, 'telefon');
   const sendungen = sendungenMitschreiben(page);
   const cdp = await page.context().newCDPSession(page);
 
   await tippen(page, 'Hallo ');
+  await eingabe(page).evaluate((feld) => {
+    window.lcKompositionsenden = [];
+    feld.addEventListener('compositionend', (ereignis) => {
+      window.lcKompositionsenden.push({ data: ereignis.data, feld: feld.value });
+    });
+  });
   await cdp.send('Input.imeSetComposition', { text: 'Wel', selectionStart: 3, selectionEnd: 3 });
   await expect(eingabe(page)).toHaveValue('Hallo Wel');
   await knopf(page).tap();
 
   await expect(bestaetigt(page, 'Hallo Wel')).toHaveCount(1);
+  expect(await page.evaluate(() => window.lcKompositionsenden)).toEqual([{ data: 'Wel', feld: 'Hallo Wel' }]);
   expect(sendungen.map((sendung) => sendung.text)).toEqual(['Hallo Wel']);
   await expect(eingabe(page)).toHaveValue('');
   expect(await feldHatFokus(page)).toBe(true);
