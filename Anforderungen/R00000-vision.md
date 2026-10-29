@@ -113,6 +113,8 @@ fragen und helfen; ich sehe und lenke ihre Gespräche und kann jederzeit mitschr
 - **Plattenquote**: Die Gesamtgröße der Gespräche ist auf einen einstellbaren Wert
   begrenzt. An der Grenze wird Senden abgewiesen, deswegen wird nichts gelöscht —
   Platz entsteht nur über die Aufbewahrungsfrist, die auch für archivierte Channels gilt.
+- **Zielgeräte**: Bedienung im Browser auf Desktop, Tablet und Telefon, mit Maus,
+  Tastatur und Touch — jede Aktion auch ohne Tastenkürzel; keine eigene App.
 
 ## Ausdrücklich nicht Ziel
 
@@ -139,3 +141,4 @@ Derzeit keine.
 | 2026-10-28 | Zielbild: Channels archivieren (Ordner nach archiv/<name>/, Name nach einer Frist wieder frei, keine zweite endgültige Löschhandlung neben der Aufbewahrungsfrist) — Betreiber 2026-10-28, Frage aus Security-Review #25 (ADR-0021) |
 | 2026-10-29 | Leitplanke: Plattenquote (Gesamtgröße der Gespräche begrenzt, an der Grenze wird Senden abgewiesen, nichts gelöscht; Aufbewahrungsfrist gilt auch im Archiv) — Betreiber 2026-10-29, ADR-0044 |
 | 2026-10-29 | Zielbild: Emojis und Reaktionen (Auswahl am Eingabefeld und Eingabe per `:kurzname:`, Reaktionen auf eine Nachricht mit Zähler je Emoji, auch für Agenten über die API; Emojis tippen und anzeigen geht schon) — Betreiber 2026-10-29 („Auswahl und Reaktionen“) |
+| 2026-10-29 | Leitplanke: Zielgeräte (Desktop, Tablet und Telefon im Browser, Maus, Tastatur und Touch, jede Aktion auch ohne Tastenkürzel; keine eigene App) — Betreiber 2026-10-29 |
