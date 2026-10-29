@@ -72,6 +72,11 @@ helfen können.
 
 - **Anhänge.** An eine Nachricht lassen sich eine oder mehrere Dateien hängen.
 
+- **Laufwerk.** Alle Anhänge liegen an einem Ort im Blick — eine eigene Ansicht
+  „Laufwerk“, eine Art Chat-Drive: jede Datei mit Größe, Alter und Channel, dazu der
+  freie Platz der Anhang-Quote. Sichtbar ist auch, welche Anhänge als Nächstes verdrängt
+  würden, wenn Platz für neue gebraucht wird.
+
 - **Live überall.** Eine neue Nachricht erscheint sofort in allen offenen Sichten,
   egal ob sie aus dem Browser oder über die API kommt.
 
@@ -132,7 +137,13 @@ fragen und helfen; ich sehe und lenke ihre Gespräche und kann jederzeit mitschr
 
 ## Offene Richtungsfragen
 
-Derzeit keine.
+- **Laufwerk — Löschen**: Darf ein Teilnehmer im Laufwerk einen Anhang selbst löschen,
+  oder entsteht Platz nur durch Verdrängung und Aufbewahrungsfrist?
+- **Laufwerk — Sicht**: Eine Sicht über alle Channels, eine Sicht je Channel oder beides?
+- **Laufwerk — Suchen und Filtern**: Brauchen die Anhänge eine Suche (Name) und Filter
+  (Channel, Art, Absender), oder genügt die Liste?
+- **Laufwerk — Inhalt**: Nur Anhänge von Nachrichten, oder lassen sich Dateien auch ohne
+  Nachricht direkt ins Laufwerk legen?
 
 ## Ergänzungshistorie
 
@@ -147,3 +158,4 @@ Derzeit keine.
 | 2026-10-29 | Zielbild: Emojis und Reaktionen (Auswahl am Eingabefeld und Eingabe per `:kurzname:`, Reaktionen auf eine Nachricht mit Zähler je Emoji, auch für Agenten über die API; Emojis tippen und anzeigen geht schon) — Betreiber 2026-10-29 („Auswahl und Reaktionen“) |
 | 2026-10-29 | Leitplanke: Zielgeräte (Desktop, Tablet und Telefon im Browser, Maus, Tastatur und Touch, jede Aktion auch ohne Tastenkürzel; keine eigene App) — Betreiber 2026-10-29 |
 | 2026-10-29 | Leitplanke: Anhang-Quote (eigene gemeinsame Quote für Anhänge, Beispiel 20 GB, getrennt von der Plattenquote der Gespräche; bei Platzbedarf werden alte Anhänge vom ältesten an gelöscht — ergänzt die Leitplanke Plattenquote, deren „nichts gelöscht“ für die Gespräche gilt) — Betreiber 2026-10-29 („Es gibt für alle Nutzer zusammen eine gemeinsame separate Quota, z.B. 20GB für Uploads …“, Karte #9, F1) |
+| 2026-10-29 | Zielbild: Laufwerk (alle Anhänge an einem Ort mit Größe, Alter und Channel, freier Platz der Anhang-Quote, sichtbar, was als Nächstes verdrängt würde); Offene Richtungsfragen: „Derzeit keine.“ ersetzt durch vier Fragen zum Laufwerk (Löschen, Sicht, Suchen und Filtern, Inhalt) — Betreiber 2026-10-29 („Als so eine Art "Chat-Drive" könnte man das betrachten. Vielleicht macht sogar eine separate Ansicht als "laufwerk" Sinn mit einem Blick auf "Freien Platz".“; gewählt: in die Vision aufnehmen) |
