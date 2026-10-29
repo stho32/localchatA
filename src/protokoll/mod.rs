@@ -36,6 +36,8 @@ pub struct Protokollkennzahlen {
     pub zaehler: Zaehlerstand,
     pub ausgefallen: Vec<&'static str>,
     pub abgewiesen: AbgewiesenStand,
+    /// Verbindungen, die an der Abrissgrenze endeten, seit dem Start (ADR-0043 Ergänzung #24).
+    pub abgerissen: u64,
 }
 
 /// Eine Panik, wie der Haken sie sieht: Ort (Datei:Zeile), Name des Threads, Text.
@@ -89,6 +91,8 @@ pub struct Protokoll {
     abgewiesen: Abgewiesen,
     /// Über dem Tagesbudget verworfene Einträge seit dem Start (ADR-0042 Regel 6).
     verworfen: AtomicU64,
+    /// Abrisse an der Abrissgrenze seit dem Start (ADR-0043 Ergänzung #24).
+    abgerissen: AtomicU64,
     /// Namen beendeter Hintergrundaufgaben (ADR-0042 Regel 4) — für `aufgaben_ausgefallen`.
     ausgefallen: Mutex<Vec<&'static str>>,
 }
@@ -150,6 +154,7 @@ impl Protokoll {
             episoden: Mutex::new(Episoden::neu(episoden::RUHE)),
             abgewiesen: Abgewiesen::default(),
             verworfen: AtomicU64::new(0),
+            abgerissen: AtomicU64::new(0),
         }
     }
 
@@ -308,6 +313,11 @@ impl Protokoll {
         self.abgewiesen.zaehlen(art);
     }
 
+    /// Zählt einen Abriss an der Abrissgrenze — beim Entstehen, unabhängig von Stufe, Episode und Budget.
+    pub fn abriss_zaehlen(&self) {
+        self.abgerissen.fetch_add(1, Ordering::SeqCst);
+    }
+
     /// Kennzahlen für `/api/gesundheit` (ADR-0043 Regel 5).
     pub fn kennzahlen(&self) -> Protokollkennzahlen {
         let heute = self.uhr.jetzt().date_naive();
@@ -323,6 +333,7 @@ impl Protokoll {
             zaehler: self.zaehler.stand(),
             ausgefallen: self.ausgefallen(),
             abgewiesen: self.abgewiesen.stand(),
+            abgerissen: self.abgerissen.load(Ordering::SeqCst),
         }
     }
 

@@ -2,6 +2,7 @@
 //!
 //! Reihenfolge: Aufruf lesen → Uhr → Gnadenfrist → Herzschlag → Ordner vorbereiten → sperren → Bus → Verlauf laden (Channel-Wechsel an den Bus) → Fristpflege (Start) → Anwesenheit → binden → Ende-Signal → Takt → Startzeile → Browser → ausliefern bis zum Signal.
 
+mod abriss;
 pub(crate) mod abrisspflege;
 mod allenamen;
 mod annahmefehler;

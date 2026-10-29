@@ -113,6 +113,8 @@ pub enum Schluessel {
     Schluessel,
     /// Fremdtext einer technischen Ursache (ADR-0040 Ergänzung „eigener Schlüssel `ursache`“).
     Ursache,
+    /// Zahl der Grenze, die gegriffen hat (ADR-0042 Ergänzung Karte #26 Punkt 1).
+    Hoechstens,
 }
 
 impl Schluessel {
@@ -145,6 +147,7 @@ impl Schluessel {
             Schluessel::Operation => "operation",
             Schluessel::Schluessel => "schluessel",
             Schluessel::Ursache => "ursache",
+            Schluessel::Hoechstens => "hoechstens",
         }
     }
 }

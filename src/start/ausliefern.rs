@@ -2,6 +2,7 @@
 //! Kopf-Zeitgrenze, keine Verbindungsgrenze und kein Ende nach Frist kennt (Security-Review, CWE-400).
 //! Sie setzt je Verbindung die kanonische Gegenstelle als `ConnectInfo` — die Herkunft (ADR-0012).
 
+use super::abriss::Abrissspur;
 use super::abrisspflege::Pflege;
 use super::annahmefehler::annahmefehler_eintragen;
 use super::ende::Ende;
@@ -68,8 +69,16 @@ pub async fn ausliefern(
                         }
                         let verbindung = Verbindungsprotokoll::angenommen(&protokoll, gegenstelle);
                         let ende = ende.clone();
+                        let protokoll = Arc::clone(&protokoll);
+                        let abrissgrenze = pflege.abrissgrenze();
                         verbindungen.spawn(async move {
-                            bedienen(strom, app, platz, ende).await;
+                            let ergebnis = bedienen(strom, app, platz, ende).await;
+                            Abrissspur {
+                                protokoll: &protokoll,
+                                herkunft: gegenstelle.ip(),
+                                grenze: abrissgrenze,
+                            }
+                            .verbindung_endete(&ergebnis);
                             verbindung.beendet();
                         });
                     }
@@ -148,21 +157,26 @@ fn kanonisch(gegenstelle: SocketAddr) -> SocketAddr {
     SocketAddr::new(gegenstelle.ip().to_canonical(), gegenstelle.port())
 }
 
-/// Bedient eine Verbindung mit HTTP/1.1; nach dem Ende-Signal keine neuen Requests mehr.
-/// Das Ergebnis der Verbindung (abgelaufene Kopf-Zeitgrenze, Abbruch der Gegenstelle) betrifft nur sie
-/// selbst und wird bewusst nicht gemeldet — eine Zeile je Fremdverbindung würde stderr fluten.
-async fn bedienen(strom: TcpStream, app: Router, _platz: Platz, mut ende: Ende) {
+/// Bedient eine Verbindung mit HTTP/1.1; nach dem Ende-Signal keine neuen Requests mehr. Das Ergebnis geht an
+/// den Aufrufer: nur ein Abriss an der Abrissgrenze wird eingetragen (als Episode, ADR-0042 Ergänzung #24
+/// Punkt 7); andere Enden (Kopf-Zeitgrenze, Abbruch der Gegenstelle) betreffen nur die Verbindung selbst.
+async fn bedienen(
+    strom: TcpStream,
+    app: Router,
+    _platz: Platz,
+    mut ende: Ende,
+) -> Result<(), hyper::Error> {
     let verbindung = http1::Builder::new()
         .timer(TokioTimer::new())
         .header_read_timeout(KOPF_ZEITGRENZE)
         .serve_connection(TokioIo::new(strom), TowerToHyperService::new(app));
     tokio::pin!(verbindung);
     tokio::select! {
-        _ = verbindung.as_mut() => return,
+        ergebnis = verbindung.as_mut() => return ergebnis,
         () = ende.abwarten() => {}
     }
     verbindung.as_mut().graceful_shutdown();
-    let _ = verbindung.await;
+    verbindung.await
 }
 
 #[cfg(test)]

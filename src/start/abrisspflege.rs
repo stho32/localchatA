@@ -111,15 +111,25 @@ pub struct Pflege {
     pflegen: Arc<Pflegen>,
     melden: Arc<Melden>,
     gemeldet: Arc<AtomicBool>,
+    /// Die Abrissgrenze, die die Pflege setzt — für die Spur eines Abrisses (`hoechstens`).
+    abrissgrenze: Option<Duration>,
 }
 
 impl Pflege {
     /// Die Fassung des Programms: Kernel-Pflege, der erste Fehler eine WARNING im Betriebsprotokoll.
     pub fn kernel(pflege: Verbindungspflege, protokoll: Arc<Protokoll>) -> Pflege {
-        Pflege::mit_protokoll(
-            move |strom: &TcpStream| kernel_pflegen(strom, &pflege),
-            protokoll,
-        )
+        Pflege {
+            abrissgrenze: Some(pflege.user_timeout),
+            ..Pflege::mit_protokoll(
+                move |strom: &TcpStream| kernel_pflegen(strom, &pflege),
+                protokoll,
+            )
+        }
+    }
+
+    /// Die Abrissgrenze, falls diese Pflege sie setzt.
+    pub fn abrissgrenze(&self) -> Option<Duration> {
+        self.abrissgrenze
     }
 
     /// Ein beliebiger Pfleger; der erste Fehler ist eine WARNING `verbindung` mit `option` und `grund`.
@@ -147,6 +157,7 @@ impl Pflege {
             pflegen: Arc::new(pflegen),
             melden: Arc::new(melden),
             gemeldet: Arc::new(AtomicBool::new(false)),
+            abrissgrenze: None,
         }
     }
 
