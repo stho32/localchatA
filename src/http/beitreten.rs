@@ -65,7 +65,7 @@ pub async fn beantworten(
             if let Beitrittsfehler::ZuVieleSitzungen(gegriffen) = fehler {
                 zustand.protokoll.episode(grenzauftreten(
                     Bereich::Sitzung,
-                    "Beitritt an der Sitzungsgrenze abgewiesen",
+                    crate::protokoll::episodentexte::SITZUNGSGRENZE,
                     gegenstelle.ip(),
                     gegriffen,
                 ));

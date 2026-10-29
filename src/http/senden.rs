@@ -189,7 +189,7 @@ fn nicht_gespeichert(
     zustand.protokoll.episode(Auftreten {
         stufe: Stufe::Error,
         bereich: Bereich::Senden,
-        text: "Nachricht nicht gespeichert",
+        text: crate::protokoll::episodentexte::NICHT_GESPEICHERT,
         quelle: format!("{datei} {grund}"),
         kontext: Kontext::neu()
             .mit(Schluessel::Channel, channel)
@@ -215,7 +215,7 @@ fn quote_melden(zustand: &Zustand, channel: &str, wer: &str, belegt: u64, hoechs
     zustand.protokoll.episode(Auftreten {
         stufe: Stufe::Warning,
         bereich: Bereich::Quote,
-        text: "Senden abgewiesen: Quote erreicht",
+        text: crate::protokoll::episodentexte::QUOTE_ERREICHT,
         quelle: wer.to_string(),
         kontext: Kontext::neu()
             .mit(Schluessel::Kennung, wer)
@@ -285,7 +285,7 @@ fn gebremst_auftreten(wer: &str, grenze: Grenze) -> Auftreten {
     Auftreten {
         stufe: Stufe::Warning,
         bereich: Bereich::Schreibkonto,
-        text: "Zu viele Nachrichten — gebremst",
+        text: crate::protokoll::episodentexte::GEBREMST,
         quelle: wer.to_string(),
         kontext: Kontext::neu()
             .mit(Schluessel::Kennung, wer)

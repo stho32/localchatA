@@ -95,7 +95,7 @@ pub async fn anlegen(
             };
             zustand.protokoll.episode(grenzauftreten(
                 Bereich::Channels,
-                "Anlegen an der Channel-Grenze abgewiesen",
+                crate::protokoll::episodentexte::CHANNEL_GRENZE,
                 herkunft,
                 Gegriffen {
                     art,

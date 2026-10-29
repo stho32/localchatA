@@ -121,7 +121,7 @@ impl Abrissspur<'_> {
         self.protokoll.episode(Auftreten {
             stufe: Stufe::Warning,
             bereich: Bereich::Verbindung,
-            text: "Verbindung an der Abrissgrenze geschlossen",
+            text: crate::protokoll::episodentexte::ABRISSGRENZE,
             quelle: self.herkunft.to_string(),
             kontext,
             art: None,

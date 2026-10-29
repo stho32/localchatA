@@ -106,7 +106,7 @@ pub async fn ausliefern(
 fn abweisung_eintragen(protokoll: &Protokoll, herkunft: IpAddr, gegriffen: Gegriffen) {
     protokoll.episode(grenzauftreten(
         Bereich::Verbindung,
-        "Verbindung an der Platzgrenze abgewiesen",
+        crate::protokoll::episodentexte::PLATZGRENZE,
         herkunft,
         gegriffen,
     ));

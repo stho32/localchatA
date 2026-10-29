@@ -163,12 +163,16 @@ fn abweisung_eintragen<T>(
             .unwrap_or_default();
         kontext = kontext.mit(Schluessel::Typ, typ);
     }
-    ort.protokoll
-        .eintragen(Stufe::Debug, Bereich::Koerper, "Körper abgewiesen", kontext);
+    ort.protokoll.eintragen(
+        Stufe::Debug,
+        Bereich::Koerper,
+        crate::protokoll::episodentexte::KOERPER_ABGEWIESEN,
+        kontext,
+    );
     let auftreten = Auftreten {
         stufe: Stufe::Warning,
         bereich: Bereich::Koerper,
-        text: "Körper abgewiesen",
+        text: crate::protokoll::episodentexte::KOERPER_ABGEWIESEN,
         quelle: format!("{} {}", ort.herkunft, ort.route),
         kontext: Kontext::neu()
             .mit(Schluessel::Herkunft, ort.herkunft)

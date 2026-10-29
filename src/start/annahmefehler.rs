@@ -6,7 +6,7 @@ use crate::protokoll::episoden::Auftreten;
 use crate::protokoll::{Bereich, Kontext, Protokoll, Schluessel, Stufe};
 use std::io;
 
-const TEXT: &str = "Verbindung nicht angenommen";
+const TEXT: &str = crate::protokoll::episodentexte::VERBINDUNG_NICHT_ANGENOMMEN;
 
 /// Wie ein Fehler der Annahme ins Protokoll geht.
 #[derive(Debug, Clone, PartialEq, Eq)]

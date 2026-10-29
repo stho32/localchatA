@@ -100,7 +100,7 @@ async fn abweisung(
     {
         return Some((
             host_abweisung(&abgewiesen, kopf, lokal),
-            "Anfrage mit fremdem Host abgewiesen",
+            crate::protokoll::episodentexte::FREMDER_HOST,
             HOST,
         ));
     }
@@ -117,7 +117,7 @@ async fn abweisung(
             let fehler = Json(json!({ "fehler": abgewiesen.to_string() }));
             Some((
                 (StatusCode::FORBIDDEN, fehler).into_response(),
-                "Anfrage mit fremdem Ursprung abgewiesen",
+                crate::protokoll::episodentexte::FREMDER_URSPRUNG,
                 ORIGIN,
             ))
         }

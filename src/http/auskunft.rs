@@ -366,7 +366,7 @@ impl Auskunft {
         self.innen.protokoll.episode(Auftreten {
             stufe: Stufe::Warning,
             bereich: Bereich::Grenzschutz,
-            text: "Namensauflösung zu langsam",
+            text: crate::protokoll::episodentexte::NAMENSAUFLOESUNG_ZU_LANGSAM,
             quelle: "namensauskunft".to_string(),
             kontext: Kontext::neu()
                 .mit(Schluessel::Art, abfrage.art())
