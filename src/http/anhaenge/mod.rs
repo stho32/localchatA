@@ -6,6 +6,7 @@ mod ausliefern;
 pub mod bereich;
 pub mod hochladen;
 mod kopfzeilen;
+mod loeschkoerper;
 mod strom;
 mod verwerfen;
 
