@@ -160,3 +160,8 @@ Eine Zeile je Auftrag an eine Rolle und je Retrospektive.
 | 2026-10-29 | #30 | Nacharbeit → Auto-Reviews | entwickler (entw2) | bestanden | 0:10 | Kontext unter „Gestern“ am Tageswechsel; enge Wiederholung code-reviewer |
 | 2026-10-29 | #8 | Entwicklertest → Abnahme | entwicklertester | bestanden | 0:45 | 31 Szenarien, M2 p90 7 ms, Z9 0 %; Anmerkung: Reload während des Sendens verliert den Text |
 | 2026-10-29 | #30 | Entwicklertest → Abnahme | entwicklertester | bestanden | 0:20 | Sprung mit Kontext auch am Tageswechsel, Pille, HTML als Text, Fehlgeschlagene bleibt unten |
+| 2026-10-29 | #35 | Auto-Reviews → Nacharbeit | code-, security-, rechtschreib-, ux-, observability-reviewer | befund | — | Muss: Frist je Anfrage (bis 2 s), Cache-Verdrängung durch Flut, Risikosatz groß; architekt ADR-0045 Ergänzung, planer B0417–B0423, Härtung R00028 (#42) |
+| 2026-10-29 | #22 | Auto-Reviews → Entwicklertest → Abnahme | code-reviewer, entwicklertester | bestanden | 0:20 | Nacharbeit geschlossen; Störungen echt nachgefahren (Serverstopp, Touch) |
+| 2026-10-29 | #41 | Architektur → Detailplanung | architekt, ux-reviewer (Vorprüfung), planer | bestanden | 0:20 | Senden-Knopf; erste UX-Vorprüfung: Fokusring und iPhone-Zoom als Muss vor dem Bau |
+| 2026-10-29 | #9/#43 | Architektur → Detailplanung | architekt, planer | bestanden | 0:40 | Anhänge nach B1–B5; 43 Bubbles, geteilt in API (#9) und Browser (#43) |
+| 2026-10-29 | #26 | Entwicklung → Auto-Reviews → Entwicklertest → Abnahme | entwickler, code-, security-, rechtschreib-, observability-reviewer, entwicklertester | bestanden | 1:30 | 23 Bubbles, 1002 Tests, keine Nacharbeit |
