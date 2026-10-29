@@ -109,9 +109,67 @@ impl Tagesbudget {
     }
 }
 
+/// Verbrauch einer vorhandenen Tagesdatei je Klasse `[DEBUG, INFORMATION+WARNING, ERROR+EXCEPTION]` in Bytes
+/// (ADR-0042 Ergänzung #24 Punkt 9): je Zeile ihre Bytes, wie gegeben (mit Zeilenende, wenn es dabei ist), der
+/// Klasse der Stufe im zweiten Wort; eine Zeile ohne erkennbare Stufe zählt zu DEBUG (rein).
+pub fn verbrauch_je_klasse<Z: AsRef<[u8]>>(zeilen: impl IntoIterator<Item = Z>) -> [u64; 3] {
+    let mut verbrauch = [0; 3];
+    for zeile in zeilen {
+        let zeile = zeile.as_ref();
+        let klasse = zeile
+            .split(|&byte| byte == b' ')
+            .nth(1)
+            .and_then(stufe_aus_wort)
+            .map_or(Klasse::Debug, Klasse::von);
+        verbrauch[klasse.stelle()] += zeile.len() as u64;
+    }
+    verbrauch
+}
+
+fn stufe_aus_wort(wort: &[u8]) -> Option<Stufe> {
+    [
+        Stufe::Debug,
+        Stufe::Information,
+        Stufe::Warning,
+        Stufe::Error,
+        Stufe::Exception,
+    ]
+    .into_iter()
+    .find(|stufe| stufe.als_text().as_bytes() == wort)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// R00018 F0061: Bytes je Klasse nach dem zweiten Wort; eine kaputte Zeile zählt zu DEBUG.
+    #[test]
+    fn verbrauch_je_klasse_nach_dem_zweiten_wort_fremde_zeilen_zu_debug() {
+        let zeile = |stufe: &str, laenge: usize| {
+            let anfang = format!("t {stufe} start ");
+            format!("{anfang}{}", "x".repeat(laenge - anfang.len()))
+        };
+        let zeilen = [
+            zeile("DEBUG", 100),
+            zeile("WARNING", 50),
+            zeile("EXCEPTION", 30),
+            "kaputte zeile".to_string(),
+        ];
+
+        assert_eq!(zeilen[0].len(), 100);
+        assert_eq!(verbrauch_je_klasse(&zeilen), [113, 50, 30]);
+    }
+
+    #[test]
+    fn verbrauch_ordnet_information_und_error_ihren_klassen_zu() {
+        let zeilen = [
+            "t INFORMATION start a\n",
+            "t ERROR protokoll b\n",
+            "t WARNINGX start c\n",
+        ];
+
+        assert_eq!(verbrauch_je_klasse(zeilen), [19, 22, 20]);
+    }
     use crate::protokoll::senke::Speicher;
     use crate::protokoll::testhilfe::{Aufzeichnung, zeit};
     use crate::protokoll::{Bereich, Kontext, Protokoll};
