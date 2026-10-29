@@ -87,15 +87,22 @@ function laufAnlegen({ antworten, geladen = true }) {
   const port = falscherPort(uhr, antworten);
   const verlauf = verlaufErsatz([n(1), n(2), n(3)]);
   const fertig = [];
+  const folge = [];
   const lauf = nachholLaufAnlegen({
     stand: () => ({ ...verlauf.stand(), geladen }),
     abrufen: port.abrufen,
     annehmen: verlauf.annehmen,
     neuOeffnen: (channel) => verlauf.neuGeoeffnet.push(channel),
-    fertig: (ergebnis, mitLeiste) => fertig.push({ um: uhr.jetzt(), text: wiederVerbundenText(ergebnis), mitLeiste }),
+    fertig: (ergebnis, mitLeiste) => {
+      fertig.push({ um: uhr.jetzt(), text: wiederVerbundenText(ergebnis), mitLeiste });
+      folge.push(['fertig', uhr.jetzt()]);
+    },
     zeitgeber: uhr.zeitgeber,
+    jetzt: uhr.jetzt,
+    versuch: (laeuft) => folge.push([laeuft ? 'versuch(true)' : 'versuch(false)', uhr.jetzt()]),
+    gescheitert: (naechsterVersuchUm) => folge.push(['gescheitert', naechsterVersuchUm]),
   });
-  return { uhr, port, verlauf, fertig, lauf };
+  return { uhr, port, verlauf, fertig, folge, lauf };
 }
 
 test('Neuversuch: scheitert das Nachholen immer → Versuche bei 0, 1 000, 3 000, 8 000, 18 000, 28 000 ms, keine Meldung', async () => {
@@ -361,18 +368,26 @@ function ladenLaufAnlegen({ antworten, gescheitert = true }) {
   const verlauf = { stand: { channel: 'a', geladen: false, gescheitert, juengste: null, neuesterImFenster: true } };
   const fertig = [];
   const naechste = [];
+  const folge = [];
   const lauf = nachholLaufAnlegen({
     stand: () => verlauf.stand,
     abrufen: port.abrufen,
     laden: geladen.laden,
     annehmen: () => 0,
     neuOeffnen: () => {},
-    fertig: (ergebnis, mitLeiste) => fertig.push({ um: uhr.jetzt(), ergebnis, mitLeiste }),
+    fertig: (ergebnis, mitLeiste) => {
+      fertig.push({ um: uhr.jetzt(), ergebnis, mitLeiste });
+      folge.push(['fertig', uhr.jetzt()]);
+    },
     zeitgeber: uhr.zeitgeber,
     jetzt: uhr.jetzt,
-    gescheitert: (naechsterVersuchUm) => naechste.push(naechsterVersuchUm),
+    versuch: (laeuft) => folge.push([laeuft ? 'versuch(true)' : 'versuch(false)', uhr.jetzt()]),
+    gescheitert: (naechsterVersuchUm) => {
+      naechste.push(naechsterVersuchUm);
+      folge.push(['gescheitert', naechsterVersuchUm]);
+    },
   });
-  return { uhr, port, geladen, verlauf, fertig, naechste, lauf };
+  return { uhr, port, geladen, verlauf, fertig, naechste, folge, lauf };
 }
 
 // Mutante „`wiederverbunden` meldet ohne Laden fertig“ (der Stand vor #61) → rot.
@@ -552,4 +567,119 @@ test('Trennung während eines Laden-Laufs merkt keinen Cursor: später geladen, 
   await uhr.laufenBis(300);
 
   assert.deepEqual(port.abrufe.map((abruf) => abruf.nach), [t(3)]);
+});
+
+// ---- Karte #65 (R00037 Regel 2, „Ende des Versuchs“): jeder Versuch meldet Beginn und Ende genau einmal -------------
+
+test('Versuch (Art laden): wiederverbunden meldet sofort versuch(true); Fehlschlag → versuch(false) vor gescheitert; zweiter Versuch bei 1 000, geladen → versuch(false) vor fertig', async () => {
+  const { uhr, folge, lauf } = ladenLaufAnlegen({ antworten: ['fehler', 'geladen'] });
+
+  lauf.getrennt();
+  lauf.wiederverbunden();
+  const sofort = [...folge];
+  await uhr.laufenBis(30000);
+
+  assert.deepEqual(sofort, [['versuch(true)', 0]]);
+  assert.deepEqual(folge, [
+    ['versuch(true)', 0], ['versuch(false)', 0], ['gescheitert', 1000],
+    ['versuch(true)', 1000], ['versuch(false)', 1000], ['fertig', 1000],
+  ]);
+});
+
+test('Versuch (Art nachholen): wiederverbunden meldet sofort versuch(true); Fehlschlag → versuch(false) vor gescheitert; zweiter Versuch bei 1 000, Block → versuch(false) vor fertig', async () => {
+  const { uhr, folge, lauf } = laufAnlegen({ antworten: ['fehler', { nachrichten: [n(4)], neuer: false }] });
+
+  lauf.getrennt();
+  lauf.wiederverbunden();
+  const sofort = [...folge];
+  await uhr.laufenBis(30000);
+
+  assert.deepEqual(sofort, [['versuch(true)', 0]]);
+  assert.deepEqual(folge, [
+    ['versuch(true)', 0], ['versuch(false)', 0], ['gescheitert', 1000],
+    ['versuch(true)', 1000], ['versuch(false)', 1000], ['fertig', 1000],
+  ]);
+});
+
+// Mutante „Ende des Versuchs nicht gemeldet bei `abgebrochen`“ → rot.
+test('Versuch: abgebrochen (ein anderes Öffnen hat übernommen) → versuch(false) genau einmal, kein fertig', async () => {
+  const { uhr, folge, lauf } = ladenLaufAnlegen({ antworten: ['abgebrochen', 'geladen'] });
+
+  lauf.getrennt();
+  lauf.wiederverbunden();
+  await uhr.laufenBis(30000);
+
+  assert.deepEqual(folge, [['versuch(true)', 0], ['versuch(false)', 0]]);
+});
+
+test('Versuch: Trennung während eines hängenden Versuchs (Art laden und nachholen) → versuch(false) genau einmal', async () => {
+  for (const anlegen of [() => ladenLaufAnlegen({ antworten: ['haengt'] }), () => laufAnlegen({ antworten: ['haengt'] })]) {
+    const { uhr, folge, lauf } = anlegen();
+
+    lauf.getrennt();
+    lauf.wiederverbunden();
+    await uhr.laufenBis(200);
+    lauf.getrennt();
+    await uhr.laufenBis(30000);
+
+    assert.deepEqual(folge, [['versuch(true)', 0], ['versuch(false)', 200]]);
+  }
+});
+
+test('Versuch: Channelwechsel während eines hängenden Versuchs (Art laden und nachholen) → versuch(false) vor fertig, genau einmal', async () => {
+  for (const anlegen of [() => ladenLaufAnlegen({ antworten: ['haengt'] }), () => laufAnlegen({ antworten: ['haengt'] })]) {
+    const { uhr, folge, lauf } = anlegen();
+
+    lauf.getrennt();
+    lauf.wiederverbunden();
+    await uhr.laufenBis(200);
+    lauf.channelGewechselt();
+    await uhr.laufenBis(30000);
+
+    assert.deepEqual(folge, [['versuch(true)', 0], ['versuch(false)', 200], ['fertig', 200]]);
+  }
+});
+
+test('Versuch: die Zeitgrenze von 10 s beendet den Versuch (versuch(false) bei 10 000), der nächste beginnt bei 11 000', async () => {
+  const { uhr, folge, lauf } = ladenLaufAnlegen({ antworten: ['haengt', 'geladen'] });
+
+  lauf.getrennt();
+  lauf.wiederverbunden();
+  await uhr.laufenBis(30000);
+
+  assert.deepEqual(folge, [
+    ['versuch(true)', 0], ['versuch(false)', 10000], ['gescheitert', 11000],
+    ['versuch(true)', 11000], ['versuch(false)', 11000], ['fertig', 11000],
+  ]);
+});
+
+test('Versuch: zu viel verpasst (neu öffnen) → versuch(false) vor fertig', async () => {
+  const { uhr, folge, lauf } = laufAnlegen({
+    antworten: Array.from({ length: 5 }, () => ({ nachrichten: [n(4)], neuer: true })),
+  });
+
+  lauf.getrennt();
+  lauf.wiederverbunden();
+  await uhr.laufenBis(100);
+
+  assert.deepEqual(folge, [['versuch(true)', 0], ['versuch(false)', 0], ['fertig', 0]]);
+});
+
+// Wächter N1 (code-reviewer #61 A1): `ladenVersuchen` setzt `dieser.neuversuch = null`; ohne diese Zeile öffnet
+// `jetztVersuchen` während eines laufenden Versuchs ein zweites Mal (der alte, schon abgelaufene Neuversuch zählt als
+// wartend). Mutante „Wächter `dieser.neuversuch = null` entfernt“ → rot.
+test('Wächter: jetztVersuchen während des zweiten, hängenden Versuchs öffnet kein drittes Mal — Versuche [0, 1000], genau ein fertig bei 1 200', async () => {
+  let aufloesen = null;
+  const haengend = new Promise((weiter) => { aufloesen = weiter; });
+  const { uhr, geladen, fertig, lauf } = ladenLaufAnlegen({ antworten: ['fehler', haengend, 'geladen'] });
+
+  lauf.getrennt();
+  lauf.wiederverbunden();
+  await uhr.laufenBis(1200);
+  lauf.jetztVersuchen();
+  aufloesen('geladen');
+  await uhr.laufenBis(5000);
+
+  assert.deepEqual(geladen.zeitpunkte(), [0, 1000]);
+  assert.deepEqual(fertig, [{ um: 1200, ergebnis: { art: 'geladen' }, mitLeiste: true }]);
 });

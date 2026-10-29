@@ -8,6 +8,9 @@
 // (Ergänzung Karte #61, 7g–7i): er öffnet den Channel neu, ohne Cursor, mit Zeitgrenze 10 s und demselben Rückzug;
 // „abgebrochen“ (ein anderes Öffnen hat übernommen) beendet ihn still, und eine neue Wahl desselben Channels zieht
 // den nächsten Versuch vor.
+// Jeder Versuch beider Arten meldet seinen Beginn und sein Ende über `versuch` (Ergänzung Karte #65, Regel 2): die
+// Leiste zeigt „wird verbunden …“, solange einer unterwegs ist. Das Ende steht an einer Stelle (`versuchEnde`), die
+// jeder Ausgang durchläuft, und meldet je Beginn genau einmal.
 import { nachholen } from './nachholen.js';
 import { rueckzugInMs } from './verbindung.js';
 
@@ -16,38 +19,41 @@ import { rueckzugInMs } from './verbindung.js';
 // 'abgebrochen' } (verlauf.oeffnen) · annehmen: (nachrichten) → Zahl der erst jetzt angenommenen · neuOeffnen: (channel)
 // · fertig: (ergebnis, mitLeiste) mit ergebnis { art: 'nachgeholt', zahl } | { art: 'neu' } | { art: 'geladen' }
 // · zeitgeber: { stellen(ms, rueckruf) → id, loeschen(id) } · jetzt: () → ms seit der Epoche · gescheitert:
-// (naechsterVersuchUm) nach jedem gescheiterten Versuch
+// (naechsterVersuchUm) nach jedem gescheiterten Versuch · versuch: (laeuft) bei Beginn (true) und Ende (false) jedes Versuchs
 export function nachholLaufAnlegen({
-  stand, abrufen, laden, annehmen, neuOeffnen, fertig, zeitgeber = ECHTE_ZEITGEBER, jetzt = () => Date.now(), gescheitert = () => {},
+  stand, abrufen, laden, annehmen, neuOeffnen, fertig, zeitgeber = ECHTE_ZEITGEBER, jetzt = () => Date.now(),
+  gescheitert = () => {}, versuch = () => {},
 }) {
   let lauf = null;
   let beiTrennung = null;
 
   function beginnen(channel, cursor, mitLeiste) {
-    lauf = { art: 'nachholen', channel, cursor, mitLeiste, fehlversuche: 0, zahl: 0, abbruch: null, neuversuch: null };
+    lauf = { art: 'nachholen', channel, cursor, mitLeiste, fehlversuche: 0, zahl: 0, abbruch: null, neuversuch: null, unterwegs: false };
     versuchen(lauf);
   }
 
   function ladenBeginnen(channel, mitLeiste) {
-    lauf = { art: 'laden', channel, mitLeiste, fehlversuche: 0, abbruch: null, neuversuch: null };
+    lauf = { art: 'laden', channel, mitLeiste, fehlversuche: 0, abbruch: null, neuversuch: null, unterwegs: false };
     ladenVersuchen(lauf);
   }
 
   async function versuchen(dieser) {
     dieser.abbruch = new AbortController();
-    const versuch = await bloeckeHolen(dieser);
+    versuchBeginn(dieser);
+    const holung = await bloeckeHolen(dieser);
+    versuchEnde(dieser);
     if (dieser !== lauf) {
       return;
     }
-    if (versuch.ergebnis.art === 'neu') {
+    if (holung.ergebnis.art === 'neu') {
       lauf = null;
       neuOeffnen(dieser.channel);
       fertig({ art: 'neu' }, dieser.mitLeiste);
       return;
     }
-    dieser.zahl += annehmen(versuch.nachrichten);
-    dieser.cursor = versuch.cursor;
-    if (versuch.ergebnis.art === 'nachgeholt') {
+    dieser.zahl += annehmen(holung.nachrichten);
+    dieser.cursor = holung.cursor;
+    if (holung.ergebnis.art === 'nachgeholt') {
       lauf = null;
       fertig({ art: 'nachgeholt', zahl: dieser.zahl }, dieser.mitLeiste);
       return;
@@ -60,9 +66,11 @@ export function nachholLaufAnlegen({
     dieser.neuversuch = null;
     const abbruch = new AbortController();
     dieser.abbruch = abbruch;
+    versuchBeginn(dieser);
     const zeitgrenze = zeitgeber.stellen(ZEITGRENZE_MS, () => abbruch.abort());
     const ergebnis = await laden(dieser.channel, abbruch.signal);
     zeitgeber.loeschen(zeitgrenze);
+    versuchEnde(dieser);
     if (dieser !== lauf) {
       return;
     }
@@ -78,10 +86,23 @@ export function nachholLaufAnlegen({
     neuversuchStellen(dieser, ladenVersuchen);
   }
 
-  function neuversuchStellen(dieser, versuch) {
+  function versuchBeginn(dieser) {
+    dieser.unterwegs = true;
+    versuch(true);
+  }
+
+  function versuchEnde(dieser) {
+    if (!dieser.unterwegs) {
+      return;
+    }
+    dieser.unterwegs = false;
+    versuch(false);
+  }
+
+  function neuversuchStellen(dieser, erneut) {
     dieser.fehlversuche += 1;
     const wartenMs = rueckzugInMs(dieser.fehlversuche);
-    dieser.neuversuch = zeitgeber.stellen(wartenMs, () => versuch(dieser));
+    dieser.neuversuch = zeitgeber.stellen(wartenMs, () => erneut(dieser));
     gescheitert(jetzt() + wartenMs);
   }
 
@@ -103,6 +124,7 @@ export function nachholLaufAnlegen({
 
   function beenden() {
     lauf.abbruch.abort();
+    versuchEnde(lauf);
     zeitgeber.loeschen(lauf.neuversuch);
     lauf = null;
   }
