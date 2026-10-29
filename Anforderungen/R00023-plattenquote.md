@@ -47,7 +47,7 @@ Mit R00023 belegen die Gespräche im Standard höchstens 4 GiB, auf der Platte u
 - **Was zählt**: die Bytes der Tagesdateien aller Gespräche, soweit die Instanz sie im Verlaufsindex hält. Nicht: `einstellungen.toml`, `logs/`, Dateien, die die Instanz nicht lädt. `log_bytes` in `/api/gesundheit` ist genau diese Zahl.
 - **Regel**: `belegt + Bytes des neuen Satzes > Quote` → abgewiesen. Genau bis an die Quote wird angenommen (die Grenze gehört dazu).
 - **Antwort**: `POST /api/channels/{name}/nachrichten` → **507** `{"fehler": …, "regel": "quote", "belegt": <bytes>, "hoechstens": <bytes>}` ohne `Retry-After`. Text:
-  „Nicht gesendet: die Gespräche belegen 4,0 GiB, die Quote dieser Instanz ist 4,0 GiB. Platz entsteht, wenn alte Tage nach ihrer Aufbewahrungsfrist entfallen (beim nächsten Tageswechsel) oder eine Frist verkürzt wird; die Quote stellt der Betreiber beim Start mit --plattenquote ein.“
+  „Nicht gesendet: Die Gespräche belegen 4,0 GiB, die Quote dieser Instanz ist 4,0 GiB. Platz entsteht, wenn alte Tage nach ihrer Aufbewahrungsfrist entfallen (beim nächsten Tageswechsel) oder eine Frist verkürzt wird; die Quote stellt der Betreiber beim Start mit --plattenquote ein.“
 - **Größen im Text**: ab 1 GiB in GiB, sonst in MiB; eine Nachkommastelle, halbe nach oben; deutsches Komma, Tausenderpunkt.
 - **Stelle in der Prüfreihenfolge** (ADR-0034 Regel 3, Schritt 9): nach Vorab-Buchung, Körpergrenze (413), allen 4xx und der Restbuchung am Schreibkonto (429). Die gebuchten Einheiten werden nicht erstattet — eine Schleife auf 507 bremst das Schreibkonto.
 - **Nichts geschieht**: eine 507 hängt nichts an, schickt kein Ereignis `nachricht` und löscht nichts.
@@ -101,12 +101,13 @@ Gemeinsam für alle Kriterien, wenn nicht anders genannt: echtes Programm mit We
 - [ ] **Ohne Quote** (Unit): mit `aus` wird derselbe 21-Byte-Satz bei `belegt = 980` angehängt. Die Mutante „`aus` heißt 0“ wird rot.
 - [ ] **Löschen scheitert** (Unit, Speicherablage „Entfernen scheitert“ wie R00008): der Tag bleibt im Index, `belegt` bleibt gleich und gleich Σ Index. Die Mutante „zieht vor dem Entfernen ab“ wird rot.
 - [ ] **Größen in Worten** (Unit, rein): die Werte aus „Rechenbeispiele“ ergeben genau die dort genannten Texte.
-- [ ] **507 im echten Programm** (Integration; erster Integrationstest aus ADR-0044 „Folgeentscheidungen“, ohne die Protokollzeilen, die F0076 belegt): Quote-Ordner, Start mit `--plattenquote 1MiB`; `beta` sendet Texte zu 30 Zeichen → 201, 201, 201, dann 507 mit `regel: "quote"`, `belegt: 1048519`, `hoechstens: 1048576`, ohne `Retry-After`, `fehler` „Nicht gesendet: die Gespräche belegen 1,0 MiB, die Quote dieser Instanz ist 1,0 MiB. Platz entsteht, wenn alte Tage nach ihrer Aufbewahrungsfrist entfallen (beim nächsten Tageswechsel) oder eine Frist verkürzt wird; die Quote stellt der Betreiber beim Start mit --plattenquote ein.“ Die Tagesdatei von heute ist nach der 507 Byte für Byte wie vor ihr; ein zweiter Strom (`gamma`) hat genau drei Ereignisse `nachricht`; `/api/gesundheit` → `plattenquote: 1048576`, `quote_abgewiesen: 1`, `log_bytes: 1048519`. Die Mutante „Prüfung nach dem Anhängen“ wird rot (die Tagesdatei wächst).
+- [ ] **507 im echten Programm** (Integration; erster Integrationstest aus ADR-0044 „Folgeentscheidungen“, ohne die Protokollzeilen, die F0076 belegt): Quote-Ordner, Start mit `--plattenquote 1MiB`; `beta` sendet Texte zu 30 Zeichen → 201, 201, 201, dann 507 mit `regel: "quote"`, `belegt: 1048519`, `hoechstens: 1048576`, ohne `Retry-After`, `fehler` „Nicht gesendet: Die Gespräche belegen 1,0 MiB, die Quote dieser Instanz ist 1,0 MiB. Platz entsteht, wenn alte Tage nach ihrer Aufbewahrungsfrist entfallen (beim nächsten Tageswechsel) oder eine Frist verkürzt wird; die Quote stellt der Betreiber beim Start mit --plattenquote ein.“ Die Tagesdatei von heute ist nach der 507 Byte für Byte wie vor ihr; ein zweiter Strom (`gamma`) hat genau drei Ereignisse `nachricht`; `/api/gesundheit` → `plattenquote: 1048576`, `quote_abgewiesen: 1`, `log_bytes: 1048519`. Die Mutante „Prüfung nach dem Anhängen“ wird rot (die Tagesdatei wächst).
 - [ ] **Platz über die Frist** (Integration, Fortsetzung): `beta` setzt die Frist von `allgemein` auf 1 → 409; bestätigt → 200; die Tagesdatei von gestern ist weg; `log_bytes: 243`; die nächste Nachricht von `beta` → 201.
 - [ ] **Was an der Quote weiter geht** (Integration, Quote-Ordner, Quote erreicht wie oben; Lesen, Anlegen und Frist mit der Kennung `delta`): `GET /api/channels/allgemein/nachrichten` → 200; Channel `neu` anlegen → 201; Frist von `allgemein` auf 30 verlängern → 200; `beta` sendet noch einmal mit dem Wiederholschlüssel einer seiner drei angenommenen Nachrichten → 200 mit der ursprünglichen Nachricht, `quote_abgewiesen` unverändert (Wiederholschlüssel gelten je Kennung, R00011).
 - [ ] **Ausgeschaltet** (Integration): Quote-Ordner, Start mit `--plattenquote aus`; vier Nachrichten wie oben → viermal 201; Health `plattenquote: null`, `quote_abgewiesen: 0`, `log_bytes: 1048600`.
 - [ ] **Im Browser** (E2E, neu `e2e/tests/r00023-quote.spec.js`): Quote-Ordner, Start mit `--plattenquote 1MiB`, die Quote ist über die API erreicht (wie oben); A ist beigetreten und hat `# allgemein` offen; A sendet „Hallo zusammen“ → die Nachricht steht als fehlgeschlagen mit dem Text der 507 und der Schaltfläche „Erneut senden“; der Verlauf zeigt keine neue bestätigte Nachricht. Rechnung: an der Quote sind 57 Bytes frei (1.048.576 − 1.048.519); „Hallo“ ergäbe bei `shoff@127.0.0.1` genau 57 Bytes und würde angenommen, „Hallo zusammen“ ergibt 66. Die Mutante „507 wie 500“ (Text für Plattenfehler statt `fehler`) wird rot.
 - [ ] Konsole bei A: keine unbehandelte Ausnahme, kein CSP-Verstoß, keine Konsolenzeile außer „Failed to load resource“ zu der einen 507, die das Kriterium „Im Browser“ herbeiführt.
+- [ ] **Nacharbeit Karte #34: 507-Text groß nach Doppelpunkt** (B0486; Unit, Integration, E2E; Rechtschreib-Review #34 Muss, § 81 Amtliches Regelwerk, Duden D 34). Abnahme-Probe des `rechtschreib-reviewer`, wörtlich: „`git grep -n 'Nicht gesendet: die Gespräche' -- src tests e2e` → 0; `git grep -n 'Nicht gesendet: Die Gespräche belegen' -- src/http/senden.rs tests/plattenquote.rs e2e/tests/r00023-quote.spec.js` → 4 Fundstellen; Laufzeit (Quote-Ordner 1.048.276 Bytes, --plattenquote 1MiB, 4× senden „Quote-Probe 17 Z.“) → 507 fehler = „Nicht gesendet: Die Gespräche belegen 1,0 MiB, die Quote dieser Instanz ist 1,0 MiB. Platz entsteht, wenn alte Tage nach ihrer Aufbewahrungsfrist entfallen (beim nächsten Tageswechsel) oder eine Frist verkürzt wird; die Quote stellt der Betreiber beim Start mit --plattenquote ein.“; Browser „⚠ Nicht gesendet: Die Gespräche …““ Die Mutante „klein nach dem Doppelpunkt“ wird rot.
 - [ ] **Bestehende Tests**: die Integrations- und E2E-Tests aus R00008, R00011, R00012, R00014 und R00021 laufen mit dem Standard von 4 GiB unverändert grün (kein Test erreicht 3,6 GiB).
 
 ### F0076 Quote im Betriebsprotokoll
@@ -151,6 +152,7 @@ Die Bubbles der WBS sind Vorplanung; welche es am Ende werden, entscheidet der E
 - F0074: B0352 Größe lesen · B0353 Wirksame Quote beim Start · B0354 Quote im Start-Eintrag und im Health-Check
 - F0075: B0355 Belegt beim Laden · B0356 Quote vor dem Anhängen prüfen · B0357 Entfallen zieht ab · B0358 507 antworten · B0359 Quote über das echte Programm belegt (mit Testhilfe) · B0360 507 im Browser belegt
 - F0076: B0361 Schwelle als Zustandswechsel · B0362 Wechsel melden beim Senden, Entfallen und Start · B0363 Abweisungen als Episode
+- Nacharbeit Karte #34: F0075 B0486 507-Text groß nach Doppelpunkt
 
 Elemente (Namen entscheidet der Entwickler):
 
@@ -214,6 +216,7 @@ Gezählt aus der WBS (Bubbles). 0,4 h ist die Untergrenze je Bubble nach dem Ski
 - F0075 Senden an der Quote abgewiesen: 6 Bubbles · 5 klar (2,0 h) · 1 unklar (B0359, 2–4 h)
 - F0076 Quote im Betriebsprotokoll: 3 Bubbles · 2 klar (0,8 h) · 1 unklar (B0362, 2–4 h)
 - I0023 gesamt: 12 Bubbles · 10 klar (4,0 h) · 2 unklar (4–8 h) · keine Ausbaustufen
+- Nachtrag 2026-10-29 (Nacharbeit Karte #34): + B0486 unter F0075, klar (0,4 h). F0075 damit 7 Bubbles · 6 klar (2,4 h) · 1 unklar; R00023 zusammen 13 Bubbles · 11 klar (4,4 h) · 2 unklar (4–8 h); offen nur B0486.
 
 ## Warum löst diese Anforderung das Problem? (Pflicht)
 
@@ -237,6 +240,10 @@ Die Wirkungskette:
   - R00011: das Senden kann zusätzlich 507 antworten (Schritt 9 der Prüfreihenfolge, ADR-0034 Ergänzung Karte #34).
   - R00014: der Start-Eintrag trägt zusätzlich `plattenquote`, `belegt`, `option`; `/api/gesundheit` zwei Felder mehr; `log_bytes` liest den Zähler (gleiche Bedeutung).
 - **Optionen**: entschieden in ADR-0044 — Frage 1 (A abweisen mit Warnschwelle, gewählt; B ältestes zuerst löschen und C Frist automatisch verkürzen verworfen, weil sie eine zweite Löschhandlung neben der Frist wären; D nur warnen verworfen, weil es nicht begrenzt; E Anteil je Herkunft als Folgeoption, falls ein Einzelner die Quote wiederholt füllt), Frage 2 (M1 Zähler am Index, gewählt; M2 Summe je Senden verletzt die Sperrordnung; M3 Hülle um die Ablage wäre Fachlogik im Provider; M4 Ordner vermessen misst die falsche Größe), Frage 3 (S1 Option mit Einheit, gewählt), Frage 4 (507, gewählt; 429, 503, 409/422 verworfen).
+
+### Nacharbeit Karte #34 (2026-10-29)
+
+Weiche nach den Auto-Reviews #34: das Rechtschreib-Review Muss (507-Text klein nach dem Doppelpunkt) trifft einen Wortlaut, den diese Anforderung selbst vorgab — als Befund am eigenen Paket keine neue Interaction und kein `aus-bug`, sondern Nacharbeit unter derselben Anforderung (B0486). Wortlaut angeglichen in „Funktionale Anforderungen“ (Antwort), im Kriterium „507 im echten Programm“, in US-3 und US-4 und im Fertig-Kriterium von F0075. Die Sollte und Optional der Reviews #34 sind Härtung in R00031 (F0110–F0114).
 
 ### Bewusst außerhalb
 
