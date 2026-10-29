@@ -325,15 +325,12 @@ export function verlaufAnlegen({ abrufen, schalter = () => {} }) {
   }
 
   // Was neu in den jüngsten Block kommt (ADR-0037 Ergänzung Karte #22/#36, 7f): jede Zeit einmal, auch Nachrichten der
-  // Lücke, die älter sind als eine schon live gezeigte — nur nichts vor seinem Anfang, das gehört älteren Blöcken.
+  // Lücke, die älter sind als eine schon live gezeigte — im leeren Channel auch älter als sein Anfang.
   function neueImJuengstenBlock(nachrichten) {
     if (fenster === null) {
       return zusammenfuehren([], nachrichten).neue;
     }
-    const juengsterBlock = fenster.bloecke[fenster.bloecke.length - 1];
-    const anfang = Date.parse(juengsterBlock[0].zeit);
-    const abDemAnfang = nachrichten.filter((nachricht) => Date.parse(nachricht.zeit) > anfang);
-    return zusammenfuehren(juengsterBlock, abDemAnfang).neue;
+    return zusammenfuehren(fenster.bloecke[fenster.bloecke.length - 1], nachrichten).neue;
   }
 
   // Sind alle neuen jünger als die jüngste gezeigte, werden sie angefügt; sonst wird der jüngste Block in der Folge der

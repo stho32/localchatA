@@ -86,6 +86,34 @@ for (const haltenMs of [0, 300, 1500]) {
   });
 }
 
+// Variante derselben Klasse (Zustand: leerer Channel): ohne Bekanntes entsteht der jüngste Block aus der live
+// angenommenen Nachricht — die nachgeholten, älteren gehören trotzdem davor.
+for (const haltenMs of [300, 1500]) {
+  test(`B1 (1), leerer Channel: Antwort ${haltenMs} ms gehalten — l1 und waehrend je einmal in Zeitfolge`, async ({ browser }) => {
+    instanz = await sendenStarten();
+    const b = await kontextOeffnen(browser);
+    await imBrowserBeitreten(b.page, instanz.adresse, 'anna');
+    await expect(b.page.getByText('Noch keine Nachrichten in # allgemein.')).toBeVisible();
+    const token = await beitreten(instanz.adresse, 'beta');
+    await netzAus(b);
+    expect((await senden(instanz.adresse, token, 'allgemein', 'l1')).status).toBe(201);
+    await b.page.route(NACHHOLEN, async (route) => {
+      const antwort = await route.fetch();
+      expect((await senden(instanz.adresse, token, 'allgemein', 'waehrend')).status).toBe(201);
+      await expect(bestaetigt(b.page, 'waehrend')).toHaveCount(1);
+      await warten(haltenMs);
+      await route.fulfill({ response: antwort });
+    });
+
+    await netzAn(b);
+
+    await expect(leiste(b.page)).toHaveText(/^✓ Wieder verbunden/, { timeout: 10000 });
+    await expect(bestaetigt(b.page, '(l1|waehrend)').locator('.lc-body')).toHaveText(['l1', 'waehrend'], { timeout: 10000 });
+    await expect(nachrichten(b.page)).toHaveCount(2);
+    expect(ohneGescheiterteAnfragen(b.fehler)).toEqual([]);
+  });
+}
+
 test('B1 (2): Ereignisse verschluckt, NeuerStand, während des gehaltenen Abrufs „live“ — s1, s2, live je einmal', async ({ browser }) => {
   instanz = await sendenStarten({ anzahl: 5 });
   const b = await kontextOeffnen(browser);
