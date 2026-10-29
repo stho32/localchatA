@@ -283,3 +283,134 @@ async fn acht_grosse_videos_gleichzeitig_tilgen_braucht_wenig_speicher() {
         assert!(!enthaelt(&ende, b"+52.5200"), "{angemeldet}");
     }
 }
+
+/// Lädt `inhalt` als `name` hoch (200 erwartet) und liefert die Datei im Eingang.
+async fn hochgeladen(basis: &str, ordner: &Path, name: &str, inhalt: Vec<u8>) -> Vec<u8> {
+    let beta = Absender::von("127.0.0.1");
+    let token = beitreten(&beta, basis, &name.replace('.', "-"), Some("agent")).await;
+    let angemeldet = id(&anmelden(&beta, basis, &token, name, inhalt.len() as u64).await);
+    let antwort = hochladen(&beta, basis, &token, &angemeldet, inhalt).await;
+    assert_eq!(antwort.status, 200, "{}", antwort.json);
+    eingangsdatei(ordner, &angemeldet)
+}
+
+/// JPEG mit MP-Index (`APP2` `MPF\0`, zwei Einträge) und einem zweiten Bild mit Exif-GPS dahinter.
+fn mpf_jpeg() -> Vec<u8> {
+    use gemeinsam::dateien::{jpeg, tiff};
+    let mut exif = b"Exif\0\0".to_vec();
+    exif.extend(tiff(
+        &[(0x0112, 3, 1, 6), (0x8825, 4, 1, 38)],
+        b"GPS48.1371N11.5754E",
+    ));
+    let zweites = jpeg(&[(0xe1, exif)], 160, 120);
+    let mpf = |versatz: u32| {
+        let mut mpf = b"MPF\0MM\0*\0\0\0\x08\0\x01".to_vec();
+        mpf.extend(0xB002u16.to_be_bytes());
+        mpf.extend(7u16.to_be_bytes());
+        mpf.extend(32u32.to_be_bytes());
+        mpf.extend(26u32.to_be_bytes());
+        mpf.extend(0u32.to_be_bytes());
+        mpf.extend([0; 16]);
+        mpf.extend([0, 0, 0, 0]);
+        mpf.extend((zweites.len() as u32).to_be_bytes());
+        mpf.extend(versatz.to_be_bytes());
+        mpf.extend([0, 0, 0, 0]);
+        mpf
+    };
+    let erstes = |versatz| jpeg(&[(0xe2, mpf(versatz))], 4000, 3000);
+    // Der TIFF-Kopf des MPF steht hinter SOI, Marke, Länge und `MPF\0`: Versätze zählen ab Byte 10.
+    let versatz = (erstes(0).len() - 10) as u32;
+    [erstes(versatz), zweites].concat()
+}
+
+/// MP4 mit XMP-GPS in der `uuid`-Box (XMP-Typ) oben und in `moov/udta/XMP_`.
+fn mp4_mit_xmp() -> Vec<u8> {
+    let boxe = |typ: &[u8], inhalt: &[u8]| {
+        let mut bytes = ((8 + inhalt.len()) as u32).to_be_bytes().to_vec();
+        bytes.extend(typ);
+        bytes.extend(inhalt);
+        bytes
+    };
+    let xmp_typ = [
+        0xBE, 0x7A, 0xCF, 0xCB, 0x97, 0xA9, 0x42, 0xE8, 0x9C, 0x71, 0x99, 0x94, 0x91, 0xE3, 0xAF,
+        0xAC,
+    ];
+    let uuid = boxe(
+        b"uuid",
+        &[
+            &xmp_typ[..],
+            b"<exif:GPSLatitude>52,31.2N</exif:GPSLatitude>",
+        ]
+        .concat(),
+    );
+    let udta = boxe(
+        b"udta",
+        &boxe(b"XMP_", b"<exif:GPSLongitude>13,24.3E</exif:GPSLongitude>"),
+    );
+    let moov = boxe(b"moov", &[boxe(b"mvhd", &[0; 100]), udta].concat());
+    [
+        boxe(b"ftyp", b"isom\0\0\x02\0isommp41"),
+        uuid,
+        moov,
+        boxe(b"mdat", b"MEDIENDATEN-MEDIENDATEN"),
+    ]
+    .concat()
+}
+
+/// Befund #51 B2 (b), R00029 „Präparierte Metadaten“ über das Programm (M47, Linie L2): ein JPEG mit MP-Index und
+/// Exif-GPS im zweiten Bild und ein MP4 mit XMP-GPS in `uuid` und `udta/XMP_` kommen ohne Ort in den Eingang; Länge
+/// gleich, `MPF` und Mediendaten bleiben.
+#[tokio::test]
+async fn mpf_jpeg_und_mp4_mit_xmp_kommen_ohne_ort_in_den_eingang() {
+    let wurzel = ordner();
+    let instanz = starten(wurzel.path(), &[], &[]);
+    let (foto, video) = (mpf_jpeg(), mp4_mit_xmp());
+
+    let foto_gespeichert =
+        hochgeladen(&instanz.adresse, wurzel.path(), "mpf.jpg", foto.clone()).await;
+    let video_gespeichert =
+        hochgeladen(&instanz.adresse, wurzel.path(), "xmp.mp4", video.clone()).await;
+
+    assert_eq!(foto_gespeichert.len(), foto.len());
+    assert!(!enthaelt(&foto_gespeichert, b"GPS") && !enthaelt(&foto_gespeichert, b"48.1371"));
+    assert!(enthaelt(&foto_gespeichert, b"MPF\0MM"), "MPF bleibt");
+    assert_eq!(video_gespeichert.len(), video.len());
+    assert!(!enthaelt(&video_gespeichert, b"GPS") && !enthaelt(&video_gespeichert, b"XMP_"));
+    assert!(enthaelt(&video_gespeichert, b"MEDIENDATEN-MEDIENDATEN"));
+}
+
+/// Befund #51 B2 (c), R00029 „Über das Programm“ (F0115): drei 422 `metadaten` aus derselben Herkunft → genau eine
+/// Episode `WARNING anhang Hochladen abgewiesen: Metadaten nicht tilgbar`.
+#[tokio::test]
+async fn drei_mal_metadaten_nicht_tilgbar_ist_eine_episode() {
+    let wurzel = ordner();
+    let instanz = starten(wurzel.path(), &[], &[]);
+    let basis = instanz.adresse.as_str();
+    let beta = Absender::von("127.0.0.1");
+    let token = beitreten(&beta, basis, "beta", Some("agent")).await;
+    let mut kaputt = vec![0xFF, 0xD8, 0xFF, 0xE1, 0xFF, 0xF0];
+    kaputt.extend_from_slice(b"Exif\0\0GPS 52.5200");
+
+    for nummer in 0..3 {
+        let name = format!("kaputt{nummer}.jpg");
+        let angemeldet = id(&anmelden(&beta, basis, &token, &name, kaputt.len() as u64).await);
+        let antwort = hochladen(&beta, basis, &token, &angemeldet, kaputt.clone()).await;
+        assert_eq!(antwort.status, 422, "{}", antwort.json);
+    }
+    drop(instanz);
+
+    let zeilen = alle_zeilen(wurzel.path());
+    let beginn: Vec<&String> = zeilen
+        .iter()
+        .filter(|z| {
+            z.contains("WARNING anhang Hochladen abgewiesen: Metadaten nicht tilgbar")
+                && z.contains("Episode beginnt")
+        })
+        .collect();
+    assert_eq!(beginn.len(), 1, "{zeilen:#?}");
+    let einzeln = zeilen
+        .iter()
+        .filter(|z| z.contains("Metadaten nicht tilgbar") && !z.contains("Episode"))
+        .count();
+    assert_eq!(einzeln, 0, "{zeilen:#?}");
+}
