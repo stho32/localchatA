@@ -59,6 +59,8 @@ pub enum Bereich {
     Quote,
     /// Anhänge (ADR-0042 Ergänzung Karte #9 I0010).
     Anhang,
+    /// Der Ereignisstrom (ADR-0042 Ergänzung Karte #31 Punkt 7).
+    Live,
 }
 
 impl Bereich {
@@ -81,6 +83,7 @@ impl Bereich {
             Bereich::Koerper => "körper",
             Bereich::Quote => "quote",
             Bereich::Anhang => "anhang",
+            Bereich::Live => "live",
         }
     }
 }

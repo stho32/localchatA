@@ -26,6 +26,7 @@ pub const HOCHLADUNGEN_BELEGEN: &str =
     "Hochladen abgewiesen: laufende Hochladungen belegen den Platz";
 pub const PLATTE_FAST_VOLL: &str = "Hochladen abgewiesen: Platte fast voll";
 pub const RESERVIERUNG_VERFALLEN: &str = "Reservierung verfallen ohne Hochladen";
+pub const EREIGNISSTROM_UEBERHOLT: &str = "Ereignisstrom überholt, neuer Stand gesendet";
 pub const SCHLUESSEL_VERDRAENGT: &str =
     "Wiederholschlüssel vor Ablauf verdrängt — eine Wiederholung kann doppelt ankommen";
 
@@ -75,6 +76,8 @@ mod tests {
         hochladungen_belegen: HOCHLADUNGEN_BELEGEN = "Hochladen abgewiesen: laufende Hochladungen belegen den Platz";
         platte_fast_voll: PLATTE_FAST_VOLL = "Hochladen abgewiesen: Platte fast voll";
         reservierung_verfallen: RESERVIERUNG_VERFALLEN = "Reservierung verfallen ohne Hochladen";
+        ereignisstrom_ueberholt: EREIGNISSTROM_UEBERHOLT =
+            "Ereignisstrom überholt, neuer Stand gesendet";
         schluessel_verdraengt: SCHLUESSEL_VERDRAENGT =
             "Wiederholschlüssel vor Ablauf verdrängt — eine Wiederholung kann doppelt ankommen";
     }

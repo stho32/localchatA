@@ -14,7 +14,8 @@ use crate::anwesenheit::status::Status;
 use crate::anwesenheit::{Anwesenheit, Halter, Stand, Wechsel};
 use crate::gespraeche::{ChannelStand, ChannelWechsel, Nachricht};
 use crate::live::bus::{Abonnement, Empfang, Ereignis};
-use crate::protokoll::Protokoll;
+use crate::protokoll::episoden::Auftreten;
+use crate::protokoll::{Bereich, Kontext, Protokoll, Schluessel, Stufe, episodentexte};
 use crate::start::ende::Ende;
 use axum::extract::{ConnectInfo, State};
 use axum::http::HeaderMap;
@@ -187,7 +188,8 @@ impl Strom {
                     Empfang::Ereignis(Ereignis::Anhaenge { channel, geloescht }) => {
                         Ausgabe::Anhaenge { channel, geloescht }
                     }
-                    Empfang::NeuerStand { .. } => {
+                    Empfang::NeuerStand { verpasst } => {
+                        self.ueberholt_melden(verpasst);
                         let stand = self.anwesenheit.teilnehmer();
                         self.zuletzt = stand.stand;
                         let channels = match channels_holen(&self.channels).await {
@@ -219,6 +221,24 @@ fn herzschlag_ereignis(anwesenheit: &Anwesenheit) -> Event {
 }
 
 impl Strom {
+    /// `WARNING live` als Episode je Kennung: die Beginn-Zeile trägt, wie viele Ereignisse der erste Anlauf verpasst
+    /// hat; das Ende zählt die Überholungen (R00022 F0073, ADR-0042 Ergänzung Karte #31 Punkt 7).
+    fn ueberholt_melden(&self, verpasst: u64) {
+        self.protokoll.episode(Auftreten {
+            stufe: Stufe::Warning,
+            bereich: Bereich::Live,
+            text: episodentexte::EREIGNISSTROM_UEBERHOLT,
+            quelle: self.kennung.clone(),
+            kontext: Kontext::neu()
+                .mit(Schluessel::Kennung, &self.kennung)
+                .mit_nur_beginn(Schluessel::Anzahl, verpasst),
+            art: None,
+            verworfen: None,
+            bytes: None,
+            anzeige: None,
+        });
+    }
+
     fn ist_eigenes_weg(&self, wechsel: &Wechsel) -> bool {
         wechsel.teilnehmer.status == Status::Weg
             && &wechsel.teilnehmer.kennung == self.halter.kennung()
@@ -613,11 +633,85 @@ mod tests {
             assert!(ausgaben < 10, "der Strom endet nicht");
         }
 
-        let zeilen = speicher.zeilen();
+        // Die Überholung selbst meldet seit R00022 B0349 eine `WARNING live`; hier zählt die Zeile des Scheiterns.
+        let zeilen: Vec<String> = speicher
+            .zeilen()
+            .into_iter()
+            .filter(|zeile| zeile.contains(" ERROR "))
+            .collect();
         assert_eq!(zeilen.len(), 1, "{zeilen:#?}");
         assert!(
             zeilen[0].contains(" ERROR programmfehler Ereignisstrom beendet — Stand der Channels nicht geholt; der Client verbindet neu | route=\"GET /api/ereignisse\" operation=channels_stand kennung=beta@127.0.0.1 grund=panik ursache="),
             "{zeilen:#?}"
         );
+    }
+
+    /// R00022 F0073 B0349 „Überholten Ereignisstrom melden“ (Abnahme-Probe wörtlich): Strom mit Speicher-Senke, zwei
+    /// Überholungen derselben Kennung → genau eine `WARNING live … Episode beginnt | kennung=… anzahl=3`; das Ende
+    /// zählt die Überholungen und trägt die Kennung, nicht die Zahl der ersten. Danach kommt der neue Stand wie bisher.
+    #[tokio::test]
+    async fn zwei_ueberholungen_derselben_kennung_sind_eine_warning_episode() {
+        use crate::protokoll::Stufe;
+        use crate::protokoll::testhilfe::im_speicher;
+        let (protokoll, speicher, _, _) =
+            im_speicher("2026-10-28T12:00:00+01:00", Stufe::Information);
+        let bus = Arc::new(Bus::neu(2));
+        let anwesenheit = Arc::new(
+            Anwesenheit::neu(
+                Arc::new(Systemuhr),
+                Arc::new(Betriebssystemzufall),
+                Duration::from_secs(60),
+            )
+            .mit_veroeffentlichen(anwesenheit_veroeffentlichen(&bus)),
+        );
+        let token = beitreten(&anwesenheit, "leser");
+        let (halter, _) = anwesenheit
+            .verbunden(&token, "127.0.0.2".parse().expect("IP"))
+            .expect("Halter");
+        let (stand, abonnement) = anwesenheit.stand_mit(|| bus.abonnieren());
+        let mut strom = strom_fuer(
+            &anwesenheit,
+            &gespraeche_am(&bus),
+            stand,
+            abonnement,
+            halter,
+        );
+        strom.protokoll = Arc::clone(&protokoll);
+        let mut ausgaben = Vec::new();
+
+        for runde in 0..2 {
+            for nummer in 0..5 {
+                beitreten(&anwesenheit, &format!("w{runde}{nummer}"));
+            }
+            while let Ok(Some(ausgabe)) =
+                tokio::time::timeout(Duration::from_millis(100), strom.naechste_ausgabe()).await
+            {
+                ausgaben.push(ausgabe);
+            }
+        }
+        let beginn = speicher.zeilen();
+        let warnings = protokoll.zaehlerstand().warnings;
+        protokoll.alle_episoden_schliessen();
+        let alle = speicher.zeilen();
+
+        assert_eq!(beginn.len(), 1, "{beginn:#?}");
+        assert!(
+            beginn[0].contains(
+                " WARNING live Ereignisstrom überholt, neuer Stand gesendet — Episode beginnt | kennung=leser@127.0.0.2 anzahl=3"
+            ),
+            "{beginn:#?}"
+        );
+        assert_eq!(warnings, 2, "jedes Auftreten zählt");
+        assert_eq!(alle.len(), 2, "{alle:#?}");
+        assert!(
+            alle[1].contains(" WARNING live Ereignisstrom überholt, neuer Stand gesendet — Episode endet: 2 in 0 s | kennung=leser@127.0.0.2")
+                && !alle[1].contains("anzahl="),
+            "{alle:#?}"
+        );
+        let staende = ausgaben
+            .iter()
+            .filter(|a| matches!(a, Ausgabe::Stand(_)))
+            .count();
+        assert_eq!(staende, 3, "Anfangsstand und je Überholung ein neuer Stand");
     }
 }
