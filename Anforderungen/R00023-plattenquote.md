@@ -37,9 +37,9 @@ Mit R00023 belegen die Gespräche im Standard höchstens 4 GiB, auf der Platte u
 
 - **Werte**: ganze Zahl mit Einheit `MiB` oder `GiB`, Groß-/Kleinschreibung egal, ohne Leerzeichen (`4GiB`, `512mib`), Spanne 1 MiB bis 1.024 GiB; oder das Wort `aus`.
 - **Vorrang**: Option vor Umgebungswert vor Standard (4 GiB = 4.294.967.296 Bytes); gelesen nur beim Start.
-- **Falscher Wert** (ohne Einheit, `MB`/`GB`, `0…`, außerhalb der Spanne, negativ, leer, keine Zahl) — auch im Umgebungswert neben einer gültigen Option: auf stderr „--plattenquote braucht eine Größe wie 4GiB oder 512MiB, oder aus“, Exit 2, nichts geschrieben, kein `logs/` angelegt. Option ohne Wert: „--plattenquote braucht einen Wert — Aufruf siehe localchatA --hilfe“, Exit 2.
-- **Hilfe**: `--hilfe` nennt „--plattenquote <größe>  Höchstgröße aller Gespräche (Tageslogs der Channels und Direktgespräche) wie 4GiB oder 512MiB, aus für keine Grenze; Standard 4GiB; auch über LOCALCHATA_PLATTENQUOTE“.
-- **Start-Eintrag**: `INFORMATION start` trägt zusätzlich `plattenquote=<bytes>` bzw. `plattenquote=aus`, `belegt=<bytes>` und `option=--plattenquote` | `LOCALCHATA_PLATTENQUOTE` | `standard`.
+- **Falscher Wert** (ohne Einheit, `MB`/`GB`, `0…`, außerhalb der Spanne, negativ, leer, keine Zahl): auf stderr „--plattenquote braucht eine Größe wie 4GiB oder 512MiB, oder aus“, Exit 2, nichts geschrieben, kein `logs/` angelegt. Ein falscher Umgebungswert ist nur ohne Option ein Fehler: ist `--plattenquote` gültig gesetzt, wird `LOCALCHATA_PLATTENQUOTE` weder gelesen noch geprüft (ADR-0044 Ergänzung Karte #26, dieselbe Regel wie `--protokoll-stufe`). Option ohne Wert: „--plattenquote braucht einen Wert — Aufruf siehe localchatA --hilfe“, Exit 2.
+- **Hilfe**: die Aufrufzeile von `--hilfe` nennt `[--plattenquote <größe>]`; der Eintrag steht umbrochen wie die übrigen Optionen auf drei Zeilen — `  --plattenquote <größe>`, darunter eingerückt „Höchstgröße aller Gespräche (Tageslogs der Channels und Direktgespräche)“ und „wie 4GiB oder 512MiB, aus für keine Grenze; Standard 4GiB; auch über LOCALCHATA_PLATTENQUOTE“.
+- **Start-Eintrag**: `INFORMATION start` trägt zusätzlich `plattenquote=<bytes>` bzw. `plattenquote=aus`, `belegt=<bytes>` und `plattenquote_option=--plattenquote` | `LOCALCHATA_PLATTENQUOTE` | `standard` (Schlüssel `plattenquote_option` statt `option`, Hinweis aus Karte #26; den Katalog in ADR-0042 zieht der architekt nach).
 - **Health-Check**: neues Feld `plattenquote` (wirksame Quote in Bytes, `null` bei `aus`).
 
 ### Senden an der Quote abgewiesen (F0075; ADR-0044 Regeln 1, 2, 4, 5, 6, 9, 11; ADR-0034 Ergänzung Karte #34)
@@ -52,7 +52,7 @@ Mit R00023 belegen die Gespräche im Standard höchstens 4 GiB, auf der Platte u
 - **Stelle in der Prüfreihenfolge** (ADR-0034 Regel 3, Schritt 9): nach Vorab-Buchung, Körpergrenze (413), allen 4xx und der Restbuchung am Schreibkonto (429). Die gebuchten Einheiten werden nicht erstattet — eine Schleife auf 507 bremst das Schreibkonto.
 - **Nichts geschieht**: eine 507 hängt nichts an, schickt kein Ereignis `nachricht` und löscht nichts.
 - **Wiederholung**: ein bekannter Wiederholschlüssel antwortet auch an der Quote 200 mit der ursprünglichen Nachricht.
-- **Was weiter geht**: Lesen, Ereignisstrom, Beitreten, Verlassen, Channel anlegen, Frist setzen — auch Verlängern.
+- **Was weitergeht**: Lesen, Ereignisstrom, Beitreten, Verlassen, Channel anlegen, Frist setzen — auch Verlängern.
 - **Platz entsteht** nur, wenn Tage entfallen (Start, Tageswechsel, Verkürzen der Frist), oder durch eine größere Quote beim Neustart. Ein Tag, dessen Löschen scheiterte, zählt weiter.
 - **Kennzahl**: neues Feld `quote_abgewiesen` in `/api/gesundheit` — Zahl der 507 seit dem Start.
 - **Oberfläche**: der Browser zeigt den `fehler` der 507 an der fehlgeschlagenen Nachricht wie jeden Fehler außer 500; „Erneut senden“ bleibt (R00012).
@@ -72,7 +72,7 @@ Mit R00023 belegen die Gespräche im Standard höchstens 4 GiB, auf der Platte u
 - **Standard**: Quote 4 GiB = 4.294.967.296 Bytes; Warnschwelle über 3.865.470.566,4 Bytes, also ab 3.865.470.567 Bytes („3,6 GiB“).
 - **Grenze** (Quote 1.000 Bytes): geladen 900; Satz 80 → 980 angenommen; Satz 21 → 1.001 > 1.000 → abgewiesen, `belegt` bleibt 980; Satz 20 → 1.000 angenommen.
 - **Schwelle** (Quote 1.000): 900 ist nicht über 90 %, 901 ist darüber. 880 → 901 ergibt eine WARNING; 901 → 922 keine weitere; 922 → 72 (Tag mit 850 Bytes entfällt) eine INFORMATION.
-- **Integrationsfall** (Quote 1 MiB = 1.048.576): gestern 1.048.276 Bytes → beim Start über 90 % (10.482.760 > 9.437.184), nicht über der Quote. Ein Text zu 30 Zeichen von `beta@127.0.0.1` ergibt einen Satz zu 81 Bytes (Kopfzeile 47 + eingerückter Text mit Abschluss 34). Drei Sätze → 1.048.519 (201, 201, 201); der vierte → 1.048.600 > 1.048.576 → 507 mit `belegt: 1048519`. Text: „… belegen 1,0 MiB, die Quote dieser Instanz ist 1,0 MiB. …“. Frist auf 1 verkürzt → gestern entfällt → `belegt` 243 → INFORMATION mit `grund=frist_gesetzt`; die nächste Nachricht → 201.
+- **Integrationsfall** (Quote 1 MiB = 1.048.576): gestern 1.048.276 Bytes → beim Start über 90 % (10.482.760 > 9.437.184), nicht über der Quote. Ein Text zu 17 Zeichen (`Quote-Probe 17 Z.`) vom Agenten `beta@127.0.0.1` ergibt einen Satz zu 81 Bytes (Kopfzeile 47 + Metazeile `+ art: agent` 13 + eingerückter Text mit Abschluss 21). Drei Sätze → 1.048.519 (201, 201, 201); der vierte → 1.048.600 > 1.048.576 → 507 mit `belegt: 1048519`. Text: „… belegen 1,0 MiB, die Quote dieser Instanz ist 1,0 MiB. …“. Frist auf 1 verkürzt → gestern entfällt → `belegt` 243 → INFORMATION mit `grund=frist_gesetzt`; die nächste Nachricht → 201.
 - **Größen in Worten**: 4.294.967.296 → „4,0 GiB“; 1.073.741.824 → „1,0 GiB“; 1.073.741.823 → „1.024,0 MiB“; 536.870.912 → „512,0 MiB“; 1.101.005 → „1,1 MiB“; 1.101.004 → „1,0 MiB“ (1,05 MiB = 1.101.004,8 Bytes).
 - **Schreibkonto im Integrationsfall**: 4 Sendungen (4 Einheiten) + 409-Vorschau und bestätigtes Verkürzen (20 Einheiten, R00021) = 24 ≤ 30 je Kennung — keine 429 dazwischen.
 
@@ -89,10 +89,10 @@ Gemeinsam für alle Kriterien, wenn nicht anders genannt: echtes Programm mit We
 
 ### F0074 Quote einstellen
 
-- [ ] **Größe lesen** (Unit, rein; Unit Aufruf aus ADR-0044 „Folgeentscheidungen“, wörtlich): „`--plattenquote 4GiB` → 4.294.967.296; `512mib` → 536.870.912; `aus` → keine Quote; `1MiB` → 1.048.576; `0MiB`, `0`, `4`, `4GB`, `1025GiB`, `-1GiB`, leer → Aufruffehler mit „4GiB oder 512MiB, oder aus“; ohne Wert → `WertFehlt`; Option schlägt Umgebung; ohne beides → 4 GiB.“ Dazu `1024GiB` → 1.099.511.627.776. Die Mutanten „`GB` wie `GiB`“, „Spanne ohne Obergrenze“ und „`0` heißt aus“ werden rot.
-- [ ] **Falscher Wert beim Start** (Integration): `LOCALCHATA_PLATTENQUOTE=4` → Exit 2, stderr enthält „--plattenquote braucht eine Größe wie 4GiB oder 512MiB, oder aus“, im Ordner gibt es kein `logs/`. Ebenso `--plattenquote 2MiB` mit `LOCALCHATA_PLATTENQUOTE=4`. `--plattenquote` als letztes Argument → Exit 2 mit „--plattenquote braucht einen Wert — Aufruf siehe localchatA --hilfe“. Die Mutante „Prüfung nach dem Anlegen von `logs/`“ wird rot.
-- [ ] **Hilfe** (Integration): `localchatA --hilfe` → Exit 0, die Ausgabe enthält die Zeile zu `--plattenquote` aus „Funktionale Anforderungen“ wörtlich.
-- [ ] **Wirksame Quote sichtbar** (Integration): leerer Ordner, `--plattenquote 512MiB` → `heute.log` hat den Start-Eintrag mit `plattenquote=536870912 belegt=0 option=--plattenquote`; `/api/gesundheit` → `plattenquote: 536870912`. Mit `LOCALCHATA_PLATTENQUOTE=aus` → `plattenquote=aus` und `option=LOCALCHATA_PLATTENQUOTE`, Health `plattenquote: null`. Ohne Angabe → `plattenquote=4294967296 option=standard`, Health `plattenquote: 4294967296`. Die Mutanten „Umgebung schlägt Option“ und „Herkunft immer `standard`“ werden rot.
+- [ ] **Größe lesen** (Unit, rein; Unit Aufruf aus ADR-0044 „Folgeentscheidungen“, wörtlich): „`--plattenquote 4GiB` → 4.294.967.296; `512mib` → 536.870.912; `aus` → keine Quote; `1MiB` → 1.048.576; `0MiB`, `0`, `4`, `4GB`, `1025GiB`, `-1GiB`, leer → Aufruffehler mit „4GiB oder 512MiB, oder aus“; ohne Wert → `WertFehlt`; Option schlägt Umgebung; ohne beides → 4 GiB.“ Dazu `1024GiB` → 1.099.511.627.776 und `--plattenquote 1MiB` mit `LOCALCHATA_PLATTENQUOTE=4` → 1.048.576, Herkunft `--plattenquote` (ADR-0044 Ergänzung Karte #26). Die Mutanten „`GB` wie `GiB`“, „Spanne ohne Obergrenze“ und „`0` heißt aus“ werden rot.
+- [ ] **Falscher Wert beim Start** (Integration): `LOCALCHATA_PLATTENQUOTE=4` → Exit 2, stderr enthält „--plattenquote braucht eine Größe wie 4GiB oder 512MiB, oder aus“, im Ordner gibt es kein `logs/`. `--plattenquote 2MiB` mit `LOCALCHATA_PLATTENQUOTE=4` startet dagegen mit der Quote der Option: Start-Eintrag mit `plattenquote=2097152 belegt=0 plattenquote_option=--plattenquote` (ADR-0044 Ergänzung Karte #26). `--plattenquote` als letztes Argument → Exit 2 mit „--plattenquote braucht einen Wert — Aufruf siehe localchatA --hilfe“. Die Mutante „Prüfung nach dem Anlegen von `logs/`“ wird rot.
+- [ ] **Hilfe** (Integration): `localchatA --hilfe` → Exit 0, die Ausgabe enthält den Eintrag zu `--plattenquote` aus „Funktionale Anforderungen“ wörtlich, auf drei Zeilen umbrochen wie dort, und die Aufrufzeile nennt `[--plattenquote <größe>]`.
+- [ ] **Wirksame Quote sichtbar** (Integration): leerer Ordner, `--plattenquote 512MiB` → `heute.log` hat den Start-Eintrag mit `plattenquote=536870912 belegt=0 plattenquote_option=--plattenquote`; `/api/gesundheit` → `plattenquote: 536870912`. Mit `LOCALCHATA_PLATTENQUOTE=aus` → `plattenquote=aus` und `plattenquote_option=LOCALCHATA_PLATTENQUOTE`, Health `plattenquote: null`. Ohne Angabe → `plattenquote=4294967296 plattenquote_option=standard`, Health `plattenquote: 4294967296`. Die Mutanten „Umgebung schlägt Option“ und „Herkunft immer `standard`“ werden rot.
 - [ ] **Health-Form** (Integration): der Test `leerer_ordner_ist_bereit_mit_kennzahlen_null` erwartet zusätzlich `"plattenquote": 4294967296` (ab F0075 auch `"quote_abgewiesen": 0`); alle übrigen Felder unverändert.
 
 ### F0075 Senden an der Quote abgewiesen
@@ -101,9 +101,9 @@ Gemeinsam für alle Kriterien, wenn nicht anders genannt: echtes Programm mit We
 - [ ] **Ohne Quote** (Unit): mit `aus` wird derselbe 21-Byte-Satz bei `belegt = 980` angehängt. Die Mutante „`aus` heißt 0“ wird rot.
 - [ ] **Löschen scheitert** (Unit, Speicherablage „Entfernen scheitert“ wie R00008): der Tag bleibt im Index, `belegt` bleibt gleich und gleich Σ Index. Die Mutante „zieht vor dem Entfernen ab“ wird rot.
 - [ ] **Größen in Worten** (Unit, rein): die Werte aus „Rechenbeispiele“ ergeben genau die dort genannten Texte.
-- [ ] **507 im echten Programm** (Integration; erster Integrationstest aus ADR-0044 „Folgeentscheidungen“, ohne die Protokollzeilen, die F0076 belegt): Quote-Ordner, Start mit `--plattenquote 1MiB`; `beta` sendet Texte zu 30 Zeichen → 201, 201, 201, dann 507 mit `regel: "quote"`, `belegt: 1048519`, `hoechstens: 1048576`, ohne `Retry-After`, `fehler` „Nicht gesendet: Die Gespräche belegen 1,0 MiB, die Quote dieser Instanz ist 1,0 MiB. Platz entsteht, wenn alte Tage nach ihrer Aufbewahrungsfrist entfallen (beim nächsten Tageswechsel) oder eine Frist verkürzt wird; die Quote stellt der Betreiber beim Start mit --plattenquote ein.“ Die Tagesdatei von heute ist nach der 507 Byte für Byte wie vor ihr; ein zweiter Strom (`gamma`) hat genau drei Ereignisse `nachricht`; `/api/gesundheit` → `plattenquote: 1048576`, `quote_abgewiesen: 1`, `log_bytes: 1048519`. Die Mutante „Prüfung nach dem Anhängen“ wird rot (die Tagesdatei wächst).
+- [ ] **507 im echten Programm** (Integration; erster Integrationstest aus ADR-0044 „Folgeentscheidungen“, ohne die Protokollzeilen, die F0076 belegt): Quote-Ordner, Start mit `--plattenquote 1MiB`; `beta` sendet Texte zu 17 Zeichen → 201, 201, 201, dann 507 mit `regel: "quote"`, `belegt: 1048519`, `hoechstens: 1048576`, ohne `Retry-After`, `fehler` „Nicht gesendet: Die Gespräche belegen 1,0 MiB, die Quote dieser Instanz ist 1,0 MiB. Platz entsteht, wenn alte Tage nach ihrer Aufbewahrungsfrist entfallen (beim nächsten Tageswechsel) oder eine Frist verkürzt wird; die Quote stellt der Betreiber beim Start mit --plattenquote ein.“ Die Tagesdatei von heute ist nach der 507 Byte für Byte wie vor ihr; ein zweiter Strom (`gamma`) hat genau drei Ereignisse `nachricht`; `/api/gesundheit` → `plattenquote: 1048576`, `quote_abgewiesen: 1`, `log_bytes: 1048519`. Die Mutante „Prüfung nach dem Anhängen“ wird rot (die Tagesdatei wächst).
 - [ ] **Platz über die Frist** (Integration, Fortsetzung): `beta` setzt die Frist von `allgemein` auf 1 → 409; bestätigt → 200; die Tagesdatei von gestern ist weg; `log_bytes: 243`; die nächste Nachricht von `beta` → 201.
-- [ ] **Was an der Quote weiter geht** (Integration, Quote-Ordner, Quote erreicht wie oben; Lesen, Anlegen und Frist mit der Kennung `delta`): `GET /api/channels/allgemein/nachrichten` → 200; Channel `neu` anlegen → 201; Frist von `allgemein` auf 30 verlängern → 200; `beta` sendet noch einmal mit dem Wiederholschlüssel einer seiner drei angenommenen Nachrichten → 200 mit der ursprünglichen Nachricht, `quote_abgewiesen` unverändert (Wiederholschlüssel gelten je Kennung, R00011).
+- [ ] **Was an der Quote weitergeht** (Integration, Quote-Ordner, Quote erreicht wie oben; Lesen, Anlegen und Frist mit der Kennung `delta`): `GET /api/channels/allgemein/nachrichten` → 200; Channel `neu` anlegen → 201; Frist von `allgemein` auf 30 verlängern → 200; `beta` sendet noch einmal mit dem Wiederholschlüssel einer seiner drei angenommenen Nachrichten → 200 mit der ursprünglichen Nachricht, `quote_abgewiesen` unverändert (Wiederholschlüssel gelten je Kennung, R00011).
 - [ ] **Ausgeschaltet** (Integration): Quote-Ordner, Start mit `--plattenquote aus`; vier Nachrichten wie oben → viermal 201; Health `plattenquote: null`, `quote_abgewiesen: 0`, `log_bytes: 1048600`.
 - [ ] **Im Browser** (E2E, neu `e2e/tests/r00023-quote.spec.js`): Quote-Ordner, Start mit `--plattenquote 1MiB`, die Quote ist über die API erreicht (wie oben); A ist beigetreten und hat `# allgemein` offen; A sendet „Hallo zusammen“ → die Nachricht steht als fehlgeschlagen mit dem Text der 507 und der Schaltfläche „Erneut senden“; der Verlauf zeigt keine neue bestätigte Nachricht. Rechnung: an der Quote sind 57 Bytes frei (1.048.576 − 1.048.519); „Hallo“ ergäbe bei `shoff@127.0.0.1` genau 57 Bytes und würde angenommen, „Hallo zusammen“ ergibt 66. Die Mutante „507 wie 500“ (Text für Plattenfehler statt `fehler`) wird rot.
 - [ ] Konsole bei A: keine unbehandelte Ausnahme, kein CSP-Verstoß, keine Konsolenzeile außer „Failed to load resource“ zu der einen 507, die das Kriterium „Im Browser“ herbeiführt.
@@ -134,7 +134,7 @@ Gemeinsam für alle Kriterien, wenn nicht anders genannt: echtes Programm mit We
    - 1.1 Option und Umgebung lesen → wirksame Quote und Herkunft | Exit 2 vor `logs/`.
    - 1.2 `Gespraeche::laden(…, quote)` → `belegt` = Σ Rohtext-Bytes der geladenen Tage.
    - 1.3 Start-Prüfung: über der Quote → WARNING „mehr als die Quote“; sonst über 90 % → WARNING 90 %.
-   - 1.4 Start-Eintrag mit `plattenquote`, `belegt`, `option`.
+   - 1.4 Start-Eintrag mit `plattenquote`, `belegt`, `plattenquote_option`.
 2. **Senden** (`senden_mit`, unter Gesprächs- und Schreibsperre)
    - 2.1 Wiederholschlüssel prüfen → bekannt: ursprüngliche Nachricht (vor der Quote).
    - 2.2 Zeit vergeben, Satz bilden.
@@ -178,7 +178,7 @@ Wireframe: keine neue Gestaltung; die fehlgeschlagene Nachricht wie gebaut (R000
 Nach Skill `test-pyramide`; je Kriterium die genannte Mutante, das Ergebnis steht im Bericht des Entwicklers.
 
 - **Unit (rein bzw. Speicherablage, gestellte Uhr)**: Größe lesen, Zähler und Grenze, Ohne Quote, Löschen scheitert, Größen in Worten, Schwelle als Zustandswechsel, Wechsel melden, Start.
-- **Integration (echtes Programm)**: Falscher Wert beim Start, Hilfe, Wirksame Quote sichtbar, Health-Form, 507 im echten Programm, Platz über die Frist, Was an der Quote weiter geht, Ausgeschaltet, Protokoll im echten Programm, Episode je Kennung.
+- **Integration (echtes Programm)**: Falscher Wert beim Start, Hilfe, Wirksame Quote sichtbar, Health-Form, 507 im echten Programm, Platz über die Frist, Was an der Quote weitergeht, Ausgeschaltet, Protokoll im echten Programm, Episode je Kennung.
 - **E2E**: Im Browser.
 
 ## Abhängigkeiten
@@ -238,8 +238,19 @@ Die Wirkungskette:
 
 - **Änderung von Zusagen** (die genannten Anforderungen bleiben unverändert, R00023 nennt die Änderung):
   - R00011: das Senden kann zusätzlich 507 antworten (Schritt 9 der Prüfreihenfolge, ADR-0034 Ergänzung Karte #34).
-  - R00014: der Start-Eintrag trägt zusätzlich `plattenquote`, `belegt`, `option`; `/api/gesundheit` zwei Felder mehr; `log_bytes` liest den Zähler (gleiche Bedeutung).
+  - R00014: der Start-Eintrag trägt zusätzlich `plattenquote`, `belegt`, `plattenquote_option`; `/api/gesundheit` zwei Felder mehr; `log_bytes` liest den Zähler (gleiche Bedeutung).
 - **Optionen**: entschieden in ADR-0044 — Frage 1 (A abweisen mit Warnschwelle, gewählt; B ältestes zuerst löschen und C Frist automatisch verkürzen verworfen, weil sie eine zweite Löschhandlung neben der Frist wären; D nur warnen verworfen, weil es nicht begrenzt; E Anteil je Herkunft als Folgeoption, falls ein Einzelner die Quote wiederholt füllt), Frage 2 (M1 Zähler am Index, gewählt; M2 Summe je Senden verletzt die Sperrordnung; M3 Hülle um die Ablage wäre Fachlogik im Provider; M4 Ordner vermessen misst die falsche Größe), Frage 3 (S1 Option mit Einheit, gewählt), Frage 4 (507, gewählt; 429, 503, 409/422 verworfen).
+
+### Nach dem Bau angeglichen (Karte #34, 2026-10-29)
+
+Abweichungen, die der `entwickler` gebaut und begründet hat und die `code-reviewer` und `ux-reviewer` angenommen haben; der Code bleibt, die Anforderung zieht nach (`/anforderung review`, ohne Bau), damit Entwicklertest und Abnahme gegen das Gebaute prüfen:
+
+- **Satzlänge**: R00023 rechnete 81 Bytes für einen Text zu 30 Zeichen ohne die Metazeile `+ art: agent` eines Agenten. Ein Text zu 17 Zeichen ergibt die 81 Bytes; alle Zahlen (1.048.519, 243, 1.048.600, 57 Bytes frei) gelten unverändert. Angeglichen: „Rechenbeispiele“, Kriterium „507 im echten Programm“, Vorspann der User Stories (trägt US-3, US-5, US-8).
+- **Vorrang**: eine gültige Option übersteuert eine falsche Umgebung (ADR-0044 Ergänzung Karte #26) statt Exit 2. Angeglichen: „Falscher Wert“, Kriterien „Größe lesen“ und „Falscher Wert beim Start“.
+- **Schlüssel** `plattenquote_option` statt `option` im Start-Eintrag (Hinweis aus Karte #26). Angeglichen: „Start-Eintrag“, Kriterium „Wirksame Quote sichtbar“, Ablauf 1.4, Notiz zu R00014, US-1.
+- **Hilfe** umbrochen auf drei Zeilen wie die übrigen Optionen. Angeglichen: „Hilfe“ und Kriterium „Hilfe“.
+- **Reihenfolge im Protokoll**: die 90-%-WARNING beim Start steht vor dem Start-Eintrag (nach dem Laden, vor der ersten Anfrage — wie im Kriterium „Protokoll im echten Programm“). Angeglichen: US-7.
+- **Schreibung** „weitergeht“ (Rechtschreib-Review #34 Sollte). ADR-0044 und ADR-0042 zieht der architekt nach (Regel 4 Wortlaut, Katalog `plattenquote_option`).
 
 ### Nacharbeit Karte #34 (2026-10-29)
 
