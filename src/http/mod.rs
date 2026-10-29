@@ -11,6 +11,7 @@ mod gesundheit;
 #[cfg(test)]
 mod grenzepisoden;
 mod grenzschutz;
+mod hostnamen;
 mod ich;
 mod koerper;
 mod nachrichten;
