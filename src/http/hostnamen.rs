@@ -1,4 +1,5 @@
-//! Host-Namen nach ADR-0045 — rein, ohne Netz: Normalform (Regel 1 mit Ergänzung E2).
+//! Host-Namen nach ADR-0045 — rein, ohne Netz: Normalform (Regel 1 mit Ergänzung E2) und Urteil über einen
+//! Namen (Regeln 2, 3, 5).
 
 /// Längste Länge eines Labels und eines ganzen Namens (ohne abschließenden Punkt), RFC 1035.
 const LABEL_HOECHSTENS: usize = 63;
@@ -41,9 +42,74 @@ pub fn endet_auf_label(name: &str, suffix: &str) -> bool {
         .is_some_and(|davor| davor.ends_with('.'))
 }
 
+/// Warum ein Host-Name erlaubt ist.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Grund {
+    /// Regel 2: `localhost`, Rechnername samt `.local`, `--erreichbar-als`.
+    Fest,
+    /// Regel 3: Rückwärtsname der angesprochenen Adresse.
+    Rueckwaertsname,
+    /// Regel 4: Name im lokalen Namensraum, der auf eine eigene Adresse zeigt.
+    LokalerNamensraum,
+    /// Regel 9: `--alle-namen`.
+    AlleNamen,
+}
+
+/// Die beim Start festgelegten Namen aus Regel 2, klein und ohne abschließenden Punkt.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FesteNamen {
+    namen: Vec<String>,
+}
+
+impl FesteNamen {
+    /// `localhost`, der Rechnername und `<rechnername>.local` (falls es einen gibt) und jeder Name aus
+    /// `--erreichbar-als`; leere Namen gelten nicht.
+    pub fn neu(rechnername: Option<&str>, erreichbar_als: &[String]) -> FesteNamen {
+        let rechner = rechnername
+            .into_iter()
+            .flat_map(|name| [name.to_string(), format!("{name}.local")]);
+        let namen = std::iter::once("localhost".to_string())
+            .chain(rechner)
+            .chain(erreichbar_als.iter().cloned())
+            .map(|name| klein_ohne_punkt(&name))
+            .filter(|name| !name.is_empty() && name != ".local")
+            .collect();
+        FesteNamen { namen }
+    }
+
+    fn enthaelt(&self, name: &str) -> bool {
+        self.namen.iter().any(|fest| fest == name)
+    }
+}
+
+fn klein_ohne_punkt(name: &str) -> String {
+    let klein = name.to_ascii_lowercase();
+    klein.strip_suffix('.').unwrap_or(&klein).to_string()
+}
+
+/// Urteil über einen Namen in Normalform nach Regeln 2, 3 und 5: fest erlaubt, sonst erlaubt, wenn er gleich
+/// einem Rückwärtsnamen der angesprochenen Adresse ist (beide in Normalform), sonst nicht (`None`). Die
+/// Rückwärtsnamen werden nur geholt, wenn die feste Liste scheitert; vorwärts wird hier nie aufgelöst.
+pub fn host_urteil(
+    name: &str,
+    feste: &FesteNamen,
+    rueckwaertsnamen: impl FnOnce() -> Vec<String>,
+) -> Option<Grund> {
+    if feste.enthaelt(name) {
+        return Some(Grund::Fest);
+    }
+    let ist_rueckwaertsname = rueckwaertsnamen()
+        .iter()
+        .filter_map(|rueckwaerts| normalform(rueckwaerts))
+        .any(|rueckwaerts| rueckwaerts == name);
+    ist_rueckwaertsname.then_some(Grund::Rueckwaertsname)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::http::namensauskunft::{Namensauskunft, Tabelle};
+    use std::net::IpAddr;
 
     #[test]
     fn grossbuchstaben_werden_klein_und_ein_abschliessender_punkt_faellt() {
@@ -144,5 +210,121 @@ mod tests {
         assert!(!endet_auf_label("local.evil.example", "local"));
         assert!(!endet_auf_label("local", "local"));
         assert!(!endet_auf_label("xlocal", "local"));
+    }
+
+    fn feste() -> FesteNamen {
+        FesteNamen::neu(Some("nuc5"), &["chat.lan".to_string(), "Nuc.".to_string()])
+    }
+
+    fn ip(text: &str) -> IpAddr {
+        text.parse().expect("Adresse")
+    }
+
+    /// Urteil über einen Host-Namen, der über `lokal` kam, mit der Tabelle als Namensauskunft.
+    fn urteil(tabelle: &Tabelle, host: &str, lokal: &str) -> Option<Grund> {
+        let name = normalform(host).expect("Normalform");
+        host_urteil(&name, &feste(), || tabelle.namen_der_adresse(ip(lokal)))
+    }
+
+    /// Erster Test aus A00004 (Kriterium „Host-Urteil“): öffentlich nie vorwärts gefragt, Rückwärtsname erlaubt.
+    #[test]
+    fn oeffentlicher_name_nie_vorwaerts_gefragt_rueckwaertsname_erlaubt() {
+        let tabelle =
+            Tabelle::aus_wert("192.168.178.65>nuc5.fritz.box;boese.example=192.168.178.65")
+                .expect("Tabelle");
+
+        assert_eq!(urteil(&tabelle, "boese.example", "192.168.178.65"), None);
+        assert_eq!(tabelle.fragen("vorwaerts", "boese.example"), 0);
+
+        assert_eq!(
+            urteil(&tabelle, "nuc5.fritz.box", "192.168.178.65"),
+            Some(Grund::Rueckwaertsname)
+        );
+        assert_eq!(
+            urteil(&tabelle, "nuc5.fritz.box.", "192.168.178.65"),
+            Some(Grund::Rueckwaertsname)
+        );
+        assert_eq!(
+            urteil(&tabelle, "NUC5.Fritz.Box", "192.168.178.65"),
+            Some(Grund::Rueckwaertsname)
+        );
+        assert_eq!(urteil(&tabelle, "nuc5.fritz.box", "127.0.0.1"), None);
+        assert_eq!(tabelle.fragen("vorwaerts", "nuc5.fritz.box"), 0);
+    }
+
+    /// Regel 2: ohne Frage an die Auskunft erlaubt.
+    #[test]
+    fn feste_namen_fragen_nicht_rueckwaerts() {
+        let tabelle = Tabelle::default();
+        for host in [
+            "localhost",
+            "LocalHost.",
+            "nuc5",
+            "NUC5.local",
+            "nuc5.local.",
+            "chat.lan",
+            "nuc",
+        ] {
+            assert_eq!(
+                urteil(&tabelle, host, "127.0.0.1"),
+                Some(Grund::Fest),
+                "{host}"
+            );
+        }
+        assert_eq!(tabelle.fragen("rueckwaerts", "127.0.0.1"), 0);
+    }
+
+    /// Matrix A1–A3, A6–A8, B2, B4, B5: nur der Rückwärtsname selbst, kein Suffix, keine Verlängerung.
+    #[test]
+    fn nur_der_rueckwaertsname_der_angesprochenen_adresse_gilt() {
+        let tabelle = Tabelle::aus_wert(
+            "127.0.0.2>nuc5.fritz.box;127.0.0.1>localhost;boese.example=127.0.0.1;andere.fritz.box=127.0.0.2;chat.lan=127.0.0.1",
+        )
+        .expect("Tabelle");
+        for (host, lokal) in [
+            ("boese.example", "127.0.0.1"),
+            ("boese.example", "127.0.0.2"),
+            ("boese.example", "::1"),
+            ("andere.fritz.box", "127.0.0.2"),
+            ("fritz.box", "127.0.0.2"),
+            ("chat.lan.boese.example", "127.0.0.1"),
+            ("nuc5.fritz.box", "127.0.0.1"),
+            ("nuc5.fritz.box.boese.example", "127.0.0.2"),
+            ("nuc5.fritz", "127.0.0.2"),
+            ("nuc5.fritz.box", "127.0.0.3"),
+            ("rebind.boese.example", "127.0.0.1"),
+            ("localtest.me", "127.0.0.1"),
+            ("127.0.0.1.nip.io", "127.0.0.1"),
+            ("x.localhost", "127.0.0.1"),
+        ] {
+            assert_eq!(urteil(&tabelle, host, lokal), None, "{host} über {lokal}");
+            assert_eq!(tabelle.fragen("vorwaerts", host), 0, "{host}");
+        }
+        assert_eq!(
+            urteil(&tabelle, "nuc5.fritz.box", "127.0.0.2"),
+            Some(Grund::Rueckwaertsname)
+        );
+    }
+
+    /// Matrix B3: Normalform beidseitig — der Rückwärtsname kommt groß und mit Punkt.
+    #[test]
+    fn der_rueckwaertsname_wird_ebenfalls_normalisiert() {
+        let tabelle = Tabelle::aus_wert("127.0.0.2>CHAT.fritz.box.;127.0.0.3>a_b.fritz.box")
+            .expect("Tabelle");
+
+        assert_eq!(
+            urteil(&tabelle, "Chat.Fritz.Box.", "127.0.0.2"),
+            Some(Grund::Rueckwaertsname)
+        );
+        assert_eq!(urteil(&tabelle, "a.fritz.box", "127.0.0.3"), None);
+    }
+
+    #[test]
+    fn ohne_rechnername_und_mit_leeren_freigaben_gelten_nur_localhost() {
+        let feste = FesteNamen::neu(None, &[String::new(), ".".to_string()]);
+        let keine = || Vec::new();
+        assert_eq!(host_urteil("localhost", &feste, keine), Some(Grund::Fest));
+        assert_eq!(host_urteil("local", &feste, keine), None);
+        assert_eq!(host_urteil("nuc5", &feste, keine), None);
     }
 }
