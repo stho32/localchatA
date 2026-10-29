@@ -544,6 +544,54 @@ mod tests {
         assert!(datei.groesste_lesung() <= STUECK);
     }
 
+    /// Befund #51 B2 (d), R00029 „Robust“: ein animiertes GIF von 64 MiB (≈ 263.000 Unterblöcke zu 255 Bytes) mit
+    /// Kommentar im letzten Frame → getilgt, kein `metadaten`, ≤ 2 s; die Bilddaten bleiben byte-gleich.
+    #[test]
+    fn ein_gif_von_64_mib_mit_kommentar_im_letzten_frame_ist_in_2_s_getilgt() {
+        let mut original = b"GIF89a\x01\0\x01\0\x80\0\0".to_vec();
+        original.extend_from_slice(&[0, 0, 0, 255, 255, 255]);
+        original.extend_from_slice(b"\x2C\0\0\0\0\x01\0\x01\0\0\x02");
+        let unterblock = [&[255u8][..], &[0x44; 255][..]].concat();
+        while original.len() < 64 * 1_048_576 {
+            original.extend_from_slice(&unterblock);
+        }
+        original.push(0);
+        let daten_ende = original.len();
+        original.extend_from_slice(b"\x21\xFE\x06Berlin\0");
+        original.extend_from_slice(b"\x2C\0\0\0\0\x01\0\x01\0\0\x02\x01\x44\0");
+        original.push(0x3B);
+
+        let beginn = std::time::Instant::now();
+        let (getilgt, zaehler, _) = tilgen(original.clone(), super::gif);
+        let dauer = beginn.elapsed();
+
+        assert!(dauer.as_secs_f64() <= 2.0, "{dauer:?}");
+        assert!(zaehler.bloecke < 10, "{}", zaehler.bloecke);
+        assert!(!enthaelt(&getilgt[daten_ende..], b"Berlin"));
+        assert!(
+            getilgt[..daten_ende] == original[..daten_ende],
+            "Bilddaten gleich"
+        );
+    }
+
+    /// Befund #51 B2 (d), R00029 „Robust“: Metadaten **nach** `IEND` sind Daten, kein Block — sie bleiben
+    /// byte-gleich, die Chunks davor werden getilgt.
+    #[test]
+    fn metadaten_nach_iend_bleiben_byte_gleich() {
+        let png_teil = handy_png(1);
+        let dahinter = [
+            chunk(b"tEXt", b"GPS\052.5200 13.4050"),
+            chunk(b"eXIf", &handy_tiff()),
+        ]
+        .concat();
+        let original = [png_teil.clone(), dahinter.clone()].concat();
+
+        let (getilgt, _, _) = tilgen(original, png);
+
+        assert_eq!(&getilgt[png_teil.len()..], &dahinter[..]);
+        assert!(!enthaelt(&getilgt[..png_teil.len()], b"GPS"));
+    }
+
     #[test]
     fn mehr_als_100_000_gedeutete_bloecke_sind_nicht_tilgbar() {
         let mut bytes = b"GIF89a\x01\0\x01\0\0\0\0".to_vec();

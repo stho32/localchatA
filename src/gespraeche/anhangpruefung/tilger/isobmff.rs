@@ -796,6 +796,111 @@ mod tests {
         });
     }
 
+    /// Befund #51 B2 (b), R00029 „Präparierte Metadaten“: HEIC mit zwei Exif-Items → beide minimal (Orientierung
+    /// bleibt), kein Ort, keine Kameradaten; Länge gleich.
+    #[test]
+    fn heic_mit_zwei_exif_items_verliert_beide_orte() {
+        let exif = |ort: &[u8]| {
+            let mut tiff = tiff(
+                Ordnung::Intel,
+                &[(0x0112, 3, 1, 6), (0x8825, 4, 1, 40)],
+                None,
+            );
+            tiff.extend_from_slice(ort);
+            [&0u32.to_be_bytes()[..], &tiff].concat()
+        };
+        let (erstes, zweites) = (exif(b"GPS 52.5200 Kamera"), exif(b"GPS 48.1371 Kamera"));
+        let iloc = |mdat_anfang: u64| {
+            let mut inhalt = vec![1u8, 0, 0, 0, 0x44, 0x00];
+            inhalt.extend_from_slice(&2u16.to_be_bytes());
+            for (id, ab, lang) in [
+                (1u16, mdat_anfang, erstes.len()),
+                (2, mdat_anfang + erstes.len() as u64, zweites.len()),
+            ] {
+                inhalt.extend_from_slice(&id.to_be_bytes());
+                inhalt.extend_from_slice(&[0, 0, 0, 0]);
+                inhalt.extend_from_slice(&1u16.to_be_bytes());
+                inhalt.extend_from_slice(&(ab as u32).to_be_bytes());
+                inhalt.extend_from_slice(&(lang as u32).to_be_bytes());
+            }
+            kiste(b"iloc", &inhalt)
+        };
+        let original = heic_aus(
+            &[exif_infe(1), exif_infe(2)],
+            iloc,
+            &[erstes.clone(), zweites.clone()].concat(),
+        );
+
+        let (ergebnis, datei) = tilgen(original.clone());
+
+        assert!(ergebnis.expect("getilgt").ort);
+        let getilgt = datei.inhalt();
+        assert_eq!(getilgt.len(), original.len());
+        assert!(!enthaelt(&getilgt, b"GPS") && !enthaelt(&getilgt, b"Kamera"));
+        let minimale: Vec<usize> = getilgt
+            .windows(4)
+            .enumerate()
+            .filter(|(_, f)| *f == b"MM\0*")
+            .map(|(stelle, _)| stelle)
+            .collect();
+        assert_eq!(minimale.len(), 2);
+        for stelle in minimale {
+            assert_eq!(orientierung(&getilgt[stelle..]), Some(6));
+        }
+    }
+
+    /// Befund #51 B2 (b), R00029 „Präparierte Metadaten“: MOV mit `©xyz` in `udta` **und** einem Ortsschlüssel in
+    /// `meta/keys` → beide genullt, Hersteller und `mdat` bleiben.
+    #[test]
+    fn mov_mit_xyz_in_udta_und_ort_in_meta_keys_verliert_beide() {
+        let schluessel = |name: &[u8]| {
+            let mut bytes = ((name.len() + 8) as u32).to_be_bytes().to_vec();
+            bytes.extend_from_slice(b"mdta");
+            bytes.extend_from_slice(name);
+            bytes
+        };
+        let keys = kiste(
+            b"keys",
+            &[
+                &[0u8, 0, 0, 0, 0, 0, 0, 2][..],
+                &schluessel(b"com.apple.quicktime.make"),
+                &schluessel(b"com.apple.quicktime.location.ISO6709"),
+            ]
+            .concat(),
+        );
+        let wert = |text: &[u8]| kiste(b"data", &[&[0u8, 0, 0, 1, 0, 0, 0, 0][..], text].concat());
+        let ilst = kiste(
+            b"ilst",
+            &[
+                kiste(&1u32.to_be_bytes(), &wert(b"Apple")),
+                kiste(&2u32.to_be_bytes(), &wert(b"+48.1371+011.5754/")),
+            ]
+            .concat(),
+        );
+        let meta = kiste(b"meta", &[kiste(b"hdlr", &[0; 25]), keys, ilst].concat());
+        let udta = kiste(
+            b"udta",
+            &kiste(
+                &[0xA9, b'x', b'y', b'z'],
+                b"\0\x11\x15\xc7+52.5200+013.4050/",
+            ),
+        );
+        let original = [
+            kiste(b"ftyp", b"qt  \0\0\x02\0qt  "),
+            kiste(b"moov", &[udta, meta].concat()),
+            kiste(b"mdat", b"Mediendaten"),
+        ]
+        .concat();
+
+        let (ergebnis, datei) = tilgen(original.clone());
+
+        assert!(ergebnis.expect("getilgt").ort);
+        let getilgt = datei.inhalt();
+        assert_eq!(getilgt.len(), original.len());
+        assert!(!enthaelt(&getilgt, b"+52.5200") && !enthaelt(&getilgt, b"+48.1371"));
+        assert!(enthaelt(&getilgt, b"Apple") && enthaelt(&getilgt, b"Mediendaten"));
+    }
+
     #[test]
     fn heic_mit_construction_method_1_oder_versatz_ausserhalb_ist_nicht_tilgbar() {
         for (methode, versatz) in [(1u16, 0u64), (0, 1 << 30)] {
