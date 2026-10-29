@@ -142,3 +142,45 @@ async fn debug_je_anfrage_eine_zeile_je_abweisung_mit_route_status_herkunft_und_
     );
     assert_eq!(wert(unbekannte[0], "status").as_deref(), Some("404"));
 }
+
+/// R00018 F0059 „Körperabweisung genau einmal“: 415 auf Beitritt und Anlage (mit Sitzung) ergeben je genau eine
+/// DEBUG-Zeile mit `status=415` und `typ=text/plain` — die Marke entsteht an einer Stelle.
+#[tokio::test]
+async fn eine_koerperabweisung_ist_auf_beitritt_und_anlage_genau_eine_debug_zeile() {
+    let wurzel = tempfile::tempdir().expect("Wegwerf-Ordner");
+    let instanz = starten_um(wurzel.path(), &[("LOCALCHATA_PROTOKOLL_STUFE", "debug")]);
+    let beta = gemeinsam::Absender::von("127.0.0.1");
+    let beitritt = beta
+        .beitreten(&instanz.adresse, serde_json::json!({"name": "beta"}), None)
+        .await;
+    let token = beitritt.json["token"].as_str().expect("Token").to_string();
+    let client = reqwest::Client::new();
+
+    let mut status = Vec::new();
+    for (route, sitzung) in [("beitreten", None), ("channels", Some(&token))] {
+        let mut anfrage = client
+            .post(format!("{}api/{route}", instanz.adresse))
+            .header("Content-Type", "text/plain")
+            .body("{\"name\":\"gamma\"}");
+        if let Some(token) = sitzung {
+            anfrage = anfrage.header("X-LocalchatA-Sitzung", token);
+        }
+        status.push(anfrage.send().await.expect("Antwort").status().as_u16());
+    }
+
+    assert_eq!(status, [415, 415]);
+    let datei = zeilen(wurzel.path(), "2026-10-28");
+    for route in ["POST /api/beitreten", "POST /api/channels"] {
+        let gefunden: Vec<&String> = datei
+            .iter()
+            .filter(|z| z.contains(" DEBUG ") && wert(z, "route").as_deref() == Some(route))
+            .filter(|z| wert(z, "status").as_deref() == Some("415"))
+            .collect();
+        assert_eq!(gefunden.len(), 1, "{route}: {datei:#?}");
+        assert_eq!(
+            wert(gefunden[0], "typ").as_deref(),
+            Some("text/plain"),
+            "{gefunden:#?}"
+        );
+    }
+}

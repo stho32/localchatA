@@ -7,8 +7,9 @@
 
 use super::Zustand;
 use super::abbruch::{Abgebrochen, Grenzort, abbruch_beantworten};
-use super::anfrageprotokoll::Eingetragen;
-use super::koerper::{Koerperfehler, Koerperort, ZU_LANGSAM, json_lesen_auf_werkbank};
+use super::koerper::{
+    Koerperfehler, Koerperort, json_lesen_auf_werkbank, koerperfehler_beantworten,
+};
 use super::nachrichten::NachrichtAntwort;
 use super::teilnehmer::Teilnehmer;
 use crate::gespraeche::textregel::{TEXT_HOECHSTENS_BYTES, Textfehler, text_pruefen};
@@ -21,7 +22,7 @@ use crate::uhr::{vorlauf_melden, vorlauf_text};
 use axum::Json;
 use axum::body::Body;
 use axum::extract::{Path, State};
-use axum::http::header::{CONNECTION, RETRY_AFTER};
+use axum::http::header::RETRY_AFTER;
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use serde_json::{Value, json};
@@ -220,35 +221,13 @@ fn abgebrochen(zustand: &Zustand, abbruch: &Abgebrochen, wer: &str, channel: &st
 
 const BEISPIEL: &str = r#"{"text":"Hallo"}"#;
 
-/// Wie beim Anlegen: deutsche `{fehler}`-Antwort mit Grund und Ausweg; nach 413 und 408 schließt die Verbindung.
+/// Die eine Antwort für Körperfehler (`koerper::koerperfehler_beantworten`) mit dem 413-Grund und Beispiel der Route.
 fn kein_json(fehler: Koerperfehler) -> Response {
-    let mit_beispiel = |grund: &str| format!("{grund}, zum Beispiel {BEISPIEL}.");
-    let (status, text) = match fehler {
-        Koerperfehler::KeinJson => (
-            StatusCode::UNSUPPORTED_MEDIA_TYPE,
-            mit_beispiel("Der Körper muss JSON sein — mit Content-Type: application/json schicken"),
-        ),
-        Koerperfehler::Kaputt | Koerperfehler::Abgebrochen => (
-            StatusCode::BAD_REQUEST,
-            mit_beispiel("Der Körper ist kein gültiges JSON — ein JSON-Objekt schicken"),
-        ),
-        Koerperfehler::ZuGross => (
-            StatusCode::PAYLOAD_TOO_LARGE,
-            mit_beispiel(&format!(
-                "Der Körper ist zu groß — höchstens {SENDEN_GRENZE} Bytes, längere Texte teilen"
-            )),
-        ),
-        Koerperfehler::ZuLangsam => (StatusCode::REQUEST_TIMEOUT, ZU_LANGSAM.to_string()),
-    };
-    let antwort = (status, Json(json!({ "fehler": text })));
-    let schliessen = matches!(fehler, Koerperfehler::ZuGross | Koerperfehler::ZuLangsam);
-    let mut antwort = if schliessen {
-        ([(CONNECTION, "close")], antwort).into_response()
-    } else {
-        antwort.into_response()
-    };
-    antwort.extensions_mut().insert(Eingetragen);
-    antwort
+    koerperfehler_beantworten(
+        fehler,
+        &format!("Der Körper ist zu groß — höchstens {SENDEN_GRENZE} Bytes, längere Texte teilen"),
+        BEISPIEL,
+    )
 }
 
 fn sendekoerper_abgewiesen(fehler: Sendekoerperfehler) -> Response {

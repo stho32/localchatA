@@ -4,8 +4,7 @@
 //! Token derselben Herkunft im Header ist es eine Wiederkehr: 200 dieselbe Sitzung, anderer Name 422.
 
 use super::Zustand;
-use super::anfrageprotokoll::Eingetragen;
-use super::koerper::{Koerperfehler, Koerperort, ZU_LANGSAM, json_lesen};
+use super::koerper::{Koerperfehler, Koerperort, json_lesen, koerperfehler_beantworten};
 use super::teilnehmer::gemeldete_sitzung;
 use crate::anwesenheit::{
     Abweisung, Beitrittsfehler, Beitrittswunsch, GESAMT, JE_HERKUNFT, Sitzung,
@@ -15,7 +14,6 @@ use crate::protokoll::{Bereich, Kontext, Protokoll, Schluessel, Stufe};
 use axum::Json;
 use axum::body::Body;
 use axum::extract::{ConnectInfo, State};
-use axum::http::header::CONNECTION;
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use chrono::SecondsFormat;
@@ -112,36 +110,15 @@ const BEISPIEL: &str = r#"{"name":"shoff"}"#;
 /// `art` 6 Zeichen je als `\uXXXX`); dieselbe Grenze wie die Anlage eines Channels, 4 KiB.
 const BEITRETEN_GRENZE: usize = 4096;
 
-/// Eine deutsche `{fehler}`-Antwort mit Grund und Ausweg; nach 413 schließt die Verbindung (der Rest des
-/// Körpers ist höchstens bis zur Obergrenze gelesen), ebenso nach 408 (der Rest kommt nicht, R00015).
+/// Die eine Antwort für Körperfehler (`koerper::koerperfehler_beantworten`) mit dem 413-Grund und Beispiel der Route.
 fn kein_json(fehler: Koerperfehler) -> Response {
-    let mit_beispiel = |grund: &str| format!("{grund}, zum Beispiel {BEISPIEL}.");
-    let (status, text) = match fehler {
-        Koerperfehler::KeinJson => (
-            StatusCode::UNSUPPORTED_MEDIA_TYPE,
-            mit_beispiel("Der Körper muss JSON sein — mit Content-Type: application/json schicken"),
+    koerperfehler_beantworten(
+        fehler,
+        &format!(
+            "Der Körper ist zu groß — höchstens {BEITRETEN_GRENZE} Bytes, nur Name und Art schicken"
         ),
-        Koerperfehler::Kaputt | Koerperfehler::Abgebrochen => (
-            StatusCode::BAD_REQUEST,
-            mit_beispiel("Der Körper ist kein gültiges JSON — ein JSON-Objekt schicken"),
-        ),
-        Koerperfehler::ZuGross => (
-            StatusCode::PAYLOAD_TOO_LARGE,
-            mit_beispiel(&format!(
-                "Der Körper ist zu groß — höchstens {BEITRETEN_GRENZE} Bytes, nur Name und Art schicken"
-            )),
-        ),
-        Koerperfehler::ZuLangsam => (StatusCode::REQUEST_TIMEOUT, ZU_LANGSAM.to_string()),
-    };
-    let antwort = (status, Json(json!({ "fehler": text })));
-    let schliessen = matches!(fehler, Koerperfehler::ZuGross | Koerperfehler::ZuLangsam);
-    let mut antwort = if schliessen {
-        ([(CONNECTION, "close")], antwort).into_response()
-    } else {
-        antwort.into_response()
-    };
-    antwort.extensions_mut().insert(Eingetragen);
-    antwort
+        BEISPIEL,
+    )
 }
 
 fn regelverstoss(abweisung: Abweisung) -> Response {

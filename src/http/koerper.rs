@@ -6,14 +6,18 @@
 
 use super::Werkbank;
 use super::abbruch::Abgebrochen;
+use super::anfrageprotokoll::Eingetragen;
 use crate::protokoll::episoden::Auftreten;
 use crate::protokoll::zaehler::Abweisungsart;
 use crate::protokoll::{Bereich, Kontext, Protokoll, Schluessel, Stufe};
+use axum::Json;
 use axum::body::Body;
-use axum::http::HeaderMap;
-use axum::http::header::CONTENT_TYPE;
+use axum::http::header::{CONNECTION, CONTENT_TYPE};
+use axum::http::{HeaderMap, StatusCode};
+use axum::response::{IntoResponse, Response};
 use futures_util::StreamExt;
 use serde_json::Value;
+use serde_json::json;
 use std::net::IpAddr;
 use std::time::Duration;
 
@@ -25,6 +29,39 @@ const VERWERFEN_FRIST: Duration = Duration::from_secs(2);
 pub const KOERPER_LESEFRIST: Duration = Duration::from_secs(10);
 /// Text der 408 (ADR-0010, Ergänzung R00015).
 pub const ZU_LANGSAM: &str = "Körper nicht vollständig innerhalb von 10 s — Anfrage abgebrochen.";
+
+/// Die eine Antwort für Körperfehler (ADR-0010 Ergänzung Karte #31): 413 | 415 | 400 | 408 mit deutschem
+/// `{fehler}` — Grund und Ausweg, bei 413, 415 und 400 mit dem Beispiel der Route; nach 413 und 408 schließt die
+/// Verbindung (der Rest des Körpers ist höchstens bis zur Obergrenze gelesen bzw. kommt nicht). Hier, nicht je
+/// Handler, entsteht die Marke `Eingetragen`: `json_lesen` hat die Abweisung schon eingetragen.
+pub fn koerperfehler_beantworten(
+    fehler: Koerperfehler,
+    zu_gross: &str,
+    beispiel: &str,
+) -> Response {
+    let mit_beispiel = |grund: &str| format!("{grund}, zum Beispiel {beispiel}.");
+    let (status, text) = match fehler {
+        Koerperfehler::KeinJson => (
+            StatusCode::UNSUPPORTED_MEDIA_TYPE,
+            mit_beispiel("Der Körper muss JSON sein — mit Content-Type: application/json schicken"),
+        ),
+        Koerperfehler::Kaputt | Koerperfehler::Abgebrochen => (
+            StatusCode::BAD_REQUEST,
+            mit_beispiel("Der Körper ist kein gültiges JSON — ein JSON-Objekt schicken"),
+        ),
+        Koerperfehler::ZuGross => (StatusCode::PAYLOAD_TOO_LARGE, mit_beispiel(zu_gross)),
+        Koerperfehler::ZuLangsam => (StatusCode::REQUEST_TIMEOUT, ZU_LANGSAM.to_string()),
+    };
+    let antwort = (status, Json(json!({ "fehler": text })));
+    let schliessen = matches!(fehler, Koerperfehler::ZuGross | Koerperfehler::ZuLangsam);
+    let mut antwort = if schliessen {
+        ([(CONNECTION, "close")], antwort).into_response()
+    } else {
+        antwort.into_response()
+    };
+    antwort.extensions_mut().insert(Eingetragen);
+    antwort
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Koerperfehler {
