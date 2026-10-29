@@ -636,10 +636,17 @@ impl Geladen {
 
 /// Eine vergiftete Sperre heißt nur, dass ein anderer Aufruf abbrach; der Verlauf selbst bleibt gültig,
 /// weil er erst nach erfolgreichem Schreiben verändert wird.
+/// Im Testbau meldet sie jeden Schritt einem Beobachter je Thread (Naht für den Sperrordnungstest); im Release-Bau
+/// gibt es diese Zeilen nicht.
 fn sperren<T>(sperre: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
-    sperre
+    #[cfg(test)]
+    tests::sperrhaken(tests::Sperrschritt::Will(std::ptr::from_ref(sperre).addr()));
+    let gesperrt = sperre
         .lock()
-        .unwrap_or_else(|vergiftet| vergiftet.into_inner())
+        .unwrap_or_else(|vergiftet| vergiftet.into_inner());
+    #[cfg(test)]
+    tests::sperrhaken(tests::Sperrschritt::Hat(std::ptr::from_ref(sperre).addr()));
+    gesperrt
 }
 
 #[cfg(test)]
@@ -1756,9 +1763,62 @@ mod tests {
         );
     }
 
+    /// Ein Schritt in `sperren`, gemeldet mit der Adresse der Sperre: davor (`Will`) und danach (`Hat`).
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    pub(super) enum Sperrschritt {
+        Will(usize),
+        Hat(usize),
+    }
+
+    /// Beobachter der Schritte eines Threads; `false` legt ihn ab.
+    type Sperrhaken = Box<dyn FnMut(Sperrschritt) -> bool>;
+
+    thread_local! {
+        static SPERRHAKEN: std::cell::RefCell<Option<Sperrhaken>> = const { std::cell::RefCell::new(None) };
+    }
+
+    /// Nur im Testbau aus `sperren` gerufen: meldet den Schritt dem Beobachter des Threads, falls einer gesetzt ist.
+    pub(super) fn sperrhaken(schritt: Sperrschritt) {
+        let Some(mut haken) = SPERRHAKEN.with_borrow_mut(Option::take) else {
+            return;
+        };
+        if haken(schritt) {
+            SPERRHAKEN.set(Some(haken));
+        }
+    }
+
+    fn sperrhaken_setzen(haken: impl FnMut(Sperrschritt) -> bool + 'static) {
+        SPERRHAKEN.set(Some(Box::new(haken)));
+    }
+
+    /// Beobachter für die Pflege: nach ihrer ersten genommenen Sperre gibt er das Senden frei (`los`) und hält die
+    /// Sperre, bis das Senden seine erste Sperre hat (andere Sperre zuerst → ABBA, beide verklemmen) oder auf genau
+    /// diese wartet (gleiche Ordnung, kein Hängen möglich). Danach legt er sich ab.
+    fn erste_sperre_halten(
+        los: std::sync::mpsc::Sender<()>,
+        sendeschritte: std::sync::mpsc::Receiver<Sperrschritt>,
+    ) -> impl FnMut(Sperrschritt) -> bool {
+        move |schritt| {
+            let Sperrschritt::Hat(gehalten) = schritt else {
+                return true;
+            };
+            los.send(()).expect("Senden wartet auf die Freigabe");
+            loop {
+                match sendeschritte.recv().expect("Senden meldet seine Schritte") {
+                    Sperrschritt::Will(sperre) if sperre == gehalten => return false,
+                    Sperrschritt::Hat(_) => return false,
+                    Sperrschritt::Will(_) => {}
+                }
+            }
+        }
+    }
+
     /// R00011 F0042 „Sperrordnung“: Pflege der Frist und Senden je 200-mal gleichzeitig über denselben Channel;
     /// je Runde liegt ein Tag jenseits der Frist in der Ablage, den die Pflege unter der Gesprächssperre entfernt
     /// → beide enden innerhalb von 10 s (kein Hängen), 200 Nachrichten, 200 Tage entfallen, nur heute bleibt.
+    /// Die Überlappung ist erzwungen, nicht dem Zufall überlassen: die Pflege hält ihre erste Sperre, bis das
+    /// Senden seine erste genommen hat oder auf genau diese wartet (`erste_sperre_halten`). Nimmt die Pflege eine
+    /// andere Sperre zuerst als das Senden (ABBA), verklemmen sich beide in jedem Lauf.
     #[test]
     fn pflege_und_senden_gleichzeitig_haengen_nicht() {
         let (gespraeche, ablage, _) = im_speicher("2026-10-28T12:00:00.000+01:00");
@@ -1767,11 +1827,14 @@ mod tests {
         let heute = tag("2026-10-28");
         let erster_alter_tag = tag("2026-01-01");
         let (fertig, fertige) = std::sync::mpsc::channel();
+        let (los, los_empfangen) = std::sync::mpsc::channel();
+        let (sendeschritt, sendeschritte) = std::sync::mpsc::channel();
         let pflege = {
             let gespraeche = Arc::clone(&gespraeche);
             let fertig = fertig.clone();
             std::thread::spawn(move || {
                 let mut entfallene_tage = 0;
+                sperrhaken_setzen(erste_sperre_halten(los, sendeschritte));
                 for runde in 0..200 {
                     let alter_tag = erster_alter_tag + chrono::Days::new(runde);
                     ablage.tag_setzen(&allgemein, alter_tag, "@ alt\n\n");
@@ -1788,6 +1851,12 @@ mod tests {
         let senden = {
             let gespraeche = Arc::clone(&gespraeche);
             std::thread::spawn(move || {
+                los_empfangen.recv().expect("Pflege hält ihre erste Sperre");
+                sperrhaken_setzen(move |schritt| {
+                    // Hat die Pflege entschieden, hört sie nicht mehr zu; das Melden darf dann ins Leere gehen.
+                    let _ = sendeschritt.send(schritt);
+                    matches!(schritt, Sperrschritt::Will(_))
+                });
                 for nummer in 0..200 {
                     gespraeche
                         .senden(
