@@ -1,9 +1,9 @@
 // Channel-Einstellungen (R00008 F0037, ADR-0033; Designsystem ChannelEinstellungen): `# name` in der Kopfzeile
 // öffnet den modalen Dialog „# name — Einstellungen“ mit dem Feld „Aufbewahrungsfrist“. Speichern sendet ohne
 // Bestätigung; würden Tage entfallen (409 `bestaetigen`), folgt ein zweiter Schritt im selben Dialog mit den Zahlen
-// und dem Fokus auf „Zurück“, der den Satz als Beschreibung trägt; ein gesperrter Dialog trägt den Sperrhinweis als
-// Beschreibung (WCAG 4.1.3, 1.3.1). Fehler bleiben im offenen Dialog, die Eingabe steht noch; Esc und „Abbrechen“
-// schließen, der Fokus kehrt zum Auslöser zurück.
+// und dem Fokus auf „Zurück“; „Zurück“ und „Frist verkürzen“ tragen den Satz mit den Zahlen beide als Beschreibung,
+// ein gesperrter Dialog trägt den Sperrhinweis als Beschreibung (WCAG 4.1.3, 1.3.1). Fehler bleiben im offenen
+// Dialog, die Eingabe steht noch; Esc und „Abbrechen“ schließen, der Fokus kehrt zum Auslöser zurück.
 import {
   fristPruefen, bestaetigungText, statusText, inzwischenText, inzwischenZurueckText, fehlerDerAntwort, versuchZaehlen,
   mitVersuch,
@@ -169,6 +169,7 @@ function dialogZeichnen(channel) {
   const zurueck = element('button', { type: 'button', className: 'lc-btn', textContent: 'Zurück', hidden: true });
   zurueck.setAttribute('aria-describedby', 'lc-frist-bestaetigung');
   const verkuerzen = element('button', { type: 'button', className: 'lc-btn primary', textContent: 'Frist verkürzen', hidden: true });
+  verkuerzen.setAttribute('aria-describedby', 'lc-frist-bestaetigung');
   const formular = element('form', { className: 'lc-dialog-formular', noValidate: true }, [
     element('h2', { id: 'lc-einstellungen-titel', className: 'lc-dialog-titel', textContent: `# ${channel.name} — Einstellungen` }),
     element('label', { htmlFor: 'lc-frist', className: 'lc-label', textContent: 'Aufbewahrungsfrist' }),

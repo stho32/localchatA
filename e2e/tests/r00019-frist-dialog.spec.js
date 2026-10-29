@@ -134,3 +134,21 @@ test('Gegenprobe ohne Rücksprung (B0387): A im ersten Schritt, beta setzt 9 →
   await expect(feld(a.page)).toHaveValue('12');
   expect(a.fehler).toEqual([]);
 });
+
+// Statt des Musters /2 Tage .* 5 Nachrichten .* nicht rückgängig/ der ganze Satz — das Muster verlangt ein Leerzeichen
+// nach „Nachrichten“, im Satz steht dort der Punkt (wie in r00008-frist.spec.js, B0317).
+for (const [art, vorbereiten, satz] of [
+  ['Mehrzahl', verkuerzbar, 'Bei 7 Tagen entfallen sofort 2 Tage bis einschließlich 21. Oktober 2026 mit 5 Nachrichten. Das lässt sich nicht rückgängig machen.'],
+  ['Einzahl', einTagVerkuerzbar, 'Bei 7 Tagen entfällt sofort 1 Tag bis einschließlich 21. Oktober 2026 mit 1 Nachricht. Das lässt sich nicht rückgängig machen.'],
+]) {
+  test(`„Frist verkürzen“ beschrieben (US-11, B0388, ${art}): beide Schalter des zweiten Schritts tragen den Satz als Beschreibung`, async ({ browser }) => {
+    await starten(vorbereiten);
+    const a = await dialogOeffnen(browser);
+
+    await zweiterSchritt(a.page);
+
+    await expect(verkuerzen(a.page)).toHaveAccessibleDescription(satz);
+    await expect(zurueck(a.page)).toHaveAccessibleDescription(satz);
+    expect(a.fehler).toEqual([]);
+  });
+}
