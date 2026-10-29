@@ -2,6 +2,7 @@
 
 pub mod abfrage;
 mod anhaenge;
+pub mod anhangablage;
 pub mod anhangeingang;
 pub mod anhangid;
 pub mod anhangpruefung;
@@ -131,6 +132,8 @@ pub struct Gespraeche {
     anhangquote: Option<u64>,
     anhangzaehler: anhaenge::Zaehler,
     plattenauskunft: Arc<dyn platte::Plattenauskunft>,
+    /// Eingang und Anhänge auf der Platte (A00008 Ergänzung „Karte #9 Security-Gate“).
+    anhangablage: Arc<dyn anhangablage::Anhangablage>,
     /// Zufall der Anhang-IDs (ADR-0047 Frage 2).
     zufall: Arc<dyn crate::zufall::Zufall>,
 }
@@ -284,6 +287,7 @@ impl Gespraeche {
             anhangquote: Some(anhaenge::STANDARD_ANHANGQUOTE),
             anhangzaehler: anhaenge::Zaehler::default(),
             plattenauskunft: Arc::new(platte::Unbegrenzt),
+            anhangablage: Arc::new(anhangablage::KeineAnhangablage),
             zufall: Arc::new(crate::zufall::Betriebssystemzufall),
         })
     }

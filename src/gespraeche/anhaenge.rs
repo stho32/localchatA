@@ -4,7 +4,8 @@
 //! Regel 5). Die Zähler stehen zusätzlich in Atomics, damit der Health-Check die Sperre nie braucht (ADR-0035
 //! Regel 4).
 
-use super::anhangeingang::{Anmeldung, Offen};
+use super::anhangablage::Anhangablage;
+use super::anhangeingang::{Anmeldung, Offen, Verfallen};
 use super::anhangid::Anhangid;
 use super::anhangpruefung::{Namensfehler, name_pruefen};
 use super::anhangquote::{self, Platzfehler};
@@ -122,6 +123,31 @@ impl Gespraeche {
             plattenauskunft,
             ..self
         }
+    }
+
+    /// Setzt die Ablage für Eingang und Anhänge (im Start: die Deskriptoren des Ordners).
+    pub fn mit_anhangablage(self, anhangablage: std::sync::Arc<dyn Anhangablage>) -> Gespraeche {
+        Gespraeche {
+            anhangablage,
+            ..self
+        }
+    }
+
+    /// Sekundentakt (ADR-0046 Regel 10, Ergänzung „Karte #9 Gate“ Regel 1): unter der Schreibsperre verfallen
+    /// angemeldete Einträge nach der Anlauffrist, laufende am Lebensende (der `PUT` räumt seine Teildatei selbst),
+    /// fertige nach 15 min; danach, ohne Sperre, die Dateien fertiger Einträge löschen. Liefert die Verfallenen für
+    /// das Betriebsprotokoll.
+    pub fn anhaenge_ablaufen(&self) -> Vec<Verfallen> {
+        let verfallen = {
+            let mut stand = sperren(&self.schreiben);
+            let verfallen = stand.eingang.ablaufen(self.uhr.jetzt());
+            self.eingang_spiegeln(&stand.eingang);
+            verfallen
+        };
+        for eintrag in verfallen.iter().filter(|eintrag| eintrag.fertig) {
+            let _ = self.anhangablage.eingang_loeschen(&eintrag.id);
+        }
+        verfallen
     }
 
     /// Ersetzt den Zufall der Anhang-IDs (Tests: feste Folge).
@@ -271,6 +297,31 @@ mod tests {
             Err(Anmeldefehler::Platz(Platzfehler::Platte { frei }))
         );
         assert_eq!(gespraeche.anhangkennzahlen().anhangquote, None);
+    }
+
+    /// Sekundentakt: eine Anmeldung ohne `PUT` verfällt nach 60 s, die Reservierung ist im Zähler sofort frei.
+    #[test]
+    fn der_takt_laesst_verfallene_anmeldungen_frei() {
+        let ablage = Arc::new(Speicherablage::neu());
+        let uhr = Arc::new(GestellteUhr::neu(
+            chrono::DateTime::parse_from_rfc3339("2026-10-29T12:00:00.000+01:00").expect("Zeit"),
+        ));
+        let gespraeche = Gespraeche::laden(ablage, uhr.clone())
+            .expect("geladen")
+            .mit_zufall(Arc::new(FesteFolge::neu(1..=10)));
+        anmelden(&gespraeche, "beta@127.0.0.1", 1).expect("201");
+        assert_eq!(gespraeche.anhaenge_ablaufen(), Vec::new());
+        assert_eq!(gespraeche.anhangkennzahlen().reserviert, 65_536);
+
+        uhr.stellen(
+            chrono::DateTime::parse_from_rfc3339("2026-10-29T12:01:00.001+01:00").expect("Zeit"),
+        );
+        let verfallen = gespraeche.anhaenge_ablaufen();
+
+        assert_eq!(verfallen.len(), 1);
+        assert!(verfallen[0].ohne_hochladen);
+        let kennzahlen = gespraeche.anhangkennzahlen();
+        assert_eq!((kennzahlen.reserviert, kennzahlen.hochladungen), (0, 0));
     }
 
     #[test]

@@ -48,6 +48,20 @@ impl Anhangid {
     }
 }
 
+/// Ein Name, wie er im Protokoll stehen darf (ADR-0047 Ergänzung Karte #9 Gate Regel 2): beginnt er mit 26 Zeichen
+/// aus `[A-Za-z2-7]` — eine ID, auch groß geschrieben —, nur die ersten 6 Zeichen und `…`; sonst unverändert.
+pub fn im_protokoll(name: &str) -> String {
+    let beginnt_mit_id = name.len() >= ID_ZEICHEN
+        && name.as_bytes()[..ID_ZEICHEN]
+            .iter()
+            .all(|byte| byte.is_ascii_alphabetic() || (b'2'..=b'7').contains(byte));
+    if beginnt_mit_id {
+        format!("{}…", &name[..PRAEFIX_ZEICHEN])
+    } else {
+        name.to_string()
+    }
+}
+
 impl fmt::Debug for Anhangid {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "Anhangid({}…)", self.praefix())
@@ -101,6 +115,22 @@ mod tests {
                 .to_string();
             assert!(Anhangid::lesen(&text).is_some(), "{text}");
         }
+    }
+
+    /// Eine ID am Anfang eines Namens wird gekürzt, auch groß geschrieben und mit Endung; andere Namen bleiben.
+    #[test]
+    fn im_protokoll_steht_von_einer_id_nur_der_praefix() {
+        assert_eq!(im_protokoll("k3v7q2m5xpc4h6n6tewaz2b5yr"), "k3v7q2…");
+        assert_eq!(im_protokoll("K3V7Q2M5XPC4H6N6TEWAZ2B5YR.teil"), "K3V7Q2…");
+        assert_eq!(im_protokoll("unter"), "unter");
+        assert_eq!(
+            im_protokoll("k3v7q2m5xpc4h6n6tewaz2b5y"),
+            "k3v7q2m5xpc4h6n6tewaz2b5y"
+        );
+        assert_eq!(
+            im_protokoll("k3v7q2m5xpc4h6n6tewaz2b5y1"),
+            "k3v7q2m5xpc4h6n6tewaz2b5y1"
+        );
     }
 
     #[test]

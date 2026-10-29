@@ -191,6 +191,10 @@ pub async fn ausfuehren<I: IntoIterator<Item = String>>(argumente: I) -> u8 {
                     STARTFEHLER
                 }
                 Err(Startabbruch::Eingetragen) => STARTFEHLER,
+                Err(Startabbruch::Eingang(fehler)) => {
+                    eprintln!("{fehler}");
+                    FALSCHER_AUFRUF
+                }
             }
         }
         Err(fehler) => {
@@ -204,6 +208,8 @@ pub async fn ausfuehren<I: IntoIterator<Item = String>>(argumente: I) -> u8 {
 enum Startabbruch {
     VorDerSperre(Startfehler),
     Eingetragen,
+    /// `.eingang` ist ein Symlink oder kein Ordner (ADR-0046 Ergänzung „Karte #9 Gate“ Regel 7): Exit 2.
+    Eingang(crate::gespraeche::anhangablage::Eingangsfehler),
 }
 
 async fn starten(
@@ -222,6 +228,9 @@ async fn starten(
     let uhr: Arc<dyn Uhr> = Arc::from(uhr);
     let ordner = ordner::ordner_vorbereiten(&auftrag.ordner).map_err(Startabbruch::VorDerSperre)?;
     let _sperre = sperre::ordner_sperren(&ordner).map_err(Startabbruch::VorDerSperre)?;
+    let (anhangdateien, im_eingang_geblieben) =
+        crate::gespraeche::anhangablage::Anhangdateien::oeffnen(&ordner)
+            .map_err(Startabbruch::Eingang)?;
     let beginn = Instant::now();
     let protokoll =
         Arc::new(Protokoll::oeffnen(&ordner, Arc::clone(&uhr), stufe).mit_episodenruhe(ruhe));
@@ -232,6 +241,22 @@ async fn starten(
             Bereich::Grenzschutz,
             allenamen::RISIKO,
             Kontext::neu(),
+        );
+    }
+    for geblieben in &im_eingang_geblieben {
+        protokoll.eintragen(
+            Stufe::Warning,
+            Bereich::Laden,
+            "Im Eingang bleibt ein Eintrag liegen, der keine reguläre Datei ist",
+            Kontext::neu()
+                .mit(
+                    Schluessel::Datei,
+                    format!(
+                        ".eingang/{}",
+                        crate::gespraeche::anhangid::im_protokoll(&geblieben.name)
+                    ),
+                )
+                .mit(Schluessel::Art, geblieben.art),
         );
     }
     let bereinigt_am = uhr.jetzt().date_naive();
@@ -250,6 +275,7 @@ async fn starten(
             stufe_herkunft,
             quote,
             anhangquote,
+            anhangdateien,
         },
     );
     laufen.await.map_err(|fehler| {
@@ -274,6 +300,8 @@ struct Startlaeufe {
     quote: (Plattenquote, &'static str),
     /// Wirksame Anhang-Quote und woher sie kommt.
     anhangquote: (anhangquote::Anhangquote, &'static str),
+    /// Eingang und Anhänge über die beim Start gehaltenen Deskriptoren.
+    anhangdateien: crate::gespraeche::anhangablage::Anhangdateien,
 }
 
 /// Was beim Start aus Option, Umgebung oder Standard wirksam wurde, je mit seiner Herkunft (ADR-0043 Regel 4).
@@ -313,6 +341,7 @@ fn tagestakt(
         gespraeche,
         gepflegt_am,
     } = fristpflege;
+    let anhaenge = Arc::clone(&gespraeche);
     Tagestakt::neu(Arc::clone(uhr), Arc::clone(protokoll))
         .tagesaufgabe(
             "bereinigen",
@@ -340,6 +369,13 @@ fn tagestakt(
             "Episoden enden nicht mehr",
             Box::new(move |_| episoden.episoden_schliessen()),
         )
+        .sekundenaufgabe(
+            "anhaenge",
+            "Anmeldungen und Hochladungen verfallen nicht mehr, ihre Reservierung bleibt",
+            Box::new(move |_| {
+                anhaenge.anhaenge_ablaufen();
+            }),
+        )
 }
 
 /// Vom Laden bis zum Ende; jeder Fehler hier gehört ins Protokoll (ADR-0042 Regel 2, `start`).
@@ -364,6 +400,7 @@ async fn nach_der_sperre(
         stufe_herkunft,
         quote: (quote, quote_herkunft),
         anhangquote: (anhangquote, _anhangquote_herkunft),
+        anhangdateien,
     } = startlaeufe;
     let bus = Arc::new(Bus::neu(live::KAPAZITAET));
     let gespraeche = Arc::new(
@@ -373,6 +410,7 @@ async fn nach_der_sperre(
             .mit_plattenauskunft(Arc::new(crate::gespraeche::platte::Statvfs::neu(
                 ordner.clone(),
             )))
+            .mit_anhangablage(Arc::new(anhangdateien))
             .mit_wiederholung(wiederholspeicher(testgrenze))
             .mit_quote_melden(quote_melden(&protokoll))
             .mit_verdraengt_melden(verdraengt_melden(&protokoll))
