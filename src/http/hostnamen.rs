@@ -76,7 +76,6 @@ fn nie_eigen(adresse: &IpAddr) -> bool {
 
 /// Warum ein Host-Name erlaubt ist.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[allow(dead_code)] // vorübergehend: AlleNamen entsteht mit B0377
 pub enum Grund {
     /// Regel 2: `localhost`, Rechnername samt `.local`, `--erreichbar-als`.
     Fest,

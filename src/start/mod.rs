@@ -364,13 +364,13 @@ async fn nach_der_sperre(
         bus,
         herzschlag,
         ende: ende.clone(),
-        grenzschutz: Grenzschutz::neu(rechnername::lesen(), auftrag.erreichbar_als).mit_auskunft(
-            Arc::new(Auskunft::neu(
+        grenzschutz: Grenzschutz::neu(rechnername::lesen(), auftrag.erreichbar_als)
+            .mit_auskunft(Arc::new(Auskunft::neu(
                 namensauskunft,
                 Arc::clone(&uhr),
                 Arc::clone(&protokoll),
-            )),
-        ),
+            )))
+            .mit_alle_namen(auftrag.alle_namen),
         werkbank: http::Werkbank::aus_kernen(),
         schreibkonto: Arc::new(Schreibkonto::neu(Arc::clone(&uhr))),
         protokoll: Arc::clone(&protokoll),

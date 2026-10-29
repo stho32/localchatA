@@ -656,7 +656,11 @@ fn f0080_ein_falscher_wert_ohne_schalter_ist_exit_2() {
         let ende = exit_code(wurzel.path(), &[("LOCALCHATA_ALLE_NAMEN", falsch)], &[]);
 
         assert_eq!(ende.exit, Some(2), "{falsch:?}: {}", ende.stderr);
-        assert!(ende.stderr.contains("LOCALCHATA_ALLE_NAMEN"), "{}", ende.stderr);
+        assert!(
+            ende.stderr.contains("LOCALCHATA_ALLE_NAMEN"),
+            "{}",
+            ende.stderr
+        );
         assert!(ende.stdout.is_empty(), "{}", ende.stdout);
     }
 }
@@ -667,4 +671,98 @@ fn f0080_der_schalter_gilt_neben_einer_falschen_umgebung() {
     let lauf = starten(&["--alle-namen"], &[("LOCALCHATA_ALLE_NAMEN", "ja")]);
 
     assert!(erlaubt(&lauf.gesundheit("127.0.0.1")));
+}
+
+/// Alle Zeilen „Namensauskunft gefragt“, gleich welche Art.
+fn alle_fragen(lauf: &Lauf) -> usize {
+    mit(&lauf.protokoll(), "DEBUG", "grenzschutz")
+        .iter()
+        .filter(|zeile| zeile.contains("Namensauskunft gefragt"))
+        .count()
+}
+
+fn beitreten(lauf: &Lauf, host: &str, kopf: &[&str], name: &str) -> RohAntwort {
+    let mut alle = vec!["Content-Type: application/json"];
+    alle.extend(kopf);
+    lauf.anfragen(
+        "POST /api/beitreten",
+        host,
+        &alle,
+        &format!(r#"{{"name":"{name}"}}"#),
+    )
+}
+
+/// Kriterium F0080 „Jeder Name“ (Matrix I1, I5): jeder Name in Normalform erlaubt, nie gefragt; Normalform und
+/// fehlender Host bleiben abgewiesen; mit `Accept: text/html` die Seite.
+#[test]
+fn f0080_mit_alle_namen_gilt_jeder_name_ohne_frage() {
+    let lauf = starten(
+        &["--alle-namen"],
+        &[
+            ("LOCALCHATA_TESTNAMEN", TESTNAMEN),
+            ("LOCALCHATA_PROTOKOLL_STUFE", "debug"),
+        ],
+    );
+
+    for name in ["boese.example", "chat.lan", "x.local", "drucker.local"] {
+        assert!(erlaubt(&lauf.gesundheit(name)), "{name}");
+    }
+    for name in ["a_b.example", "bücher.local", "2130706433"] {
+        assert_eq!(lauf.gesundheit(name).status, 403, "{name}");
+    }
+    let lang = format!("{}.local", "a".repeat(64));
+    assert_eq!(lauf.gesundheit(&lang).status, 403);
+    assert_eq!(lauf.roh(&["GET / HTTP/1.0", "Accept: */*"]).status, 403);
+    ist_seite(
+        &lauf.roh(&["GET / HTTP/1.0", "Accept: text/html"]),
+        &lauf.eigene_adresse(),
+    );
+    let host = format!("Host: 127.0.0.1:{}", lauf.port());
+    assert_eq!(lauf.roh(&["GET / HTTP/1.1", &host, &host]).status, 403);
+
+    assert_eq!(alle_fragen(&lauf), 0);
+}
+
+/// Kriterium F0080 „Jeder Name“ und US-10 (Matrix I2–I4, I6, I7): CSRF bleibt zu, Rebinding ist bewusst offen.
+#[test]
+fn f0080_die_ursprungsregel_bleibt_rebinding_ist_offen() {
+    let lauf = starten(&["--alle-namen"], &[]);
+    let boese = format!("boese.example:{}", lauf.port());
+    let eigen = format!("127.0.0.1:{}", lauf.port());
+
+    let fremder_origin = beitreten(&lauf, &boese, &["Origin: http://andere.example"], "beta");
+    assert_eq!(fremder_origin.status, 403, "{}", fremder_origin.inhalt);
+    assert!(fremder_origin.inhalt.contains("\"fehler\""));
+    for origin in ["Origin: http://boese.example", "Origin: null"] {
+        let csrf = beitreten(&lauf, &eigen, &[origin], "beta");
+        assert_eq!(csrf.status, 403, "{origin}: {}", csrf.inhalt);
+    }
+    for site in ["Sec-Fetch-Site: same-site", "Sec-Fetch-Site: cross-site"] {
+        let origin = format!("Origin: http://{boese}");
+        let antwort = beitreten(&lauf, &boese, &[&origin, site], "beta");
+        assert_eq!(antwort.status, 403, "{site}");
+    }
+    let vorflug = lauf.anfragen(
+        "OPTIONS /api/beitreten",
+        &boese,
+        &["Origin: http://boese.example", "Access-Control-Request-Method: POST"],
+        "",
+    );
+    assert_eq!(vorflug.status, 405);
+    assert!(
+        !vorflug.kopf.iter().any(|(name, _)| name.starts_with("access-control-allow-")),
+        "{:?}",
+        vorflug.kopf
+    );
+    assert!(lauf.gesundheit("127.0.0.1").inhalt.contains("\"sitzungen\":0"));
+
+    let origin = format!("Origin: http://{boese}");
+    let rebinding = beitreten(&lauf, &boese, &[&origin, "Sec-Fetch-Site: same-origin"], "beta");
+    assert_eq!(rebinding.status, 201, "{}", rebinding.inhalt);
+
+    assert_eq!(lauf.gesundheit("boese.example").header("cross-origin-opener-policy"), None);
+    assert_eq!(
+        lauf.gesundheit("127.0.0.1").header("cross-origin-opener-policy"),
+        Some("same-origin")
+    );
 }

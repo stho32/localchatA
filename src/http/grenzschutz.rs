@@ -192,6 +192,7 @@ pub(super) fn einziger_wert<'a>(kopf: &'a HeaderMap, name: &HeaderName) -> Optio
 pub struct Grenzschutz {
     feste: FesteNamen,
     auskunft: Option<Arc<Auskunft>>,
+    alle_namen: bool,
 }
 
 /// Der Host ist nicht freigegeben; `name` ist der Host-Anteil ohne Port, `None` heißt: kein Host-Header.
@@ -206,7 +207,15 @@ impl Grenzschutz {
         Grenzschutz {
             feste: FesteNamen::neu(rechnername.as_deref(), &erreichbar_als),
             auskunft: None,
+            alle_namen: false,
         }
+    }
+
+    /// `--alle-namen` (Regel 9): jeder Name in Normalform gilt, die Auskunft wird nie gefragt; die
+    /// Ursprungsregel bleibt.
+    pub fn mit_alle_namen(mut self, alle_namen: bool) -> Self {
+        self.alle_namen = alle_namen;
+        self
     }
 
     pub fn mit_auskunft(mut self, auskunft: Arc<Auskunft>) -> Self {
@@ -239,6 +248,9 @@ impl Grenzschutz {
             name: Some(name.to_string()),
         };
         let normal = normalform(name).ok_or_else(abgewiesen)?;
+        if self.alle_namen {
+            return Ok(Grund::AlleNamen);
+        }
         if let Some(grund) = host_urteil(&normal, &self.feste, Vec::new) {
             return Ok(grund);
         }
@@ -530,6 +542,54 @@ mod tests {
         assert!(schutz.host_erlaubt(Some(":1")).is_err());
         assert!(schutz.host_erlaubt(Some(".local")).is_err());
         assert_eq!(schutz.host_erlaubt(Some("127.0.0.1:1")), Ok(()));
+    }
+
+    /// Kriterium F0080 „Jeder Name“ (Unit, zählende Tabelle), Matrix I1, I5: 0 Fragen; Normalform und fehlender
+    /// Host bleiben abgewiesen.
+    #[tokio::test]
+    async fn mit_alle_namen_gilt_jeder_name_in_normalform_ohne_frage() {
+        let tabelle = Arc::new(
+            crate::http::Tabelle::aus_wert(
+                "127.0.0.1>nuc5.fritz.box;boese.example=127.0.0.1;x.local=127.0.0.1",
+            )
+            .expect("Tabelle"),
+        );
+        let auskunft = Arc::new(Auskunft::neu(
+            Arc::clone(&tabelle) as Arc<dyn Namensauskunft>,
+            Arc::new(crate::uhr::Systemuhr),
+            Arc::new(Protokoll::ohne_ablage()),
+        ));
+        let schutz = Grenzschutz::neu(None, Vec::new())
+            .mit_auskunft(auskunft)
+            .mit_alle_namen(true);
+        let lokal = Some("127.0.0.1".parse().expect("Adresse"));
+
+        for host in [
+            "boese.example:7430",
+            "chat.lan:7430",
+            "x.local",
+            "Boese.Example.",
+        ] {
+            assert_eq!(
+                schutz.host_pruefen(Some(host), lokal).await,
+                Ok(Grund::AlleNamen),
+                "{host}"
+            );
+        }
+        for host in ["a_b.example", "bücher.local", "", "2130706433"] {
+            assert!(
+                schutz.host_pruefen(Some(host), lokal).await.is_err(),
+                "{host}"
+            );
+        }
+        assert!(schutz.host_pruefen(None, lokal).await.is_err());
+        for (art, schluessel) in [
+            ("rueckwaerts", "127.0.0.1"),
+            ("vorwaerts", "boese.example"),
+            ("vorwaerts", "x.local"),
+        ] {
+            assert_eq!(tabelle.fragen(art, schluessel), 0, "{art} {schluessel}");
+        }
     }
 
     #[test]
