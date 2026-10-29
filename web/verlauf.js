@@ -46,6 +46,9 @@ export function verlaufAnlegen({ abrufen, schalter = () => {} }) {
   let neueGezaehlt = 0;
   let ersteNeue = null;
   let nurGezaehlte = [];
+  // Zeitpunkte aller Nachrichten, die der Tab im offenen Channel angenommen hat — geladen oder live, bis zum
+  // Neu-Öffnen (R00025 F0084: „n nachgeladen“ zählt nur, was erst das Nachholen brachte).
+  let angenommen = new Set();
   let vorlaeufige = [];
   const buendler = buendlerAnlegen({ einfuegen: jeFrameEinfuegen });
 
@@ -218,6 +221,7 @@ export function verlaufAnlegen({ abrufen, schalter = () => {} }) {
     neueGezaehlt = 0;
     ersteNeue = null;
     nurGezaehlte = [];
+    angenommen = new Set();
     auslauf.style.height = '';
     ladenBeendet();
     log.setAttribute('aria-label', `Verlauf # ${name}`);
@@ -240,6 +244,7 @@ export function verlaufAnlegen({ abrufen, schalter = () => {} }) {
       gepuffertesAnnehmen();
       return;
     }
+    angenommenMerken(ergebnis.block.nachrichten);
     fenster = { bloecke: [ergebnis.block.nachrichten], aelter: ergebnis.block.aelter, neuer: false };
     juengste = ergebnis.block.nachrichten[ergebnis.block.nachrichten.length - 1].zeit;
     const knoten = gegliedertZeichnen(ergebnis.block.nachrichten, null, heute);
@@ -264,11 +269,24 @@ export function verlaufAnlegen({ abrufen, schalter = () => {} }) {
     if (offenerName === null) {
       return;
     }
+    angenommenMerken([nachricht]);
     if (!geladen) {
       puffer.push({ nachricht, eigen });
       return;
     }
     buendler.annehmen({ channel: offenerName, nachricht, eigen });
+  }
+
+  // Nachgeholtes wie Live-Nachrichten annehmen; gezählt wird nur, was der Tab noch nicht angenommen hatte — eine
+  // während des Abrufs live angekommene Nachricht steht oft auch im Block. → Zahl der erst jetzt angenommenen
+  function nachgeholtAnnehmen(nachrichten) {
+    const unbekannte = new Set(nachrichten.map((nachricht) => Date.parse(nachricht.zeit)).filter((zeitpunkt) => !angenommen.has(zeitpunkt)));
+    nachrichten.forEach((nachricht) => nachrichtAnnehmen(nachricht, false));
+    return unbekannte.size;
+  }
+
+  function angenommenMerken(nachrichten) {
+    nachrichten.forEach((nachricht) => angenommen.add(Date.parse(nachricht.zeit)));
   }
 
   function vorlaeufigeZeigen(liste) {
@@ -449,6 +467,7 @@ export function verlaufAnlegen({ abrufen, schalter = () => {} }) {
   // Einfügen, am anderen Ende abwerfen, Kopf und Trenner an den Grenzen neu — dann den Anker korrigieren, alles im
   // selben Task vor dem nächsten Bild (ADR-0026 Regel 3).
   function blockEinfuegen(block, richtung) {
+    angenommenMerken(block.nachrichten);
     const anker = ankerMerken(log, inhalt);
     const ergebnis = einfuegen(fenster, block, richtung, masse());
     if (block.nachrichten.length > 0) {
@@ -563,6 +582,7 @@ export function verlaufAnlegen({ abrufen, schalter = () => {} }) {
     schliessen,
     heuteSetzen,
     nachrichtAnnehmen,
+    nachgeholtAnnehmen,
     vorlaeufigeZeigen,
     zumEndeFuerSenden,
     kennungSetzen: (kennung) => { eigeneKennung = kennung; },

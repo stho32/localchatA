@@ -8,7 +8,7 @@ import { nachholen } from './nachholen.js';
 import { rueckzugInMs } from './verbindung.js';
 
 // stand: () → { channel, geladen, juengste, neuesterImFenster } (Verlauf) · abrufen: async (channel, cursor, signal, n)
-// → Ergebnis wie api.js verlaufNachholen · annehmen: (nachrichten) · neuOeffnen: (channel) · fertig: (ergebnis, mitLeiste)
+// → Ergebnis wie api.js verlaufNachholen · annehmen: (nachrichten) → Zahl der erst jetzt angenommenen · neuOeffnen: (channel) · fertig: (ergebnis, mitLeiste)
 // mit ergebnis { art: 'nachgeholt', zahl } | { art: 'neu' } · zeitgeber: { stellen(ms, rueckruf) → id, loeschen(id) }
 // · jetzt: () → ms seit der Epoche · gescheitert: (naechsterVersuchUm) nach jedem gescheiterten Versuch
 export function nachholLaufAnlegen({
@@ -34,8 +34,7 @@ export function nachholLaufAnlegen({
       fertig({ art: 'neu' }, dieser.mitLeiste);
       return;
     }
-    annehmen(versuch.nachrichten);
-    dieser.zahl += versuch.nachrichten.length;
+    dieser.zahl += annehmen(versuch.nachrichten);
     dieser.cursor = versuch.cursor;
     if (versuch.ergebnis.art === 'nachgeholt') {
       lauf = null;

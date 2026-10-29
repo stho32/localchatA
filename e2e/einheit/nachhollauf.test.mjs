@@ -72,7 +72,11 @@ function verlaufErsatz(bekannt) {
     stand: () => ({
       channel: verlauf.channel, geladen: true, juengste: verlauf.folge[verlauf.folge.length - 1].zeit, neuesterImFenster: true,
     }),
-    annehmen: (nachrichten) => { verlauf.folge = zusammenfuehren(verlauf.folge, nachrichten).folge; },
+    annehmen: (nachrichten) => {
+      const ergebnis = zusammenfuehren(verlauf.folge, nachrichten);
+      verlauf.folge = ergebnis.folge;
+      return ergebnis.neue.length;
+    },
     live: (nachricht) => verlauf.annehmen([nachricht]),
   };
   return verlauf;
@@ -292,4 +296,24 @@ test('gescheitert meldet den Zeitpunkt des nächsten Nachhol-Versuchs', async ()
   await uhr.laufenBis(10000);
 
   assert.deepEqual(naechste, [1000, 3000, 'fertig']);
+});
+
+// R00025 F0084 „Nur Nachgeholtes gezählt“ (B0490; UX-Vorprüfung #36 V9, wörtlich: „Lücke 3; während des Abrufs 2 live,
+// eine davon auch im Block → ‚· 3 nachgeladen‘. n zählt nur Nachrichten, die erst durch das Nachholen kamen; Mutante
+// ‚live mitgezählt‘ rot.“) Rechenbeispiel: bekannt 1–3; Lücke 4, 5, 6; während des Abrufs live 7 und 8; der Block bringt
+// 4, 5, 6 und 7 → Folge 1–8 je einmal, „· 3 nachgeladen“.
+test('Nur Nachgeholtes gezählt: live während des Abrufs Angenommenes zählt nicht, auch wenn es im Block steht', async () => {
+  let blockLiefern = null;
+  const block = new Promise((liefern) => { blockLiefern = liefern; });
+  const { uhr, verlauf, fertig, lauf } = laufAnlegen({ antworten: [block] });
+
+  lauf.getrennt();
+  lauf.wiederverbunden();
+  verlauf.live(n(7));
+  verlauf.live(n(8));
+  blockLiefern({ nachrichten: [n(4), n(5), n(6), n(7)], neuer: false });
+  await uhr.laufenBis(1000);
+
+  assert.deepEqual(zeiten(verlauf.folge), [1, 2, 3, 4, 5, 6, 7, 8].map(t));
+  assert.deepEqual(fertig, [{ um: 0, text: '✓ Wieder verbunden · 3 nachgeladen', mitLeiste: true }]);
 });

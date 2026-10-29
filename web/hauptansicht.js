@@ -180,7 +180,7 @@ function wiederverbindenEinrichten({ mitte, verlauf, senden, abrufen, ansagen },
   const lauf = nachholLaufAnlegen({
     stand: () => verlauf.stand(),
     abrufen,
-    annehmen: (nachrichten) => nachrichten.forEach((nachricht) => verlauf.nachrichtAnnehmen(nachricht, false)),
+    annehmen: (nachrichten) => verlauf.nachgeholtAnnehmen(nachrichten),
     neuOeffnen: (channel) => verlauf.oeffnen(channel),
     gescheitert: (naechsterVersuchUm) => {
       naechsterVersuch.nachholen = naechsterVersuchUm;
