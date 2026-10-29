@@ -152,7 +152,7 @@ async fn us8_us10_verkuerzen_fragt_mit_zahlen_zurueck_und_aendert_nichts() {
         );
         assert_eq!(
             rueckfrage.json["fehler"],
-            "Mit dieser Frist entfallen sofort 2 Tagesdateien mit 5 Nachrichten bis 2026-10-21 — mit \"bestaetigt\":true erneut senden."
+            "Mit dieser Frist entfallen sofort 2 Tage bis einschließlich 2026-10-21 mit 5 Nachrichten — mit \"bestaetigt\":true erneut senden."
         );
     }
     let grenze = frist_setzen(&eins, &instanz, &beta, "allgemein", json!({ "tage": 8 })).await;
@@ -163,7 +163,7 @@ async fn us8_us10_verkuerzen_fragt_mit_zahlen_zurueck_und_aendert_nichts() {
     );
     assert_eq!(
         grenze.json["fehler"],
-        "Mit dieser Frist entfällt sofort 1 Tagesdatei mit 2 Nachrichten bis 2026-10-20 — mit \"bestaetigt\":true erneut senden."
+        "Mit dieser Frist entfällt sofort 1 Tag bis einschließlich 2026-10-20 mit 2 Nachrichten — mit \"bestaetigt\":true erneut senden."
     );
     // Drei Anfragen bis zur Vorschau kosten die 30 Einheiten von `beta` (R00021); die 422 fragt `gamma`.
     let gamma = beitreten(&eins, &instanz, "gamma").await;
@@ -192,14 +192,14 @@ async fn us8_us10_verkuerzen_fragt_mit_zahlen_zurueck_und_aendert_nichts() {
 }
 
 /// US-24 und Kriterium „Einzahl in der Rückfrage“ (R00008; Abnahme-Probe Rechtschreib-Review #12, Muss 3, über
-/// das Programm): `fehler` beugt Verb, Tagesdatei und Nachricht nach ihrer Zahl — 1/1 und 2/1 (leere Tagesdatei).
+/// das Programm): `fehler` beugt Verb, Tag und Nachricht nach ihrer Zahl (Wortlaut R00019 F0066) — 1/1 und 2/1 (leere Tagesdatei).
 #[tokio::test]
 async fn us24_die_rueckfrage_nennt_eine_tagesdatei_und_eine_nachricht_in_der_einzahl() {
     for (tage, entfaellt, verb_und_zahlen) in [
         (
             &[("2026-10-21", 1), ("2026-10-22", 1), ("2026-10-28", 1)][..],
             json!({ "tage": 1, "nachrichten": 1, "bis": "2026-10-21" }),
-            "entfällt sofort 1 Tagesdatei mit 1 Nachricht",
+            "entfällt sofort 1 Tag bis einschließlich 2026-10-21 mit 1 Nachricht",
         ),
         (
             &[
@@ -209,7 +209,7 @@ async fn us24_die_rueckfrage_nennt_eine_tagesdatei_und_eine_nachricht_in_der_ein
                 ("2026-10-28", 1),
             ][..],
             json!({ "tage": 2, "nachrichten": 1, "bis": "2026-10-21" }),
-            "entfallen sofort 2 Tagesdateien mit 1 Nachricht",
+            "entfallen sofort 2 Tage bis einschließlich 2026-10-21 mit 1 Nachricht",
         ),
     ] {
         let wurzel = tempfile::tempdir().expect("Wegwerf-Ordner");
@@ -232,9 +232,7 @@ async fn us24_die_rueckfrage_nennt_eine_tagesdatei_und_eine_nachricht_in_der_ein
         assert_eq!(rueckfrage.json["entfaellt"], entfaellt);
         assert_eq!(
             rueckfrage.json["fehler"],
-            format!(
-                "Mit dieser Frist {verb_und_zahlen} bis 2026-10-21 — mit \"bestaetigt\":true erneut senden."
-            )
+            format!("Mit dieser Frist {verb_und_zahlen} — mit \"bestaetigt\":true erneut senden.")
         );
     }
 }

@@ -230,7 +230,10 @@ async fn us23_schreiben_scheitert_nichts_aendert_sich() {
         frist_setzen(&eins, &instanz, &beta, "allgemein", json!({ "tage": 30 })).await;
 
     assert_eq!(gescheitert.status, 500, "{}", gescheitert.json);
-    assert!(gescheitert.json["fehler"].is_string());
+    assert_eq!(
+        gescheitert.json["fehler"],
+        "Frist nicht gesetzt — channels/allgemein/einstellungen.toml ließ sich nicht schreiben. Wer localchatA betreibt, muss das Schreibrecht des Ordners prüfen; danach erneut versuchen."
+    );
     let (channel, stand_danach) = channel_in_liste(&eins, &instanz, &beta, "allgemein").await;
     assert_eq!(channel["frist_tage"], 7);
     assert_eq!(stand_danach, s);
