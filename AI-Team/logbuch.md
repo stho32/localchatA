@@ -156,3 +156,6 @@ Eine Zeile je Auftrag an eine Rolle und je Retrospektive.
 | 2026-10-29 | #8 | Nacharbeit → Auto-Reviews | entwickler (entw2) | bestanden | 0:19 | Nacharbeit 2: Sperrordnungstest erzwingt Überlappung (cfg(test)-Naht), M14 20/20 rot; enge Wiederholung code-reviewer |
 | 2026-10-29 | #30 | Auto-Reviews → Nacharbeit | code-, ux-, security-, rechtschreib-, observability-reviewer | befund | — | Muss: erste neue = erste des Tages verdeckt Kontext; entw2 baut; sonst bestanden |
 | 2026-10-29 | #22 | Nacharbeit | planer | bestanden | 0:14 | Nacharbeit B0390–B0395 (stiller Neuversuch beim Nachholen), R00012 nachgezogen; Härtung R00025 als #36 (Architektur) |
+| 2026-10-29 | #22/#36 | Architektur | architekt | bestanden | 0:12 | ADR-Ergänzungen 0012/0015/0034/0037/0038/0042/0043: stiller Neuversuch beim Nachholen, eine Warnung, Rückgängig 5 s, H_k 640/H_g 36.000, ein Weg zum Wiederbeitritt |
+| 2026-10-29 | #30 | Nacharbeit → Auto-Reviews | entwickler (entw2) | bestanden | 0:10 | Kontext unter „Gestern“ am Tageswechsel; enge Wiederholung code-reviewer |
+| 2026-10-29 | #8 | Entwicklertest → Abnahme | entwicklertester | bestanden | 0:45 | 31 Szenarien, M2 p90 7 ms, Z9 0 %; Anmerkung: Reload während des Sendens verliert den Text |
