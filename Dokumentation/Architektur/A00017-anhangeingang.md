@@ -6,7 +6,7 @@ ebene: Komponente
 eltern: A00006
 repo: localchatA
 status: Geplant
-herkunft: vermutung
+herkunft: dialog
 quellen:
   - src/gespraeche/anhangeingang.rs
 verwandt: [A00008, A00014, A00018]
@@ -17,30 +17,33 @@ domaene: []
 
 ## Verantwortung
 
-Hält hochgeladene, noch nicht gesendete Dateien je Absender bis zur Bindung an eine Nachricht oder bis zu ihrem Ablauf bereit.
+Hält angemeldete und hochgeladene, noch nicht gesendete Dateien je Absender mit ihrer Reservierung an der Quote bis zur Bindung an eine Nachricht oder bis zu ihrer Frist bereit.
 
 ## Schnittstellen
 
-- `annehmen(kennung, name, laenge) -> Result<Platz, Abweisung>` — prüft offene Hochladungen (4 je Kennung, 16 je Herkunft) und reserviert `laenge` an der Quote über Gespräche ([ADR-0046](../ADRs/0046-anhaenge-ablegen-eingang-bindung-beim-senden-tag-der-nachricht-quote-und-eigenes-konto.md) Regel 1, Schritte 3 und 5).
-- `Platz::schreiben(stueck)`, `Platz::abschliessen() -> Eingangseintrag { id, name, bytes, art, masse, gueltig_bis }` — schreibt nach `.eingang/<id>.teil`, dann `rename` nach `.eingang/<id>`; Abbruch (Drop ohne Abschluss) löscht die Teildatei und gibt die Reservierung frei.
-- `nehmen(kennung, ids) -> Result<Vec<Eingangseintrag>, Anhangfehler>` — beim Senden unter der Schreibsperre; `unbekannt | abgelaufen | fremd | doppelt`.
-- `zuruecklegen(eintraege)` — nach gescheitertem Anhängen des Satzes ([ADR-0046](../ADRs/0046-anhaenge-ablegen-eingang-bindung-beim-senden-tag-der-nachricht-quote-und-eigenes-konto.md) Regel 5).
-- `ablaufen(jetzt)` — im Sekundentakt der Pflege; `leeren()` beim Start.
+- `anmelden(kennung, herkunft, name, bytes) -> Result<Anmeldung { id, anlauf_bis }, Abweisung>` — prüft offene Hochladungen (4 je Kennung, 16 je Herkunft, 32 gesamt), den freien Platz der Platte (Abstand 1 GiB) und reserviert `blockmass(bytes)` an der Quote über Gespräche gegen `hoechstens − reserve` ([ADR-0046](../ADRs/0046-anhaenge-ablegen-eingang-bindung-beim-senden-tag-der-nachricht-quote-und-eigenes-konto.md) Regel 1, Schritte 4–6).
+- `beginnen(kennung, id, laenge) -> Result<Platz, Hochladefehler>` — `unbekannt | abgelaufen | laeuft | fertig | laenge`; Zustand `angemeldet` → `laeuft`.
+- `Platz::schreiben(stueck)`, `Platz::abschliessen() -> Eingangseintrag { id, name, bytes, art, masse, gueltig_bis }` — schreibt nach `.eingang/<id>.teil`, dann `rename` nach `.eingang/<id>`; Abbruch (Drop ohne Abschluss) löscht die Teildatei, Zustand zurück auf `angemeldet` mit neuer Anlauffrist 60 s ([ADR-0046](../ADRs/0046-anhaenge-ablegen-eingang-bindung-beim-senden-tag-der-nachricht-quote-und-eigenes-konto.md) Regel 2.5).
+- `verwerfen(kennung, id)` — `DELETE`: Teildatei oder Datei weg, Reservierung frei, laufender `Platz` endet als Abbruch; fremde und unbekannte IDs: ohne Wirkung.
+- `nehmen(kennung, ids) -> Result<Vec<Eingangseintrag>, Anhangfehler>` — beim Senden unter der Schreibsperre; `unbekannt | abgelaufen | fremd | doppelt | unvollstaendig`.
+- `zuruecklegen(eintraege)` — nach gescheitertem Anhängen des Satzes ([ADR-0046](../ADRs/0046-anhaenge-ablegen-eingang-bindung-beim-senden-tag-der-nachricht-quote-und-eigenes-konto.md) Regel 6).
+- `ablaufen(jetzt)` — im Sekundentakt der Pflege (`angemeldet` 60 s, `fertig` 15 min); `leeren()` beim Start; `offen() -> (anzahl, reserviert)` für den Health-Check.
 
 ## Abhaengigkeiten
 
-[Logablage](A00008-logablage.md) (Port wächst um den Eingang), [Anhangprüfung](A00018-anhangpruefung.md) (Art und Maße aus den ersten Stücken, Text-Prüfung über alle), Uhr- und Zufalls-Provider (`src/uhr.rs`, `src/zufall.rs`) für Ablauf und ID.
+[Logablage](A00008-logablage.md) (Port wächst um den Eingang und `platz_frei`), [Anhangprüfung](A00018-anhangpruefung.md) (Art und Maße aus den ersten Stücken, Text-Prüfung über alle), Uhr- und Zufalls-Provider (`src/uhr.rs`, `src/zufall.rs`) für Fristen und ID. Das Schreiben der Stücke ruft die HTTP-Schnittstelle in `spawn_blocking` unter der Hochladebank ([A00004](A00004-http-schnittstelle.md)) — der Baustein selbst kennt keine Laufzeit.
 
 ## Entscheidungen
 
-- [ADR-0046: Anhänge ablegen — je Datei hochgeladen in einen Eingang, beim Senden in den Tag der Nachricht gebunden, eine Metazeile mit Anhang-ID; Bytes zählen an der Quote und an einem eigenen Konto](../ADRs/0046-anhaenge-ablegen-eingang-bindung-beim-senden-tag-der-nachricht-quote-und-eigenes-konto.md) — Vorgeschlagen, 2026-10-29
+- [ADR-0046: Anhänge ablegen — anmelden, gestreamt in einen Eingang hochladen, beim Senden in den Tag der Nachricht binden, eine Metazeile mit Anhang-ID; ohne Grenze je Datei unter der Quote, eine Reserve bleibt dem Text](../ADRs/0046-anhaenge-ablegen-eingang-bindung-beim-senden-tag-der-nachricht-quote-und-eigenes-konto.md) — Akzeptiert, 2026-10-29
 
 ## Offene Fragen
 
-- Grenzen je Datei und je Nachricht, Ablauf 15 min — hängen an Frage B2 an den Betreiber (Bericht Karte #9); bis zur Freigabe `herkunft: vermutung`.
+- F1 an den Betreiber (Bericht Karte #9): darf eine Herkunft den ganzen Platz für Anhänge belegen, oder höchstens einen Anteil (Option K7 in ADR-0046)? Bis zur Antwort gilt: keine Grenze je Herkunft außer der Zahl offener Hochladungen.
 
 ## Notizen / Quellen
 
 - Datenhoheit: `<ordner>/.eingang/` gehört allein diesem Baustein (über den Port der Logablage); `reserviert` hält Gespräche ([ADR-0044](../ADRs/0044-plattenquote-gespraeche-im-index-gezaehlt-senden-507-nichts-wird-deswegen-geloescht.md) Regel 2 bleibt: ein Halter der Quote).
-- Erster Test (Unit, Speicherablage, gestellte Uhr, fester Zufall): `annehmen` 200 Bytes → Platz; drei Stücke schreiben, abschließen → Eintrag mit `gueltig_bis` = jetzt + 15 min; `nehmen` mit fremder Kennung → `fremd`; zweimal `nehmen` → beim zweiten `unbekannt`; Uhr + 15 min + 1 s, `ablaufen` → Speicherablage ohne Datei, Reservierung frei; Platz ohne `abschliessen` fallen lassen → keine `.teil`-Datei, Reservierung frei. Ersetzte Provider: Logablage, Uhr, Zufall.
-- Betrieb: `.eingang/` wird beim Start vor dem Laden geleert; Symlinks und Unterordner dort bleiben liegen und werden als `WARNING` gemeldet.
+- Keine Grenze je Datei (Betreiber B2); die Grenze ist der freie Platz für Anhänge und der Platte.
+- Erster Test (Unit, Speicherablage, gestellte Uhr, fester Zufall, gestellter freier Platz): `anmelden` 200 Bytes → Anmeldung, `reserviert` = 4.096; `beginnen` mit Länge 199 → `laenge`; `beginnen` 200, drei Stücke, `abschliessen` → Eintrag mit `gueltig_bis` = jetzt + 15 min; zweites `beginnen` → `fertig`; `nehmen` mit fremder Kennung → `fremd`; zweimal `nehmen` → beim zweiten `unbekannt`; Anmeldung ohne `beginnen`, Uhr + 60 s + 1 ms, `ablaufen` → Reservierung frei; `Platz` nach zwei Stücken fallen lassen → keine `.teil`-Datei, Zustand `angemeldet`, Anlauffrist neu; `verwerfen` während `laeuft` → Teildatei weg, Reservierung 0; fünfte offene Anmeldung derselben Kennung → `offen_kennung`; freier Platz = Länge + 1 GiB − 1 → `platte`. Ersetzte Provider: Logablage, Uhr, Zufall, Plattenauskunft.
+- Betrieb: `.eingang/` wird beim Start vor dem Laden geleert; Symlinks und Unterordner dort bleiben liegen und werden als `WARNING` gemeldet; Health-Felder `reserviert`, `hochladungen` ([ADR-0043](../ADRs/0043-protokollstufe-einstellen-und-kennzahlen-im-health-check.md), Ergänzung Karte #9).
