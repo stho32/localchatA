@@ -61,6 +61,7 @@ function bedienen(zustand, { setzen, statusZeigen, neuOeffnen }, signal) {
     zustand.laeuft = true;
     schalterSperren(teile, true);
     const antwort = await setzen(name, tage, bestaetigt);
+    const eintreffenMs = Date.now();
     zustand.laeuft = false;
     schalterSperren(teile, false);
     if (antwort.status === 200 && !antwort.serverWeg) {
@@ -78,7 +79,7 @@ function bedienen(zustand, { setzen, statusZeigen, neuOeffnen }, signal) {
     }
     schritt = 1;
     ersterSchritt(teile);
-    fehlerZeigen(teile, fehlerDerAntwort(antwort));
+    fehlerZeigen(teile, fehlerDerAntwort(antwort, eintreffenMs));
     teile.feld.focus();
   }
 

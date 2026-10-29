@@ -109,3 +109,46 @@ for (const [art, stellen, erwartet] of [
     expect(a.fehler.filter((zeile) => !zeile.includes('net::ERR_FAILED'))).toEqual([]);
   });
 }
+
+// Ortszeit „HH:MM:SS“ im Browser, aufgerundet wie das Kriterium es verlangt — unabhängig von web/frist.js gerechnet.
+function uhrzeitAufgerundet(page, ms) {
+  return page.evaluate((zeitpunkt) => {
+    const ab = new Date(Math.ceil(zeitpunkt / 1000) * 1000);
+    return [ab.getHours(), ab.getMinutes(), ab.getSeconds()].map((teil) => String(teil).padStart(2, '0')).join(':');
+  }, ms);
+}
+
+// A speichert im jeweils neu geöffneten Dialog 8, 9, 8 (je 200); der vierte Versuch mit 9 bucht über die 30 Einheiten.
+async function dreimalGespeichert(page) {
+  for (const tage of [8, 9, 8]) {
+    expect(await speichern(page, tage)).toBe(200);
+    await expect(dialog(page)).toHaveCount(0);
+    await page.getByRole('banner').getByRole('button', { name: '# allgemein — Channel-Einstellungen' }).click();
+  }
+  await expect(page.getByRole('banner').locator('.lc-head-frist')).toHaveText('· 8 Tage');
+}
+
+test('429 im Dialog (US-13, B0543): „⚠ Zu viele Änderungen von … — wieder möglich ab HH:MM:SS.“, kein „in 10 s“, Feld ohne aria-invalid', async ({ browser }) => {
+  await starten();
+  const a = await dialogOeffnen(browser, { zusaetzlich: { [ROUTE]: [429] } });
+  await dreimalGespeichert(a.page);
+  await feld(a.page).fill('9');
+  const antwort = a.page.waitForResponse((r) => r.url().endsWith(ROUTE));
+
+  const t0 = await a.page.evaluate(() => Date.now());
+  await feld(a.page).press('Enter');
+  const gebremst = await antwort;
+  await expect(fehlerzeile(a.page)).toHaveText(/^⚠ Zu viele Änderungen von abcdefghijklm@127\.0\.0\.1 — wieder möglich ab \d\d:\d\d:\d\d\.$/);
+  const t1 = await a.page.evaluate(() => Date.now());
+
+  expect(gebremst.status()).toBe(429);
+  const wartezeit = (await gebremst.json()).wieder_in_ms;
+  const uhrzeit = (await fehlerzeile(a.page).textContent()).match(/ab (\d\d:\d\d:\d\d)\.$/)[1];
+  const fruehestens = await uhrzeitAufgerundet(a.page, t0 + wartezeit);
+  const spaetestens = await uhrzeitAufgerundet(a.page, t1 + wartezeit);
+  expect([fruehestens, spaetestens]).toContain(uhrzeit);
+  await expect(fehlerzeile(a.page)).not.toContainText('in 10 s');
+  await feldUnmarkiertMitEingabe(a.page, '9');
+  await expect(a.page.getByRole('banner').locator('.lc-head-frist')).toHaveText('· 8 Tage');
+  expect(a.fehler).toEqual([]);
+});

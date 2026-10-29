@@ -1,7 +1,7 @@
 // Unit-Tests der Frist im Browser (R00008 F0037, B0193, B0194; ADR-0033 Regel 3; node --test).
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { fristPruefen, fristText, bestaetigungText, statusText, inzwischenText, fehlerDerAntwort } from '../../web/frist.js';
+import { fristPruefen, fristText, bestaetigungText, statusText, inzwischenText, fehlerDerAntwort, wiederMoeglichAb } from '../../web/frist.js';
 
 const FEHLER = 'Frist: ganze Zahl von 1 bis 3650 Tagen.';
 
@@ -103,5 +103,28 @@ test('fehlerDerAntwort: ohne fehler „Nicht gespeichert (Status n) — später 
   assert.deepEqual(
     fehlerDerAntwort({ serverWeg: true, status: 0, daten: null }),
     { text: 'Nicht gespeichert — Verbindung prüfen.', eingabeFalsch: false },
+  );
+});
+
+// R00019 F0066 „429 im Dialog“, Rechenbeispiele (ADR-0033 Ergänzung Karte #27, Regel 3): Eintreffen + wieder_in_ms,
+// auf die volle Sekunde aufgerundet, Ortszeit, 24 h, über Mitternacht ohne Datum.
+test('wiederMoeglichAb: Eintreffen plus Wartezeit, aufgerundet auf die volle Sekunde', () => {
+  const eintreffen = new Date(2026, 9, 28, 14, 3, 12, 400).getTime();
+  assert.equal(wiederMoeglichAb(eintreffen, 9600), '14:03:22');
+  assert.equal(wiederMoeglichAb(eintreffen, 10000), '14:03:23');
+  assert.equal(wiederMoeglichAb(new Date(2026, 9, 28, 23, 59, 58, 0).getTime(), 3000), '00:00:01');
+  assert.equal(wiederMoeglichAb(new Date(2026, 9, 28, 9, 5, 7, 0).getTime(), 0), '09:05:07');
+});
+
+test('fehlerDerAntwort: die 429 nimmt den Teil vor „ — “ und setzt die Uhrzeit statt der Sekunden, Feld unmarkiert', () => {
+  const eintreffen = new Date(2026, 9, 28, 14, 3, 12, 400).getTime();
+  const antwort = {
+    serverWeg: false,
+    status: 429,
+    daten: { fehler: 'Zu viele Änderungen von abcdefghijklm@127.0.0.1 — wieder möglich in 10 s.', grenze: 'kennung', wieder_in_ms: 9600 },
+  };
+  assert.deepEqual(
+    fehlerDerAntwort(antwort, eintreffen),
+    { text: 'Zu viele Änderungen von abcdefghijklm@127.0.0.1 — wieder möglich ab 14:03:22.', eingabeFalsch: false },
   );
 });

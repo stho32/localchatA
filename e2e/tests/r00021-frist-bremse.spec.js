@@ -1,6 +1,7 @@
 'use strict';
 // R00021 F0072 Bremse im Dialog (US-3): eine Friständerung kostet 10 von 30 Einheiten der Kennung; nach drei
-// Änderungen über die Sitzung von A zeigt der Dialog „Channel-Einstellungen“ den `fehler` der 429.
+// Änderungen über die Sitzung von A zeigt der Dialog „Channel-Einstellungen“ den `fehler` der 429 — seit R00019 F0066
+// mit der Uhrzeit „wieder möglich ab HH:MM:SS“ statt der Sekunden (die Antwort an Agenten bleibt).
 const fs = require('fs');
 const path = require('path');
 const { test, expect } = require('./rahmen');
@@ -42,7 +43,7 @@ test('Bremse im Dialog (US-3): nach 8, 9, 8 per API zeigt Speichern mit 9 „⚠
   await dialog.getByRole('button', { name: 'Speichern' }).click();
 
   expect((await antwort).status()).toBe(429);
-  await expect(dialog.getByRole('alert')).toHaveText(/^⚠ Zu viele Änderungen von shoff@127\.0\.0\.1 — wieder möglich in (9|10) s\.$/);
+  await expect(dialog.getByRole('alert')).toHaveText(/^⚠ Zu viele Änderungen von shoff@127\.0\.0\.1 — wieder möglich ab \d\d:\d\d:\d\d\.$/);
   await expect(dialog).toBeVisible();
   await expect(kopf.locator('.lc-head-frist')).toHaveText('· 8 Tage');
   expect(fehler).toEqual([]);

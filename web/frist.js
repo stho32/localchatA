@@ -82,15 +82,28 @@ function datumAusgeschrieben(tag) {
   return `${tagImMonat}. ${MONATE[monat - 1]} ${jahr}`;
 }
 
-// Fehlerzeile nach einer Antwort (ADR-0033 Ergänzung Karte #27, Regel 1) → { text, eingabeFalsch }: nur die 422
-// `frist` ist ein Prüffehler; ein Serverfehler sagt, dass die Eingabe stimmt, und nennt einen Ausweg.
-export function fehlerDerAntwort({ serverWeg, status, daten }) {
+// Fehlerzeile nach einer Antwort (ADR-0033 Ergänzung Karte #27, Regeln 1 und 3) → { text, eingabeFalsch }: nur die
+// 422 `frist` ist ein Prüffehler; ein Serverfehler sagt, dass die Eingabe stimmt, und nennt einen Ausweg; die 429
+// nennt die Uhrzeit, ab der es wieder geht — eine Restzeit veraltete, solange der Dialog offen steht.
+// eintreffenMs: Uhr des Browsers beim Eintreffen der Antwort.
+export function fehlerDerAntwort({ serverWeg, status, daten }, eintreffenMs) {
   if (serverWeg) {
     return { text: 'Nicht gespeichert — Verbindung prüfen.', eingabeFalsch: false };
   }
   const eingabeFalsch = status === 422 && daten !== null && daten.regel === 'frist';
+  if (status === 429 && daten !== null && typeof daten.fehler === 'string') {
+    const wer = daten.fehler.split(' — ')[0];
+    return { text: `${wer} — wieder möglich ab ${wiederMoeglichAb(eintreffenMs, daten.wieder_in_ms)}.`, eingabeFalsch };
+  }
   if (daten !== null && typeof daten.fehler === 'string') {
     return { text: daten.fehler, eingabeFalsch };
   }
   return { text: `Nicht gespeichert (Status ${status}) — später erneut versuchen.`, eingabeFalsch };
+}
+
+// Ortszeit „HH:MM:SS“ von Eintreffen + Wartezeit, auf die volle Sekunde aufgerundet — ohne toLocaleTimeString, damit
+// die Form nicht an der Sprache des Browsers hängt.
+export function wiederMoeglichAb(eintreffenMs, wiederInMs) {
+  const ab = new Date(Math.ceil((eintreffenMs + wiederInMs) / 1000) * 1000);
+  return [ab.getHours(), ab.getMinutes(), ab.getSeconds()].map((teil) => String(teil).padStart(2, '0')).join(':');
 }
