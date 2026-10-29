@@ -130,6 +130,8 @@ pub enum Schluessel {
     AlterMs,
     /// Tag einer Tagesdatei bzw. eines Anhang-Ordners (`JJJJ-MM-TT`).
     Tag,
+    /// Eine gespeicherte Anhangdatei, nur als Präfix `<hhmmssmmm>-<n>` (ADR-0047 Ergänzung Gate Regel 3).
+    Anhang,
 }
 
 impl Schluessel {
@@ -168,6 +170,7 @@ impl Schluessel {
             Schluessel::PlattenquoteOption => "plattenquote_option",
             Schluessel::AlterMs => "alter_ms",
             Schluessel::Tag => "tag",
+            Schluessel::Anhang => "anhang",
         }
     }
 }

@@ -417,6 +417,24 @@ async fn nach_der_sperre(
             .mit_veroeffentlichen(bus::channels_veroeffentlichen(&bus))
             .mit_nachricht_veroeffentlichen(bus::nachrichten_veroeffentlichen(&bus)),
     );
+    for befund in gespraeche.anhangbefunde() {
+        let mut kontext = Kontext::neu()
+            .mit(Schluessel::Datei, befund.gespraech.tagesdatei(befund.tag))
+            .mit(Schluessel::Tag, befund.tag.format("%Y-%m-%d"))
+            .mit(Schluessel::Grund, befund.grund.as_str());
+        if let Some(zeile) = befund.zeile {
+            kontext = kontext.mit(Schluessel::Zeile, zeile);
+        }
+        if let Some(datei) = &befund.datei {
+            kontext = kontext.mit(Schluessel::Anhang, datei.as_str());
+        }
+        protokoll.eintragen(
+            Stufe::Warning,
+            Bereich::Laden,
+            "Anhang beim Laden übergangen — er fehlt in der Nachricht",
+            kontext,
+        );
+    }
     quote_beim_start_melden(&gespraeche, &protokoll);
     let gepflegt_am = uhr.jetzt().date_naive();
     frist_pflegen(&gespraeche, gepflegt_am, Pflegeanlass::Start, &protokoll);

@@ -191,12 +191,61 @@ impl Gespraeche {
         }
     }
 
-    /// Setzt die Ablage für Eingang und Anhänge (im Start: die Deskriptoren des Ordners).
-    pub fn mit_anhangablage(self, anhangablage: std::sync::Arc<dyn Anhangablage>) -> Gespraeche {
-        Gespraeche {
-            anhangablage,
-            ..self
+    /// Setzt die Ablage für Eingang und Anhänge (im Start: die Deskriptoren des Ordners) und lädt die Anhänge aller
+    /// Tage im Index (B0442, ADR-0046 Regel 8 „Laden“): je Tag die Metazeilen und die regulären Dateien in
+    /// `anhaenge/<tag>/` — `G` zählt jede reguläre Datei im Zählmaß, auch Waisen; Symlinks und Unterordner nie. Ist
+    /// `anhaenge` oder der Tag nicht zu öffnen (Symlink, kein Ordner), bleiben die Anhänge des Tags ohne Eintrag.
+    pub fn mit_anhangablage(
+        mut self,
+        anhangablage: std::sync::Arc<dyn Anhangablage>,
+    ) -> Gespraeche {
+        self.anhangablage = anhangablage;
+        let beginn = std::time::Instant::now();
+        let mut befunde = Vec::new();
+        let mut gebunden = 0u64;
+        {
+            let verzeichnis = super::lesend(&self.verzeichnis);
+            for (gespraech, verlauf) in &verzeichnis.verlaeufe {
+                let verlauf = sperren(verlauf);
+                for (tag, rohtext) in verlauf.tage_roh() {
+                    match self.anhangablage.tag_dateien(gespraech, tag) {
+                        Ok(dateien) => {
+                            let (tagesbefunde, tag_g) = self
+                                .anhangverzeichnis
+                                .tag_laden(gespraech, tag, rohtext, &dateien);
+                            gebunden = gebunden.saturating_add(tag_g);
+                            befunde.extend(tagesbefunde.into_iter().map(|befund| {
+                                super::Anhangladebefund {
+                                    gespraech: gespraech.clone(),
+                                    tag,
+                                    zeile: Some(befund.zeile),
+                                    grund: befund.grund.to_string(),
+                                    datei: befund.datei,
+                                }
+                            }));
+                        }
+                        Err(fehler) => befunde.push(super::Anhangladebefund {
+                            gespraech: gespraech.clone(),
+                            tag,
+                            zeile: None,
+                            grund: format!("Anhänge des Tages nicht lesbar ({fehler})"),
+                            datei: None,
+                        }),
+                    }
+                }
+            }
         }
+        self.anhangzaehler
+            .gebunden
+            .store(gebunden, Ordering::SeqCst);
+        self.anhangbefunde = befunde;
+        self.ladezeit += beginn.elapsed();
+        self
+    }
+
+    /// Was beim Laden der Anhänge übergangen wurde.
+    pub fn anhangbefunde(&self) -> &[super::Anhangladebefund] {
+        &self.anhangbefunde
     }
 
     /// Sekundentakt (ADR-0046 Regel 10, Ergänzung „Karte #9 Gate“ Regel 1): unter der Schreibsperre verfallen
@@ -811,6 +860,66 @@ mod tests {
         );
         assert!(gespraeche.anhaenge_ablaufen().is_empty());
         assert!(gespraeche.anhangverzeichnis.finden(&id).is_some());
+    }
+
+    /// B0442: nach einem Neustart (neu laden über dieselben Ablagen) kennt das Verzeichnis die Anhänge wieder, `G`
+    /// zählt sie und eine Waise im Zählmaß; eine unplausible Metazeile ergibt einen Befund mit Tagesdatei und Zeile.
+    #[test]
+    fn laden_kennt_die_anhaenge_wieder_und_zaehlt_waisen() {
+        let (gespraeche, ablage, anhaenge) = mit_ablage();
+        let id = fertig(&gespraeche, "beta@127.0.0.1", "a.bin", &[1; 10]);
+        gespraeche
+            .senden_mit_anhaengen(
+                &Gespraech::channel("allgemein"),
+                &kennung("beta@127.0.0.1"),
+                Art::Agent,
+                "x",
+                std::slice::from_ref(&id),
+                None,
+            )
+            .expect("gesendet");
+        anhaenge.anhang_setzen(
+            &Gespraech::channel("allgemein"),
+            tag_29(),
+            "999999999-1-waise.bin",
+            b"w",
+        );
+        let inhalt = ablage
+            .inhalt(&Gespraech::channel("allgemein"), tag_29())
+            .expect("Tag");
+        ablage.tag_setzen(
+            &Gespraech::channel("allgemein"),
+            tag_29(),
+            &format!("{inhalt}@ 2026-10-29T12:30:00.000+01:00 beta@127.0.0.1\n+ anhang: zu kurz\n  kaputt\n\n"),
+        );
+
+        let uhr = Arc::new(GestellteUhr::neu(
+            chrono::DateTime::parse_from_rfc3339("2026-10-29T13:00:00.000+01:00").expect("Zeit"),
+        ));
+        let neu = Gespraeche::laden(ablage, uhr)
+            .expect("geladen")
+            .mit_anhangablage(anhaenge);
+
+        let eintrag = neu.anhangverzeichnis.finden(&id).expect("wieder da");
+        assert_eq!(eintrag.datei, "120000000-1-a.bin");
+        assert_eq!(neu.anhangkennzahlen().gebunden, 2 * 65_536);
+        let befunde = neu.anhangbefunde();
+        assert_eq!(befunde.len(), 1, "{befunde:?}");
+        assert_eq!(
+            (befunde[0].zeile, befunde[0].grund.as_str()),
+            (Some(7), "Metazeile anhang: ID unlesbar")
+        );
+        let verlauf = neu
+            .verlauf(
+                "allgemein",
+                &abfrage::Abfrage {
+                    abschnitt: abfrage::Abschnitt::Neueste,
+                    n: abfrage::Blockgroesse::standard(),
+                },
+                1_000_000,
+            )
+            .expect("Verlauf");
+        assert_eq!(verlauf.nachrichten[0].anhaenge.len(), 1);
     }
 
     #[test]

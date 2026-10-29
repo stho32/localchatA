@@ -51,6 +51,26 @@ impl Verlauf {
             .sum()
     }
 
+    /// Tage mit ihrem Rohtext, aufsteigend (Laden der Anhänge); ein Tag, in dem kein Satz eine Metazeile
+    /// `+ anhang:` trägt, liefert einen leeren Rohtext — er wird kein zweites Mal zerlegt (Ladezeit QA5). Geprüft werden
+    /// nur die Zeilen `+ …` direkt nach jedem Satzkopf.
+    pub fn tage_roh(&self) -> impl Iterator<Item = (NaiveDate, &[u8])> {
+        self.tage.iter().map(|(tag, inhalt)| {
+            let traegt = inhalt
+                .satzanfaenge
+                .iter()
+                .any(|anfang| satz_traegt_anhang(&inhalt.rohtext[*anfang..]));
+            (
+                *tag,
+                if traegt {
+                    inhalt.rohtext.as_slice()
+                } else {
+                    &[]
+                },
+            )
+        })
+    }
+
     pub fn bytes(&self) -> u64 {
         self.tage.values().map(|tag| tag.rohtext.len() as u64).sum()
     }
@@ -73,6 +93,14 @@ impl Verlauf {
 }
 
 /// Ein Block des Verlaufs: Kopien der Sätze, älteste zuerst, und ob es davor bzw. danach noch Sätze gibt.
+/// Ob ein Satz (ab seinem Kopf) unter den Metazeilen `+ …` eine `+ anhang:` trägt.
+fn satz_traegt_anhang(satz: &[u8]) -> bool {
+    satz.split(|byte| *byte == b'\n')
+        .skip(1)
+        .take_while(|zeile| zeile.starts_with(b"+ "))
+        .any(|zeile| zeile.starts_with(b"+ anhang:"))
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Block {
     pub saetze: Vec<Vec<u8>>,

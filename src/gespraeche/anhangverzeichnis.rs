@@ -249,12 +249,16 @@ impl Anhangverzeichnis {
         let mut befunde = Vec::new();
         let mut zeilen = Vec::new();
         let mut ids_gesehen: HashMap<Anhangid, usize> = HashMap::new();
-        for satz in logformat::saetze(rohtext).into_iter().flatten() {
+        let saetze = logformat::saetze(rohtext);
+        let (mut gezaehlt_bis, mut zeilen_davor) = (0, 0);
+        for satz in saetze.into_iter().flatten() {
             let text = String::from_utf8_lossy(&rohtext[satz.anfang..satz.ende]);
-            let erste_zeile = rohtext[..satz.anfang]
+            zeilen_davor += rohtext[gezaehlt_bis..satz.anfang]
                 .iter()
                 .filter(|byte| **byte == b'\n')
                 .count();
+            gezaehlt_bis = satz.anfang;
+            let erste_zeile = zeilen_davor;
             for (im_satz, gelesen) in logformat::anhaenge_im_satz(&text) {
                 let zeile = erste_zeile + im_satz;
                 match gelesen {

@@ -162,6 +162,20 @@ pub struct Gespraeche {
     zufall: Arc<dyn crate::zufall::Zufall>,
     /// Gebundene Anhänge (A00016).
     anhangverzeichnis: anhangverzeichnis::Anhangverzeichnis,
+    /// Was beim Laden der Anhänge übergangen wurde (`WARNING laden`).
+    anhangbefunde: Vec<Anhangladebefund>,
+}
+
+/// Ein beim Laden übergangener Anhang bzw. ein Anhang-Ordner, der sich nicht öffnen ließ (ADR-0046 Regel 7 und
+/// Ergänzung „Karte #9 Security-Gate“ Regel 3): Datei der Anhänge nur als Präfix.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Anhangladebefund {
+    pub gespraech: Gespraech,
+    pub tag: NaiveDate,
+    /// Zeile der Tagesdatei; ohne Zeile: der Ordner `anhaenge/<tag>` war nicht zu öffnen.
+    pub zeile: Option<usize>,
+    pub grund: String,
+    pub datei: Option<String>,
 }
 
 /// Meldet einen vor Ablauf verdrängten Wiederholschlüssel; gerufen nach Freigabe der Schreibsperre (Regel E1.7).
@@ -315,6 +329,7 @@ impl Gespraeche {
             plattenauskunft: Arc::new(platte::Unbegrenzt),
             anhangablage: Arc::new(anhangablage::KeineAnhangablage),
             anhangverzeichnis: anhangverzeichnis::Anhangverzeichnis::default(),
+            anhangbefunde: Vec::new(),
             zufall: Arc::new(crate::zufall::Betriebssystemzufall),
         })
     }
