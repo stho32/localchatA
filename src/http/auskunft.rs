@@ -534,6 +534,14 @@ mod tests {
             .await
     }
 
+    /// Eine Anfrage auf eine hängende Auskunft endet nur durch die Zeitgrenze; ohne sie hinge der Test — die
+    /// Testgrenze (3 s) macht ihn stattdessen rot.
+    async fn begrenzt<T>(anfrage: impl Future<Output = T>) -> T {
+        tokio::time::timeout(Duration::from_secs(3), anfrage)
+            .await
+            .expect("Anfrage endet nicht — Zeitgrenze fehlt")
+    }
+
     /// Wartet (real) darauf, dass `bedingung` wahr wird — höchstens 5 s.
     async fn bis(bedingung: impl Fn() -> bool) {
         let ende = Instant::now() + Duration::from_secs(5);
@@ -555,7 +563,9 @@ mod tests {
         let mut laeufe = Vec::new();
         for name in ["a.local", "b.local"] {
             let auskunft = Arc::clone(&a.auskunft);
-            laeufe.push(tokio::spawn(async move { urteil(&auskunft, name).await }));
+            laeufe.push(tokio::spawn(async move {
+                begrenzt(urteil(&auskunft, name)).await
+            }));
         }
         bis(|| test.alle_fragen() == 2).await;
 
@@ -591,7 +601,7 @@ mod tests {
         let a = aufbau(Arc::clone(&test));
 
         let beginn = Instant::now();
-        let anfrage_a = a.auskunft.namen_der_adresse(ip("192.168.178.65")).await;
+        let anfrage_a = begrenzt(a.auskunft.namen_der_adresse(ip("192.168.178.65"))).await;
         let gewartet = beginn.elapsed();
 
         assert_eq!(anfrage_a, None);
@@ -632,7 +642,7 @@ mod tests {
                 let name = name.clone();
                 laeufe.push(tokio::spawn(async move {
                     let start = Instant::now();
-                    (urteil(&auskunft, &name).await, start.elapsed())
+                    (begrenzt(urteil(&auskunft, &name)).await, start.elapsed())
                 }));
             }
             for lauf in laeufe {
@@ -746,7 +756,9 @@ mod tests {
         let mut laeufe = Vec::new();
         for name in ["a.local", "b.local"] {
             let auskunft = Arc::clone(&a.auskunft);
-            laeufe.push(tokio::spawn(async move { urteil(&auskunft, name).await }));
+            laeufe.push(tokio::spawn(async move {
+                begrenzt(urteil(&auskunft, name)).await
+            }));
         }
         bis(|| test.alle_fragen() == 2).await;
 
@@ -780,7 +792,7 @@ mod tests {
             let auskunft = Arc::clone(&a.auskunft);
             laeufe.push(tokio::spawn(async move {
                 let start = Instant::now();
-                let namen = auskunft.namen_der_adresse(ip("127.0.0.1")).await;
+                let namen = begrenzt(auskunft.namen_der_adresse(ip("127.0.0.1"))).await;
                 (namen, start.elapsed())
             }));
         }
