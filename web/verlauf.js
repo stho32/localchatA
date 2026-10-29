@@ -9,7 +9,7 @@
 import { nachrichtZeichnen, kopfSetzen, trennerZeichnen, langeEinklappen, langeUmschalten } from './nachricht.js';
 import { gliederung, folgeGliedern, datumBenennen } from './gliederung.js';
 import { nachladen, einfuegen } from './fenster.js';
-import { einordnen, buendlerAnlegen, folgenOderZaehlen, pillenText, auslaufNach } from './live-verlauf.js';
+import { einordnen, zusammenfuehren, buendlerAnlegen, folgenOderZaehlen, pillenText, auslaufNach } from './live-verlauf.js';
 
 // abrufen: async (name, cursor, signal) → { art: 'block' | 'fehler' | 'abgebrochen', … } (api.js verlaufAbrufen).
 // Live (ADR-0037 Regeln 1, 6): nachrichtAnnehmen(nachricht, eigen) ordnet über die Zeit ein und fügt je Frame ein —
@@ -306,8 +306,7 @@ export function verlaufAnlegen({ abrufen, schalter = () => {} }) {
       nurGezaehlte.push(...eintraege.map((eintrag) => eintrag.nachricht));
       return;
     }
-    const { neue, juengste: neueJuengste } = einordnen(juengste, eintraege.map((eintrag) => eintrag.nachricht));
-    juengste = neueJuengste;
+    const neue = neueImJuengstenBlock(eintraege.map((eintrag) => eintrag.nachricht));
     if (neue.length === 0) {
       return;
     }
@@ -316,13 +315,56 @@ export function verlaufAnlegen({ abrufen, schalter = () => {} }) {
       ersteNeue = neueFremde[0].zeit;
     }
     const anker = ankerMerken(log, inhalt);
-    anfuegen(neue);
+    inDenJuengstenBlock(neue);
     ankerHalten(log, anker);
     if (lage === 'folgen') {
       amEnde = true;
       return;
     }
     neueGezaehlt += neueFremde.length;
+  }
+
+  // Was neu in den jüngsten Block kommt (ADR-0037 Ergänzung Karte #22/#36, 7f): jede Zeit einmal, auch Nachrichten der
+  // Lücke, die älter sind als eine schon live gezeigte — nur nichts vor seinem Anfang, das gehört älteren Blöcken.
+  function neueImJuengstenBlock(nachrichten) {
+    if (fenster === null) {
+      return zusammenfuehren([], nachrichten).neue;
+    }
+    const juengsterBlock = fenster.bloecke[fenster.bloecke.length - 1];
+    const anfang = Date.parse(juengsterBlock[0].zeit);
+    const abDemAnfang = nachrichten.filter((nachricht) => Date.parse(nachricht.zeit) > anfang);
+    return zusammenfuehren(juengsterBlock, abDemAnfang).neue;
+  }
+
+  // Sind alle neuen jünger als die jüngste gezeigte, werden sie angefügt; sonst wird der jüngste Block in der Folge der
+  // Zeiten neu gezeichnet.
+  function inDenJuengstenBlock(neue) {
+    const letzteNeue = neue[neue.length - 1].zeit;
+    const alleJuenger = juengste === null || Date.parse(neue[0].zeit) > Date.parse(juengste);
+    if (juengste === null || Date.parse(letzteNeue) > Date.parse(juengste)) {
+      juengste = letzteNeue;
+    }
+    if (alleJuenger) {
+      anfuegen(neue);
+      return;
+    }
+    juengstenBlockNeuZeichnen(neue);
+  }
+
+  function juengstenBlockNeuZeichnen(neue) {
+    const stelle = fenster.bloecke.length - 1;
+    const folge = zusammenfuehren(fenster.bloecke[stelle], neue).folge;
+    let vorige = null;
+    if (stelle > 0) {
+      const davor = fenster.bloecke[stelle - 1];
+      vorige = davor[davor.length - 1];
+    }
+    const knoten = gegliedertZeichnen(folge, vorige, heute, ersteNeue);
+    bloeckeKnoten[stelle].forEach((einzeln) => einzeln.remove());
+    inhalt.append(...knoten);
+    fenster.bloecke[stelle] = folge;
+    bloeckeKnoten[stelle] = knoten;
+    langeEinklappen(nurNachrichten(knoten));
   }
 
   // Neue Nachrichten ans Ende des jüngsten Blocks; im leeren Channel entsteht der erste Block. Die erste gezählte neue
@@ -632,11 +674,19 @@ function ankerVon(nachricht) {
   return { nachricht, top: nachricht.getBoundingClientRect().top };
 }
 
+// Wurde die Nachricht des Ankers neu gezeichnet, gilt ihre neue Gestalt mit derselben Zeit.
 function ankerHalten(log, anker) {
-  if (anker === null || !anker.nachricht.isConnected) {
+  if (anker === null) {
     return;
   }
-  log.scrollTop += anker.nachricht.getBoundingClientRect().top - anker.top;
+  let nachricht = anker.nachricht;
+  if (!nachricht.isConnected) {
+    nachricht = log.querySelector(`.lc-msg[data-zeit="${nachricht.dataset.zeit}"]`);
+  }
+  if (nachricht === null) {
+    return;
+  }
+  log.scrollTop += nachricht.getBoundingClientRect().top - anker.top;
 }
 
 function nurNachrichten(knoten) {

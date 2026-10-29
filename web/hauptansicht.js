@@ -184,6 +184,7 @@ function wiederverbindenEinrichten({ verlauf, senden, abrufen }, signal) {
     }
     if (ergebnis.aktion === 'wiederverbinden') {
       anzeige = { ...anzeige, getrennt: false, meldung: null };
+      senden.stromWieder();
       nachholenUndWeiter(true);
     }
     if (ergebnis.aktion === 'nachholen') {

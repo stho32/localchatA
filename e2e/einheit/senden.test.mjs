@@ -58,3 +58,37 @@ test('ein Netzfehler bei eingeschaltetem Netz ist ein Fehlschlag und wird sofort
   assert.deepEqual(zuletzt.map((vorlaeufig) => vorlaeufig.zustand), ['fehlgeschlagen']);
   assert.deepEqual(ansagen, [{ art: 'fehlschlag', grund: 'Keine Antwort vom Server.' }]);
 });
+
+// B0391 (Nacharbeit #22, Code-Review B1; ADR-0037 Ergänzung Karte #22/#36, 7f): getrennt fallen Ereignisse weg; ab dem
+// Wiederverbinden des Stroms kommen sie in den Verlauf, während die Warteschlange bis nach dem Nachholen ruht.
+test('ab dem Wiederverbinden des Stroms werden Ereignisse angenommen, die Warteschlange ruht weiter', async () => {
+  const angenommen = [];
+  const verlauf = { ...verlaufErsatz(), nachrichtAnnehmen: (nachricht) => angenommen.push(nachricht.text) };
+  const gesendet = [];
+  const senden = sendenEinrichten({
+    verlauf,
+    kennung: 'anna@127.0.0.1',
+    abschicken: async (channel, text) => {
+      gesendet.push(text);
+      return { art: 'antwort', status: 201, daten: { channel, nachricht: { zeit: 'z9', von: 'anna@127.0.0.1', text } }, token: 't' };
+    },
+    wiederBeitreten: async () => {},
+    netzAus: () => false,
+    ansagen: () => {},
+  });
+  senden.channelGeoeffnet('allgemein');
+  const fremd = (text, zeit) => ({ channel: 'allgemein', nachricht: { zeit, von: 'beta@127.0.0.1', art: 'agent', text } });
+
+  senden.getrennt();
+  senden.senden('eigen');
+  senden.empfangen(fremd('getrennt', 'z1'));
+  senden.stromWieder();
+  senden.empfangen(fremd('waehrend', 'z2'));
+  await naechsteRunde();
+  const vorDemNachholen = { angenommen: [...angenommen], gesendet: [...gesendet] };
+  senden.verbunden();
+  await naechsteRunde();
+
+  assert.deepEqual(vorDemNachholen, { angenommen: ['waehrend'], gesendet: [] });
+  assert.deepEqual(gesendet, ['eigen']);
+});

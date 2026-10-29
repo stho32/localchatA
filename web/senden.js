@@ -1,6 +1,7 @@
 // Senden verdrahten (ADR-0037 Regeln 1–4): Eingabe → Zustellung → Abruf → Verlauf; Ereignisse `nachricht` des
 // Stroms bestätigen eigene oder kommen als fremde in den offenen Verlauf. Ein Sendeauftrag zugleich je Tab. Bei
-// getrennter Verbindung ruht die Warteschlange, Ereignisse fallen weg (nach dem Wiederverbinden wird nachgeholt);
+// getrennter Verbindung ruht die Warteschlange, Ereignisse fallen weg; ab dem Wiederverbinden des Stroms werden sie
+// wieder angenommen, die Warteschlange läuft erst nach dem Nachholen (ADR-0037 Ergänzung Karte #22/#36, 7f);
 // eine 401 tritt still wieder bei und versucht genau einmal neu; Fehlschläge und fremde Nachrichten gehen an die Ansage.
 import { LEER, zustellen } from './zustellung.js';
 
@@ -10,6 +11,7 @@ export function sendenEinrichten({ verlauf, kennung, abschicken, wiederBeitreten
   let zustand = LEER;
   let offenerChannel = null;
   let zuletztGesendetMitToken = null;
+  let ereignisseRuhen = false;
 
   function anwenden(ergebnis) {
     zustand = ergebnis.zustand;
@@ -53,7 +55,7 @@ export function sendenEinrichten({ verlauf, kennung, abschicken, wiederBeitreten
       verlauf.zumEndeFuerSenden();
     },
     empfangen: ({ channel, nachricht }) => {
-      if (zustand.getrennt) {
+      if (ereignisseRuhen) {
         return;
       }
       anwenden(zustellen(zustand, { art: 'ereignis', kennung, channel, nachricht }));
@@ -62,7 +64,13 @@ export function sendenEinrichten({ verlauf, kennung, abschicken, wiederBeitreten
       offenerChannel = channel;
       verlauf.vorlaeufigeZeigen(zustand.vorlaeufige);
     },
-    getrennt: () => anwenden(zustellen(zustand, { art: 'getrennt' })),
+    getrennt: () => {
+      ereignisseRuhen = true;
+      anwenden(zustellen(zustand, { art: 'getrennt' }));
+    },
+    stromWieder: () => {
+      ereignisseRuhen = false;
+    },
     verbunden: () => anwenden(zustellen(zustand, { art: 'verbunden' })),
     // „Erneut senden“ | „Verwerfen“ an einer fehlgeschlagenen Nachricht.
     schalter: (aktion, schluessel) => anwenden(zustellen(zustand, { art: aktion, schluessel })),
