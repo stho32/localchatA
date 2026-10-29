@@ -29,7 +29,7 @@ tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "signal
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2.191"
-rustix = { version = "1", features = ["net", "process", "system"] }
+rustix = { version = "1", features = ["fs", "net", "process", "system"] }
 
 [dev-dependencies]
 tokio = { version = "1", features = ["io-util", "sync", "test-util"] }

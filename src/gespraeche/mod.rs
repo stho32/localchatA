@@ -1,6 +1,7 @@
 //! Gespräche: einziger Schreiber des Ordners (A00006) mit Logformat, Logablage und Verlaufsindex.
 
 pub mod abfrage;
+mod anhaenge;
 pub mod anhangeingang;
 pub mod anhangid;
 pub mod anhangpruefung;
@@ -13,6 +14,7 @@ mod kennung;
 mod logablage;
 pub mod logformat;
 mod pflege;
+pub mod platte;
 pub mod quote;
 mod speicherablage;
 pub mod textregel;
@@ -21,6 +23,7 @@ mod verzeichnis;
 pub mod wiederholung;
 
 pub use crate::anwesenheit::Art;
+pub use anhaenge::{Anhangkennzahlen, Anmeldefehler, STANDARD_ANHANGQUOTE};
 pub use frist::{FRIST_MAX, FRIST_MIN, Frist, STANDARD_FRIST_TAGE, frist_in_spanne};
 pub use kennung::Kennung;
 pub use logablage::{Angehaengt, Dateiablage, Gespraech, Logablage};
@@ -124,6 +127,12 @@ pub struct Gespraeche {
     /// Karte #36), gemeldet an `verdraengt_melden` (im Start: Episode im Betriebsprotokoll).
     schluessel_verdraengt: std::sync::atomic::AtomicU64,
     verdraengt_melden: VerdraengtMelden,
+    /// Anhang-Quote in Bytes, `None` heißt aus (ADR-0046 Ergänzung „F1“, Regel 1 dort); getrennt von `hoechstens`.
+    anhangquote: Option<u64>,
+    anhangzaehler: anhaenge::Zaehler,
+    plattenauskunft: Arc<dyn platte::Plattenauskunft>,
+    /// Zufall der Anhang-IDs (ADR-0047 Frage 2).
+    zufall: Arc<dyn crate::zufall::Zufall>,
 }
 
 /// Meldet einen vor Ablauf verdrängten Wiederholschlüssel; gerufen nach Freigabe der Schreibsperre (Regel E1.7).
@@ -132,6 +141,8 @@ pub type VerdraengtMelden = Arc<dyn Fn(&Verdraengt) + Send + Sync>;
 struct Schreibstand {
     letzte: Option<Zeit>,
     wiederholung: Wiederholung,
+    /// Der Anhangeingang liegt unter derselben Sperre (ADR-0046 Ergänzung „Karte #9 Gate“ Regel 5).
+    eingang: anhangeingang::Eingang,
 }
 
 /// Veröffentlicht eine angehängte Nachricht (im Start: auf den Bus, ADR-0028); gerufen unter der Schreibsperre.
@@ -259,6 +270,7 @@ impl Gespraeche {
             schreiben: Mutex::new(Schreibstand {
                 letzte: geladen.juengste,
                 wiederholung: Wiederholung::default(),
+                eingang: anhangeingang::Eingang::default(),
             }),
             defekte: geladen.defekte,
             ladezeit: beginn.elapsed(),
@@ -269,6 +281,10 @@ impl Gespraeche {
             quote_melden: Arc::new(|_: &quote::Quotemeldung| {}),
             schluessel_verdraengt: std::sync::atomic::AtomicU64::new(0),
             verdraengt_melden: Arc::new(|_: &Verdraengt| {}),
+            anhangquote: Some(anhaenge::STANDARD_ANHANGQUOTE),
+            anhangzaehler: anhaenge::Zaehler::default(),
+            plattenauskunft: Arc::new(platte::Unbegrenzt),
+            zufall: Arc::new(crate::zufall::Betriebssystemzufall),
         })
     }
 
