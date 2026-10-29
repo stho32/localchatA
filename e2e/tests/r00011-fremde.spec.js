@@ -115,7 +115,8 @@ test('US-21: andere Channels stören nicht', async ({ browser }) => {
 });
 
 // „Nicht am Ende“ (US-19, Z5): 300 Nachrichten; B zwei Bildschirmhöhen über dem Ende; beta sendet 3 → scrollTop ± 1 px,
-// Pille „3 neue Nachrichten“; Klick → die erste der drei oben mit einer Zeile Kontext; am Ende verschwindet die Pille.
+// Pille „3 neue Nachrichten“; Klick → die erste der drei oben unter dem Tagestrenner mit einer Zeile Kontext; am Ende
+// verschwindet die Pille.
 test('US-19 (Z5): wer oben liest, bleibt oben', async ({ browser }) => {
   instanz = await sendenStarten({ anzahl: 300 });
   const b = await kontextOeffnen(browser, { streng: true });
@@ -138,11 +139,14 @@ test('US-19 (Z5): wer oben liest, bleibt oben', async ({ browser }) => {
   await pille(b.page).click();
   const erste = mitText(b.page, /^neu 1$/);
   await expect(erste).toBeInViewport();
+  // Z5 seit R00020 F0067: unter dem klebenden Tagestrenner; die Spanne ± 1 px prüft r00020-sprung.spec.js.
   const lage = await erste.evaluate((nachricht) => {
-    const rand = nachricht.closest('[role="log"]').getBoundingClientRect().top;
-    return { abstand: nachricht.getBoundingClientRect().top - rand, zeile: parseFloat(getComputedStyle(nachricht).lineHeight) };
+    const log = nachricht.closest('[role="log"]');
+    const oberkante = nachricht.getBoundingClientRect().top - parseFloat(getComputedStyle(nachricht).marginTop);
+    const trenner = log.querySelector('.lc-day').getBoundingClientRect().height;
+    return { abstand: oberkante - log.getBoundingClientRect().top, trenner, zeile: parseFloat(getComputedStyle(nachricht).lineHeight) };
   });
-  expect(lage.abstand).toBeLessThanOrEqual(lage.zeile + 1);
+  expect(lage.abstand).toBeLessThanOrEqual(lage.trenner + lage.zeile + 1);
   await log.evaluate((element) => { element.scrollTop = element.scrollHeight; });
   await expect(pille(b.page)).toBeHidden();
   expect(b.fehler).toEqual([]);

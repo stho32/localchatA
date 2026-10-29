@@ -97,8 +97,8 @@ export function verlaufAnlegen({ abrufen, schalter = () => {} }) {
   });
 
   // „Zum Neuesten“: Klick oder Ende im Verlauf öffnet den Channel neu wie beim Wählen; der Fokus geht in den Verlauf.
-  // Mit gezählten neuen Nachrichten: steht die erste im Fenster, kommt sie an den oberen Rand, eine Zeile Kontext
-  // darüber (ADR-0037 Regel 6); sonst neu öffnen.
+  // Mit gezählten neuen Nachrichten: steht die erste im Fenster, kommt sie unter den klebenden Tagestrenner, eine Zeile
+  // Kontext darüber (ADR-0037 Regel 6, R00020 F0067); sonst neu öffnen.
   function zumNeuesten() {
     log.focus();
     const erste = ersteNeueImFenster();
@@ -106,10 +106,16 @@ export function verlaufAnlegen({ abrufen, schalter = () => {} }) {
       oeffnen(offenerName);
       return;
     }
-    const ziel = log.scrollTop + erste.getBoundingClientRect().top - log.getBoundingClientRect().top - zeilenhoehe();
+    const ziel = log.scrollTop + oberkanteImVerlauf(erste) - klebenderTrennerUnterkante(erste) - zeilenhoehe();
     auslaufFuer(ziel);
     log.scrollTop = ziel;
     lageMerken();
+  }
+
+  // Die obere Kante des Platzes einer Nachricht, mit ihrem Abstand nach oben, gemessen vom oberen Rand des Verlaufs.
+  function oberkanteImVerlauf(nachricht) {
+    const abstandNachOben = parseFloat(getComputedStyle(nachricht).marginTop);
+    return nachricht.getBoundingClientRect().top - abstandNachOben - log.getBoundingClientRect().top;
   }
 
   // Reicht der Inhalt unter der ersten neuen nicht für eine Sichthöhe, entsteht darunter so viel Raum, dass sie oben
@@ -530,6 +536,19 @@ function schalterZeichnen(beschriftung, aktion) {
   const schalter = element('button', { type: 'button', textContent: beschriftung });
   schalter.dataset.aktion = aktion;
   return schalter;
+}
+
+// Wie weit der Tagestrenner, der über `nachricht` klebt, vom oberen Rand des Verlaufs nach unten reicht (px): sein
+// Abstand oben (top im CSS) und seine Höhe; ohne Trenner davor 0.
+function klebenderTrennerUnterkante(nachricht) {
+  let davor = nachricht.previousElementSibling;
+  while (davor !== null && !davor.classList.contains('lc-day')) {
+    davor = davor.previousElementSibling;
+  }
+  if (davor === null) {
+    return 0;
+  }
+  return parseFloat(getComputedStyle(davor).top) + davor.getBoundingClientRect().height;
 }
 
 // Höhe eines gezeichneten Blocks: von der Oberkante seines ersten bis zur Unterkante seines letzten Knotens.

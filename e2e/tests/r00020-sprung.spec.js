@@ -65,3 +65,65 @@ test('US-1: die erste neue trägt nach dem Sprung ihren Kopf, die zweite und dri
   await expect(mitText(page, /^neu 3$/).locator('.lc-meta')).toHaveCount(0);
   expect(fehler).toEqual([]);
 });
+
+/// Wartet, bis die Oberkante der Nachricht `text` zehn Bilder lang gleich bleibt, und misst dann im Fenster (px):
+/// `oberkante` — obere Kante ihres Platzes, mit Außenabstand (eine Nachricht mit Kopf hat Abstand nach oben);
+/// `trennerUnten` — Unterkante des klebenden Tagestrenners (des zuletzt gezeichneten, der am oberen Rand klebt), ohne
+/// ihn der obere Rand des Verlaufs; `zeile` — Zeilenhöhe des Verlaufs; `getroffen` — was `elementFromPoint` eine
+/// halbe Zeile über der Oberkante trifft.
+async function lageNachDemSprung(page, text) {
+  const ergebnis = await page.waitForFunction((gesucht) => {
+    const log = document.querySelector('[role="log"]');
+    const erste = [...log.querySelectorAll('.lc-msg')].find((nachricht) => nachricht.querySelector('.lc-body').textContent === gesucht);
+    if (erste === undefined) {
+      return false;
+    }
+    const rechteck = erste.getBoundingClientRect();
+    const oberkante = rechteck.top - parseFloat(getComputedStyle(erste).marginTop);
+    const ruhe = window.lcRuhe;
+    if (ruhe === undefined || ruhe.oberkante !== oberkante) {
+      window.lcRuhe = { oberkante, bilder: 0 };
+      return false;
+    }
+    ruhe.bilder += 1;
+    if (ruhe.bilder < 10) {
+      return false;
+    }
+    window.lcRuhe = undefined;
+    const rand = log.getBoundingClientRect().top;
+    const klebend = [...log.querySelectorAll('.lc-day')]
+      .filter((trenner) => Math.abs(trenner.getBoundingClientRect().top - rand - parseFloat(getComputedStyle(trenner).top)) <= 1);
+    let trennerUnten = rand;
+    if (klebend.length > 0) {
+      trennerUnten = klebend[klebend.length - 1].getBoundingClientRect().bottom;
+    }
+    const zeile = parseFloat(getComputedStyle(log).lineHeight);
+    const punkt = document.elementFromPoint(rechteck.left + rechteck.width / 2, oberkante - zeile / 2);
+    const getroffen = { nachricht: punkt !== null && punkt.closest('.lc-msg') !== null, trenner: punkt !== null && punkt.closest('.lc-day') !== null };
+    return { oberkante, trennerUnten, zeile, getroffen, klebend: klebend.length };
+  }, text, { polling: 'raf', timeout: 10000 });
+  return ergebnis.jsonValue();
+}
+
+const FENSTER = [{ width: 1280, height: 800 }, { width: 375, height: 812 }];
+
+for (const viewport of FENSTER) {
+  const groesse = `${viewport.width} × ${viewport.height}`;
+
+  // „Kontext unter dem Trenner“ (B0330): nach dem Klick liegt die Oberkante der ersten neuen eine Zeile (± 1 px) unter
+  // der Unterkante des klebenden Tagestrenners; eine halbe Zeile darüber steht eine Nachricht, nicht der Trenner.
+  test(`US-1 (${groesse}): nach dem Sprung steht eine Zeile Kontext unter dem klebenden Tagestrenner`, async ({ browser }) => {
+    const { page, log, fehler, beta } = await bLiest(browser, viewport);
+    await zweiHoehenHoch(log);
+    await dreiNeue(page, beta);
+
+    await pille(page).click();
+
+    const lage = await lageNachDemSprung(page, 'neu 1');
+    expect(lage.klebend).toBeGreaterThan(0);
+    expect(lage.oberkante - lage.trennerUnten).toBeGreaterThanOrEqual(lage.zeile - 1);
+    expect(lage.oberkante - lage.trennerUnten).toBeLessThanOrEqual(lage.zeile + 1);
+    expect(lage.getroffen).toEqual({ nachricht: true, trenner: false });
+    expect(fehler).toEqual([]);
+  });
+}
