@@ -17,6 +17,7 @@ Gewohnte Konventionen (Slack/Discord, Browser), auf macOS `Strg` = `⌘`. Kürze
 | `Enter` | senden; auf Touch-Geräten (grober Zeiger, je Tastendruck gefragt) neue Zeile — gesendet wird dort mit dem Knopf „Senden“ (ADR-0038 Ergänzung Karte #41) | Eingabe |
 | `Shift Enter` | neue Zeile | Eingabe |
 | `Strg Enter` | senden, auch innerhalb eines offenen Codeblocks und auf Touch-Geräten (etwa mit angesteckter Tastatur am Tablet) | Eingabe |
+| `Strg Shift Enter` | senden wie `Strg Enter` — `Strg` geht `Shift` vor, auch auf Touch-Geräten | Eingabe |
 | `↑` in leerer Eingabe | eigene letzte Nachricht in den Verlauf fokussieren | Eingabe |
 | `@` | Erwähnungs-Vorschlag; `↑ ↓` wählen, `Enter`/`Tab` einsetzen | Eingabe |
 | `Strg Shift U` | Datei anhängen | Eingabe |

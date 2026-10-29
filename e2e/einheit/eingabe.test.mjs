@@ -62,6 +62,13 @@ test('grober Zeiger: Enter und Shift Enter machen eine Zeile, Strg Enter und Met
   assert.equal(taste(mit({ metaKey: true }), 'a', 'grob'), 'senden');
 });
 
+// Strg sticht Shift: Strg Shift Enter sendet wie Strg Enter, mit feinem und mit grobem Zeiger (Code-Review #41 A2).
+test('Strg Shift Enter sendet, mit feinem und mit grobem Zeiger', () => {
+  for (const zeiger of ['fein', 'grob']) {
+    assert.equal(taste(mit({ ctrlKey: true, shiftKey: true }), 'Hallo', zeiger), 'senden', zeiger);
+  }
+});
+
 test('grober Zeiger: Strg Enter während einer Komposition oder bei Leerraum tut nichts', () => {
   assert.equal(taste(mit({ ctrlKey: true, isComposing: true }), 'a', 'grob'), null);
   assert.equal(taste(mit({ ctrlKey: true, keyCode: 229 }), 'a', 'grob'), null);
