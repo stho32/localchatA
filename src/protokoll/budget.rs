@@ -298,6 +298,17 @@ mod tests {
         );
         assert_eq!(Klasse::Eingriff.als_text(), "EINGRIFF");
 
+        let mut weit = Tagesbudget::neu(Budgets {
+            information_warning: 1024,
+            eingriff: 4096,
+            ..BUDGETS
+        });
+        assert_eq!(
+            weit.pruefen(tag, Klasse::Eingriff, 3000),
+            Urteil::Schreiben,
+            "eigenes Budget, nicht das der Information"
+        );
+
         let mut anders = Tagesbudget::neu(Budgets {
             eingriff: 1024,
             ..BUDGETS
