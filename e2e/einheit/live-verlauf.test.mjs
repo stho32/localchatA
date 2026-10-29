@@ -2,7 +2,9 @@
 // node --test).
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { einordnen, zusammenfuehren, buendlerAnlegen, folgenOderZaehlen, pillenText, auslaufNach } from '../../web/live-verlauf.js';
+import {
+  einordnen, zusammenfuehren, buendlerAnlegen, folgenOderZaehlen, pillenText, auslaufNach, nichtGeladenText, hinweisTextNachziehen,
+} from '../../web/live-verlauf.js';
 
 const t = (sekunde) => `2026-10-28T12:00:${String(sekunde).padStart(2, '0')}.000+01:00`;
 const n = (sekunde) => ({ zeit: t(sekunde), von: 'beta@127.0.0.1', art: 'agent', text: `n${sekunde}` });
@@ -148,4 +150,45 @@ test('ein sichtbarer Auslauf bleibt, ein ganz unsichtbarer fällt weg', () => {
   assert.equal(auslaufNach({ hoehe: 500, sichtbar: 1, angefuegt: 0 }), 500);
   assert.equal(auslaufNach({ hoehe: 500, sichtbar: 0, angefuegt: 0 }), 0);
   assert.equal(auslaufNach({ hoehe: 0, sichtbar: 0, angefuegt: 0 }), 0);
+});
+
+// ---- Karte #65 (R00037 Regel 1): der Hinweis „Verlauf nicht geladen“ sagt, ob etwas von selbst lädt --------------------
+
+// Mutante „alter Wortlaut“ (…  — Verbindung prüfen.) → rot.
+test('Hinweistext je Zustand: selbstversuchend „wird geladen …“, sonst „Channel erneut wählen …“', () => {
+  assert.equal(nichtGeladenText(true), '⚠ Verlauf nicht geladen — wird geladen, sobald die Verbindung zurück ist.');
+  assert.equal(nichtGeladenText(false), '⚠ Verlauf nicht geladen — Channel erneut wählen, um es noch einmal zu versuchen.');
+});
+
+// Ein Knoten, der jeden Schreibzugriff zählt (ein Textwechsel im role="alert"-Knoten würde angesagt).
+function alarmKnoten(text) {
+  const knoten = { schreibzugriffe: 0, inhalt: text, role: 'alert' };
+  Object.defineProperty(knoten, 'textContent', {
+    get: () => knoten.inhalt,
+    set: (neu) => { knoten.inhalt = neu; knoten.schreibzugriffe += 1; },
+  });
+  return knoten;
+}
+
+// Mutante „Hinweis nicht nachgezogen“ (der Text bleibt, wie er war) → rot.
+test('Hinweis nachziehen: ein anderer Zustand tauscht nur den Text desselben Knotens, role="alert" bleibt', () => {
+  const knoten = alarmKnoten(nichtGeladenText(false));
+
+  const nachTrennung = hinweisTextNachziehen(knoten, true);
+
+  assert.equal(nachTrennung, knoten);
+  assert.equal(knoten.textContent, '⚠ Verlauf nicht geladen — wird geladen, sobald die Verbindung zurück ist.');
+  assert.equal(knoten.role, 'alert');
+  assert.equal(knoten.schreibzugriffe, 1);
+  hinweisTextNachziehen(knoten, false);
+  assert.equal(knoten.textContent, '⚠ Verlauf nicht geladen — Channel erneut wählen, um es noch einmal zu versuchen.');
+});
+
+test('Hinweis nachziehen: gleicher Text → kein Schreibzugriff (nichts wird erneut angesagt)', () => {
+  const knoten = alarmKnoten(nichtGeladenText(true));
+
+  hinweisTextNachziehen(knoten, true);
+  hinweisTextNachziehen(knoten, true);
+
+  assert.equal(knoten.schreibzugriffe, 0);
 });

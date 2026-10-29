@@ -391,7 +391,8 @@ test('Abgleich gegen alle bekannten Zeiten: hochgescrollt während des Nachholen
 // A eine Nachricht → sie steht in A genau einmal bestätigt (kein „wird gesendet …“ übrig).“ Je einmal mit und ohne
 // SharedWorker. Lesart: die Uhr des Neustarts startet, wenn die Startzeile der neuen Instanz gelesen ist; B tritt nach
 // dem Neustart im Browser bei (Sitzungen überleben den Neustart nicht), die Uhr von Z1 startet nach B's Enter.
-const NICHT_GELADEN = '⚠ Verlauf nicht geladen — Verbindung prüfen.';
+// Seit R00037 sagt der Hinweis bei getrenntem Strom, dass der Tab von selbst lädt.
+const NICHT_GELADEN = '⚠ Verlauf nicht geladen — wird geladen, sobald die Verbindung zurück ist.';
 const NEUSTART_MS = 5000;
 const Z1_MS = 1000;
 

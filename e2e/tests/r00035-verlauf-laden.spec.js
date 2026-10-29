@@ -44,7 +44,7 @@ const BLOCK = {
     })),
   },
 };
-const NICHT_GELADEN = '⚠ Verlauf nicht geladen — Verbindung prüfen.';
+const NICHT_GELADEN = '⚠ Verlauf nicht geladen — Channel erneut wählen, um es noch einmal zu versuchen.';
 const texte = (page) => page.locator('.lc-log-inhalt .lc-msg .lc-body').allTextContents();
 
 test('Fehlschlag → { art: fehler }, stand meldet gescheitert, der Hinweis steht', async ({ page }) => {
@@ -186,7 +186,7 @@ test('Wahl desselben Channels während des Laden-Laufs: sofort ein Versuch, der 
   await page.route(verlaufsAbruf, (route) => route.fulfill({ status: 500, body: '' }));
   await link(page, 'technik').click();
   await link(page, 'allgemein').click();
-  await expect(page.getByRole('alert')).toHaveText('⚠ Verlauf nicht geladen — Verbindung prüfen.');
+  await expect(page.getByRole('alert')).toHaveText(NICHT_GELADEN);
 
   await instanz.beenden();
   await expect(leiste(page)).toHaveText(/^⚠ Verbindung verloren/);

@@ -83,3 +83,22 @@ export function auslaufNach({ hoehe, sichtbar, angefuegt }) {
   const genommen = Math.max(0, angefuegt);
   return Math.max(0, hoehe - genommen);
 }
+
+// Der Hinweis „Verlauf nicht geladen“ (R00037 Regel 1, ADR-0037 Ergänzung Karte #65) sagt, was geschieht: lädt der Tab
+// von selbst (Strom getrennt oder ein Laden-Lauf läuft), wartet der Mensch; sonst hilft nur die neue Wahl des Channels.
+export function nichtGeladenText(selbstversuchend) {
+  if (selbstversuchend) {
+    return '⚠ Verlauf nicht geladen — wird geladen, sobald die Verbindung zurück ist.';
+  }
+  return '⚠ Verlauf nicht geladen — Channel erneut wählen, um es noch einmal zu versuchen.';
+}
+
+// Zieht den Text des stehenden Hinweises nach, wenn sich der Zustand geändert hat — nur der Text desselben Knotens
+// (role="alert" bleibt), und nur bei Unterschied, damit der Bildschirmleser nichts doppelt ansagt. → der Knoten
+export function hinweisTextNachziehen(knoten, selbstversuchend) {
+  const text = nichtGeladenText(selbstversuchend);
+  if (knoten.textContent !== text) {
+    knoten.textContent = text;
+  }
+  return knoten;
+}

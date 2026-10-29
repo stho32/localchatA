@@ -9,7 +9,7 @@
 import { nachrichtZeichnen, kopfSetzen, trennerZeichnen, langeEinklappen, langeUmschalten } from './nachricht.js';
 import { gliederung, folgeGliedern, datumBenennen } from './gliederung.js';
 import { nachladen, einfuegen } from './fenster.js';
-import { einordnen, zusammenfuehren, buendlerAnlegen, folgenOderZaehlen, pillenText, auslaufNach } from './live-verlauf.js';
+import { einordnen, zusammenfuehren, buendlerAnlegen, folgenOderZaehlen, pillenText, auslaufNach, nichtGeladenText, hinweisTextNachziehen } from './live-verlauf.js';
 
 // abrufen: async (name, cursor, signal) → { art: 'block' | 'fehler' | 'abgebrochen', … } (api.js verlaufAbrufen);
 // das Ergebnis von `oeffnen` sagt, ob der Verlauf steht.
@@ -54,6 +54,8 @@ export function verlaufAnlegen({ abrufen, schalter = () => {}, fokusRueckgaengig
   // Neues geht gegen sie alle, nicht nur gegen den jüngsten Block (ADR-0037 Ergänzung „Karte #36 Wortlaut“ Punkt 3).
   let eingeordnet = new Set();
   let vorlaeufige = [];
+  // Lädt der Tab von selbst (Strom getrennt oder Laden-Lauf)? Die Hauptansicht setzt die Auskunft (R00037 Regel 1).
+  let selbstversuchend = () => false;
   const buendler = buendlerAnlegen({ einfuegen: jeFrameEinfuegen });
 
   function abstandUnten() {
@@ -276,15 +278,25 @@ export function verlaufAnlegen({ abrufen, schalter = () => {}, fokusRueckgaengig
     gescheitert = true;
     puffer = [];
     if (nichtGeladenSteht()) {
+      hinweisNachziehen();
       return;
     }
-    const fehler = hinweis('⚠ Verlauf nicht geladen — Verbindung prüfen.', 'lc-mitte-hinweis lc-fehler');
+    const fehler = hinweis(nichtGeladenText(selbstversuchend()), 'lc-mitte-hinweis lc-fehler');
     fehler.setAttribute('role', 'alert');
     inhalt.replaceChildren(fehler);
   }
 
   function nichtGeladenSteht() {
     return inhalt.querySelector('[role="alert"]') !== null;
+  }
+
+  // Ändert sich der Zustand, während der Hinweis steht (Trennung, Rückkehr mit Laden-Lauf), tauscht derselbe Knoten
+  // nur den Text — bei Unterschied.
+  function hinweisNachziehen() {
+    const knoten = inhalt.querySelector('[role="alert"]');
+    if (knoten !== null) {
+      hinweisTextNachziehen(knoten, selbstversuchend());
+    }
   }
 
   // Was vor dem Block ankam, geht jetzt den Weg jeder neuen Nachricht (ADR-0028 Regel 5).
@@ -678,6 +690,8 @@ export function verlaufAnlegen({ abrufen, schalter = () => {}, fokusRueckgaengig
     element: rahmen,
     oeffnen,
     erneutVersuchen,
+    selbstversuchendSetzen: (auskunft) => { selbstversuchend = auskunft; },
+    hinweisNachziehen,
     schliessen,
     heuteSetzen,
     nachrichtAnnehmen,

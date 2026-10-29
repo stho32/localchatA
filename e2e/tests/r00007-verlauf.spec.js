@@ -179,7 +179,7 @@ test('Am Ende trotz später Schrift: lädt die Schrift 1 s später und ändert d
   expect(a.fehler).toEqual([]);
 });
 
-test('Fehler (US-13): ist der Server weg, sagt die Mitte „Verlauf nicht geladen — Verbindung prüfen.“ mit ⚠ in kd-danger', async ({ browser }) => {
+test('Fehler (US-13): ist der Server weg, sagt die Mitte „Verlauf nicht geladen — wird geladen, sobald die Verbindung zurück ist.“ (R00037) mit ⚠ in kd-danger', async ({ browser }) => {
   await starten((ordner) => channelAnlegen(ordner, 'allgemein', US9));
   const a = await seiteMitFehlern(browser);
   await beitreten(a.page);
@@ -189,7 +189,7 @@ test('Fehler (US-13): ist der Server weg, sagt die Mitte „Verlauf nicht gelade
   await link(a.page, 'allgemein').click();
 
   const meldung = a.page.locator('.lc-center .lc-fehler');
-  await expect(meldung).toHaveText('⚠ Verlauf nicht geladen — Verbindung prüfen.');
+  await expect(meldung).toHaveText('⚠ Verlauf nicht geladen — wird geladen, sobald die Verbindung zurück ist.');
   await expect(a.page.locator('.lc-center')).not.toContainText('Noch keine Nachrichten');
   const farben = await meldung.evaluate((element) => {
     const probe = document.createElement('span');
@@ -232,7 +232,7 @@ for (const [weg, waehlen, fehlschlaege] of [['Klick', klicken, 1], ['Enter', ent
     for (let versuch = 1; versuch <= fehlschlaege; versuch += 1) {
       await waehlen(page);
       await expect.poll(() => oeffnungen.length).toBe(versuch);
-      await expect(meldung).toHaveText('⚠ Verlauf nicht geladen — Verbindung prüfen.');
+      await expect(meldung).toHaveText('⚠ Verlauf nicht geladen — Channel erneut wählen, um es noch einmal zu versuchen.');
     }
     await page.unroute('**/api/channels/allgemein/nachrichten?n=100');
     await waehlen(page);

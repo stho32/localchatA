@@ -154,10 +154,12 @@ function wiederverbindenEinrichten({ mitte, verlauf, senden, abrufen, ansagen },
   // Zeitpunkte des nächsten Versuchs (ms seit der Epoche): vom Strom bzw. vom gescheiterten Nachholen.
   const naechsterVersuch = { strom: null, nachholen: null };
   let countdown = null;
+  // Läuft gerade ein Versuch des Laden- oder Nachhol-Laufs? Die Leiste sagt es nur bei stehendem Strom (R00037 Regel 2).
+  let versuchLaeuft = false;
 
   function leisteZeigen() {
     const naechsterVersuchUm = geltenderZeitpunkt({ stromUnterbrochen: !zustand.strom, ...naechsterVersuch });
-    const inhalt = leisteInhalt({ ...anzeige, naechsterVersuchUm }, Date.now());
+    const inhalt = leisteInhalt({ ...anzeige, naechsterVersuchUm, versuchLaeuft: versuchLaeuft && zustand.strom }, Date.now());
     leiste.hidden = inhalt === null;
     leiste.textContent = '';
     if (inhalt !== null) {
@@ -196,6 +198,11 @@ function wiederverbindenEinrichten({ mitte, verlauf, senden, abrufen, ansagen },
     annehmen: (nachrichten) => verlauf.nachgeholtAnnehmen(nachrichten),
     neuOeffnen: (channel) => verlauf.oeffnen(channel),
     laden: (channel, signal) => verlauf.oeffnen(channel, signal),
+    versuch: (laeuft) => {
+      versuchLaeuft = laeuft;
+      verlauf.hinweisNachziehen();
+      leisteZeigen();
+    },
     gescheitert: (naechsterVersuchUm) => {
       naechsterVersuch.nachholen = naechsterVersuchUm;
       leisteZeigen();
@@ -209,6 +216,10 @@ function wiederverbindenEinrichten({ mitte, verlauf, senden, abrufen, ansagen },
       requestAnimationFrame(() => meldungNachDemEinfuegen(wiederVerbundenText(ergebnis)));
     },
   });
+
+  // Lädt der Tab von selbst? Strom getrennt (das Wiederverbinden startet den Laden-Lauf) oder ein Laden-Lauf läuft: dann
+  // sagt der Hinweis „wird geladen“, sonst hilft nur die neue Wahl des Channels (R00037 Regel 1).
+  verlauf.selbstversuchendSetzen(() => !zustand.strom || !zustand.netz || lauf.laedt());
 
   // Das Nachgeholte fügt der Verlauf im nächsten Bild ein (ADR-0037 Regel 6); die Meldung kommt erst danach, damit
   // „✓ Wieder verbunden“ nie über einer Lücke steht — außer der Tab ist inzwischen wieder getrennt.
@@ -243,6 +254,7 @@ function wiederverbindenEinrichten({ mitte, verlauf, senden, abrufen, ansagen },
     if (ergebnis.aktion === 'nachholen') {
       lauf.neuerStand();
     }
+    verlauf.hinweisNachziehen();
   }
 
   window.addEventListener('offline', () => melden({ art: 'netz', online: false }), { signal });
