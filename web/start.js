@@ -18,25 +18,100 @@ const api = {
 const speicher = window.localStorage;
 const wurzel = document.getElementById('app');
 let laufenderStrom = null;
+// Der Lauf des Beitreten-Bildschirms (Karte #62): höchstens einer je Tab.
+let bildschirmLauf = null;
 const takten = sekundentaktAnlegen();
 // Die Zustellung gehört dem Tab, nicht der Hauptansicht (R00025 F0088): ungesendete Nachrichten überstehen den
 // Beitreten-Bildschirm; ein Neuladen verwirft sie.
 const zustellung = { zustand: KEINE_ZUSTELLUNG };
 
 farbschemaFolgen();
-zeigen(await sitzungBeimLaden());
+const geladen = await sitzungBeimLaden();
+zeigen(geladen.zustand, false, geladen.abgelehntesToken);
 
 // Nach einem Beitritt per Eingabe wandert der Fokus auf die eigene Kennung, sonst läge er nach dem Abbau
-// des Formulars auf dem Dokument.
-function zeigen(zustand, nachEingabe = false) {
+// des Formulars auf dem Dokument. `abgelehntesToken` ist das Token, dessen Ablehnung den Tab auf den Bildschirm brachte.
+function zeigen(zustand, nachEingabe = false, abgelehntesToken = null) {
+  bildschirmAbmelden();
   if (zustand.art === 'kopfzeile') {
     hauptansichtZeigen(zustand.teilnehmer, zustand.token, nachEingabe);
     return;
   }
-  beitretenBildschirm.zeichnen(wurzel, zustand, {
-    beitreten: async (name) => zeigen(await sitzung.beitreten(name, speicher, api), true),
+  bildschirmZeigen(zustand, abgelehntesToken);
+}
+
+// Der Beitreten-Bildschirm folgt dem Beitritt eines Nachbar-Tabs (Karte #62, ADR-0012 Regeln 1–6): ein Lauscher auf
+// `storage` solange er steht, dazu die Nachlese beim Zeichnen. Folgen schreibt und löscht nie im Speicher.
+function bildschirmAbmelden() {
+  if (bildschirmLauf !== null) {
+    bildschirmLauf.abgemeldet = true;
+    window.removeEventListener('storage', bildschirmLauf.beimSpeichern);
+    bildschirmLauf = null;
+  }
+}
+
+function bildschirmZeigen(zustand, abgelehntesToken) {
+  const lauf = { abgemeldet: false, folgt: false, klickt: false, gemerkt: null, beimSpeichern: null };
+  const griffe = beitretenBildschirm.zeichnen(wurzel, zustand, {
+    beitreten: async (name) => {
+      lauf.klickt = true;
+      const neu = await sitzungSperren(() => sitzung.vomBildschirmBeitreten(name, speicher, api, abgelehntesToken));
+      zeigen(neu, true, abgelehntesToken);
+    },
     wartende: ungesendete(zustellung.zustand),
   });
+
+  // Ein Lauf zugleich (Regel 5): ein Signal während des Folgens wird gemerkt und geprüft, wenn der Lauf scheitert.
+  async function nachbarFolgen(gemeldet) {
+    if (lauf.klickt || lauf.abgemeldet) {
+      return;
+    }
+    if (lauf.folgt) {
+      lauf.gemerkt = gemeldet;
+      return;
+    }
+    lauf.folgt = true;
+    griffe.sperren();
+    let gefolgt = null;
+    try {
+      for (let pruefen = gemeldet; pruefen !== null && gefolgt === null;) {
+        lauf.gemerkt = null;
+        gefolgt = await sitzung.nachbarFolgen(speicher, api, abgelehntesToken, pruefen);
+        if (lauf.gemerkt !== pruefen) {
+          pruefen = lauf.gemerkt;
+        } else {
+          pruefen = null;
+        }
+      }
+    } finally {
+      lauf.folgt = false;
+      if (gefolgt === null && !lauf.abgemeldet) {
+        griffe.freigeben();
+      }
+    }
+    if (gefolgt !== null && !lauf.abgemeldet) {
+      zeigen(gefolgt);
+    }
+  }
+
+  lauf.beimSpeichern = (ereignis) => {
+    if (ereignis.key === sitzung.SITZUNG && ereignis.newValue && ereignis.newValue !== abgelehntesToken) {
+      nachbarFolgen(ereignis.newValue);
+    }
+  };
+  bildschirmLauf = lauf;
+  window.addEventListener('storage', lauf.beimSpeichern);
+  if (['beitreten', 'vergeben', 'ungueltig'].includes(zustand.art)) {
+    nachlesen(abgelehntesToken, nachbarFolgen);
+  }
+}
+
+// Nachlese (Regel 3): ein Token, das schon im Speicher liegt, gilt als Signal, auch wenn sein Ereignis ohne Lauscher kam.
+function nachlesen(abgelehntesToken, nachbarFolgen) {
+  const token = speicher.getItem(sitzung.SITZUNG);
+  if (token && token !== abgelehntesToken) {
+    nachbarFolgen(token);
+  }
 }
 
 // Die Channels der Seitenleiste folgen demselben Strom (Stand und Wechsel nach `stand`, ADR-0023 Regel 6).
@@ -56,11 +131,11 @@ function hauptansichtZeigen(teilnehmer, token, nachEingabe) {
         laufenderStrom.tokenSetzen(token);
       }
     },
-    gescheitert: (zustand) => {
+    gescheitert: (zustand, abgelehntesToken) => {
       zustellung.zustand = zustellen(zustellung.zustand, { art: 'beitrittGescheitert' }).zustand;
       ansicht.entwurfSichern();
       stromBeenden();
-      zeigen(zustand);
+      zeigen(zustand, false, abgelehntesToken);
     },
   });
   const ansicht = hauptansicht.zeichnen(wurzel, teilnehmer, {
@@ -150,9 +225,19 @@ function stromBeenden() {
 // nach dem 409 stattdessen auf das storage-Ereignis des Tabs, der zuerst beigetreten ist.
 function sitzungBeimLaden() {
   if (navigator.locks === undefined) {
-    return sitzung.beimLaden(speicher, api, { neuesToken: aufTokenEinesAnderenTabsWarten });
+    return laden({ neuesToken: aufTokenEinesAnderenTabsWarten });
   }
-  return navigator.locks.request(sitzung.SITZUNG, () => sitzung.beimLaden(speicher, api));
+  return navigator.locks.request(sitzung.SITZUNG, () => laden());
+}
+
+// Auf dem Bildschirm nach einem Beitritt ohne Token ist das Token, das beim Laden im Speicher lag, das abgelehnte (401).
+async function laden(geschwister) {
+  const gemerkt = speicher.getItem(sitzung.SITZUNG);
+  const zustand = await sitzung.beimLaden(speicher, api, geschwister);
+  if (['beitreten', 'vergeben', 'ungueltig'].includes(zustand.art)) {
+    return { zustand, abgelehntesToken: gemerkt };
+  }
+  return { zustand, abgelehntesToken: null };
 }
 
 function aufTokenEinesAnderenTabsWarten() {

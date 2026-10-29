@@ -37,7 +37,7 @@ function anlegen(speicher, api) {
     api,
     sperre: (arbeit) => arbeit({ neuesToken: async () => null }),
     gelungen: (token) => gelungen.push(token),
-    gescheitert: (zustand) => gescheitert.push(zustand),
+    gescheitert: (zustand, abgelehntesToken) => gescheitert.push({ ...zustand, abgelehntesToken }),
   });
   return { wiederBeitreten, gelungen, gescheitert };
 }
@@ -90,6 +90,17 @@ test('scheitert der stille Beitritt, geht der Zustand an gescheitert, nicht an g
   assert.equal(zustand.art, 'vergeben');
   assert.deepEqual(gelungen, []);
   assert.deepEqual(gescheitert.map((z) => z.art), ['vergeben']);
+});
+
+// Karte #62 (Regel 1): der Beitreten-Bildschirm kennt das Token, dessen Ablehnung ihn brachte, und ignoriert es als Signal.
+test('gescheitert bekommt das abgelehnte Token mit', async () => {
+  const speicher = speicherMit({ [SITZUNG]: 'alt', [NAME]: 'anna' });
+  const api = apiMit({ status: 409, daten: { belegt_von: '127.0.0.9', seit: '2026-10-28T15:00:00+01:00', vorschlag: 'anna-2' } });
+  const { wiederBeitreten, gescheitert } = anlegen(speicher, api);
+
+  await wiederBeitreten('alt');
+
+  assert.deepEqual(gescheitert.map((z) => z.abgelehntesToken), ['alt']);
 });
 
 // Befund #58 (Härtung #49, r00004 B2 unter Last): ohne Web Locks kann nach dem 409 der gemeinsame Speicher leer sein —

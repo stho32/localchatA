@@ -164,5 +164,9 @@ export async function vomBildschirmBeitreten(name, speicher, api, abgelehntesTok
   if (zustand.art === 'kopfzeile' || zustand.art === 'serverWeg') {
     return zustand;
   }
-  return (await nachbarFolgen(speicher, api, abgelehntesToken)) ?? zustand;
+  const nachbarNachMeldung = await nachbarFolgen(speicher, api, abgelehntesToken);
+  if (nachbarNachMeldung !== null) {
+    return nachbarNachMeldung;
+  }
+  return zustand;
 }

@@ -5,7 +5,7 @@
 import * as sitzung from './sitzung.js';
 
 // speicher: localStorage · api: { ich, beitreten } wie in start.js · sperre: (arbeit(geschwister)) → Promise (Web Lock
-// oder Warten auf den Nachbar-Tab) · gelungen: (neuesToken) · gescheitert: (zustand des Beitreten-Bildschirms)
+// oder Warten auf den Nachbar-Tab) · gelungen: (neuesToken) · gescheitert: (zustand des Beitreten-Bildschirms, abgelehntesToken)
 // → wiederBeitreten(abgelehntesToken) → Promise<zustand>
 export function wiederbeitrittAnlegen({ speicher, api, sperre, gelungen, gescheitert }) {
   const laeufe = new Map();
@@ -23,7 +23,7 @@ export function wiederbeitrittAnlegen({ speicher, api, sperre, gelungen, geschei
     if (zustand.art === 'kopfzeile') {
       gelungen(zustand.token);
     } else {
-      gescheitert(zustand);
+      gescheitert(zustand, abgelehntesToken);
     }
     return zustand;
   }
