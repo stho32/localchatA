@@ -139,7 +139,7 @@ pub struct NachrichtAntwort<'a> {
     anhaenge: Vec<AnhangAntwort<'a>>,
 }
 
-/// `{id, name, bytes, art, breite, hoehe, url}` — Maße nur bei Bildern, sonst `null`; `url` relativ.
+/// `{id, name, bytes, art, breite, hoehe, url, zustand}` — Maße nur bei Bildern, sonst `null`; `url` relativ.
 #[derive(Serialize)]
 pub struct AnhangAntwort<'a> {
     id: &'a str,
@@ -149,6 +149,8 @@ pub struct AnhangAntwort<'a> {
     breite: Option<u32>,
     hoehe: Option<u32>,
     url: String,
+    /// `vorhanden` | `geloescht` (ADR-0047 Ergänzung „F1′“ Regel 2).
+    zustand: &'static str,
 }
 
 impl<'a> NachrichtAntwort<'a> {
@@ -169,6 +171,11 @@ impl<'a> NachrichtAntwort<'a> {
                     breite: anhang.masse.map(|(breite, _)| breite),
                     hoehe: anhang.masse.map(|(_, hoehe)| hoehe),
                     url: format!("/anhaenge/{}", anhang.id.als_text()),
+                    zustand: if anhang.geloescht {
+                        "geloescht"
+                    } else {
+                        "vorhanden"
+                    },
                 })
                 .collect(),
         }

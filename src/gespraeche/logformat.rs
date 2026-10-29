@@ -103,6 +103,8 @@ pub struct Anhangzeile {
     /// Gespeicherter Name `<hhmmssmmm>-<n>-<ascii>` unter `anhaenge/<tag>/`.
     pub datei: String,
     pub name: String,
+    /// Gelöscht (F0116) — nicht Teil der Metazeile, gesetzt beim Lesen aus dem Verzeichnis.
+    pub geloescht: bool,
 }
 
 /// Warum eine Metazeile `+ anhang:` nicht gilt — kein Defekt des Satzes (ADR-0004 Ergänzung Karte #9), aber kein
@@ -169,6 +171,7 @@ pub fn anhangzeile_lesen(rest: &str) -> Result<Anhangzeile, Anhangbefund> {
         masse,
         datei: datei.to_string(),
         name: name.to_string(),
+        geloescht: false,
     })
 }
 
@@ -383,6 +386,7 @@ mod tests {
             masse,
             datei: datei.to_string(),
             name: name.to_string(),
+            geloescht: false,
         }
     }
 

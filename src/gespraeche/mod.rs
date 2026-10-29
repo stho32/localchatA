@@ -578,6 +578,7 @@ impl Gespraeche {
                 masse: eintrag.masse,
                 datei: eintrag.datei.clone(),
                 name: eintrag.name.clone(),
+                geloescht: eintrag.zustand() == anhangverzeichnis::Zustand::Geloescht,
             })
             .collect()
     }
@@ -801,10 +802,22 @@ impl Gespraeche {
                 .saetze
                 .iter()
                 .filter_map(|satz| logformat::satz_als_nachricht(satz))
+                .map(|nachricht| self.zustand_eintragen(nachricht))
                 .collect(),
             aelter: block.aelter,
             neuer: block.neuer,
         })
+    }
+
+    /// Je Anhang, ob er gelöscht ist (F0117): nur das Verzeichnis weiß es, die Metazeile bleibt.
+    fn zustand_eintragen(&self, mut nachricht: Nachricht) -> Nachricht {
+        for anhang in &mut nachricht.anhaenge {
+            anhang.geloescht = self
+                .anhangverzeichnis
+                .finden(&anhang.id)
+                .is_some_and(|eintrag| eintrag.zustand() == anhangverzeichnis::Zustand::Geloescht);
+        }
+        nachricht
     }
 
     /// Ob es den Channel `name` gibt (gültiger Name, im Verzeichnis).
@@ -948,6 +961,7 @@ fn anhangzeilen_bilden(
                 masse: art.breite.zip(art.hoehe),
                 datei: format!("{stempel}-{}-{}", nummer + 1, eintrag.ascii()),
                 name: eintrag.name().to_string(),
+                geloescht: false,
             }
         })
         .collect()

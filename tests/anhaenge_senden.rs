@@ -103,7 +103,7 @@ async fn nur_ein_anhang_ohne_text() {
     assert_eq!(nachricht["text"], "");
     let liste = json!([{
         "id": id, "name": "bericht.pdf", "bytes": 307_200, "art": "application/octet-stream",
-        "breite": null, "hoehe": null, "url": format!("/anhaenge/{id}"),
+        "breite": null, "hoehe": null, "url": format!("/anhaenge/{id}"), "zustand": "vorhanden",
     }]);
     assert_eq!(nachricht["anhaenge"], liste);
     let tag = tag_von(nachricht);
