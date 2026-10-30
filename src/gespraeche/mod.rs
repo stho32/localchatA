@@ -26,6 +26,7 @@ pub mod quote;
 #[cfg(test)]
 mod schranke;
 mod speicherablage;
+pub mod textanfang;
 pub mod textregel;
 mod verlaufsindex;
 mod verzeichnis;
