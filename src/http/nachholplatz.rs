@@ -79,9 +79,10 @@ impl Nachholplatz for Platz {
                     let wert = nachgeholt.as_ref().map_or(0, wert);
                     u64::try_from(wert).unwrap_or(u64::MAX)
                 };
+                // Gezählt (Health) wird nur, was in Channels geprüft wurde; bezahlt wird alles (ADR-0055 Regel 9).
                 konto.geprueft(
-                    zahl(|nachgeholt| nachgeholt.saetze),
-                    zahl(|nachgeholt| nachgeholt.kosten),
+                    zahl(Nachgeholt::channel_saetze),
+                    zahl(Nachgeholt::channel_kosten),
                 );
                 if let Some(reservierung) = reservierung {
                     reservierung.abrechnen(zahl(|nachgeholt| nachgeholt.kosten));
@@ -196,6 +197,8 @@ mod tests {
             weitere: false,
             kosten,
             saetze,
+            direkt_saetze: 0,
+            direkt_kosten: 0,
         }
     }
 
@@ -253,6 +256,30 @@ mod tests {
         assert!(konto.reservieren(&claude(), h(), 11).is_ok());
         assert!(konto.reservieren(&claude(), h(), 1).is_err());
         assert_eq!((konto.saetze(), konto.kosten()), (117, 1_989));
+    }
+
+    /// ADR-0055 Regel 9 (B0748): das Konto rechnet alle Kosten ab, auch die der Direktsätze; der Health-Check zählt nur
+    /// die der Channels (`saetze`, `kosten`). 2.000 Sätze, davon 1.500 direkt: die Reservierung ist ganz bezahlt,
+    /// die Zähler stehen auf 500.
+    #[tokio::test]
+    async fn das_konto_zahlt_direktsaetze_der_health_check_zaehlt_sie_nicht() {
+        let konto = konto();
+        konto.reservieren(&claude(), h(), 98_000).expect("Vorrat");
+        let platz = Platz::reservieren(&Werkbank::mit(1), &konto, &claude(), h()).expect("Platz");
+
+        platz
+            .ausfuehren(|| {
+                Some(Nachgeholt {
+                    direkt_saetze: 1_500,
+                    direkt_kosten: 1_500,
+                    ..nachgeholt(2_000, 2_000)
+                })
+            })
+            .await
+            .expect("gelaufen");
+
+        assert_eq!(rest(&konto), 0, "alle 2.000 Kosten sind bezahlt");
+        assert_eq!((konto.saetze(), konto.kosten()), (500, 500));
     }
 
     /// `Lagged` bucht nicht (Regel 6): bei leerem Konto läuft das zweite Nachholen desselben Platzes trotzdem und

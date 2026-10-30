@@ -61,8 +61,25 @@ pub struct Nachgeholt {
     pub weitere: bool,
     /// So viele Kosten hat das Nachholen geprüft — die Abrechnung am Nachholkonto (ADR-0054 Ergänzung Regel 3).
     pub kosten: usize,
-    /// So viele Sätze hat das Nachholen geprüft — der Zähler `nachholen.saetze`.
+    /// So viele Sätze hat das Nachholen geprüft — Budget und Konto rechnen alle.
     pub saetze: usize,
+    /// Davon in Direktgesprächen: der Health-Check zählt sie nicht (`nachholen.saetze` und `kosten` nur Channels,
+    /// ADR-0055 Regel 9) — Direktzähler getrennt.
+    pub direkt_saetze: usize,
+    /// Die Kosten dieser Direktsätze.
+    pub direkt_kosten: usize,
+}
+
+impl Nachgeholt {
+    /// Die Sätze, die der Health-Check zählt: nur die der Channels.
+    pub fn channel_saetze(&self) -> usize {
+        self.saetze - self.direkt_saetze
+    }
+
+    /// Die Kosten, die der Health-Check zählt: nur die der Channels.
+    pub fn channel_kosten(&self) -> usize {
+        self.kosten - self.direkt_kosten
+    }
 }
 
 /// Wie viele Bytes ein Treffer im Budget zählt: Text, Namen der Anhänge und Textanfang des Zitats — der Inhalt,
@@ -90,13 +107,15 @@ impl Gespraeche {
         filter: &Filter,
         budget: Nachholbudget,
     ) -> Nachgeholt {
-        let mut straenge = self.straenge(seit, marke, filter);
+        let mut straenge = self.straenge(seit, marke, wartender, filter);
         let mut ergebnis = Nachgeholt {
             treffer: Vec::new(),
             stand: seit,
             weitere: false,
             kosten: 0,
             saetze: 0,
+            direkt_saetze: 0,
+            direkt_kosten: 0,
         };
         let mut bytes = 0;
         let mut reihe: BinaryHeap<Reverse<(Zeit, usize)>> = straenge
@@ -133,6 +152,10 @@ impl Gespraeche {
             }
             ergebnis.kosten += kosten;
             ergebnis.saetze += 1;
+            if matches!(strang.gespraech, Gespraech::Direkt(_)) {
+                ergebnis.direkt_kosten += kosten;
+                ergebnis.direkt_saetze += 1;
+            }
             ergebnis.stand = nachricht.zeit;
             if let Some(anlass) = anlass {
                 bytes += lieferbytes(&nachricht);
@@ -162,18 +185,27 @@ impl Gespraeche {
             .max()
     }
 
-    /// Je Gespräch, das der Filter berühren kann, ein Strang ab `seit` bis `marke` (Regel 3.4): genannte Channels,
-    /// ohne Angabe und mit `erwaehnung` alle Channels; Direktgespräche erst mit I0012.
-    fn straenge(&self, seit: Zeit, marke: Zeit, filter: &Filter) -> Vec<Strang<'_>> {
+    /// Je Gespräch, das der Filter berühren kann und `wartender` sehen darf, ein Strang ab `seit` bis `marke`
+    /// (Regel 3.4): genannte Channels, ohne Angabe und mit `erwaehnung` alle Channels, dazu seine eigenen
+    /// Direktgespräche (ohne Angabe, mit `direkt`, mit `erwaehnung`). Ein fremdes Direktgespräch wird nie gelesen,
+    /// auch nicht geprüft — sonst verriete der Stand seine Zeit (ADR-0055 Regel 7 und 8).
+    fn straenge(
+        &self,
+        seit: Zeit,
+        marke: Zeit,
+        wartender: &Kennung,
+        filter: &Filter,
+    ) -> Vec<Strang<'_>> {
         let alle = filter.ohne_angabe() || filter.erwaehnung;
         // Die Verzeichnissperre gilt nur für die Auswahl; `vorschauen` nimmt die Sperre des Gesprächs, und die beiden
         // werden nicht ineinander gehalten.
         let verlaeufe: Vec<(Gespraech, Arc<Mutex<Verlauf>>)> = lesend(&self.verzeichnis)
             .verlaeufe
             .iter()
+            .filter(|(gespraech, _)| sichtbar_fuer(gespraech, wartender, false))
             .filter(|(gespraech, _)| match gespraech {
                 Gespraech::Channel(name) => alle || filter.channels.contains(name),
-                Gespraech::Direkt(_) => false,
+                Gespraech::Direkt(_) => alle || filter.direkt,
             })
             .map(|(gespraech, verlauf)| (gespraech.clone(), Arc::clone(verlauf)))
             .collect();
@@ -241,6 +273,7 @@ impl Strang<'_> {
 
 #[cfg(test)]
 mod tests {
+    use super::super::treffer::Anlass;
     use super::super::verlaufsindex::{KOPIERT, LIEFERUNGEN};
     use super::super::{Art, Gesendet, Sendung, Speicherablage};
     use super::*;
@@ -741,10 +774,26 @@ mod tests {
     /// `kanaele` Channels, reihum je 200 Nachrichten von `anna` (Erwähnung des Wartenden kommt nirgends vor), danach
     /// im `zustand`. Liefert die Gespräche, `t0` (vor der ersten Nachricht) und die Marke (die letzte gesendete).
     fn viele_kanaele(kanaele: usize, zustand: Zustand) -> (Gespraeche, Zeit, Zeit) {
+        viele_gespraeche(kanaele, 0, zustand)
+    }
+
+    /// Wie `viele_kanaele`, dazu `direkte` Direktgespräche von `anna` mit `claude` (dem Wartenden der Probe) — auch
+    /// sie je 200 Nachrichten im selben Zustand, in die Reihenfolge der Channels eingereiht.
+    fn viele_gespraeche(
+        kanaele: usize,
+        direkte: usize,
+        zustand: Zustand,
+    ) -> (Gespraeche, Zeit, Zeit) {
         let ablage = Arc::new(Speicherablage::neu());
-        let channels: Vec<Gespraech> = (0..kanaele)
+        let mut channels: Vec<Gespraech> = (0..kanaele)
             .map(|nummer| Gespraech::channel(&format!("k{nummer}")))
             .collect();
+        channels.extend((0..direkte).map(|nummer| {
+            Gespraech::Direkt(super::super::Direktpaar::fuer_test(
+                &format!("anna{nummer}@127.0.0.1"),
+                "claude@127.0.0.1",
+            ))
+        }));
         for channel in &channels {
             ablage.gespraech_anlegen(channel);
         }
@@ -755,11 +804,16 @@ mod tests {
             Zustand::Gewachsen => "x".to_string(),
             _ => "x".repeat(16_384),
         };
+        // Im Direktgespräch schreibt das Gegenüber von `claude`, im Channel `anna`.
+        let absender = |gespraech: &Gespraech| match gespraech {
+            Gespraech::Direkt(paar) => paar.gegenueber(&claude()).cloned().expect("Gegenüber"),
+            Gespraech::Channel(_) => anna(),
+        };
         let mut gesendet = Vec::new();
         for _ in 0..200 {
             for channel in &channels {
                 let nachricht = gespraeche
-                    .senden(channel, &anna(), Art::Mensch, &anfangstext)
+                    .senden(channel, &absender(channel), Art::Mensch, &anfangstext)
                     .expect("gesendet");
                 gesendet.push((channel, nachricht.zeit));
             }
@@ -769,17 +823,17 @@ mod tests {
                 Zustand::Unbearbeitet => {}
                 Zustand::KurzBearbeitet => {
                     gespraeche
-                        .bearbeiten(channel, &anna(), *zeit, "y")
+                        .bearbeiten(channel, &absender(channel), *zeit, "y")
                         .expect("bearbeitet");
                 }
                 Zustand::Gewachsen | Zustand::Umgeschrieben => {
                     gespraeche
-                        .bearbeiten(channel, &anna(), *zeit, &"y".repeat(16_384))
+                        .bearbeiten(channel, &absender(channel), *zeit, &"y".repeat(16_384))
                         .expect("bearbeitet");
                 }
                 Zustand::Geloescht => {
                     gespraeche
-                        .nachricht_loeschen(channel, &anna(), *zeit)
+                        .nachricht_loeschen(channel, &absender(channel), *zeit)
                         .expect("gelöscht");
                 }
             }
@@ -1002,8 +1056,12 @@ mod tests {
         let erste = senden();
         uhr.stellen(beginn + chrono::Duration::days(1));
         let zweite = senden();
-        let mut straenge =
-            gespraeche.straenge(beginn - chrono::Duration::seconds(1), erste, &erwaehnung());
+        let mut straenge = gespraeche.straenge(
+            beginn - chrono::Duration::seconds(1),
+            erste,
+            &claude(),
+            &erwaehnung(),
+        );
         let strang = &mut straenge[0];
         assert_eq!(strang.kopf.map(|(zeit, _)| zeit), Some(erste));
         sperren(&strang.verlauf).tag_entfernen(erste.date_naive());
@@ -1013,6 +1071,43 @@ mod tests {
         assert_eq!(entnommen, None, "die zweite liegt hinter der Marke");
         assert_eq!(strang.kopf, None, "und kommt nicht über die Marke");
         assert!(zweite > erste);
+    }
+
+    /// Die Probe der zwölf Zellen mit Direktsträngen (ADR-0054 Regel 8, #17-Umbau): wo `claude` an Direktgesprächen
+    /// beteiligt ist, lesen und buchen sie wie Channels — C ∈ {1, 10, 30} Gespräche, davon die Hälfte (aufgerundet)
+    /// Direktgespräche, V1–V4: kopiert ≤ 1.024 × Kosten + 49.152, 117 Sätze für 1.989 Kosten, davon alle in der Summe
+    /// (`kosten` rechnet Direktsätze mit).
+    #[test]
+    fn gelesen_wird_nur_was_gebucht_ist_auch_mit_direktstraengen() {
+        let mut verletzt = Vec::new();
+        for gesamt in [1_usize, 10, 30] {
+            let direkte = gesamt.div_ceil(2);
+            for zustand in DIE_VIER {
+                let (gespraeche, t0, marke) = viele_gespraeche(gesamt - direkte, direkte, zustand);
+
+                let (nachgeholt, kopiert) = nachholen_und_kopiertes(&gespraeche, t0, marke);
+
+                let zelle = format!(
+                    "C={gesamt} (davon {direkte} direkt) {zustand:?}: {} Sätze, {} Kosten, kopiert {kopiert} B",
+                    nachgeholt.saetze, nachgeholt.kosten
+                );
+                let (a, b, c) = (
+                    kopiert <= BYTE_JE_KOSTENEINHEIT * nachgeholt.kosten + 49_152,
+                    (nachgeholt.saetze, nachgeholt.kosten) == (117, 1_989),
+                    nachgeholt.direkt_saetze <= nachgeholt.saetze
+                        && nachgeholt.direkt_kosten <= nachgeholt.kosten
+                        && (direkte == 0 || nachgeholt.direkt_saetze > 0),
+                );
+                if !(a && b && c) {
+                    verletzt.push(format!("{zelle} (a {a}, b {b}, c {c})"));
+                }
+            }
+        }
+        assert!(
+            verletzt.is_empty(),
+            "verletzte Zellen:\n{}",
+            verletzt.join("\n")
+        );
     }
 
     /// Eigene Variante V5 zu Teil 1: sind Satz und Änderungssatz beide 16 KiB lang, bucht das Nachholen das Größere,
@@ -1152,6 +1247,186 @@ mod tests {
             gespraeche.sichtbare_marke(&kennung("nie@127.0.0.1"), t2),
             Some(t1)
         );
+    }
+
+    /// Drei Direktgespräche und ein Channel auf einer Ablage: `claude` ↔ `anna` (D1), `anna` ↔ `ben` (D2, für
+    /// `claude` fremd), `ben` ↔ `claude` (D3). `ben` sendet `t1` in `a`, `anna` `t2` in D1, `anna` `t3` in D2
+    /// (mit `@claude` im Text), `ben` `t4` in D3 (mit `@claude`), `anna` `t5` in D1 ohne Erwähnung. Liefert die
+    /// Gespräche und `t0…t5`.
+    fn mit_direktgespraechen() -> (Gespraeche, Vec<Zeit>, [Gespraech; 3]) {
+        let ablage = Arc::new(Speicherablage::neu());
+        let d1 = Gespraech::Direkt(super::super::Direktpaar::fuer_test(
+            "anna@127.0.0.1",
+            "claude@127.0.0.1",
+        ));
+        let d2 = Gespraech::Direkt(super::super::Direktpaar::fuer_test(
+            "anna@127.0.0.1",
+            "ben@127.0.0.1",
+        ));
+        let d3 = Gespraech::Direkt(super::super::Direktpaar::fuer_test(
+            "ben@127.0.0.1",
+            "claude@127.0.0.1",
+        ));
+        ablage.gespraech_anlegen(&Gespraech::channel("a"));
+        for direkt in [&d1, &d2, &d3] {
+            ablage.gespraech_anlegen(direkt);
+        }
+        let uhr = Arc::new(GestellteUhr::neu(zeit("2026-10-30T12:00:00.000+01:00")));
+        let gespraeche = Gespraeche::laden(ablage, uhr.clone()).expect("geladen");
+        let ben = kennung("ben@127.0.0.1");
+        let sendungen = [
+            (Gespraech::channel("a"), ben.clone(), "im Channel"),
+            (d1.clone(), anna(), "an dich"),
+            (d2.clone(), anna(), "@claude geheim unter uns"),
+            (d3.clone(), ben, "@claude vertraulich"),
+            (d1.clone(), anna(), "noch einmal"),
+        ];
+        let mut zeiten = vec![zeit("2026-10-30T11:59:59.000+01:00")];
+        for (n, (gespraech, von, text)) in sendungen.iter().enumerate() {
+            uhr.stellen(
+                zeit("2026-10-30T12:00:00.000+01:00")
+                    + chrono::Duration::seconds(i64::try_from(n).expect("n") + 1),
+            );
+            zeiten.push(
+                gespraeche
+                    .senden(gespraech, von, Art::Mensch, text)
+                    .expect("gesendet")
+                    .zeit,
+            );
+        }
+        (gespraeche, zeiten, [d1, d2, d3])
+    }
+
+    fn direkt_filter() -> Filter {
+        Filter {
+            direkt: true,
+            ..Filter::default()
+        }
+    }
+
+    /// W4b (B0748; ADR-0055 Regel 7): das Nachholen berührt nur die Direktgespräche, an denen der Wartende beteiligt
+    /// ist — ohne Filter, mit `direkt` und mit `erwaehnung`; mit nur `channel` kein Direktgespräch. Eine Direktnachricht,
+    /// die ankam, bevor er wartete, kommt mit altem `seit`. Das fremde Gespräch D2 erscheint nie. Mutante „Nachholen über
+    /// alle Direktgespräche“: D2 bestimmt `saetze` und `kosten` mit.
+    #[test]
+    fn das_nachholen_beruehrt_nur_die_direktgespraeche_des_wartenden() {
+        let (gespraeche, t, [d1, _, d3]) = mit_direktgespraechen();
+        let nachholen =
+            |filter: &Filter| gespraeche.nachholen(t[0], t[5], &claude(), filter, NACHHOLBUDGET);
+        let nur_a = Filter {
+            channels: ["a".to_string()].into(),
+            ..Filter::default()
+        };
+        let erwaehnt = Filter {
+            erwaehnung: true,
+            ..Filter::default()
+        };
+
+        let ohne = nachholen(&Filter::default());
+        let direkt = nachholen(&direkt_filter());
+        let channel = nachholen(&nur_a);
+        let erwaehnung = nachholen(&erwaehnt);
+
+        let quellen = |nachgeholt: &Nachgeholt| -> Vec<(Zeit, Gespraech, Vec<Anlass>)> {
+            nachgeholt
+                .treffer
+                .iter()
+                .map(|treffer| {
+                    (
+                        treffer.nachricht.zeit,
+                        treffer.gespraech.clone(),
+                        treffer.anlass.clone(),
+                    )
+                })
+                .collect()
+        };
+        let a = Gespraech::channel("a");
+        assert_eq!(
+            quellen(&ohne),
+            vec![
+                (t[1], a.clone(), vec![]),
+                (t[2], d1.clone(), vec![Anlass::Direkt]),
+                (t[4], d3.clone(), vec![Anlass::Direkt, Anlass::Erwaehnung]),
+                (t[5], d1.clone(), vec![Anlass::Direkt]),
+            ],
+            "ohne Filter: Channel und die eigenen Direktgespräche, nie D2"
+        );
+        assert_eq!(
+            quellen(&direkt),
+            vec![
+                (t[2], d1.clone(), vec![Anlass::Direkt]),
+                (t[4], d3.clone(), vec![Anlass::Direkt, Anlass::Erwaehnung]),
+                (t[5], d1, vec![Anlass::Direkt]),
+            ],
+            "direkt: nur die eigenen Direktgespräche"
+        );
+        assert_eq!(quellen(&channel), vec![(t[1], a, vec![])], "channel=a");
+        assert_eq!(
+            quellen(&erwaehnung),
+            vec![(t[4], d3, vec![Anlass::Direkt, Anlass::Erwaehnung])],
+            "erwaehnung: @claude in D2 weckt nie (E13), in D3 ja"
+        );
+        // Sätze: geprüft wird nur, was der Filter berühren kann und der Wartende sehen darf.
+        assert_eq!(
+            [
+                ohne.saetze,
+                direkt.saetze,
+                channel.saetze,
+                erwaehnung.saetze
+            ],
+            [4, 3, 1, 4]
+        );
+        assert_eq!(
+            [
+                ohne.direkt_saetze,
+                direkt.direkt_saetze,
+                channel.direkt_saetze
+            ],
+            [3, 3, 0]
+        );
+    }
+
+    /// W4b: wer an keinem Direktgespräch beteiligt ist, prüft keinen Direktsatz und erfährt aus dem Stand nichts —
+    /// auch nicht, wenn ein Budget vorher endet (`stand` = zuletzt geprüfte Zeit, nie die eines fremden Gesprächs).
+    #[test]
+    fn ein_unbeteiligter_prueft_keinen_direktsatz_und_sein_stand_verraet_keinen() {
+        let (gespraeche, t, _) = mit_direktgespraechen();
+        let dora = kennung("dora@127.0.0.1");
+        let knapp = Nachholbudget {
+            nachrichten: 1,
+            ..NACHHOLBUDGET
+        };
+
+        for filter in [Filter::default(), direkt_filter()] {
+            let nachgeholt = gespraeche.nachholen(t[0], t[5], &dora, &filter, knapp);
+
+            assert_eq!(nachgeholt.direkt_saetze, 0, "{filter:?}");
+            assert!(
+                nachgeholt
+                    .treffer
+                    .iter()
+                    .all(|treffer| matches!(treffer.gespraech, Gespraech::Channel(_))),
+                "{filter:?}"
+            );
+            assert!(
+                [t[0], t[1]].contains(&nachgeholt.stand),
+                "{filter:?}: Stand {} verrät eine Direktzeit",
+                nachgeholt.stand
+            );
+        }
+    }
+
+    /// Eine Direktnachricht kostet wie ein Channel-Satz (Budget und Konto rechnen alles); `direkt_saetze` und
+    /// `direkt_kosten` sind der Anteil davon, den der Health-Check nicht zählt (ADR-0055 Regel 9).
+    #[test]
+    fn die_direktsaetze_stehen_getrennt_in_saetzen_und_kosten() {
+        let (gespraeche, t, _) = mit_direktgespraechen();
+
+        let nachgeholt =
+            gespraeche.nachholen(t[0], t[5], &claude(), &Filter::default(), NACHHOLBUDGET);
+
+        assert_eq!((nachgeholt.saetze, nachgeholt.kosten), (4, 4));
+        assert_eq!((nachgeholt.direkt_saetze, nachgeholt.direkt_kosten), (3, 3));
     }
 
     /// Ohne ein sichtbares Gespräch mit Nachricht gibt es keine sichtbare Marke.
