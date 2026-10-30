@@ -79,13 +79,12 @@ mod tests {
     fn der_kontext_nennt_die_grenze_als_wort_und_ihre_zahl() {
         let auftreten = sitzung(Grenzart::Gesamt, 512);
 
-        assert_eq!(auftreten.kontext.wert(Schluessel::Grenze), Some("gesamt"));
-        assert_eq!(auftreten.kontext.wert(Schluessel::Hoechstens), Some("512"));
-        assert_eq!(
-            auftreten.kontext.wert(Schluessel::Herkunft),
-            Some("127.0.0.1")
-        );
-        assert_eq!(auftreten.art, Some("gesamt"));
+        let kontext = auftreten.beginn_kontext();
+
+        assert_eq!(kontext.wert(Schluessel::Grenze), Some("gesamt"));
+        assert_eq!(kontext.wert(Schluessel::Hoechstens), Some("512"));
+        assert_eq!(kontext.wert(Schluessel::Herkunft), Some("127.0.0.1"));
+        assert_eq!(auftreten.art_der_zaehlung(), Some("gesamt"));
     }
 
     /// R00018 F0081 „Zählung je Art“: 5 × herkunft und 1 × gesamt derselben Herkunft → eine Episode, deren

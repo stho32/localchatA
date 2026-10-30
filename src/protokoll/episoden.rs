@@ -14,20 +14,23 @@ pub const ZWISCHEN: Duration = Duration::from_secs(600);
 /// Höchstens so viele Episoden sind offen; weitere Quellen zählen in eine Sammelepisode.
 pub const HOECHSTENS_OFFEN: usize = 1024;
 
-/// Ein Auftreten: Stufe und Bereich der Episode, Text des Ereignisses, Quelle (Herkunft, Kennung oder
-/// Datei+Grund) und der Kontext der ersten Zeile; bei Körperfehlern Art, Verwerfen und gelesene Bytes.
+/// Ein Auftreten (ADR-0050): Stufe und Bereich der Episode, Text des Ereignisses, die Quelle, aus der die Episode
+/// gebildet ist, die Einzelwerte dieses Auftretens (nur in der Beginn-Zeile) und das Fortlaufende (der Wert des
+/// letzten Auftretens kommt in Zwischen- und Ende-Zeile); bei Körperfehlern Art, Verwerfen und gelesene Bytes.
+/// Gebaut wird es nur über `Auftreten::neu` und seine Erweiterungen — die Felder sind privat.
 #[derive(Debug, Clone)]
 pub struct Auftreten {
-    pub stufe: Stufe,
-    pub bereich: Bereich,
-    pub text: &'static str,
-    pub quelle: String,
-    pub kontext: Kontext,
-    pub art: Option<&'static str>,
-    pub verworfen: Option<&'static str>,
-    pub bytes: Option<u64>,
+    stufe: Stufe,
+    bereich: Bereich,
+    text: &'static str,
+    quelle: Quelle,
+    einzeln: Kontext,
+    fortlaufend: Kontext,
+    art: Option<&'static str>,
+    verworfen: Option<&'static str>,
+    bytes: Option<u64>,
     /// Text der Zeilen statt `text`, wenn er einen Wert trägt (Vorlauf „2 h 03 min“); der Schlüssel bleibt `text`.
-    pub anzeige: Option<String>,
+    anzeige: Option<String>,
 }
 
 /// Die Schlüssel, aus denen eine Episode gebildet ist (ADR-0050 Regel 2): Wer dieselben Werte trägt, gehört zur
@@ -55,6 +58,10 @@ impl Quelle {
     fn schluessel(&self) -> String {
         self.0.werte().collect::<Vec<_>>().join("\u{1f}")
     }
+
+    fn kontext(&self) -> &Kontext {
+        &self.0
+    }
 }
 
 impl Auftreten {
@@ -64,8 +71,9 @@ impl Auftreten {
             stufe,
             bereich,
             text,
-            quelle: quelle.schluessel(),
-            kontext: quelle.0,
+            quelle,
+            einzeln: Kontext::neu(),
+            fortlaufend: Kontext::neu(),
             art: None,
             verworfen: None,
             bytes: None,
@@ -75,13 +83,13 @@ impl Auftreten {
 
     /// Ein Wert dieses Auftretens: steht nur in der Beginn-Zeile.
     pub fn einzeln(mut self, schluessel: Schluessel, wert: impl ToString) -> Auftreten {
-        self.kontext = self.kontext.mit_nur_beginn(schluessel, wert);
+        self.einzeln = self.einzeln.mit(schluessel, wert);
         self
     }
 
     /// Ein Wert, dessen letzter Stand in Zwischen- und Ende-Zeile kommt.
     pub fn fortlaufend(mut self, schluessel: Schluessel, wert: impl ToString) -> Auftreten {
-        self.kontext = self.kontext.mit_fortlaufend(schluessel, wert);
+        self.fortlaufend = self.fortlaufend.mit(schluessel, wert);
         self
     }
 
@@ -105,6 +113,26 @@ impl Auftreten {
         self.anzeige = Some(text.into());
         self
     }
+
+    /// Die Stufe der Episode, in der jedes Auftreten zählt.
+    pub(super) fn stufe(&self) -> Stufe {
+        self.stufe
+    }
+
+    /// Der Kontext der Beginn-Zeile: Quelle, dann Einzelwerte, dann Fortlaufendes (ADR-0050 Regel 3).
+    pub(crate) fn beginn_kontext(&self) -> Kontext {
+        self.quelle
+            .kontext()
+            .clone()
+            .und(&self.einzeln)
+            .und(&self.fortlaufend)
+    }
+
+    /// Die Art, nach der die Ende-Zeile zählt.
+    #[cfg(test)]
+    pub(crate) fn art_der_zaehlung(&self) -> Option<&'static str> {
+        self.art
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -119,7 +147,12 @@ struct Episode {
     bereich: Bereich,
     text: String,
     sammel: bool,
-    kontext: Kontext,
+    /// Der Kontext der Beginn-Zeile.
+    beginn: Kontext,
+    /// Was in jeder Zeile der Episode steht.
+    quelle: Kontext,
+    /// Das Fortlaufende des letzten Auftretens.
+    fortlaufend: Kontext,
     erst: Zeit,
     zuletzt: Zeit,
     naechste_zwischen: Zeit,
@@ -127,8 +160,6 @@ struct Episode {
     je_art: BTreeMap<&'static str, u64>,
     je_verworfen: BTreeMap<&'static str, u64>,
     bytes: Option<u64>,
-    /// Kontext des letzten Auftretens, nur geführt, wenn der Kontext fortlaufende Werte trägt.
-    letzter: Option<Kontext>,
 }
 
 /// Die offenen Episoden.
@@ -150,7 +181,7 @@ impl Episoden {
         let mut schluessel = Schluessel3 {
             bereich: auftreten.bereich,
             text: auftreten.text,
-            quelle: Some(auftreten.quelle.clone()),
+            quelle: Some(auftreten.quelle.schluessel()),
         };
         let offen_ohne_sammel = self.offen.keys().filter(|s| s.quelle.is_some()).count();
         let sammel = !self.offen.contains_key(&schluessel) && offen_ohne_sammel >= HOECHSTENS_OFFEN;
@@ -162,7 +193,7 @@ impl Episoden {
             return episode.zwischenzeile(jetzt).into_iter().collect();
         }
         let episode = Episode::beginnen(auftreten, jetzt, sammel);
-        let beginn = episode.zeile("Episode beginnt".to_string(), episode.kontext.clone());
+        let beginn = episode.zeile("Episode beginnt".to_string(), episode.beginn.clone());
         self.offen.insert(schluessel, episode);
         vec![beginn]
     }
@@ -172,7 +203,7 @@ impl Episoden {
         let schluessel = Schluessel3 {
             bereich: auftreten.bereich,
             text: auftreten.text,
-            quelle: Some(auftreten.quelle.clone()),
+            quelle: Some(auftreten.quelle.schluessel()),
         };
         if let Some(episode) = self.offen.get_mut(&schluessel) {
             episode.zaehlen(auftreten, jetzt);
@@ -224,11 +255,17 @@ impl Episode {
                 .clone()
                 .unwrap_or_else(|| auftreten.text.to_string()),
             sammel,
-            kontext: if sammel {
+            beginn: if sammel {
                 Kontext::neu()
             } else {
-                auftreten.kontext.clone()
+                auftreten.beginn_kontext()
             },
+            quelle: if sammel {
+                Kontext::neu()
+            } else {
+                auftreten.quelle.kontext().clone()
+            },
+            fortlaufend: Kontext::neu(),
             erst: jetzt,
             zuletzt: jetzt,
             naechste_zwischen: jetzt + zwischen,
@@ -236,7 +273,6 @@ impl Episode {
             je_art: BTreeMap::new(),
             je_verworfen: BTreeMap::new(),
             bytes: None,
-            letzter: None,
         };
         episode.zaehlen(&auftreten, jetzt);
         episode
@@ -245,8 +281,8 @@ impl Episode {
     /// Zählt; `zuletzt` fällt nie (eine zurückspringende Uhr beendet nichts vorzeitig).
     fn zaehlen(&mut self, auftreten: &Auftreten, jetzt: Zeit) {
         self.anzahl += 1;
-        if self.kontext.hat_fortlaufende() {
-            self.letzter = Some(auftreten.kontext.clone());
+        if !self.sammel {
+            self.fortlaufend = auftreten.fortlaufend.clone();
         }
         self.zuletzt = self.zuletzt.max(jetzt);
         if let Some(art) = auftreten.art {
@@ -275,13 +311,11 @@ impl Episode {
         ))
     }
 
-    /// Der Kontext von Zwischen- und Ende-Zeile (ADR-0042 Ergänzung Karte #66): was für die ganze Episode gilt,
-    /// ohne die Werte des einzelnen Auftretens, mit dem Wert des letzten für die fortlaufenden Schlüssel und der
-    /// größten Bytezahl, falls die Episode eine führt.
+    /// Der Kontext von Zwischen- und Ende-Zeile (ADR-0042 Ergänzung Karte #66, ADR-0050 Regel 3): die Quelle, dazu
+    /// das Fortlaufende mit dem Wert des letzten Auftretens und die größte Bytezahl, falls die Episode eine führt.
+    /// Die Einzelwerte der Auftreten werden hier nicht gelesen.
     fn kontext_der_zusammenfassung(&self) -> Kontext {
-        let kontext = self
-            .kontext
-            .fuer_ende(self.letzter.as_ref().unwrap_or(&self.kontext));
+        let kontext = self.quelle.clone().und(&self.fortlaufend);
         match self.bytes {
             Some(bytes) => kontext.mit(Schluessel::Bytes, bytes),
             None => kontext,
@@ -347,20 +381,13 @@ mod tests {
     }
 
     fn grenzschutz(herkunft: &str) -> Auftreten {
-        Auftreten {
-            stufe: Stufe::Warning,
-            bereich: Bereich::Grenzschutz,
-            text: "Anfrage mit fremdem Host abgewiesen",
-            quelle: herkunft.to_string(),
-            kontext: Kontext::neu()
-                .mit(Schluessel::Herkunft, herkunft)
-                .mit(Schluessel::Grund, "Host boese.example"),
-            art: None,
-            verworfen: None,
-            bytes: None,
-
-            anzeige: None,
-        }
+        Auftreten::neu(
+            Stufe::Warning,
+            Bereich::Grenzschutz,
+            "Anfrage mit fremdem Host abgewiesen",
+            Quelle::neu().mit(Schluessel::Herkunft, herkunft),
+        )
+        .einzeln(Schluessel::Grund, "Host boese.example")
     }
 
     fn texte(eintraege: &[Eintrag]) -> Vec<String> {
@@ -508,18 +535,21 @@ mod tests {
     fn koerper_episoden_nennen_arten_verwerfen_und_groesste_bytes() {
         let mut episoden = Episoden::neu(Duration::from_secs(1));
         for (art, bytes) in [("zu_gross", 5120), ("zu_gross", 6000), ("kaputt", 1)] {
+            let auftreten = Auftreten::neu(
+                Stufe::Warning,
+                Bereich::Koerper,
+                "Körper abgewiesen",
+                Quelle::neu()
+                    .mit(Schluessel::Herkunft, "127.0.0.1")
+                    .mit(Schluessel::Route, "POST /api/beitreten"),
+            )
+            .art(art)
+            .bytes(bytes);
             episoden.auftreten(
-                Auftreten {
-                    stufe: Stufe::Warning,
-                    bereich: Bereich::Koerper,
-                    text: "Körper abgewiesen",
-                    quelle: "127.0.0.1 POST /api/beitreten".into(),
-                    kontext: Kontext::neu().mit(Schluessel::Herkunft, "127.0.0.1"),
-                    art: Some(art),
-                    verworfen: (art == "zu_gross").then_some("vollständig"),
-                    bytes: Some(bytes),
-
-                    anzeige: None,
+                if art == "zu_gross" {
+                    auftreten.verworfen("vollständig")
+                } else {
+                    auftreten
                 },
                 t(0.0),
             );
@@ -534,21 +564,16 @@ mod tests {
     }
 
     fn schreibfehler(kennung: &str) -> Auftreten {
-        Auftreten {
-            stufe: Stufe::Error,
-            bereich: Bereich::Senden,
-            text: "Nachricht nicht gespeichert",
-            quelle: "2026-10-28.log Platte voll".into(),
-            kontext: Kontext::neu()
+        Auftreten::neu(
+            Stufe::Error,
+            Bereich::Senden,
+            "Nachricht nicht gespeichert",
+            Quelle::neu()
                 .mit(Schluessel::Channel, "allgemein")
-                .mit_nur_beginn(Schluessel::Kennung, kennung)
                 .mit(Schluessel::Datei, "2026-10-28.log")
                 .mit(Schluessel::Grund, "Platte voll"),
-            art: None,
-            verworfen: None,
-            bytes: None,
-            anzeige: None,
-        }
+        )
+        .einzeln(Schluessel::Kennung, kennung)
     }
 
     /// ADR-0042 Ergänzung Karte #66 (R00038 F0129): die Zwischenzeile nennt nur, was für die ganze Episode gilt.
@@ -600,16 +625,9 @@ mod tests {
 
     #[test]
     fn zwischenzeile_traegt_dauer_des_letzten_auftretens_und_groesste_bytes() {
-        let vorlauf = |ms: u64| Auftreten {
-            stufe: Stufe::Warning,
-            bereich: Bereich::Zeit,
-            text: "Vorlauf",
-            quelle: "zeit".into(),
-            kontext: Kontext::neu().mit_fortlaufend(Schluessel::DauerMs, ms),
-            art: None,
-            verworfen: None,
-            bytes: None,
-            anzeige: None,
+        let vorlauf = |ms: u64| {
+            Auftreten::neu(Stufe::Warning, Bereich::Zeit, "Vorlauf", Quelle::instanz())
+                .fortlaufend(Schluessel::DauerMs, ms)
         };
         let mut episoden = Episoden::neu(RUHE);
         episoden.auftreten(vorlauf(61_001), t(0.0));
@@ -621,10 +639,7 @@ mod tests {
         );
 
         let mut episoden = Episoden::neu(RUHE);
-        let mit_bytes = |bytes: u64| Auftreten {
-            bytes: Some(bytes),
-            ..schreibfehler("a")
-        };
+        let mit_bytes = |bytes: u64| schreibfehler("a").bytes(bytes);
         episoden.auftreten(mit_bytes(7), t(0.0));
         episoden.auftreten(mit_bytes(9), t(1.0));
         let zwischen = episoden.auftreten(mit_bytes(3), t(601.0));
@@ -678,6 +693,33 @@ mod tests {
             zeilen[3].ends_with("Probe — Episode beginnt | herkunft=10.0.0.8 grund=c dauer_ms=3"),
             "{}",
             zeilen[3]
+        );
+    }
+
+    /// ADR-0050 B4: das Ende wird aus Quelle und Fortlaufendem gebaut, nicht aus einem Filter über die Beginn-Zeile:
+    /// ein Einzelwert mit dem Schlüssel der Quelle nimmt der Quelle nichts aus der Ende-Zeile.
+    #[test]
+    fn ein_einzelwert_mit_dem_schluessel_der_quelle_nimmt_der_quelle_nichts_aus_dem_ende() {
+        let (protokoll, speicher, uhr, _) =
+            im_speicher("2026-10-28T12:00:00+01:00", Stufe::Warning);
+        protokoll.episode(
+            Auftreten::neu(
+                Stufe::Warning,
+                Bereich::Grenzschutz,
+                "Probe",
+                Quelle::neu().mit(Schluessel::Herkunft, "10.0.0.9"),
+            )
+            .einzeln(Schluessel::Herkunft, "10.0.0.1"),
+        );
+        uhr.stellen(t(60.0));
+        protokoll.episoden_schliessen();
+
+        let zeilen = speicher.zeilen();
+        assert_eq!(zeilen.len(), 2, "{zeilen:#?}");
+        assert!(
+            zeilen[1].ends_with("Probe — Episode endet: 1 in 0 s | herkunft=10.0.0.9"),
+            "{}",
+            zeilen[1]
         );
     }
 

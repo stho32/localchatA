@@ -273,7 +273,7 @@ impl Protokoll {
     /// Ein Auftreten einer Episode (ADR-0042 Regel 5): zählt jedes Auftreten, schreibt Beginn und Zwischenzeile.
     pub fn episode(&self, auftreten: Auftreten) {
         let jetzt = self.uhr.jetzt();
-        self.zaehler.zaehlen(auftreten.stufe, jetzt);
+        self.zaehler.zaehlen(auftreten.stufe(), jetzt);
         let zeilen = self
             .episoden
             .lock()

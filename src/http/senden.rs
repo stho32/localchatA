@@ -664,7 +664,7 @@ mod tests {
     /// R00038 B0589 (ADR-0042 Ergänzung Karte #66, wörtlich): `alpha@10.0.0.9` in `a` (`belegt=100`), danach in `b`
     /// (`belegt=200`), `hoechstens=1000` → Beginn mit `channel=a belegt=100`; Ende `… Episode endet: 2 in <d> s |
     /// kennung=alpha@10.0.0.9 hoechstens=1000` ohne `channel=` und `belegt=`. Mutanten „Kontext des ersten
-    /// Auftretens“ und „`kennung` mit `mit_nur_beginn`“ → rot.
+    /// Auftretens“ und „`kennung` als Einzelwert“ → rot.
     #[test]
     fn die_ende_zeile_der_quote_nennt_kennung_und_grenze_ohne_channel_und_belegung() {
         use crate::protokoll::Stufe;

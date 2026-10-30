@@ -223,11 +223,10 @@ impl Schluessel {
     }
 }
 
-/// Benannte Werte eines Eintrags in der Reihenfolge, in der sie gesetzt werden; dazu die Schlüssel, die nur in
-/// der Beginn-Zeile einer Episode stehen (Werte eines einzelnen Auftretens, ADR-0042 Ergänzung Karte #31 Punkt 4),
-/// und die, deren letzter Wert in die Ende-Zeile kommt (`dauer_ms` des Vorlaufs).
+/// Benannte Werte eines Eintrags in der Reihenfolge, in der sie gesetzt werden. Welche Werte einer Episode in
+/// welcher Zeile stehen, bestimmt `Auftreten` (ADR-0050), nicht der Kontext.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct Kontext(Vec<(Schluessel, String)>, Vec<Schluessel>, Vec<Schluessel>);
+pub struct Kontext(Vec<(Schluessel, String)>);
 
 impl Kontext {
     pub fn neu() -> Kontext {
@@ -244,39 +243,10 @@ impl Kontext {
         self
     }
 
-    /// Setzt einen Wert wie `mit`, der in der Ende-Zeile einer Episode fehlt: er gilt nur für das erste
-    /// Auftreten, nicht für die ganze Episode (`grenze` der Bremse).
-    pub fn mit_nur_beginn(self, schluessel: Schluessel, wert: impl ToString) -> Kontext {
-        let mut kontext = self.mit(schluessel, wert);
-        kontext.1.push(schluessel);
-        kontext
-    }
-
-    /// Setzt einen Wert wie `mit`, dessen letzter Wert der Episode in die Ende-Zeile kommt (`dauer_ms` des Vorlaufs).
-    pub fn mit_fortlaufend(self, schluessel: Schluessel, wert: impl ToString) -> Kontext {
-        let mut kontext = self.mit(schluessel, wert);
-        kontext.2.push(schluessel);
-        kontext
-    }
-
-    /// Ob der Kontext Werte trägt, die sich über die Episode ändern und deshalb nachgeführt werden.
-    pub fn hat_fortlaufende(&self) -> bool {
-        !self.2.is_empty()
-    }
-
-    /// Der Kontext der Ende-Zeile: ohne die Werte, die nur in die Beginn-Zeile gehören, und mit dem Wert des
-    /// letzten Auftretens (`letzter`) für die fortlaufenden Schlüssel.
-    pub fn fuer_ende(&self, letzter: &Kontext) -> Kontext {
-        let werte = self
-            .0
-            .iter()
-            .filter(|(schluessel, _)| !self.1.contains(schluessel))
-            .map(|(schluessel, wert)| match letzter.wert(*schluessel) {
-                Some(neu) if self.2.contains(schluessel) => (*schluessel, neu.to_string()),
-                _ => (*schluessel, wert.clone()),
-            })
-            .collect();
-        Kontext(werte, Vec::new(), Vec::new())
+    /// Hängt die Werte eines anderen Kontexts hinten an.
+    pub(super) fn und(mut self, anderer: &Kontext) -> Kontext {
+        self.0.extend(anderer.0.iter().cloned());
+        self
     }
 
     /// Die Werte in der Reihenfolge, in der sie gesetzt wurden (roh, an der Quelle gekürzt).

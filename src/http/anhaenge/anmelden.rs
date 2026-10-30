@@ -454,8 +454,7 @@ mod tests {
     use super::*;
 
     /// R00038 B0590 (ADR-0042 Ergänzung Karte #66, wörtlich): zwei Anmeldungen derselben Kennung (`bytes` 5 GiB und
-    /// 6 GiB) → Ende `kennung=… herkunft=…` ohne `bytes=` und `hochladen_bis=`. Mutante „`herkunft` mit
-    /// `mit_nur_beginn`“ rot.
+    /// 6 GiB) → Ende `kennung=… herkunft=…` ohne `bytes=` und `hochladen_bis=`. Mutante „`herkunft` als Einzelwert“ rot.
     #[test]
     fn die_ende_zeile_des_grossen_anspruchs_nennt_kennung_und_herkunft() {
         use crate::protokoll::Stufe;
