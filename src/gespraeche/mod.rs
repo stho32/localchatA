@@ -2026,7 +2026,9 @@ mod tests {
         let (gespraeche, ablage, uhr) = im_speicher("2026-10-27T14:00:00.000+01:00");
         let allgemein = Gespraech::channel("allgemein");
         let selbst: Arc<OnceLock<Weak<Gespraeche>>> = Arc::default();
-        let rueckrufe: Arc<Mutex<Vec<(String, Option<Geaendert>, bool, bool)>>> = Arc::default();
+        /// Text, Fassung, Satz schon in der Ablage, Schreibsperre frei.
+        type Rueckruf = (String, Option<Geaendert>, bool, bool);
+        let rueckrufe: Arc<Mutex<Vec<Rueckruf>>> = Arc::default();
         let gespraeche = Arc::new(gespraeche.mit_aenderung_veroeffentlichen({
             let (selbst, rueckrufe, ablage) = (
                 Arc::clone(&selbst),
