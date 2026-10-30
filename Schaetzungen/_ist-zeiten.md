@@ -634,3 +634,4 @@ Nie vom User erfragen.
 | 2026-10-30 | R00047 Antworten mit Zitat Nacharbeit Browser (#79) | UX S1/S2, code-reviewer S1–S3 (Wanduhr gesamt) | Nacharbeit | — | 0,5h | 0,5h | autonom (entw) |
 | 2026-10-30 | R00049/R00047 Erwähnung und Antwort wecken | F0167 (B0742–B0746) + B0712 (Wanduhr gesamt) | Entwicklung | — | 1,5h | 1,5h | autonom (entw2) |
 | 2026-10-30 | R00030 Anhänge im Verlauf zeigen | F0102 (B0455, B0457–B0459, B0461, B0732, B0752; Wanduhr gesamt) | Entwicklung | — | 1,6h | 1,6h | autonom (entw) |
+| 2026-10-30 | R00049 Nachholen zählt nach Aufwand | F0171 (B0760–B0763) + Nacharbeit B1/S2 (Wanduhr gesamt) | Entwicklung/Nacharbeit | — | 1,4h | 1,4h | autonom (entw2) |
