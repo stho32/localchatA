@@ -553,7 +553,7 @@ mod tests {
                     &Gespraech::channel("a"),
                     &anna(),
                     Art::Mensch,
-                    &"x".repeat(16_384),
+                    &"x".repeat(laenge),
                 )
                 .expect("gesendet");
             zeiten.push(gesendet.zeit);
