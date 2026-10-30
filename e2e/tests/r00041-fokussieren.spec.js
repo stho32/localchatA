@@ -2,6 +2,7 @@
 // R00041 F0141 Nachrichten im Verlauf fokussieren (UX M1, PO 129): zugänglicher Name je Nachricht (B0632), Rollfokus
 // im Verlauf (B0631), Pfeil hoch in der leeren Eingabe (B0633), Fokus beim Ersetzen (B0634). Konsole streng.
 const { test, expect } = require('./rahmen');
+const { netzAus, netzAn } = require('./r00012-hilfen');
 const {
   sendenStarten, beitreten, senden, anfragen, kontextOeffnen, imBrowserBeitreten, eingabe, nachrichten,
 } = require('./senden-hilfen');
@@ -185,11 +186,12 @@ test('Rollfokus (B0631): über die Blockgrenze nach oben — der nächste Pfeil 
   expect(a.fehler).toEqual([]);
 });
 
-/// Sendet im Browser `text` und wartet, bis er als bestätigte Nachricht im Verlauf steht.
+/// Sendet im Browser `text` und wartet, bis er als bestätigte (nicht mehr vorläufige) Nachricht im Verlauf steht.
 async function imBrowserSenden(page, text) {
   await eingabe(page).fill(text);
   await eingabe(page).press('Enter');
-  await expect(nachrichten(page).filter({ has: page.locator('.lc-body', { hasText: text }) })).toHaveCount(1);
+  await expect(page.getByRole('log').locator('.lc-msg:not(.lc-vorlaeufig)')
+    .filter({ has: page.locator('.lc-body', { hasText: text }) })).toHaveCount(1);
 }
 
 const textDerFokussierten = (page) => page.evaluate(() => {
@@ -278,3 +280,52 @@ test('Pfeil hoch (B0633): eine gelöschte eigene letzte Nachricht wird überspru
   expect(await textDerFokussierten(a.page)).toBe('Eins');
   expect(a.fehler).toEqual([]);
 });
+
+/// Hält die Abrufe des Nachholens (`nach` und `n=200`) an, bis `freigeben()` gerufen wird.
+async function nachholenAnhalten(page) {
+  let freigeben;
+  const tor = new Promise((offen) => { freigeben = offen; });
+  await page.route((url) => url.pathname.endsWith('/nachrichten') && url.searchParams.has('nach') && url.searchParams.get('n') === '200',
+    async (route) => {
+      await tor;
+      await route.continue();
+    });
+  return freigeben;
+}
+
+test('Fokus beim Ersetzen (B0634): das Nachholen zeichnet den jüngsten Block neu — der Fokus steht danach auf dem neuen Knoten derselben Zeit', async ({ browser }) => {
+  instanz = await sendenStarten({ anzahl: 3 });
+  const a = await kontextOeffnen(browser);
+  await imBrowserBeitreten(a.page, instanz.adresse, 'shoff');
+  await expect(nachrichten(a.page)).toHaveCount(3);
+  const token = await beitreten(instanz.adresse, 'beta', { herkunft: BETA });
+  await netzAus(a);
+  expect((await senden(instanz.adresse, token, 'allgemein', 'l1', BETA)).status).toBe(201);
+  const freigeben = await nachholenAnhalten(a.page);
+  await netzAn(a);
+  expect((await senden(instanz.adresse, token, 'allgemein', 'l2', BETA)).status).toBe(201);
+  await expect(mitTextLive(a.page, 'l2')).toHaveCount(1);
+
+  await mitTextLive(a.page, 'l2').focus();
+  const zeit = await fokussierteZeit(a.page);
+  expect(zeit).not.toBeNull();
+  // Der Fokus kommt mit den Pfeilen zurück auf l2 — der Rückzug des Fokus von l1 darf ihn nicht vergessen machen.
+  await a.page.keyboard.press('ArrowUp');
+  await a.page.keyboard.press('ArrowDown');
+  expect(await fokussierteZeit(a.page)).toBe(zeit);
+  await a.page.waitForTimeout(100);
+  await a.page.evaluate(() => { window.alterKnoten = document.activeElement; });
+
+  freigeben();
+  await expect(mitTextLive(a.page, 'l1')).toHaveCount(1);
+  await expect(nachrichten(a.page)).toHaveCount(5);
+  const lage = await a.page.evaluate(() => ({
+    altVerbunden: window.alterKnoten.isConnected,
+    zeit: document.activeElement.dataset.zeit ?? null,
+    neuerKnoten: document.activeElement !== window.alterKnoten,
+  }));
+  expect(lage).toEqual({ altVerbunden: false, zeit, neuerKnoten: true });
+  expect(a.fehler.filter((zeile) => !/ERR_INTERNET_DISCONNECTED/.test(zeile))).toEqual([]);
+});
+
+const mitTextLive = (page, text) => nachrichten(page).filter({ has: page.locator('.lc-body', { hasText: new RegExp(`^${text}$`) }) });

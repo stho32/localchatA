@@ -260,14 +260,44 @@ export function verlaufAnlegen({ abrufen, schalter = () => {}, fokusRueckgaengig
       }
     }
   }
-  new MutationObserver(rollfokusPflegen).observe(inhalt, { childList: true, subtree: true });
+  new MutationObserver(() => {
+    rollfokusPflegen();
+    fokusZurueckAufNachricht();
+  }).observe(inhalt, { childList: true, subtree: true });
   log.addEventListener('focusin', (ereignis) => {
     const nachricht = ereignis.target.closest('.lc-msg');
     if (nachricht !== null && inhalt.contains(nachricht)) {
       rollZeit = nachricht.dataset.zeit;
+      fokusZeit = rollZeit;
       rollfokusPflegen();
     }
   });
+
+  // Wird die fokussierte Nachricht ersetzt (der jüngste Block wird neu gezeichnet), fällt der Fokus mit dem alten Knoten
+  // auf die Seite. Der Verlauf merkt sich die Zeit der Nachricht, die den Fokus hat, und legt ihn auf den neuen Knoten
+  // derselben Zeit — ohne zu scrollen, ohne Ansage (R00041 F0141 B0634). Verlässt der Fokus den Knoten, ohne dass er
+  // verschwindet, ist nichts mehr zu halten: Chromium meldet `focusout` auch beim Entfernen noch am verbundenen
+  // Knoten, erst nach dem laufenden Zug zeigt `isConnected`, was geschah.
+  let fokusZeit = null;
+  log.addEventListener('focusout', (ereignis) => {
+    setTimeout(() => {
+      if (ereignis.target.isConnected && !inhalt.contains(document.activeElement)) {
+        fokusZeit = null;
+      }
+    }, 0);
+  });
+
+  function fokusZurueckAufNachricht() {
+    const aktiv = document.activeElement;
+    const fokusVerloren = aktiv === null || aktiv === document.body;
+    if (fokusZeit === null || !fokusVerloren) {
+      return;
+    }
+    const neu = inhalt.querySelector(`:scope > .lc-msg[data-zeit="${CSS.escape(fokusZeit)}"]`);
+    if (neu !== null) {
+      neu.focus({ preventScroll: true });
+    }
+  }
 
   // ↑ in der leeren Eingabe: die jüngste eigene, bestätigte, nicht gelöschte Nachricht des Fensters; keine → nichts.
   function eigeneLetzteFokussieren() {
@@ -314,6 +344,7 @@ export function verlaufAnlegen({ abrufen, schalter = () => {}, fokusRueckgaengig
     laufend = new AbortController();
     const dieser = laufend;
     rollZeit = null;
+    fokusZeit = null;
     signal.addEventListener('abort', () => dieser.abort());
     const hinweisBleibt = name === offenerName && nichtGeladenSteht();
     offenerName = name;
@@ -768,6 +799,7 @@ export function verlaufAnlegen({ abrufen, schalter = () => {}, fokusRueckgaengig
     laufend.abort();
     offenerName = null;
     rollZeit = null;
+    fokusZeit = null;
     geladen = false;
     puffer = [];
     nurGezaehlte = [];
