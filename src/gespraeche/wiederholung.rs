@@ -549,9 +549,40 @@ pub fn pruefsumme_mit(text: &str, anhaenge: &[super::anhangid::Anhangid]) -> u64
     hasher.finish()
 }
 
+/// Prüfsumme eines Bearbeitens (ADR-0048 Regel 8): über die Art der Operation, die Zielzeit als Zeitpunkt und den
+/// Text, wie er ankam — ein Schlüssel des Sendens passt nie.
+pub fn pruefsumme_bearbeiten(ziel: &Zeit, text: &str) -> u64 {
+    use std::hash::{DefaultHasher, Hash, Hasher};
+    let mut hasher = DefaultHasher::new();
+    "bearbeiten".hash(&mut hasher);
+    ziel.timestamp_millis().hash(&mut hasher);
+    text.hash(&mut hasher);
+    hasher.finish()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// R00039 B0600: die Prüfsumme des Bearbeitens umfasst Art, Zielzeit (als Zeitpunkt) und Text — anders als die des
+    /// Sendens mit demselben Text, gleich für dieselbe Zielzeit in anderer Schreibweise.
+    #[test]
+    fn die_pruefsumme_des_bearbeitens_umfasst_art_ziel_und_text() {
+        let ziel = |text| Zeit::parse_from_rfc3339(text).expect("Zeit");
+        let t1 = ziel("2026-10-30T14:07:12.345+01:00");
+        let summe = pruefsumme_bearbeiten(&t1, "Hallo");
+
+        assert_eq!(
+            summe,
+            pruefsumme_bearbeiten(&ziel("2026-10-30T13:07:12.345Z"), "Hallo")
+        );
+        assert_ne!(summe, pruefsumme("Hallo"));
+        assert_ne!(summe, pruefsumme_bearbeiten(&t1, "Hallo!"));
+        assert_ne!(
+            summe,
+            pruefsumme_bearbeiten(&ziel("2026-10-30T14:07:12.346+01:00"), "Hallo")
+        );
+    }
 
     /// Prüfsumme über Text und IDs: dieselben IDs → gleich; andere ID oder andere Reihenfolge → anders; ohne IDs
     /// wie über den Text allein.

@@ -711,3 +711,79 @@ async fn ein_handgeschriebener_fremder_aenderungssatz_gilt_nicht() {
         "{zeile}"
     );
 }
+
+/// R00039 „Wiederholschlüssel“ (M11; ADR-0048 Integrationstest „Wiederholschlüssel aus Senden beim Bearbeiten →
+/// 422“): `k1` zweimal → zweimal 200 mit derselben Fassung, genau ein Änderungssatz; `k1` mit anderem Text → 422
+/// `schluessel`; `k2` zuerst beim Senden, dann beim Bearbeiten → 422; `k1` von `gamma` an seiner eigenen Nachricht →
+/// wie neu.
+#[tokio::test]
+async fn ein_wiederholschluessel_aendert_nichts_doppelt() {
+    let wurzel = ordner();
+    let instanz = starten(wurzel.path());
+    let basis = instanz.adresse.as_str();
+    let beta = Absender::von("127.0.0.1");
+    let (token, t1) = beta_mit_hallo(&beta, basis).await;
+    let gamma = beitreten(&beta, basis, "gamma", None).await;
+    let t_gamma = senden(&beta, basis, &gamma, "allgemein", "Servus")
+        .await
+        .json["nachricht"]["zeit"]
+        .as_str()
+        .expect("zeit")
+        .to_string();
+    let mit = |token: &str, zeit: &str, text: &str, schluessel: &'static str| {
+        let koerper = json!({ "zeit": zeit, "text": text })
+            .to_string()
+            .into_bytes();
+        let token = token.to_string();
+        let beta = &beta;
+        async move {
+            bearbeiten_roh(
+                beta,
+                basis,
+                Some(&token),
+                "allgemein",
+                "application/json",
+                koerper,
+                &[("Idempotency-Key", schluessel)],
+            )
+            .await
+        }
+    };
+    let gesendet = api_antwort(
+        beta.anfrage(
+            reqwest::Method::POST,
+            format!("{basis}api/channels/allgemein/nachrichten"),
+        )
+        .header("X-LocalchatA-Sitzung", &token)
+        .header("Idempotency-Key", "k2")
+        .json(&json!({ "text": "Hallo zusammen" })),
+    )
+    .await;
+    assert_eq!(gesendet.status, 201, "{}", gesendet.json);
+
+    let erste = mit(&token, &t1, "Hallo zusammen", "k1").await;
+    let zweite = mit(&token, &t1, "Hallo zusammen", "k1").await;
+    let anders = mit(&token, &t1, "Hallo allerseits", "k1").await;
+    let vom_senden = mit(&token, &t1, "Hallo zusammen", "k2").await;
+    let von_gamma = mit(&gamma, &t_gamma, "Servus zusammen", "k1").await;
+
+    assert_eq!(erste.status, 200, "{}", erste.json);
+    assert_eq!(zweite.status, 200, "{}", zweite.json);
+    assert_eq!(zweite.json, erste.json);
+    for antwort in [&anders, &vom_senden] {
+        assert_eq!(antwort.status, 422, "{}", antwort.json);
+        assert_eq!(antwort.json["regel"], "schluessel");
+    }
+    assert_eq!(von_gamma.status, 200, "{}", von_gamma.json);
+    let log = tagesdatei(wurzel.path(), HEUTE);
+    assert_eq!(
+        log.matches(&format!("+ bearbeitet: {t1}\n")).count(),
+        1,
+        "{log}"
+    );
+    assert_eq!(
+        log.matches(&format!("+ bearbeitet: {t_gamma}\n")).count(),
+        1,
+        "{log}"
+    );
+}

@@ -227,7 +227,7 @@ fn gesendet(status: StatusCode, channel: &str, nachricht: &Nachricht) -> Respons
 
 pub(super) const SCHLUESSEL_FORMAT: &str =
     "Idempotency-Key: 1 bis 64 Zeichen aus A–Z, a–z, 0–9, _ und - — zum Beispiel 7f3a-k1.";
-const SCHLUESSEL_ANDERS: &str = "Dieser Schlüssel gehört zu einer anderen Nachricht.";
+pub(super) const SCHLUESSEL_ANDERS: &str = "Dieser Schlüssel gehört zu einer anderen Nachricht.";
 
 pub(super) fn schluessel_abgewiesen(fehler: &str) -> Response {
     (

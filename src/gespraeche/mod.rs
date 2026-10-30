@@ -150,6 +150,8 @@ impl fmt::Display for Sendefehler {
 pub enum Bearbeitet {
     Neu(Nachricht),
     Unveraendert(Nachricht),
+    /// Derselbe Wiederholschlüssel mit derselben Prüfsumme: die aktuelle Fassung, nichts geschrieben.
+    Wiederholt(Nachricht),
 }
 
 /// Warum `bearbeiten` nichts angehängt hat (ADR-0048 Regel 5, Antworten unter der Sperre).
@@ -169,6 +171,8 @@ pub enum Bearbeitfehler {
     Quote { belegt: u64, hoechstens: u64 },
     /// Die Tagesdatei nahm den Satz nicht an; nichts steht im Log oder Index.
     Ablage { datei: String, grund: String },
+    /// Der Wiederholschlüssel gehört zu einer anderen Anfrage (anderer Text, andere Nachricht, Senden).
+    SchluesselAnders,
 }
 
 /// Den Channel gibt es nicht — unbekannt oder kein gültiger Name.
@@ -620,6 +624,37 @@ impl Gespraeche {
         ziel: Zeit,
         text: &str,
     ) -> Result<Bearbeitet, Bearbeitfehler> {
+        self.bearbeiten_mit(gespraech, von, ziel, text, None)
+    }
+
+    /// Wie `bearbeiten`, mit Wiederholschlüssel (ADR-0048 Regel 8): derselbe Speicher wie beim Senden, geprüft vor dem
+    /// Nachschlagen — bekannt mit gleicher Prüfsumme → `Wiederholt` mit der aktuellen Fassung, anders →
+    /// `SchluesselAnders`; neu → bearbeiten und nach dem Anhängen merken.
+    pub fn bearbeiten_mit(
+        &self,
+        gespraech: &Gespraech,
+        von: &Kennung,
+        ziel: Zeit,
+        text: &str,
+        schluessel: Option<&str>,
+    ) -> Result<Bearbeitet, Bearbeitfehler> {
+        let (bearbeitet, verdraengt) =
+            self.bearbeiten_unter_sperre(gespraech, von, ziel, text, schluessel)?;
+        if let Some(verdraengt) = verdraengt {
+            self.schluessel_verdraengt.fetch_add(1, Ordering::SeqCst);
+            (self.verdraengt_melden)(&verdraengt);
+        }
+        Ok(bearbeitet)
+    }
+
+    fn bearbeiten_unter_sperre(
+        &self,
+        gespraech: &Gespraech,
+        von: &Kennung,
+        ziel: Zeit,
+        text: &str,
+        schluessel: Option<&str>,
+    ) -> Result<(Bearbeitet, Option<Verdraengt>), Bearbeitfehler> {
         let verlauf = lesend(&self.verzeichnis)
             .verlaeufe
             .get(gespraech)
@@ -627,17 +662,32 @@ impl Gespraeche {
             .ok_or(Bearbeitfehler::Unbekannt)?;
         let mut verlauf = sperren(&verlauf);
         let mut stand = sperren(&self.schreiben);
+        let jetzt = self.uhr.jetzt();
+        let pruefsumme = wiederholung::pruefsumme_bearbeiten(&ziel, text);
+        let pruefung = schluessel.map(|schluessel| {
+            stand
+                .wiederholung
+                .pruefen(von, schluessel, gespraech, pruefsumme, jetzt)
+        });
         let nachricht = verlauf
             .nachricht(&ziel)
             .as_ref()
             .and_then(nachricht_in_fassung)
-            .map(|nachricht| self.zustand_eintragen(nachricht))
-            .ok_or(Bearbeitfehler::Nachricht)?;
+            .map(|nachricht| self.zustand_eintragen(nachricht));
+        match pruefung {
+            Some(Pruefung::Anders) => return Err(Bearbeitfehler::SchluesselAnders),
+            Some(Pruefung::Wiederholt { .. }) => {
+                let nachricht = nachricht.ok_or(Bearbeitfehler::Nachricht)?;
+                return Ok((Bearbeitet::Wiederholt(nachricht), None));
+            }
+            Some(Pruefung::Neu) | None => {}
+        }
+        let nachricht = nachricht.ok_or(Bearbeitfehler::Nachricht)?;
         let text = neuer_text(&nachricht, von, text)?;
         if text == nachricht.text {
-            return Ok(Bearbeitet::Unveraendert(nachricht));
+            return Ok((Bearbeitet::Unveraendert(nachricht), None));
         }
-        let zeit = crate::uhr::naechste_zeit(self.uhr.jetzt(), stand.letzte);
+        let zeit = crate::uhr::naechste_zeit(jetzt, stand.letzte);
         let satz = logformat::bearbeitungssatz(zeit, von, nachricht.zeit, &text);
         let satzbytes = satz.len() as u64;
         if let Some(hoechstens) = self.hoechstens
@@ -669,14 +719,25 @@ impl Gespraeche {
         let dazu = satzbytes + u64::from(angehaengt.zeilenende_ergaenzt);
         let vorher = self.belegung.dazu(dazu);
         self.ueber_90_melden(vorher, vorher.saturating_add(dazu));
-        Ok(Bearbeitet::Neu(Nachricht {
+        let verdraengt = schluessel.and_then(|schluessel| {
+            stand.wiederholung.merken(
+                von,
+                schluessel,
+                gespraech,
+                pruefsumme,
+                nachricht.zeit,
+                jetzt,
+            )
+        });
+        let neu = Nachricht {
             text,
             geaendert: Some(Geaendert {
                 zeit,
                 zustand: Aenderungszustand::Bearbeitet,
             }),
             ..nachricht
-        }))
+        };
+        Ok((Bearbeitet::Neu(neu), verdraengt))
     }
 
     /// Rückbau eines gescheiterten Bindens (ADR-0046 Regel 6): jede schon gebundene Datei zurück in den Eingang
@@ -1895,6 +1956,50 @@ mod tests {
         assert_eq!(gespraeche.belegt(), belegt);
         assert_eq!(fassung_von(&gespraeche, &t1), None);
         assert_eq!(neueste(&gespraeche)[0].text, "Hallo");
+    }
+
+    /// R00039 B0600 (M11): `k1` zweimal → einmal angehängt, die zweite `Wiederholt` mit derselben Fassung; `k1` mit
+    /// anderem Text → `SchluesselAnders`; ein Schlüssel des Sendens → `SchluesselAnders`; derselbe `k1` einer anderen
+    /// Kennung an ihrer eigenen Nachricht → neu.
+    #[test]
+    fn ein_wiederholschluessel_beim_bearbeiten_haengt_einmal_an() {
+        let (gespraeche, ablage, uhr) = im_speicher("2026-10-27T14:00:00.000+01:00");
+        let allgemein = Gespraech::channel("allgemein");
+        let (beta, gamma) = (kennung("beta@127.0.0.1"), kennung("gamma@127.0.0.1"));
+        let t1 = gespraeche
+            .senden(&allgemein, &beta, Art::Agent, "Hallo")
+            .expect("t1")
+            .zeit;
+        let t_gamma = gespraeche
+            .senden(&allgemein, &gamma, Art::Agent, "Servus")
+            .expect("gamma")
+            .zeit;
+        gespraeche
+            .senden_einmal(&allgemein, &beta, Art::Agent, "Hallo zusammen", "k2")
+            .expect("k2 beim Senden");
+        let bearbeiten = |von: &Kennung, ziel: Zeit, text: &str, schluessel: &str| {
+            gespraeche.bearbeiten_mit(&allgemein, von, ziel, text, Some(schluessel))
+        };
+
+        let erste = bearbeiten(&beta, t1, "Hallo zusammen", "k1");
+        uhr.stellen(zeit("2026-10-27T14:00:05.000+01:00"));
+        let zweite = bearbeiten(&beta, t1, "Hallo zusammen", "k1");
+        let anders = bearbeiten(&beta, t1, "Hallo allerseits", "k1");
+        let vom_senden = bearbeiten(&beta, t1, "Hallo zusammen", "k2");
+        let fremde_kennung = bearbeiten(&gamma, t_gamma, "Servus zusammen", "k1");
+
+        let Ok(Bearbeitet::Neu(neu)) = erste else {
+            panic!("erste: {erste:?}")
+        };
+        assert_eq!(zweite, Ok(Bearbeitet::Wiederholt(neu)));
+        assert_eq!(anders, Err(Bearbeitfehler::SchluesselAnders));
+        assert_eq!(vom_senden, Err(Bearbeitfehler::SchluesselAnders));
+        assert!(
+            matches!(fremde_kennung, Ok(Bearbeitet::Neu(_))),
+            "{fremde_kennung:?}"
+        );
+        let inhalt = ablage.inhalt(&allgemein, tag("2026-10-27")).expect("Tag");
+        assert_eq!(inhalt.matches("+ bearbeitet: ").count(), 2, "{inhalt}");
     }
 
     #[test]

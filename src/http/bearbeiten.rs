@@ -14,8 +14,8 @@ use super::koerper::{
 };
 use super::nachrichten::NachrichtAntwort;
 use super::senden::{
-    SCHLUESSEL_FORMAT, groesse_in_worten, mit_tausenderpunkt, nicht_gespeichert_antwort,
-    schluessel_abgewiesen, schluessel_lesen, text_abgewiesen, unbekannt,
+    SCHLUESSEL_ANDERS, SCHLUESSEL_FORMAT, groesse_in_worten, mit_tausenderpunkt,
+    nicht_gespeichert_antwort, schluessel_abgewiesen, schluessel_lesen, text_abgewiesen, unbekannt,
 };
 use super::teilnehmer::Teilnehmer;
 use crate::gespraeche::textregel::{Textfehler, laenge_und_zeichen_pruefen};
@@ -92,7 +92,7 @@ pub async fn bearbeiten(
         };
         return mit_regel(text_abgewiesen(fehler), regel, Some(&wer));
     }
-    let Ok(_schluessel) = schluessel_lesen(&kopf) else {
+    let Ok(schluessel) = schluessel_lesen(&kopf) else {
         return mit_regel(
             schluessel_abgewiesen(SCHLUESSEL_FORMAT),
             "schluessel_ungueltig",
@@ -115,13 +115,16 @@ pub async fn bearbeiten(
     let gespraech = Gespraech::channel(&name);
     let von = teilnehmer.kennung.clone();
     let text = text.to_string();
-    let ergebnis =
-        tokio::task::spawn_blocking(move || gespraeche.bearbeiten(&gespraech, &von, ziel, &text))
-            .await;
+    let ergebnis = tokio::task::spawn_blocking(move || {
+        gespraeche.bearbeiten_mit(&gespraech, &von, ziel, &text, schluessel.as_deref())
+    })
+    .await;
     match ergebnis {
-        Ok(Ok(Bearbeitet::Neu(nachricht) | Bearbeitet::Unveraendert(nachricht))) => {
-            bearbeitet(&name, &nachricht)
-        }
+        Ok(Ok(
+            Bearbeitet::Neu(nachricht)
+            | Bearbeitet::Unveraendert(nachricht)
+            | Bearbeitet::Wiederholt(nachricht),
+        )) => bearbeitet(&name, &nachricht),
         Ok(Err(fehler)) => abgewiesen(fehler, &name, &wer),
         Err(abbruch) => abgebrochen(&zustand, &Abgebrochen::from(abbruch), &wer, &name),
     }
@@ -165,6 +168,11 @@ fn abgewiesen(fehler: Bearbeitfehler, channel: &str, wer: &str) -> Response {
             mit_regel(quote_erreicht(belegt, hoechstens), "quote", Some(wer))
         }
         Bearbeitfehler::Ablage { .. } => nicht_gespeichert_antwort(),
+        Bearbeitfehler::SchluesselAnders => mit_regel(
+            schluessel_abgewiesen(SCHLUESSEL_ANDERS),
+            "schluessel_anders",
+            Some(wer),
+        ),
     }
 }
 
