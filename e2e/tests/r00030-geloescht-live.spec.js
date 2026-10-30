@@ -272,6 +272,7 @@ test('Nach dem Neuladen keine Ansage (UX S9): „Gelöscht“ steht da, die Regi
   const { page } = lauf.a;
   await anhaengeLoeschen(instanz.adresse, lauf.beta.token, lauf.ids[0]);
   await page.reload();
+  await page.locator('[role="status"][aria-live="polite"]').first().waitFor({ state: 'attached' });
   const ansagen = await ansagenMitschreiben(page);
   await expect(zeileVon(nachrichtMitZeit(page, lauf.zeiten[0]), 'foto.png')).toBeVisible();
   await page.waitForTimeout(600);
