@@ -60,7 +60,7 @@ test('Verlauf folgt nicht, solange ein Player spielt (B0733, U1): B spielt film.
 });
 
 for (const ende of ['pause', 'ended']) {
-  test(`Nach ${ende} am Ende (B0733, V7): der Verlauf springt dabei nicht und folgt der nächsten neuen Nachricht wieder`, async ({ browser }) => {
+  test(`Nach ${ende} folgt der Verlauf nur am Ende (B0733, V7, PO 181): er springt dabei nicht und folgt der nächsten neuen Nachricht, weil B am Ende steht`, async ({ browser }) => {
     const { lauf, page, video } = await videoUnten(browser);
     await abspielen(video);
     const vorher = await scrollStand(page);
@@ -82,6 +82,37 @@ for (const ende of ['pause', 'ended']) {
     expect(lauf.a.fehler).toEqual([]);
   });
 }
+
+test('Der Player außerhalb des Sichtbaren zählt (PO 181): das spielende Video steht weit oben im Fenster, B liest am Ende → eine neue fremde Nachricht wird nicht gefolgt, die Pille zählt; nach der Pause folgt die nächste', async ({ browser }) => {
+  const danach = Array.from({ length: 16 }, (_, nummer) => ({ text: `Danach ${nummer + 1}${'\nweiter'.repeat(6)}`, namen: [] }));
+  const lauf = await anzeigeStarten(browser, [{ text: 'Video', namen: ['film.webm'] }, ...danach]);
+  instanz = lauf.instanz;
+  const { page } = lauf.a;
+  const video = player(nachrichtMitZeit(page, lauf.zeiten[0]), 'film.webm');
+  await video.scrollIntoViewIfNeeded();
+  await abspielen(video);
+  await page.getByRole('log').evaluate((log) => { log.scrollTop = log.scrollHeight; });
+  await expect.poll(async () => (await scrollStand(page)).untenAbstand).toBeLessThanOrEqual(1);
+  expect(await imVerlaufSichtbar(video), 'das Video liegt außerhalb des Sichtbaren').toBe(false);
+  expect((await wiedergabe(video)).pausiert).toBe(false);
+  const vorher = await scrollStand(page);
+
+  await page.waitForTimeout(1500); // die Bremse der Kennung (429) nach den 17 Nachrichten des Gegebenen
+  const eins = await betaSchreibt(lauf, 'eins');
+  await expect(nachrichtMitZeit(page, eins)).toHaveCount(1);
+  await expect(pille(page)).toContainText('1 neue Nachricht');
+  expect((await scrollStand(page)).oben).toBe(vorher.oben);
+
+  await video.evaluate((element) => element.pause());
+  await page.getByRole('log').evaluate((log) => { log.scrollTop = log.scrollHeight; });
+  await expect.poll(async () => (await scrollStand(page)).untenAbstand).toBeLessThanOrEqual(1);
+  await page.waitForTimeout(1500);
+  const zwei = await betaSchreibt(lauf, 'zwei');
+  await expect(nachrichtMitZeit(page, zwei)).toHaveCount(1);
+  await expect.poll(async () => (await scrollStand(page)).untenAbstand).toBeLessThanOrEqual(1);
+  expect(await imVerlaufSichtbar(nachrichtMitZeit(page, zwei))).toBe(true);
+  expect(lauf.a.fehler).toEqual([]);
+});
 
 test('Eigenes Senden folgt auch bei Wiedergabe (B0733, V7, US-22): A (anna) sendet, während B spielt → bei A folgt der Verlauf, bei B läuft die Wiedergabe weiter; B sendet selbst → B folgt, die Wiedergabe läuft weiter', async ({ browser }) => {
   const { lauf, page, video } = await videoUnten(browser);

@@ -3,7 +3,7 @@
 // „Angehängte Dateien“ → Feld mit „Anhang“ und „Senden“ → Hinweis- und Tippzeile, oben nach unten wie in der Tab-Folge;
 // Tab und `/` aus dem Verlauf landen im Feld; die Liste ist min(3½ Zeilen, 25 % von visualViewport.height), mindestens
 // 1½ Zeilen hoch; alles zusammen höchstens 60 %, der Verlauf behält 88 px, die letzte Nachricht bleibt ganz sichtbar
-// (R00048). Bildschirmtastatur genähert über ein niedrigeres Fenster (Telefon 375 × 500, Tablet quer 1024 × 400).
+// (R00048). Bildschirmtastatur genähert über ein niedrigeres Fenster (Telefon 375 × 480, Tablet quer 1024 × 400).
 const { test, expect } = require('./rahmen');
 const { sendenStarten, imBrowserBeitreten, eingabe, nachrichten } = require('./senden-hilfen');
 const { geraetOeffnen, knopf } = require('./r00027-hilfen');
@@ -85,7 +85,7 @@ function letzteGanzSichtbar(page) {
   });
 }
 
-for (const [geraet, fenster] of [['telefon', { width: 375, height: 500 }], ['tabletQuer', { width: 1024, height: 400 }]]) {
+for (const [geraet, fenster] of [['telefon', { width: 375, height: 480 }], ['tabletQuer', { width: 1024, height: 400 }]]) {
   test(`${geraet} ${fenster.width} × ${fenster.height}: Antwortzeile, 10 Dateien, Feld und Hinweiszeile im sichtbaren Bereich, Liste begrenzt, letzte Nachricht bleibt sichtbar`, async ({ browser }) => {
     const { page, fehler, hallo } = await aufbauen(browser, geraet, fenster);
     await expect.poll(() => letzteGanzSichtbar(page)).toBe(true);
@@ -118,8 +118,8 @@ for (const [geraet, fenster] of [['telefon', { width: 375, height: 500 }], ['tab
   });
 }
 
-test('Tab-Folge (Telefon 375 × 500): Antwortzeile → Entfernen ×10 → Feld → Anhang → Senden, wie oben nach unten', async ({ browser }) => {
-  const { page, hallo } = await aufbauen(browser, 'telefon', { width: 375, height: 500 });
+test('Tab-Folge (Telefon 375 × 480): Antwortzeile → Entfernen ×10 → Feld → Anhang → Senden, wie oben nach unten', async ({ browser }) => {
+  const { page, hallo } = await aufbauen(browser, 'telefon', { width: 375, height: 480 });
   await antwortenAuf(page, hallo);
   await waehlen(page, zehn(), { geste: 'tippen' });
 
@@ -159,8 +159,8 @@ test('Tab und / aus dem Verlauf landen im Feld, nicht im ersten „Entfernen“ 
   await expect(knopf(page)).toBeVisible();
 });
 
-test('Hinweiszeile höchstens 2 Zeilen, dann Ellipse; Tippanzeige in der 20-px-Reihe; der Wechsel 1 ↔ 2 Zeilen verdeckt nichts (Telefon 375 × 500)', async ({ browser }) => {
-  const { page } = await aufbauen(browser, 'telefon', { width: 375, height: 500 });
+test('Hinweiszeile höchstens 2 Zeilen, dann Ellipse; Tippanzeige in der 20-px-Reihe; der Wechsel 1 ↔ 2 Zeilen verdeckt nichts (Telefon 375 × 480)', async ({ browser }) => {
+  const { page } = await aufbauen(browser, 'telefon', { width: 375, height: 480 });
   await expect.poll(() => letzteGanzSichtbar(page)).toBe(true);
   const zeile = page.locator('#lc-comp-hinweis');
 
