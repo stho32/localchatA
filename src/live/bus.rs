@@ -76,6 +76,19 @@ impl Abonnement {
             Err(broadcast::error::RecvError::Closed) => None,
         }
     }
+
+    /// Das nächste schon empfangene Ereignis oder `NeuerStand`, ohne zu warten; `None`, wenn keines bereitliegt.
+    pub fn sofort(&mut self) -> Option<Empfang> {
+        match self.empfaenger.try_recv() {
+            Ok(ereignis) => Some(Empfang::Ereignis(ereignis)),
+            Err(broadcast::error::TryRecvError::Lagged(verpasst)) => {
+                Some(Empfang::NeuerStand { verpasst })
+            }
+            Err(broadcast::error::TryRecvError::Empty | broadcast::error::TryRecvError::Closed) => {
+                None
+            }
+        }
+    }
 }
 
 /// Die Veröffentlichung für die Anwesenheit: jeder Wechsel als Ereignis auf den Bus.

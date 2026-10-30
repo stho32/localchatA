@@ -1,6 +1,6 @@
 //! HTTP-Schnittstelle: Router an der Systemgrenze (A00004).
 
-mod abbruch;
+pub(crate) mod abbruch;
 mod abweisungsseite;
 pub(crate) mod aktivitaet;
 mod anfrageprotokoll;
