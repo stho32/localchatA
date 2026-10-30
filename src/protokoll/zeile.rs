@@ -65,6 +65,8 @@ pub enum Bereich {
     Aendern,
     /// Tippt / denkt nach (ADR-0042 Ergänzung „Karte #77“, ADR-0051 Regel 11).
     Aktivitaet,
+    /// Warten auf Nachrichten (ADR-0054 Regel 8 und 10).
+    Warten,
 }
 
 impl Bereich {
@@ -90,6 +92,7 @@ impl Bereich {
             Bereich::Live => "live",
             Bereich::Aendern => "aendern",
             Bereich::Aktivitaet => "aktivitaet",
+            Bereich::Warten => "warten",
         }
     }
 }

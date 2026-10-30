@@ -12,17 +12,20 @@ use super::teilnehmerliste::zeit_als_text;
 use crate::gespraeche::Gespraech;
 use crate::gespraeche::treffer::{Filter, Treffer};
 use crate::live::warten::{Ende, Warteauftrag, Warteergebnis, warten};
+use crate::protokoll::episoden::{Auftreten, Quelle};
+use crate::protokoll::episodentexte;
+use crate::protokoll::{Bereich, Schluessel, Stufe};
 use crate::uhr::Zeit;
 use axum::Json;
 use axum::extract::{ConnectInfo, RawQuery, State};
-use axum::http::header::CACHE_CONTROL;
+use axum::http::header::{CACHE_CONTROL, RETRY_AFTER};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use serde::Serialize;
 use serde_json::json;
+use std::collections::HashMap;
 use std::net::SocketAddr;
-use std::sync::Arc;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::Duration;
 
 /// Ohne `bis` wartet ein Aufruf so lange (ADR-0054 E4).
@@ -153,7 +156,12 @@ pub async fn beantworten(
     let Some((halter, _veroeffentlicht)) = verbunden else {
         return nicht_erkannt(&kopf);
     };
-    let wartend = zustand.wartende.zaehlen();
+    let Some(wartend) = zustand.wartende.zaehlen(kennung) else {
+        zustand
+            .protokoll
+            .episode(gebremst_auftreten(kennung, AUFRUFE_JE_KENNUNG));
+        return mit_regel(zu_viele_aufrufe(), "warten_grenze", Some(kennung));
+    };
     let auftrag = Warteauftrag {
         seit: parameter.seit,
         bis: parameter.bis,
@@ -193,29 +201,79 @@ pub async fn beantworten(
 
 const ROUTE: &str = "GET /api/warten";
 
-/// Laufende Warte-Aufrufe (ADR-0054 Regel 10, `wartend` im Health-Check); gezählt über einen Platz, der beim Ende
-/// des Aufrufs fällt — auch, wenn der Client abbricht.
-#[derive(Debug, Clone, Default)]
-pub struct Wartende(Arc<AtomicUsize>);
+/// Höchstens so viele gleichzeitige Warte-Aufrufe je Kennung (ADR-0054 Regel 8).
+pub const AUFRUFE_JE_KENNUNG: usize = 4;
 
-/// Ein belegter Platz unter den Wartenden; mit ihm fällt die Zählung.
-pub struct Wartend(Arc<AtomicUsize>);
+/// Laufende Warte-Aufrufe je Kennung (ADR-0054 Regel 8 und 10, `wartend` im Health-Check); gezählt über einen
+/// Platz, der beim Ende des Aufrufs fällt — auch, wenn der Client abbricht.
+#[derive(Debug, Clone, Default)]
+pub struct Wartende(Arc<Mutex<HashMap<String, usize>>>);
+
+/// Ein belegter Platz einer Kennung unter den Wartenden; mit ihm fällt die Zählung.
+pub struct Wartend {
+    wartende: Wartende,
+    kennung: String,
+}
 
 impl Wartende {
-    pub fn zaehlen(&self) -> Wartend {
-        self.0.fetch_add(1, Ordering::SeqCst);
-        Wartend(Arc::clone(&self.0))
+    /// Bucht einen Platz für `kennung`; `None`, wenn sie schon `AUFRUFE_JE_KENNUNG` Aufrufe offen hat.
+    pub fn zaehlen(&self, kennung: &str) -> Option<Wartend> {
+        let mut offen = self.offen();
+        let belegt = offen.entry(kennung.to_string()).or_insert(0);
+        if *belegt >= AUFRUFE_JE_KENNUNG {
+            return None;
+        }
+        *belegt += 1;
+        Some(Wartend {
+            wartende: self.clone(),
+            kennung: kennung.to_string(),
+        })
     }
 
     pub fn anzahl(&self) -> usize {
-        self.0.load(Ordering::SeqCst)
+        self.offen().values().sum()
+    }
+
+    fn offen(&self) -> MutexGuard<'_, HashMap<String, usize>> {
+        self.0.lock().unwrap_or_else(PoisonError::into_inner)
     }
 }
 
 impl Drop for Wartend {
     fn drop(&mut self) {
-        self.0.fetch_sub(1, Ordering::SeqCst);
+        let mut offen = self.wartende.offen();
+        if let Some(belegt) = offen.get_mut(&self.kennung) {
+            *belegt = belegt.saturating_sub(1);
+            if *belegt == 0 {
+                offen.remove(&self.kennung);
+            }
+        }
     }
+}
+
+/// Das 429 am fünften Aufruf: `{fehler, grenze: "warten", hoechstens}` mit `Retry-After: 5`.
+fn zu_viele_aufrufe() -> Response {
+    (
+        StatusCode::TOO_MANY_REQUESTS,
+        [(RETRY_AFTER, "5")],
+        Json(json!({
+            "fehler": format!("Zu viele gleichzeitige Warte-Aufrufe: höchstens {AUFRUFE_JE_KENNUNG} je Kennung — einen beenden oder in 5 s noch einmal versuchen."),
+            "grenze": "warten",
+            "hoechstens": AUFRUFE_JE_KENNUNG,
+        })),
+    )
+        .into_response()
+}
+
+/// Das Auftreten einer Abweisung an der Grenze: Quelle ist die Kennung, `hoechstens` steht nur im Beginn.
+pub(crate) fn gebremst_auftreten(wer: &str, hoechstens: usize) -> Auftreten {
+    Auftreten::neu(
+        Stufe::Warning,
+        Bereich::Warten,
+        episodentexte::WARTEN_GEBREMST,
+        Quelle::neu().mit(Schluessel::Kennung, wer),
+    )
+    .einzeln(Schluessel::Hoechstens, hoechstens)
 }
 
 /// `{channel, direkt, anlass, nachricht}` — ein Treffer an der Grenze (ADR-0054 E6).
@@ -318,6 +376,25 @@ mod tests {
 
     fn zeit(text: &str) -> Zeit {
         Zeit::parse_from_rfc3339(text).expect("Testzeit")
+    }
+
+    /// W6c: vier Plätze je Kennung, der fünfte nicht; ein freigegebener Platz ist wieder da; andere Kennungen zählen
+    /// für sich, `anzahl` ist die Summe.
+    #[test]
+    fn vier_plaetze_je_kennung_und_freigabe_beim_ende() {
+        let wartende = Wartende::default();
+        let mut claude: Vec<_> = (0..4)
+            .map(|_| wartende.zaehlen("claude@127.0.0.1").expect("Platz"))
+            .collect();
+
+        assert!(wartende.zaehlen("claude@127.0.0.1").is_none());
+        let mia = wartende.zaehlen("mia@127.0.0.1").expect("andere Kennung");
+        assert_eq!(wartende.anzahl(), 5);
+        claude.pop();
+        assert_eq!(wartende.anzahl(), 4);
+        assert!(wartende.zaehlen("claude@127.0.0.1").is_some());
+        drop((claude, mia));
+        assert_eq!(wartende.anzahl(), 0);
     }
 
     /// W3: ohne Angaben „ab jetzt“, 60 s, ohne Filter.

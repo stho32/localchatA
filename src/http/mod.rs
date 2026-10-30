@@ -37,7 +37,7 @@ mod teilnehmerliste;
 #[cfg(test)]
 mod testauskunft;
 mod verlassen;
-mod warten;
+pub(crate) mod warten;
 mod werkbank;
 
 pub use anhaenge::hochladen::HOCHLADEBANK;
