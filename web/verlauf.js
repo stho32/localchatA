@@ -155,6 +155,11 @@ export function verlaufAnlegen({
   // Aufklappen erweitert an Ort und Stelle; der Kopf der Nachricht bleibt an seiner Bildschirmstelle. Die Marke
   // „bearbeitet“ blendet die Zeit der letzten Änderung ein und aus.
   inhalt.addEventListener('click', (ereignis) => {
+    const zitat = ereignis.target.closest('.lc-zitat');
+    if (zitat !== null) {
+      zitatBedienen(zitat);
+      return;
+    }
     const marke = ereignis.target.closest('.lc-marke');
     if (marke !== null) {
       markeUmschalten(marke);
@@ -280,6 +285,11 @@ export function verlaufAnlegen({
   }
   pille.addEventListener('click', zumNeuesten);
   ausstehend.addEventListener('click', (ereignis) => {
+    const zitat = ereignis.target.closest('.lc-zitat');
+    if (zitat !== null) {
+      zitatBedienen(zitat);
+      return;
+    }
     const geklickt = ereignis.target.closest('button[data-aktion]');
     if (geklickt !== null) {
       schalter(geklickt.dataset.aktion, geklickt.closest('[data-schluessel]').dataset.schluessel);
@@ -720,6 +730,37 @@ export function verlaufAnlegen({
     } else if (lage.bottom > rahmenLage.bottom) {
       log.scrollTop += Math.min(lage.bottom - rahmenLage.bottom, lage.top - obereGrenze);
     }
+  }
+
+  // Das Zitat einer Antwort führt zu ihrem Original (R00047 B0717, ADR-0053 Regel 8); Klick, Antippen und Enter kommen als
+  // Klick an. Der Sprung wird nicht angesagt.
+  function zitatBedienen(zitat) {
+    springen(zitat.dataset.zeit);
+  }
+
+  // Der Sprung zu einer Nachricht über ihre Zeit (ADR-0053 Regel 8), der gemeinsame Baustein für Zitat und Suche (I0011):
+  // steht sie im Fenster, kommt sie zentriert ins Bild, wird hervorgehoben und bekommt den Fokus.
+  function springen(zeit) {
+    const knoten = nachrichtKnoten(zeit);
+    if (knoten !== null) {
+      hervorheben(knoten);
+    }
+  }
+
+  // Hervorhebung (Vorprüfung `ux-reviewer`): 2000 ms Grund, Balken und Fokusring per CSS-Klasse — nicht nur durch Farbe —,
+  // zentriert ohne Animation, Fokus ohne weiteres Scrollen. Wird die Nachricht in der Zeit neu gezeichnet, endet die
+  // Hervorhebung mit dem alten Knoten.
+  const HERVORHEBUNG_MS = 2000;
+  let hervorhebungEnde = null;
+  function hervorheben(knoten) {
+    for (const vorige of inhalt.querySelectorAll('.lc-hervorgehoben')) {
+      vorige.classList.remove('lc-hervorgehoben');
+    }
+    clearTimeout(hervorhebungEnde);
+    knoten.scrollIntoView({ block: 'center', behavior: 'instant' });
+    knoten.classList.add('lc-hervorgehoben');
+    knoten.focus({ preventScroll: true });
+    hervorhebungEnde = setTimeout(() => knoten.classList.remove('lc-hervorgehoben'), HERVORHEBUNG_MS);
   }
 
   // Öffnet den Channel mit den neuesten 100 (ADR-0037 Ergänzung „Karte #61“, 7h), mit `cursor` `vor` mit dem Block

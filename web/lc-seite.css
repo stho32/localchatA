@@ -312,6 +312,9 @@ body { background: var(--kd-bg); color: var(--kd-ink); font-family: var(--font-s
 .lc-zitat-kopf { display: block; overflow-wrap: anywhere; }
 .lc-zitat-von { font-family: var(--font-mono); color: var(--kd-ink); }
 .lc-zitat:hover .lc-zitat-von, .lc-zitat:focus-visible .lc-zitat-von { text-decoration: underline; }
+/* Sprung zum Original (R00047, Designsystem Nachricht „Zitat“): 2000 ms Grund kd-surface-2, links ein 4-px-Balken in
+   kd-accent und der Fokusring — nicht nur durch Farbe */
+.lc-msg.lc-hervorgehoben { background: var(--kd-surface-2); box-shadow: inset 4px 0 0 var(--kd-accent); outline: 2px solid var(--kd-focus); outline-offset: -2px; }
 .lc-zitat-text { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow: hidden; white-space: normal; overflow-wrap: anywhere; }
 
 .lc-marke, .lc-zuletzt { font-size: 12px; line-height: 20px; color: var(--kd-ink-muted); }
