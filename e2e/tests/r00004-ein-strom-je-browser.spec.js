@@ -306,6 +306,10 @@ for (const ohneSharedWorker of [false, true]) {
 
     await zeigtSichSelbst(tab);
     await expect(tab.locator('.lc-center > .lc-leiste.lc-leiste-fehler')).toBeHidden();
+    // Positive Zeile (code-reviewer #13 F0180 Optional 2): auch die Direktliste lädt mit dem Token des Stroms — sie steht
+    // leer da, nicht als „nicht geladen“ (der Speicher gab kein Token her).
+    await expect(tab.getByRole('navigation', { name: 'Direktnachrichten' }).locator('.lc-side-leer'))
+      .toHaveText(['Noch keine Direktnachrichten.', 'Ein Gespräch beginnt in der Teilnehmerliste.']);
     expect(fehler).toEqual([]);
   });
 }
