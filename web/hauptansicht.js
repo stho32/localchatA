@@ -9,7 +9,8 @@
 // Die Auswahl folgt allein Adresse und Channel-Liste (ADR-0027): Start, hashchange und jede neue Liste leiten sie
 // neu ab — Seitenleiste, Kopfzeile und Mitte zeigen sie.
 import * as kopfzeile from './kopfzeile.js';
-import { auswahl, auswahlMerken, startadresse, MERKER, nachbarChannel, kuerzelRichtung } from './auswahl.js';
+import { auswahl, direktAuswahl, auswahlMerken, startadresse, MERKER, nachbarChannel, kuerzelRichtung } from './auswahl.js';
+import { direktgespraech } from './gespraech.js';
 import { verlaufAnlegen } from './verlauf.js';
 import * as seitenleiste from './seitenleiste.js';
 import { dialogEinrichten } from './channel-anlegen.js';
@@ -163,6 +164,7 @@ export function zeichnen(wurzel, teilnehmer, optionen) {
   };
   const auswahlFolgen = auswahlEinrichten({
     seitenleiste: channels, kopf, mitte, verlauf, eingabe, beiAuswahl, beiOeffnen, erneutWaehlen: wieder.erneutWaehlen,
+    eigeneKennung: teilnehmer.kennung,
   }, vorigeAnsichtAbmelden.signal);
   return {
     region: zeilen,
@@ -431,15 +433,51 @@ function fokusOrt(verlauf) {
 }
 
 // Liefert channelsZeigen(liste): die Liste ist erst mit dem ersten Stand bekannt — bis dahin bleibt ein
-// gewählter Name ohne Urteil, damit „gibt es nicht“ nie vor dem Stand erscheint.
-function auswahlEinrichten({ seitenleiste, kopf, mitte, verlauf, eingabe, beiAuswahl, beiOeffnen, erneutWaehlen }, signal) {
+// gewählter Name ohne Urteil, damit „gibt es nicht“ nie vor dem Stand erscheint. Ein Direktgespräch (`#/d/<kennung>`)
+// braucht die Liste nicht: es öffnet sofort, im Privat-Modus (R00050 F0178).
+function auswahlEinrichten({
+  seitenleiste, kopf, mitte, verlauf, eingabe, beiAuswahl, beiOeffnen, erneutWaehlen, eigeneKennung,
+}, signal) {
   const adresse = startadresse(window.location.hash, window.sessionStorage.getItem(MERKER));
   if (adresse !== null) {
     window.history.replaceState(null, '', adresse);
   }
   let liste = null;
   let offen = null;
+  function oeffnen(name) {
+    if (offen === name) {
+      return;
+    }
+    offen = name;
+    if (verlauf.element.parentNode !== mitte) {
+      mitteFuellen(mitte, verlauf.element, eingabe.element);
+    }
+    beiOeffnen(name);
+    verlauf.oeffnen(name);
+  }
+  function schliessen() {
+    offen = null;
+    verlaufSchliessen(verlauf, eingabe, seitenleiste);
+  }
+  function direktFolgen({ gegenueber }) {
+    seitenleiste.auswahlZeigen(null);
+    kopf.ortZeigen(null);
+    beiAuswahl(null);
+    mitte.classList.toggle('lc-privat', gegenueber !== null);
+    if (gegenueber === null) {
+      schliessen();
+      mitteFuellen(mitte, ...keinGespraech(rueckwegChannel(liste)));
+      return;
+    }
+    oeffnen(direktgespraech(gegenueber));
+  }
   function folgen() {
+    const direkt = direktAuswahl(window.location.hash, eigeneKennung);
+    if (direkt !== null) {
+      direktFolgen(direkt);
+      return;
+    }
+    mitte.classList.remove('lc-privat');
     const namen = (liste || []).map((channel) => channel.name);
     const gewaehlt = auswahl(window.location.hash, namen);
     auswahlMerken(window.sessionStorage, gewaehlt);
@@ -451,19 +489,11 @@ function auswahlEinrichten({ seitenleiste, kopf, mitte, verlauf, eingabe, beiAus
     kopf.ortZeigen(bekannt);
     beiAuswahl(bekannt);
     if (bekannt === null) {
-      offen = null;
-      verlaufSchliessen(verlauf, eingabe, seitenleiste);
+      schliessen();
       mitteZeigen(mitte, gewaehlt, liste !== null);
       return;
     }
-    if (offen !== bekannt.name) {
-      offen = bekannt.name;
-      if (verlauf.element.parentNode !== mitte) {
-        mitteFuellen(mitte, verlauf.element, eingabe.element);
-      }
-      beiOeffnen(bekannt.name);
-      verlauf.oeffnen(bekannt.name);
-    }
+    oeffnen(bekannt.name);
   }
   window.addEventListener('hashchange', folgen, { signal });
   // Die Wahl des schon gewählten Channels ändert die Adresse nicht, es kommt kein hashchange (R00007, US-13).
@@ -529,6 +559,35 @@ function mitteZeigen(mitte, gewaehlt, listeBekannt) {
     return;
   }
   mitteFuellen(mitte, element('p', { className: 'lc-mitte-hinweis', textContent: `# ${gewaehlt.name} gibt es nicht.` }));
+}
+
+// Der Channel, zu dem der Rückweg führt: der zuletzt gewählte des Tabs, sonst der erste der Liste, sonst keiner.
+function rueckwegChannel(liste) {
+  const gemerkt = window.sessionStorage.getItem(MERKER);
+  if (gemerkt !== null) {
+    return gemerkt;
+  }
+  if (liste !== null && liste.length > 0) {
+    return liste[0].name;
+  }
+  return null;
+}
+
+// Eine Adresse, die zu keinem Gespräch führt (eigene Kennung, ungültige Form; R00050 V14): der Satz, ein Rückweg und
+// eine gesperrte Eingabe — an niemanden geht etwas.
+function keinGespraech(channel) {
+  let rueckweg = element('a', { className: 'lc-link', href: '#', textContent: 'Zurück zur Übersicht' });
+  if (channel !== null) {
+    rueckweg = element('a', { className: 'lc-link', href: `#/c/${channel}`, textContent: `Zurück zu # ${channel}` });
+  }
+  const feld = element('textarea', { className: 'lc-comp-feld', rows: 1, disabled: true, placeholder: 'Kein Gespräch' });
+  feld.setAttribute('aria-label', 'Nachricht — diese Adresse führt zu keinem Gespräch');
+  const gesperrt = element('div', { className: 'lc-comp lc-comp-gesperrt' }, [element('div', { className: 'lc-comp-box' }, [feld])]);
+  return [
+    element('p', { className: 'lc-mitte-hinweis', textContent: 'Diese Adresse führt zu keinem Gespräch.' }),
+    element('p', { className: 'lc-mitte-hinweis' }, [rueckweg]),
+    gesperrt,
+  ];
 }
 
 // Die Meldung steht einige Sekunden und geht dann von selbst; eine neue ersetzt sie.

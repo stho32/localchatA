@@ -98,6 +98,8 @@ body { background: var(--kd-bg); color: var(--kd-ink); font-family: var(--font-s
 .lc-main { grid-row: 2; display: grid; grid-template-columns: var(--lc-sidebar) minmax(0, 1fr) var(--lc-members); min-height: 0; }
 .lc-main.ohne-teilnehmer { grid-template-columns: var(--lc-sidebar) minmax(0, 1fr); }
 .lc-center { position: relative; min-width: 0; min-height: 0; overflow: hidden; display: flex; flex-direction: column; background: var(--kd-surface); }
+/* Privat-Modus (R00050 F0178): im Direktgespräch trägt alles, was in der Mitte auf kd-surface liegt, lc-privat-bg. */
+.lc-center.lc-privat { --kd-surface: var(--lc-privat-bg); }
 .lc-mitte-hinweis { margin: var(--kd-space-12); }
 
 /* Verlauf (ADR-0026, Baustein Nachricht): die einzige scrollende Fläche der Mitte; der Anker wird von Hand gehalten */
@@ -146,6 +148,7 @@ body { background: var(--kd-bg); color: var(--kd-ink); font-family: var(--font-s
    bis lc-composer-max und scrollt dann in sich; rechts daneben, unten bündig, die Gruppe der Schalter mit „Senden“
    als letztem (ADR-0038 Ergänzung Karte #41 K3) */
 .lc-comp { flex: none; background: var(--kd-surface); padding: 0 var(--kd-space-12) var(--kd-space-12); }
+.lc-comp-gesperrt { margin-top: auto; }
 .lc-comp-box { display: flex; align-items: flex-end; padding: var(--kd-space-4); border: 1px solid var(--kd-line-strong); background: var(--kd-surface); }
 /* Der Rahmen der Box zeigt den Fokus des Felds; den des Knopfs zeigt dessen eigener Ring */
 .lc-comp-box:has(.lc-comp-feld:focus) { outline: 2px solid var(--kd-focus); outline-offset: -1px; }

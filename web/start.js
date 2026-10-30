@@ -14,6 +14,7 @@ import { verbinden } from './live.js';
 import { sekundentaktAnlegen } from './sekundentakt.js';
 import { wiederbeitrittAnlegen } from './wiederbeitritt.js';
 import { LEER as KEINE_ZUSTELLUNG, zustellen, ungesendete } from './zustellung.js';
+import { mitGespraechsschluessel } from './gespraech.js';
 
 const api = {
   ich: (token) => rufen('/api/ich', { token }),
@@ -114,7 +115,11 @@ function hauptansichtZeigen(teilnehmer, token, nachEingabe) {
     fristSetzen: (name, tage, bestaetigt) => fristSetzen(name, tage, bestaetigt, { token: speicher.getItem(sitzung.SITZUNG) }),
     nachrichtSenden: async (channel, text, schluessel, antwortAuf, anhaenge) => {
       const token = speicher.getItem(sitzung.SITZUNG);
-      return { ...await nachrichtSenden(channel, text, schluessel, { token, antwortAuf, anhaenge }), token };
+      const antwort = await nachrichtSenden(channel, text, schluessel, { token, antwortAuf, anhaenge });
+      if (antwort.art !== 'antwort') {
+        return { ...antwort, token };
+      }
+      return { ...antwort, daten: mitGespraechsschluessel(antwort.daten), token };
     },
     nachrichtBearbeiten: (channel, zeit, text, schluessel) => nachrichtBearbeiten(channel, zeit, text, schluessel, {
       token: speicher.getItem(sitzung.SITZUNG),
@@ -134,7 +139,8 @@ function hauptansichtZeigen(teilnehmer, token, nachEingabe) {
   laufenderStrom = verbinden({
     token,
     version: document.querySelector('meta[name="lc-version"]').content,
-    beiEreignis: (ereignis, neuerVersatz) => {
+    beiEreignis: (ausDemStrom, neuerVersatz) => {
+      const ereignis = mitGespraechsschluessel(ausDemStrom);
       versatz = neuerVersatz;
       if (typeof ereignis.jetzt === 'string') {
         ansicht.serverzeitZeigen(ereignis.jetzt);

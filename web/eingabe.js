@@ -6,6 +6,7 @@ import { zuEigenerLetzten } from './fokus.js';
 import { bezugAusNachricht, zitatText, bezugNachfuehren } from './zitat.js';
 import { uhrzeit } from './gliederung.js';
 import { dateilisteAnlegen } from './dateiliste.js';
+import { anredeText } from './gespraech.js';
 
 const IME_TASTENCODE = 229;
 
@@ -285,7 +286,7 @@ export function eingabeAnlegen({
       const verworfen = antwort.verwerfen();
       channel = name;
       dateien.channelSetzen(name);
-      const beschriftung = `Nachricht an # ${name}`;
+      const beschriftung = `Nachricht an ${anredeText(name)}`;
       feld.setAttribute('aria-label', beschriftung);
       feld.placeholder = beschriftung;
       feld.value = entwurf.oeffnen(name);

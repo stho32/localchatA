@@ -3,6 +3,7 @@
 import { pruefen } from './namensregel.js';
 
 const PRAEFIX = '#/c/';
+const DIREKT_PRAEFIX = '#/d/';
 
 // → { name, bekannt } | null
 export function auswahl(hash, namen) {
@@ -14,6 +15,50 @@ export function auswahl(hash, namen) {
     return null;
   }
   return { name, bekannt: namen.includes(name) };
+}
+
+// Direktnachricht (ADR-0055 Regel 3, A00005 Ergänzung Karte #13): `#/d/<kennung>` nennt das Gegenüber, prozentkodiert
+// oder nicht. Gilt nur eine andere Kennung in kanonischer Schreibweise wie am Server — sonst führt die Adresse zu keinem
+// Gespräch, und es wird nichts gefragt (V14). → null (keine Direktnachricht) | { gegenueber: Kennung | null }
+export function direktAuswahl(hash, eigeneKennung) {
+  if (!hash.startsWith(DIREKT_PRAEFIX)) {
+    return null;
+  }
+  const kennung = entschluesselt(hash.slice(DIREKT_PRAEFIX.length));
+  if (kennung === null || kennung === eigeneKennung || !kanonischeKennung(kennung)) {
+    return { gegenueber: null };
+  }
+  return { gegenueber: kennung };
+}
+
+function entschluesselt(teil) {
+  try {
+    return decodeURIComponent(teil);
+  } catch (ausnahme) {
+    return null;
+  }
+}
+
+// name@herkunft: ein Teilnehmername nach der Namensregel, die Herkunft eine IPv4- oder IPv6-Adresse so, wie der
+// URL-Parser des Browsers sie selbst schreibt (IPv6 klein und gekürzt) — dieselbe Form, die der Server verlangt.
+function kanonischeKennung(kennung) {
+  const teile = kennung.split('@');
+  if (teile.length !== 2 || !pruefen(teile[0], 'teilnehmer').gueltig) {
+    return false;
+  }
+  const herkunft = teile[1];
+  if (herkunft.includes(':')) {
+    return hostnameDes(`[${herkunft}]`) === `[${herkunft}]`;
+  }
+  return /^\d+\.\d+\.\d+\.\d+$/.test(herkunft) && hostnameDes(herkunft) === herkunft;
+}
+
+function hostnameDes(host) {
+  try {
+    return new URL(`http://${host}/`).hostname;
+  } catch (ausnahme) {
+    return null;
+  }
 }
 
 // Zuletzt gewählt je Tab (ADR-0027 Regel 3): sessionStorage unter diesem Schlüssel.

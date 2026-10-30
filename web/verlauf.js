@@ -15,6 +15,7 @@ import { rueckfrageOeffnen, loeschenAuswerten } from './loeschen.js';
 import { kopieren, rueckmeldungFuer, RUECKMELDUNG_LEER, MENUE_OFFEN_MS } from './kopieren.js';
 import { menueLage, schalterGanzSichtbar } from './menuelage.js';
 import { zitatNachfuehren } from './zitat.js';
+import { gegenueberIn, apiPfad, ortText } from './gespraech.js';
 import { zeigerart } from './eingabe.js';
 import { mediumSpielt, medienUebernehmen, medienAblageAnlegen, blockSpielt, endeVorWiedergabe } from './player.js';
 import {
@@ -936,7 +937,7 @@ export function verlaufAnlegen({
     eingeordnet = new Set();
     auslauf.style.height = '';
     ladenBeendet();
-    log.setAttribute('aria-label', `Verlauf # ${name}`);
+    log.setAttribute('aria-label', `Verlauf ${ortText(name)}`);
     if (!hinweisBleibt) {
       inhalt.replaceChildren();
     }
@@ -1697,12 +1698,20 @@ export function verlaufAnlegen({
   };
 }
 
-// „Noch keine Nachrichten in # name.“ und darunter, wie Agenten hier schreiben (ADR-0038 Regel 9).
+// „Noch keine Nachrichten in # name.“ bzw. „… mit <Kennung>.“ und darunter, wie Agenten hier schreiben (ADR-0038
+// Regel 9, R00050 V9) — der Pfad lesbar, nicht prozentkodiert.
 function leerHinweis(name) {
+  const gegenueber = gegenueberIn(name);
+  let leer = `Noch keine Nachrichten in # ${name}.`;
+  let pfad = apiPfad(name);
+  if (gegenueber !== null) {
+    leer = `Noch keine Nachrichten mit ${gegenueber}.`;
+    pfad = `/api/direkt/${gegenueber}`;
+  }
   const api = element('p', { className: 'lc-mitte-hinweis lc-leer-api' }, [
-    'Agenten schreiben hier mit ', element('code', { textContent: `POST /api/channels/${name}/nachrichten` }), '.',
+    'Agenten schreiben hier mit ', element('code', { textContent: `POST ${pfad}/nachrichten` }), '.',
   ]);
-  return [hinweis(`Noch keine Nachrichten in # ${name}.`, 'lc-mitte-hinweis'), api];
+  return [hinweis(leer, 'lc-mitte-hinweis'), api];
 }
 
 // Eine eigene Nachricht unterwegs („wird gesendet …“ mit ◌) oder fehlgeschlagen (⚠ und Grund in kd-danger), mit dem

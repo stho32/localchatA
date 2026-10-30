@@ -1,5 +1,7 @@
 // API aufrufen (A00005): fetch mit Sitzungs-Header (ADR-0012) und JSON. Jede Antwort hat dieselbe Form
-// { serverWeg, status, daten }: Fehlerstatus sind Antworten, nur ein unerreichbarer Server ist serverWeg.
+// { serverWeg, status, daten }: Fehlerstatus sind Antworten, nur ein unerreichbarer Server ist serverWeg. Ein Gespräch
+// heißt mit seinem Schlüssel (gespraech.js): ein Channel oder ein Direktgespräch.
+import { apiPfad } from './gespraech.js';
 
 export const SITZUNGS_HEADER = 'X-LocalchatA-Sitzung';
 
@@ -45,7 +47,7 @@ export async function aktivitaetMelden({ art, channel }, { token }, holen = hole
   }
   let antwort;
   try {
-    antwort = await holen(`/api/channels/${encodeURIComponent(channel)}/aktivitaet`, optionen);
+    antwort = await holen(`${apiPfad(channel)}/aktivitaet`, optionen);
     await antwort.text();
   } catch (ausnahme) {
     return { art: 'netzfehler' };
@@ -134,7 +136,7 @@ function alsJson(text) {
 // + im Versatz ankommt; n Nachrichten je Block (Standard 100, Nachholen 200). → { art: 'block', block } | { art: 'fehler', status } (0: Server weg) | { art: 'abgebrochen' }
 export async function verlaufAbrufen(name, cursor, { token, signal, n = 100 }, holen = holenImBrowser) {
   const abfrage = Object.entries(cursor).map(([schluessel, zeit]) => `${schluessel}=${encodeURIComponent(zeit)}&`).join('');
-  const pfad = `/api/channels/${encodeURIComponent(name)}/nachrichten?${abfrage}n=${n}`;
+  const pfad = `${apiPfad(name)}/nachrichten?${abfrage}n=${n}`;
   try {
     const antwort = await holen(pfad, { method: 'GET', headers: { [SITZUNGS_HEADER]: token }, signal });
     if (!antwort.ok) {
@@ -181,7 +183,7 @@ export async function nachrichtSenden(channel, text, schluessel, {
   token, antwortAuf = null, anhaenge = [], zeitgeber = ECHTE_ZEITGEBER,
 }, holen = holenImBrowser) {
   const ZEITGRENZE_MS = 10000;
-  const pfad = `/api/channels/${encodeURIComponent(channel)}/nachrichten`;
+  const pfad = `${apiPfad(channel)}/nachrichten`;
   const headers = { [SITZUNGS_HEADER]: token, 'Content-Type': 'application/json', 'Idempotency-Key': schluessel };
   const abbruch = new AbortController();
   const zeitgrenze = zeitgeber.stellen(ZEITGRENZE_MS, () => abbruch.abort());
@@ -210,14 +212,14 @@ export async function nachrichtSenden(channel, text, schluessel, {
 // Wiederholschlüssel je Speichern-Versuch; ohne Antwort Abbruch nach 10 s.
 // → { art: 'antwort', status, daten } | { art: 'zeitueberschreitung' } | { art: 'netzfehler' }
 export function nachrichtBearbeiten(channel, zeit, text, schluessel, { token, zeitgeber = ECHTE_ZEITGEBER }, holen = holenImBrowser) {
-  const pfad = `/api/channels/${encodeURIComponent(channel)}/nachrichten/bearbeiten`;
+  const pfad = `${apiPfad(channel)}/nachrichten/bearbeiten`;
   return aendernSchicken(pfad, { zeit, text }, { token, schluessel, zeitgeber }, holen);
 }
 
 // Eine eigene Nachricht löschen (R00041 F0139, ADR-0048 Regeln 5, 12): POST {zeit} in einem Schritt, ohne
 // Wiederholschlüssel (Löschen ist von sich aus wiederholbar). → wie nachrichtBearbeiten
 export function nachrichtLoeschen(channel, zeit, { token, zeitgeber = ECHTE_ZEITGEBER }, holen = holenImBrowser) {
-  const pfad = `/api/channels/${encodeURIComponent(channel)}/nachrichten/loeschen`;
+  const pfad = `${apiPfad(channel)}/nachrichten/loeschen`;
   return aendernSchicken(pfad, { zeit }, { token, schluessel: null, zeitgeber }, holen);
 }
 
