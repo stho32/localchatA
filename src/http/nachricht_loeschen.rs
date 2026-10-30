@@ -20,9 +20,11 @@ use super::senden::{nicht_gespeichert_antwort, quote_auftreten, unbekannt};
 use super::teilnehmer::Teilnehmer;
 use crate::gespraeche::loeschen::Geloescht;
 use crate::gespraeche::nachricht_loeschen::{Loeschfehler, NachrichtGeloescht};
-use crate::gespraeche::{Gespraech, Nachricht};
+use crate::gespraeche::{Gespraech, Gespraeche, Nachricht};
+use crate::live::bus::Bus;
 use crate::protokoll::vorlauf;
 use crate::protokoll::{Bereich, Kontext, Protokoll, Schluessel, Stufe};
+use crate::uhr::Zeit;
 use axum::Json;
 use axum::body::Body;
 use axum::extract::{Path, State};
@@ -83,42 +85,83 @@ pub async fn loeschen(
     let Ok(erlaubnis) = Arc::clone(&zustand.hochladebank).acquire_owned().await else {
         return super::abbruch::interner_fehler("Löschen");
     };
-    let gespraeche = Arc::clone(&zustand.gespraeche);
-    let gespraech = Gespraech::channel(&name);
-    let von = teilnehmer.kennung.clone();
-    let ergebnis = tokio::task::spawn_blocking(move || {
+    let auftrag = Loeschauftrag {
+        gespraeche: Arc::clone(&zustand.gespraeche),
+        protokoll: Arc::clone(&zustand.protokoll),
+        bus: Arc::clone(&zustand.bus),
+        teilnehmer,
+        channel: name,
+        ziel,
+        eintritt,
+    };
+    let fertig = tokio::task::spawn_blocking(move || {
         let _erlaubnis = erlaubnis;
-        gespraeche.nachricht_loeschen(&gespraech, &von, ziel)
+        auftrag.ausfuehren()
     })
     .await;
-    let melden = |anhaenge, grund| {
-        geloescht_melden(&zustand.protokoll, &name, &wer, anhaenge, eintritt, grund);
-    };
-    match ergebnis {
-        Ok(Ok(NachrichtGeloescht::Neu {
-            nachricht,
-            anhaenge,
-        })) => {
-            vorlauf::eintragen(&zustand.protokoll, zustand.gespraeche.zeit_vorlauf_ms());
-            melden(anhaenge.umfang.anhaenge, None);
-            protokollieren(
-                &zustand.protokoll,
-                &teilnehmer,
-                &anhaenge,
-                Anlass::Nachricht,
-            );
-            veroeffentlichen(&zustand.bus, &anhaenge);
-            geloescht(&name, &nachricht, "geloescht", Some(&anhaenge))
-        }
-        Ok(Ok(NachrichtGeloescht::Schon(nachricht))) => {
-            melden(0, Some("schon_geloescht"));
-            geloescht(&name, &nachricht, "schon_geloescht", None)
-        }
-        Ok(Err(fehler)) => {
-            abweisung_melden(&zustand.protokoll, &fehler, &name, &wer);
-            abgewiesen(fehler, &name, &wer)
-        }
+    match fertig {
+        Ok(antwort) => antwort,
         Err(_) => super::abbruch::interner_fehler("Löschen"),
+    }
+}
+
+/// Alles, was nach dem Commit-Punkt geschieht, in einem Blocking-Teil (ADR-0048 K2): die Wirkung, die Protokollzeilen,
+/// die Episoden, das Ereignis und der Bau der Antwort. Fällt die Zukunft des Handlers, weil der Client abbricht,
+/// läuft dieser Teil zu Ende — ein `await` dazwischen verlöre Spur und Ereignis.
+struct Loeschauftrag {
+    gespraeche: Arc<Gespraeche>,
+    protokoll: Arc<Protokoll>,
+    bus: Arc<Bus>,
+    teilnehmer: Teilnehmer,
+    channel: String,
+    ziel: Zeit,
+    eintritt: Instant,
+}
+
+impl Loeschauftrag {
+    fn ausfuehren(&self) -> Response {
+        let wer = self.teilnehmer.kennung.als_text();
+        let ergebnis = self.gespraeche.nachricht_loeschen(
+            &Gespraech::channel(&self.channel),
+            &self.teilnehmer.kennung,
+            self.ziel,
+        );
+        match ergebnis {
+            Ok(NachrichtGeloescht::Neu {
+                nachricht,
+                anhaenge,
+            }) => {
+                vorlauf::eintragen(&self.protokoll, self.gespraeche.zeit_vorlauf_ms());
+                self.melden(anhaenge.umfang.anhaenge, None);
+                protokollieren(
+                    &self.protokoll,
+                    &self.teilnehmer,
+                    &anhaenge,
+                    Anlass::Nachricht,
+                );
+                veroeffentlichen(&self.bus, &anhaenge);
+                geloescht(&self.channel, &nachricht, "geloescht", Some(&anhaenge))
+            }
+            Ok(NachrichtGeloescht::Schon(nachricht)) => {
+                self.melden(0, Some("schon_geloescht"));
+                geloescht(&self.channel, &nachricht, "schon_geloescht", None)
+            }
+            Err(fehler) => {
+                abweisung_melden(&self.protokoll, &fehler, &self.channel, wer);
+                abgewiesen(fehler, &self.channel, wer)
+            }
+        }
+    }
+
+    fn melden(&self, anhaenge: u64, grund: Option<&str>) {
+        geloescht_melden(
+            &self.protokoll,
+            &self.channel,
+            self.teilnehmer.kennung.als_text(),
+            anhaenge,
+            self.eintritt,
+            grund,
+        );
     }
 }
 
@@ -241,6 +284,61 @@ fn koerper_abgewiesen(fehler: Koerperfehler) -> Response {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::http::loeschaufbau::{aufbau, naechstes_anhaenge_ereignis};
+
+    /// R00043 B0666 (ADR-0048 K2): bricht der Client nach dem Start des Löschens ab, stehen trotzdem genau eine Zeile
+    /// `DEBUG aendern Nachricht gelöscht`, eine `INFORMATION anhang Anhänge gelöscht … grund=nachricht` und ein
+    /// Ereignis `anhaenge` (Mutante „Protokoll nach dem await“ rot).
+    #[tokio::test(flavor = "multi_thread")]
+    async fn der_abbruch_des_clients_nach_dem_loeschsatz_verliert_weder_protokoll_noch_ereignis() {
+        let aufbau = aufbau();
+        let (zeit, id) = aufbau.nachricht_mit_anhang("beta@127.0.0.1");
+        let mut abonnement = aufbau.zustand.bus.abonnieren();
+
+        aufbau
+            .abbrechen_am_kuerzen(aufbau.nachricht_loeschen("beta@127.0.0.1", zeit))
+            .await;
+        let ereignis = naechstes_anhaenge_ereignis(&mut abonnement).await;
+
+        assert_eq!(ereignis, Some(vec![(id.als_text().to_string(), zeit)]));
+        let zeilen = aufbau.zeilen.zeilen();
+        assert_eq!(
+            aufbau.zeilen_mit(" DEBUG aendern Nachricht gelöscht").len(),
+            1,
+            "{zeilen:#?}"
+        );
+        let information = aufbau.zeilen_mit(" INFORMATION anhang Anhänge gelöscht");
+        assert_eq!(information.len(), 1, "{zeilen:#?}");
+        assert!(
+            information[0].contains("grund=nachricht"),
+            "{information:#?}"
+        );
+    }
+
+    /// R00043 B0666: scheitert das Kürzen, steht trotz Abbruch des Clients die `ERROR anhang`-Zeile.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn der_abbruch_des_clients_verliert_auch_den_fehler_beim_kuerzen_nicht() {
+        let aufbau = aufbau();
+        let (zeit, _) = aufbau.nachricht_mit_anhang("beta@127.0.0.1");
+        let datei = aufbau
+            .anhaenge
+            .anhaenge()
+            .into_keys()
+            .next()
+            .expect("gebunden")
+            .2;
+        aufbau.anhaenge.kuerzen_scheitert(&datei);
+
+        aufbau
+            .abbrechen_am_kuerzen(aufbau.nachricht_loeschen("beta@127.0.0.1", zeit))
+            .await;
+        aufbau
+            .warten_auf_zeile(" INFORMATION anhang Anhänge gelöscht")
+            .await;
+
+        let fehler = aufbau.zeilen_mit(" ERROR anhang Löschen gescheitert");
+        assert_eq!(fehler.len(), 1, "{:#?}", aufbau.zeilen.zeilen());
+    }
 
     /// Ein weiteres Feld wird genannt, auch `bestaetigt` (ADR-0048 Regel 12); nur `zeit` ist erlaubt.
     #[test]

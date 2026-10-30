@@ -24,6 +24,8 @@ pub(crate) mod grenzschutz;
 mod hostnamen;
 mod ich;
 pub(crate) mod koerper;
+#[cfg(test)]
+mod loeschaufbau;
 mod nachricht_loeschen;
 mod nachrichten;
 mod namensauskunft;
