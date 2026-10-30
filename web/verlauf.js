@@ -291,6 +291,7 @@ export function verlaufAnlegen({
     speichern: bearbeitenSpeichern,
     uebernehmen: (nachricht) => fassungenErsetzen([nachricht]),
     alsGeloeschtZeigen: geloeschtSetzen,
+    geschlossen: nachFeldNeuZeichnen,
     hinweisen,
     ansagen,
   });
@@ -802,14 +803,38 @@ export function verlaufAnlegen({
     ankerHalten(log, anker);
   }
 
+  // Steht an der Nachricht das offene Feld (UX M3): gelöscht schließt es mit Hinweis und einer Ansage, der Fokus geht
+  // auf die Nachricht; bearbeitet merkt sich nur die neue Fassung — Feld, Text und Schreibmarke bleiben, gezeigt wird sie
+  // nach dem Schließen.
   function fassungErsetzen(fassung) {
     const bekannt = bekannteNachricht(fassung.zeit);
     if (bekannt === null) {
       return;
     }
     const uebernommen = fassungUebernehmen(bekannt.nachricht, fassung);
-    if (uebernommen !== null) {
-      knotenErsetzen(bekannt, uebernommen);
+    if (uebernommen === null) {
+      return;
+    }
+    const feldDaran = bearbeiten.offeneZeitIn(offenerName) !== null && Date.parse(bearbeiten.offeneZeitIn(offenerName)) === Date.parse(fassung.zeit);
+    if (feldDaran && uebernommen.zustand !== 'geloescht') {
+      fenster.bloecke[bekannt.blockStelle][bekannt.stelle] = uebernommen;
+      return;
+    }
+    if (feldDaran) {
+      bearbeiten.weilWegSchliessen();
+    }
+    knotenErsetzen(bekannt, uebernommen);
+    if (feldDaran) {
+      nachrichtFokussieren(nachrichtKnoten(uebernommen.zeit));
+    }
+  }
+
+  // Schließt das Feld, zeigt die Nachricht wieder die Fassung, die der Verlauf kennt — auch eine, die während des
+  // Bearbeitens kam.
+  function nachFeldNeuZeichnen(zeit) {
+    const bekannt = bekannteNachricht(zeit);
+    if (bekannt !== null && nachrichtKnoten(zeit) !== null) {
+      knotenErsetzen(bekannt, bekannt.nachricht);
     }
   }
 

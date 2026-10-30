@@ -5,8 +5,9 @@
 const { test, expect } = require('./rahmen');
 const { sendenStarten, imBrowserBeitreten, nachrichten } = require('./senden-hilfen');
 const { geraetOeffnen } = require('./r00027-hilfen');
+const { sichtbarNach } = require('./hilfen');
 const {
-  browserOeffnen, imBrowserSenden, nachrichtMitZeit, loeschenPerApi, ansagenMitschreiben,
+  browserOeffnen, imBrowserSenden, nachrichtMitZeit, loeschenPerApi, bearbeitenPerApi, ansagenMitschreiben,
 } = require('./r00041-hilfen');
 
 let instanz;
@@ -167,3 +168,66 @@ for (const geraet of ['desktop', 'telefon']) {
     expect(a.fehler).toEqual([]);
   });
 }
+
+test('Live gelöscht (B0636, UX M3): unter 1 s Feld zu, „Nachricht gelöscht“, Hinweiszeile und genau eine Ansage, Fokus auf der Nachricht', async ({ browser }) => {
+  instanz = await sendenStarten();
+  const a = await browserOeffnen(browser, { streng: true });
+  await imBrowserBeitreten(a.page, instanz.adresse, 'shoff');
+  const zeit = await imBrowserSenden(a.page, 'Hallo');
+  await a.page.waitForTimeout(300);
+  const angesagt = await ansagenMitschreiben(a.page);
+  await feldOeffnen(a.page, zeit);
+  await a.page.keyboard.type(' getippt');
+
+  const antwort = await loeschenPerApi(instanz.adresse, await tokenVon(a.page), zeit, '127.0.0.1');
+  expect(antwort.status).toBe(200);
+  const ms = await sichtbarNach(a.page, (gesucht) => {
+    const knoten = document.querySelector(`.lc-log .lc-msg[data-zeit="${gesucht}"]`);
+    return knoten !== null && knoten.querySelector('textarea') === null && knoten.querySelector('.lc-body').textContent === 'Nachricht gelöscht';
+  }, { argument: zeit, ab: antwort.empfangen, timeout: 10000 });
+  expect(ms).toBeLessThan(1000);
+  await expect(statuszeile(a.page)).toHaveText('Die Nachricht wurde inzwischen gelöscht.');
+  await expect(nachrichtMitZeit(a.page, zeit)).toBeFocused();
+  await expect.poll(angesagt).toEqual(['Die Nachricht wurde inzwischen gelöscht.']);
+  await a.page.waitForTimeout(300);
+  expect(await angesagt()).toHaveLength(1);
+  expect(a.fehler).toEqual([]);
+});
+
+test('Live bearbeitet (B0636, UX M3): Feld, getippter Text und Schreibmarke bleiben, Fokus im Feld; „Speichern“ schreibt den getippten Text', async ({ browser }) => {
+  instanz = await sendenStarten();
+  const a = await browserOeffnen(browser, { streng: true });
+  await imBrowserBeitreten(a.page, instanz.adresse, 'shoff');
+  const zeit = await imBrowserSenden(a.page, 'Hallo');
+  await feldOeffnen(a.page, zeit);
+  await a.page.keyboard.type(' getippt');
+  await feld(a.page).evaluate((textfeld) => textfeld.setSelectionRange(4, 4));
+
+  const anders = await bearbeitenPerApi(instanz.adresse, await tokenVon(a.page), zeit, 'Anders', '127.0.0.1');
+  expect(anders.status).toBe(200);
+  await a.page.waitForTimeout(500);
+  await expect(feld(a.page)).toHaveValue('Hallo getippt');
+  await expect(feld(a.page)).toBeFocused();
+  expect(await auswahl(a.page)).toEqual([4, 4]);
+
+  const antwort = a.page.waitForResponse((ankunft) => ankunft.url().endsWith('/nachrichten/bearbeiten'));
+  await nachrichtMitZeit(a.page, zeit).getByRole('button', { name: 'Speichern' }).click();
+  expect((await antwort).status()).toBe(200);
+  await expect(nachrichtMitZeit(a.page, zeit).locator('.lc-body')).toHaveText('Hallo getippt');
+  await expect(feld(a.page)).toHaveCount(0);
+  expect(a.fehler).toEqual([]);
+});
+
+test('Abbrechen nach einer Live-Änderung (B0636): danach zeigt die Nachricht die neuere Fassung', async ({ browser }) => {
+  instanz = await sendenStarten();
+  const a = await browserOeffnen(browser, { streng: true });
+  await imBrowserBeitreten(a.page, instanz.adresse, 'shoff');
+  const zeit = await imBrowserSenden(a.page, 'Hallo');
+  await feldOeffnen(a.page, zeit);
+  expect((await bearbeitenPerApi(instanz.adresse, await tokenVon(a.page), zeit, 'Anders', '127.0.0.1')).status).toBe(200);
+  await a.page.waitForTimeout(500);
+  await a.page.keyboard.press('Escape');
+  await expect(nachrichtMitZeit(a.page, zeit).locator('.lc-body')).toHaveText('Anders');
+  await expect(nachrichtMitZeit(a.page, zeit)).toBeFocused();
+  expect(a.fehler).toEqual([]);
+});

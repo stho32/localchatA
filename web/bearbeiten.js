@@ -75,11 +75,14 @@ function fehlerText({ status, daten }) {
 // speichern: async (channel, zeit, text) → Antwort wie api.js nachrichtBearbeiten · uebernehmen(nachricht): die
 // gespeicherte Fassung in den Verlauf · alsGeloeschtZeigen(zeit) · hinweisen(text): die Hinweiszeile der Seite ·
 // ansagen(text): genau eine Ansage über die Region der Seite (UX S2); beim Öffnen keine (S3) · inSicht(element): das
-// Element ganz in den sichtbaren Teil des Verlaufs (UX M7, auch bei offener Bildschirmtastatur).
+// Element ganz in den sichtbaren Teil des Verlaufs (UX M7, auch bei offener Bildschirmtastatur) · geschlossen(zeit): das
+// Feld ist zu, die Nachricht soll ihre bekannte Fassung zeigen.
 // beginnen(channel, artikel, nachricht) öffnet das Feld in `artikel`; istOffen(zeit) sagt, ob es an dieser Nachricht steht.
 // Das Feld gehört dem Tab, nicht dem Knoten (F0142, PO 124): zeichnet der Verlauf die Nachricht neu oder wechselt der
 // Channel, bleibt es samt Text und Schreibmarke im Speicher; einsetzen(artikel, mitFokus) hängt es wieder ein.
-export function bearbeitenAnlegen({ zeiger, fokusAufNachricht, inSicht, speichern, uebernehmen, alsGeloeschtZeigen, hinweisen, ansagen }) {
+export function bearbeitenAnlegen({
+  zeiger, fokusAufNachricht, inSicht, speichern, uebernehmen, alsGeloeschtZeigen, hinweisen, ansagen, geschlossen,
+}) {
   let offen = null;
 
   function beginnen(channel, artikel, nachricht) {
@@ -237,7 +240,9 @@ export function bearbeitenAnlegen({ zeiger, fokusAufNachricht, inSicht, speicher
       artikel.classList.remove('lc-im-bearbeiten');
     }
     offen.rahmen.remove();
+    const zeit = offen.zeit;
     offen = null;
+    geschlossen(zeit);
   }
 
   return {
