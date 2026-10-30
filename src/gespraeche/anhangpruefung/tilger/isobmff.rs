@@ -320,14 +320,16 @@ fn lies_zahl(bytes: &[u8], stelle: usize, breite: usize) -> Ergebnis<u64> {
 
 /// Das oberste `meta` (HEIF): Items `Exif` → minimales EXIF hinter dem `exif_tiff_header_offset`, XMP-Items genullt;
 /// nur über `iloc`-Ausdehnungen mit `construction_method` 0 innerhalb der Datei. Vor dem ersten Schreiben (ADR-0047
-/// B1 Regel 1): jede `item_ID` höchstens einmal in `iinf` und in `iloc`, kein Ziel überschneidet ein anderes Ziel
-/// oder die Ausdehnung eines anderen Items.
+/// B1 Regel 1, B3 Regel 5j): jedes Kind der Erlaubnisliste höchstens einmal, jede `item_ID` höchstens einmal in
+/// `iinf` und in `iloc`, kein Ziel überschneidet ein anderes Ziel oder die Ausdehnung eines anderen Items.
 fn oberstes_meta(port: &Port<'_>, meta: Kiste, zaehler: &mut Zaehler) -> Ergebnis<()> {
     if zu_gross(meta) {
         return metadaten("meta über 64 MiB");
     }
     let anfang = (meta.inhalt + 4).min(meta.ende);
     let kinder = kinder(port, anfang, meta.ende, zaehler)?;
+    einmalig(&kinder)?;
+    let schritte = ziele(port, &kinder, zaehler)?;
     for kind in &kinder {
         match &kind.typ {
             b"iprp" => eigenschaften(port, *kind, zaehler)?,
@@ -336,13 +338,40 @@ fn oberstes_meta(port: &Port<'_>, meta: Kiste, zaehler: &mut Zaehler) -> Ergebni
             _ => unkenntlich(port, *kind, zaehler)?,
         }
     }
+    for (pos, laenge, item) in schritte {
+        match item {
+            Item::Exif => exif_item(port, pos, laenge, zaehler)?,
+            Item::Nullen => port.nullen(pos, laenge)?,
+        }
+    }
+    Ok(())
+}
+
+/// B3 Regel 5j: jedes Kind der Erlaubnisliste kommt im obersten HEIF-`meta` höchstens einmal vor — sonst liest ein
+/// anderer Leser das zweite, das der Tilger nicht sah.
+fn einmalig(kinder: &[Kiste]) -> Ergebnis<()> {
+    let mut gesehen = HashSet::new();
+    for kind in kinder {
+        if HEIF_META_ERLAUBT.contains(&&kind.typ) && !gesehen.insert(kind.typ) {
+            return metadaten("HEIF-Kind doppelt");
+        }
+    }
+    Ok(())
+}
+
+/// Die Ziele des obersten `meta` als (Anfang, Länge, was tun) — nur gelesen und geprüft, nichts geschrieben.
+fn ziele(
+    port: &Port<'_>,
+    kinder: &[Kiste],
+    zaehler: &mut Zaehler,
+) -> Ergebnis<Vec<(u64, u64, Item)>> {
     let Some(iinf) = kinder.iter().find(|kind| &kind.typ == b"iinf") else {
-        return Ok(());
+        return Ok(Vec::new());
     };
     let ziele = items(port, *iinf, zaehler)?;
     let Some(iloc) = kinder.iter().find(|kind| &kind.typ == b"iloc") else {
         if ziele.is_empty() {
-            return Ok(());
+            return Ok(Vec::new());
         }
         return metadaten("Exif-Item nicht als Bytebereich der Datei");
     };
@@ -358,13 +387,7 @@ fn oberstes_meta(port: &Port<'_>, meta: Kiste, zaehler: &mut Zaehler) -> Ergebni
         }
         schritte.push((pos, laenge, item));
     }
-    for (pos, laenge, item) in schritte {
-        match item {
-            Item::Exif => exif_item(port, pos, laenge, zaehler)?,
-            Item::Nullen => port.nullen(pos, laenge)?,
-        }
-    }
-    Ok(())
+    Ok(schritte)
 }
 
 /// Kein Ziel überschneidet ein anderes Ziel oder die Ausdehnung eines anderen Items: über die nach Anfang sortierten
@@ -1943,6 +1966,69 @@ mod tests {
             );
         }
         assert_eq!(getilgt.windows(4).filter(|f| f == b"moof").count(), 1);
+    }
+
+    /// HEIC mit Exif-Item (Ort) und im obersten `meta` hinter `hdlr` einem `xml ` (das der Tilger unkenntlich macht),
+    /// `iinf`, `iloc` und den Boxen `zusatz`.
+    fn heic_mit_zusatz(zusatz: &[Vec<u8>]) -> Vec<u8> {
+        let exif = exif_mit_ort();
+        let lang = exif.len() as u64;
+        let iinf = kiste(
+            b"iinf",
+            &[&[0u8, 0, 0, 0, 0, 1][..], &item_infe(1, b"Exif")].concat(),
+        );
+        let bauen = |mdat_anfang: u64| {
+            let meta = kiste(
+                b"meta",
+                &[
+                    &[0u8, 0, 0, 0][..],
+                    &hdlr_pict(),
+                    &kiste(b"xml ", ORT),
+                    &iinf,
+                    &iloc_aus(&[(1, mdat_anfang, lang)]),
+                    &zusatz.concat(),
+                ]
+                .concat(),
+            );
+            [kiste(b"ftyp", b"heic\0\0\0\0mif1heic"), meta].concat()
+        };
+        let mdat_anfang = bauen(0).len() as u64 + 8;
+        [bauen(mdat_anfang), kiste(b"mdat", &exif)].concat()
+    }
+
+    /// ADR-0047 B3 Regel 5j, P11 (l) (B0651): ein zweites `hdlr`, `pitm`, `iloc`, `iinf`, `iref`, `iprp`, `idat`,
+    /// `dinf`, `grpl` oder `ipro` im obersten HEIF-`meta` → „HEIF-Kind doppelt“, bevor ein Byte geschrieben ist (das
+    /// `xml ` davor bleibt, wie es war). Kontrolle: mehrere `free`/`skip` → getilgt.
+    #[test]
+    fn heif_kinder_hoechstens_einmal() {
+        for typ in HEIF_META_ERLAUBT {
+            let zweimal = [kiste(*typ, &[0u8; 8]), kiste(*typ, &[0u8; 8])];
+            let zusatz = match *typ {
+                b"hdlr" => vec![hdlr_pict()],
+                b"iinf" => vec![kiste(b"iinf", &[0u8, 0, 0, 0, 0, 0])],
+                b"iloc" => vec![kiste(b"iloc", &[1u8, 0, 0, 0, 0x44, 0, 0, 0])],
+                _ => zweimal.to_vec(),
+            };
+
+            let ergebnis = verweise(heic_mit_zusatz(&zusatz));
+
+            assert_eq!(
+                ergebnis,
+                (Some("HEIF-Kind doppelt"), true),
+                "{}",
+                String::from_utf8_lossy(*typ)
+            );
+        }
+
+        let platzhalter = [
+            platzhalter(b"free", "eins "),
+            platzhalter(b"free", "zwei "),
+            platzhalter(b"skip", "drei "),
+            platzhalter(b"skip", "vier "),
+        ];
+        let (ergebnis, datei) = tilgen(heic_mit_zusatz(&platzhalter));
+        assert!(ergebnis.expect("getilgt").ort);
+        assert!(!enthaelt(&datei.inhalt(), b"GPS"));
     }
 
     /// Regel 5g: eine Zeit-Box mit unbekannter Version oder zu kurz → `metadaten`.

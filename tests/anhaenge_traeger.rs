@@ -1105,3 +1105,55 @@ async fn meco_moof_emsg_und_prft_verlieren_ihre_ortsspur() {
         spielt_fehlerfrei(name, bytes);
     }
 }
+
+/// ADR-0047 B3 Regel 5j, P11 (l) (B0651): HEIC mit zweitem `iinf`, zweitem `iloc`, zweitem `hdlr` → je 422
+/// `metadaten` „HEIF-Kind doppelt“. Kontrolle: HEIC nach Art des iPhone (`grid`, Kacheln, Gain-Map, `colr`, `irot`)
+/// mit mehreren `free`/`skip` im obersten `meta` → getilgt, Art wie vorher, Bilddaten byte-gleich; ein echtes AVIF
+/// (ffmpeg) byte-gleich, Maße wie vorher.
+#[tokio::test]
+async fn heif_kinder_hoechstens_einmal() {
+    let lauf = Lauf::neu().await;
+    let kachel = vec![0x5a; 64];
+    let items = [
+        (b"grid", &b""[..], vec![0, 0, 0, 0, 0, 0x40, 0, 0x30]),
+        (b"hvc1", b"", kachel.clone()),
+        (b"tmap", b"", vec![0x7b; 32]),
+    ];
+    let ipco = [
+        kiste(b"colr", b"nclx\0\x01\0\x0d\0\x01\x80"),
+        kiste(b"irot", b"\x01"),
+    ];
+    let hdlr = kiste(b"hdlr", &[&[0u8; 8][..], b"pict", &[0; 13]].concat());
+    for (name, zweites) in [
+        ("iinf.heic", kiste(b"iinf", &[0u8, 0, 0, 0, 0, 0])),
+        ("iloc.heic", kiste(b"iloc", &[1u8, 0, 0, 0, 0x44, 0, 0, 0])),
+        ("hdlr.heic", hdlr),
+    ] {
+        let doppelt = heic_mit(&items, &ipco, &[zweites]);
+        assert_eq!(
+            lauf.abgewiesen(name, &doppelt).await,
+            "HEIF-Kind doppelt",
+            "{name}"
+        );
+    }
+
+    let platzhalter = [
+        kiste(b"free", &nmea()),
+        kiste(b"skip", &nmea()),
+        kiste(b"free", b"zwei"),
+        kiste(b"skip", b"zwei"),
+    ];
+    let original = heic_mit(&items, &ipco, &platzhalter);
+    let geliefert = lauf.ausliefern("platzhalter.heic", &original).await;
+    ohne_ort("platzhalter.heic", &geliefert.bytes);
+    assert!(enthaelt(&geliefert.bytes, &kachel) && enthaelt(&geliefert.bytes, &ipco.concat()));
+    assert_eq!(geliefert.anhang["art"], "image/heic");
+
+    let avif = gemeinsam::dateien::avif_foto();
+    let geliefert = lauf.ausliefern("foto.avif", &avif).await;
+    assert_eq!(geliefert.bytes, avif, "echtes AVIF byte-gleich");
+    assert_eq!(
+        art_und_masse(&geliefert.anhang),
+        ("image/avif".to_string(), json!(4032), json!(3024))
+    );
+}
