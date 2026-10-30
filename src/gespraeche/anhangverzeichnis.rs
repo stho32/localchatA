@@ -364,7 +364,7 @@ pub struct Tageszeilen {
     befunde: Vec<Ladebefund>,
 }
 
-/// Liest die Metazeilen aus dem Rohtext einer Tagesdatei; ohne Tagesdatei (Tag nur in `anhaenge/`) leer.
+/// Liest die Metazeilen der Nachrichtensätze aus dem Rohtext einer Tagesdatei; ohne Tagesdatei (Tag nur in `anhaenge/`) leer.
 pub fn tag_lesen(rohtext: &[u8]) -> Tageszeilen {
     let mut gelesen = Tageszeilen::default();
     let (mut gezaehlt_bis, mut zeilen_davor) = (0, 0);
@@ -375,6 +375,10 @@ pub fn tag_lesen(rohtext: &[u8]) -> Tageszeilen {
             .filter(|byte| **byte == b'\n')
             .count();
         gezaehlt_bis = satz.anfang;
+        // `+ anhang:` gilt nur in Nachrichtensätzen; ein Änderungssatz (auch ein defekter) trägt keinen Anhang.
+        if logformat::satzart(&rohtext[satz.anfang..satz.ende]) != logformat::Satzart::Nachricht {
+            continue;
+        }
         for (im_satz, ergebnis) in logformat::anhaenge_im_satz(&text) {
             let zeile = zeilen_davor + im_satz;
             match ergebnis {

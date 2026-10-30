@@ -862,3 +862,48 @@ async fn wiederholtes_senden_nach_dem_loeschen_liefert_geloescht() {
         "#67: Senden k1 → Löschen → Senden k1: text \"\", anhaenge [], zustand geloescht"
     );
 }
+
+/// R00039 A2 (security-reviewer #48): `+ anhang:` gilt nur in Nachrichtensätzen. Ein von Hand geschriebener
+/// Änderungssatz (`+ bearbeitet:`) mit `+ anhang:` und passender Datei registiert seinen Anhang nicht →
+/// `GET /anhaenge/<id>` ist 404; der Anhang im Nachrichtensatz desselben Tages (Kontrolle) wird mit 200 geliefert.
+/// Auch nach einem zweiten Start bleibt es so, und der Anhang der Nachricht gehört weiter ihr.
+#[tokio::test]
+async fn ein_anhang_im_aenderungssatz_wird_nicht_registriert() {
+    const ECHT: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaa";
+    const FALSCH: &str = "bbbbbbbbbbbbbbbbbbbbbbbbbb";
+    let wurzel = ordner();
+    let t1 = "2026-10-28T11:00:00.000+01:00";
+    let ordner_anhaenge = wurzel
+        .path()
+        .join(format!("channels/allgemein/anhaenge/{HEUTE}"));
+    std::fs::create_dir_all(&ordner_anhaenge).expect("Anhangordner");
+    std::fs::write(ordner_anhaenge.join("110000000-1-echt.bin"), b"echt").expect("Datei");
+    std::fs::write(ordner_anhaenge.join("110001000-1-falsch.bin"), b"falsch").expect("Datei");
+    std::fs::write(
+        wurzel.path().join(format!("channels/allgemein/{HEUTE}.log")),
+        format!(
+            "@ {t1} beta@127.0.0.1\n+ art: agent\n+ anhang: {ECHT} 4 application/octet-stream - 110000000-1-echt.bin echt.bin\n  Hallo\n\n@ 2026-10-28T11:00:01.000+01:00 beta@127.0.0.1\n+ bearbeitet: {t1}\n+ anhang: {FALSCH} 6 application/octet-stream - 110001000-1-falsch.bin falsch.bin\n  Hallo zusammen\n\n"
+        ),
+    )
+    .expect("Tagesdatei");
+    let beta = Absender::von("127.0.0.1");
+    for start in 1..=2 {
+        let instanz = starten(wurzel.path());
+        let basis = instanz.adresse.as_str();
+        let abrufen = |id: &'static str| {
+            let anfrage = beta.anfrage(reqwest::Method::GET, format!("{basis}anhaenge/{id}"));
+            async move { anfrage.send().await.expect("GET").status().as_u16() }
+        };
+
+        let (echt, falsch) = (abrufen(ECHT).await, abrufen(FALSCH).await);
+
+        assert_eq!(
+            echt, 200,
+            "Kontrolle: der Anhang der Nachricht (Start {start})"
+        );
+        assert!(
+            matches!(falsch, 404 | 410),
+            "Start {start}: Anhang aus dem Änderungssatz → {falsch}"
+        );
+    }
+}
