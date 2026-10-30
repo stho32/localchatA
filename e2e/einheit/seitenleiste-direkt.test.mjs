@@ -1,5 +1,5 @@
-// Unit-Tests der verdrahteten Direktliste (R00050 F0180 B0786; Nacharbeit code-reviewer #13 Sollte 2; node --test):
-// gezeichnet wird nur bei geänderten Einträgen.
+// Unit-Tests der verdrahteten Direktliste (R00050 F0180 B0786; Nacharbeit code-reviewer #13 Sollte 2 und 3; node --test):
+// gezeichnet wird nur bei geänderten Einträgen, ein fehlgeschlagenes Laden bleibt sichtbar und wird nachgeholt.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { direktleisteEinrichten } from '../../web/seitenleiste-direkt.js';
@@ -51,4 +51,40 @@ test('ein Laden ohne Neues zeichnet nichts neu', async () => {
   const vorher = gezeichnet.length;
   await leiste.laden();
   assert.equal(gezeichnet.length, vorher);
+});
+
+test('Laden fehlgeschlagen: der Hinweis steht; eine Nachricht aus dem Strom nimmt ihn nicht weg; der neue Versuch holt nach', async () => {
+  const { leiste, gezeichnet, wiederholungen } = aufbauen([FEHLER, FEHLER, antwort(BEN, CORA)]);
+  await leiste.laden();
+  assert.deepEqual(gezeichnet.at(-1), { kennungen: [], nichtGeladen: true, eintraege: [] });
+
+  leiste.nachricht({ direkt: BEN });
+  assert.deepEqual(gezeichnet.at(-1).kennungen, [BEN]);
+  assert.equal(gezeichnet.at(-1).nichtGeladen, true, 'bekannte Einträge, aber der Hinweis bleibt');
+
+  assert.equal(wiederholungen.length, 1, 'ein neuer Versuch ist geplant, nicht mehrere');
+  assert.ok(wiederholungen[0].ms <= 3000);
+  await wiederholungen[0].rueckruf();
+  assert.equal(wiederholungen.length, 2, 'auch der zweite Fehlschlag plant den nächsten Versuch');
+  await wiederholungen[1].rueckruf();
+  assert.deepEqual(gezeichnet.at(-1).kennungen, [BEN, CORA]);
+  assert.equal(gezeichnet.at(-1).nichtGeladen, false);
+  assert.equal(wiederholungen.length, 2, 'nach dem Erfolg kein weiterer Versuch');
+});
+
+test('eine Ausnahme beim Abrufen ist ein Fehlschlag wie ein 500, kein ungefangenes Versprechen', async () => {
+  const { leiste, gezeichnet, wiederholungen } = aufbauen([new Error('kaputt'), antwort(BEN)]);
+  await leiste.laden();
+  assert.equal(gezeichnet.at(-1).nichtGeladen, true);
+  await wiederholungen[0].rueckruf();
+  assert.deepEqual(gezeichnet.at(-1).kennungen, [BEN]);
+});
+
+test('ein Fehlschlag nach einem früheren Erfolg lässt die bekannte Liste stehen und meldet, dass sie unvollständig sein kann', async () => {
+  const { leiste, gezeichnet, wiederholungen } = aufbauen([antwort(BEN), FEHLER]);
+  await leiste.laden();
+  await leiste.laden();
+  assert.deepEqual(gezeichnet.at(-1).kennungen, [BEN]);
+  assert.equal(gezeichnet.at(-1).nichtGeladen, true);
+  assert.equal(wiederholungen.length, 1);
 });

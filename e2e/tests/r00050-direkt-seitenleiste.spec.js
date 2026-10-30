@@ -11,7 +11,7 @@ const { stromOeffnen } = require('./hilfen');
 const { beitreten } = require('./senden-hilfen');
 const { GERAETE } = require('./r00027-hilfen');
 const {
-  ANNA, BEN, CORA, direktStarten, direktSenden, gespraechOffen, kontrastUnterschritten,
+  ANNA, BEN, CORA, tippenOhneGespraech, direktStarten, direktSenden, gespraechOffen, kontrastUnterschritten,
 } = require('./r00050-direkt-hilfen');
 
 let instanz;
@@ -134,6 +134,33 @@ test('Neu zeichnen nur bei Änderung (Nacharbeit): fremder Beitritt = 0 Mutation
   await expect(eintragVon(anna.page, BEN).locator('.lc-status')).toHaveText(/^(offline|gleich weg)$/);
   expect(await anna.page.evaluate(() => window.mutationen)).toBeGreaterThan(0);
   expect(anna.fehler).toEqual([]);
+});
+
+// Nacharbeit F0180 (code-reviewer #13, Sollte 3): schlägt GET /api/direkt fehl, steht „Direktnachrichten nicht geladen.“;
+// ein Eintrag aus dem Strom nimmt den Hinweis nicht weg; sobald die Route wieder 200 liefert, steht auch das Gespräch,
+// das nur die Liste kennt (cora), binnen 5 s im Abschnitt. Mutante: nur ein Versuch / Hinweis weg nach dem Ereignis → rot.
+test('Fehlerpfad GET /api/direkt (Nacharbeit): Hinweis bleibt neben dem Eintrag aus dem Strom; nach Rückkehr auf 200 steht cora binnen 5 s', async ({ browser }) => {
+  test.setTimeout(45000);
+  const { anna, token } = await starten(browser, { sammeln: { zusaetzlich: { ...tippenOhneGespraech(BEN, CORA), '/api/direkt': [500] } } });
+  expect((await direktSenden(instanz.adresse, token.cora, ANNA, 'nur die Liste kennt mich', '127.0.0.9')).status).toBe(201);
+  await expect(eintragVon(anna.page, CORA)).toBeVisible();
+  await anna.page.route('**/api/direkt', (route) => route.fulfill({ status: 500, contentType: 'application/json', body: '{}' }));
+  await anna.page.reload();
+
+  await expect(direkt(anna.page)).toContainText('Direktnachrichten nicht geladen.');
+  await expect(eintraege(anna.page)).toHaveCount(0);
+  stroeme.push(await stromOeffnen(instanz.adresse, token.ben, '127.0.0.3'));
+  expect((await direktSenden(instanz.adresse, token.ben, ANNA, 'jetzt ben', '127.0.0.3')).status).toBe(201);
+  await expect(eintragVon(anna.page, BEN)).toBeVisible();
+  await expect(direkt(anna.page)).toContainText('Direktnachrichten nicht geladen.');
+  await expect(eintragVon(anna.page, CORA)).toHaveCount(0);
+
+  await anna.page.unroute('**/api/direkt');
+  const ab = Date.now();
+  await expect(eintragVon(anna.page, CORA)).toBeVisible({ timeout: 5000 });
+  expect(Date.now() - ab).toBeLessThanOrEqual(5000);
+  await expect(direkt(anna.page)).not.toContainText('nicht geladen');
+  await expect(eintraege(anna.page).locator('.lc-id')).toHaveText([BEN, CORA]);
 });
 
 test('Telefon 375 px mit Touch (V8, V5): drei Einträge mit Statuspunkt und Kürzel, ≥ 44 px hoch, voller Name', async ({ browser }) => {

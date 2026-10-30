@@ -17,6 +17,7 @@ export function anlegen() {
   const leiste = element('div', { className: 'lc-side' }, [channelNav, direktNav]);
   let channels = [];
   let direkt = null;
+  let direktNichtGeladen = false;
   let gewaehlt = null;
   return {
     leiste,
@@ -25,19 +26,18 @@ export function anlegen() {
       channels = neueChannels;
       channelsZeichnen(channelEintraege, channels, gewaehlt);
     },
-    // eintraege: [direkteintrag] | null (noch nicht geladen — dann bleibt der Abschnitt ohne Inhalt)
-    direktZeigen: (eintraege) => {
+    // eintraege: [direkteintrag] · nichtGeladen: die Liste konnte nicht (vollständig) geholt werden — der Hinweis steht
+    // unter den bekannten Einträgen, statt des Leerzustands
+    direktZeigen: (eintraege, nichtGeladen) => {
       direkt = eintraege;
-      direktZeichnen(direktEintraege, direkt, gewaehlt);
-    },
-    direktNichtGeladen: () => {
-      direktEintraege.replaceChildren(leer('Direktnachrichten nicht geladen.'));
+      direktNichtGeladen = nichtGeladen;
+      direktZeichnen(direktEintraege, direkt, gewaehlt, direktNichtGeladen);
     },
     // schluessel: das offene Gespräch (gespraech.js) oder null
     auswahlZeigen: (schluessel) => {
       gewaehlt = schluessel;
       channelsZeichnen(channelEintraege, channels, gewaehlt);
-      direktZeichnen(direktEintraege, direkt, gewaehlt);
+      direktZeichnen(direktEintraege, direkt, gewaehlt, direktNichtGeladen);
     },
   };
 }
@@ -60,27 +60,33 @@ function channelsZeichnen(eintraege, channels, gewaehlt) {
   listeZeichnen(eintraege, channels.map((channel) => channelEintrag(channel, gewaehlt)));
 }
 
-function direktZeichnen(eintraege, direkt, gewaehlt) {
+function direktZeichnen(eintraege, direkt, gewaehlt, nichtGeladen) {
   if (direkt === null) {
     eintraege.replaceChildren();
+    return;
+  }
+  const hinweis = leer('Direktnachrichten nicht geladen.');
+  if (direkt.length === 0 && nichtGeladen) {
+    eintraege.replaceChildren(hinweis);
     return;
   }
   if (direkt.length === 0) {
     eintraege.replaceChildren(leer('Noch keine Direktnachrichten.'), leer('Ein Gespräch beginnt in der Teilnehmerliste.'));
     return;
   }
-  listeZeichnen(eintraege, direkt.map((eintrag) => direktEintrag(eintrag, gewaehlt)));
+  const zeilen = direkt.map((eintrag) => direktEintrag(eintrag, gewaehlt));
+  listeZeichnen(eintraege, zeilen, nichtGeladen ? [hinweis] : []);
 }
 
 // Nur die Einträge werden neu gezeichnet — Kopf und Schalter bleiben, ein Fokus darauf auch; lag er auf einem
 // Eintrag, kehrt er auf den Eintrag desselben Gesprächs zurück.
-function listeZeichnen(eintraege, zeilen) {
+function listeZeichnen(eintraege, zeilen, danach = []) {
   let fokussiert;
   if (eintraege.contains(document.activeElement)) {
     fokussiert = document.activeElement.dataset.gespraech;
   }
   const liste = element('ul', { className: 'lc-side-liste' }, zeilen);
-  eintraege.replaceChildren(liste);
+  eintraege.replaceChildren(liste, ...danach);
   const wiederFokussieren = [...liste.querySelectorAll('a')].find((verweis) => verweis.dataset.gespraech === fokussiert);
   if (wiederFokussieren !== undefined) {
     wiederFokussieren.focus();
