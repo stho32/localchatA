@@ -213,17 +213,22 @@ impl Strang<'_> {
     }
 
     /// Kopiert die Nachricht des Kopfs — genau eine — in der aktuellen Fassung und schaut die folgende an. Der
-    /// Cursor rückt auch vor, wenn der Satz sich nicht lesen lässt.
+    /// Cursor rückt auch vor, wenn der Satz sich nicht lesen lässt. Zwischen `vorschauen` und hier ist die Sperre
+    /// losgelassen: ist die angeschaute Nachricht inzwischen weg (Pflege), kopiert `block` die folgende, und die
+    /// liegt womöglich hinter der Marke — entnommen wird nur, was angeschaut wurde (Zeit der Kopie = Zeit des Kopfs).
     fn entnehmen(&mut self) -> Option<Nachricht> {
         let (zeit, _) = self.kopf?;
         let abfrage = Abfrage {
             abschnitt: Abschnitt::Nach(self.ab),
-            n: Blockgroesse::bilden(1)?,
+            n: Blockgroesse::bilden(1).expect("ein Satz ist eine gültige Blockgröße"),
         };
         let block = sperren(&self.verlauf).block(&abfrage, usize::MAX);
         self.ab = zeit;
         self.vorschauen();
         let nachricht = nachricht_in_fassung(block.saetze.first()?)?;
+        if nachricht.zeit != zeit {
+            return None;
+        }
         Some(self.gespraeche.zustand_eintragen(nachricht))
     }
 }
@@ -967,6 +972,42 @@ mod tests {
             zitat_us <= 3.0 * kontrolle_us,
             "mit Zitat {zitat_us:.2} µs, Kontrolle {kontrolle_us:.2} µs je Einheit"
         );
+    }
+
+    /// O1 (code-reviewer #17): zwischen `vorschauen` und `entnehmen` ist die Sperre losgelassen; geht die
+    /// angeschaute Nachricht inzwischen mit ihrem Tag (Pflege), kopiert `block` die folgende — die liegt hier hinter
+    /// der Marke. Entnommen wird nur, was angeschaut wurde: die Zeit der Kopie muss die des Kopfs sein. Die folgende
+    /// kommt später, in der Reihe an ihrer Stelle.
+    #[test]
+    fn entnommen_wird_nur_was_angeschaut_wurde() {
+        let ablage = Arc::new(Speicherablage::neu());
+        ablage.gespraech_anlegen(&Gespraech::channel("a"));
+        let beginn = zeit("2026-10-30T12:00:00.000+01:00");
+        let uhr = Arc::new(GestellteUhr::neu(beginn));
+        let gespraeche = Gespraeche::laden(ablage, uhr.clone()).expect("geladen");
+        let senden = || {
+            gespraeche
+                .senden(&Gespraech::channel("a"), &anna(), Art::Mensch, "x")
+                .expect("gesendet")
+                .zeit
+        };
+        let erste = senden();
+        uhr.stellen(beginn + chrono::Duration::days(1));
+        let zweite = senden();
+        let mut straenge = gespraeche.straenge(
+            beginn - chrono::Duration::seconds(1),
+            erste,
+            &erwaehnung(),
+        );
+        let strang = &mut straenge[0];
+        assert_eq!(strang.kopf.map(|(zeit, _)| zeit), Some(erste));
+        sperren(&strang.verlauf).tag_entfernen(erste.date_naive());
+
+        let entnommen = strang.entnehmen();
+
+        assert_eq!(entnommen, None, "die zweite liegt hinter der Marke");
+        assert_eq!(strang.kopf, None, "und kommt nicht über die Marke");
+        assert!(zweite > erste);
     }
 
     /// Eigene Variante V5 zu Teil 1: sind Satz und Änderungssatz beide 16 KiB lang, bucht das Nachholen das Größere,
