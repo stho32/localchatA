@@ -296,6 +296,49 @@ async fn scheitert_das_kuerzen_bleibt_der_anhang_geloescht_und_gezaehlt() {
     assert_eq!(abrufen(&beta, &neu.adresse, &gegeben.bericht).await.0, 410);
 }
 
+/// R00043 F0148 (ADR-0048 K9 b, c; ADR-0043 Ergänzung „Karte #73“; nicht als root): `bericht.pdf` schreibgeschützt →
+/// Kürzen scheitert: Health `anhaenge_ungekuerzt` 1 (der Anhang zählt noch in `anhang_belegt`); nach dem Neustart
+/// kürzt die Heilung die Datei: `anhaenge_ungekuerzt` 0, `anhaenge_geloescht` zählt die Heilung mit (1), und das
+/// Protokoll trägt `INFORMATION anhang Anhänge nach dem Start gekürzt | anzahl=1 bytes=2457600`.
+#[cfg(unix)]
+#[tokio::test]
+async fn ungekuerzte_anhaenge_stehen_im_health_check_und_die_heilung_beim_start_im_protokoll() {
+    use std::os::unix::fs::PermissionsExt;
+    let wurzel = ordner();
+    let instanz = starten(wurzel.path());
+    let basis = instanz.adresse.as_str();
+    let beta = Absender::von("127.0.0.1");
+    let gegeben = bericht_senden(&beta, basis).await;
+    assert_eq!(gesundheit(basis).await["anhaenge_ungekuerzt"], 0);
+    let datei = datei_von(wurzel.path(), "bericht.pdf");
+    std::fs::set_permissions(&datei, std::fs::Permissions::from_mode(0o444)).expect("Rechte");
+
+    let antwort = loeschen(&beta, basis, &gegeben.token, &gegeben.t3).await;
+
+    std::fs::set_permissions(&datei, std::fs::Permissions::from_mode(0o644)).expect("Rechte");
+    assert_eq!(antwort.status, 200, "{}", antwort.json);
+    let gesund = gesundheit(basis).await;
+    assert_eq!(gesund["anhaenge_ungekuerzt"], 1, "{gesund}");
+    assert_eq!(gesund["anhaenge_geloescht"], 1, "{gesund}");
+    drop(instanz);
+    let neu = starten(wurzel.path());
+
+    let gesund = gesundheit(&neu.adresse).await;
+    assert_eq!(gesund["anhaenge_ungekuerzt"], 0, "{gesund}");
+    assert_eq!(gesund["anhaenge_geloescht"], 1, "{gesund}");
+    assert_eq!(laenge(&datei), 0);
+    let heilung: Vec<String> = protokoll(wurzel.path())
+        .lines()
+        .filter(|zeile| zeile.contains(" INFORMATION anhang Anhänge nach dem Start gekürzt"))
+        .map(str::to_string)
+        .collect();
+    assert_eq!(heilung.len(), 1, "{}", protokoll(wurzel.path()));
+    assert!(
+        heilung[0].ends_with(&format!("| anzahl=1 bytes={BERICHT}")),
+        "{heilung:#?}"
+    );
+}
+
 /// Ein Ordner mit einer Nachricht von `beta` (t1) mit einem gebundenen Anhang in voller Länge (4.096 Bytes) und
 /// danach von Hand einem Löschsatz derselben Kennung — wie nach einem Absturz zwischen Löschsatz und Kürzen.
 fn nach_absturz(ordner: &Path) -> (String, PathBuf) {

@@ -32,6 +32,7 @@ use verbindungen::Verbindungsgrenzen;
 
 use crate::anwesenheit::status::Status;
 use crate::anwesenheit::{Anwesenheit, gnadenfrist};
+use crate::gespraeche::loeschen::Gekuerzt;
 use crate::gespraeche::{Dateiablage, Gespraeche, Pflegeanlass, fristeintrag};
 use crate::http::{self, Auskunft, Echt, Grenzschutz, Namensauskunft, Tabelle, Zustand};
 use crate::live::bus::{self, Bus};
@@ -588,22 +589,33 @@ async fn nach_der_sperre(
 }
 
 /// Kürzt nach dem Laden, vor der Startzeile, die Anhänge gelöschter Nachrichten, deren Datei noch Bytes hat (ADR-0048
-/// Regel 9 „Atomarität“: so heilt ein Start einen Absturz zwischen Löschsatz und Kürzen). Je Datei `DEBUG` bzw.
-/// `ERROR` — nie Anhang-ID oder Anzeigename.
+/// Regel 9 „Atomarität“: so heilt ein Start einen Absturz zwischen Löschsatz und Kürzen).
 fn geloeschte_anhaenge_kuerzen(gespraeche: &Gespraeche, protokoll: &Protokoll) {
-    for datei in gespraeche.geloeschte_anhaenge_kuerzen() {
+    heilung_eintragen(protokoll, &gespraeche.geloeschte_anhaenge_kuerzen());
+}
+
+/// Je Datei `DEBUG` bzw. `ERROR` — nie Anhang-ID oder Anzeigename —, und gelang etwas, genau eine `INFORMATION anhang
+/// Anhänge nach dem Start gekürzt` mit `anzahl` und `bytes` (ADR-0048 K9 c): die Heilung zählt in Health
+/// `anhaenge_geloescht` mit, der Betreiber soll sie im Protokoll finden.
+fn heilung_eintragen(protokoll: &Protokoll, dateien: &[Gekuerzt]) {
+    let (mut anzahl, mut bytes) = (0u64, 0u64);
+    for datei in dateien {
         let ort = Kontext::neu()
             .mit(Schluessel::Ordner, datei.gespraech.pfad())
             .mit(Schluessel::Tag, datei.tag.format("%Y-%m-%d"))
             .mit(Schluessel::Anhang, datei.datei.as_str())
             .mit(Schluessel::Bytes, datei.bytes);
         match &datei.grund {
-            None => protokoll.eintragen(
-                Stufe::Debug,
-                Bereich::Anhang,
-                "Anhang gelöscht",
-                ort.mit(Schluessel::Grund, "nachricht"),
-            ),
+            None => {
+                anzahl += 1;
+                bytes = bytes.saturating_add(datei.bytes);
+                protokoll.eintragen(
+                    Stufe::Debug,
+                    Bereich::Anhang,
+                    "Anhang gelöscht",
+                    ort.mit(Schluessel::Grund, "nachricht"),
+                );
+            }
             Some(grund) => protokoll.eintragen(
                 Stufe::Error,
                 Bereich::Anhang,
@@ -611,6 +623,16 @@ fn geloeschte_anhaenge_kuerzen(gespraeche: &Gespraeche, protokoll: &Protokoll) {
                 ort.mit(Schluessel::Grund, grund.as_str()),
             ),
         }
+    }
+    if anzahl > 0 {
+        protokoll.eintragen(
+            Stufe::Information,
+            Bereich::Anhang,
+            "Anhänge nach dem Start gekürzt",
+            Kontext::neu()
+                .mit(Schluessel::Anzahl, anzahl)
+                .mit(Schluessel::Bytes, bytes),
+        );
     }
 }
 
@@ -999,6 +1021,52 @@ mod tests {
     use crate::gespraeche::Kennung;
     use crate::name::Name;
     use crate::protokoll::testhilfe::{im_speicher, zeit};
+
+    /// R00043 B0673 (ADR-0048 K9 c): die Heilung nach dem Laden schreibt je Datei `DEBUG`/`ERROR` und, wenn etwas
+    /// gekürzt wurde, genau eine `INFORMATION anhang Anhänge nach dem Start gekürzt | anzahl, bytes` mit der Summe
+    /// der Erfolge; ohne Erfolg keine solche Zeile (Mutanten „Zeile immer“ und „zählt auch Fehler“ rot).
+    #[test]
+    fn die_heilung_nach_dem_start_steht_als_eine_zeile_mit_anzahl_und_bytes_im_protokoll() {
+        use crate::gespraeche::Gespraech;
+        let datei = |bytes: u64, grund: Option<&str>| Gekuerzt {
+            gespraech: Gespraech::channel("allgemein"),
+            tag: chrono::NaiveDate::from_ymd_opt(2026, 10, 29).expect("Tag"),
+            datei: "120000000-1".to_string(),
+            bytes,
+            grund: grund.map(str::to_string),
+        };
+        let (protokoll, speicher, _, _) = im_speicher("2026-10-28T12:00:00+01:00", Stufe::Debug);
+
+        heilung_eintragen(
+            &protokoll,
+            &[datei(10, None), datei(20, None), datei(99, Some("EACCES"))],
+        );
+        let zeilen = speicher.zeilen();
+        let heilung: Vec<&String> = zeilen
+            .iter()
+            .filter(|zeile| zeile.contains(" INFORMATION anhang "))
+            .collect();
+
+        assert_eq!(heilung.len(), 1, "{zeilen:#?}");
+        assert!(
+            heilung[0].ends_with("Anhänge nach dem Start gekürzt | anzahl=2 bytes=30"),
+            "{heilung:#?}"
+        );
+        assert_eq!(
+            zeilen
+                .iter()
+                .filter(|z| z.contains(" ERROR anhang "))
+                .count(),
+            1
+        );
+        let (leeres, leer, _, _) = im_speicher("2026-10-28T12:00:00+01:00", Stufe::Debug);
+        heilung_eintragen(&leeres, &[datei(99, Some("EACCES"))]);
+        assert!(
+            leer.zeilen().iter().all(|z| !z.contains(" INFORMATION ")),
+            "{:#?}",
+            leer.zeilen()
+        );
+    }
 
     /// R00038 B0590, nach R00042 B0659 ohne die Ende-Zeile (die prüft der Episodenkatalog): zwei verfallene
     /// Anmeldungen von `10.0.0.9` (Kennungen `alpha`, `beta`; `bytes` 5 und 6) → die Beginn-Zeile der Episode nennt

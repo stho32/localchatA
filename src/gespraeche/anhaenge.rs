@@ -53,6 +53,8 @@ pub struct Anhangkennzahlen {
     pub hochladungen: u64,
     pub abgewiesen: u64,
     pub geloescht: u64,
+    /// Anhänge gelöschter Nachrichten, die noch in `G` zählen (Health `anhaenge_ungekuerzt`, ADR-0048 K9 b).
+    pub ungekuerzt: u64,
 }
 
 /// Ein Wechsel über bzw. unter 90 % der Anhang-Quote, gemessen an `gebunden` (nie an `gebunden + reserviert`).
@@ -248,6 +250,7 @@ impl Gespraeche {
             hochladungen: self.anhangzaehler.hochladungen.load(Ordering::SeqCst),
             abgewiesen: self.anhangzaehler.abgewiesen.load(Ordering::SeqCst),
             geloescht: self.anhangzaehler.geloescht.load(Ordering::SeqCst),
+            ungekuerzt: self.anhangverzeichnis.ungekuerzt(),
         }
     }
 
@@ -373,7 +376,8 @@ impl Gespraeche {
                             eintrag.gespraech == *gespraech && eintrag.satzzeit == zeit
                         })
                         .inspect(|eintrag| eintrag.nachricht_geloescht_setzen())
-                        .filter(|eintrag| eintrag.tauschen(Zustand::Vorhanden, Zustand::Geloescht)),
+                        .filter(|eintrag| eintrag.tauschen(Zustand::Vorhanden, Zustand::Geloescht))
+                        .inspect(|eintrag| self.anhangverzeichnis.ungekuerzt_zaehlen(eintrag)),
                 );
             }
         }
@@ -1810,6 +1814,143 @@ mod tests {
         assert_eq!(neu.anhangkennzahlen().gebunden, 0);
         assert!(zweites_mal.is_empty());
         assert!(speicher.anhaenge().values().all(Vec::is_empty));
+    }
+
+    /// R00043 B0673 (ADR-0048 K9 b, ADR-0043 Ergänzung „Karte #73“): `ungekuerzt` zählt die Anhänge gelöschter
+    /// Nachrichten, die noch in G zählen — 1 nach einem Kürzen-Fehler für einen von drei Anhängen (beim Löschen, und
+    /// weiter 1 nach einem Neustart, dessen Heilung scheitert), 0 nach der gelungenen Heilung, 0 nach dem Entfallen
+    /// des Tags. Mutanten „zählt nie zurück“ (Heilung, Entfallen) und „zählt doppelt“ (Heilung scheitert zweimal)
+    /// rot.
+    #[test]
+    fn ungekuerzte_anhaenge_zaehlen_den_fehler_und_zaehlen_bei_heilung_und_entfallen_zurueck() {
+        let (gespraeche, ablage, speicher) = mit_ablage();
+        let anlegen = || {
+            let ids: Vec<Anhangid> = (0..3)
+                .map(|nummer| {
+                    fertig(
+                        &gespraeche,
+                        "beta@127.0.0.1",
+                        &format!("a{nummer}.bin"),
+                        &vec![nummer as u8; MIB as usize],
+                    )
+                })
+                .collect();
+            let Ok(crate::gespraeche::Gesendet::Neu(nachricht)) = gespraeche.senden_mit_anhaengen(
+                &Gespraech::channel("allgemein"),
+                &kennung("beta@127.0.0.1"),
+                Art::Agent,
+                "Bericht",
+                &ids,
+                None,
+            ) else {
+                panic!("gesendet")
+            };
+            (ids, nachricht.zeit)
+        };
+        let (ids, zeit) = anlegen();
+        let dritte = gespraeche
+            .anhangverzeichnis
+            .finden(&ids[2])
+            .expect("dritte")
+            .datei
+            .clone();
+        assert_eq!(gespraeche.anhangkennzahlen().ungekuerzt, 0);
+        speicher.kuerzen_scheitert(&dritte);
+        gespraeche
+            .nachricht_loeschen(
+                &Gespraech::channel("allgemein"),
+                &kennung("beta@127.0.0.1"),
+                zeit,
+            )
+            .expect("gelöscht");
+        let nach_dem_loeschen = gespraeche.anhangkennzahlen();
+        let neu_laden = || {
+            let uhr = Arc::new(GestellteUhr::neu(
+                chrono::DateTime::parse_from_rfc3339("2026-10-29T12:00:00.000+01:00")
+                    .expect("Zeit"),
+            ));
+            Gespraeche::laden(ablage.clone(), uhr)
+                .expect("geladen")
+                .mit_anhangquote(Some(10 * MIB))
+                .mit_anhangablage(speicher.clone())
+        };
+
+        let gesperrt = neu_laden();
+        let beim_laden = gesperrt.anhangkennzahlen().ungekuerzt;
+        gesperrt.geloeschte_anhaenge_kuerzen();
+        let nach_gescheiterter_heilung = gesperrt.anhangkennzahlen().ungekuerzt;
+        speicher.kuerzen_gelingt(&dritte);
+        let geheilt = neu_laden();
+        let vor_der_heilung = geheilt.anhangkennzahlen().ungekuerzt;
+        geheilt.geloeschte_anhaenge_kuerzen();
+        let nach_der_heilung = geheilt.anhangkennzahlen();
+        let entfallen = {
+            let (gespraeche, _, speicher) = mit_ablage();
+            let (ids, zeit) = {
+                let ids: Vec<Anhangid> = (0..3)
+                    .map(|nummer| {
+                        fertig(
+                            &gespraeche,
+                            "beta@127.0.0.1",
+                            &format!("e{nummer}.bin"),
+                            &[1; 10],
+                        )
+                    })
+                    .collect();
+                let Ok(crate::gespraeche::Gesendet::Neu(nachricht)) = gespraeche
+                    .senden_mit_anhaengen(
+                        &Gespraech::channel("allgemein"),
+                        &kennung("beta@127.0.0.1"),
+                        Art::Agent,
+                        "Bericht",
+                        &ids,
+                        None,
+                    )
+                else {
+                    panic!("gesendet")
+                };
+                (ids, nachricht.zeit)
+            };
+            let dritte = gespraeche
+                .anhangverzeichnis
+                .finden(&ids[2])
+                .expect("dritte")
+                .datei
+                .clone();
+            speicher.kuerzen_scheitert(&dritte);
+            gespraeche
+                .nachricht_loeschen(
+                    &Gespraech::channel("allgemein"),
+                    &kennung("beta@127.0.0.1"),
+                    zeit,
+                )
+                .expect("gelöscht");
+            let davor = gespraeche.anhangkennzahlen().ungekuerzt;
+            gespraeche.pflegen(
+                NaiveDate::from_ymd_opt(2026, 11, 6).expect("Tag"),
+                crate::gespraeche::Pflegeanlass::Tageswechsel,
+            );
+            (davor, gespraeche.anhangkennzahlen())
+        };
+
+        assert_eq!(
+            nach_dem_loeschen.ungekuerzt, 1,
+            "Kürzen-Fehler beim Löschen"
+        );
+        assert_eq!(
+            beim_laden, 1,
+            "beim Laden zählt der Anhang, bis er gekürzt ist"
+        );
+        assert_eq!(
+            nach_gescheiterter_heilung, 1,
+            "scheiterte Heilung zählt nicht doppelt"
+        );
+        assert_eq!(vor_der_heilung, 1);
+        assert_eq!(nach_der_heilung.ungekuerzt, 0, "Heilung");
+        assert_eq!(nach_der_heilung.gebunden, 0);
+        assert_eq!(entfallen.0, 1, "vor dem Entfallen");
+        assert_eq!(entfallen.1.ungekuerzt, 0, "Entfallen des Tags");
+        assert_eq!(entfallen.1.gebunden, 0);
     }
 
     /// R00040 „Wettlauf mit dem Entfallen“ (M6; ADR-0048 Regel 9 „Wettläufe“): Uhr 23:59:59.900, Frist 1 in

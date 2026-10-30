@@ -12,7 +12,7 @@ use crate::uhr::Zeit;
 use chrono::NaiveDate;
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
-use std::sync::{Arc, RwLock};
+use std::sync::{Arc, Mutex, RwLock};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Zustand {
@@ -59,6 +59,8 @@ pub struct Eintrag {
     /// Das Zählmaß steht noch in `G` (Befund #67 B2): wer es per Tauschen auf `false` gewinnt — das gelungene Kürzen,
     /// das Entfallen oder das Verwaisen seines Tags —, zieht genau einmal ab.
     gezaehlt: AtomicBool,
+    /// Der Eintrag ist im Zähler `ungekuerzt` des Verzeichnisses (nur unter dessen Zählersperre gesetzt).
+    ungekuerzt: AtomicBool,
 }
 
 impl Eintrag {
@@ -85,6 +87,7 @@ impl Eintrag {
             zustand: AtomicU8::new(zustand.als_zahl()),
             nachricht_geloescht: AtomicBool::new(false),
             gezaehlt: AtomicBool::new(zustand == Zustand::Vorhanden),
+            ungekuerzt: AtomicBool::new(false),
         }
     }
 
@@ -161,6 +164,9 @@ struct Innen {
 #[derive(Debug, Default)]
 pub struct Anhangverzeichnis {
     innen: RwLock<Innen>,
+    /// Einträge gelöschter Nachrichten, die noch in `G` zählen (Health `anhaenge_ungekuerzt`, ADR-0048 K9 b). Das
+    /// Merkmal `ungekuerzt` des Eintrags ändert sich nur unter dieser Sperre, zusammen mit der Zahl.
+    ungekuerzt: Mutex<u64>,
 }
 
 /// `<hhmmssmmm>-<n>` einer gespeicherten Datei — so darf sie im Protokoll stehen (ADR-0047 Ergänzung Gate Regel 3).
@@ -198,6 +204,35 @@ impl Anhangverzeichnis {
         innen
             .eintraege
             .insert(eintrag.id.clone(), Arc::new(eintrag));
+    }
+
+    fn ungekuerzt_sperren(&self) -> std::sync::MutexGuard<'_, u64> {
+        self.ungekuerzt
+            .lock()
+            .unwrap_or_else(|vergiftet| vergiftet.into_inner())
+    }
+
+    /// Der Anhang einer gelöschten Nachricht steht ungekürzt in `G` (das Kürzen scheiterte, oder der Start fand ihn so):
+    /// +1, einmal je Eintrag. Zog das Entfallen seines Tags das Zählmaß schon ab, zählt er nicht.
+    pub fn ungekuerzt_zaehlen(&self, eintrag: &Eintrag) {
+        let mut zahl = self.ungekuerzt_sperren();
+        if eintrag.gezaehlt() && !eintrag.ungekuerzt.swap(true, Ordering::SeqCst) {
+            *zahl += 1;
+        }
+    }
+
+    /// Das Zählmaß des Eintrags ist aus `G`, weil das Kürzen gelang oder sein Tag entfiel (wer den Abzug gewann, ruft
+    /// das): −1, wenn er gezählt war.
+    pub fn ungekuerzt_zurueck(&self, eintrag: &Eintrag) {
+        let mut zahl = self.ungekuerzt_sperren();
+        if eintrag.ungekuerzt.swap(false, Ordering::SeqCst) {
+            *zahl = zahl.saturating_sub(1);
+        }
+    }
+
+    /// Einträge gelöschter Nachrichten, die noch in `G` zählen.
+    pub fn ungekuerzt(&self) -> u64 {
+        *self.ungekuerzt_sperren()
     }
 
     pub fn finden(&self, id: &Anhangid) -> Option<Arc<Eintrag>> {
@@ -248,6 +283,7 @@ impl Anhangverzeichnis {
                     eintrag.tauschen(Zustand::Vorhanden, Zustand::Entfallen);
                     if eintrag.abzug_gewinnen() {
                         abzuziehen = abzuziehen.saturating_add(eintrag.z());
+                        self.ungekuerzt_zurueck(eintrag);
                     }
                     entfallen.push(Arc::clone(eintrag));
                 }
@@ -283,6 +319,7 @@ impl Anhangverzeichnis {
                 eintrag.tauschen(Zustand::Vorhanden, Zustand::Entfallen);
                 if eintrag.abzug_gewinnen() {
                     gewonnen = gewonnen.saturating_add(eintrag.z());
+                    self.ungekuerzt_zurueck(&eintrag);
                 }
             }
         }

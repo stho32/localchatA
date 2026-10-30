@@ -64,8 +64,12 @@ pub struct Gesundheit {
     hochladebank_belegt: usize,
     /// 507 `quote` an Anmeldungen seit dem Start, beide Gründe.
     anhang_abgewiesen: u64,
-    /// Gelöschte Anhänge seit dem Start (ADR-0043 Ergänzung „F1′“).
+    /// Gelöschte Anhänge seit dem Start (ADR-0043 Ergänzung „F1′“); zählt auch die Heilung nach dem Laden mit.
     anhaenge_geloescht: u64,
+    /// Anhänge gelöschter Nachrichten, deren Kürzen scheiterte und die noch in der Anhang-Quote zählen, Momentwert —
+    /// 0 im Normalfall, 0 nach der Heilung beim Start und nach dem Entfallen des Tags (ADR-0043 Ergänzung
+    /// „Karte #73“).
+    anhaenge_ungekuerzt: u64,
 }
 
 /// Antwortet der Port, ist die Instanz bereit: geladen wird vor dem Binden (A00003).
@@ -123,6 +127,7 @@ pub async fn beantworten(State(zustand): State<Arc<Zustand>>) -> Json<Gesundheit
             .saturating_sub(zustand.hochladebank.available_permits()),
         anhang_abgewiesen: anhaenge.abgewiesen,
         anhaenge_geloescht: anhaenge.geloescht,
+        anhaenge_ungekuerzt: anhaenge.ungekuerzt,
     })
 }
 
@@ -209,6 +214,7 @@ mod tests {
                 "hochladebank_belegt": 0,
                 "anhang_abgewiesen": 0,
                 "anhaenge_geloescht": 0,
+                "anhaenge_ungekuerzt": 0,
             })
         );
     }

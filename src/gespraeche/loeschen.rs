@@ -223,12 +223,15 @@ impl Gespraeche {
                                 Ordering::SeqCst,
                                 |g| Some(g.saturating_sub(eintrag.z())),
                             );
+                            self.anhangverzeichnis.ungekuerzt_zurueck(&eintrag);
                         }
                         self.anhangzaehler.geloescht.fetch_add(1, Ordering::SeqCst);
                         None
                     }
                     Err(grund) => {
-                        if !eintrag.nachricht_geloescht() {
+                        if eintrag.nachricht_geloescht() {
+                            self.anhangverzeichnis.ungekuerzt_zaehlen(&eintrag);
+                        } else {
                             eintrag.tauschen(Zustand::Geloescht, Zustand::Vorhanden);
                         }
                         Some(grund)
