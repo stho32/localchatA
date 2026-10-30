@@ -13,6 +13,134 @@ use std::collections::BTreeMap;
 #[derive(Debug, Default)]
 pub struct Verlauf {
     tage: BTreeMap<NaiveDate, Tag>,
+    /// Fassung je geänderter Nachricht (ADR-0048 Regel 3), über die Nachrichtenzeit als Zeitpunkt.
+    fassungen: BTreeMap<Zeit, Fassung>,
+}
+
+/// Die aktuelle Fassung einer geänderten Nachricht: Zeit des letzten gültigen Änderungssatzes und Zustand.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Fassung {
+    pub geaendert: Zeit,
+    pub zustand: Fassungszustand,
+}
+
+/// Bearbeitet mit dem Ort des Änderungssatzes (Tag, Byte-Anfang im Rohtext) oder gelöscht (endgültig).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Fassungszustand {
+    Bearbeitet { tag: NaiveDate, anfang: usize },
+    Geloescht,
+}
+
+/// Was `fassungen_bilden` übergangen hat: Waisen still gezählt, Defekte mit Tag und Zeile (1-basiert, Kopfzeile).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Fassungsbericht {
+    pub waisen: u64,
+    pub defekte: Vec<Aenderungsbefund>,
+}
+
+/// Ein übergangener Änderungssatz (ADR-0048 Regel 1).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Aenderungsbefund {
+    pub tag: NaiveDate,
+    pub zeile: usize,
+    pub grund: Aenderungsgrund,
+}
+
+/// Warum ein Änderungssatz übergangen wurde.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Aenderungsgrund {
+    /// Schon der Satz ist defekt (zwei Bezüge, Bezugszeit, Reihenfolge, Anhang).
+    Satz(logformat::Aenderungsdefekt),
+    /// Die Kennung des Änderungssatzes ist nicht der Absender der Nachricht.
+    Fremd,
+    /// `bearbeitet` nach `geloescht` derselben Nachricht.
+    NachGeloescht,
+}
+
+impl Verlauf {
+    /// Bildet die Fassungen aus allen Änderungssätzen, nachdem alle Tage aufgenommen sind: in Zeitfolge über alle
+    /// Tage (ADR-0048 Regel 3, Pre-Mortem 1); Bearbeitet ersetzt Bearbeitet, Geloescht ist endgültig.
+    pub fn fassungen_bilden(&mut self) -> Fassungsbericht {
+        let mut bericht = Fassungsbericht::default();
+        for (datum, tag) in &self.tage {
+            for (anfang, satz) in tag.aenderungssaetze() {
+                let befund = |grund| Aenderungsbefund {
+                    tag: *datum,
+                    zeile: zeile_von(&tag.rohtext, anfang),
+                    grund,
+                };
+                let (ziel, bezug) = match logformat::satzart(satz) {
+                    logformat::Satzart::Aenderung { ziel, bezug } => (ziel, bezug),
+                    logformat::Satzart::DefekteAenderung(defekt) => {
+                        bericht.defekte.push(befund(Aenderungsgrund::Satz(defekt)));
+                        continue;
+                    }
+                    logformat::Satzart::Nachricht => continue,
+                };
+                let Some(nachricht) = nachricht_finden(&self.tage, &ziel) else {
+                    bericht.waisen += 1;
+                    continue;
+                };
+                let (Some((geaendert, von)), Some((zeit, absender))) =
+                    (logformat::kopf(satz), logformat::kopf(nachricht))
+                else {
+                    continue;
+                };
+                if von != absender {
+                    bericht.defekte.push(befund(Aenderungsgrund::Fremd));
+                    continue;
+                }
+                let bisher = self.fassungen.get(&zeit).map(|fassung| fassung.zustand);
+                let zustand = match (bisher, bezug) {
+                    (Some(Fassungszustand::Geloescht), logformat::Bezug::Bearbeitet) => {
+                        bericht.defekte.push(befund(Aenderungsgrund::NachGeloescht));
+                        continue;
+                    }
+                    (Some(Fassungszustand::Geloescht), logformat::Bezug::Geloescht) => continue,
+                    (_, logformat::Bezug::Bearbeitet) => Fassungszustand::Bearbeitet {
+                        tag: *datum,
+                        anfang,
+                    },
+                    (_, logformat::Bezug::Geloescht) => Fassungszustand::Geloescht,
+                };
+                self.fassungen.insert(zeit, Fassung { geaendert, zustand });
+            }
+        }
+        bericht
+    }
+
+    /// Die Fassung der Nachricht mit dieser Zeit, wenn sie geändert ist.
+    pub fn fassung(&self, zeit: &Zeit) -> Option<Fassung> {
+        self.fassungen.get(zeit).copied()
+    }
+
+    /// Der Änderungssatz einer bearbeiteten Fassung (Kopie); für Geloescht keiner.
+    pub fn aenderungssatz(&self, fassung: &Fassung) -> Option<Vec<u8>> {
+        let Fassungszustand::Bearbeitet { tag, anfang } = fassung.zustand else {
+            return None;
+        };
+        let tag = self.tage.get(&tag)?;
+        Some(tag.rohtext[tag.satzspanne(anfang)].to_vec())
+    }
+
+    /// Hängt einen Bearbeitungssatz an und setzt die Fassung der Nachricht `ziel` (nach erfolgreichem Schreiben).
+    pub fn bearbeitung_anhaengen(
+        &mut self,
+        tag: NaiveDate,
+        satz: &str,
+        zeilenende_ergaenzt: bool,
+        ziel: Zeit,
+        geaendert: Zeit,
+    ) {
+        let anfang = self.anhaengen(tag, satz, zeilenende_ergaenzt);
+        self.fassungen.insert(
+            ziel,
+            Fassung {
+                geaendert,
+                zustand: Fassungszustand::Bearbeitet { tag, anfang },
+            },
+        );
+    }
 }
 
 #[derive(Debug, Default)]
@@ -69,8 +197,8 @@ impl Verlauf {
     }
 
     /// Hängt einen geschriebenen Satz an den Tag an (neuer Tag beginnt leer); mit `zeilenende_ergaenzt`
-    /// steht davor das `\n`, das die Logablage ergänzt hat.
-    pub fn anhaengen(&mut self, tag: NaiveDate, satz: &str, zeilenende_ergaenzt: bool) {
+    /// steht davor das `\n`, das die Logablage ergänzt hat. Liefert den Anfang des Satzes im Rohtext.
+    pub fn anhaengen(&mut self, tag: NaiveDate, satz: &str, zeilenende_ergaenzt: bool) -> usize {
         let tag = self.tage.entry(tag).or_default();
         if zeilenende_ergaenzt {
             tag.rohtext.push(b'\n');
@@ -82,6 +210,7 @@ impl Verlauf {
         }
         tag.traegt_anhang |= satz_traegt_anhang(satz.as_bytes());
         tag.rohtext.extend_from_slice(satz.as_bytes());
+        anfang
     }
 
     /// Wie viele Nachrichten der Index hält — Änderungssätze zählen nicht (ADR-0048 Regel 1).
@@ -112,10 +241,27 @@ impl Verlauf {
 
     /// Nimmt den Tag aus dem Index (ADR-0006: Eintrag fallen lassen, kein Umbau) und nennt seine Nachrichten und
     /// Bytes; stand er nicht darin, nichts.
+    /// Die Fassungen der Nachrichten des Tages gehen mit (ADR-0048 Regel 2).
     pub fn tag_entfernen(&mut self, tag: NaiveDate) -> Option<(usize, u64)> {
-        self.tage
-            .remove(&tag)
-            .map(|tag| (tag.nachrichten.len(), tag.rohtext.len() as u64))
+        let tag = self.tage.remove(&tag)?;
+        let kopfzeit = |anfang: Option<&usize>| {
+            anfang.and_then(|anfang| logformat::kopfzeit(&tag.rohtext[*anfang..]))
+        };
+        if let (Some(erste), Some(letzte)) = (
+            kopfzeit(tag.nachrichten.first()),
+            kopfzeit(tag.nachrichten.last()),
+        ) && erste <= letzte
+        {
+            let weg: Vec<Zeit> = self
+                .fassungen
+                .range(erste..=letzte)
+                .map(|(zeit, _)| *zeit)
+                .collect();
+            for zeit in weg {
+                self.fassungen.remove(&zeit);
+            }
+        }
+        Some((tag.nachrichten.len(), tag.rohtext.len() as u64))
     }
 
     /// Wie viele Nachrichten die Tage echt vor `grenze` im Index haben.
@@ -249,7 +395,11 @@ impl Tag {
     }
 
     fn spanne(&self, index: usize) -> std::ops::Range<usize> {
-        let anfang = self.nachrichten[index];
+        self.satzspanne(self.nachrichten[index])
+    }
+
+    /// Der Satz ab `anfang` bis vor den nächsten Satz gleich welcher Art bzw. bis zum Ende des Tages.
+    fn satzspanne(&self, anfang: usize) -> std::ops::Range<usize> {
         let naechster = self.satzanfaenge.partition_point(|satz| *satz <= anfang);
         let ende = self
             .satzanfaenge
@@ -258,6 +408,34 @@ impl Tag {
             .unwrap_or(self.rohtext.len());
         anfang..ende
     }
+
+    /// Die Sätze, die keine Nachrichten sind, mit ihrem Anfang — in Dateifolge.
+    fn aenderungssaetze(&self) -> impl Iterator<Item = (usize, &[u8])> {
+        self.satzanfaenge
+            .iter()
+            .filter(|anfang| self.nachrichten.binary_search(anfang).is_err())
+            .map(|anfang| (*anfang, &self.rohtext[self.satzspanne(*anfang)]))
+    }
+}
+
+/// Die Nachricht mit genau dieser Zeit (als Zeitpunkt), als Satz ab ihrem Kopf; gesucht in den Tagen um die Zeit.
+fn nachricht_finden<'a>(tage: &'a BTreeMap<NaiveDate, Tag>, zeit: &Zeit) -> Option<&'a [u8]> {
+    tage.range(tag_mit_abstand(*zeit, -2)..=tag_mit_abstand(*zeit, 2))
+        .find_map(|(_, tag)| {
+            let index = grenze_im_tag(&tag.rohtext, &tag.nachrichten, zeit, Seite::Vor);
+            let anfang = *tag.nachrichten.get(index)?;
+            (logformat::kopfzeit(&tag.rohtext[anfang..]) == Some(*zeit))
+                .then(|| &tag.rohtext[tag.spanne(index)])
+        })
+}
+
+/// Die Zeile (1-basiert), in der der Satz ab `anfang` beginnt.
+fn zeile_von(rohtext: &[u8], anfang: usize) -> usize {
+    rohtext[..anfang]
+        .iter()
+        .filter(|byte| **byte == b'\n')
+        .count()
+        + 1
 }
 
 /// Zählt, was ein Block schon genommen hat, über alle Tage hinweg: höchstens `n` Sätze und höchstens `budget`
@@ -838,5 +1016,139 @@ mod tests {
         let block = verlauf.block(&abfrage(Abschnitt::Neueste, 100), zwei);
 
         assert_eq!(zeiten_im(&block), erwartet("2026-10-28", 1..3));
+    }
+
+    /// R00039 B0596 (ADR-0048 Regeln 1–3): Fassungen aus Änderungssätzen über drei Tage — Bearbeitet ersetzt
+    /// Bearbeitet, Geloescht ist endgültig (Mutante „Bearbeitet nach Geloescht übernommen“ rot), fremde Kennung und
+    /// `bearbeitet` nach `geloescht` sind Defekte mit Zeile, eine Änderung ohne Nachricht ist eine stille Waise;
+    /// Entfallen des Tages nimmt die Fassungen seiner Nachrichten mit.
+    #[test]
+    fn fassungen_werden_ueber_alle_tage_gebildet_und_mit_dem_tag_entfernt() {
+        let t1 = "2026-10-27T10:00:00.000+01:00";
+        let t2 = "2026-10-27T10:00:01.000+01:00";
+        let t3 = "2026-10-27T10:00:02.000+01:00";
+        let tag_27 = format!(
+            "@ {t1} alice@127.0.0.2\n  eins\n\n@ {t2} alice@127.0.0.2\n  zwei\n\n@ {t3} bob@127.0.0.3\n  drei\n\n"
+        );
+        let tag_28 = format!(
+            "@ 2026-10-28T09:00:00.000+01:00 alice@127.0.0.2\n+ bearbeitet: {t1}\n  erste Fassung\n\n\
+             @ 2026-10-28T09:00:01.000+01:00 bob@127.0.0.3\n+ bearbeitet: {t1}\n  fremd\n\n\
+             @ 2026-10-28T09:00:02.000+01:00 alice@127.0.0.2\n+ geloescht: {t2}\n\n\
+             @ 2026-10-28T09:00:03.000+01:00 alice@127.0.0.2\n+ bearbeitet: {t2}\n  zu spät\n\n\
+             @ 2026-10-28T09:00:04.000+01:00 alice@127.0.0.2\n+ bearbeitet: {t1}\n  zweite Fassung\n\n\
+             @ 2026-10-28T09:00:05.000+01:00 alice@127.0.0.2\n+ bearbeitet: 2026-10-20T10:00:00.000+02:00\n  Waise\n\n\
+             @ 2026-10-28T09:00:06.000+01:00 alice@127.0.0.2\n+ bearbeitet: {t1}\n+ geloescht: {t1}\n\n"
+        );
+        let tag_29 = format!(
+            "@ 2026-10-29T09:00:00.000+01:00 bob@127.0.0.3\n+ bearbeitet: {t3}\n  dritte\n\n"
+        );
+        let mut verlauf = Verlauf::default();
+        for (datum, rohtext) in [
+            ("2026-10-27", &tag_27),
+            ("2026-10-28", &tag_28),
+            ("2026-10-29", &tag_29),
+        ] {
+            let anfaenge = logformat::saetze(rohtext.as_bytes())
+                .into_iter()
+                .filter_map(Result::ok)
+                .map(|satz| satz.anfang)
+                .collect();
+            verlauf.tag_aufnehmen(tag(datum), rohtext.clone().into_bytes(), anfaenge);
+        }
+        let zeile = |kopf: &str| {
+            tag_28[..tag_28.find(kopf).expect("Kopf")]
+                .matches('\n')
+                .count()
+                + 1
+        };
+
+        let bericht = verlauf.fassungen_bilden();
+
+        assert_eq!(bericht.waisen, 1);
+        assert_eq!(
+            bericht.defekte,
+            vec![
+                Aenderungsbefund {
+                    tag: tag("2026-10-28"),
+                    zeile: zeile("@ 2026-10-28T09:00:01"),
+                    grund: Aenderungsgrund::Fremd
+                },
+                Aenderungsbefund {
+                    tag: tag("2026-10-28"),
+                    zeile: zeile("@ 2026-10-28T09:00:03"),
+                    grund: Aenderungsgrund::NachGeloescht
+                },
+                Aenderungsbefund {
+                    tag: tag("2026-10-28"),
+                    zeile: zeile("@ 2026-10-28T09:00:06"),
+                    grund: Aenderungsgrund::Satz(logformat::Aenderungsdefekt::ZweiBezuege),
+                },
+            ]
+        );
+        let erste = verlauf.fassung(&zeit(t1)).expect("t1 bearbeitet");
+        assert_eq!(erste.geaendert, zeit("2026-10-28T09:00:04.000+01:00"));
+        let satz = verlauf.aenderungssatz(&erste).expect("Satz");
+        assert_eq!(
+            logformat::text(&String::from_utf8_lossy(&satz)),
+            "zweite Fassung"
+        );
+        assert_eq!(
+            verlauf.fassung(&zeit(t2)),
+            Some(Fassung {
+                geaendert: zeit("2026-10-28T09:00:02.000+01:00"),
+                zustand: Fassungszustand::Geloescht
+            })
+        );
+        let dritte = verlauf
+            .fassung(&zeit("2026-10-27T09:00:02.000Z"))
+            .expect("t3 in UTC");
+        assert_eq!(dritte.geaendert, zeit("2026-10-29T09:00:00.000+01:00"));
+        assert_eq!(verlauf.nachrichten(), 3);
+
+        verlauf.tag_entfernen(tag("2026-10-27"));
+
+        for ziel in [t1, t2, t3] {
+            assert_eq!(verlauf.fassung(&zeit(ziel)), None, "{ziel}");
+        }
+    }
+
+    /// B0596 schreiben: ein angehängter Bearbeitungssatz setzt die Fassung seiner Nachricht an seinen Ort; die Zahl
+    /// der Nachrichten bleibt.
+    #[test]
+    fn eine_angehaengte_bearbeitung_setzt_die_fassung() {
+        let mut verlauf = Verlauf::default();
+        verlauf.anhaengen(
+            tag("2026-10-27"),
+            "@ 2026-10-27T10:00:00.000+01:00 a@127.0.0.2\n  alt\n\n",
+            false,
+        );
+        let satz = "@ 2026-10-28T10:00:00.000+01:00 a@127.0.0.2\n+ bearbeitet: 2026-10-27T10:00:00.000+01:00\n  neu\n\n";
+
+        verlauf.bearbeitung_anhaengen(
+            tag("2026-10-28"),
+            satz,
+            false,
+            zeit("2026-10-27T10:00:00.000+01:00"),
+            zeit("2026-10-28T10:00:00.000+01:00"),
+        );
+
+        let fassung = verlauf
+            .fassung(&zeit("2026-10-27T10:00:00.000+01:00"))
+            .expect("Fassung");
+        assert_eq!(
+            fassung,
+            Fassung {
+                geaendert: zeit("2026-10-28T10:00:00.000+01:00"),
+                zustand: Fassungszustand::Bearbeitet {
+                    tag: tag("2026-10-28"),
+                    anfang: 0
+                }
+            }
+        );
+        assert_eq!(
+            verlauf.aenderungssatz(&fassung),
+            Some(satz.as_bytes().to_vec())
+        );
+        assert_eq!(verlauf.nachrichten(), 1);
     }
 }

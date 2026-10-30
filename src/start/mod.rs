@@ -598,7 +598,11 @@ fn verlauf_laden(
             ordner: ordner.to_path_buf(),
             grund: fehler.to_string(),
         })?;
-    for eintrag in ladedefekte::eintraege(gespraeche.defekte()) {
+    let waisen = ladedefekte::waisen_eintrag(gespraeche.aenderungswaisen());
+    for eintrag in ladedefekte::eintraege(gespraeche.defekte())
+        .into_iter()
+        .chain(waisen)
+    {
         protokoll.eintragen(
             eintrag.stufe,
             eintrag.bereich,

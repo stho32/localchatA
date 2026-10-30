@@ -72,7 +72,25 @@ fn eintrag(defekt: &Ladedefekt) -> Eintrag {
             "Einstellungen nicht lesbar, als unbekannt gelesen",
             datei.mit(Schluessel::Grund, grund),
         ),
+        Defektart::Aenderung { zeile, grund } => warnung(
+            "Änderungssatz übergangen",
+            datei
+                .mit(Schluessel::Zeile, zeile)
+                .mit(Schluessel::Grund, *grund),
+        ),
     }
+}
+
+/// `DEBUG laden Änderungen ohne Nachricht | anzahl=<n>` (ADR-0048 Regel 13), eine Zeile je Start; ohne Waisen keine.
+pub fn waisen_eintrag(anzahl: u64) -> Option<Eintrag> {
+    (anzahl > 0).then(|| {
+        Eintrag::neu(
+            Stufe::Debug,
+            Bereich::Laden,
+            "Änderungen ohne Nachricht",
+            Kontext::neu().mit(Schluessel::Anzahl, anzahl),
+        )
+    })
 }
 
 fn warnung(text: impl Into<String>, kontext: Kontext) -> Eintrag {
@@ -130,6 +148,39 @@ mod tests {
     fn ab_zwei_weiteren_defekten_steht_die_mehrzahl() {
         assert_eq!(restzeile_bei(12), "und 2 weitere Defekte in dieser Datei");
         assert_eq!(restzeile_bei(13), "und 3 weitere Defekte in dieser Datei");
+    }
+
+    /// R00039 B0596: ein übergangener Änderungssatz ist eine WARNING `laden` mit Datei, Zeile und Grund; Waisen sind
+    /// eine DEBUG-Zeile mit `anzahl`, ohne Waisen keine.
+    #[test]
+    fn aenderungsdefekte_und_waisen_als_eintraege() {
+        let defekt = Ladedefekt {
+            datei: "channels/allgemein/2026-10-28.log".to_string(),
+            art: Defektart::Aenderung {
+                zeile: 5,
+                grund: "fremd",
+            },
+        };
+
+        let eintraege = eintraege(&[defekt]);
+        let waisen = waisen_eintrag(2).expect("Zeile");
+
+        assert_eq!(eintraege.len(), 1);
+        assert_eq!(eintraege[0].stufe, Stufe::Warning);
+        assert_eq!(eintraege[0].bereich, Bereich::Laden);
+        assert_eq!(eintraege[0].text, "Änderungssatz übergangen");
+        assert_eq!(
+            eintraege[0].kontext.wert(Schluessel::Datei),
+            Some("channels/allgemein/2026-10-28.log")
+        );
+        assert_eq!(eintraege[0].kontext.wert(Schluessel::Zeile), Some("5"));
+        assert_eq!(eintraege[0].kontext.wert(Schluessel::Grund), Some("fremd"));
+        assert_eq!(
+            (waisen.stufe, waisen.bereich, waisen.text.as_str()),
+            (Stufe::Debug, Bereich::Laden, "Änderungen ohne Nachricht")
+        );
+        assert_eq!(waisen.kontext.wert(Schluessel::Anzahl), Some("2"));
+        assert!(waisen_eintrag(0).is_none());
     }
 
     #[test]

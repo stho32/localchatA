@@ -358,6 +358,12 @@ pub fn kopfzeit(satz: &[u8]) -> Option<Zeit> {
     DateTime::parse_from_rfc3339(zeit).ok()
 }
 
+/// Zeit und Kennung aus der Kopfzeile am Anfang von `satz`; ohne gültigen Kopf keine.
+pub fn kopf(satz: &[u8]) -> Option<(Zeit, Kennung)> {
+    let erste = satz.split(|byte| *byte == b'\n').next()?;
+    kopf_lesen(std::str::from_utf8(erste).ok()?)
+}
+
 /// Zerlegt die Bytes einer Tagesdatei in Sätze und Defekte, in der Reihenfolge, in der sie abgeschlossen werden.
 /// Die Bytespannen beziehen sich auf die Rohbytes. Eine Zeile, die kein gültiges UTF-8 ist, ist ein Defekt
 /// ihrer Zeile — als Kopfzeile ein Defekt des ganzen Satzes —, nie des ganzen Tages (ADR-0011).

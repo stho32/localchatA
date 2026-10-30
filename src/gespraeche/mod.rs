@@ -143,6 +143,8 @@ pub struct Gespraeche {
     /// Die zuletzt vergebene Zeit in ms seit 1970 — gesetzt unter `schreiben`, gelesen ohne sie (ADR-0035 Regel 4).
     letzte_ms: AtomicI64,
     defekte: Vec<Ladedefekt>,
+    /// Änderungssätze ohne Nachricht beim Laden (ADR-0048 Regel 1).
+    aenderungswaisen: u64,
     ladezeit: Duration,
     veroeffentlichen: ChannelVeroeffentlichen,
     nachricht_veroeffentlichen: NachrichtVeroeffentlichen,
@@ -231,6 +233,12 @@ pub enum Defektart {
     },
     /// Eine `einstellungen.toml`, die das Dateisystem verweigert.
     EinstellungenUnlesbar(String),
+    /// Ein Änderungssatz, der nicht gilt (ADR-0048 Regel 1): Zeile seiner Kopfzeile und Grund als Wort
+    /// (`fremd`, `nach_geloescht`, `zwei_bezuege`, `bezugszeit`, `reihenfolge`, `anhang`).
+    Aenderung {
+        zeile: usize,
+        grund: &'static str,
+    },
 }
 
 impl fmt::Display for Ladedefekt {
@@ -251,6 +259,13 @@ impl fmt::Display for Ladedefekt {
             ),
             Defektart::KeinChannelname => {
                 write!(f, "{}: kein gültiger Channelname, übergangen", self.datei)
+            }
+            Defektart::Aenderung { zeile, grund } => {
+                write!(
+                    f,
+                    "{}:{zeile}: Änderungssatz übergangen ({grund})",
+                    self.datei
+                )
             }
             Defektart::Unlesbar(grund) => {
                 write!(
@@ -307,6 +322,7 @@ impl Gespraeche {
             for tag in behalten {
                 geladen.tag_laden(ablage.as_ref(), &gespraech, tag, &mut verlauf);
             }
+            geladen.aenderungen_melden(&gespraech, verlauf.fassungen_bilden());
             geladen.belegt += verlauf.bytes();
             if let Some(channel) = channel {
                 geladen
@@ -334,6 +350,7 @@ impl Gespraeche {
                 eingang: anhangeingang::Eingang::default(),
             }),
             defekte: geladen.defekte,
+            aenderungswaisen: geladen.aenderungswaisen,
             ladezeit: beginn.elapsed(),
             veroeffentlichen: Arc::new(|_: &ChannelWechsel| {}),
             nachricht_veroeffentlichen: Arc::new(|_: &Gespraech, _: &Nachricht| {}),
@@ -659,6 +676,11 @@ impl Gespraeche {
         &self.defekte
     }
 
+    /// Änderungssätze ohne Nachricht beim Laden (ADR-0048 Regel 1, Waisen) — still übergangen, nur gezählt.
+    pub fn aenderungswaisen(&self) -> u64 {
+        self.aenderungswaisen
+    }
+
     pub fn kennzahlen(&self) -> Kennzahlen {
         let mut nachrichten = 0;
         let verzeichnis = lesend(&self.verzeichnis);
@@ -861,6 +883,7 @@ struct Geladen {
     juengste: Option<Zeit>,
     /// Σ Bytes der geladenen Tage aller Gespräche.
     belegt: u64,
+    aenderungswaisen: u64,
 }
 
 impl Geladen {
@@ -898,6 +921,34 @@ impl Geladen {
             beschreibung: gelesen.beschreibung,
             frist,
         })
+    }
+
+    /// Übergangene Änderungssätze eines Gesprächs als Ladedefekte mit Datei und Zeile; Waisen nur gezählt.
+    fn aenderungen_melden(
+        &mut self,
+        gespraech: &Gespraech,
+        bericht: verlaufsindex::Fassungsbericht,
+    ) {
+        use logformat::Aenderungsdefekt;
+        use verlaufsindex::Aenderungsgrund;
+        self.aenderungswaisen += bericht.waisen;
+        for befund in bericht.defekte {
+            let grund = match befund.grund {
+                Aenderungsgrund::Fremd => "fremd",
+                Aenderungsgrund::NachGeloescht => "nach_geloescht",
+                Aenderungsgrund::Satz(Aenderungsdefekt::ZweiBezuege) => "zwei_bezuege",
+                Aenderungsgrund::Satz(Aenderungsdefekt::Bezugszeit) => "bezugszeit",
+                Aenderungsgrund::Satz(Aenderungsdefekt::NichtVorher) => "reihenfolge",
+                Aenderungsgrund::Satz(Aenderungsdefekt::Anhang) => "anhang",
+            };
+            self.defekte.push(Ladedefekt {
+                datei: gespraech.tagesdatei(befund.tag),
+                art: Defektart::Aenderung {
+                    zeile: befund.zeile,
+                    grund,
+                },
+            });
+        }
     }
 
     /// Liest einen Tag, nimmt seine gültigen Sätze in den Verlauf und merkt Defekte und jüngste Zeit.
@@ -1401,6 +1452,53 @@ mod tests {
                 .verlaeufe
                 .contains_key(&Gespraech::channel("allgemein"))
         );
+    }
+
+    /// R00039 B0596 Laden: ein Änderungssatz mit fremder Kennung ist ein Defekt mit Datei und Zeile (M13), eine
+    /// Änderung, deren Nachricht entfallen ist, eine stille Waise; die gültige Änderung gilt, die Zahl der Nachrichten
+    /// zählt nur Nachrichten, die Bytes alle Sätze.
+    #[test]
+    fn laden_bildet_fassungen_meldet_fremde_aenderungen_und_zaehlt_waisen() {
+        let wurzel = tempfile::tempdir().expect("Wegwerf-Ordner");
+        let ordner = wurzel.path();
+        let tag_27 = "@ 2026-10-27T10:00:00.000+01:00 beta@127.0.0.1\n+ art: agent\n  Hallo\n\n\
+                      @ 2026-10-27T10:00:01.000+01:00 gamma@127.0.0.1\n+ bearbeitet: 2026-10-27T10:00:00.000+01:00\n  gefälscht\n\n";
+        let tag_28 = "@ 2026-10-28T09:00:00.000+01:00 beta@127.0.0.1\n+ bearbeitet: 2026-10-27T10:00:00.000+01:00\n  Hallo zusammen\n\n\
+                      @ 2026-10-28T09:00:01.000+01:00 beta@127.0.0.1\n+ bearbeitet: 2026-10-01T10:00:00.000+02:00\n  entfallen\n\n";
+        datei(
+            ordner,
+            "channels/allgemein/2026-10-27.log",
+            tag_27.as_bytes(),
+        );
+        datei(
+            ordner,
+            "channels/allgemein/2026-10-28.log",
+            tag_28.as_bytes(),
+        );
+
+        let gespraeche = laden_um(ordner, "2026-10-28T12:00:00+01:00");
+
+        assert_eq!(
+            gespraeche
+                .defekte()
+                .iter()
+                .map(ToString::to_string)
+                .collect::<Vec<_>>(),
+            vec!["channels/allgemein/2026-10-27.log:5: Änderungssatz übergangen (fremd)"]
+        );
+        assert_eq!(gespraeche.aenderungswaisen(), 1);
+        let kennzahlen = gespraeche.kennzahlen();
+        assert_eq!(kennzahlen.nachrichten, 1);
+        assert_eq!(kennzahlen.log_bytes, (tag_27.len() + tag_28.len()) as u64);
+        let verlauf = lesend(&gespraeche.verzeichnis)
+            .verlaeufe
+            .get(&Gespraech::channel("allgemein"))
+            .cloned()
+            .expect("allgemein");
+        let fassung = sperren(&verlauf)
+            .fassung(&zeit("2026-10-27T10:00:00.000+01:00"))
+            .expect("bearbeitet");
+        assert_eq!(fassung.geaendert, zeit("2026-10-28T09:00:00.000+01:00"));
     }
 
     #[test]
