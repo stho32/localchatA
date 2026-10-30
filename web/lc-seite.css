@@ -134,7 +134,12 @@ body { background: var(--kd-bg); color: var(--kd-ink); font-family: var(--font-s
 .lc-fold { max-height: var(--lc-collapse); overflow: hidden; }
 .lc-fold.lc-offen { max-height: none; }
 .lc-foldbar { display: flex; align-items: center; gap: var(--kd-space-8); height: var(--kd-row); border-top: 1px solid var(--kd-line); margin-top: var(--kd-space-4); }
-.lc-foldbar button { border: 0; background: none; color: var(--kd-accent); font-weight: 600; cursor: pointer; padding: 0 var(--kd-space-2); }
+.lc-foldbar button { align-self: stretch; min-height: 24px; border: 0; background: none; color: var(--kd-accent); font-weight: 600; cursor: pointer; padding: 0 var(--kd-space-2); }
+/* Touch-Geräte: die Leiste ist so hoch wie die Zielfläche (44 px, Karte #82) */
+@media (pointer: coarse) {
+  .lc-foldbar { height: auto; min-height: 44px; }
+  .lc-foldbar button { min-height: 44px; }
+}
 .lc-tile:not(.mensch):not(.agent) { background: var(--kd-surface-2); color: var(--kd-ink-muted); }
 
 /* Eingabe (Baustein Eingabe, ADR-0038 Regel 1): unter dem Verlauf über die volle Breite der Mitte; das Feld wächst

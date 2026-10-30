@@ -189,6 +189,9 @@ export function verlaufAnlegen({
     const anker = ankerVon(schalter.closest('.lc-msg'));
     langeUmschalten(schalter);
     ankerHalten(log, anker);
+    if (ereignis.detail === 0) {
+      inSichtBringen(schalter);
+    }
     lageMerken();
   });
 
