@@ -15,7 +15,7 @@ import { rueckfrageOeffnen, loeschenAuswerten } from './loeschen.js';
 import { kopieren, rueckmeldungFuer, RUECKMELDUNG_LEER, MENUE_OFFEN_MS } from './kopieren.js';
 import { menueLage, schalterGanzSichtbar } from './menuelage.js';
 import { zitatNachfuehren } from './zitat.js';
-import { gegenueberIn, apiPfad, ortText } from './gespraech.js';
+import { gegenueberIn, lesbarerApiPfad, ortText } from './gespraech.js';
 import { zeigerart } from './eingabe.js';
 import { mediumSpielt, medienUebernehmen, medienAblageAnlegen, blockSpielt, endeVorWiedergabe } from './player.js';
 import {
@@ -1703,13 +1703,11 @@ export function verlaufAnlegen({
 function leerHinweis(name) {
   const gegenueber = gegenueberIn(name);
   let leer = `Noch keine Nachrichten in # ${name}.`;
-  let pfad = apiPfad(name);
   if (gegenueber !== null) {
     leer = `Noch keine Nachrichten mit ${gegenueber}.`;
-    pfad = `/api/direkt/${gegenueber}`;
   }
   const api = element('p', { className: 'lc-mitte-hinweis lc-leer-api' }, [
-    'Agenten schreiben hier mit ', element('code', { textContent: `POST ${pfad}/nachrichten` }), '.',
+    'Agenten schreiben hier mit ', element('code', { textContent: `POST ${lesbarerApiPfad(name)}/nachrichten` }), '.',
   ]);
   return [hinweis(leer, 'lc-mitte-hinweis'), api];
 }

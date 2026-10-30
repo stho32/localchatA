@@ -3,7 +3,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  direktgespraech, gegenueberIn, mitGespraechsschluessel, apiPfad, ortText, anredeText,
+  direktgespraech, gegenueberIn, mitGespraechsschluessel, apiPfad, lesbarerApiPfad, direktHash, ortText, anredeText,
 } from '../../web/gespraech.js';
 import { direktAuswahl } from '../../web/auswahl.js';
 import { verlaufAbrufen, nachrichtSenden, nachrichtBearbeiten, nachrichtLoeschen, aktivitaetMelden } from '../../web/api.js';
@@ -29,6 +29,15 @@ test('der API-Pfad: Channel unter /api/channels, Direktgespräch unter /api/dire
   assert.equal(apiPfad('a-b'), '/api/channels/a-b');
   assert.equal(apiPfad('direkt:ben@127.0.0.3'), '/api/direkt/ben%40127.0.0.3');
   assert.equal(apiPfad('direkt:ben@::1'), '/api/direkt/ben%40%3A%3A1');
+});
+
+// Code-Review #13 F0178 S5: Adresse und Pfad eines Direktgesprächs entstehen nur hier.
+test('die Adresse #/d/<kennung> prozentkodiert und, für Menschen, der Pfad lesbar (S5)', () => {
+  assert.equal(direktHash('ben@127.0.0.3'), '#/d/ben%40127.0.0.3');
+  assert.equal(direktHash('ben@::1'), '#/d/ben%40%3A%3A1');
+  assert.equal(direktAuswahl(direktHash('ben@fd00::a'), ICH).gegenueber, 'ben@fd00::a');
+  assert.equal(lesbarerApiPfad('direkt:ben@::1'), '/api/direkt/ben@::1');
+  assert.equal(lesbarerApiPfad('allgemein'), '/api/channels/allgemein');
 });
 
 test('Ort und Anrede: „# name“ im Channel, „Direktnachricht mit <Kennung>“ und die Kennung im Direktgespräch', () => {

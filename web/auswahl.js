@@ -1,9 +1,9 @@
 // Channel-Auswahl (ADR-0027): die Auswahl ist eine Ableitung aus Adresse und Channel-Liste, kein eigener Zustand.
 // Nur `#/c/<name>` mit einem gültigen Channelnamen wählt; ist der Name nicht in der Liste, ist er unbekannt.
 import { pruefen } from './namensregel.js';
+import { DIREKT_ADRESSE } from './gespraech.js';
 
 const PRAEFIX = '#/c/';
-const DIREKT_PRAEFIX = '#/d/';
 
 // → { name, bekannt } | null
 export function auswahl(hash, namen) {
@@ -21,10 +21,10 @@ export function auswahl(hash, namen) {
 // oder nicht. Gilt nur eine andere Kennung in kanonischer Schreibweise wie am Server — sonst führt die Adresse zu keinem
 // Gespräch, und es wird nichts gefragt (V14). → null (keine Direktnachricht) | { gegenueber: Kennung | null }
 export function direktAuswahl(hash, eigeneKennung) {
-  if (!hash.startsWith(DIREKT_PRAEFIX)) {
+  if (!hash.startsWith(DIREKT_ADRESSE)) {
     return null;
   }
-  const kennung = entschluesselt(hash.slice(DIREKT_PRAEFIX.length));
+  const kennung = entschluesselt(hash.slice(DIREKT_ADRESSE.length));
   if (kennung === null || kennung === eigeneKennung || !kanonischeKennung(kennung)) {
     return { gegenueber: null };
   }

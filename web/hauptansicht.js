@@ -10,7 +10,7 @@
 // neu ab — Seitenleiste, Kopfzeile und Mitte zeigen sie.
 import * as kopfzeile from './kopfzeile.js';
 import { auswahl, direktAuswahl, auswahlMerken, startadresse, MERKER, nachbarChannel, kuerzelRichtung } from './auswahl.js';
-import { direktgespraech } from './gespraech.js';
+import { direktgespraech, direktHash } from './gespraech.js';
 import { verlaufAnlegen } from './verlauf.js';
 import * as seitenleiste from './seitenleiste.js';
 import { dialogEinrichten } from './channel-anlegen.js';
@@ -172,7 +172,7 @@ export function zeichnen(wurzel, teilnehmer, optionen) {
   teilnehmermenueEinrichten({
     zeilen,
     direktnachricht: (kennung) => {
-      window.location.hash = `#/d/${encodeURIComponent(kennung)}`;
+      window.location.hash = direktHash(kennung);
       auswahlFolgen.folgen();
       teilnehmerPanel.schliessenUnterDerGrenze();
       eingabe.fokussieren();

@@ -34,6 +34,22 @@ export function apiPfad(schluessel) {
   return `/api/direkt/${encodeURIComponent(gegenueber)}`;
 }
 
+// Derselbe Pfad, wie ein Mensch ihn liest und abschreibt (Leerzustand, R00050 V9) — nicht prozentkodiert.
+export function lesbarerApiPfad(schluessel) {
+  const gegenueber = gegenueberIn(schluessel);
+  if (gegenueber === null) {
+    return `/api/channels/${schluessel}`;
+  }
+  return `/api/direkt/${gegenueber}`;
+}
+
+// Die Adresse eines Direktgesprächs im Tab (ADR-0055 Regel 3): `#/d/` und die Kennung prozentkodiert.
+export const DIREKT_ADRESSE = '#/d/';
+
+export function direktHash(kennung) {
+  return DIREKT_ADRESSE + encodeURIComponent(kennung);
+}
+
 // Wo man ist: „# name“ bzw. „Direktnachricht mit <Kennung>“ — das Wort trägt den Privat-Modus, nicht nur die Farbe (V7).
 export function ortText(schluessel) {
   const gegenueber = gegenueberIn(schluessel);
