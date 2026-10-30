@@ -612,3 +612,4 @@ Nie vom User erfragen.
 | 2026-10-30 | R00040 Eigene Nachricht über die API löschen | Nacharbeit B1, B2 (Wanduhr gesamt) | Nacharbeit | — | 0,6h | 0,6h | autonom (entw2) |
 | 2026-10-30 | R00042 Episodenauftreten als eigener Typ | B0655–B0659 (5 Bubbles, Wanduhr gesamt) | Entwicklung | 10–16h | 0,7h | 0,7h | autonom (entw2) |
 | 2026-10-30 | R00043 Löschen und Bearbeiten über die API gehärtet | B0670 Plattenfehler holt Gelöschtes nicht zurück (Wanduhr) | Entwicklung | 2-4h | 0,4h | 0,4h | autonom (entw2) |
+| 2026-10-30 | R00043 Löschen und Bearbeiten über die API gehärtet | Strom I B0666–B0669, B0673 (5 Bubbles, Wanduhr gesamt) | Entwicklung | 10–14h | 0,55h | 0,55h | autonom (entw2) |
