@@ -63,6 +63,23 @@ function tausender(wert) {
   return new Intl.NumberFormat('de-DE').format(wert);
 }
 
+// Was die Antwort des Löschens bedeutet (UX S2), rein: 200 (auch „schon gelöscht“) → die gelöschte Fassung; sonst der
+// Text der Instanz mit ⚠, ohne Antwort „⚠ Keine Antwort vom Server beim Löschen.“
+// → { art: 'geloescht', nachricht } | { art: 'abgewiesen', text }
+export function loeschenAuswerten(antwort) {
+  if (antwort.art !== 'antwort') {
+    return { art: 'abgewiesen', text: '⚠ Keine Antwort vom Server beim Löschen.' };
+  }
+  if (antwort.status === 200) {
+    return { art: 'geloescht', nachricht: antwort.daten.nachricht };
+  }
+  const mitText = antwort.daten !== null && typeof antwort.daten === 'object' && typeof antwort.daten.fehler === 'string';
+  if (mitText) {
+    return { art: 'abgewiesen', text: `⚠ ${antwort.daten.fehler}` };
+  }
+  return { art: 'abgewiesen', text: `⚠ Nicht gelöscht (Status ${antwort.status}).` };
+}
+
 // Die Rückfrage als modaler Dialog (UX M5, S7, PO 126): Frage als Name, Auszug und Warnung als Beschreibung, Knöpfe
 // „Abbrechen“ · „Löschen“; der Startfokus steht auf „Abbrechen“, damit ein schnelles Enter nichts löscht; Tab bleibt
 // im Dialog. Ein Klick auf „Löschen“ schließt sofort — ein Doppelklick bestätigt einmal. ort: Element, in das der Dialog

@@ -74,6 +74,7 @@ export function zeichnen(wurzel, teilnehmer, optionen) {
   const verlauf = verlaufAnlegen({
     abrufen: optionen.verlaufAbrufen,
     bearbeitenSpeichern: (channel, zeit, text) => optionen.nachrichtBearbeiten(channel, zeit, text, neuerSchluessel()),
+    loeschen: optionen.nachrichtLoeschen,
     hinweisen: statusMelden,
     ansagen: (text) => ansagen.melden({ art: 'sofort', text }),
     fokusRueckgaengig: (schluessel) => senden.rueckgaengigFokussiert(schluessel),

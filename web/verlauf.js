@@ -11,7 +11,7 @@ import { gliederung, folgeGliedern, datumBenennen } from './gliederung.js';
 import { nachladen, einfuegen } from './fenster.js';
 import { pfeilRichtung, pfeilZiel, tabStopp, eigeneLetzte, nachrichtTaste } from './fokus.js';
 import { bearbeitenAnlegen } from './bearbeiten.js';
-import { rueckfrageOeffnen } from './loeschen.js';
+import { rueckfrageOeffnen, loeschenAuswerten } from './loeschen.js';
 import { zeigerart } from './eingabe.js';
 import { einordnen, zusammenfuehren, fassungUebernehmen, buendlerAnlegen, folgenOderZaehlen, pillenText, auslaufNach, nichtGeladenText, hinweisTextNachziehen, sprungZiel as sprungZielBerechnen, scrollTopNachHoehe } from './live-verlauf.js';
 
@@ -22,11 +22,12 @@ import { einordnen, zusammenfuehren, fassungUebernehmen, buendlerAnlegen, folgen
 // Nachricht im Fenster durch ihre geänderte Fassung (ADR-0048 Regel 11); vorlaeufigeZeigen(liste) zeichnet eigene
 // Nachrichten unterwegs oder fehlgeschlagen unter allen bestätigten; an fehlgeschlagenen rufen „Erneut senden“ und
 // „Verwerfen“ schalter('erneut' | 'verwerfen', schluessel) (ADR-0038 Regel 5).
-// bearbeitenSpeichern: async (channel, zeit, text) → Antwort (api.js nachrichtBearbeiten); hinweisen(text): die Hinweiszeile
-// der Seite; ansagen(text): eine Ansage über die Region der Seite (R00041 F0135).
+// bearbeitenSpeichern: async (channel, zeit, text) → Antwort (api.js nachrichtBearbeiten); loeschen: async (channel, zeit) →
+// Antwort (api.js nachrichtLoeschen); hinweisen(text): die Hinweiszeile der Seite; ansagen(text): eine Ansage über die
+// Region der Seite (R00041 F0135, F0139).
 export function verlaufAnlegen({
   abrufen, schalter = () => {}, fokusRueckgaengig = () => {}, fokusVerloren = () => {}, bearbeitenSpeichern = async () => ({ art: 'netzfehler' }),
-  hinweisen = () => {}, ansagen = () => {},
+  loeschen = async () => ({ art: 'netzfehler' }), hinweisen = () => {}, ansagen = () => {},
 }) {
   const inhalt = element('div', { className: 'lc-log-inhalt' });
   const ausstehend = element('div', { className: 'lc-ausstehend' });
@@ -391,15 +392,37 @@ export function verlaufAnlegen({
     }
   }
 
-  // Löschen nach genau einer Rückfrage (F0139); danach steht der Fokus wieder auf der Nachricht.
+  // Löschen nach genau einer Rückfrage (F0139), höchstens ein Aufruf zugleich: gelöscht → die Fassung der Antwort, Fokus
+  // auf der Nachricht, Ansage „Nachricht gelöscht.“; abgewiesen → Hinweiszeile, die Nachricht bleibt und lässt sich
+  // erneut löschen. Ein Wechsel des Channels verwirft die Antwort nicht — die Fassung trifft nur den offenen.
+  let loeschenLaeuft = false;
   function loeschenFragen(nachricht) {
+    const channel = offenerName;
     const zurueckZurNachricht = () => {
       const knoten = nachrichtKnoten(nachricht.zeit);
       if (knoten !== null) {
         nachrichtFokussieren(knoten);
       }
     };
-    rueckfrageOeffnen(rahmen, nachricht, { bestaetigt: zurueckZurNachricht, abgebrochen: zurueckZurNachricht });
+    const bestaetigt = async () => {
+      zurueckZurNachricht();
+      if (loeschenLaeuft) {
+        return;
+      }
+      loeschenLaeuft = true;
+      const ergebnis = loeschenAuswerten(await loeschen(channel, nachricht.zeit));
+      loeschenLaeuft = false;
+      if (ergebnis.art === 'abgewiesen') {
+        hinweisen(ergebnis.text);
+        return;
+      }
+      if (channel === offenerName) {
+        fassungenErsetzen([ergebnis.nachricht]);
+        zurueckZurNachricht();
+      }
+      ansagen('Nachricht gelöscht.');
+    };
+    rueckfrageOeffnen(rahmen, nachricht, { bestaetigt, abgebrochen: zurueckZurNachricht });
   }
 
   function nachrichtKnoten(zeit) {

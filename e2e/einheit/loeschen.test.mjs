@@ -47,3 +47,22 @@ test('Größe in Worten (R00030): Byte, KiB ganz und kaufmännisch, ab 1 MiB ein
     assert.equal(groesseInWorten(bytes), worte, `${bytes}`);
   }
 });
+
+// R00041 F0139 B0624: was die Antwort des Löschens bedeutet.
+import { loeschenAuswerten } from '../../web/loeschen.js';
+
+test('200 → gelöscht mit der Fassung der Antwort (auch „schon gelöscht“)', () => {
+  const nachricht = { zeit: 'z', text: '', zustand: 'geloescht', geaendert: 'g', anhaenge: [] };
+  assert.deepEqual(loeschenAuswerten({ art: 'antwort', status: 200, daten: { channel: 'a', nachricht, ergebnis: 'geloescht' } }), { art: 'geloescht', nachricht });
+});
+
+test('Abweisung → „⚠ <Text der Instanz>“; ohne Text mit Status', () => {
+  assert.deepEqual(loeschenAuswerten({ art: 'antwort', status: 403, daten: { fehler: 'Nur eigene Nachrichten.' } }), { art: 'abgewiesen', text: '⚠ Nur eigene Nachrichten.' });
+  assert.deepEqual(loeschenAuswerten({ art: 'antwort', status: 500, daten: null }), { art: 'abgewiesen', text: '⚠ Nicht gelöscht (Status 500).' });
+});
+
+test('keine Antwort → „⚠ Keine Antwort vom Server beim Löschen.“', () => {
+  for (const art of ['netzfehler', 'zeitueberschreitung']) {
+    assert.deepEqual(loeschenAuswerten({ art }), { art: 'abgewiesen', text: '⚠ Keine Antwort vom Server beim Löschen.' });
+  }
+});

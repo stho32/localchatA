@@ -36,8 +36,7 @@ function loeschenPerApi(adresse, token, zeit, herkunft = BETA) {
 
 /// Legt Anhänge über die API ab (R00029: anmelden, hochladen) und sendet sie mit `text` nach `allgemein`; dateien:
 /// [{ name, inhalt: Buffer }] → die Zeit der Nachricht.
-async function mitAnhaengenSenden(adresse, token, text, dateien, herkunft = BETA) {
-  const ids = [];
+async function mitAnhaengenSenden(adresse, token, text, dateien, herkunft = BETA, ids = []) {
   for (const { name, inhalt } of dateien) {
     const angemeldet = await anfragen(adresse, { methode: 'POST', pfad: 'api/anhaenge', koerper: { name, bytes: inhalt.length }, token, herkunft });
     expect(angemeldet.status, JSON.stringify(angemeldet.daten)).toBe(201);
@@ -68,6 +67,64 @@ function bytesSenden(adresse, pfad, token, inhalt, herkunft) {
 
 /// Ein PNG von 1 × 1 Pixel.
 const PNG = Buffer.from('89504e470d0a1a0a0000000d4948445200000001000000010802000000907753de0000000c49444154789c63606060000000040001f61738550000000049454e44ae426082', 'hex');
+
+/// Ein PNG mit genau `bytes` Bytes (zwischen 262.271 und 327.786): Graustufe 8 Bit, eine Zeile, unkomprimiert in
+/// gespeicherten zlib-Blöcken zu höchstens 65.535 Bytes — der Server legt Bilder ohne Metadaten unverändert ab.
+function pngMitBytes(bytes) {
+  const BLOCK = 65535;
+  const BLOECKE = 5;
+  const rohLaenge = bytes - 57 - 6 - 5 * BLOECKE;
+  const roh = Buffer.alloc(rohLaenge);
+  const teile = [Buffer.from([0x78, 0x01])];
+  for (let anfang = 0; anfang < rohLaenge; anfang += BLOCK) {
+    const stueck = roh.subarray(anfang, Math.min(anfang + BLOCK, rohLaenge));
+    const kopf = Buffer.alloc(5);
+    kopf[0] = anfang + BLOCK >= rohLaenge ? 1 : 0;
+    kopf.writeUInt16LE(stueck.length, 1);
+    kopf.writeUInt16LE(stueck.length ^ 0xffff, 3);
+    teile.push(kopf, stueck);
+  }
+  const pruefsumme = Buffer.alloc(4);
+  pruefsumme.writeUInt32BE(adler32(roh));
+  teile.push(pruefsumme);
+  const kopfdaten = Buffer.alloc(13);
+  kopfdaten.writeUInt32BE(rohLaenge - 1, 0);
+  kopfdaten.writeUInt32BE(1, 4);
+  kopfdaten[8] = 8;
+  return Buffer.concat([
+    Buffer.from('89504e470d0a1a0a', 'hex'), pngStueck('IHDR', kopfdaten), pngStueck('IDAT', Buffer.concat(teile)), pngStueck('IEND', Buffer.alloc(0)),
+  ]);
+}
+
+function pngStueck(typ, daten) {
+  const laenge = Buffer.alloc(4);
+  laenge.writeUInt32BE(daten.length);
+  const typUndDaten = Buffer.concat([Buffer.from(typ, 'latin1'), daten]);
+  const crc = Buffer.alloc(4);
+  crc.writeUInt32BE(crc32(typUndDaten));
+  return Buffer.concat([laenge, typUndDaten, crc]);
+}
+
+function crc32(bytes) {
+  let wert = 0xffffffff;
+  for (const byte of bytes) {
+    wert ^= byte;
+    for (let bit = 0; bit < 8; bit += 1) {
+      wert = (wert >>> 1) ^ (0xedb88320 & -(wert & 1));
+    }
+  }
+  return (wert ^ 0xffffffff) >>> 0;
+}
+
+function adler32(bytes) {
+  let a = 1;
+  let b = 0;
+  for (const byte of bytes) {
+    a = (a + byte) % 65521;
+    b = (b + a) % 65521;
+  }
+  return ((b << 16) | a) >>> 0;
+}
 
 /// Ein WebM aus ffmpeg (VP8, 1 s, ohne Ton), im eigenen Wegwerf-Ordner erzeugt.
 function webm() {
@@ -189,6 +246,6 @@ const textknotenMit = (page, text) => page.evaluate((gesucht) => {
 }, text);
 
 module.exports = {
-  BETA, betaVerlauf, mitAnhaengenSenden, PNG, webm, betaSendet, bearbeitenPerApi, loeschenPerApi, browserOeffnen, imBrowserSenden, nachrichtMitZeit, zeigtBearbeitet,
+  BETA, betaVerlauf, mitAnhaengenSenden, PNG, pngMitBytes, webm, betaSendet, bearbeitenPerApi, loeschenPerApi, browserOeffnen, imBrowserSenden, nachrichtMitZeit, zeigtBearbeitet,
   zeigtGeloescht, textknotenMit, schriftKontrast, ansagenMitschreiben,
 };
