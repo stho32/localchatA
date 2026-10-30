@@ -25,6 +25,26 @@ impl Kennung {
         }
     }
 
+    /// Die kanonische Kennung für Pfad und Ordner (ADR-0055 Regel 2): `bilden` und die Herkunft als Adresse
+    /// gelesen, in ihre kanonische Form gebracht und wieder als Text **byte-gleich** dem Eingang. Abgewiesen,
+    /// nie umgeformt (ADR-0013): `anna@::ffff:127.0.0.1`, `anna@fd00:0::7` und `anna@127.0.0.01` sind Aliase
+    /// derselben Adresse und damit zweite Namen desselben Gesprächs.
+    pub fn kanonisch(text: &str) -> Result<Kennung, Fehler> {
+        let kennung = Kennung::bilden(text)?;
+        let kanonisch = text.split_once('@').is_some_and(|(_, herkunft)| {
+            herkunft
+                .parse::<IpAddr>()
+                .is_ok_and(|adresse| adresse.to_canonical().to_string() == herkunft)
+        });
+        if kanonisch {
+            Ok(kennung)
+        } else {
+            Err(Fehler::Ungueltig(format!(
+                "Kennung {text:?} nicht kanonisch — erwartet name@herkunft mit der Herkunft als Adresse in ihrer kürzesten Schreibweise (IPv6 kleingeschrieben und gekürzt, IPv4 ohne führende Nullen, keine IPv4-in-IPv6-Form)"
+            )))
+        }
+    }
+
     /// Aus einem geprüften Namen und der Herkunft einer Verbindung — die Textform einer IP-Adresse erfüllt
     /// die Herkunftsregel immer.
     pub(crate) fn aus(name: &Name, herkunft: IpAddr) -> Kennung {
@@ -179,6 +199,45 @@ mod tests {
                 }
                 anderes => panic!("{text:?} ergab {anderes:?}"),
             }
+        }
+    }
+
+    /// B0765 D2 (ADR-0055 Regel 2, Matrix R5, W3): jede Schreibweise außer der einen kanonischen ist ein Fehler, die
+    /// kanonische geht und bleibt byte-gleich.
+    #[test]
+    fn nur_die_kanonische_schreibweise_einer_kennung_gilt_aliase_werden_abgewiesen() {
+        let lang = format!("{}@127.0.0.1", "a".repeat(200));
+        for alias in [
+            "anna@::ffff:127.0.0.1",
+            "anna@::ffff:127.0.0.2",
+            "anna@0:0:0:0:0:ffff:7f00:2",
+            "anna@FD00::7",
+            "anna@fd00:0::7",
+            "anna@[fd00::7]",
+            "anna@127.0.0.01",
+            "anna@127.0.0.02",
+            "anna@fd00::7%25eth0",
+            "Anna@127.0.0.1",
+            lang.as_str(),
+            "anna@127.0.0.1%00",
+            "anna@",
+            "anna",
+            "anna@fd00:0000:0000:0000:0000:0000:0000:0007",
+        ] {
+            ungueltig_kanonisch(alias);
+        }
+        for kanonisch in ["anna@fd00::7", "anna@127.0.0.1", "anna@::1"] {
+            let kennung = Kennung::kanonisch(kanonisch).expect(kanonisch);
+            assert_eq!(kennung.als_text(), kanonisch);
+        }
+        // `bilden` lässt „1“ als Herkunft zu (ADR-0012); eine Adresse ist es nicht.
+        ungueltig_kanonisch("x@1");
+    }
+
+    fn ungueltig_kanonisch(text: &str) {
+        match Kennung::kanonisch(text) {
+            Err(Fehler::Ungueltig(meldung)) => assert!(meldung.contains("Kennung"), "{meldung}"),
+            anderes => panic!("{text:?} ergab {anderes:?}"),
         }
     }
 
