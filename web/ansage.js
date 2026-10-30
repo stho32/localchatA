@@ -4,7 +4,7 @@
 // („Neue Direktnachricht von <kennung>“, im selben Takt, je Absender einmal gesammelt; R00050 V11) — eine Nachricht in
 // einem nicht offenen Channel nicht. Eigene, nachgeladene und nachgeholte nie; ein Fehlschlag sofort.
 //
-// ereignis: { art: 'fremd', von, channel, offenerChannel } · { art: 'eigen' | 'nachgeholt' | 'takt' | 'gewechselt' }
+// ereignis: { art: 'fremd', von, channel, offenerChannel } · { art: 'eigen' | 'nachgeholt' | 'takt' } · { art: 'gewechselt', channel } (das nun offene Gespräch)
 //         · { art: 'fehlschlag', grund } · { art: 'sofort', text } (Verbindung, Statuszeile, Hinweis, Verworfen,
 //         Entfernt — sofort, der Takt der gesammelten bleibt; R00025 F0084) · { art: 'getrennt' } · { art: 'wiederverbunden',
 //         text } (sofort; „Verbindung verloren“ einmal je Trennung, nicht je Versuch)
@@ -30,7 +30,7 @@ export function ansage(zustand, ereignis, jetztMs) {
     case 'wiederverbunden':
       return { zustand: { ...zustand, getrennt: false }, text: ereignis.text };
     case 'gewechselt':
-      return { zustand: { ...zustand, gesammelt: 0 }, text: null };
+      return gewechseltAnsagen(zustand, ereignis.channel);
     case 'eigen':
     case 'nachgeholt':
       return { zustand, text: null };
@@ -44,6 +44,14 @@ function getrenntAnsagen(zustand) {
     return { zustand, text: null };
   }
   return { zustand: { ...zustand, getrennt: true }, text: 'Verbindung verloren' };
+}
+
+// Wer ein Gespräch öffnet, hat es vor Augen: Gesammeltes des offenen Channels und die gesammelte Ansage genau dieses
+// Direktgesprächs entfallen, die anderer Gespräche bleiben.
+function gewechseltAnsagen(zustand, channel) {
+  const geoeffnet = gegenueberIn(channel);
+  const direkt = zustand.direkt.filter((von) => von !== geoeffnet);
+  return { zustand: { ...zustand, gesammelt: 0, direkt }, text: null };
 }
 
 function fremdAnsagen(zustand, { von, channel, offenerChannel }, jetztMs) {

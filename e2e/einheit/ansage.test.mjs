@@ -86,7 +86,7 @@ test('eine fremde Nachricht je Sekunde über 60 s ergibt höchstens 7 Ansagen', 
 });
 
 test('ein Channel-Wechsel verwirft Gesammeltes', () => {
-  const texte = ablauf([[0, fremd()], [1000, fremd()], [2000, { art: 'gewechselt' }], [10000, TAKT]]);
+  const texte = ablauf([[0, fremd()], [1000, fremd()], [2000, { art: 'gewechselt', channel: OFFEN }], [10000, TAKT]]);
 
   assert.deepEqual(texte.map(([, text]) => text), ['Neue Nachricht von claude@10.0.0.5 in # allgemein', null, null, null]);
 });
@@ -242,9 +242,34 @@ test('eine Direktnachricht in Ruhe nach einer gesammelten wartet auf den Takt �
   const gesammelt = ansage(zustand, direktVon('cora@127.0.0.9'), 5000);
   assert.equal(gesammelt.text, null);
   assert.equal(ansageWartet(gesammelt.zustand), true);
-  const nachDemWechsel = ansage(gesammelt.zustand, { art: 'gewechselt' }, 6000);
+  const nachDemWechsel = ansage(gesammelt.zustand, { art: 'gewechselt', channel: 'direkt:ben@127.0.0.3' }, 6000);
   assert.equal(ansageWartet(nachDemWechsel.zustand), true, 'ein Wechsel verwirft keine Direktnachricht eines anderen Gesprächs');
   assert.equal(ansage(nachDemWechsel.zustand, TAKT, 10000).text, 'Neue Direktnachricht von cora@127.0.0.9');
+});
+
+// R00050 F0180 Nacharbeit (code-reviewer #13): wer das Gespräch mit ben öffnet, hat ben gelesen — gesammeltes „Neue
+// Direktnachricht von ben“ wird nicht mehr angesagt; das Gesammelte eines anderen Gesprächs bleibt.
+test('das Öffnen eines Direktgesprächs verwirft die gesammelte Ansage dieses Gegenübers, nicht die eines anderen', () => {
+  let zustand = ansage(ANSAGE_LEER, direktVon('ben@127.0.0.3'), 0).zustand;
+  zustand = ansage(zustand, direktVon('ben@127.0.0.3'), 2000).zustand;
+  zustand = ansage(zustand, direktVon('cora@127.0.0.9'), 3000).zustand;
+  assert.equal(ansageWartet(zustand), true);
+
+  const geoeffnet = ansage(zustand, { art: 'gewechselt', channel: 'direkt:ben@127.0.0.3' }, 4000);
+
+  assert.equal(geoeffnet.text, null);
+  assert.equal(ansageWartet(geoeffnet.zustand), true, 'cora wartet weiter');
+  assert.equal(ansage(geoeffnet.zustand, TAKT, 10000).text, 'Neue Direktnachricht von cora@127.0.0.9');
+});
+
+test('das Öffnen des Direktgesprächs, dessen Ansage allein wartet, lässt nichts mehr warten', () => {
+  let zustand = ansage(ANSAGE_LEER, direktVon('ben@127.0.0.3'), 0).zustand;
+  zustand = ansage(zustand, direktVon('ben@127.0.0.3'), 2000).zustand;
+
+  const geoeffnet = ansage(zustand, { art: 'gewechselt', channel: 'direkt:ben@127.0.0.3' }, 4000);
+
+  assert.equal(ansageWartet(geoeffnet.zustand), false);
+  assert.equal(ansage(geoeffnet.zustand, TAKT, 10000).text, null);
 });
 
 test('eine fremde Nachricht in einem anderen, nicht offenen Channel bleibt still (Kontrolle zu V11)', () => {

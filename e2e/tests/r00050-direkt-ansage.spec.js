@@ -97,3 +97,30 @@ test('Ansage (B0790, V11): ben in # allgemein hört binnen 2 s „Neue Direktnac
   await expect(ansageRegion(ben.page)).toHaveCount(1);
   expect([...anna.fehler, ...ben.fehler, ...cora.fehler]).toEqual([]);
 });
+
+// Nacharbeit F0180 (code-reviewer #13, Sollte 1): ben hört „Neue Direktnachricht von anna“, bekommt binnen 10 s eine
+// zweite (gesammelt) und öffnet das Gespräch binnen 3 s — die gesammelte Ansage entfällt, er hat die Nachricht vor Augen.
+// Mutante: „gewechselt“ trägt den Kanal nicht → nach 10 s eine zweite Ansage, rot.
+test('Ansage (V11, Nacharbeit): eine gesammelte Ansage entfällt, wenn ben das Gespräch binnen 3 s öffnet', async ({ browser }) => {
+  test.setTimeout(60000);
+  instanz = await sendenStarten();
+  const [anna, ben] = [await browserOeffnen(browser), await browserOeffnen(browser)];
+  await imBrowserBeitreten(anna.page, instanz.adresse, 'anna');
+  await imBrowserBeitreten(ben.page, instanz.adresse, 'ben');
+  const gehoert = await ansagenMitschreiben(ben.page);
+  await direktOeffnen(anna.page, BEN_B);
+  await gespraechOffen(anna.page, BEN_B);
+
+  const ab = await sendenAn(anna.page, BEN_B, 'Erste');
+  await expect.poll(async () => (await gehoert()).length, { intervals: [25], timeout: 5000 }).toBe(1);
+  await sendenAn(anna.page, BEN_B, 'Zweite');
+  await expect(ben.page.getByRole('navigation', { name: 'Direktnachrichten' }).getByText('anna')).toBeVisible();
+  await direktOeffnen(ben.page, ANNA_B);
+  await gespraechOffen(ben.page, ANNA_B);
+  expect(Date.now() - ab, 'geöffnet binnen 10 s nach der ersten Ansage').toBeLessThan(10000);
+
+  await ben.page.waitForTimeout(ab + 14000 - Date.now());
+  const direktAnsagen = (await gehoert()).map(({ text }) => text).filter((text) => text.includes('Direktnachricht von anna'));
+  expect(direktAnsagen).toEqual([`Neue Direktnachricht von ${ANNA_B}`]);
+  expect([...anna.fehler, ...ben.fehler]).toEqual([]);
+});

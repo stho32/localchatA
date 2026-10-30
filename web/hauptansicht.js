@@ -163,7 +163,7 @@ export function zeichnen(wurzel, teilnehmer, optionen) {
     tippanzeige.oeffnen(name);
     senden.channelGeoeffnet(name);
     hochladen.channelGeoeffnet(name);
-    ansagen.melden({ art: 'gewechselt' });
+    ansagen.melden({ art: 'gewechselt', channel: name });
   };
   const auswahlFolgen = auswahlEinrichten({
     seitenleiste: channels, kopf, mitte, verlauf, eingabe, beiAuswahl, beiOeffnen, erneutWaehlen: wieder.erneutWaehlen,
