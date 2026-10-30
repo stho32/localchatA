@@ -11,6 +11,7 @@ pub mod anhangquote;
 #[cfg(test)]
 pub mod anhangspeicher;
 pub mod anhangverzeichnis;
+mod direktgespraeche;
 mod direktpaar;
 pub mod einstellungen;
 pub mod erwaehnung;
@@ -320,6 +321,9 @@ pub enum Defektart {
     Unlesbar(String),
     /// Ein Ordner unter `channels/`, dessen Name kein Channelname ist (ADR-0020 Regel 6).
     KeinChannelname,
+    /// Ein Ordner unter `direkt/`, dessen Name kein Direktpaar ist (ADR-0055 Regel 1); `datei` trägt ihn als
+    /// `direkt/<name>`, Steuerzeichen ersetzt und auf 128 Zeichen gekürzt.
+    KeinDirektpaar,
     /// Eine `einstellungen.toml`, die sich nicht deuten lässt (ADR-0022 Regel 3).
     Einstellungen {
         zeile: usize,
@@ -359,6 +363,9 @@ impl fmt::Display for Ladedefekt {
             ),
             Defektart::KeinChannelname => {
                 write!(f, "{}: kein gültiger Channelname, übergangen", self.datei)
+            }
+            Defektart::KeinDirektpaar => {
+                write!(f, "{}: kein gültiges Direktpaar, übergangen", self.datei)
             }
             Defektart::Aenderung { zeile, grund } => {
                 write!(
@@ -441,6 +448,15 @@ impl Gespraeche {
                 .verzeichnis
                 .verlaeufe
                 .insert(gespraech, Arc::new(Mutex::new(verlauf)));
+        }
+        let uebergangen = ablage
+            .direkt_uebergangen()
+            .map_err(|fehler| Fehler::Ablage(format!("Direktgespräche nicht lesbar: {fehler}")))?;
+        for name in uebergangen {
+            geladen.defekte.push(Ladedefekt {
+                datei: direktgespraeche::ordner_fuer_protokoll(&name),
+                art: Defektart::KeinDirektpaar,
+            });
         }
         Ok(Gespraeche {
             ablage,
@@ -986,7 +1002,12 @@ impl Gespraeche {
             nachrichten,
             log_bytes: self.belegt(),
             ladezeit_ms: u64::try_from(self.ladezeit.as_millis()).unwrap_or(u64::MAX),
-            defekte_zeilen: self.defekte.len() as u64,
+            // Ein übergangener Direktordner steht nur im Protokoll, nie im Health-Check (ADR-0055 Regel 9, O2).
+            defekte_zeilen: self
+                .defekte
+                .iter()
+                .filter(|defekt| defekt.art != Defektart::KeinDirektpaar)
+                .count() as u64,
             channels: verzeichnis.channels.len() as u64,
             plattenquote: self.hoechstens,
             quote_abgewiesen: self.belegung.abgewiesen(),

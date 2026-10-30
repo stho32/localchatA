@@ -62,6 +62,10 @@ fn eintrag(defekt: &Ladedefekt) -> Eintrag {
         Defektart::KeinChannelname => {
             warnung("Kein gültiger Channelname, Ordner übergangen", datei)
         }
+        Defektart::KeinDirektpaar => warnung(
+            "Kein gültiges Direktgespräch, Ordner übergangen",
+            Kontext::neu().mit(Schluessel::Ordner, &defekt.datei),
+        ),
         Defektart::Einstellungen { zeile, grund } => warnung(
             "Einstellungen nicht lesbar, als unbekannt gelesen",
             datei

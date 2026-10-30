@@ -13,6 +13,8 @@ pub(super) enum Vorgang {
     Loeschen,
     /// Je entfallendem Tag der Pflege, vor der Sperre des Gesprächs.
     Pflegen,
+    /// Das Bereitstellen eines Direktgesprächs, vor der Sperre des Verzeichnisses (ADR-0055 Regel 4, W5).
+    DirektAnlegen,
 }
 
 #[derive(Default)]
@@ -20,6 +22,7 @@ pub(super) struct Schranken {
     bearbeiten: Mutex<Option<Arc<Barrier>>>,
     loeschen: Mutex<Option<Arc<Barrier>>>,
     pflegen: Mutex<Option<Arc<Barrier>>>,
+    direkt_anlegen: Mutex<Option<Arc<Barrier>>>,
 }
 
 impl Schranken {
@@ -28,6 +31,7 @@ impl Schranken {
             Vorgang::Bearbeiten => &self.bearbeiten,
             Vorgang::Loeschen => &self.loeschen,
             Vorgang::Pflegen => &self.pflegen,
+            Vorgang::DirektAnlegen => &self.direkt_anlegen,
         }
     }
 

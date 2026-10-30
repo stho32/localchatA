@@ -77,6 +77,24 @@ pub trait Logablage: Send + Sync {
     /// Entfernt den Ordner des Gesprächs samt Inhalt — nur für den Rückbau eines eben angelegten.
     fn ordner_entfernen(&self, gespraech: &Gespraech) -> io::Result<()>;
 
+    /// Entfernt den Ordner eines Direktgesprächs nur, wenn er **leer** ist (`rmdir`, nie `remove_dir_all`): der
+    /// Rückbau eines Paars, dessen erstes Senden scheiterte (ADR-0055 Regel 4). Ist er nicht leer, geschieht
+    /// nichts und es ist ein Fehler.
+    fn leeren_ordner_entfernen(&self, gespraech: &Gespraech) -> io::Result<()> {
+        let _ = gespraech;
+        Err(io::Error::new(
+            io::ErrorKind::Unsupported,
+            "leere Ordner entfernen: diese Ablage kann es nicht",
+        ))
+    }
+
+    /// Die Namen der Ordner unter `direkt/`, die kein Direktpaar benennen (ADR-0055 Regel 1) und übergangen
+    /// wurden — beim Laden je eine `WARNING laden`. Namen mit `.` am Anfang und Symlinks zählen nicht. Eine Ablage
+    /// ohne Direktgespräche hat keine.
+    fn direkt_uebergangen(&self) -> io::Result<Vec<String>> {
+        Ok(Vec::new())
+    }
+
     /// Entfernt die Tagesdatei des Tages; der Pfad entsteht aus Gespräch und Datum (ADR-0032 Regel 3). Fehlt sie
     /// schon, gilt sie als entfernt.
     fn tag_entfernen(&self, gespraech: &Gespraech, tag: NaiveDate) -> io::Result<()>;
@@ -106,6 +124,39 @@ impl Dateiablage {
             protokoll,
         }
     }
+}
+
+impl Dateiablage {
+    /// `direkt/` und `direkt/<paar>/` anlegen (ADR-0055 Regel 4): `direkt` muss ein echter Ordner sein, ein Symlink
+    /// oder eine Datei ist ein Fehler, bevor etwas angelegt wird; der Paarordner ist vorhanden, wenn ein echter
+    /// Ordner da ist (`AlreadyExists`), ein Symlink oder Nicht-Ordner an seiner Stelle ist ein Fehler.
+    fn direkt_ordner_anlegen(&self, ordner: &Path) -> io::Result<()> {
+        let wurzel = self.ordner.join("direkt");
+        match std::fs::symlink_metadata(&wurzel) {
+            Ok(daten) if daten.file_type().is_dir() => {}
+            Ok(_) => return Err(kein_ordner(&wurzel)),
+            Err(fehler) if fehler.kind() == io::ErrorKind::NotFound => {
+                std::fs::create_dir(&wurzel)?
+            }
+            Err(fehler) => return Err(fehler),
+        }
+        match std::fs::create_dir(ordner) {
+            Err(fehler) if fehler.kind() == io::ErrorKind::AlreadyExists => {
+                match std::fs::symlink_metadata(ordner) {
+                    Ok(daten) if daten.file_type().is_dir() => Err(fehler),
+                    _ => Err(kein_ordner(ordner)),
+                }
+            }
+            angelegt => angelegt,
+        }
+    }
+}
+
+fn kein_ordner(pfad: &Path) -> io::Error {
+    io::Error::other(format!(
+        "{} ist kein echter Ordner (Symlink oder Datei)",
+        pfad.display()
+    ))
 }
 
 impl Logablage for Dateiablage {
@@ -182,10 +233,15 @@ impl Logablage for Dateiablage {
 
     fn channel_ordner_anlegen(&self, gespraech: &Gespraech) -> io::Result<()> {
         let ordner = self.ordner.join(gespraech.pfad());
-        if let Some(eltern) = ordner.parent() {
-            std::fs::create_dir_all(eltern)?;
+        match gespraech {
+            Gespraech::Channel(_) => {
+                if let Some(eltern) = ordner.parent() {
+                    std::fs::create_dir_all(eltern)?;
+                }
+                std::fs::create_dir(ordner)
+            }
+            Gespraech::Direkt(_) => self.direkt_ordner_anlegen(&ordner),
         }
-        std::fs::create_dir(ordner)
     }
 
     fn einstellungen_schreiben(&self, gespraech: &Gespraech, bytes: &[u8]) -> io::Result<()> {
@@ -205,6 +261,33 @@ impl Logablage for Dateiablage {
 
     fn ordner_entfernen(&self, gespraech: &Gespraech) -> io::Result<()> {
         std::fs::remove_dir_all(self.ordner.join(gespraech.pfad()))
+    }
+
+    fn leeren_ordner_entfernen(&self, gespraech: &Gespraech) -> io::Result<()> {
+        std::fs::remove_dir(self.ordner.join(gespraech.pfad()))
+    }
+
+    fn direkt_uebergangen(&self) -> io::Result<Vec<String>> {
+        let eintraege = match std::fs::read_dir(self.ordner.join("direkt")) {
+            Ok(eintraege) => eintraege,
+            Err(fehler) if fehler.kind() == io::ErrorKind::NotFound => return Ok(Vec::new()),
+            Err(fehler) => return Err(fehler),
+        };
+        let mut uebergangen = Vec::new();
+        for eintrag in eintraege {
+            let eintrag = eintrag?;
+            if !eintrag.file_type()?.is_dir() {
+                continue;
+            }
+            let name = eintrag.file_name();
+            let gueltig = name.to_str().and_then(Direktpaar::aus_ordnername).is_some();
+            let versteckt = name.as_encoded_bytes().first() == Some(&b'.');
+            if !gueltig && !versteckt {
+                uebergangen.push(name.to_string_lossy().into_owned());
+            }
+        }
+        uebergangen.sort();
+        Ok(uebergangen)
     }
 
     /// Unmittelbar vor dem Löschen: liegt dort eine reguläre Datei? Ein Symlink oder Ordner bleibt und ist ein

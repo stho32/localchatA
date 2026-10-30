@@ -183,6 +183,7 @@ pub struct Anhangdateien {
 
 const EINGANG: &str = ".eingang";
 const CHANNELS: &str = "channels";
+const DIREKT: &str = "direkt";
 
 impl Anhangdateien {
     /// Beim Start, nach der Sperre: `.eingang` per `symlink_metadata` prüfen — fehlt er, anlegen; Symlink oder kein
@@ -190,6 +191,7 @@ impl Anhangdateien {
     /// öffnen. Ein später gegen einen Symlink getauschter `.eingang` ändert nichts mehr.
     pub fn oeffnen(ordner: &Path) -> Result<(Anhangdateien, Vec<Stehengeblieben>), Eingangsfehler> {
         wurzel_pruefen(&ordner.join(CHANNELS))?;
+        wurzel_pruefen(&ordner.join(DIREKT))?;
         let pfad = ordner.join(EINGANG);
         let platte = |fehler: io::Error| Eingangsfehler::Platte {
             pfad: pfad.clone(),

@@ -197,6 +197,18 @@ impl Logablage for Speicherablage {
             .ok_or_else(unbekannt)
     }
 
+    fn leeren_ordner_entfernen(&self, gespraech: &Gespraech) -> io::Result<()> {
+        let mut innen = self.innen();
+        match innen.gespraeche.get(gespraech) {
+            None => Ok(()),
+            Some(tage) if tage.is_empty() => {
+                innen.gespraeche.remove(gespraech);
+                Ok(())
+            }
+            Some(_) => Err(io::Error::other("Ordner nicht leer (Speicher-Logablage)")),
+        }
+    }
+
     fn tag_entfernen(&self, gespraech: &Gespraech, tag: NaiveDate) -> io::Result<()> {
         let mut innen = self.innen();
         if innen
