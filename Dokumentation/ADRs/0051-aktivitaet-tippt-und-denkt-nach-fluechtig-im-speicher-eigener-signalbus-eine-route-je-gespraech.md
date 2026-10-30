@@ -190,3 +190,5 @@ Regeln:
 - Referenzen (Verhalten, nichts übernommen; aus der Karte #77): Slack `assistant.threads.setStatus` (endet mit der Antwort, leerem Status oder nach 2 Minuten), Discord Trigger Typing Indicator (verfällt nach 10 s, ohne Zustand im Server)
 
 ## Ergänzungen
+
+- **2026-10-30 (Karte #13, I0012) — Verweis:** Regel 10 „Direktgespräche (I0012)“ eingelöst in [ADR-0055](0055-direktgespraeche-paar-aus-zwei-kennungen-gegenueber-im-pfad-anlegen-beim-ersten-senden-eine-sichtbarkeitsregel-sichtbare-marke.md) Regeln 3, 5 und 6: Route `/api/direkt/{kennung}/aktivitaet`, `sichtbar_fuer` ersetzt `aktivitaet::sichtbar`, Ausgabe im Strom nur an das Gegenüber — Vorgeschlagen.
