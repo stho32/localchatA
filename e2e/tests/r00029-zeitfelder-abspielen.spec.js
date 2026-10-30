@@ -5,6 +5,9 @@
 // Bytes trotzdem: `canplay`, `currentTime` rückt vor, kein `error`. Gespielt wird aus einer lokalen Seite ohne CSP:
 // das Medien-Dokument unter /anhaenge/<id> lädt wegen `sandbox; default-src 'none'` nichts, und der Player im
 // Verlauf (App-CSP mit `media-src`) ist noch nicht gebaut — beides unabhängig vom Tilger.
+// Dazu R00029 „Kontrollen Platzhalter“ (ADR-0047 Ergänzung „Karte #9 Security-Review B3“ P12, B0654): Filme mit
+// genullten Platzhaltern (`free`, `wide`, Faststart-Reserve, 64-Bit- und offene Größe) und ein DASH-Film, dessen
+// `prft` und `emsg` unkenntlich werden, spielen ebenso.
 const fs = require('fs');
 const http = require('http');
 const os = require('os');
@@ -131,6 +134,37 @@ function version1(bytes) {
   return umbauen(0, bytes.length);
 }
 
+/// Spielt die gelieferten Bytes `name` aus einer lokalen Seite: `canplay`, `currentTime` rückt vor, kein `error`.
+async function spielt(page, name, bytes) {
+  fs.writeFileSync(path.join(werkstatt, `geliefert-${name}`), bytes);
+  fs.writeFileSync(path.join(werkstatt, 'spielen.html'), `<video src="geliefert-${name}"></video>`);
+
+  await page.goto(`file://${path.join(werkstatt, 'spielen.html')}`);
+  const gespielt = await page.evaluate(() => new Promise((fertig) => {
+    const video = document.querySelector('video');
+    if (!video) {
+      fertig({ fehler: 'kein Video' });
+      return;
+    }
+    video.muted = true;
+    const pruefen = () => fertig({ bereit: video.readyState, zeit: video.currentTime, fehler: video.error && video.error.code });
+    video.addEventListener('error', pruefen);
+    const spielen = () => {
+      video.play().catch(() => {});
+      setTimeout(pruefen, 1000);
+    };
+    if (video.readyState >= 3) {
+      spielen();
+    } else {
+      video.addEventListener('canplay', spielen, { once: true });
+    }
+  }));
+
+  expect(gespielt, name).toEqual(expect.objectContaining({ fehler: null }));
+  expect(gespielt.bereit, name).toBeGreaterThanOrEqual(3);
+  expect(gespielt.zeit, name).toBeGreaterThan(0);
+}
+
 test('ein Film mit genullten Zeitfeldern spielt im Browser', async ({ page }) => {
   werkstatt = fs.mkdtempSync(path.join(os.tmpdir(), 'localchata-e2e-film-'));
   instanz = await instanzStarten({ vorbereiten: (ordner) => fs.mkdirSync(path.join(ordner, 'channels', 'allgemein'), { recursive: true }) });
@@ -147,32 +181,49 @@ test('ein Film mit genullten Zeitfeldern spielt im Browser', async ({ page }) =>
     expect(geholt.status, name).toBe(200);
     expect(geholt.bytes.length, name).toBe(inhalt.length);
     expect(geholt.bytes.equals(inhalt), `${name}: getilgt`).toBe(false);
-    fs.writeFileSync(path.join(werkstatt, `geliefert-${name}`), geholt.bytes);
-    fs.writeFileSync(path.join(werkstatt, 'spielen.html'), `<video src="geliefert-${name}"></video>`);
+    await spielt(page, name, geholt.bytes);
+  }
+});
 
-    await page.goto(`file://${path.join(werkstatt, 'spielen.html')}`);
-    const gespielt = await page.evaluate(() => new Promise((fertig) => {
-      const video = document.querySelector('video');
-      if (!video) {
-        fertig({ fehler: 'kein Video' });
-        return;
-      }
-      video.muted = true;
-      const pruefen = () => fertig({ bereit: video.readyState, zeit: video.currentTime, fehler: video.error && video.error.code });
-      video.addEventListener('error', pruefen);
-      const spielen = () => {
-        video.play().catch(() => {});
-        setTimeout(pruefen, 1000);
-      };
-      if (video.readyState >= 3) {
-        spielen();
-      } else {
-        video.addEventListener('canplay', spielen, { once: true });
-      }
-    }));
+/// Eine Box mit 32-Bit-Größe.
+function kiste(typ, inhalt) {
+  const kopf = Buffer.alloc(8);
+  kopf.writeUInt32BE(inhalt.length + 8);
+  kopf.write(typ, 4, 'latin1');
+  return Buffer.concat([kopf, inhalt]);
+}
 
-    expect(gespielt, name).toEqual(expect.objectContaining({ fehler: null }));
-    expect(gespielt.bereit, name).toBeGreaterThanOrEqual(3);
-    expect(gespielt.zeit, name).toBeGreaterThan(0);
+/// `neu` oben vor `mfra` (`mfra` findet ein Leser über `mfro` vom Ende her).
+function vorMfra(bytes, neu) {
+  const mfra = boxen(bytes, 0, bytes.length).find(({ typ }) => typ === 'mfra');
+  const stelle = mfra ? mfra.inhalt - 8 : bytes.length;
+  return Buffer.concat([bytes.subarray(0, stelle), neu, bytes.subarray(stelle)]);
+}
+
+test('Filme mit genullten Platzhaltern spielen im Browser', async ({ page }) => {
+  werkstatt = fs.mkdtempSync(path.join(os.tmpdir(), 'localchata-e2e-film-'));
+  instanz = await instanzStarten({ vorbereiten: (ordner) => fs.mkdirSync(path.join(ordner, 'channels', 'allgemein'), { recursive: true }) });
+  const token = await beitreten(instanz.adresse, 'beta');
+  const android = film('android.mp4');
+  const gross = Buffer.alloc(16 + 4096, 0x37);
+  gross.writeUInt32BE(1);
+  gross.write('free', 4, 'latin1');
+  gross.writeBigUInt64BE(BigInt(gross.length), 8);
+  const offen = Buffer.concat([Buffer.from([0, 0, 0, 0]), Buffer.from('free', 'latin1'), Buffer.alloc(4096, 0x38)]);
+  const emsg = kiste('emsg', Buffer.concat([Buffer.alloc(4), Buffer.from('urn:dash:event\0\0'), Buffer.alloc(16), Buffer.from('Nutzlast')]));
+  const filme = [
+    ['android.mp4', Buffer.concat([android, kiste('free', Buffer.alloc(1024, 0x36))])],
+    ['iphone.mov', film('iphone.mov')],
+    ['reserve.mp4', film('reserve.mp4', ['-moov_size', '70000'])],
+    ['dash.mp4', vorMfra(film('dash.mp4', ['-movflags', 'dash+global_sidx', '-write_prft', 'wallclock']), emsg)],
+    ['free64.mp4', Buffer.concat([android, gross])],
+    ['free0.mp4', Buffer.concat([android, offen])],
+  ];
+  for (const [name, inhalt] of filme) {
+    const id = await ablegen(instanz.adresse, token, name, inhalt);
+    const geholt = await ausgeliefert(instanz.adresse, id);
+    expect(geholt.status, name).toBe(200);
+    expect(geholt.bytes.length, name).toBe(inhalt.length);
+    await spielt(page, name, geholt.bytes);
   }
 });

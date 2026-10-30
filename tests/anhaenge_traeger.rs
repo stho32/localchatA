@@ -1340,3 +1340,124 @@ async fn jpeg_item_im_heif_verliert_den_ort() {
 fn jpeg_mit_ort_im_com() -> Vec<u8> {
     jpeg(&[(0xfe, ort())], 8, 8)
 }
+
+/// Die obersten Platzhalter (`free`, `skip`, `wide`) als (Anfang des Inhalts, Ende).
+fn oberste_platzhalter(bytes: &[u8]) -> Vec<(usize, usize)> {
+    boxen(bytes, 0, bytes.len())
+        .into_iter()
+        .filter(|(typ, _, _)| [b"free", b"skip", b"wide"].contains(&typ))
+        .map(|(_, inhalt, bis)| (inhalt, bis))
+        .collect()
+}
+
+/// Lage und Größe jeder obersten `mdat`.
+fn lage_mdat(bytes: &[u8]) -> Vec<(usize, usize)> {
+    boxen(bytes, 0, bytes.len())
+        .into_iter()
+        .filter(|(typ, _, _)| typ == b"mdat")
+        .map(|(_, inhalt, bis)| (inhalt, bis))
+        .collect()
+}
+
+/// ADR-0047 B3 P12, Kontrollen als Nachbauten (B0654; die echten Telefon- und Kameradateien im Entwicklertest): MP4
+/// nach Art eines Android-Telefons (`free` vor und hinter `mdat`), MOV nach Art des iPhone (`wide` vor `mdat`), MP4
+/// mit Faststart-Reserve in `free` (≥ 64 KiB), ein DASH-MP4 mit `sidx`, `mfra`, `prft` und `emsg`, ein `free` mit
+/// `size` = 1 (64 Bit) und eines mit `size` 0 am Dateiende → je 200, `ffprobe` gleiche Dauer, Spuren, Zeitbasis,
+/// fehlerfrei dekodiert, Lage und Größe von `mdat` gleich, `mdat` byte-gleich, jeder oberste Platzhalter genullt;
+/// `sidx`/`mfra` byte-gleich. HEIC nach Art des iPhone und ein AVIF aus ffmpeg ohne `jpeg`-Item → Art und Maße wie
+/// vorher, Bildboxen byte-gleich. `free` mit `size` 0 in `moov` → 422.
+#[tokio::test]
+async fn kontrollen_platzhalter_und_varianten() {
+    let lauf = Lauf::neu().await;
+    let ordner = ordner();
+    let android = film(ordner.path(), "android.mp4", &[]);
+    let mut gross = 1u32.to_be_bytes().to_vec();
+    gross.extend(b"free");
+    gross.extend((16u64 + 4_096).to_be_bytes());
+    gross.extend(vec![0x37; 4_096]);
+    let bis_ende = [&0u32.to_be_bytes()[..], b"free", &[0x38; 4_096]].concat();
+    let dash = film(
+        ordner.path(),
+        "dash.mp4",
+        &["-movflags", "dash+global_sidx", "-write_prft", "wallclock"],
+    );
+    let emsg = kiste(
+        b"emsg",
+        &[&[0u8; 4][..], b"urn:dash:event\0\0", &[0; 16], b"Nutzlast"].concat(),
+    );
+    let filme = [
+        (
+            "android.mp4",
+            [android.clone(), kiste(b"free", &[0x36; 1_024])].concat(),
+        ),
+        ("iphone.mov", film(ordner.path(), "iphone.mov", &[])),
+        (
+            "reserve.mp4",
+            film(ordner.path(), "reserve.mp4", &["-moov_size", "70000"]),
+        ),
+        ("dash.mp4", vor_mfra(&dash, &emsg)),
+        ("free64.mp4", [android.clone(), gross].concat()),
+        ("free0.mp4", [android.clone(), bis_ende].concat()),
+    ];
+    let dauer = "format=duration:stream=index,codec_type,time_base,duration";
+    for (name, original) in filme {
+        let vorher = ordner.path().join(format!("vorher-{name}"));
+        std::fs::write(&vorher, &original).expect("geschrieben");
+        spielt_fehlerfrei(&format!("vorher-{name}"), &original);
+        // Der DASH-Film trägt keinen Platzhalter, aber `prft` und `emsg`, die danach Platzhalter sind (B0650).
+        assert!(
+            name == "dash.mp4" || !oberste_platzhalter(&original).is_empty(),
+            "{name}"
+        );
+
+        let geliefert = lauf.ausliefern(name, &original).await;
+
+        let bytes = &geliefert.bytes;
+        spielt_fehlerfrei(name, bytes);
+        let nachher = ordner.path().join(format!("nachher-{name}"));
+        std::fs::write(&nachher, bytes).expect("geschrieben");
+        assert_eq!(ffprobe(&nachher, dauer), ffprobe(&vorher, dauer), "{name}");
+        assert_eq!(lage_mdat(bytes), lage_mdat(&original), "{name}");
+        for typ in [b"mdat", b"sidx", b"mfra", b"moof"] {
+            assert_eq!(finden(bytes, typ), finden(&original, typ), "{name}");
+        }
+        for (inhalt, bis) in oberste_platzhalter(bytes) {
+            assert!(
+                bytes[inhalt..bis].iter().all(|b| *b == 0),
+                "{name}: {inhalt}"
+            );
+        }
+    }
+
+    let kachel = vec![0x5a; 64];
+    let ipco = [
+        kiste(b"colr", b"nclx\0\x01\0\x0d\0\x01\x80"),
+        kiste(b"irot", b"\x01"),
+        kiste(b"ispe", b"\0\0\0\0\0\0\0\x40\0\0\0\x30"),
+    ];
+    let iphone = heic_mit(
+        &[
+            (b"grid", b"", vec![0, 0, 0, 0, 0, 0x40, 0, 0x30]),
+            (b"hvc1", b"", kachel.clone()),
+            (b"tmap", b"", vec![0x7b; 32]),
+            (b"Exif", b"", exif_item_mit_ort()),
+        ],
+        &ipco,
+        &[kiste(b"free", &[0x39; 64])],
+    );
+    let geliefert = lauf.ausliefern("iphone.heic", &iphone).await;
+    ohne_ort("iphone.heic", &geliefert.bytes);
+    assert!(enthaelt(&geliefert.bytes, &kachel) && enthaelt(&geliefert.bytes, &ipco.concat()));
+    assert_eq!(geliefert.anhang["art"], "image/heic");
+    let avif = gemeinsam::dateien::avif_foto();
+    let geliefert = lauf.ausliefern("foto.avif", &avif).await;
+    assert_eq!(geliefert.bytes, avif, "echtes AVIF byte-gleich");
+    assert_eq!(
+        art_und_masse(&geliefert.anhang),
+        ("image/avif".to_string(), json!(4032), json!(3024))
+    );
+
+    let ohne_groesse = [&0u32.to_be_bytes()[..], b"free", &[0x3a; 64]].concat();
+    let in_moov = einfuegen(&android, &[b"moov"], &ohne_groesse);
+    lauf.abgewiesen("free0-in-moov.mp4", &in_moov).await;
+}
