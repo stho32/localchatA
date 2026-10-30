@@ -507,13 +507,12 @@ mod tests {
     }
 
     /// Nacharbeit security-reviewer #17 Befund 2: erwähnungsdicht 16 KiB „@a “ × 5.461, 2.000 Aufrufe → Median
-    /// ≤ 20 µs (vorher 464 µs: ein String je `@`); Gegenprobe 16 KiB „x“ ≤ 5 µs. Ein Zeitmaß gilt nur optimiert —
-    /// im Debug-Build übersprungen, gefahren mit `cargo test --release --lib erwaehnungsdicht`.
+    /// ≤ 20 µs (vorher 464 µs: ein String je `@`); Gegenprobe 16 KiB „x“ ≤ 5 µs. Eine Lastbeobachtung im Release,
+    /// kein Gate: die Wanduhr schwankt mit der Last des Rechners; den Vertrag „keine Allokation je `@`“ hält
+    /// `tests/erwaehnung_allokationsfrei.rs` zählend. Gefahren mit
+    /// `cargo test --release --lib erwaehnungsdicht -- --ignored --nocapture`.
     #[test]
-    #[cfg_attr(
-        debug_assertions,
-        ignore = "Zeitmaß nur im Release: cargo test --release --lib erwaehnungsdicht"
-    )]
+    #[ignore = "Lastbeobachtung (Wanduhr): cargo test --release --lib erwaehnungsdicht -- --ignored --nocapture"]
     fn erwaehnungsdicht_bleibt_die_trefferregel_unter_20_us() {
         let dicht = "@a ".repeat(5_461);
         let ohne = "x".repeat(16_384);
