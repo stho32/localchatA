@@ -9,7 +9,7 @@
 // Die Auswahl folgt allein Adresse und Channel-Liste (ADR-0027): Start, hashchange und jede neue Liste leiten sie
 // neu ab — Seitenleiste, Kopfzeile und Mitte zeigen sie.
 import * as kopfzeile from './kopfzeile.js';
-import { direktHash } from './gespraech.js';
+import { direktHash, gegenueberIn } from './gespraech.js';
 import { auswahlEinrichten } from './auswahl-folgen.js';
 import { verlaufAnlegen } from './verlauf.js';
 import * as seitenleiste from './seitenleiste.js';
@@ -126,7 +126,7 @@ export function zeichnen(wurzel, teilnehmer, optionen) {
   });
   const tippanzeige = aktivitaetsanzeigeAnlegen({ kennung: teilnehmer.kennung });
   wurzel.append(tippanzeige.region);
-  const tippen = tippenAnlegen({ melden: optionen.aktivitaetMelden });
+  const tippen = tippenErstImBekanntenGespraech(tippenAnlegen({ melden: optionen.aktivitaetMelden }), () => verlauf.stand());
   const eingabe = eingabeAnlegen({
     // Mit Dateien wartet die Nachricht als Eintrag „wird hochgeladen …“ (R00030 B0450), ohne geht sie gleich in die Schlange.
     senden: (text, bezug, dateien) => {
@@ -216,6 +216,22 @@ export function zeichnen(wurzel, teilnehmer, optionen) {
       eingabe.entwurfSichern();
       unterbrochen.sichern(hochladen.offene());
       hochladen.alleAnhalten();
+    },
+  };
+}
+
+// Ein Direktgespräch ohne Nachricht gibt es an der Instanz noch nicht — Tippen dort beantwortete sie mit 404 „wie nie
+// da“ (ADR-0055 Regel 3). Gemeldet wird erst, wenn der offene Verlauf eine Nachricht kennt (Code-Review #13 F0178 O4).
+function tippenErstImBekanntenGespraech(tippen, verlaufsstand) {
+  return {
+    ...tippen,
+    eingabe: (channel, text) => {
+      const stand = verlaufsstand();
+      const leeresDirektgespraech = gegenueberIn(channel) !== null && (stand.channel !== channel || stand.juengste === null);
+      if (leeresDirektgespraech) {
+        return;
+      }
+      tippen.eingabe(channel, text);
     },
   };
 }

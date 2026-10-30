@@ -54,8 +54,10 @@ test('Adresse (B0784, V7, V9): #/d/ben%40127.0.0.3 zeigt Verlauf und Eingabe des
   expect(anna.fehler).toEqual([]);
 });
 
+// Seit O4 (Code-Review #13 F0178) meldet ein leeres Direktgespräch kein Tippen — darum hat das Gespräch hier eine Nachricht.
 test('Entwurf und Tippen (B0784, V10): der Entwurf liegt unter localchatA.entwurf.direkt:<kennung>, Tippen geht an das offene Gespräch', async ({ browser }) => {
-  const { anna } = await starten(browser);
+  const { instanz: gestartet, anna, token } = await starten(browser);
+  expect((await direktSenden(gestartet.adresse, token.ben, ANNA, 'Erste von ben', '127.0.0.3')).status).toBe(201);
   const aktivitaet = [];
   anna.page.on('request', (anfrage) => {
     const pfad = new URL(anfrage.url()).pathname;
@@ -66,6 +68,7 @@ test('Entwurf und Tippen (B0784, V10): der Entwurf liegt unter localchatA.entwur
 
   await direktOeffnen(anna.page, BEN);
   await gespraechOffen(anna.page, BEN);
+  await expect(verlaufMit(anna.page, BEN).locator('.lc-msg')).toHaveCount(1);
   await eingabeAn(anna.page, BEN).pressSequentially('Entwurf an ben');
   await warten(700);
   await anna.page.evaluate(() => { window.location.hash = '#/c/allgemein'; });

@@ -113,3 +113,36 @@ test('Drei Kontexte (B0788, D12, K2, S1): anna beginnt über das Menü, ben sieh
   expect(paarordner(instanz.ordner)).toHaveLength(1);
   expect([...anna.fehler, ...annaZwei.fehler, ...ben.fehler, ...cora.fehler]).toEqual([]);
 });
+
+// Code-Review #13 F0178 O4: solange das Direktgespräch keine Nachricht kennt, gibt es an der Instanz nichts zu
+// betippen (404 „wie nie da“) — die Oberfläche meldet dort kein Tippen; nach der ersten Nachricht sieht das Gegenüber es.
+test('Tippen im leeren Direktgespräch (O4): 30 Zeichen ohne /aktivitaet-Anfrage, nach der ersten Nachricht sieht ben es', async ({ browser }) => {
+  instanz = await sendenStarten();
+  const anna = await browserOeffnen(browser);
+  const ben = await browserOeffnen(browser);
+  await imBrowserBeitreten(anna.page, instanz.adresse, 'anna');
+  await imBrowserBeitreten(ben.page, instanz.adresse, 'ben');
+  const aktivitaet = [];
+  anna.page.on('request', (anfrage) => {
+    if (new URL(anfrage.url()).pathname.endsWith('/aktivitaet')) {
+      aktivitaet.push(anfrage.url());
+    }
+  });
+  await direktOeffnen(anna.page, BEN_B);
+  await gespraechOffen(anna.page, BEN_B);
+  await direktOeffnen(ben.page, ANNA_B);
+  await gespraechOffen(ben.page, ANNA_B);
+
+  await eingabeAn(anna.page, BEN_B).pressSequentially('x'.repeat(30));
+  await warten(1000);
+  expect(aktivitaet).toEqual([]);
+
+  await eingabeAn(anna.page, BEN_B).fill('Hallo ben');
+  await eingabeAn(anna.page, BEN_B).press('Enter');
+  await sichtbarNach(ben.page, zeigtText, { argument: { text: 'Hallo ben' }, ab: Date.now() });
+  const tippenAb = Date.now();
+  await eingabeAn(anna.page, BEN_B).pressSequentially('Noch');
+  expect(await sichtbarNach(ben.page, zeigtTipp, { argument: 'anna tippt …', ab: tippenAb }), 'Tippen bei ben').toBeLessThanOrEqual(ZUSTELLUNG_MS);
+  expect(aktivitaet.length).toBeGreaterThan(0);
+  expect([...anna.fehler, ...ben.fehler]).toEqual([]);
+});
