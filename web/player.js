@@ -3,6 +3,20 @@
 // 16 : 9 — breit wie der Anhang, höchstens 360 px —, das Audio in einer Zeile fester Höhe; beide behalten ihre Höhe,
 // auch wenn der Browser das Medium nicht abspielen kann.
 
+const FEHLERTEXT = 'Kann im Browser nicht abgespielt werden — „Laden“ nutzen.';
+
+// Der Browser kann das Medium nicht abspielen (ux-reviewer #43 F0165 S2): der Hinweis erscheint in der Player-Fläche. Hatte das
+// Medium den Fokus, geht er auf die Nachricht (das Medium ist danach unsichtbar), und der Verlauf sagt den Hinweis einmal an
+// (Ereignis `lc-ansage`); ohne Fokus im Medium bleibt es still.
+function beiFehler(player, medium) {
+  player.dataset.zustand = 'fehler';
+  if (document.activeElement !== medium) {
+    return;
+  }
+  player.closest('.lc-msg').focus({ preventScroll: true });
+  medium.dispatchEvent(new CustomEvent('lc-ansage', { bubbles: true, detail: FEHLERTEXT }));
+}
+
 // Der Player eines Anhangs der Form 'video' oder 'audio'; rahmen: { breite, videoHoehe } des vollen Rahmens.
 export function playerZeichnen(anhang, form, rahmen) {
   const medium = Object.assign(document.createElement(form), { controls: true, preload: 'none' });
@@ -12,15 +26,11 @@ export function playerZeichnen(anhang, form, rahmen) {
     medium.width = rahmen.breite;
     medium.height = rahmen.videoHoehe;
   }
-  const fehler = Object.assign(document.createElement('span'), {
-    className: 'lc-player-fehler', textContent: 'Kann im Browser nicht abgespielt werden — „Laden“ nutzen.',
-  });
+  const fehler = Object.assign(document.createElement('span'), { className: 'lc-player-fehler', textContent: FEHLERTEXT });
   const player = Object.assign(document.createElement('div'), { className: `lc-player lc-player-${form}` });
   player.dataset.anhang = anhang.id;
   player.append(medium, fehler);
-  medium.addEventListener('error', () => {
-    player.dataset.zustand = 'fehler';
-  });
+  medium.addEventListener('error', () => beiFehler(player, medium));
   medium.src = anhang.url;
   return player;
 }

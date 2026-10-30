@@ -466,6 +466,11 @@ button.lc-marke { min-width: 24px; min-height: 24px; padding: 0 var(--kd-space-4
 .lc-player-fehler { display: none; }
 .lc-player[data-zustand="fehler"] .lc-player-fehler { position: absolute; inset: 0; display: flex; align-items: flex-end; justify-content: center; padding: var(--kd-space-4); overflow: hidden; font-size: 12px; line-height: 20px; color: var(--kd-ink-muted); text-align: center; overflow-wrap: anywhere; }
 .lc-player[data-zustand="fehler"] :is(video, audio) { visibility: hidden; }
+/* Audio im Fehlerzustand: der Hinweis steht in der Zeile selbst und kann sie vergrößern (nie unter 54 px), statt über dem
+   Rand abgeschnitten zu werden (ux-reviewer S1) */
+.lc-player-audio[data-zustand="fehler"] { display: flex; align-items: center; min-height: 54px; }
+.lc-player-audio[data-zustand="fehler"] audio { display: none; }
+.lc-player-audio[data-zustand="fehler"] .lc-player-fehler { position: static; flex: 1 1 auto; min-width: 0; }
 /* Bild im Dialog (B0459): das Original in den Bildschirm eingepasst, darunter „Schließen“ (Touch 44 × 44 px) */
 .lc-bild-dialog { max-width: calc(100vw - 2 * var(--kd-space-16)); max-height: calc(100dvh - 2 * var(--kd-space-16)); padding: 0; background: var(--kd-surface); color: var(--kd-ink); border: 1px solid var(--kd-line-strong); }
 .lc-bild-dialog::backdrop { background: rgb(0 0 0 / 60%); }

@@ -699,6 +699,9 @@ export function verlaufAnlegen({
     }
   });
 
+  // Ansagen aus den Playern (R00030 F0165, ux-reviewer S2): der Fehlerhinweis eines Mediums mit Fokus geht an die Region.
+  inhalt.addEventListener('lc-ansage', (ereignis) => ansagen(ereignis.detail));
+
   // Wird die fokussierte Nachricht ersetzt (der jüngste Block wird neu gezeichnet), fällt der Fokus mit dem alten Knoten
   // auf die Seite. Der Verlauf merkt sich die Zeit der Nachricht, die den Fokus hat, und legt ihn auf den neuen Knoten
   // derselben Zeit — ohne zu scrollen, ohne Ansage (R00041 F0141 B0634). Verlässt der Fokus den Knoten, ohne dass er
