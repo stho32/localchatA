@@ -154,7 +154,7 @@ function dateiZeileZeichnen(anhang, { form, oeffnen }) {
   kuerzel.setAttribute('aria-hidden', 'true');
   const kopf = element('span', { className: 'lc-datei-kopf' }, [
     kuerzel,
-    element('span', { className: 'lc-datei-name', textContent: anhang.name, title: anhang.name }),
+    nameZeichnen(anhang.name),
     element('span', { className: 'lc-datei-groesse', textContent: groesseInWorten(anhang.bytes) }),
   ]);
   if (form === 'geloescht') {
@@ -166,6 +166,18 @@ function dateiZeileZeichnen(anhang, { form, oeffnen }) {
   }
   links.push(verweisZeichnen(anhang, 'Laden', 'laden', { download: anhang.name }));
   return element('div', { className: 'lc-datei' }, [kopf, element('span', { className: 'lc-datei-links' }, links)]);
+}
+
+// Der Name kürzt in der Mitte: die letzten 8 Zeichen (Uhrzeit, Nummer, Endung) bleiben stehen, die Ellipse nimmt der
+// Anfang — zwei Screenshots derselben Minute bleiben unterscheidbar (ux-reviewer #43 F0102 S2).
+function nameZeichnen(name) {
+  const ENDE_ZEICHEN = 8;
+  const zeichen = Array.from(name);
+  const trenn = Math.max(0, zeichen.length - ENDE_ZEICHEN);
+  return element('span', { className: 'lc-datei-name', title: name }, [
+    element('span', { className: 'lc-datei-name-anfang', textContent: zeichen.slice(0, trenn).join('') }),
+    element('span', { className: 'lc-datei-name-ende', textContent: zeichen.slice(trenn).join('') }),
+  ]);
 }
 
 function verweisZeichnen(anhang, beschriftung, tun, eigenschaften) {

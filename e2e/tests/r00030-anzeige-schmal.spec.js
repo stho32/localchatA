@@ -202,3 +202,54 @@ test('Bild im Dialog bei Fehler (Nacharbeit F0102, ux-reviewer S1): Original 404
   await expect(dialog.getByText('Bild nicht verfügbar.', { exact: true })).toBeVisible();
   expect(lauf.a.fehler.filter((zeile) => !/Failed to load resource/.test(zeile))).toEqual([]);
 });
+
+/// Liegen die letzten `anzahl` Zeichen des Namens sichtbar im Kasten des Namens (nicht abgeschnitten, nicht unter der Ellipse)?
+const endeSichtbar = (name, anzahl) => name.evaluate((element, zeichen) => {
+  const laeufer = document.createTreeWalker(element, NodeFilter.SHOW_TEXT);
+  const knoten = [];
+  for (let text = laeufer.nextNode(); text !== null; text = laeufer.nextNode()) {
+    knoten.push(text);
+  }
+  const letzter = knoten[knoten.length - 1];
+  const bereich = document.createRange();
+  bereich.setStart(letzter, Math.max(0, letzter.length - zeichen));
+  bereich.setEnd(letzter, letzter.length);
+  const kasten = element.getBoundingClientRect();
+  const ende = bereich.getBoundingClientRect();
+  const eigenerKasten = letzter.parentElement.getBoundingClientRect();
+  const abgeschnitten = letzter.parentElement.scrollWidth > letzter.parentElement.clientWidth + 0.5;
+  return letzter.length >= zeichen && !abgeschnitten && ende.left >= kasten.left - 0.5 && ende.right <= kasten.right + 0.5
+    && ende.right <= eigenerKasten.right + 0.5;
+}, anzahl);
+
+for (const breite of [320, 375]) {
+  test(`Datei-Zeile schmal (Nacharbeit F0102, ux-reviewer S2) bei ${breite} px: zwei Screenshots bleiben unterscheidbar (die letzten 8 Zeichen sichtbar, Name ≥ 96 px), Zeilen mit einem und zwei Links haben dieselbe Gestalt`, async ({ browser }) => {
+    const png = testdateien()['foto.png'];
+    const namen = ['Screenshot 2026-10-30 um 14.02.11.png', 'Screenshot 2026-10-30 um 14.05.40.png'];
+    const lauf = await anzeigeStarten(browser, [{ namen: [...namen.map((name) => ({ name, inhalt: png })), 'archiv.zip'] }], { geraet: telefon(breite) });
+    instanz = lauf.instanz;
+    const { page } = lauf.a;
+    const knoten = nachrichtMitZeit(page, lauf.zeiten[0]);
+    for (const name of namen) {
+      const zeile = dateiZeile(knoten, name.slice(-12));
+      const feld = zeile.locator('.lc-datei-name');
+      expect((await rechteck(feld)).width, name).toBeGreaterThanOrEqual(96);
+      expect(await endeSichtbar(feld, 8), `${name}: letzte 8 Zeichen sichtbar`).toBe(true);
+    }
+    const ersteLinks = [];
+    const kuerzelLinks = [];
+    for (const name of [...namen, 'archiv.zip']) {
+      const zeile = dateiZeile(knoten, name.slice(-12));
+      ersteLinks.push((await rechteck(zeile.getByRole('link').first())).left);
+      kuerzelLinks.push((await rechteck(zeile.locator('.lc-datei-kuerzel'))).left);
+      const kopf = await rechteck(zeile.locator('.lc-datei-name'));
+      expect((await rechteck(zeile.getByRole('link').first())).top, `${name}: Links in Zeile 2`).toBeGreaterThanOrEqual(kopf.bottom - 1);
+    }
+    for (const [stelle, links] of ersteLinks.entries()) {
+      expect(Math.abs(links - ersteLinks[0]), `Zeile ${stelle + 1}`).toBeLessThanOrEqual(0.5);
+      expect(Math.abs(links - kuerzelLinks[stelle]), `Zeile ${stelle + 1}`).toBeLessThanOrEqual(1);
+    }
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+    expect(lauf.a.fehler).toEqual([]);
+  });
+}

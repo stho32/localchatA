@@ -421,6 +421,15 @@ button.lc-marke { min-width: 24px; min-height: 24px; padding: 0 var(--kd-space-4
 .lc-datei-kopf { flex: 1 1 0; display: grid; grid-template-columns: auto minmax(96px, 1fr) auto; align-items: center; column-gap: var(--kd-space-4); }
 .lc-anhang .lc-datei-kuerzel { min-width: 0; padding: 0 var(--kd-space-4); background: var(--kd-surface-2); }
 .lc-anhang .lc-datei-groesse { white-space: nowrap; }
+/* Der Name kürzt in der Mitte: die letzten 8 Zeichen bleiben stehen (ux-reviewer #43 F0102 S2) */
+.lc-anhang .lc-datei-name { display: flex; }
+.lc-datei-name-anfang { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lc-datei-name-ende { flex: none; white-space: pre; }
+/* Schmal (Inhaltsbreite unter 260 px): die Links stehen immer in Zeile 2 — mit einem wie mit zwei Links dieselbe Gestalt */
+.lc-anhang { container-type: inline-size; }
+@container (max-width: 259.98px) {
+  .lc-anhang .lc-datei-links { flex-basis: 100%; }
+}
 .lc-datei-links { flex: 0 0 auto; display: flex; column-gap: var(--kd-space-8); }
 .lc-datei-links a { display: inline-flex; align-items: center; justify-content: center; min-width: 24px; min-height: 24px; padding: 0 var(--kd-space-2); color: var(--kd-accent); font-weight: 600; text-decoration: none; touch-action: manipulation; }
 .lc-datei-links a:hover { text-decoration: underline; }
