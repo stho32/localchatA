@@ -72,11 +72,11 @@ test('Lange Nachricht (US-15): 240 px mit Leiste „Ganze Nachricht anzeigen · 
   });
   const lange = nachricht(page, '2026-10-28T14:00:00.000+01:00');
   const kurze = nachricht(page, '2026-10-28T14:10:00.000+01:00');
-  const schalter = lange.getByRole('button');
+  const schalter = lange.locator('.lc-foldbar').getByRole('button');
 
   await expect(schalter).toHaveText('Ganze Nachricht anzeigen · 30 Zeilen');
   await expect(schalter).toHaveAttribute('aria-expanded', 'false');
-  await expect(kurze.getByRole('button')).toHaveCount(0);
+  await expect(kurze.locator('.lc-foldbar')).toHaveCount(0);
   const hoehe = () => lange.locator('.lc-body').evaluate((element) => element.getBoundingClientRect().height);
   expect(Math.abs((await hoehe()) - 240)).toBeLessThanOrEqual(1);
   const kopfVorher = await lange.locator('.lc-meta').evaluate((element) => element.getBoundingClientRect().top);
