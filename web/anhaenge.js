@@ -235,10 +235,15 @@ export function hochladungenAnlegen({
     });
   }
 
-  // „Erneut hochladen“: dieselbe Anmeldung neu, der Fokus auf „Abbrechen“ derselben Datei.
+  // „Erneut hochladen“: dieselbe Anmeldung neu — scheiterte schon die Anmeldung, eine neue —, der Fokus auf
+  // „Abbrechen“ derselben Datei.
   function erneutHochladen(eintrag, datei) {
     datei.neuAngemeldet = false;
-    dateiHochladen(eintrag, datei);
+    if (datei.id === null) {
+      dateiAnmelden(eintrag, datei);
+    } else {
+      dateiHochladen(eintrag, datei);
+    }
     datei.schalter.querySelector('button').focus();
   }
 

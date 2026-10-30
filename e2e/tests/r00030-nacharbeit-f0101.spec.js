@@ -85,3 +85,36 @@ test('A1 Verwerfen während der Anmeldung: die später angekommene Anmeldung wir
   expect(anfragen.filter((anfrage) => anfrage.methode === 'PUT')).toEqual([]);
   expect(fehler).toEqual([]);
 });
+
+// A2: „erster POST per route.abort, „Erneut hochladen“ → kein PUT auf null, ein neuer POST /api/anhaenge, danach PUT
+// auf die neue ID und Senden.“
+test('A2 Erneut nach gescheiterter Anmeldung: kein PUT auf null, eine neue Anmeldung, PUT auf deren ID, gesendet', async ({ browser }) => {
+  const { page, anfragen, fehler } = await seiteAuf(browser, { bytesJeSekunde: 1024 * 1024 });
+  let erster = true;
+  await page.route('**/api/anhaenge', (route) => {
+    if (route.request().method() === 'POST' && erster) {
+      erster = false;
+      return route.abort();
+    }
+    return route.continue();
+  });
+  const ids = [];
+  page.on('response', async (antwort) => {
+    if (antwort.request().method() === 'POST' && new URL(antwort.url()).pathname === '/api/anhaenge' && antwort.status() === 201) {
+      ids.push((await antwort.json()).anhang.id);
+    }
+  });
+
+  await waehlen(page, [berichtPdf()]);
+  await knopf(page).click();
+  const erneut = eintrag(page).getByRole('button', { name: 'bericht.pdf erneut hochladen', exact: true });
+  await expect(erneut).toBeVisible();
+  await erneut.click();
+
+  await expect.poll(() => anfragen.filter((anfrage) => anfrage.pfad.endsWith('/nachrichten')).length, { timeout: 15000 }).toBe(1);
+  const puts = anfragen.filter((anfrage) => anfrage.methode === 'PUT').map((anfrage) => anfrage.pfad);
+  expect(puts).toEqual([`/api/anhaenge/${ids[0]}`]);
+  expect(anfragen.filter((anfrage) => anfrage.methode === 'POST' && anfrage.pfad === '/api/anhaenge')).toHaveLength(2);
+  expect(anfragen.find((anfrage) => anfrage.pfad.endsWith('/nachrichten')).koerper).toEqual({ text: '', anhaenge: [ids[0]] });
+  expect(fehler.filter((zeile) => !zeile.includes('net::ERR_FAILED'))).toEqual([]);
+});
