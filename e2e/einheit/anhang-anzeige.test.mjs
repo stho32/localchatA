@@ -1,7 +1,7 @@
 // Unit-Tests der Darstellung eines Anhangs im Verlauf (R00030 F0102 B0455, „Darstellung wählen“ und „Breiten“; node --test).
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { darstellungWaehlen, rahmenMasse, typKuerzel } from '../../web/anhang-anzeige.js';
+import { darstellungWaehlen, rahmenMasse } from '../../web/anhang-anzeige.js';
 
 const MIB = 1024 * 1024;
 const anhang = (art, extra = {}) => ({ id: 'a', name: 'datei', bytes: 307200, art, breite: null, hoehe: null, zustand: 'vorhanden', ...extra });
@@ -78,14 +78,4 @@ test('die Vorschau folgt der Inhaltsbreite proportional: 1280 × 800 bei 232 →
 
 test('ein kleines Bild wird nicht vergrößert: 100 × 50 → 100 × 50', () => {
   assert.deepEqual(darstellungWaehlen(bild('image/png', 100, 50)), vorschau(100, 50));
-});
-
-test('Typkürzel (B0457, UX S3, S7): letzte Endung groß, höchstens 5 Zeichen, ohne Endung „DATEI“', () => {
-  assert.equal(typKuerzel('bericht.pdf'), 'PDF');
-  assert.equal(typKuerzel('film.ogv'), 'OGV');
-  assert.equal(typKuerzel('archiv.tar.gz'), 'GZ');
-  assert.equal(typKuerzel('sicherung.backup2023'), 'BACKU');
-  assert.equal(typKuerzel('LIESMICH'), 'DATEI');
-  assert.equal(typKuerzel('.bashrc'), 'DATEI');
-  assert.equal(typKuerzel('ende.'), 'DATEI');
 });

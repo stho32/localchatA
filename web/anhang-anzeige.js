@@ -1,5 +1,6 @@
 // Anhänge im Verlauf zeigen (R00030 F0102, ADR-0047 Regeln 5–7, Designsystem components/Anhang).
 import { groesseInWorten } from './loeschen.js';
+import { typkuerzel } from './dateiliste.js';
 
 const RAHMEN_HOECHSTENS = 360;
 
@@ -135,7 +136,7 @@ function bildGrossZeigen(anhang, vorschau) {
 // Platz dem Namen nicht für 96 px, brechen die Links in eine zweite Zeile um (CSS, UX V1). Ein gelöschter Anhang hat
 // keine Links (Wortlaut und Ansage bringt F0118).
 function dateiZeileZeichnen(anhang, { form, oeffnen }) {
-  const kuerzel = element('span', { className: 'lc-datei-kuerzel', textContent: typKuerzel(anhang.name) });
+  const kuerzel = element('span', { className: 'lc-datei-kuerzel', textContent: typkuerzel(anhang.name) });
   kuerzel.setAttribute('aria-hidden', 'true');
   const kopf = element('span', { className: 'lc-datei-kopf' }, [
     kuerzel,
@@ -157,17 +158,6 @@ function verweisZeichnen(anhang, beschriftung, tun, eigenschaften) {
   const verweis = element('a', { href: anhang.url, textContent: beschriftung, ...eigenschaften });
   verweis.setAttribute('aria-label', `${anhang.name} ${tun}`);
   return verweis;
-}
-
-// Typkürzel aus der letzten Endung des Namens, nur zur Anzeige (UX S3, S7): groß, höchstens 5 Zeichen; ohne Endung „DATEI“.
-export function typKuerzel(name) {
-  const KUERZEL_ZEICHEN = 5;
-  const punkt = name.lastIndexOf('.');
-  const endung = name.slice(punkt + 1);
-  if (punkt <= 0 || endung === '') {
-    return 'DATEI';
-  }
-  return Array.from(endung.toUpperCase()).slice(0, KUERZEL_ZEICHEN).join('');
 }
 
 function element(tag, eigenschaften = {}, kinder = []) {
