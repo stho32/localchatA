@@ -70,11 +70,14 @@ pub fn treffer(
     }
     let anlass = anlaesse(nachricht, wartender);
     let im_channel = filter.channels.contains(channel);
-    let erwaehnt = filter.erwaehnung && anlass.contains(&Anlass::Erwaehnung);
+    let erwaehnt = filter.erwaehnung
+        && (anlass.contains(&Anlass::Erwaehnung) || anlass.contains(&Anlass::Antwort));
     (filter.ohne_angabe() || im_channel || erwaehnt).then_some(anlass)
 }
 
-/// Die Fakten einer fremden Nachricht für den Wartenden, aufsteigend (Regel 2): ob sie seinen Namen erwähnt.
+/// Die Fakten einer fremden Nachricht für den Wartenden, aufsteigend (Regel 2): ob sie seinen Namen erwähnt und ob
+/// sie einer Nachricht von ihm antwortet — über die Kennung im Bezug der Metazeile, ohne das Original nachzuschlagen
+/// (ADR-0053 Regel 9).
 fn anlaesse(nachricht: &Nachricht, wartender: &Kennung) -> Vec<Anlass> {
     let mut anlass = Vec::new();
     let name = wartender.name();
@@ -83,6 +86,13 @@ fn anlaesse(nachricht: &Nachricht, wartender: &Kennung) -> Vec<Anlass> {
         .any(|erwaehnt| erwaehnt == name)
     {
         anlass.push(Anlass::Erwaehnung);
+    }
+    if nachricht
+        .bezug
+        .as_ref()
+        .is_some_and(|bezug| &bezug.von == wartender)
+    {
+        anlass.push(Anlass::Antwort);
     }
     anlass
 }
@@ -389,6 +399,90 @@ mod tests {
                 treffer(&b, &mit_text(ANNA, text), &anderswo, &erwaehnung(&[])),
                 Some(vec![Anlass::Erwaehnung]),
                 "{text}"
+            );
+        }
+    }
+
+    /// Eine Antwort von `von` auf eine Nachricht von `original` (Bezug aus der Metazeile, ADR-0053 Regel 1).
+    fn antwort(von: &str, original: &str, text: &str) -> Nachricht {
+        Nachricht {
+            bezug: Some(super::super::logformat::Antwortbezug {
+                zeit: Zeit::parse_from_rfc3339("2026-10-30T11:00:00.000+01:00").expect("Zeit"),
+                von: kennung(original),
+            }),
+            ..mit_text(von, text)
+        }
+    }
+
+    /// P13 (B0712, R00047 F0158; ADR-0054 Regel 2, ADR-0053 Regel 9): eine Antwort auf eine Nachricht des Wartenden
+    /// trägt den Anlass `antwort` und weckt unter `erwaehnung` wie eine Erwähnung — über die Kennung im Bezug, nie
+    /// die eigene Antwort; gleichnamig anderer Herkunft ist nicht der Beantwortete.
+    #[test]
+    fn die_trefferregel_der_antwort_als_tabelle() {
+        let b = Gespraech::channel("b");
+        let nur_erwaehnung = erwaehnung(&[]);
+        let ohne = Filter::default();
+        let nur_a = channels(&["a"]);
+        let kein: Option<Vec<Anlass>> = None;
+        let beantwortet = Some(vec![Anlass::Antwort]);
+        let faelle = [
+            (
+                "erwaehnung, Antwort von anna auf claude",
+                antwort(ANNA, CLAUDE, "Erledigt"),
+                &nur_erwaehnung,
+                beantwortet.clone(),
+            ),
+            (
+                "erwaehnung, Antwort von anna auf codex",
+                antwort(ANNA, "codex@127.0.0.1", "Erledigt"),
+                &nur_erwaehnung,
+                kein.clone(),
+            ),
+            (
+                "erwaehnung, Antwort von claude auf sich (Z12)",
+                antwort(CLAUDE, CLAUDE, "Nachtrag"),
+                &nur_erwaehnung,
+                kein.clone(),
+            ),
+            (
+                "erwaehnung, Antwort auf gleichnamig anderer Herkunft",
+                antwort(ANNA, "claude@10.0.0.5", "Erledigt"),
+                &nur_erwaehnung,
+                kein.clone(),
+            ),
+            (
+                "erwaehnung, Antwort auf claude mit @claude",
+                antwort(ANNA, CLAUDE, "@claude erledigt"),
+                &nur_erwaehnung,
+                Some(vec![Anlass::Erwaehnung, Anlass::Antwort]),
+            ),
+            (
+                "ohne Filter, Antwort auf claude: Anlass als Fakt",
+                antwort(ANNA, CLAUDE, "Erledigt"),
+                &ohne,
+                beantwortet.clone(),
+            ),
+            (
+                "channel=a, Antwort auf claude in b: ohne Schalter kein Treffer",
+                antwort(ANNA, CLAUDE, "Erledigt"),
+                &nur_a,
+                kein.clone(),
+            ),
+            (
+                "erwaehnung, gelöschte Antwort auf claude",
+                Nachricht {
+                    bezug: antwort(ANNA, CLAUDE, "").bezug,
+                    ..geloescht(ANNA)
+                },
+                &nur_erwaehnung,
+                kein.clone(),
+            ),
+        ];
+        for (fall, nachricht, filter, erwartet) in faelle {
+            assert_eq!(
+                treffer(&b, &nachricht, &kennung(CLAUDE), filter),
+                erwartet,
+                "{fall}"
             );
         }
     }
