@@ -169,6 +169,27 @@ mod tests {
         assert_eq!(konto.gebremst(), 2);
     }
 
+    /// K3 in Kosten (B0762, R00049 F0171): 50 Aufrufe mit 117 Sätzen zu 16 KiB (Kosten 1.989 von 2.000 reserviert,
+    /// Erstattung 11) zahlen zusammen 99.450, es bleiben 550 — die 51. Reservierung ist gebremst, `wieder_in` =
+    /// 1.450 / 20.000 s = 72,5 ms, aufgerundet 73 ms.
+    #[test]
+    fn fuenfzig_aufrufe_zu_1989_kosten_lassen_550_und_der_einundfuenfzigste_wartet_73_ms() {
+        let (konto, _) = konto();
+
+        for _ in 0..50 {
+            konto.reservieren(&a(), h(), R).expect("Vorrat");
+            konto.erstatten(&a(), h(), R - 1_989);
+        }
+
+        assert_eq!(
+            konto.reservieren(&a(), h(), R),
+            Err(Gebremst {
+                grenze: Grenze::Kennung,
+                wieder_in: Duration::from_millis(73),
+            })
+        );
+    }
+
     /// N1 K4: 250 Reservierungen verteilt auf 16 Kennungen einer Herkunft ok, die 251. → `Gebremst{herkunft}`
     /// (2.000 Sätze bei 60.000 je Sekunde: 34 ms).
     #[test]
