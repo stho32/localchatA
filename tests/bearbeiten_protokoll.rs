@@ -4,7 +4,8 @@
 mod gemeinsam;
 
 use gemeinsam::protokoll::{alle_zeilen, mit, zeilen};
-use gemeinsam::senden::{HEUTE, beitreten, ordner, senden, starten};
+use gemeinsam::senden::{HEUTE, beitreten, ordner, senden, starten, tagesinhalt};
+use gemeinsam::strom::Strom;
 use gemeinsam::{Absender, ApiAntwort, api_antwort};
 use serde_json::json;
 use std::path::Path;
@@ -127,4 +128,85 @@ async fn bearbeiten_im_betriebsprotokoll() {
             .all(|zeile| !zeile.contains("Hallo zusammen") && !zeile.contains("gefälscht")),
         "Text im Protokoll"
     );
+}
+
+/// R00039 B2 (code-reviewer #48; Akzeptanzkriterium „Schreibfehler“, nicht als root): Channel-Ordner und Tagesdatei
+/// nur lesbar (`chmod 555` auf den Ordner UND `444` auf die Datei) → zweimal 500 „Nicht gespeichert — der Server
+/// konnte nicht schreiben.“, Tageslog byte-gleich, kein `aenderung` im Strom, genau eine ERROR-Episode „Änderung nicht
+/// geschrieben“ mit Datei und Grund (Ende mit 2); danach geht Bearbeiten wieder und erzeugt das erste Ereignis.
+#[cfg(unix)]
+#[tokio::test]
+async fn ein_schreibfehler_beim_bearbeiten_ist_500_und_eine_episode() {
+    use std::os::unix::fs::PermissionsExt;
+    let wurzel = ordner();
+    let instanz = starten(wurzel.path(), &UMGEBUNG);
+    let basis = instanz.adresse.as_str();
+    let beta = Absender::von("127.0.0.1");
+    let token = beitreten(&beta, basis, "beta", Some("agent")).await;
+    let alpha = beitreten(&beta, basis, "alpha", None).await;
+    let mut strom = Strom::oeffnen(&beta, basis, &alpha).await;
+    let gesendet = senden(&beta, basis, &token, "allgemein", "Hallo").await;
+    let t1 = gesendet.json["nachricht"]["zeit"]
+        .as_str()
+        .expect("zeit")
+        .to_string();
+    strom
+        .bis(Duration::from_secs(10), |e| e.data["art"] == "nachricht")
+        .await
+        .expect("Ereignis der Nachricht");
+    let channel = wurzel.path().join("channels/allgemein");
+    let datei = gemeinsam::senden::tagesdatei(wurzel.path(), "allgemein");
+    let vorher = tagesinhalt(wurzel.path(), "allgemein");
+    let rechte = |pfad: &Path, modus| {
+        std::fs::set_permissions(pfad, std::fs::Permissions::from_mode(modus)).expect("Rechte");
+    };
+    rechte(&datei, 0o444);
+    rechte(&channel, 0o555);
+
+    let erste = bearbeiten(&beta, basis, &token, &t1, "Hallo zusammen", None).await;
+    let zweite = bearbeiten(&beta, basis, &token, &t1, "Hallo zusammen", None).await;
+    let waehrend = tagesinhalt(wurzel.path(), "allgemein");
+    rechte(&channel, 0o755);
+    rechte(&datei, 0o644);
+    let ende = warten_auf(wurzel.path(), 1, |zeile| {
+        zeile.contains(" ERROR aendern ") && zeile.contains("Episode endet")
+    })
+    .await;
+    let danach = bearbeiten(&beta, basis, &token, &t1, "Hallo wieder", None).await;
+    let ereignis = strom
+        .bis(Duration::from_secs(10), |e| e.data["art"] == "aenderung")
+        .await
+        .expect("aenderung nach dem Schreibfehler");
+
+    for antwort in [&erste, &zweite] {
+        assert_eq!(antwort.status, 500, "{}", antwort.json);
+        assert_eq!(
+            antwort.json["fehler"],
+            "Nicht gespeichert — der Server konnte nicht schreiben."
+        );
+    }
+    assert_eq!(waehrend, vorher);
+    assert_eq!(danach.status, 200, "{}", danach.json);
+    assert_eq!(
+        ereignis.data["nachricht"]["text"], "Hallo wieder",
+        "das erste aenderung-Ereignis gehört zur geglückten Änderung"
+    );
+    let fehler = mit(&zeilen(wurzel.path(), HEUTE), "ERROR", "aendern");
+    let beginn: Vec<_> = fehler
+        .iter()
+        .filter(|zeile| zeile.contains("Episode beginnt"))
+        .collect();
+    assert_eq!(beginn.len(), 1, "{fehler:#?}");
+    let datei = format!("datei=channels/allgemein/{HEUTE}.log");
+    for teil in [
+        "Änderung nicht geschrieben",
+        "channel=allgemein",
+        "kennung=beta@127.0.0.1",
+        datei.as_str(),
+        "grund=",
+    ] {
+        assert!(beginn[0].contains(teil), "{teil}: {}", beginn[0]);
+    }
+    assert_eq!(ende.len(), 1, "{fehler:#?}");
+    assert!(ende[0].contains("Episode endet: 2 "), "{}", ende[0]);
 }
