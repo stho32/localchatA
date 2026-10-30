@@ -231,8 +231,16 @@ async fn k2_unter_dem_budget_gilt_n_und_die_antwort_behaelt_ihre_form() {
         felder.sort_unstable();
         assert_eq!(
             felder,
-            ["anhaenge", "art", "text", "von", "zeit"],
-            "R00011 ergänzt art, R00029 anhaenge"
+            [
+                "anhaenge",
+                "art",
+                "geaendert",
+                "text",
+                "von",
+                "zeit",
+                "zustand"
+            ],
+            "R00011 ergänzt art, R00029 anhaenge, R00039 zustand und geaendert"
         );
         assert_eq!(
             nachricht["art"],
