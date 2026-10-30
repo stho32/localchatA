@@ -491,3 +491,128 @@ async fn mp4_ilst_verliert_alle_werte() {
     );
     assert_eq!(mdat(&geliefert.bytes), mdat(&original));
 }
+
+fn infe(id: u16, typ: &[u8; 4], rest: &[u8]) -> Vec<u8> {
+    kiste(
+        b"infe",
+        &[
+            &[2u8, 0, 0, 0][..],
+            &id.to_be_bytes(),
+            &[0, 0],
+            typ,
+            b"\0",
+            rest,
+        ]
+        .concat(),
+    )
+}
+
+/// HEIC mit Items (Typ, `infe`-Rest, Daten im `mdat`), Eigenschaften in `ipco` und weiteren Boxen im `meta`.
+fn heic_mit(
+    items: &[(&[u8; 4], &[u8], Vec<u8>)],
+    ipco: &[Vec<u8>],
+    weitere: &[Vec<u8>],
+) -> Vec<u8> {
+    let iinf = kiste(
+        b"iinf",
+        &[
+            &[0u8, 0, 0, 0][..],
+            &(items.len() as u16).to_be_bytes(),
+            &items
+                .iter()
+                .enumerate()
+                .map(|(n, (typ, rest, _))| infe(n as u16 + 1, typ, rest))
+                .collect::<Vec<_>>()
+                .concat(),
+        ]
+        .concat(),
+    );
+    let iprp = kiste(b"iprp", &kiste(b"ipco", &ipco.concat()));
+    let bauen = |mdat_anfang: u64| {
+        let mut iloc = vec![1u8, 0, 0, 0, 0x44, 0x00];
+        iloc.extend((items.len() as u16).to_be_bytes());
+        let mut ab = mdat_anfang;
+        for (n, (_, _, daten)) in items.iter().enumerate() {
+            iloc.extend((n as u16 + 1).to_be_bytes());
+            iloc.extend([0, 0, 0, 0]);
+            iloc.extend(1u16.to_be_bytes());
+            iloc.extend((ab as u32).to_be_bytes());
+            iloc.extend((daten.len() as u32).to_be_bytes());
+            ab += daten.len() as u64;
+        }
+        let hdlr = kiste(b"hdlr", &[&[0u8; 8][..], b"pict", &[0; 13]].concat());
+        let meta = kiste(
+            b"meta",
+            &[
+                &[0u8; 4][..],
+                &hdlr,
+                &kiste(b"pitm", b"\0\0\0\0\0\x01"),
+                &iinf,
+                &kiste(b"iloc", &iloc),
+                &iprp,
+                &weitere.concat(),
+            ]
+            .concat(),
+        );
+        [kiste(b"ftyp", b"heic\0\0\0\0mif1heic"), meta].concat()
+    };
+    let mdat_anfang = bauen(0).len() as u64 + 8;
+    let daten: Vec<u8> = items
+        .iter()
+        .flat_map(|(_, _, daten)| daten.clone())
+        .collect();
+    [bauen(mdat_anfang), kiste(b"mdat", &daten)].concat()
+}
+
+/// ADR-0047 B2 P7 und P8 (HEIC-Teil) (B0646): `mime`-Item `application/c2pa`, `xml ` im obersten `meta`, `udes` in
+/// `ipco` → ohne Ort; Kachel (`hvc1`), `grid`, Gain-Map (`tmap`), `colr`, `irot`, `ispe` byte-gleich, Art wie vorher.
+/// Kontrolle: ein echtes AVIF (ffmpeg) kommt byte-gleich an.
+#[tokio::test]
+async fn heic_traeger_ohne_ort_bild_items_und_eigenschaften_bleiben() {
+    let lauf = Lauf::neu().await;
+    let mut exif = 0u32.to_be_bytes().to_vec();
+    exif.extend(b"MM\0*\0\0\0\x08\0\x01\x01\x12\0\x03\0\0\0\x01\0\x06\0\0\0\0\0\0");
+    exif.extend(ort());
+    let kachel = vec![0x5a; 64];
+    let grid = vec![0, 0, 0, 0, 0, 0x40, 0, 0x30];
+    let tmap = vec![0x7b; 32];
+    let colr = kiste(b"colr", b"nclx\0\x01\0\x0d\0\x01\x80");
+    let irot = kiste(b"irot", b"\x01");
+    let ispe = kiste(b"ispe", b"\0\0\0\0\0\0\0\x40\0\0\0\x30");
+    let original = heic_mit(
+        &[
+            (b"grid", b"", grid.clone()),
+            (b"hvc1", b"", kachel.clone()),
+            (b"tmap", b"", tmap.clone()),
+            (b"Exif", b"", exif),
+            (
+                b"mime",
+                b"application/c2pa\0",
+                [&b"c2pa "[..], &ort()].concat(),
+            ),
+        ],
+        &[
+            colr.clone(),
+            irot.clone(),
+            ispe.clone(),
+            kiste(b"udes", &[&b"\0\0\0\0de\0"[..], &ort()].concat()),
+        ],
+        &[kiste(b"xml ", &[&b"\0\0\0\0<x>"[..], &ort()].concat())],
+    );
+
+    let geliefert = lauf.ausliefern("p7.heic", &original).await;
+
+    ohne_ort("p7.heic", &geliefert.bytes);
+    for bleibt in [&kachel, &grid, &tmap, &colr, &irot, &ispe] {
+        assert!(enthaelt(&geliefert.bytes, bleibt));
+    }
+    assert_eq!(geliefert.anhang["art"], "image/heic");
+
+    let avif = gemeinsam::dateien::avif_foto();
+    let geliefert = lauf.ausliefern("foto.avif", &avif).await;
+    assert_eq!(geliefert.bytes, avif, "echtes AVIF byte-gleich");
+    assert_eq!(
+        art_und_masse(&geliefert.anhang),
+        ("image/avif".to_string(), json!(4032), json!(3024))
+    );
+}

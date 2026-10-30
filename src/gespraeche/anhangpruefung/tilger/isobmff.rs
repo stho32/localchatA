@@ -23,6 +23,18 @@ const MOOV_ERLAUBT: &[&[u8; 4]] = &[
     b"mvhd", b"trak", b"mvex", b"iods", b"pssh", b"udta", b"meta", b"free", b"skip", b"wide",
 ];
 
+/// Erlaubnisliste im obersten `meta` mit Handler `pict` (Regel 5e); `iprp` wird betreten (`udes`).
+const HEIF_META_ERLAUBT: &[&[u8; 4]] = &[
+    b"hdlr", b"pitm", b"iloc", b"iinf", b"iref", b"iprp", b"idat", b"dinf", b"grpl", b"ipro",
+    b"free", b"skip",
+];
+
+/// Bild- und abgeleitete Items, die bleiben (Regel 5e); `Exif` wird minimal, jedes andere Item genullt.
+const HEIF_ITEMS_ERLAUBT: &[&[u8; 4]] = &[
+    b"hvc1", b"hvt1", b"av01", b"avc1", b"jpeg", b"j2k1", b"vvc1", b"unci", b"mski", b"grid",
+    b"iovl", b"iden", b"tmap",
+];
+
 /// Erlaubnisliste in `udta` (Regel 5c): Kapitel, Spurauswahl, `meta`.
 const UDTA_ERLAUBT: &[&[u8; 4]] = &[b"chpl", b"tsel", b"meta"];
 
@@ -256,6 +268,13 @@ fn oberstes_meta(port: &Port<'_>, meta: Kiste, zaehler: &mut Zaehler) -> Ergebni
     }
     let anfang = (meta.inhalt + 4).min(meta.ende);
     let kinder = kinder(port, anfang, meta.ende, zaehler)?;
+    for kind in &kinder {
+        match &kind.typ {
+            b"iprp" => eigenschaften(port, *kind, zaehler)?,
+            typ if HEIF_META_ERLAUBT.contains(&typ) => {}
+            _ => unkenntlich(port, *kind, zaehler)?,
+        }
+    }
     let Some(iinf) = kinder.iter().find(|kind| &kind.typ == b"iinf") else {
         return Ok(());
     };
@@ -281,7 +300,7 @@ fn oberstes_meta(port: &Port<'_>, meta: Kiste, zaehler: &mut Zaehler) -> Ergebni
     for (pos, laenge, item) in schritte {
         match item {
             Item::Exif => exif_item(port, pos, laenge, zaehler)?,
-            Item::Xmp => port.nullen(pos, laenge)?,
+            Item::Nullen => port.nullen(pos, laenge)?,
         }
     }
     Ok(())
@@ -308,14 +327,31 @@ fn ueberschneidungsfrei(bereiche: &[(u64, u64, u32)], ziele: &HashMap<u32, Item>
     Ok(())
 }
 
+/// `iprp/ipco`: Eigenschaften beschreiben das Bild und bleiben — außer `udes` (Nutzerbeschreibung) → unkenntlich.
+fn eigenschaften(port: &Port<'_>, iprp: Kiste, zaehler: &mut Zaehler) -> Ergebnis<()> {
+    for ipco in kinder(port, iprp.inhalt, iprp.ende, zaehler)? {
+        if &ipco.typ != b"ipco" {
+            continue;
+        }
+        for eigenschaft in kinder(port, ipco.inhalt, ipco.ende, zaehler)? {
+            if &eigenschaft.typ == b"udes" {
+                unkenntlich(port, eigenschaft, zaehler)?;
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Was der Tilger mit einem Ziel-Item tut: minimales EXIF oder ganz nullen.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Item {
     Exif,
-    Xmp,
+    Nullen,
 }
 
-/// `iinf`: die Ziele — Items vom Typ `Exif` und `mime` mit XMP (`infe` ab Version 2); jede `item_ID` höchstens einmal
-/// (alle `infe`, jede Version), sonst „Verweise doppelt“.
+/// `iinf`: die Ziele — `Exif` und jedes Item, das kein Bild- oder abgeleitetes Item der Erlaubnisliste ist (Regel
+/// 5e; `infe` vor Version 2 nennt keinen Typ und ist damit Ziel); jede `item_ID` höchstens einmal (alle `infe`, jede
+/// Version), sonst „Verweise doppelt“.
 fn items(port: &Port<'_>, iinf: Kiste, zaehler: &mut Zaehler) -> Ergebnis<HashMap<u32, Item>> {
     let kopf = port.lesen(iinf.inhalt, 8.min(iinf.ende - iinf.inhalt))?;
     let version = *kopf
@@ -337,18 +373,18 @@ fn items(port: &Port<'_>, iinf: Kiste, zaehler: &mut Zaehler) -> Ergebnis<HashMa
         if !gesehen.insert(id) {
             return metadaten("Verweise doppelt");
         }
-        if version < 2 {
-            continue;
-        }
-        let typ = bytes
-            .get(4 + breite + 2..4 + breite + 6)
-            .ok_or(Abbruch::Metadaten("Längen widersprechen sich"))?;
-        if typ == b"Exif" {
-            gefunden.insert(id, Item::Exif);
-        } else if typ == b"mime" {
-            let rest = String::from_utf8_lossy(&bytes[4 + breite + 6..]).to_lowercase();
-            if rest.contains("rdf+xml") || rest.contains("xmp") {
-                gefunden.insert(id, Item::Xmp);
+        let typ = if version < 2 {
+            None
+        } else {
+            bytes.get(4 + breite + 2..4 + breite + 6)
+        };
+        match typ {
+            Some(b"Exif") => {
+                gefunden.insert(id, Item::Exif);
+            }
+            Some(typ) if HEIF_ITEMS_ERLAUBT.iter().any(|erlaubt| &erlaubt[..] == typ) => {}
+            _ => {
+                gefunden.insert(id, Item::Nullen);
             }
         }
     }
@@ -1297,5 +1333,121 @@ mod tests {
         assert_eq!(getilgt.windows(4).filter(|f| f == b"abcd").count(), 0);
         assert_eq!(getilgt.windows(4).filter(|f| f == b"data").count(), 15);
         assert!(enthaelt(&getilgt, b"Mediendaten"));
+    }
+
+    fn mime_infe(id: u16, inhaltstyp: &[u8]) -> Vec<u8> {
+        kiste(
+            b"infe",
+            &[
+                &[2u8, 0, 0, 0][..],
+                &id.to_be_bytes(),
+                &[0, 0],
+                b"mime",
+                b"\0",
+                inhaltstyp,
+                b"\0",
+            ]
+            .concat(),
+        )
+    }
+
+    /// ADR-0047 B2 P7 und P8 (HEIC-Teil), Regel 5e (B0646): `mime`-Item `application/c2pa`, unbekanntes Item `abcd`,
+    /// `xml ` im obersten `meta`, `udes` in `ipco` → genullt bzw. `free`; Bildkacheln `hvc1`, `grid`, `tmap`,
+    /// Eigenschaften `colr`, `irot`, `ispe` byte-gleich, Exif minimal.
+    #[test]
+    fn heif_behaelt_bild_items_und_eigenschaften_der_rest_wird_getilgt() {
+        let exif = exif_mit_ort();
+        let lang = exif.len() as u64;
+        let kachel = vec![0x5A; 40];
+        let grid = vec![0, 0, 0, 0, 0, 0x10, 0, 0x10];
+        let tmap = vec![0x7B; 24];
+        let c2pa = [&b"c2pa manifest "[..], ORT].concat();
+        let fremd = [&b"abcd "[..], ORT].concat();
+        let daten = [
+            kachel.clone(),
+            grid.clone(),
+            tmap.clone(),
+            exif.clone(),
+            c2pa.clone(),
+            fremd.clone(),
+        ]
+        .concat();
+        let mut ab = Vec::new();
+        let mut stelle = 0u64;
+        for teil in [&kachel, &grid, &tmap, &exif, &c2pa, &fremd] {
+            ab.push(stelle);
+            stelle += teil.len() as u64;
+        }
+        let colr = kiste(b"colr", b"nclx\0\x01\0\x0d\0\x01\x80");
+        let irot = kiste(b"irot", b"\x01");
+        let ispe = kiste(b"ispe", b"\0\0\0\0\0\0\0\x10\0\0\0\x10");
+        let udes = kiste(b"udes", &[&b"\0\0\0\0de\0Urlaub\0"[..], ORT].concat());
+        let iprp = kiste(
+            b"iprp",
+            &[
+                kiste(
+                    b"ipco",
+                    &[colr.clone(), irot.clone(), ispe.clone(), udes].concat(),
+                ),
+                kiste(b"ipma", b"\0\0\0\0\0\0\0\0"),
+            ]
+            .concat(),
+        );
+        let xml = kiste(b"xml ", &[&b"\0\0\0\0<x>"[..], ORT].concat());
+        let infe = [
+            item_infe(1, b"hvc1"),
+            item_infe(2, b"grid"),
+            item_infe(3, b"tmap"),
+            item_infe(4, b"Exif"),
+            mime_infe(5, b"application/c2pa"),
+            item_infe(6, b"abcd"),
+        ];
+        let iinf = kiste(
+            b"iinf",
+            &[&[0u8, 0, 0, 0, 0, 6][..], &infe.concat()].concat(),
+        );
+        let laengen = [40u64, 8, 24, lang, c2pa.len() as u64, fremd.len() as u64];
+        let bauen = |mdat_anfang: u64| {
+            let verweise: Vec<(u16, u64, u64)> = (0..6)
+                .map(|n| (n as u16 + 1, mdat_anfang + ab[n], laengen[n]))
+                .collect();
+            let meta = kiste(
+                b"meta",
+                &[
+                    &[0u8, 0, 0, 0][..],
+                    &hdlr_pict(),
+                    &kiste(b"pitm", b"\0\0\0\0\0\x02"),
+                    &iinf,
+                    &iloc_aus(&verweise),
+                    &iprp,
+                    &xml,
+                ]
+                .concat(),
+            );
+            [kiste(b"ftyp", b"heic\0\0\0\0mif1heic"), meta].concat()
+        };
+        let mdat_anfang = bauen(0).len() as u64 + 8;
+        let original = [bauen(mdat_anfang), kiste(b"mdat", &daten)].concat();
+
+        let (ergebnis, datei) = tilgen(original.clone());
+
+        ergebnis.expect("getilgt");
+        let getilgt = datei.inhalt();
+        assert_eq!(getilgt.len(), original.len());
+        assert!(!enthaelt(&getilgt, b"52.52") && !enthaelt(&getilgt, b"GPS"));
+        assert!(!enthaelt(&getilgt, b"c2pa manifest") && !enthaelt(&getilgt, b"Urlaub"));
+        for bleibt in [&kachel, &grid, &tmap, &colr, &irot, &ispe, &iinf] {
+            assert!(
+                enthaelt(&getilgt, bleibt),
+                "{}",
+                String::from_utf8_lossy(&bleibt[..8.min(bleibt.len())])
+            );
+        }
+        assert!(!enthaelt(&getilgt, b"udes") && !enthaelt(&getilgt, b"xml "));
+        let tiff = getilgt
+            .windows(4)
+            .position(|f| f == b"MM\0*")
+            .expect("minimales EXIF");
+        assert_eq!(orientierung(&getilgt[tiff..]), Some(6));
     }
 }
