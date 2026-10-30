@@ -296,3 +296,53 @@ test('A2 Listener der Ansicht am Signal: nach zwei neuen Hauptansichten so viele
   expect(await lauscherStand(a.page)).toEqual(vorher);
   expect(a.fehler).toEqual([]);
 });
+
+const LOESCHEN = '/api/channels/allgemein/nachrichten/loeschen';
+const imDialog = (page, name) => page.getByRole('dialog').getByRole('button', { name, exact: true });
+
+function loeschungenMitschreiben(page) {
+  const liste = [];
+  page.on('request', (anfrage) => {
+    if (anfrage.method() === 'POST' && new URL(anfrage.url()).pathname === LOESCHEN) {
+      liste.push(anfrage.postData());
+    }
+  });
+  return liste;
+}
+
+/// Hält jeden POST …/loeschen, bis `freigeben()` gerufen wird, und reicht ihn dann an die Instanz.
+async function loeschenHalten(page) {
+  let freigeben = null;
+  const freigegeben = new Promise((weiter) => { freigeben = weiter; });
+  await page.route(`**${LOESCHEN}`, async (route) => {
+    await freigegeben;
+    await route.continue();
+  });
+  return () => freigeben();
+}
+
+// A3: die Sperre „höchstens ein Löschen zugleich“ — solange der POST unterwegs ist, öffnet ein zweites Entf die Rückfrage
+// erneut, „Löschen“ darin sendet aber keinen zweiten POST.
+test('A3 Sperre beim Löschen: POST gehalten, zweites Entf und „Löschen“ → genau ein POST; danach gelöscht', async ({ browser }) => {
+  instanz = await sendenStarten();
+  const a = await browserOeffnen(browser, { streng: true });
+  const loeschungen = loeschungenMitschreiben(a.page);
+  await imBrowserBeitreten(a.page, instanz.adresse, 'shoff');
+  const zeit = await imBrowserSenden(a.page, 'Hallo');
+  const freigeben = await loeschenHalten(a.page);
+  await nachrichtMitZeit(a.page, zeit).focus();
+  await a.page.keyboard.press('Delete');
+  await imDialog(a.page, 'Löschen').click();
+  await expect.poll(() => loeschungen.length).toBe(1);
+
+  await nachrichtMitZeit(a.page, zeit).focus();
+  await a.page.keyboard.press('Delete');
+  await imDialog(a.page, 'Löschen').click();
+  await a.page.waitForTimeout(300);
+  freigeben();
+
+  await expect(nachrichtMitZeit(a.page, zeit).locator('.lc-body')).toHaveText('Nachricht gelöscht');
+  await a.page.waitForTimeout(300);
+  expect(loeschungen).toEqual([JSON.stringify({ zeit })]);
+  expect(a.fehler).toEqual([]);
+});
