@@ -3,7 +3,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  einordnen, zusammenfuehren, buendlerAnlegen, folgenOderZaehlen, pillenText, auslaufNach, nichtGeladenText, hinweisTextNachziehen, sprungZiel,
+  einordnen, zusammenfuehren, buendlerAnlegen, folgenOderZaehlen, pillenText, auslaufNach, nichtGeladenText, hinweisTextNachziehen, sprungZiel, scrollTopNachHoehe,
 } from '../../web/live-verlauf.js';
 
 const t = (sekunde) => `2026-10-28T12:00:${String(sekunde).padStart(2, '0')}.000+01:00`;
@@ -208,4 +208,29 @@ test('Sprungziel ohne Nachricht davor und ohne klebenden Trenner: eine Zeilenhö
 
 test('Sprungziel mit Nachricht davor: deren Unterkante kommt eine Zeilenhöhe unter den klebenden Trenner', () => {
   assert.equal(sprungZiel({ ...lage, unterkanteKontext: 380 }), 1340);
+});
+
+// B0723 „Lesestelle nach Höhenänderung“ (R00048): der Abstand der Lesestelle zur Unterkante des Verlaufs bleibt.
+test('schrumpft die Sicht von 584 auf 548, rückt scrollTop um 36 vor, und zurück um 36', () => {
+  const inhaltsHoehe = 3000;
+
+  const kleiner = scrollTopNachHoehe({ scrollTop: 1000, hoeheVorher: 584, hoeheNachher: 548, inhaltsHoehe });
+  const zurueck = scrollTopNachHoehe({ scrollTop: kleiner, hoeheVorher: 548, hoeheNachher: 584, inhaltsHoehe });
+
+  assert.equal(kleiner, 1036);
+  assert.equal(zurueck, 1000);
+});
+
+test('gleiche Sichthöhe lässt scrollTop unverändert', () => {
+  assert.equal(scrollTopNachHoehe({ scrollTop: 1000, hoeheVorher: 584, hoeheNachher: 584, inhaltsHoehe: 3000 }), 1000);
+});
+
+test('das Ergebnis liegt nie unter 0 und nie über Inhalt minus Sichthöhe', () => {
+  const zuWeitOben = scrollTopNachHoehe({ scrollTop: 10, hoeheVorher: 400, hoeheNachher: 600, inhaltsHoehe: 3000 });
+  const zuWeitUnten = scrollTopNachHoehe({ scrollTop: 2440, hoeheVorher: 560, hoeheNachher: 500, inhaltsHoehe: 3000 });
+  const inhaltKuerzerAlsSicht = scrollTopNachHoehe({ scrollTop: 0, hoeheVorher: 600, hoeheNachher: 500, inhaltsHoehe: 300 });
+
+  assert.equal(zuWeitOben, 0);
+  assert.equal(zuWeitUnten, 2500);
+  assert.equal(inhaltKuerzerAlsSicht, 0);
 });

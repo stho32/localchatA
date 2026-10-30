@@ -75,6 +75,15 @@ export function sprungZiel({ scrollTop, oberkanteErste, unterkanteKontext, trenn
   return scrollTop + kante - trennerUnterkante - zeilenhoehe;
 }
 
+// Wohin scrollTop nach einer Änderung der Sichthöhe des Verlaufs geht (R00048 F0164): der Abstand der Lesestelle zur
+// Unterkante bleibt, die Rechnung gilt für Wachsen und Schrumpfen gleich. Das Ergebnis liegt in 0 … Inhalt − Sicht.
+// Alle Maße in px. → neuer scrollTop in px
+export function scrollTopNachHoehe({ scrollTop, hoeheVorher, hoeheNachher, inhaltsHoehe }) {
+  const hoechstens = Math.max(0, inhaltsHoehe - hoeheNachher);
+  const nachgefuehrt = scrollTop + hoeheVorher - hoeheNachher;
+  return Math.min(hoechstens, Math.max(0, nachgefuehrt));
+}
+
 export function pillenText(anzahl) {
   if (anzahl === 1) {
     return '1 neue Nachricht';
