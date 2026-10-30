@@ -169,8 +169,9 @@ body { background: var(--kd-bg); color: var(--kd-ink); font-family: var(--font-s
   .lc-antwort-an { flex: 0 1 auto; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 }
 /* Gewählte Dateien über dem Feld (R00030 B0449, Baustein Anhang): Zeile 28 px mit Maus, 44 px auf Touch mit 8 px
-   Abstand zwischen den Schaltern; die Liste ist höchstens 3½ Zeilen hoch und scrollt in sich */
-.lc-dateien { --lc-dateizeile: 28px; --lc-dateiabstand: 0px; display: grid; row-gap: var(--lc-dateiabstand); margin: 0 0 var(--kd-space-4); padding: 0 var(--kd-space-2); list-style: none; max-height: calc(3.5 * var(--lc-dateizeile) + 3 * var(--lc-dateiabstand)); overflow-y: auto; overscroll-behavior: contain; }
+   Abstand zwischen den Schaltern; die Liste ist min(3½ Zeilen, 25 % des sichtbaren Bereichs) hoch, mindestens 1½
+   Zeilen, und scrollt in sich (UX V6; --lc-sichthoehe setzt die Eingabe aus visualViewport) */
+.lc-dateien { --lc-dateizeile: 28px; --lc-dateiabstand: 0px; display: grid; row-gap: var(--lc-dateiabstand); margin: 0 0 var(--kd-space-4); padding: 0 var(--kd-space-2); list-style: none; max-height: max(calc(1.5 * var(--lc-dateizeile) + var(--lc-dateiabstand)), min(calc(3.5 * var(--lc-dateizeile) + 3 * var(--lc-dateiabstand)), calc(0.25 * var(--lc-sichthoehe, 100vh)))); overflow-y: auto; overscroll-behavior: contain; }
 .lc-dateien[hidden] { display: none; }
 .lc-datei { display: flex; align-items: center; column-gap: var(--kd-space-8); min-height: var(--lc-dateizeile); font-size: 12px; line-height: 20px; }
 .lc-datei-kuerzel { flex: none; min-width: 4em; font-family: var(--font-mono); font-size: 11px; font-weight: 600; color: var(--kd-ink-muted); }
@@ -223,7 +224,8 @@ body { background: var(--kd-bg); color: var(--kd-ink); font-family: var(--font-s
   .lc-send-schalter button { min-width: 44px; height: 44px; }
 }
 /* Hinweiszeile unter dem Feld (ADR-0038 Regel 4): 20 px, gedämpft; als Fehler in kd-danger */
-.lc-comp-hinweis { margin: 0; min-height: 20px; font-size: 12px; line-height: 20px; color: var(--kd-ink-muted); overflow-wrap: anywhere; }
+/* Höchstens 2 Zeilen, dann Ellipse — die Ansage nennt den vollen Text (UX V6) */
+.lc-comp-hinweis { margin: 0; min-height: 20px; font-size: 12px; line-height: 20px; color: var(--kd-ink-muted); overflow-wrap: anywhere; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow: hidden; }
 .lc-comp-hinweis.lc-fehler { color: var(--kd-danger); font-weight: 600; }
 /* Hinweiszeile mit dem Schalter „Steuerzeichen entfernen“ daneben; in der roten Zeile bleibt er neutral (R00025 F0086) */
 .lc-comp-hinweisreihe { position: relative; display: flex; flex-wrap: wrap; align-items: flex-start; column-gap: var(--kd-space-8); }

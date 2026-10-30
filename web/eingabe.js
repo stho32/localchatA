@@ -46,7 +46,9 @@ export function taste(ereignis, text, zeiger) {
 // Wechsel des Channels — nie das Wiederherstellen des Entwurfs (R00045 F0161). `tippzeile` (aktivitaetsanzeige.js)
 // steht in der Hinweisreihe hinter der Hinweiszeile, nie in ihr und nie in aria-describedby. Über dem Feld steht die
 // Antwortzeile (antwortzeileAnlegen).
-export function eingabeAnlegen({ senden, entwurf, ansagen, tippen, tippzeile, eigeneLetzteFokussieren = () => {} }) {
+export function eingabeAnlegen({
+  senden, entwurf, ansagen, tippen, tippzeile, eigeneLetzteFokussieren = () => {}, signal = new AbortController().signal,
+}) {
   const feld = document.createElement('textarea');
   feld.rows = 1;
   feld.className = 'lc-comp-feld';
@@ -73,6 +75,17 @@ export function eingabeAnlegen({ senden, entwurf, ansagen, tippen, tippzeile, ei
   });
   anhang.auswahl.addEventListener('change', () => dateien.hinzufuegen([...anhang.auswahl.files]));
   const rahmen = element('div', { className: 'lc-comp' }, [antwort.zeile, dateien.element, kasten, hinweisReihe]);
+  sichthoeheFolgen(rahmen, signal);
+  // Tab aus dem Verlauf landet im Feld, nicht in der Antwortzeile oder im ersten „Entfernen“ (UX V6); Shift Tab aus dem
+  // Feld erreicht sie wie gewohnt.
+  for (const darueber of [antwort.zeile, dateien.element]) {
+    darueber.addEventListener('focusin', (ereignis) => {
+      const ausDemVerlauf = ereignis.relatedTarget !== null && ereignis.relatedTarget.closest('.lc-verlauf') !== null;
+      if (ausDemVerlauf && ereignis.target.matches(':focus-visible')) {
+        feld.focus();
+      }
+    });
+  }
   let channel = null;
   let gezeigt = hinweis(textPruefen(''));
   const MELDUNG_STEHT_MS = 6000;
@@ -369,6 +382,18 @@ function anhangSchalterAnlegen(feld) {
   auswahl.addEventListener('change', () => feld.focus());
   auswahl.addEventListener('cancel', () => feld.focus());
   return { schalter, auswahl, oeffnen };
+}
+
+// Die Höhe des sichtbaren Bereichs (visualViewport, mit Bildschirmtastatur kleiner als das Fenster) als
+// --lc-sichthoehe an der Eingabe: das CSS begrenzt damit die Liste der gewählten Dateien (UX V6).
+function sichthoeheFolgen(rahmen, signal) {
+  const sicht = window.visualViewport;
+  if (sicht === null || sicht === undefined) {
+    return;
+  }
+  const setzen = () => rahmen.style.setProperty('--lc-sichthoehe', `${sicht.height}px`);
+  setzen();
+  sicht.addEventListener('resize', setzen, { signal });
 }
 
 // Strg Shift U im Feld öffnet die Dateiauswahl (R00030 B0448).

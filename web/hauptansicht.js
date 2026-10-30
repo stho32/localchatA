@@ -117,6 +117,7 @@ export function zeichnen(wurzel, teilnehmer, optionen) {
     tippen,
     tippzeile: tippanzeige.zeile,
     eigeneLetzteFokussieren: verlauf.eigeneLetzteFokussieren,
+    signal: vorigeAnsichtAbmelden.signal,
   });
   const wieder = wiederverbindenEinrichten({
     mitte, verlauf, senden, abrufen: optionen.verlaufNachholen, ansagen: ansagen.melden,
