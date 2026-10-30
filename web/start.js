@@ -135,6 +135,10 @@ function hauptansichtZeigen(teilnehmer, token, nachEingabe) {
         ansicht.nachrichtEmpfangen(ereignis);
         return;
       }
+      if (ereignis.art === 'aenderung') {
+        ansicht.aenderungEmpfangen(ereignis);
+        return;
+      }
       if (ereignis.art === 'teilnehmer') {
         ansicht.standEmpfangen();
       }

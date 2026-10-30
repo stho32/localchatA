@@ -126,6 +126,8 @@ export function zeichnen(wurzel, teilnehmer, optionen) {
     // Serverzeit aus einem Ereignis (RFC 3339 mit Versatz): ihr Datum ist das heutige des Servers.
     serverzeitZeigen: (jetzt) => verlauf.heuteSetzen(jetzt.slice(0, 10)),
     nachrichtEmpfangen: (ereignis) => senden.empfangen(ereignis),
+    // Eine geänderte Fassung (ADR-0048 Regel 11) geht an den Verlauf, wenn ihr Channel offen ist.
+    aenderungEmpfangen: ({ channel, nachricht }) => verlauf.fassungAnnehmen(channel, nachricht),
     anzahlZeigen: (wieViele) => {
       anzahl.textContent = String(wieViele);
     },

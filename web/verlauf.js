@@ -10,12 +10,13 @@ import { nachrichtZeichnen, kopfSetzen, trennerZeichnen, langeEinklappen, langeU
 import { gliederung, folgeGliedern, datumBenennen } from './gliederung.js';
 import { nachladen, einfuegen } from './fenster.js';
 import { pfeilRichtung, pfeilZiel, tabStopp, eigeneLetzte } from './fokus.js';
-import { einordnen, zusammenfuehren, buendlerAnlegen, folgenOderZaehlen, pillenText, auslaufNach, nichtGeladenText, hinweisTextNachziehen, sprungZiel as sprungZielBerechnen, scrollTopNachHoehe } from './live-verlauf.js';
+import { einordnen, zusammenfuehren, fassungUebernehmen, buendlerAnlegen, folgenOderZaehlen, pillenText, auslaufNach, nichtGeladenText, hinweisTextNachziehen, sprungZiel as sprungZielBerechnen, scrollTopNachHoehe } from './live-verlauf.js';
 
 // abrufen: async (name, cursor, signal) → { art: 'block' | 'fehler' | 'abgebrochen', … } (api.js verlaufAbrufen);
 // das Ergebnis von `oeffnen` sagt, ob der Verlauf steht.
 // Live (ADR-0037 Regeln 1, 6): nachrichtAnnehmen(nachricht, eigen) ordnet über die Zeit ein und fügt je Frame ein —
-// am Ende folgt der Blick, sonst zählt die Pille „n neue Nachrichten“; vorlaeufigeZeigen(liste) zeichnet eigene
+// am Ende folgt der Blick, sonst zählt die Pille „n neue Nachrichten“; fassungAnnehmen(channel, nachricht) ersetzt eine
+// Nachricht im Fenster durch ihre geänderte Fassung (ADR-0048 Regel 11); vorlaeufigeZeigen(liste) zeichnet eigene
 // Nachrichten unterwegs oder fehlgeschlagen unter allen bestätigten; an fehlgeschlagenen rufen „Erneut senden“ und
 // „Verwerfen“ schalter('erneut' | 'verwerfen', schluessel) (ADR-0038 Regel 5).
 export function verlaufAnlegen({ abrufen, schalter = () => {}, fokusRueckgaengig = () => {}, fokusVerloren = () => {} }) {
@@ -457,11 +458,30 @@ export function verlaufAnlegen({ abrufen, schalter = () => {}, fokusRueckgaengig
     }
   }
 
-  // Was vor dem Block ankam, geht jetzt den Weg jeder neuen Nachricht (ADR-0028 Regel 5).
+  // Was vor dem Block ankam, geht jetzt den Weg jeder neuen Nachricht bzw. Fassung (ADR-0028 Regel 5, ADR-0048 Regel 11).
   function gepuffertesAnnehmen() {
     const gepuffert = puffer;
     puffer = [];
-    gepuffert.forEach(({ nachricht, eigen }) => nachrichtAnnehmen(nachricht, eigen));
+    gepuffert.forEach(({ nachricht, eigen, fassung }) => {
+      if (fassung !== undefined) {
+        fassungAnnehmen(offenerName, fassung);
+        return;
+      }
+      nachrichtAnnehmen(nachricht, eigen);
+    });
+  }
+
+  // Eine geänderte Fassung einer Nachricht des offenen Channels: vor dem ersten Block gepuffert, sonst im nächsten Frame
+  // nach den neuen Nachrichten übernommen — so trifft sie auch eine Nachricht, die im selben Frame erst ankommt.
+  function fassungAnnehmen(channel, fassung) {
+    if (channel !== offenerName || offenerName === null || gescheitert) {
+      return;
+    }
+    if (!geladen) {
+      puffer.push({ fassung });
+      return;
+    }
+    buendler.annehmen({ channel, nachricht: null, fassung, eigen: false });
   }
 
   // Eine Nachricht des offenen Channels, fremd oder eigen bestätigt; vor dem ersten Block gepuffert, nach „Verlauf nicht
@@ -519,6 +539,10 @@ export function verlaufAnlegen({ abrufen, schalter = () => {}, fokusRueckgaengig
     if (offene.length > 0 && !gescheitert) {
       nachrichtenEinfuegen(offene);
     }
+    const fassungen = gesammelt.filter((eintrag) => eintrag.channel === offenerName && eintrag.fassung !== undefined);
+    if (fassungen.length > 0 && !gescheitert) {
+      fassungenErsetzen(fassungen.map((eintrag) => eintrag.fassung));
+    }
     ausstehendZeichnen();
     auslaufAbbauen(sichtbar, inhaltsHoehe() - inhaltVorher);
     if (amEnde) {
@@ -570,6 +594,37 @@ export function verlaufAnlegen({ abrufen, schalter = () => {}, fokusRueckgaengig
       return zusammenfuehren([], nachrichten).neue;
     }
     return zusammenfuehren(fenster.bloecke[fenster.bloecke.length - 1], nachrichten).neue;
+  }
+
+  // Geänderte Fassungen ersetzen ihre Nachricht an Ort und Stelle, wenn sie im Fenster steht und die Fassung neuer ist
+  // (fassungUebernehmen); die Lesestelle bleibt (Anker), der Fokus folgt dem neuen Knoten (fokusZurueckAufNachricht).
+  function fassungenErsetzen(fassungen) {
+    const anker = ankerMerken(log, inhalt);
+    fassungen.forEach(fassungErsetzen);
+    ankerHalten(log, anker);
+  }
+
+  function fassungErsetzen(fassung) {
+    const zeitpunkt = Date.parse(fassung.zeit);
+    const blockStelle = fenster.bloecke.findIndex((block) => block.some((bekannt) => Date.parse(bekannt.zeit) === zeitpunkt));
+    if (blockStelle < 0) {
+      return;
+    }
+    const block = fenster.bloecke[blockStelle];
+    const stelle = block.findIndex((bekannt) => Date.parse(bekannt.zeit) === zeitpunkt);
+    const uebernommen = fassungUebernehmen(block[stelle], fassung);
+    if (uebernommen === null) {
+      return;
+    }
+    block[stelle] = uebernommen;
+    const knoten = bloeckeKnoten[blockStelle];
+    const knotenStelle = knoten.findIndex((einzeln) => einzeln.classList.contains('lc-msg') && Date.parse(einzeln.dataset.zeit) === zeitpunkt);
+    const alt = knoten[knotenStelle];
+    const neu = nachrichtZeichnen(uebernommen);
+    kopfSetzen(neu, alt.classList.contains('first'));
+    alt.replaceWith(neu);
+    knoten[knotenStelle] = neu;
+    langeEinklappen([neu]);
   }
 
   // Sind alle neuen jünger als die jüngste gezeigte, werden sie angefügt; sonst wird der jüngste Block in der Folge der
@@ -855,6 +910,7 @@ export function verlaufAnlegen({ abrufen, schalter = () => {}, fokusRueckgaengig
     schliessen,
     heuteSetzen,
     nachrichtAnnehmen,
+    fassungAnnehmen,
     nachgeholtAnnehmen,
     vorlaeufigeZeigen,
     nachRueckgaengigFokussieren: (schluessel) => { fokusAufErneut = schluessel; },
