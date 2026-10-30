@@ -383,11 +383,22 @@ async fn ein_gescheitertes_entfallen_der_anhaenge_wird_wiederholt() {
         assert_eq!(abgerufen.status(), 404);
         assert_eq!(gesundheit(&instanz.adresse).await["anhang_belegt"], 65_536);
         drop(instanz);
+        // R00038 F0130: genau eine Zeile im Bereich `frist`, mit Ursache; der Bereich `pflege` gibt es nicht mehr.
+        let zeilen = alle_zeilen(wurzel.path());
+        let nicht_entfernt: Vec<&String> = zeilen
+            .iter()
+            .filter(|zeile| zeile.contains("Anhänge eines Tags nicht entfernt"))
+            .collect();
+        assert_eq!(nicht_entfernt.len(), 1, "{nicht_entfernt:#?}");
         assert!(
-            alle_zeilen(wurzel.path()).iter().any(|zeile| zeile.contains(&format!(
-                " ERROR pflege Anhänge eines Tags nicht entfernt — erneuter Versuch bei der nächsten Pflege | channel=allgemein tag={tag} grund=frist_gesetzt"
-            ))),
-            "ERROR fehlt"
+            nicht_entfernt[0].contains(&format!(
+                " ERROR frist Anhänge eines Tags nicht entfernt — erneuter Versuch bei der nächsten Pflege | channel=allgemein tag={tag} grund=frist_gesetzt"
+            )) && nicht_entfernt[0].contains(" ursache="),
+            "{nicht_entfernt:#?}"
+        );
+        assert!(
+            zeilen.iter().all(|zeile| !zeile.contains(" pflege ")),
+            "{zeilen:#?}"
         );
 
         let instanz = starten(wurzel.path(), &[], &[("LOCALCHATA_JETZT", MITTAG)]);
