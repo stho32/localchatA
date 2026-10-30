@@ -37,6 +37,7 @@ test('Video und Audio (B0460, US-12): film.webm im Rahmen 360 × 202, ton.ogg in
     }));
     expect(merkmale).toEqual({ tag, controls: true, preload: 'none', autoplay: false, playsinline: tag === 'VIDEO', pausiert: true });
   }
+  expect(await video.evaluate((element) => [element.getAttribute('width'), element.getAttribute('height')])).toEqual(['360', '202']);
   const rahmen = await rechteck(video);
   expect(Math.abs(rahmen.width - 360)).toBeLessThanOrEqual(1);
   expect(Math.abs(rahmen.height - 202)).toBeLessThanOrEqual(1);

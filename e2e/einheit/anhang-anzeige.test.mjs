@@ -65,9 +65,9 @@ test('PDF und Text bis 16 MiB öffnen, Text darüber und jede andere Datei nur l
 });
 
 test('Breiten (V1): Rahmen min(360, Inhaltsbreite), Video-Höhe floor(Breite × 9/16)', () => {
-  const erwartet = [[232, 130], [268, 150], [287, 161], [323, 181], [360, 202], [716, 202]];
-  for (const [inhaltsbreite, videoHoehe] of erwartet) {
-    assert.deepEqual(rahmenMasse(inhaltsbreite), { breite: Math.min(360, inhaltsbreite), videoHoehe });
+  const erwartet = [[232, 232, 130], [268, 268, 150], [287, 287, 161], [323, 323, 181], [360, 360, 202], [716, 360, 202], [184, 184, 103]];
+  for (const [inhaltsbreite, breite, videoHoehe] of erwartet) {
+    assert.deepEqual(rahmenMasse(inhaltsbreite), { breite, videoHoehe });
   }
 });
 
