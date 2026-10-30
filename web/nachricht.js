@@ -16,7 +16,7 @@ export function nachrichtZeichnen(nachricht) {
     artikel.dataset.zustand = nachricht.zustand;
   }
   const darstellung = inhaltDarstellen(nachricht);
-  const text = element('div', { className: 'lc-body lc-fold', textContent: darstellung.text });
+  const text = textZeichnen(darstellung);
   if (nachricht.zeit !== undefined) {
     artikel.dataset.zeit = nachricht.zeit;
     artikel.setAttribute('aria-label', zugaenglicherName(nachricht));
@@ -33,12 +33,24 @@ export function nachrichtZeichnen(nachricht) {
 
 // Was eine Nachricht zeigt (R00041 F0134, ADR-0048 Regel 4): ihren Text und — bearbeitet — die Marke „bearbeitet“ mit
 // der Zeit der letzten Änderung („Zuletzt bearbeitet: TT.MM.JJJJ, HH:MM“ im Versatz der Änderung, PO 123); die frühere
-// Fassung kennt der Tab nicht. → { text, marke: null | 'bearbeitet', zuletztBearbeitet: Text | null }
+// Fassung kennt der Tab nicht. Gelöscht (F0138): kein Text, keine Anhänge, die Marke „Nachricht gelöscht“.
+// → { text: Text | null, marke: null | 'bearbeitet' | 'geloescht', zuletztBearbeitet: Text | null }
 export function inhaltDarstellen({ text, zustand, geaendert }) {
+  if (zustand === 'geloescht') {
+    return { text: null, marke: 'geloescht', zuletztBearbeitet: null };
+  }
   if (zustand === 'bearbeitet') {
     return { text, marke: 'bearbeitet', zuletztBearbeitet: `Zuletzt bearbeitet: ${datumUhrzeit(geaendert)}` };
   }
   return { text, marke: null, zuletztBearbeitet: null };
+}
+
+// An der Stelle des Textes einer gelöschten Nachricht steht ihre Marke.
+function textZeichnen(darstellung) {
+  if (darstellung.marke === 'geloescht') {
+    return element('div', { className: 'lc-body lc-fold lc-marke', textContent: 'Nachricht gelöscht' });
+  }
+  return element('div', { className: 'lc-body lc-fold', textContent: darstellung.text });
 }
 
 // Die Marke „bearbeitet“ unter dem Text, auch an eingeklappten und gruppierten Nachrichten (Designsystem Nachricht).
