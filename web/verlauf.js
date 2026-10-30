@@ -13,7 +13,10 @@ import { pfeilRichtung, pfeilZiel, tabStopp, eigeneLetzte, nachrichtTaste } from
 import { bearbeitenAnlegen } from './bearbeiten.js';
 import { rueckfrageOeffnen, loeschenAuswerten } from './loeschen.js';
 import { zeigerart } from './eingabe.js';
-import { einordnen, zusammenfuehren, fassungUebernehmen, buendlerAnlegen, folgenOderZaehlen, pillenText, auslaufNach, nichtGeladenText, hinweisTextNachziehen, sprungZiel as sprungZielBerechnen, scrollTopNachHoehe } from './live-verlauf.js';
+import {
+  einordnen, zusammenfuehren, fassungUebernehmen, buendlerAnlegen, folgenOderZaehlen, pillenText, auslaufNach, nichtGeladenText, hinweisTextNachziehen,
+  sprungZiel as sprungZielBerechnen, scrollTopNachHoehe, fensterNeuLesen,
+} from './live-verlauf.js';
 
 // abrufen: async (name, cursor, signal) → { art: 'block' | 'fehler' | 'abgebrochen', … } (api.js verlaufAbrufen);
 // das Ergebnis von `oeffnen` sagt, ob der Verlauf steht.
@@ -801,31 +804,21 @@ export function verlaufAnlegen({
     return zusammenfuehren(fenster.bloecke[fenster.bloecke.length - 1], nachrichten).neue;
   }
 
-  // Nach einer Lücke (ADR-0048 Regel 11, F1): das Fenster neu lesen — vom Ende her mit `vor` (exklusiv) eine
-  // Millisekunde hinter seiner jüngsten Nachricht, Block für Block, höchstens 5 Abrufe — und Fassungen mit größerem
-  // `geaendert` übernehmen (Ausnahme zu ADR-0028 Regel 5 nur für dieses Feld). Vom Ende her, weil dort Änderungen am
-  // wahrscheinlichsten sind; `nach` bleibt dem Nachholen neuer Nachrichten. Ein Fehlschlag ändert nichts; ein Wechsel
-  // verwirft das Ergebnis.
+  // Nach einer Lücke (ADR-0048 Regel 11, F1): das Fenster neu lesen und Fassungen mit größerem `geaendert` übernehmen
+  // (Ausnahme zu ADR-0028 Regel 5 nur für dieses Feld); ein Wechsel verwirft das Ergebnis.
   async function fassungenAuffrischen() {
-    const HOECHSTENS_ABRUFE = 5;
     if (fenster === null) {
       return;
     }
     const dieser = laufend;
-    const anfang = Date.parse(fenster.bloecke[0][0].zeit);
-    let vor = zeitDanach(juengsteImFenster());
-    for (let abruf = 0; abruf < HOECHSTENS_ABRUFE; abruf += 1) {
-      const ergebnis = await abrufen(offenerName, { vor }, dieser.signal);
-      if (dieser !== laufend || ergebnis.art !== 'block' || ergebnis.block.nachrichten.length === 0) {
-        return;
-      }
-      const gelesen = ergebnis.block.nachrichten;
-      gelesen.forEach((nachricht) => fassungAnnehmen(offenerName, nachricht));
-      vor = gelesen[0].zeit;
-      if (!ergebnis.block.aelter || Date.parse(vor) <= anfang) {
-        return;
-      }
-    }
+    const channel = offenerName;
+    await fensterNeuLesen({
+      abrufen: (cursor) => abrufen(channel, cursor, dieser.signal),
+      anfang: fenster.bloecke[0][0].zeit,
+      juengste: juengsteImFenster(),
+      uebernehmen: (nachricht) => fassungAnnehmen(channel, nachricht),
+      gilt: () => dieser === laufend,
+    });
   }
 
   function juengsteImFenster() {
@@ -1279,11 +1272,6 @@ function blockHoehe(knoten) {
     return 0;
   }
   return knoten[knoten.length - 1].getBoundingClientRect().bottom - knoten[0].getBoundingClientRect().top;
-}
-
-// Eine Millisekunde nach `zeit`, als RFC 3339 in UTC — der Cursor `vor` ist exklusiv (ADR-0025).
-function zeitDanach(zeit) {
-  return new Date(Date.parse(zeit) + 1).toISOString().replace('Z', '+00:00');
 }
 
 function cursorFuer(fenster, richtung) {

@@ -137,3 +137,33 @@ export function fassungUebernehmen(bekannt, neu) {
   }
   return null;
 }
+
+// Nach einer Lücke das Fenster neu lesen (ADR-0048 Regel 11, R00041 F0134): vom Ende her mit `vor` (exklusiv) eine
+// Millisekunde hinter der jüngsten Nachricht des Fensters, Block für Block bis zu seinem Anfang — auch acht Blöcke und
+// einen live gewachsenen jüngsten —, und jede gelesene Nachricht an `uebernehmen`. Vom Ende her, weil dort Änderungen am
+// wahrscheinlichsten sind; `nach` bleibt dem Nachholen neuer Nachrichten. Jeder Abruf muss vor den vorigen reichen; ein
+// Fehlschlag, ein Block ohne Fortschritt oder `gilt()` falsch (Wechsel des Channels) beendet das Lesen still.
+// abrufen: async (cursor) → Ergebnis wie api.js verlaufAbrufen · anfang, juengste: Zeiten des Fensters (RFC 3339)
+export async function fensterNeuLesen({ abrufen, anfang, juengste, uebernehmen, gilt }) {
+  let vor = zeitDanach(juengste);
+  let anfangGelesen = false;
+  while (!anfangGelesen) {
+    const ergebnis = await abrufen({ vor });
+    if (!gilt() || ergebnis.art !== 'block' || ergebnis.block.nachrichten.length === 0) {
+      return;
+    }
+    const gelesen = ergebnis.block.nachrichten;
+    const ohneFortschritt = Date.parse(gelesen[0].zeit) >= Date.parse(vor);
+    if (ohneFortschritt) {
+      return;
+    }
+    gelesen.forEach(uebernehmen);
+    vor = gelesen[0].zeit;
+    anfangGelesen = !ergebnis.block.aelter || Date.parse(vor) <= Date.parse(anfang);
+  }
+}
+
+// Eine Millisekunde nach `zeit`, als RFC 3339 in UTC — der Cursor `vor` ist exklusiv (ADR-0025).
+export function zeitDanach(zeit) {
+  return new Date(Date.parse(zeit) + 1).toISOString().replace('Z', '+00:00');
+}
