@@ -27,11 +27,13 @@ pub struct Nachholbudget {
     pub saetze: usize,
 }
 
-/// Das Budget eines Aufrufs: 100 Nachrichten, 256 KiB (ADR-0039), 10.000 geprüfte Sätze.
+/// Das Budget eines Aufrufs: 100 Nachrichten, 256 KiB (ADR-0039), 2.000 geprüfte Sätze — K1 (ADR-0054 Ergänzung
+/// „Nachholen von `warten` …“ Regel 2, R00049 F0170): hält jede Belegung der Nachholbank kurz (≈ 10 ms). Bleibt
+/// nach genau so vielen Sätzen keiner ungeprüft, endet das Nachholen ohne `weitere`.
 pub const NACHHOLBUDGET: Nachholbudget = Nachholbudget {
     nachrichten: 100,
     bytes: 262_144,
-    saetze: 10_000,
+    saetze: 2_000,
 };
 
 /// Was das Nachholen ergab: Treffer in Zeitfolge, der verarbeitete Stand und ob ein Budget vor der Marke endete.
@@ -364,6 +366,122 @@ mod tests {
 
         assert_eq!(zeiten_der(&nachgeholt), vec![t[1]]);
         assert_eq!((nachgeholt.stand, nachgeholt.weitere), (t[1], true));
+    }
+
+    /// Ein Channel `a` mit `anzahl` Nachrichten `Nachricht n`, je 1 ms später; `von(n)` sendet die n-te (ab 1
+    /// gezählt). Liefert die Gespräche und `t0…tn` (`t0` liegt vor `t1`).
+    fn reihe(anzahl: usize, von: impl Fn(usize) -> Kennung) -> (Gespraeche, Vec<Zeit>) {
+        let ablage = Arc::new(Speicherablage::neu());
+        ablage.gespraech_anlegen(&Gespraech::channel("a"));
+        let beginn = zeit("2026-10-30T12:00:00.000+01:00");
+        let uhr = Arc::new(GestellteUhr::neu(beginn));
+        let gespraeche = Gespraeche::laden(ablage, uhr).expect("geladen");
+        let mut zeiten = vec![beginn - chrono::Duration::seconds(1)];
+        for nummer in 1..=anzahl {
+            let gesendet = gespraeche
+                .senden(
+                    &Gespraech::channel("a"),
+                    &von(nummer),
+                    Art::Mensch,
+                    &format!("Nachricht {nummer}"),
+                )
+                .expect("gesendet");
+            zeiten.push(gesendet.zeit);
+        }
+        (gespraeche, zeiten)
+    }
+
+    /// Ruft wie ein Agent in Schleife mit dem jeweils zurückgegebenen Stand, bis kein `weitere` mehr kommt.
+    fn in_schleife(gespraeche: &Gespraeche, t: &[Zeit], filter: &Filter) -> Vec<Nachgeholt> {
+        let marke = *t.last().expect("Marke");
+        let mut aufrufe = Vec::new();
+        let mut seit = t[0];
+        loop {
+            let nachgeholt = gespraeche.nachholen(seit, marke, &claude(), filter, NACHHOLBUDGET);
+            seit = nachgeholt.stand;
+            let weitere = nachgeholt.weitere;
+            aufrufe.push(nachgeholt);
+            if !weitere {
+                return aufrufe;
+            }
+        }
+    }
+
+    fn erwaehnung() -> Filter {
+        Filter {
+            erwaehnung: true,
+            ..Filter::default()
+        }
+    }
+
+    /// N3 (B0757, K1): das Budget sind 2.000 geprüfte Sätze je Aufruf.
+    #[test]
+    fn das_budget_sind_zweitausend_saetze() {
+        assert_eq!(NACHHOLBUDGET.saetze, 2_000);
+    }
+
+    /// N3 (B0757, K1): 5.000 Sätze ohne Treffer → `weitere` am 2.000., `weitere` am 4.000., dann `frist` (kein
+    /// `weitere`) mit dem Stand der Marke; jeder Stand ist genau der zuletzt geprüfte Satz (lückenlos, ohne Doppel).
+    #[test]
+    fn fuenftausend_saetze_ohne_treffer_sind_drei_aufrufe() {
+        let (gespraeche, t) = reihe(5_000, |_| anna());
+
+        let aufrufe = in_schleife(&gespraeche, &t, &erwaehnung());
+
+        let staende: Vec<(Zeit, bool)> = aufrufe
+            .iter()
+            .map(|aufruf| (aufruf.stand, aufruf.weitere))
+            .collect();
+        assert_eq!(
+            staende,
+            vec![(t[2_000], true), (t[4_000], true), (t[5_000], false)]
+        );
+        assert!(aufrufe.iter().all(|aufruf| aufruf.treffer.is_empty()));
+    }
+
+    /// N3 Grenzfall (Auslegung des planer, beim Bau bestätigt): genau 4.000 Sätze → der zweite Aufruf prüft die
+    /// letzten 2.000 und endet ohne `weitere`, denn kein Satz bleibt ungeprüft.
+    #[test]
+    fn genau_viertausend_saetze_sind_zwei_aufrufe() {
+        let (gespraeche, t) = reihe(4_000, |_| anna());
+
+        let aufrufe = in_schleife(&gespraeche, &t, &erwaehnung());
+
+        let staende: Vec<(Zeit, bool)> = aufrufe
+            .iter()
+            .map(|aufruf| (aufruf.stand, aufruf.weitere))
+            .collect();
+        assert_eq!(staende, vec![(t[2_000], true), (t[4_000], false)]);
+    }
+
+    /// N3 lückenlos und ohne Doppel an der Budgetgrenze: 4.500 Sätze, `claude` selbst sendet alle außer dem 2.000.,
+    /// 2.001. und 4.001. (die sendet `anna`, sie treffen ohne Filter) → `[t2000]` mit `weitere` am 2.000.,
+    /// `[t2001]` mit `weitere` am 4.000., `[t4001]` ohne `weitere`.
+    #[test]
+    fn treffer_an_der_budgetgrenze_kommen_genau_einmal() {
+        let von_anna = [2_000, 2_001, 4_001];
+        let (gespraeche, t) = reihe(4_500, |nummer| {
+            if von_anna.contains(&nummer) {
+                anna()
+            } else {
+                claude()
+            }
+        });
+
+        let aufrufe = in_schleife(&gespraeche, &t, &Filter::default());
+
+        let je_aufruf: Vec<(Vec<Zeit>, Zeit, bool)> = aufrufe
+            .iter()
+            .map(|aufruf| (zeiten_der(aufruf), aufruf.stand, aufruf.weitere))
+            .collect();
+        assert_eq!(
+            je_aufruf,
+            vec![
+                (vec![t[2_000]], t[2_000], true),
+                (vec![t[2_001]], t[4_000], true),
+                (vec![t[4_001]], t[4_500], false),
+            ]
+        );
     }
 
     /// Lieferbytes: der Text zählt mit seiner Länge in Bytes.
