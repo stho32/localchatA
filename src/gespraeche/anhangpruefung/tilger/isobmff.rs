@@ -4,6 +4,7 @@
 
 use super::Zaehler;
 use super::minimal::{minimales_exif, traegt_ort};
+use super::mpf::jpeg_im_fenster;
 use super::port::{Abbruch, Ergebnis, Port, STUECK};
 use crate::gespraeche::anhangpruefung::exif::orientierung;
 use std::collections::{HashMap, HashSet};
@@ -30,10 +31,11 @@ const HEIF_META_ERLAUBT: &[&[u8; 4]] = &[
     b"hdlr", b"pitm", b"iloc", b"iinf", b"iref", b"iprp", b"idat", b"dinf", b"grpl", b"ipro",
 ];
 
-/// Bild- und abgeleitete Items, die bleiben (Regel 5e); `Exif` wird minimal, jedes andere Item genullt.
+/// Bild- und abgeleitete Items, die bleiben (Regel 5e); `Exif` wird minimal, `jpeg` nach der JPEG-Regel im Fenster
+/// des Items getilgt (B3 Regel 5k), jedes andere Item genullt.
 const HEIF_ITEMS_ERLAUBT: &[&[u8; 4]] = &[
-    b"hvc1", b"hvt1", b"av01", b"avc1", b"jpeg", b"j2k1", b"vvc1", b"unci", b"mski", b"grid",
-    b"iovl", b"iden", b"tmap",
+    b"hvc1", b"hvt1", b"av01", b"avc1", b"j2k1", b"vvc1", b"unci", b"mski", b"grid", b"iovl",
+    b"iden", b"tmap",
 ];
 
 /// Erlaubnisliste in `udta` (Regel 5c): Kapitel, Spurauswahl, `meta`.
@@ -341,6 +343,7 @@ fn oberstes_meta(port: &Port<'_>, meta: Kiste, zaehler: &mut Zaehler) -> Ergebni
     for (pos, laenge, item) in schritte {
         match item {
             Item::Exif => exif_item(port, pos, laenge, zaehler)?,
+            Item::Jpeg => jpeg_im_fenster(port, pos, pos + laenge, zaehler)?,
             Item::Nullen => port.nullen(pos, laenge)?,
         }
     }
@@ -431,10 +434,11 @@ fn eigenschaften(port: &Port<'_>, iprp: Kiste, zaehler: &mut Zaehler) -> Ergebni
     Ok(())
 }
 
-/// Was der Tilger mit einem Ziel-Item tut: minimales EXIF oder ganz nullen.
+/// Was der Tilger mit einem Ziel-Item tut: minimales EXIF, JPEG-Regel im Fenster des Items oder ganz nullen.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Item {
     Exif,
+    Jpeg,
     Nullen,
 }
 
@@ -470,6 +474,9 @@ fn items(port: &Port<'_>, iinf: Kiste, zaehler: &mut Zaehler) -> Ergebnis<HashMa
         match typ {
             Some(b"Exif") => {
                 gefunden.insert(id, Item::Exif);
+            }
+            Some(b"jpeg") => {
+                gefunden.insert(id, Item::Jpeg);
             }
             Some(typ) if HEIF_ITEMS_ERLAUBT.iter().any(|erlaubt| &erlaubt[..] == typ) => {}
             _ => {
@@ -2140,6 +2147,140 @@ mod tests {
         assert!(ergebnis.expect("getilgt").ort);
         let getilgt = datei.inhalt();
         assert!(getilgt.ends_with(&kachel) && !enthaelt(&getilgt, b"GPS"));
+    }
+
+    fn segment(marke: u8, inhalt: &[u8]) -> Vec<u8> {
+        [
+            &[0xFF, marke][..],
+            &((inhalt.len() + 2) as u16).to_be_bytes(),
+            inhalt,
+        ]
+        .concat()
+    }
+
+    /// ICC-Profil im `APP2` (bleibt byte-gleich).
+    fn icc() -> Vec<u8> {
+        segment(0xE2, &[&b"ICC_PROFILE\0\x01\x01"[..], &[0x11; 40]].concat())
+    }
+
+    /// Bilddaten ab `SOS` bis `EOI`.
+    fn ab_sos() -> Vec<u8> {
+        [
+            segment(0xDA, b"\x01\x01\0\0\x3F\0"),
+            b"BILDDATEN\xFF\xD9".to_vec(),
+        ]
+        .concat()
+    }
+
+    /// Ein JPEG (Vorschau im HEIF) mit `APP1` Exif samt Ort, ICC und Bilddaten; mit `mpf` steht davor ein `APP2`
+    /// `MPF`, dessen zweiter Eintrag ein Bild von `mpf` Bytes direkt hinter dem JPEG nennt.
+    fn vorschau(mpf: Option<u32>) -> Vec<u8> {
+        let mut tiff_bytes = tiff(
+            Ordnung::Intel,
+            &[(0x0112, 3, 1, 6), (0x8825, 4, 1, 40)],
+            None,
+        );
+        tiff_bytes.extend_from_slice(b"GPS 52.5200 13.4050");
+        let rest = [
+            segment(0xE1, &[&b"Exif\0\0"[..], &tiff_bytes].concat()),
+            icc(),
+            ab_sos(),
+        ]
+        .concat();
+        let Some(groesse) = mpf else {
+            return [&[0xFF, 0xD8][..], &rest].concat();
+        };
+        // SOI (2), Marker und Länge (4), `MPF\0` (4): der TIFF-Kopf steht bei 10; das Segment ist 66 Bytes lang.
+        let ganz = 2 + 66 + rest.len() as u32;
+        let mut index = b"MM\0*\0\0\0\x08\0\x01\xB0\x02\0\x07\0\0\0\x20\0\0\0\x1A\0\0\0\0".to_vec();
+        for (laenge, ab) in [(ganz, 0), (groesse, ganz - 10)] {
+            index.extend_from_slice(&[0; 4]);
+            index.extend_from_slice(&laenge.to_be_bytes());
+            index.extend_from_slice(&ab.to_be_bytes());
+            index.extend_from_slice(&[0; 4]);
+        }
+        let mpf = segment(0xE2, &[&b"MPF\0"[..], &index].concat());
+        assert_eq!(mpf.len(), 66);
+        [&[0xFF, 0xD8][..], &mpf, &rest].concat()
+    }
+
+    /// Ein zweites JPEG mit Ort im `COM`.
+    fn zweites_bild() -> Vec<u8> {
+        [
+            &[0xFF, 0xD8][..],
+            &segment(0xFE, b"GPS 48.1371 11.5754"),
+            &ab_sos(),
+        ]
+        .concat()
+    }
+
+    /// ADR-0047 B3 Regel 5k, P11 (m) (B0653): HEIC mit `jpeg`-Item (Vorschau) mit `APP1` Exif-GPS → Ort weg,
+    /// minimales EXIF mit Orientierung, `APP2` ICC und alles ab `SOS` byte-gleich, die Kachel byte-gleich.
+    #[test]
+    fn ein_jpeg_item_wird_im_fenster_getilgt() {
+        let jpeg = vorschau(None);
+        let kachel = vec![0x5A; 50];
+        let lang = jpeg.len() as u64;
+        let daten = heic_aus(
+            &[item_infe(1, b"hvc1"), item_infe(2, b"jpeg")],
+            |ab| iloc_aus(&[(1, ab, 50), (2, ab + 50, lang)]),
+            &[kachel.clone(), jpeg.clone()].concat(),
+        );
+
+        let (ergebnis, datei) = tilgen(daten);
+
+        assert!(ergebnis.expect("getilgt").ort);
+        let getilgt = datei.inhalt();
+        assert!(!enthaelt(&getilgt, b"GPS") && !enthaelt(&getilgt, b"52.52"));
+        for bleibt in [icc(), ab_sos(), vec![0x5A; 50]] {
+            assert!(enthaelt(&getilgt, &bleibt));
+        }
+        let tiff = getilgt
+            .windows(4)
+            .position(|f| f == b"MM\0*")
+            .expect("minimales EXIF");
+        assert_eq!(orientierung(&getilgt[tiff..]), Some(6));
+    }
+
+    /// ADR-0047 B3 Regel 5k, P11 (m) (B0653): ein `jpeg`-Item, dessen MPF-Index ein Bild hinter dem Item nennt →
+    /// `metadaten` (das Fenster ist das Item, nicht die Datei); ein `jpeg`-Item mit zwei Ausdehnungen, in `idat` oder
+    /// mit einem Segment über das Ende des Items → `metadaten`.
+    #[test]
+    fn ein_jpeg_item_wird_nie_ueber_sein_fenster_hinaus_gelesen() {
+        let zweites = zweites_bild();
+        let jpeg = vorschau(Some(zweites.len() as u32));
+        let lang = jpeg.len() as u64;
+        let mit_mpf = heic_aus(
+            &[item_infe(1, b"jpeg")],
+            |ab| iloc_aus(&[(1, ab, lang)]),
+            &[jpeg.clone(), zweites].concat(),
+        );
+        let (ergebnis, _) = tilgen(mit_mpf);
+        assert!(
+            matches!(ergebnis, Err(Abbruch::Metadaten(_))),
+            "MPF über das Item: {ergebnis:?}"
+        );
+
+        let jpeg = vorschau(None);
+        let lang = jpeg.len() as u64;
+        type Iloc = fn(u64, u64) -> Vec<u8>;
+        let faelle: [(&str, Iloc); 3] = [
+            ("zwei Ausdehnungen", |ab, lang| {
+                iloc_breit(&[(1, 0, ab, &[(0, lang / 2), (lang / 2, lang - lang / 2)])])
+            }),
+            ("idat", |_, lang| iloc_breit(&[(1, 1, 0, &[(0, lang)])])),
+            ("Segment über das Ende", |ab, _| {
+                iloc_breit(&[(1, 0, ab, &[(0, 30)])])
+            }),
+        ];
+        for (was, iloc) in faelle {
+            let daten = heic_aus(&[item_infe(1, b"jpeg")], |ab| iloc(ab, lang), &jpeg);
+            let (ergebnis, _) = tilgen(daten);
+            assert!(
+                matches!(ergebnis, Err(Abbruch::Metadaten(_))),
+                "{was}: {ergebnis:?}"
+            );
+        }
     }
 
     /// Regel 5g: eine Zeit-Box mit unbekannter Version oder zu kurz → `metadaten`.

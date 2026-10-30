@@ -1255,3 +1255,88 @@ async fn iloc_mit_laenge_0_und_ueberlauf() {
     ohne_ort("bild-0-am-ende.heic", &geliefert.bytes);
     assert!(geliefert.bytes.ends_with(&kachel));
 }
+
+/// Ein Vorschau-JPEG mit `APP1` Exif samt GPS-IFD (Ort binär), `APP2` ICC und Bilddaten; mit `zweites` davor ein
+/// `APP2` `MPF`, dessen zweiter Eintrag ein Bild von `zweites` Bytes direkt hinter dem JPEG nennt.
+fn vorschau_im_heif(zweites: Option<u32>) -> Vec<u8> {
+    let icc = (0xe2, [&b"ICC_PROFILE\0\x01\x01"[..], &[0x11; 40]].concat());
+    let ohne_mpf = vorschau_mit_gps();
+    let mut segmente = vec![icc];
+    let Some(groesse) = zweites else {
+        let mut bytes = ohne_mpf[..2].to_vec();
+        jpeg_segment(&mut bytes, segmente[0].0, &segmente[0].1);
+        bytes.extend(&ohne_mpf[2..]);
+        return bytes;
+    };
+    // SOI (2), Marker und Länge (4), `MPF\0` (4): der TIFF-Kopf steht bei 10; das MPF-Segment ist 66 Bytes lang.
+    let ganz = (ohne_mpf.len() + 66 + 4 + segmente[0].1.len()) as u32;
+    let mut index = b"MM\0*\0\0\0\x08\0\x01\xb0\x02\0\x07\0\0\0\x20\0\0\0\x1a\0\0\0\0".to_vec();
+    for (laenge, ab) in [(ganz, 0), (groesse, ganz - 10)] {
+        index.extend([0; 4]);
+        index.extend(laenge.to_be_bytes());
+        index.extend(ab.to_be_bytes());
+        index.extend([0; 4]);
+    }
+    segmente.insert(0, (0xe2, [&b"MPF\0"[..], &index].concat()));
+    let mut bytes = ohne_mpf[..2].to_vec();
+    for (marke, nutzlast) in &segmente {
+        jpeg_segment(&mut bytes, *marke, nutzlast);
+    }
+    bytes.extend(&ohne_mpf[2..]);
+    assert_eq!(bytes.len() as u32, ganz);
+    bytes
+}
+
+/// ADR-0047 B3 Regel 5k, P11 (m) (B0653): HEIC mit `jpeg`-Item (Vorschau) mit `APP1` Exif-GPS → ausgeliefert ohne
+/// Ort, `APP2` ICC und Bilddaten ab `SOS` byte-gleich, die Kachel byte-gleich, Art wie vorher; ein `jpeg`-Item, dessen
+/// MPF-Index ein Bild hinter dem Item nennt → 422; mit zwei Ausdehnungen oder in `idat` → 422.
+#[tokio::test]
+async fn jpeg_item_im_heif_verliert_den_ort() {
+    let lauf = Lauf::neu().await;
+    let kachel = vec![0x5a; 64];
+    let jpeg = vorschau_im_heif(None);
+    let original = heic_mit(
+        &[(b"hvc1", b"", kachel.clone()), (b"jpeg", b"", jpeg.clone())],
+        &[],
+        &[],
+    );
+
+    let geliefert = lauf.ausliefern("vorschau.heic", &original).await;
+
+    ohne_ort("vorschau.heic", &geliefert.bytes);
+    let icc = &jpeg[2..2 + 4 + 54];
+    assert!(enthaelt(icc, b"ICC_PROFILE"));
+    assert!(enthaelt(&geliefert.bytes, icc) && enthaelt(&geliefert.bytes, &kachel));
+    assert!(geliefert.bytes.ends_with(ab_sos(&jpeg)));
+    assert_eq!(geliefert.anhang["art"], "image/heic");
+
+    let zweites = jpeg_mit_ort_im_com();
+    let zweites_lang = zweites.len() as u64;
+    let mit_mpf = vorschau_im_heif(Some(zweites_lang as u32));
+    let ueber = heic_mit_iloc(
+        &[(b"jpeg", b"", mit_mpf.clone()), (b"hvc1", b"", zweites)],
+        &[],
+        &[],
+        |ab| {
+            iloc_breit(&[
+                (1, 0, 0, vec![(ab[0], mit_mpf.len() as u64)]),
+                (2, 0, 0, vec![(ab[1], zweites_lang)]),
+            ])
+        },
+    );
+    lauf.abgewiesen("mpf-ueber.heic", &ueber).await;
+    let lang = jpeg.len() as u64;
+    let zwei = heic_mit_iloc(&[(b"jpeg", b"", jpeg.clone())], &[], &[], |ab| {
+        iloc_breit(&[(1, 0, 0, vec![(ab[0], 10), (ab[0] + 10, lang - 10)])])
+    });
+    lauf.abgewiesen("zwei.heic", &zwei).await;
+    let idat = heic_mit_iloc(&[(b"jpeg", b"", jpeg.clone())], &[], &[], |_| {
+        iloc_breit(&[(1, 1, 0, vec![(0, lang)])])
+    });
+    lauf.abgewiesen("idat.heic", &idat).await;
+}
+
+/// Ein JPEG mit Ort im `COM`.
+fn jpeg_mit_ort_im_com() -> Vec<u8> {
+    jpeg(&[(0xfe, ort())], 8, 8)
+}

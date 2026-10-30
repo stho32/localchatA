@@ -23,7 +23,18 @@ type Bild = (u64, u64);
 /// und geprüft — je ganz in der Datei, hinter dem `SOS` des ersten Bildes, mit `FF D8 FF`, paarweise
 /// überschneidungsfrei —, bevor ein Bild getilgt wird; jedes Bild wird nur in seinem Bereich gelesen.
 pub fn jpeg_mit_mpf(port: &Port<'_>, zaehler: &mut Zaehler) -> Ergebnis<()> {
-    let erstes = jpeg(port, 0, port.laenge(), zaehler)?;
+    jpeg_im_fenster(port, 0, port.laenge(), zaehler)
+}
+
+/// Wie `jpeg_mit_mpf`, aber nur im Fenster `[anfang, ende)` — ein `jpeg`-Item im HEIF (ADR-0047 Ergänzung „Karte #9
+/// Security-Review B3“ Regel 5k): kein Segment, kein MPF-Bild und kein Leseziel verlässt das Fenster.
+pub fn jpeg_im_fenster(
+    port: &Port<'_>,
+    anfang: u64,
+    ende: u64,
+    zaehler: &mut Zaehler,
+) -> Ergebnis<()> {
+    let erstes = jpeg(port, anfang, ende, zaehler)?;
     let JpegBild {
         sos,
         mpf: Some((tiff, laenge)),
@@ -32,12 +43,12 @@ pub fn jpeg_mit_mpf(port: &Port<'_>, zaehler: &mut Zaehler) -> Ergebnis<()> {
         return Ok(());
     };
     let index = port.lesen(tiff, laenge)?;
-    let mut bilder = weitere_bilder(port, &index, tiff)?;
+    let mut bilder = weitere_bilder(&index, tiff, ende)?;
     bilder.sort_unstable();
     pruefen(port, &bilder, sos)?;
-    for (anfang, groesse) in bilder {
+    for (bild, groesse) in bilder {
         zaehler.block()?;
-        jpeg(port, anfang, anfang + groesse, zaehler)?;
+        jpeg(port, bild, bild + groesse, zaehler)?;
     }
     Ok(())
 }
@@ -59,8 +70,9 @@ fn pruefen(port: &Port<'_>, bilder: &[Bild], sos: u64) -> Ergebnis<()> {
 }
 
 /// Die weiteren Bilder aus dem MP-Index (Versätze ab dem TIFF-Kopf des MPF-Segments): genau ein `MP_ENTRY`, sonst
-/// `Verweise doppelt`; ein Eintrag, der nicht ganz in der Datei liegt, beendet mit `metadaten`.
-fn weitere_bilder(port: &Port<'_>, bytes: &[u8], tiff: u64) -> Ergebnis<Vec<Bild>> {
+/// `Verweise doppelt`; ein Eintrag, der nicht ganz vor `ende` (Ende der Datei bzw. des Fensters) liegt, beendet mit
+/// `metadaten`.
+fn weitere_bilder(bytes: &[u8], tiff: u64, ende: u64) -> Ergebnis<Vec<Bild>> {
     let Some(ordnung) = ordnung(bytes) else {
         return metadaten("MPF ohne TIFF-Kopf");
     };
@@ -89,7 +101,7 @@ fn weitere_bilder(port: &Port<'_>, bytes: &[u8], tiff: u64) -> Ergebnis<Vec<Bild
         let groesse = u64::from(ordnung.u32(bytes, bild + 4).ok_or_else(falsch)?);
         let ab = u64::from(ordnung.u32(bytes, bild + 8).ok_or_else(falsch)?);
         let anfang = tiff.checked_add(ab).ok_or_else(falsch)?;
-        if !port.enthaelt(anfang, groesse) {
+        if anfang.checked_add(groesse).is_none_or(|bis| bis > ende) {
             return metadaten("MPF-Eintrag nicht ganz in der Datei");
         }
         bilder.push((anfang, groesse));
