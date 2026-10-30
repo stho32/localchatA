@@ -5,7 +5,7 @@
 const { test, expect } = require('./rahmen');
 const { sendenStarten, imBrowserBeitreten } = require('./senden-hilfen');
 const { geraetOeffnen } = require('./r00027-hilfen');
-const { betaSendet, bearbeitenPerApi, nachrichtMitZeit, schriftKontrast } = require('./r00041-hilfen');
+const { betaSendet, bearbeitenPerApi, loeschenPerApi, nachrichtMitZeit, schriftKontrast } = require('./r00041-hilfen');
 
 let instanz;
 test.afterEach(async () => {
@@ -120,3 +120,20 @@ test('Eingeklappt und gruppiert (B0626): die Marke ist an einer langen eingeklap
   }
   expect(a.fehler).toEqual([]);
 });
+
+for (const thema of ['light', 'dark']) {
+  test(`Kontrast „Nachricht gelöscht“ (F0138, ${thema}): ≥ 4,5 : 1, ruhend und mit Hover`, async ({ browser }) => {
+    instanz = await sendenStarten();
+    const beta = await betaSendet(instanz.adresse, ['Hallo']);
+    expect((await loeschenPerApi(instanz.adresse, beta.token, beta.zeiten[0])).status).toBe(200);
+    const a = await geraetOeffnen(browser, 'desktop', { thema, streng: true });
+    await imBrowserBeitreten(a.page, instanz.adresse, 'shoff');
+    const marke = nachrichtMitZeit(a.page, beta.zeiten[0]).locator('.lc-body');
+    await expect(marke).toHaveText('Nachricht gelöscht');
+    await a.page.mouse.move(0, 0);
+    expect(await schriftKontrast(marke)).toBeGreaterThanOrEqual(4.5);
+    await nachrichtMitZeit(a.page, beta.zeiten[0]).hover();
+    expect(await schriftKontrast(marke)).toBeGreaterThanOrEqual(4.5);
+    expect(a.fehler).toEqual([]);
+  });
+}

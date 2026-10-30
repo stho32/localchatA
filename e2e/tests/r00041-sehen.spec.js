@@ -309,3 +309,19 @@ test('Endgültig (B0621): ein verspätetes aenderung „bearbeitet“ mit kleine
   expect(await textknotenMit(a.page, 'Verspätet')).toEqual([]);
   expect(a.fehler).toEqual([]);
 });
+
+test('Fokus beim Ersetzen (F0141 nach F0134): eine fokussierte fremde Nachricht, die beta bearbeitet, behält den Fokus auf dem neuen Knoten derselben Zeit', async ({ browser }) => {
+  instanz = await sendenStarten();
+  const beta = await betaSendet(instanz.adresse, ['Hallo']);
+  const zeit = beta.zeiten[0];
+  const a = await browserOeffnen(browser, { streng: true });
+  await imBrowserBeitreten(a.page, instanz.adresse, 'shoff');
+  await nachrichtMitZeit(a.page, zeit).focus();
+  await a.page.evaluate(() => { window.alterKnoten = document.activeElement; });
+
+  expect((await bearbeitenPerApi(instanz.adresse, beta.token, zeit, 'Hallo zusammen')).status).toBe(200);
+  await expect(nachrichtMitZeit(a.page, zeit).locator('.lc-body')).toHaveText('Hallo zusammen');
+  const lage = await a.page.evaluate(() => ({ zeit: document.activeElement.dataset.zeit, neu: document.activeElement !== window.alterKnoten }));
+  expect(lage).toEqual({ zeit, neu: true });
+  expect(a.fehler).toEqual([]);
+});
