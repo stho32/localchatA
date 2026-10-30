@@ -311,6 +311,13 @@ impl Verlauf {
         })
     }
 
+    /// Der Absender der ältesten Nachricht im Index (aus der Kopfzeile ihres Satzes); ohne Nachricht keiner. Der
+    /// Anleger eines Direktgesprächs (ADR-0055 E18): im Index stehen nur Tage in der Frist.
+    pub fn aeltester_absender(&self) -> Option<super::Kennung> {
+        let tag = self.tage.values().find(|tag| !tag.nachrichten.is_empty())?;
+        logformat::kopf(&tag.rohtext[tag.nachrichten[0]..]).map(|(_, von)| von)
+    }
+
     /// Wie viele Nachrichten der Index hält — Änderungssätze zählen nicht (ADR-0048 Regel 1).
     pub fn nachrichten(&self) -> u64 {
         self.tage

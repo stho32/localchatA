@@ -4,6 +4,7 @@
 //! (R00015, R00018 F0081).
 
 use super::testserver;
+use crate::gespraeche::Direktgrenzen;
 use crate::protokoll::senke::Speicher;
 use crate::protokoll::testhilfe::{im_speicher, zeit};
 use crate::protokoll::{Protokoll, Stufe};
@@ -23,6 +24,12 @@ struct Instanz {
 
 /// Router wie im Programm, Gespräche in einem eigenen Wegwerf-Ordner, Protokoll auf Information.
 async fn starten() -> Instanz {
+    starten_mit(Direktgrenzen::default()).await
+}
+
+/// Wie `starten`, mit eingestellten Grenzen neuer Direktgespräche (ADR-0055 Regel 4: kleine Testkonstanten statt
+/// einer Flut).
+async fn starten_mit(grenzen: Direktgrenzen) -> Instanz {
     let ordner = tempfile::tempdir().expect("Wegwerf-Ordner");
     let mut zustand = testserver::zustand(ordner.path());
     zustand.gespraeche = Arc::new(
@@ -33,7 +40,8 @@ async fn starten() -> Instanz {
             )),
             Arc::new(crate::uhr::Systemuhr),
         )
-        .expect("leerer Ordner"),
+        .expect("leerer Ordner")
+        .mit_direkt_grenzen(grenzen),
     );
     let (protokoll, speicher, uhr, _) =
         im_speicher("2026-10-28T12:00:00+01:00", Stufe::Information);
@@ -205,4 +213,109 @@ async fn ein_anlegen_ueber_der_channel_grenze_ist_eine_episode_mit_herkunft_und_
         warnungen[1].contains(" Episode endet: 1 in 0 s (herkunft 1)"),
         "{warnungen:#?}"
     );
+}
+
+impl Instanz {
+    /// Tritt als `name` von `von` bei und liefert das Token.
+    async fn beitreten(&self, von: &str, name: &str) -> String {
+        let (status, antwort) = self
+            .post_von(von, "api/beitreten", json!({ "name": name }), None)
+            .await;
+        assert_eq!(status, 201, "{name}: {antwort}");
+        antwort["token"].as_str().expect("Token").to_string()
+    }
+
+    /// `POST /api/direkt/{gegenueber}/nachrichten`.
+    async fn direkt_senden(
+        &self,
+        von: &str,
+        token: &str,
+        gegenueber: &str,
+        text: &str,
+    ) -> (u16, Value) {
+        self.post_von(
+            von,
+            &format!("api/direkt/{gegenueber}/nachrichten"),
+            json!({ "text": text }),
+            Some(token),
+        )
+        .await
+    }
+}
+
+/// B0779 F1 (wörtlich, kleine Testkonstante): das N+1-te **neue** Paar einer Herkunft → 429
+/// `{grenze: "direktgespraeche", art: "herkunft", hoechstens: 3}` wie die Channel-Grenze (`grenze` benennt die
+/// Sache, `art` die Stufe); ein bestehendes Gespräch sendet weiter, ein Paar von einer anderen Herkunft geht, und
+/// die Abweisung legt nichts an.
+#[tokio::test]
+async fn das_vierte_neue_direktgespraech_einer_herkunft_ist_429_direktgespraeche_herkunft() {
+    let instanz = starten_mit(Direktgrenzen {
+        gesamt: 100,
+        je_herkunft: 3,
+    })
+    .await;
+    let anna = instanz.beitreten("127.0.0.2", "anna").await;
+    let ben = instanz.beitreten("127.0.0.3", "ben").await;
+    for nummer in 1..=4 {
+        instanz.beitreten("127.0.0.9", &format!("p{nummer}")).await;
+    }
+    for nummer in 1..=3 {
+        let (status, antwort) = instanz
+            .direkt_senden("127.0.0.2", &anna, &format!("p{nummer}@127.0.0.9"), "hallo")
+            .await;
+        assert_eq!(status, 201, "p{nummer}: {antwort}");
+    }
+
+    let (ueber, antwort) = instanz
+        .direkt_senden("127.0.0.2", &anna, "p4@127.0.0.9", "hallo")
+        .await;
+    let (bestehend, _) = instanz
+        .direkt_senden("127.0.0.2", &anna, "p1@127.0.0.9", "noch eins")
+        .await;
+    let (andere_herkunft, _) = instanz
+        .direkt_senden("127.0.0.3", &ben, "p4@127.0.0.9", "hallo")
+        .await;
+
+    assert_eq!(ueber, 429, "{antwort}");
+    assert_eq!(antwort["grenze"], "direktgespraeche", "{antwort}");
+    assert_eq!(antwort["art"], "herkunft", "{antwort}");
+    assert_eq!(antwort["hoechstens"], 3, "{antwort}");
+    assert!(
+        antwort["fehler"]
+            .as_str()
+            .is_some_and(|text| !text.is_empty() && !text.contains("p4@")),
+        "ein Satz, ohne die Kennung des Gegenübers: {antwort}"
+    );
+    assert_eq!(bestehend, 201);
+    assert_eq!(andere_herkunft, 201);
+}
+
+/// Gesamtgrenze: `art: "gesamt"` mit `hoechstens` aus der Gesamtgrenze, vor der Herkunftsgrenze.
+#[tokio::test]
+async fn das_neue_direktgespraech_ueber_der_gesamtgrenze_ist_429_direktgespraeche_gesamt() {
+    let instanz = starten_mit(Direktgrenzen {
+        gesamt: 2,
+        je_herkunft: 1,
+    })
+    .await;
+    let anna = instanz.beitreten("127.0.0.2", "anna").await;
+    let ben = instanz.beitreten("127.0.0.3", "ben").await;
+    for nummer in 1..=3 {
+        instanz.beitreten("127.0.0.9", &format!("p{nummer}")).await;
+    }
+    for (von, token, nummer) in [("127.0.0.2", &anna, 1), ("127.0.0.3", &ben, 2)] {
+        let (status, antwort) = instanz
+            .direkt_senden(von, token, &format!("p{nummer}@127.0.0.9"), "hallo")
+            .await;
+        assert_eq!(status, 201, "p{nummer}: {antwort}");
+    }
+
+    let (ueber, antwort) = instanz
+        .direkt_senden("127.0.0.2", &anna, "p3@127.0.0.9", "hallo")
+        .await;
+
+    assert_eq!(ueber, 429, "{antwort}");
+    assert_eq!(antwort["grenze"], "direktgespraeche", "{antwort}");
+    assert_eq!(antwort["art"], "gesamt", "{antwort}");
+    assert_eq!(antwort["hoechstens"], 2, "{antwort}");
 }

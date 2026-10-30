@@ -4,12 +4,36 @@
 #[cfg(test)]
 use super::schranke::Vorgang;
 use super::verlaufsindex::Verlauf;
+use super::verzeichnis::{Grenzart, Grenze, Verzeichnis};
 use super::{
     Art, Direktpaar, Gesendet, Gespraech, Gespraeche, Kennung, Sendefehler, Sendung, lesend,
     schreibend, sichtbar_fuer, sperren,
 };
 use crate::uhr::Zeit;
 use std::sync::{Arc, Mutex};
+
+/// Höchstens so viele Paarordner insgesamt, auch leere (ADR-0055 Regel 4, E16): 2 Herkünfte, die ihre Grenze voll
+/// ausschöpfen.
+pub const DIREKT_GESAMT: usize = 8_192;
+/// Höchstens so viele Paare, deren Anleger eine Herkunft trägt: 128 Sitzungen je Herkunft (ADR-0021 Ergänzung R00015)
+/// × 32 Gegenüber.
+pub const DIREKT_JE_HERKUNFT: usize = 4_096;
+
+/// Die Grenzen neuer Paare; im Betrieb die Konstanten, im Test klein.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Direktgrenzen {
+    pub gesamt: usize,
+    pub je_herkunft: usize,
+}
+
+impl Default for Direktgrenzen {
+    fn default() -> Direktgrenzen {
+        Direktgrenzen {
+            gesamt: DIREKT_GESAMT,
+            je_herkunft: DIREKT_JE_HERKUNFT,
+        }
+    }
+}
 
 /// Die Zeichen, die ein Ordnername im Protokoll höchstens trägt (ADR-0055 Regel 11, Matrix P2).
 const ORDNER_IM_PROTOKOLL_HOECHSTENS: usize = 128;
@@ -61,7 +85,8 @@ impl Gespraeche {
 
     /// Sendet im Direktgespräch des Paars; das erste Senden legt es an (ADR-0055 Regel 4). Scheitert dieses erste
     /// Senden (Quote, Bezug, Anhang, Platte) oder wird es nur wiederholt, wird ein dabei entstandener leerer Ordner
-    /// wieder entfernt — ein Paar ohne Nachricht belegt nichts. Jede Prüfung davor (Teilnehmerliste, Grenzen) macht der Aufrufer.
+    /// wieder entfernt — ein Paar ohne Nachricht belegt nichts. Die Grenzen neuer Paare prüft das Bereitstellen unter der
+    /// Sperre; die Prüfung davor (Teilnehmerliste) macht der Aufrufer.
     pub fn direkt_senden(
         &self,
         paar: &Direktpaar,
@@ -72,7 +97,7 @@ impl Gespraeche {
         let gespraech = Gespraech::Direkt(paar.clone());
         let mut versuche = 0;
         loop {
-            let neu = self.direkt_bereitstellen(&gespraech)?;
+            let neu = self.direkt_bereitstellen(&gespraech, von)?;
             #[cfg(test)]
             if self.schranken.verschwindet() {
                 schreibend(&self.verzeichnis).verlaeufe.remove(&gespraech);
@@ -113,13 +138,19 @@ impl Gespraeche {
     /// Stellt das Paar bereit: unter der Sperre des Verzeichnisses nachschlagen, fehlt es, Ordner anlegen und den
     /// leeren Verlauf eintragen. `true`, wenn dieser Aufruf es angelegt hat. Gleichzeitiges erstes Senden beider
     /// Seiten ergibt einen Ordner, weil das Nachschlagen und das Anlegen unter derselben Sperre liegen.
-    fn direkt_bereitstellen(&self, gespraech: &Gespraech) -> Result<bool, Sendefehler> {
+    fn direkt_bereitstellen(
+        &self,
+        gespraech: &Gespraech,
+        von: &Kennung,
+    ) -> Result<bool, Sendefehler> {
         #[cfg(test)]
         self.schranken.passieren(Vorgang::DirektAnlegen);
         let mut verzeichnis = schreibend(&self.verzeichnis);
         if verzeichnis.verlaeufe.contains_key(gespraech) {
             return Ok(false);
         }
+        self.direkt_grenze_pruefen(&verzeichnis, von)
+            .map_err(Sendefehler::DirektGrenze)?;
         let angelegt = match self.ablage.channel_ordner_anlegen(gespraech) {
             Ok(()) => true,
             // Ein echter Ordner, den jemand von Hand angelegt hat, während das Programm lief: vorhanden ist Erfolg.
@@ -135,6 +166,48 @@ impl Gespraeche {
             .verlaeufe
             .insert(gespraech.clone(), Arc::new(Mutex::new(Verlauf::default())));
         Ok(angelegt)
+    }
+
+    /// Die Grenzen neuer Paare (ADR-0055 Regel 4, E16–E18), unter der Schreibsperre des Verzeichnisses, nur für ein
+    /// Paar, dessen Ordner neu entstünde: zuerst die Gesamtgrenze (alle geladenen Paarordner, auch leere), dann die
+    /// Grenze je Herkunft (Paare, deren Anleger — Absender der ältesten Nachricht in der Frist — diese Herkunft
+    /// trägt; ein Ordner ohne Nachricht hat keinen Anleger). Ohne Herkunft in der Kennung gilt nur die Gesamtgrenze.
+    fn direkt_grenze_pruefen(
+        &self,
+        verzeichnis: &Verzeichnis,
+        von: &Kennung,
+    ) -> Result<(), Grenze> {
+        let grenzen = self.direkt_grenzen;
+        let paare: Vec<&Arc<Mutex<Verlauf>>> = verzeichnis
+            .verlaeufe
+            .iter()
+            .filter(|(gespraech, _)| matches!(gespraech, Gespraech::Direkt(_)))
+            .map(|(_, verlauf)| verlauf)
+            .collect();
+        if paare.len() >= grenzen.gesamt {
+            return Err(Grenze {
+                art: Grenzart::Gesamt,
+                hoechstens: grenzen.gesamt,
+            });
+        }
+        let Some(herkunft) = von.herkunft() else {
+            return Ok(());
+        };
+        let von_dieser_herkunft = paare
+            .iter()
+            .filter(|verlauf| {
+                sperren(verlauf)
+                    .aeltester_absender()
+                    .is_some_and(|anleger| anleger.herkunft() == Some(herkunft))
+            })
+            .count();
+        if von_dieser_herkunft >= grenzen.je_herkunft {
+            return Err(Grenze {
+                art: Grenzart::Herkunft,
+                hoechstens: grenzen.je_herkunft,
+            });
+        }
+        Ok(())
     }
 
     /// Nimmt ein Paar zurück, dessen erstes Senden scheiterte: nur wenn es noch keine Nachricht hat, nur ein leerer
@@ -579,5 +652,241 @@ mod tests {
         gespraeche.direkt_zurueckbauen(&Gespraech::Direkt(paar()));
 
         assert!(gespraeche.direkt_besteht(&paar()), "Nachricht im Verlauf");
+    }
+
+    // ---- B0779: Grenzen neuer Paare (ADR-0055 Regel 4, E16–E18, Baustein D13) -------------------------------------
+
+    fn grenzen(gesamt: usize, je_herkunft: usize) -> Direktgrenzen {
+        Direktgrenzen {
+            gesamt,
+            je_herkunft,
+        }
+    }
+
+    fn laden_mit(ordner: &Path, grenzen: Direktgrenzen) -> Gespraeche {
+        laden(ordner).mit_direkt_grenzen(grenzen)
+    }
+
+    /// Das `nummer`. Gegenüber, jedes aus einer eigenen Herkunft `10.1.<nummer>.1` (kein Gegenüber ist je einer der
+    /// Anleger der Tests).
+    fn gegenueber(nummer: usize) -> Kennung {
+        kennung(&format!("g{nummer}@10.1.{nummer}.1"))
+    }
+
+    /// `von` beginnt (oder setzt fort) das Gespräch mit dem `nummer`. Gegenüber.
+    fn senden_an(
+        gespraeche: &Gespraeche,
+        von: &Kennung,
+        nummer: usize,
+    ) -> Result<Gesendet, Sendefehler> {
+        let paar = Direktpaar::bilden(von, &gegenueber(nummer)).expect("Paar");
+        gespraeche.direkt_senden(&paar, von, Art::Agent, sendung("x"))
+    }
+
+    fn herkunftsgrenze(hoechstens: usize) -> Sendefehler {
+        Sendefehler::DirektGrenze(crate::gespraeche::Grenze {
+            art: crate::gespraeche::Grenzart::Herkunft,
+            hoechstens,
+        })
+    }
+
+    fn gesamtgrenze(hoechstens: usize) -> Sendefehler {
+        Sendefehler::DirektGrenze(crate::gespraeche::Grenze {
+            art: crate::gespraeche::Grenzart::Gesamt,
+            hoechstens,
+        })
+    }
+
+    fn anna_von(herkunft: &str) -> Kennung {
+        kennung(&format!("anna@{herkunft}"))
+    }
+
+    /// B0779 D13, erster Test (wörtlich): `anna@10.0.0.1` beginnt 3 Paare → 201, das 4. **neue** → 429 Herkunft 3;
+    /// ein Paar von `10.0.0.2` → 201; bestehende Paare senden weiter (Mutanten „Grenze weg“, „Grenze prüft auch
+    /// bestehende Paare“).
+    #[test]
+    fn das_vierte_neue_paar_einer_herkunft_ist_die_grenze_bestehende_und_andere_herkuenfte_gehen() {
+        let wurzel = tempfile::tempdir().expect("Wegwerf-Ordner");
+        let gespraeche = laden_mit(wurzel.path(), grenzen(100, 3));
+        let anna = anna_von("10.0.0.1");
+        for nummer in 1..=3 {
+            let erste = senden_an(&gespraeche, &anna, nummer);
+            assert!(matches!(erste, Ok(Gesendet::Neu(_))), "{nummer}: {erste:?}");
+        }
+
+        let viertes = senden_an(&gespraeche, &anna, 4);
+        let andere_herkunft = senden_an(&gespraeche, &anna_von("10.0.0.2"), 4);
+        let bestehendes = senden_an(&gespraeche, &anna, 1);
+
+        assert_eq!(viertes, Err(herkunftsgrenze(3)));
+        assert!(
+            matches!(andere_herkunft, Ok(Gesendet::Neu(_))),
+            "{andere_herkunft:?}"
+        );
+        assert!(
+            matches!(bestehendes, Ok(Gesendet::Neu(_))),
+            "{bestehendes:?}"
+        );
+        assert!(
+            !gespraeche.direkt_bekannt(&Direktpaar::bilden(&anna, &gegenueber(4)).expect("Paar")),
+            "nichts angelegt"
+        );
+        assert_eq!(
+            eintraege(&wurzel.path().join("direkt")).len(),
+            4,
+            "3 von anna, 1 von der anderen Herkunft — kein Ordner für das abgewiesene"
+        );
+    }
+
+    /// Gesamtgrenze 5 → 429 `gesamt`, und sie steht vor der Herkunftsgrenze: auch `anna@10.0.0.1` mit ihren 3 Paaren
+    /// bekommt `gesamt`, nicht `herkunft`.
+    #[test]
+    fn die_gesamtgrenze_steht_vor_der_herkunftsgrenze() {
+        let wurzel = tempfile::tempdir().expect("Wegwerf-Ordner");
+        let gespraeche = laden_mit(wurzel.path(), grenzen(5, 3));
+        let anna = anna_von("10.0.0.1");
+        for nummer in 1..=3 {
+            senden_an(&gespraeche, &anna, nummer).expect("anna");
+        }
+        senden_an(&gespraeche, &anna_von("10.0.0.2"), 4).expect("fünftes Paar? nein, viertes");
+        senden_an(&gespraeche, &anna_von("10.0.0.3"), 5).expect("fünftes");
+
+        let von_frischer_herkunft = senden_an(&gespraeche, &anna_von("10.0.0.4"), 6);
+        let von_anna = senden_an(&gespraeche, &anna, 7);
+        let bestehendes = senden_an(&gespraeche, &anna_von("10.0.0.3"), 5);
+
+        assert_eq!(von_frischer_herkunft, Err(gesamtgrenze(5)));
+        assert_eq!(von_anna, Err(gesamtgrenze(5)));
+        assert!(
+            matches!(bestehendes, Ok(Gesendet::Neu(_))),
+            "{bestehendes:?}"
+        );
+    }
+
+    /// Nach dem Neustart derselben Ablage gleiche Zählung (Anleger = Absender der ältesten Nachricht, aus dem
+    /// Verlaufsindex; Mutante „Zählung nur im Speicher“); wer geantwortet hat, ist nicht der Anleger.
+    #[test]
+    fn nach_dem_neustart_zaehlt_dieselbe_ablage_gleich_und_der_anleger_ist_der_erste_absender() {
+        let wurzel = tempfile::tempdir().expect("Wegwerf-Ordner");
+        let erste = laden_mit(wurzel.path(), grenzen(100, 3));
+        let anna = anna_von("10.0.0.1");
+        let ben = anna_von("10.0.0.2");
+        for nummer in 1..=3 {
+            senden_an(&erste, &anna, nummer).expect("anna");
+        }
+        // Das Gegenüber des ersten Paars antwortet: das Paar bleibt eines von anna.
+        let antwort = Direktpaar::bilden(&anna, &gegenueber(1)).expect("Paar");
+        erste
+            .direkt_senden(&antwort, &gegenueber(1), Art::Agent, sendung("zurück"))
+            .expect("Antwort");
+        drop(erste);
+
+        let neu = laden_mit(wurzel.path(), grenzen(100, 3));
+
+        assert_eq!(senden_an(&neu, &anna, 4), Err(herkunftsgrenze(3)));
+        for nummer in 11..=13 {
+            let paar = senden_an(&neu, &ben, nummer);
+            assert!(matches!(paar, Ok(Gesendet::Neu(_))), "{nummer}: {paar:?}");
+        }
+        // Wer nur geantwortet hat, hat nichts angelegt: das Gegenüber beginnt seine 3 eigenen Paare.
+        for nummer in 20..=22 {
+            let paar = senden_an(&neu, &gegenueber(1), nummer);
+            assert!(matches!(paar, Ok(Gesendet::Neu(_))), "{nummer}: {paar:?}");
+        }
+        assert_eq!(senden_an(&neu, &gegenueber(1), 23), Err(herkunftsgrenze(3)));
+    }
+
+    /// Beim Start mehr Ordner als die Grenze: alle geladen, nur neue abgewiesen.
+    #[test]
+    fn beim_start_mit_mehr_ordnern_als_der_grenze_sind_alle_geladen_und_nur_neue_abgewiesen() {
+        let wurzel = tempfile::tempdir().expect("Wegwerf-Ordner");
+        {
+            let ohne_grenze = laden_mit(wurzel.path(), grenzen(100, 100));
+            for nummer in 1..=6 {
+                senden_an(&ohne_grenze, &anna_von(&format!("10.0.0.{nummer}")), nummer)
+                    .expect("angelegt");
+            }
+        }
+
+        let gespraeche = laden_mit(wurzel.path(), grenzen(5, 100));
+
+        for nummer in 1..=6 {
+            let paar =
+                Direktpaar::bilden(&anna_von(&format!("10.0.0.{nummer}")), &gegenueber(nummer))
+                    .expect("Paar");
+            assert!(gespraeche.direkt_bekannt(&paar), "{nummer} geladen");
+        }
+        assert_eq!(
+            senden_an(&gespraeche, &anna_von("10.0.0.9"), 9),
+            Err(gesamtgrenze(5))
+        );
+        let bestehendes = senden_an(&gespraeche, &anna_von("10.0.0.1"), 1);
+        assert!(
+            matches!(bestehendes, Ok(Gesendet::Neu(_))),
+            "{bestehendes:?}"
+        );
+    }
+
+    /// Ein leerer Ordner (von Hand angelegt oder nach dem Entfallen noch nicht entfernt) zählt zur Gesamtgrenze,
+    /// nicht zu einer Herkunft; das Senden in ihn ist keine neue Anlage und läuft auch an der Grenze.
+    #[test]
+    fn ein_leerer_ordner_zaehlt_gesamt_nicht_je_herkunft_und_sein_senden_ist_keine_anlage() {
+        let wurzel = tempfile::tempdir().expect("Wegwerf-Ordner");
+        let anna = anna_von("10.0.0.1");
+        let leer = Direktpaar::bilden(&anna, &gegenueber(9)).expect("Paar");
+        std::fs::create_dir_all(wurzel.path().join("direkt").join(leer.ordnername()))
+            .expect("leerer Ordner");
+        let gespraeche = laden_mit(wurzel.path(), grenzen(4, 3));
+        senden_an(&gespraeche, &anna, 1).expect("1");
+        senden_an(&gespraeche, &anna, 2).expect("2");
+        assert!(gespraeche.direkt_bekannt(&leer));
+
+        let drittes = senden_an(&gespraeche, &anna, 3);
+        let viertes_ueber_gesamt = senden_an(&gespraeche, &anna_von("10.0.0.2"), 4);
+        let in_den_leeren = senden_an(&gespraeche, &anna, 9);
+
+        assert!(
+            matches!(drittes, Ok(Gesendet::Neu(_))),
+            "leer zählt nicht je Herkunft: {drittes:?}"
+        );
+        assert_eq!(
+            viertes_ueber_gesamt,
+            Err(gesamtgrenze(4)),
+            "leer zählt gesamt"
+        );
+        assert!(
+            matches!(in_den_leeren, Ok(Gesendet::Neu(_))),
+            "{in_den_leeren:?}"
+        );
+    }
+
+    /// Nach dem Entfallen und Entfernen (B0777, B0778) ist ein Platz frei: die Grenze ist kein Gegenzug-Ausweg und
+    /// kein Dauerzustand.
+    #[test]
+    fn nach_entfallen_und_entfernen_ist_ein_platz_frei() {
+        let wurzel = tempfile::tempdir().expect("Wegwerf-Ordner");
+        let gespraeche = laden_mit(wurzel.path(), grenzen(100, 2));
+        let anna = anna_von("10.0.0.1");
+        senden_an(&gespraeche, &anna, 1).expect("1");
+        senden_an(&gespraeche, &anna, 2).expect("2");
+        assert_eq!(senden_an(&gespraeche, &anna, 3), Err(herkunftsgrenze(2)));
+
+        gespraeche.pflegen(
+            chrono::NaiveDate::from_ymd_opt(2026, 11, 5).expect("Tag"),
+            crate::gespraeche::Pflegeanlass::Tageswechsel,
+        );
+
+        let frei = senden_an(&gespraeche, &anna, 3);
+        assert!(matches!(frei, Ok(Gesendet::Neu(_))), "{frei:?}");
+    }
+
+    /// Wertprüfung (D13, Mutanten 4.095/4.097): die Zahlen der ADR — 4.096 je Herkunft (128 Sitzungen × 32 Gegenüber),
+    /// 8.192 gesamt (2 Herkünfte, die ihre Grenze ausschöpfen).
+    #[test]
+    fn die_konstanten_sind_die_zahlen_der_adr() {
+        assert_eq!(DIREKT_JE_HERKUNFT, 4_096);
+        assert_eq!(DIREKT_GESAMT, 8_192);
+        assert_eq!(DIREKT_GESAMT, 2 * DIREKT_JE_HERKUNFT);
+        assert_eq!(Direktgrenzen::default(), grenzen(8_192, 4_096));
     }
 }

@@ -18,7 +18,9 @@ use super::teilnehmer::Teilnehmer;
 use super::ziel::{Segment, Ziel, in_teilnehmerliste, ziel_aus_pfad};
 use crate::gespraeche::anhangid::Anhangid;
 use crate::gespraeche::textregel::{TEXT_HOECHSTENS_BYTES, Textfehler, text_pruefen};
-use crate::gespraeche::{Antwortfehler, Gesendet, Gespraech, Nachricht, Sendefehler, Sendung};
+use crate::gespraeche::{
+    Antwortfehler, Gesendet, Gespraech, Grenzart, Grenze, Nachricht, Sendefehler, Sendung,
+};
 use crate::protokoll::episoden::{Auftreten, Quelle};
 use crate::protokoll::vorlauf;
 use crate::protokoll::{Bereich, Kontext, Schluessel, Stufe};
@@ -218,6 +220,9 @@ async fn senden_in(
         Ok(Err(Sendefehler::Unbekannt)) => {
             mit_regel(unbekannt_wie(&ziel), unbekannt_regel(&ziel), Some(&wer))
         }
+        Ok(Err(Sendefehler::DirektGrenze(grenze))) => {
+            mit_regel(direkt_grenze_erreicht(grenze), "direkt_grenze", Some(&wer))
+        }
         Ok(Err(Sendefehler::Ablage { datei, grund })) => {
             nicht_gespeichert(&zustand, &ziel, &wer, &datei, &grund)
         }
@@ -287,6 +292,30 @@ fn gesendet_melden(
 fn gesendet(status: StatusCode, ziel: &Ziel, nachricht: &Nachricht) -> Response {
     let antwort = ziel.antwort_mit(json!(NachrichtAntwort::aus(nachricht)));
     (status, Json(antwort)).into_response()
+}
+
+/// 429 an der Grenze neuer Direktgespräche (ADR-0055 Regel 4, E16): `{fehler, grenze: "direktgespraeche", art,
+/// hoechstens}` wie die Channel-Grenze; der Satz nennt weder ein Gegenüber noch einen Ordner.
+fn direkt_grenze_erreicht(grenze: Grenze) -> Response {
+    let (art, wessen) = match grenze.art {
+        Grenzart::Gesamt => ("gesamt", "insgesamt"),
+        Grenzart::Herkunft => ("herkunft", "je Rechner"),
+    };
+    let text = format!(
+        "Zu viele neue Direktgespräche: höchstens {} {wessen} — bestehende Gespräche nutzen; Platz entsteht, wenn \
+         ein Gespräch nach seiner Frist entfällt.",
+        grenze.hoechstens
+    );
+    (
+        StatusCode::TOO_MANY_REQUESTS,
+        Json(json!({
+            "fehler": text,
+            "grenze": "direktgespraeche",
+            "art": art,
+            "hoechstens": grenze.hoechstens,
+        })),
+    )
+        .into_response()
 }
 
 /// 404 `empfaenger` (ADR-0055 Regel 3, PO 170): ein neues Gespräch beginnt nur mit jemandem aus der Teilnehmerliste;

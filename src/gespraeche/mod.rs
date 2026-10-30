@@ -44,7 +44,9 @@ pub use crate::anwesenheit::Art;
 pub use anhaenge::{
     Anhangkennzahlen, Anhangschwelle, AnhangschwelleMelden, Anmeldefehler, STANDARD_ANHANGQUOTE,
 };
-pub use direktgespraeche::DirektUebersicht;
+#[cfg(test)]
+pub(crate) use direktgespraeche::Direktgrenzen;
+pub use direktgespraeche::{DIREKT_GESAMT, DIREKT_JE_HERKUNFT, DirektUebersicht};
 pub use direktpaar::{Direktpaar, Selbst};
 pub use frist::{
     DIREKT_FRIST_TAGE, FRIST_MAX, FRIST_MIN, Frist, STANDARD_FRIST_TAGE, frist_in_spanne,
@@ -137,6 +139,9 @@ pub struct Nachrichtenblock {
 pub enum Sendefehler {
     /// Das Gespräch ist weder geladen noch angelegt.
     Unbekannt,
+    /// Ein neues Direktgespräch beginnt nicht: die Grenze neuer Paare ist erreicht (ADR-0055 Regel 4); nichts
+    /// angelegt, nichts geschrieben. Ein bestehendes Paar sendet weiter.
+    DirektGrenze(Grenze),
     /// Die Tagesdatei (relativ zum Ordner) nahm den Satz nicht an; nichts steht im Log oder Index.
     Ablage { datei: String, grund: String },
     /// Der Wiederholschlüssel gehört zu einem anderen Text oder Gespräch (ADR-0034 Regel 6).
@@ -173,6 +178,11 @@ impl fmt::Display for Sendefehler {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Sendefehler::Unbekannt => write!(f, "Gespräch unbekannt"),
+            Sendefehler::DirektGrenze(grenze) => write!(
+                f,
+                "Grenze neuer Direktgespräche erreicht ({:?}, höchstens {})",
+                grenze.art, grenze.hoechstens
+            ),
             Sendefehler::Ablage { datei, grund } => write!(f, "{datei} nicht geschrieben: {grund}"),
             Sendefehler::SchluesselAnders => {
                 write!(f, "Schlüssel gehört zu einer anderen Nachricht")
@@ -260,6 +270,8 @@ pub struct Gespraeche {
     anhangablage: Arc<dyn anhangablage::Anhangablage>,
     /// Zufall der Anhang-IDs (ADR-0047 Frage 2).
     zufall: Arc<dyn crate::zufall::Zufall>,
+    /// Grenzen neuer Paare von Direktgesprächen (ADR-0055 Regel 4); im Test klein einstellbar.
+    direkt_grenzen: direktgespraeche::Direktgrenzen,
     /// Gebundene Anhänge (A00016).
     anhangverzeichnis: anhangverzeichnis::Anhangverzeichnis,
     /// Was beim Laden der Anhänge übergangen wurde (`WARNING laden`).
@@ -508,6 +520,7 @@ impl Gespraeche {
             #[cfg(test)]
             schranken: schranke::Schranken::default(),
             zufall: Arc::new(crate::zufall::Betriebssystemzufall),
+            direkt_grenzen: direktgespraeche::Direktgrenzen::default(),
         })
     }
 
@@ -1091,6 +1104,19 @@ impl Gespraeche {
     pub fn mit_veroeffentlichen(self, veroeffentlichen: ChannelVeroeffentlichen) -> Gespraeche {
         Gespraeche {
             veroeffentlichen,
+            ..self
+        }
+    }
+
+    /// Stellt die Grenzen neuer Direktgespräche ein — nur Tests, die ohne Flut an die Grenze kommen (ADR-0055 Regel 4,
+    /// D13: „kleine Testkonstanten“).
+    #[cfg(test)]
+    pub(crate) fn mit_direkt_grenzen(
+        self,
+        direkt_grenzen: direktgespraeche::Direktgrenzen,
+    ) -> Gespraeche {
+        Gespraeche {
+            direkt_grenzen,
             ..self
         }
     }
