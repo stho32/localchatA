@@ -13,6 +13,12 @@ export function uhrzeit(zeit) {
   return `${stunde}:${minute}`;
 }
 
+// Datum und Uhrzeit ohne Sekunden: „TT.MM.JJJJ, HH:MM“.
+export function datumUhrzeit(zeit) {
+  const { jahr, monat, tag, stunde, minute } = teile(zeit);
+  return `${tag}.${monat}.${jahr}, ${stunde}:${minute}`;
+}
+
 export function zeitTitel(zeit) {
   const { jahr, monat, tag, stunde, minute, sekunde } = teile(zeit);
   return `${tag}.${monat}.${jahr}, ${stunde}:${minute}:${sekunde}`;

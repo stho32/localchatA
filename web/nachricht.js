@@ -4,7 +4,7 @@
 // Markdown kommt mit I0017. Die Art des Absenders (Baustein Kennung): Kachel und Name in kd-agent mit der Marke
 // „Agent“ für Agenten, in kd-mensch ohne Marke für Menschen und Sätze ohne Art.
 import { kuerzel } from './kopfzeile.js';
-import { uhrzeit, zeitTitel, datumBenennen } from './gliederung.js';
+import { uhrzeit, zeitTitel, datumBenennen, datumUhrzeit } from './gliederung.js';
 
 // nachricht: { zeit, von, art, text, zustand? } aus der API; ohne Zeit (eigene, noch unterwegs) ohne Uhrzeit im Kopf
 // und ohne zugänglichen Namen (sie ist keine Station des Rollfokus, F0141).
@@ -15,16 +15,36 @@ export function nachrichtZeichnen(nachricht) {
   if (nachricht.zustand !== undefined) {
     artikel.dataset.zustand = nachricht.zustand;
   }
-  const text = element('div', { className: 'lc-body lc-fold', textContent: nachricht.text });
+  const darstellung = inhaltDarstellen(nachricht);
+  const text = element('div', { className: 'lc-body lc-fold', textContent: darstellung.text });
   if (nachricht.zeit !== undefined) {
     artikel.dataset.zeit = nachricht.zeit;
     artikel.setAttribute('aria-label', zugaenglicherName(nachricht));
     text.id = `lc-text-${nachricht.zeit}`;
   }
   const inhalt = element('div', { className: 'lc-msg-inhalt' }, [text]);
+  if (darstellung.marke === 'bearbeitet') {
+    inhalt.append(markeBearbeitetZeichnen(darstellung.zuletztBearbeitet));
+  }
   artikel.append(element('div', { className: 'g' }), inhalt);
   kopfSetzen(artikel, true);
   return artikel;
+}
+
+// Was eine Nachricht zeigt (R00041 F0134, ADR-0048 Regel 4): ihren Text und — bearbeitet — die Marke „bearbeitet“ mit
+// der Zeit der letzten Änderung („Zuletzt bearbeitet: TT.MM.JJJJ, HH:MM“ im Versatz der Änderung, PO 123); die frühere
+// Fassung kennt der Tab nicht. → { text, marke: null | 'bearbeitet', zuletztBearbeitet: Text | null }
+export function inhaltDarstellen({ text, zustand, geaendert }) {
+  if (zustand === 'bearbeitet') {
+    return { text, marke: 'bearbeitet', zuletztBearbeitet: `Zuletzt bearbeitet: ${datumUhrzeit(geaendert)}` };
+  }
+  return { text, marke: null, zuletztBearbeitet: null };
+}
+
+// Die Marke „bearbeitet“ unter dem Text, auch an eingeklappten und gruppierten Nachrichten (Designsystem Nachricht).
+function markeBearbeitetZeichnen(zuletztBearbeitet) {
+  const marke = element('span', { className: 'lc-marke', textContent: 'bearbeitet', title: zuletztBearbeitet });
+  return element('div', { className: 'lc-zusatz' }, [marke]);
 }
 
 const NAME_TEXTANFANG_ZEICHEN = 120;
