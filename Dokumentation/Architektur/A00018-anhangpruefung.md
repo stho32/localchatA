@@ -23,7 +23,7 @@ Leitet aus Anzeigename und Inhalt einer hochgeladenen Datei ab, unter welchem Na
 ## Schnittstellen
 
 - `name_pruefen(anzeigename) -> Result<GespeicherterName, Namensfehler>` — Namensregel ([ADR-0046](../ADRs/0046-anhaenge-ablegen-eingang-bindung-beim-senden-tag-der-nachricht-quote-und-eigenes-konto.md) Regel 4).
-- `Erkenner::neu()`, `Erkenner::stueck(&[u8])`, `Erkenner::ergebnis(bytes) -> Art { typ, disposition, masse, anzeige: Vorschau | Player(Video | Audio) | Zeile }` — Signaturen aus den ersten 64 KiB (Bildköpfe, `%PDF-`, MP4 `ftyp`, WebM EBML, `OggS`, MP3 `ID3` bzw. zwei Rahmenköpfe), Text-Prüfung (UTF-8 mit Übertrag über Stückgrenzen, kein NUL) über die ganze Datei, Text über 16 MiB als `attachment`; Tabelle in [ADR-0047](../ADRs/0047-anhaenge-ausliefern-route-ohne-sitzung-ueber-anhang-id-art-vom-server-inline-nur-gefahrloses-unter-csp-sandbox.md) Frage 3.
+- `Erkenner::neu()`, `Erkenner::stueck(&[u8])`, `Erkenner::ergebnis(bytes) -> Art { typ, disposition, masse, anzeige: Vorschau | Player(Video | Audio) | Zeile }` — Signaturen aus den ersten 64 KiB (Bildköpfe, `%PDF-`, MP4 `ftyp`, WebM EBML, `OggS`, MP3 `ID3` bzw. zwei Rahmenköpfe), Text-Prüfung (UTF-8 mit Übertrag über Stückgrenzen, kein NUL) über die ganze Datei, Text über 16 MiB als `attachment`; Tabelle in [ADR-0047](../ADRs/0047-anhaenge-ausliefern-route-ohne-sitzung-ueber-anhang-id-art-vom-server-inline-nur-gefahrloses-unter-csp-sandbox.md) Frage 3. Ogg/Theora (`video/ogg`) bleibt erkannt, ist aber `Zeile` mit `attachment` und ohne Medien-Marker (Entscheidung `product-owner` Zeile 158; [ADR-0014](../ADRs/0014-grenzschutz-host-origin-sicherheitsheader.md) Ergänzung „Karte #71 (Chrome 154)“); die Marker-Tabelle `MEDIENARTEN` hat fünf Arten.
 
 ## Abhaengigkeiten
 
