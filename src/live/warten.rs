@@ -10,13 +10,14 @@ use crate::gespraeche::{Gespraech, Gespraeche, Kennung, Nachricht};
 use crate::http::Werkbank;
 use crate::http::abbruch::Abgebrochen;
 use crate::live::bus::{Abonnement, Bus, Empfang, Ereignis};
+use crate::protokoll::{Bereich, Kontext, Protokoll, Schluessel, Stufe};
 use crate::start::ende::Ende as Programmende;
 use crate::uhr::Zeit;
 use std::sync::Arc;
 use std::time::Duration;
 
 /// Ein Warte-Aufruf: ab `seit` (ohne: ab der Marke), höchstens `bis`, für `wartender` unter `filter`.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct Warteauftrag {
     pub seit: Option<Zeit>,
     pub bis: Duration,
@@ -24,6 +25,21 @@ pub struct Warteauftrag {
     pub filter: Filter,
     /// Das Ende des Programms: der Aufruf endet sofort mit `Ende::Programmende` (Regel 9).
     pub programmende: Programmende,
+    /// Das Betriebsprotokoll: ein überholtes Abonnement schreibt eine DEBUG-Zeile (Regel 3.6 und 10).
+    pub protokoll: Arc<Protokoll>,
+}
+
+/// DEBUG `live` je überholtem Abonnement, genau eine Zeile: wer wartet und wie viele Ereignisse fehlten — nie Inhalt
+/// oder Token (ADR-0054 Regel 3.6).
+fn ueberholt_melden(auftrag: &Warteauftrag, verpasst: u64) {
+    auftrag.protokoll.eintragen(
+        Stufe::Debug,
+        Bereich::Live,
+        "Abonnement überholt — nachgeholt",
+        Kontext::neu()
+            .mit(Schluessel::Kennung, auftrag.wartender.als_text())
+            .mit(Schluessel::Anzahl, verpasst),
+    );
 }
 
 /// Warum der Aufruf endet (Regel 4).
@@ -113,7 +129,8 @@ pub async fn warten(
                 verlassen.then_some(Ende::Verlassen)
             }
             Some(Empfang::Ereignis(_)) => None,
-            Some(Empfang::NeuerStand { .. }) => {
+            Some(Empfang::NeuerStand { verpasst }) => {
+                ueberholt_melden(&auftrag, verpasst);
                 let nachgeholt =
                     nachholen(&gespraeche, werkbank, &auftrag, &sammlung, &beobachter).await?;
                 sammlung.aufnehmen(nachgeholt)
@@ -234,7 +251,10 @@ impl Sammlung {
         loop {
             match abonnement.sofort() {
                 None => return Ende::Treffer,
-                Some(Empfang::NeuerStand { .. }) => return Ende::Weitere,
+                Some(Empfang::NeuerStand { verpasst }) => {
+                    ueberholt_melden(auftrag, verpasst);
+                    return Ende::Weitere;
+                }
                 Some(Empfang::Ereignis(Ereignis::Nachricht { channel, nachricht })) => {
                     if let Some(ende) =
                         self.pruefen(&Gespraech::Channel(channel), nachricht, auftrag)
@@ -292,6 +312,10 @@ mod tests {
         )
     }
 
+    fn speicher_ablage() -> Arc<Speicherablage> {
+        speicher()
+    }
+
     fn speicher() -> Arc<Speicherablage> {
         let ablage = Arc::new(Speicherablage::neu());
         ablage.gespraech_anlegen(&Gespraech::channel("a"));
@@ -313,6 +337,7 @@ mod tests {
             wartender: agent(),
             filter: Filter::default(),
             programmende: Programmende::nie(),
+            protokoll: Arc::new(Protokoll::ohne_ablage()),
         }
     }
 
@@ -680,6 +705,69 @@ mod tests {
             .collect();
         let ergebnis = wartend.await.expect("Aufgabe").expect("gewartet");
         (ergebnis, gesendet)
+    }
+
+    /// S1 (observability-reviewer #17): ein überholtes Abonnement schreibt genau eine DEBUG-Zeile `live` mit Kennung
+    /// und Zahl der verpassten Ereignisse; eine Wiederholung eine weitere; kein Nachrichtentext in der Zeile. Alle fünf
+    /// Nachrichten kommen genau einmal.
+    #[tokio::test]
+    async fn ein_ueberholtes_abonnement_ist_genau_eine_debug_zeile() {
+        let (protokoll, speicher, _uhr, _) =
+            crate::protokoll::testhilfe::im_speicher("2026-10-30T12:00:00+01:00", Stufe::Debug);
+        let bus = Arc::new(Bus::neu(2));
+        let gespraeche = gespraeche_mit(speicher_ablage(), &bus);
+        let mut seit = senden(&gespraeche, "a", "vorher");
+
+        for lauf in 1..=2 {
+            let (nachgeholt_senden, nachgeholt) = tokio::sync::oneshot::channel::<()>();
+            let nachgeholt_senden = Mutex::new(Some(nachgeholt_senden));
+            let beobachter = bei(Schritt::Nachgeholt, move || {
+                if let Some(melden) = nachgeholt_senden.lock().expect("melden").take() {
+                    let _ = melden.send(());
+                }
+            });
+            let mut warte = auftrag(Some(seit), LANG);
+            warte.protokoll = Arc::clone(&protokoll);
+            let wartend = {
+                let gespraeche = Arc::clone(&gespraeche);
+                let bus = Arc::clone(&bus);
+                tokio::spawn(async move {
+                    warten(gespraeche, &bus, &Werkbank::aus_kernen(), warte, beobachter).await
+                })
+            };
+            nachgeholt.await.expect("nachgeholt");
+            let gesendet: Vec<Zeit> = (1..=5)
+                .map(|n| {
+                    senden(
+                        &gespraeche,
+                        ["a", "b"][n % 2],
+                        &format!("GEHEIM-{lauf}-{n}"),
+                    )
+                })
+                .collect();
+
+            let ergebnis = wartend.await.expect("Aufgabe").expect("gewartet");
+
+            assert_eq!(zeiten(&ergebnis), gesendet, "Lauf {lauf}");
+            seit = ergebnis.seit.expect("seit");
+            let zeilen: Vec<String> = speicher
+                .zeilen()
+                .into_iter()
+                .filter(|zeile| zeile.contains(" DEBUG live "))
+                .collect();
+            assert_eq!(zeilen.len(), lauf, "{zeilen:#?}");
+            let neue = zeilen.last().expect("Zeile");
+            assert!(
+                neue.contains(
+                    " DEBUG live Abonnement überholt — nachgeholt | kennung=agent@127.0.0.1 anzahl="
+                ),
+                "{neue}"
+            );
+            assert!(
+                zeilen.iter().all(|zeile| !zeile.contains("GEHEIM")),
+                "{zeilen:#?}"
+            );
+        }
     }
 
     /// Eigene Nachrichten und andere Themen wecken nicht, rücken aber den Stand vor; nach `bis` endet es mit `Frist`.

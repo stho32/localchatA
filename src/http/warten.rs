@@ -172,6 +172,7 @@ pub async fn beantworten(
             erwaehnung: parameter.erwaehnung,
         },
         programmende: zustand.ende.clone(),
+        protokoll: Arc::clone(&zustand.protokoll),
     };
     let ergebnis = warten(
         Arc::clone(&zustand.gespraeche),
