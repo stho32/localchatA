@@ -149,6 +149,8 @@ impl Gespraeche {
         let geloescht = Nachricht {
             text: String::new(),
             anhaenge: Vec::new(),
+            bezug: None,
+            antwort_auf: None,
             geaendert: Some(Geaendert {
                 zeit,
                 zustand: Aenderungszustand::Geloescht,

@@ -5,7 +5,7 @@
 
 use super::abfrage::{Abfrage, Abschnitt};
 use super::logformat;
-use super::zitat::{Fund, Fundaenderung};
+use super::zitat::{self, Fund, Fundaenderung, Zitat};
 use crate::uhr::Zeit;
 use chrono::NaiveDate;
 use std::collections::BTreeMap;
@@ -114,14 +114,26 @@ impl Verlauf {
     pub fn nachricht(&self, zeit: &Zeit) -> Option<Kopie> {
         let satz = nachricht_finden(&self.tage, zeit)?;
         let eigene = logformat::kopfzeit(satz)?;
-        let aenderung = self.fassung(&eigene).map(|fassung| Kopierte {
+        let fassung = self.fassung(&eigene);
+        let aenderung = fassung.map(|fassung| Kopierte {
             geaendert: fassung.geaendert,
             satz: self.aenderungssatz(&fassung),
         });
         Some(Kopie {
             satz: satz.to_vec(),
             aenderung,
+            zitat: self.zitat_der_antwort(satz, fassung),
         })
+    }
+
+    /// Das Zitat einer Antwort, aufgelöst über ihr Original im eigenen Index (ADR-0053 Regel 3); ohne Bezug, mit
+    /// defektem Bezug oder als gelöschte Antwort (der Bezug ist Inhalt) keines.
+    fn zitat_der_antwort(&self, satz: &[u8], fassung: Option<Fassung>) -> Option<Box<Zitat>> {
+        if fassung.is_some_and(|fassung| fassung.zustand == Fassungszustand::Geloescht) {
+            return None;
+        }
+        let bezug = logformat::antwortbezug(satz).ok().flatten()?;
+        Some(Box::new(zitat::zitat(&bezug, self.fund(&bezug.zeit))))
     }
 
     /// Das Original mit genau dieser Zeit (als Zeitpunkt), geliehen statt kopiert, samt Fassung (ADR-0053 Regel 3):
@@ -410,9 +422,13 @@ impl Verlauf {
                 Some(zeit) => grenze_im_tag(&tag.rohtext, &tag.nachrichten, &zeit, Seite::Vor),
                 None => tag.nachrichten.len(),
             };
-            while index > 0 && sammler.nimmt(self.lieferlaenge(tag, index - 1)) {
+            while index > 0 {
+                let (laenge, zitat) = self.lieferung(tag, index - 1);
+                if !sammler.nimmt(laenge) {
+                    break;
+                }
                 index -= 1;
-                gesammelt.push(self.kopie(tag, index));
+                gesammelt.push(self.kopie(tag, index, zitat));
             }
             if index > 0 {
                 aelter = true;
@@ -439,8 +455,12 @@ impl Verlauf {
         for tag in self.tage.range(erster_tag..).map(|(_, tag)| tag) {
             let mut index = grenze_im_tag(&tag.rohtext, &tag.nachrichten, &ab, Seite::Nach);
             let laenge = tag.nachrichten.len();
-            while index < laenge && sammler.nimmt(self.lieferlaenge(tag, index)) {
-                gesammelt.push(self.kopie(tag, index));
+            while index < laenge {
+                let (bytes, zitat) = self.lieferung(tag, index);
+                if !sammler.nimmt(bytes) {
+                    break;
+                }
+                gesammelt.push(self.kopie(tag, index, zitat));
                 index += 1;
             }
             if index < laenge {
@@ -458,21 +478,25 @@ impl Verlauf {
         }
     }
 
-    /// Wie viele Bytes die Nachricht `index` im Budget zählt (ADR-0048 Regel 3): bearbeitet der Änderungssatz,
-    /// gelöscht nur die Kopfzeile (Text und Anhänge werden nicht geliefert), sonst die Nachricht.
-    fn lieferlaenge(&self, tag: &Tag, index: usize) -> usize {
-        let Some(fassung) = self.fassung_im_tag(tag, index) else {
-            return tag.satzlaenge(index);
+    /// Wie viele Bytes die Nachricht `index` im Budget zählt (ADR-0048 Regel 3, ADR-0053 Regel 3) und ihr Zitat:
+    /// bearbeitet der Änderungssatz, gelöscht nur die Kopfzeile (Text, Anhänge und Bezug werden nicht geliefert), sonst
+    /// die Nachricht — eine Antwort zusätzlich mit den Bytes ihres Zitats.
+    fn lieferung(&self, tag: &Tag, index: usize) -> (usize, Option<Box<Zitat>>) {
+        let fassung = self.fassung_im_tag(tag, index);
+        let zitat = self.zitat_der_antwort(&tag.rohtext[tag.spanne(index)], fassung);
+        let zitatbytes = zitat.as_ref().map_or(0, |zitat| zitat.lieferbytes());
+        let laenge = match fassung {
+            None => tag.satzlaenge(index),
+            Some(fassung) if fassung.zustand == Fassungszustand::Geloescht => tag.kopflaenge(index),
+            Some(fassung) => self
+                .aenderungsspanne(&fassung)
+                .map_or_else(|| tag.satzlaenge(index), |(_, spanne)| spanne.len()),
         };
-        if fassung.zustand == Fassungszustand::Geloescht {
-            return tag.kopflaenge(index);
-        }
-        self.aenderungsspanne(&fassung)
-            .map_or_else(|| tag.satzlaenge(index), |(_, spanne)| spanne.len())
+        (laenge + zitatbytes, zitat)
     }
 
-    /// Kopie der Nachricht `index` mit ihrer Fassung.
-    fn kopie(&self, tag: &Tag, index: usize) -> Kopie {
+    /// Kopie der Nachricht `index` mit ihrer Fassung und ihrem Zitat.
+    fn kopie(&self, tag: &Tag, index: usize, zitat: Option<Box<Zitat>>) -> Kopie {
         let aenderung = self.fassung_im_tag(tag, index).map(|fassung| Kopierte {
             geaendert: fassung.geaendert,
             satz: self.aenderungssatz(&fassung),
@@ -480,6 +504,7 @@ impl Verlauf {
         Kopie {
             satz: tag.satz(index),
             aenderung,
+            zitat,
         }
     }
 
@@ -521,6 +546,8 @@ impl Verlauf {
 pub struct Kopie {
     pub satz: Vec<u8>,
     pub aenderung: Option<Kopierte>,
+    /// Das Zitat einer Antwort, aufgelöst unter der Sperre des Gesprächs (ADR-0053 Regel 3).
+    pub zitat: Option<Box<Zitat>>,
 }
 
 /// Die Fassung einer kopierten Nachricht: Zeit der Änderung und der kopierte Bearbeitungssatz, gelöscht keiner.
@@ -928,6 +955,49 @@ mod tests {
         ] {
             assert_eq!(verlauf.fund(&zeit(nichts)), None, "{nichts}");
         }
+    }
+
+    /// R00047 B0709 (ADR-0053 Regel 3, ADR-0039): das Byte-Budget zählt die Bytes des Zitats mit — reicht es nur für
+    /// zwei Antworten ohne ihre Zitate, kommt eine; jede gelieferte Antwort trägt ihr Zitat.
+    #[test]
+    fn das_byte_budget_zaehlt_das_zitat_einer_antwort_mit() {
+        let original = "@ 2026-10-28T10:00:00.000+01:00 a@b\n  Frage?\n\n";
+        let antwort = |sekunde: u32| {
+            format!(
+                "@ 2026-10-28T10:00:0{sekunde}.000+01:00 c@d\n+ antwort_auf: 2026-10-28T10:00:00.000+01:00 a@b\n  Antwort {sekunde}\n\n"
+            )
+        };
+        let antworten = [antwort(1), antwort(2), antwort(3)];
+        let rohtext = format!("{original}{}{}{}", antworten[0], antworten[1], antworten[2]);
+        let mut anfaenge = vec![0];
+        for vorher in [original.len(), antworten[0].len(), antworten[1].len()] {
+            anfaenge.push(anfaenge.last().expect("Anfang") + vorher);
+        }
+        let mut verlauf = Verlauf::default();
+        verlauf.tag_aufnehmen(tag("2026-10-28"), rohtext.into_bytes(), anfaenge);
+        let bezug = logformat::antwortbezug(antworten[0].as_bytes())
+            .expect("gültig")
+            .expect("Bezug");
+        let zitatbytes = zitat::zitat(&bezug, verlauf.fund(&bezug.zeit)).lieferbytes();
+        let budget = antworten[1].len() + antworten[2].len() + 2 * zitatbytes - 1;
+
+        let block = verlauf.block(&abfrage(Abschnitt::Neueste, 100), budget);
+
+        assert_eq!(block.saetze.len(), 1);
+        assert!(block.aelter);
+        let zitat = block.saetze[0].zitat.as_ref().expect("Zitat");
+        assert_eq!(
+            (zitat.zustand, zitat.textanfang.as_str()),
+            (zitat::Zitatzustand::Da, "Frage?")
+        );
+        let alle = verlauf.block(&abfrage(Abschnitt::Neueste, 100), usize::MAX);
+        assert_eq!(
+            alle.saetze
+                .iter()
+                .map(|kopie| kopie.zitat.is_some())
+                .collect::<Vec<_>>(),
+            [false, true, true, true]
+        );
     }
 
     #[test]

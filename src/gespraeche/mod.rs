@@ -595,22 +595,22 @@ impl Gespraeche {
                     .nachricht(&zeit)
                     .as_ref()
                     .and_then(nachricht_in_fassung);
-                let bezug = im_index
+                let (bezug, antwort_auf) = im_index
                     .as_ref()
-                    .and_then(|nachricht| nachricht.bezug.clone());
+                    .map(|nachricht| (nachricht.bezug.clone(), nachricht.antwort_auf.clone()))
+                    .unwrap_or_default();
                 let geaendert = im_index
                     .filter(|nachricht| nachricht.geaendert.is_some())
                     .map(|nachricht| self.zustand_eintragen(nachricht));
                 let nachricht = geaendert.unwrap_or_else(|| {
                     let zeilen = self.anhangzeilen_der_ids(ids);
-                    let mut nachricht = nachricht_bilden(zeit, von, art, text, zeilen, None).0;
-                    nachricht.bezug = bezug;
-                    nachricht
+                    Nachricht {
+                        bezug,
+                        antwort_auf,
+                        ..nachricht_bilden(zeit, von, art, text, zeilen, None).0
+                    }
                 });
-                return Ok((
-                    Gesendet::Wiederholt(zitat_eintragen(&verlauf, nachricht)),
-                    None,
-                ));
+                return Ok((Gesendet::Wiederholt(nachricht), None));
             }
             Some(Pruefung::Neu) | None => {}
         }
@@ -1330,6 +1330,7 @@ fn antwortdefekt_als_wort(defekt: logformat::Antwortdefekt) -> &'static str {
 /// gelöscht mit leerem Text und ohne Anhänge.
 fn nachricht_in_fassung(kopie: &verlaufsindex::Kopie) -> Option<Nachricht> {
     let mut nachricht = logformat::satz_als_nachricht(&kopie.satz)?;
+    nachricht.antwort_auf.clone_from(&kopie.zitat);
     if let Some(aenderung) = &kopie.aenderung {
         let zustand = match &aenderung.satz {
             Some(satz) => {
@@ -1379,16 +1380,6 @@ fn lesend<T>(sperre: &RwLock<T>) -> std::sync::RwLockReadGuard<'_, T> {
     sperre
         .read()
         .unwrap_or_else(|vergiftet| vergiftet.into_inner())
-}
-
-/// Das Zitat einer gelieferten Nachricht (ADR-0053 Regel 3): ihr Bezug aufgelöst über das Original im Index des
-/// eigenen Gesprächs; ohne Bezug keines.
-fn zitat_eintragen(verlauf: &Verlauf, mut nachricht: Nachricht) -> Nachricht {
-    nachricht.antwort_auf = nachricht
-        .bezug
-        .as_ref()
-        .map(|bezug| Box::new(zitat::zitat(bezug, verlauf.fund(&bezug.zeit))));
-    nachricht
 }
 
 /// Der Bezug einer Antwort, geprüft im Index des Gesprächs (ADR-0053 Regel 2): keine Nachricht mit dieser Zeit →

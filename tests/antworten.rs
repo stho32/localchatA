@@ -76,7 +76,13 @@ async fn antworten(
     .await
 }
 
-async fn loeschen(absender: &Absender, basis: &str, token: &str, channel: &str, zeit: &str) {
+async fn loeschen(
+    absender: &Absender,
+    basis: &str,
+    token: &str,
+    channel: &str,
+    zeit: &str,
+) -> Value {
     let antwort = api_antwort(
         absender
             .anfrage(
@@ -89,6 +95,7 @@ async fn loeschen(absender: &Absender, basis: &str, token: &str, channel: &str, 
     )
     .await;
     assert_eq!(antwort.status, 200, "{}", antwort.json);
+    antwort.json
 }
 
 /// Sendet in `channel` und liefert die Zeit der Nachricht.
@@ -485,4 +492,223 @@ async fn p6_der_wiederholschluessel_umfasst_den_bezug() {
     );
     assert!(wiederholt.json["nachricht"]["antwort_auf"]["geaendert"].is_string());
     assert_eq!(channels_stand(wurzel.path()), vorher);
+}
+
+/// Der Satz der Nachricht mit dieser Zeit in der heutigen Tagesdatei, bis vor den nächsten Satz.
+fn satz_im_log(ordner: &Path, zeit: &str) -> String {
+    let tag =
+        String::from_utf8(gemeinsam::senden::tagesinhalt(ordner, "allgemein")).expect("UTF-8");
+    let anfang = tag.find(&format!("@ {zeit} ")).expect("Satz im Log");
+    let rest = &tag[anfang..];
+    let ende = rest[1..]
+        .find("\n@ ")
+        .map_or(rest.len(), |stelle| stelle + 2);
+    rest[..ende].to_string()
+}
+
+/// Die Nachricht mit dieser Zeit im Verlauf von `# allgemein`.
+async fn im_verlauf(absender: &Absender, basis: &str, token: &str, zeit: &str) -> Value {
+    verlauf(absender, basis, token, "allgemein").await["nachrichten"]
+        .as_array()
+        .expect("nachrichten")
+        .iter()
+        .find(|nachricht| nachricht["zeit"] == zeit)
+        .cloned()
+        .expect("im Verlauf")
+}
+
+/// ADR-0053 P4, P6 (Strom), US-2, US-23, Mutanten Z3, Z4: der Verlauf liefert das Zitat im Zustand des Originals —
+/// `da`, nach dem Bearbeiten `bearbeitet` mit dem neuen Textanfang und `geaendert`, nach dem Löschen `geloescht` ohne
+/// Text, nach dem Entfallen des Tags `entfallen` mit Zeit und Kennung; der Satz der Antwort im Log bleibt dabei
+/// byte-gleich; der Strom trägt das Zitat im Thema `nachricht`; `Frage?` erscheint nach dem Bearbeiten nirgends.
+#[tokio::test]
+async fn p4_das_zitat_folgt_dem_original_im_verlauf_und_im_strom() {
+    let wurzel = ordner();
+    gemeinsam::frist::datei_anlegen(
+        wurzel.path(),
+        "channels/allgemein/2026-10-27.log",
+        format!("@ 2026-10-27T09:00:00.000+01:00 {CLAUDE}\n+ art: agent\n  Von gestern\n\n")
+            .as_bytes(),
+    );
+    let instanz = starten(wurzel.path());
+    let basis = instanz.adresse.as_str();
+    let absender = Absender::von("127.0.0.1");
+    let (claude, codex) = agenten(&absender, basis).await;
+    let gestern = "2026-10-27T09:00:00.000+01:00";
+    let t1 = gesendet(&absender, basis, &claude, "allgemein", "Frage?").await;
+    let t2 = gesendet(&absender, basis, &claude, "allgemein", "Zum Löschen").await;
+    let mut strom = gemeinsam::strom::Strom::oeffnen(&absender, basis, &codex).await;
+    let mut antworten_auf = Vec::new();
+    for bezug in [&t1, &t2, gestern] {
+        let antwort = antworten(&absender, basis, &codex, "Antwort", json!(bezug)).await;
+        assert_eq!(antwort.status, 201, "{}", antwort.json);
+        antworten_auf.push(
+            antwort.json["nachricht"]["zeit"]
+                .as_str()
+                .expect("zeit")
+                .to_string(),
+        );
+    }
+    let im_strom = strom
+        .bis(std::time::Duration::from_secs(10), |e| {
+            e.data["art"] == "nachricht" && e.data["nachricht"]["zeit"] == antworten_auf[0].as_str()
+        })
+        .await
+        .expect("nachricht im Strom");
+    assert_eq!(
+        im_strom.data["nachricht"]["antwort_auf"],
+        json!({"zeit": t1, "von": CLAUDE, "zustand": "da", "textanfang": "Frage?", "anhang": null, "geaendert": null})
+    );
+    let saetze: Vec<String> = antworten_auf
+        .iter()
+        .map(|zeit| satz_im_log(wurzel.path(), zeit))
+        .collect();
+    let da = im_verlauf(&absender, basis, &codex, &antworten_auf[0]).await;
+    assert_eq!(da["antwort_auf"]["zustand"], "da");
+    assert_eq!(
+        im_verlauf(&absender, basis, &codex, &antworten_auf[2]).await["antwort_auf"],
+        json!({"zeit": gestern, "von": CLAUDE, "zustand": "da", "textanfang": "Von gestern", "anhang": null, "geaendert": null})
+    );
+
+    let bearbeitet = api_antwort(
+        absender
+            .anfrage(
+                reqwest::Method::POST,
+                format!("{basis}api/channels/allgemein/nachrichten/bearbeiten"),
+            )
+            .header("Content-Type", "application/json")
+            .header("X-LocalchatA-Sitzung", &claude)
+            .body(json!({"zeit": t1, "text": "Frage!"}).to_string()),
+    )
+    .await;
+    assert_eq!(bearbeitet.status, 200, "{}", bearbeitet.json);
+    loeschen(&absender, basis, &claude, "allgemein", &t2).await;
+    let frist = gemeinsam::frist::frist_setzen(
+        &absender,
+        &instanz,
+        &claude,
+        "allgemein",
+        json!({"tage": 1, "bestaetigt": true}),
+    )
+    .await;
+    assert_eq!(frist.status, 200, "{}", frist.json);
+    let nach_dem_bearbeiten = antworten(&absender, basis, &codex, "Noch eine", json!(t1)).await;
+    strom.mitlesen(std::time::Duration::from_millis(300)).await;
+
+    let block = verlauf(&absender, basis, &codex, "allgemein").await;
+    let zitat = |zeit: &str| {
+        block["nachrichten"]
+            .as_array()
+            .expect("nachrichten")
+            .iter()
+            .find(|nachricht| nachricht["zeit"] == zeit)
+            .expect("Antwort im Verlauf")["antwort_auf"]
+            .clone()
+    };
+    assert_eq!(
+        zitat(&antworten_auf[0]),
+        json!({"zeit": t1, "von": CLAUDE, "zustand": "bearbeitet", "textanfang": "Frage!", "anhang": null,
+               "geaendert": bearbeitet.json["nachricht"]["geaendert"]})
+    );
+    let geloescht = zitat(&antworten_auf[1]);
+    assert_eq!(
+        (
+            &geloescht["zustand"],
+            &geloescht["textanfang"],
+            &geloescht["anhang"]
+        ),
+        (&json!("geloescht"), &json!(""), &Value::Null)
+    );
+    assert!(geloescht["geaendert"].is_string());
+    assert_eq!(
+        zitat(&antworten_auf[2]),
+        json!({"zeit": gestern, "von": CLAUDE, "zustand": "entfallen", "textanfang": "", "anhang": null, "geaendert": null})
+    );
+    let jetzt: Vec<String> = antworten_auf
+        .iter()
+        .map(|zeit| satz_im_log(wurzel.path(), zeit))
+        .collect();
+    assert_eq!(jetzt, saetze, "der Satz der Antwort bleibt byte-gleich");
+    assert_eq!(
+        nach_dem_bearbeiten.status, 201,
+        "{}",
+        nach_dem_bearbeiten.json
+    );
+    let nach_der_aenderung: Vec<String> = strom
+        .ereignisse
+        .iter()
+        .skip_while(|e| e.data["art"] != "aenderung")
+        .map(|e| e.data.to_string())
+        .collect();
+    assert!(!nach_der_aenderung.is_empty());
+    for text in [block.to_string(), nach_dem_bearbeiten.json.to_string()]
+        .into_iter()
+        .chain(nach_der_aenderung)
+    {
+        assert!(
+            !text.contains("Frage?"),
+            "frühere Fassung geliefert: {text}"
+        );
+    }
+}
+
+/// ADR-0053 P7, US-5, US-20, Mutante Z13: `anna` antwortet auf die Antwort von `codex` → der Bezug nennt `codex` und
+/// deren Textanfang, im Objekt kein weiteres `antwort_auf`; die Antworten stehen in Zeitfolge am Ende; ist die Antwort
+/// von `codex` gelöscht, liefert sie selbst `antwort_auf: null`.
+#[tokio::test]
+async fn p7_keine_verschachtelung_zeitfolge_und_geloeschte_antwort() {
+    let wurzel = ordner();
+    let instanz = starten(wurzel.path());
+    let basis = instanz.adresse.as_str();
+    let absender = Absender::von("127.0.0.1");
+    let (claude, codex) = agenten(&absender, basis).await;
+    let anna = beitreten(&absender, basis, "anna", Some("mensch")).await;
+    let t1 = gesendet(&absender, basis, &claude, "allgemein", "Frage?").await;
+    let zwischen = gesendet(&absender, basis, &claude, "allgemein", "Zwischendurch").await;
+    let von_codex = antworten(&absender, basis, &codex, "Antwort von codex", json!(t1)).await;
+    let t_codex = von_codex.json["nachricht"]["zeit"]
+        .as_str()
+        .expect("zeit")
+        .to_string();
+
+    let von_anna = antworten(&absender, basis, &anna, "Antwort von anna", json!(t_codex)).await;
+
+    assert_eq!(von_anna.status, 201, "{}", von_anna.json);
+    assert_eq!(
+        von_anna.json["nachricht"]["antwort_auf"],
+        json!({"zeit": t_codex, "von": "codex@127.0.0.1", "zustand": "da", "textanfang": "Antwort von codex",
+               "anhang": null, "geaendert": null})
+    );
+    let block = verlauf(&absender, basis, &codex, "allgemein").await;
+    let zeiten: Vec<&str> = block["nachrichten"]
+        .as_array()
+        .expect("nachrichten")
+        .iter()
+        .map(|nachricht| nachricht["zeit"].as_str().expect("zeit"))
+        .collect();
+    let t_anna = von_anna.json["nachricht"]["zeit"].as_str().expect("zeit");
+    assert_eq!(
+        zeiten,
+        [t1.as_str(), zwischen.as_str(), t_codex.as_str(), t_anna]
+    );
+    assert_eq!(block["nachrichten"][3], von_anna.json["nachricht"]);
+
+    let mut strom = gemeinsam::strom::Strom::oeffnen(&absender, basis, &claude).await;
+    let antwort = loeschen(&absender, basis, &codex, "allgemein", &t_codex).await;
+    let ereignis = strom
+        .bis(std::time::Duration::from_secs(10), |e| {
+            e.data["art"] == "aenderung"
+        })
+        .await
+        .expect("aenderung");
+
+    assert_eq!(antwort["nachricht"]["antwort_auf"], Value::Null);
+    assert_eq!(ereignis.data["nachricht"]["antwort_auf"], Value::Null);
+    let geloescht = im_verlauf(&absender, basis, &codex, &t_codex).await;
+    assert_eq!(geloescht["zustand"], "geloescht");
+    assert_eq!(geloescht["antwort_auf"], Value::Null);
+    assert_eq!(
+        im_verlauf(&absender, basis, &codex, t_anna).await["antwort_auf"]["zustand"],
+        "geloescht"
+    );
 }

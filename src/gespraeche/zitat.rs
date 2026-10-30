@@ -22,6 +22,20 @@ pub struct Zitat {
     pub geaendert: Option<Zeit>,
 }
 
+/// Was ein Zitat ohne seine variablen Teile in der Antwort kostet: Schlüssel, zwei Zeiten, längster Zustand (ADR-0039
+/// Byte-Budget, ADR-0053 Regel 3).
+const ZITAT_GERUEST: &str = r#"{"zeit":"2026-10-30T09:10:03.004+01:00","von":"","zustand":"bearbeitet","textanfang":"","anhang":null,"geaendert":"2026-10-30T09:10:03.004+01:00"}"#;
+
+impl Zitat {
+    /// Bytes, die das Zitat im Byte-Budget eines Blocks zählt: Gerüst, Kennung, Textanfang, Anhangname.
+    pub fn lieferbytes(&self) -> usize {
+        ZITAT_GERUEST.len()
+            + self.von.als_text().len()
+            + self.textanfang.len()
+            + self.anhang.as_ref().map_or(0, String::len)
+    }
+}
+
 /// Zustand des Originals: unverändert da, bearbeitet, gelöscht oder durch die Frist entfallen.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Zitatzustand {
