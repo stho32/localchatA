@@ -80,6 +80,22 @@ test('Nicht entladen (B0754, V7, US-27): B spielt film.webm ganz unten in einem 
   expect(nachOben.length).toBeGreaterThanOrEqual(7);
   expect(await page.evaluate(() => window.gemerktesVideo.isConnected)).toBe(true);
   expect(await page.evaluate(() => window.gemerktesVideo.paused)).toBe(false);
+  // Grenze (code S4): das Fenster bleibt bei 8 Blöcken (der erste und 7 geholte) — der Block mit dem spielenden Video ist
+  // gegen das Entladen geschützt, ein 8. Abruf nach oben bleibt aus, solange es spielt; nach der Pause geht es weiter.
+  for (let runde = 0; runde < 5; runde += 1) {
+    await log.evaluate((element) => { element.scrollTop = 0; });
+    await ruhig(page);
+  }
+  expect(nachOben.length, 'weiterer Abruf nach oben bei laufendem Video').toBe(7);
+  expect(await page.evaluate(() => window.gemerktesVideo.isConnected)).toBe(true);
+  await page.evaluate(() => window.gemerktesVideo.pause());
+  for (let runde = 0; runde < 10 && nachOben.length < 8; runde += 1) {
+    await log.evaluate((element) => { element.scrollTop = 400; });
+    await ruhig(page);
+    await log.evaluate((element) => { element.scrollTop = 0; });
+    await ruhig(page);
+  }
+  expect(nachOben.length, 'nach der Pause weiter nach oben').toBeGreaterThanOrEqual(8);
   expect(lauf.a.fehler).toEqual([]);
 });
 
