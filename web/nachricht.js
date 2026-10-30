@@ -6,20 +6,55 @@
 import { kuerzel } from './kopfzeile.js';
 import { uhrzeit, zeitTitel, datumBenennen } from './gliederung.js';
 
-// nachricht: { zeit, von, art, text } aus der API; ohne Zeit (eigene, noch unterwegs) ohne Uhrzeit im Kopf.
+// nachricht: { zeit, von, art, text, zustand? } aus der API; ohne Zeit (eigene, noch unterwegs) ohne Uhrzeit im Kopf
+// und ohne zugänglichen Namen (sie ist keine Station des Rollfokus, F0141).
 export function nachrichtZeichnen(nachricht) {
   const artikel = element('article', { className: 'lc-msg' });
   artikel.dataset.von = nachricht.von;
   artikel.dataset.art = darstellungsart(nachricht.art);
+  if (nachricht.zustand !== undefined) {
+    artikel.dataset.zustand = nachricht.zustand;
+  }
   const text = element('div', { className: 'lc-body lc-fold', textContent: nachricht.text });
   if (nachricht.zeit !== undefined) {
     artikel.dataset.zeit = nachricht.zeit;
+    artikel.setAttribute('aria-label', zugaenglicherName(nachricht));
     text.id = `lc-text-${nachricht.zeit}`;
   }
   const inhalt = element('div', { className: 'lc-msg-inhalt' }, [text]);
   artikel.append(element('div', { className: 'g' }), inhalt);
   kopfSetzen(artikel, true);
   return artikel;
+}
+
+const NAME_TEXTANFANG_ZEICHEN = 120;
+
+// Der zugängliche Name einer Nachricht im Verlauf (F0141, B0632): „<Kennung>, <HH:MM>[, bearbeitet | , Nachricht
+// gelöscht]: <Textanfang>“; der Textanfang ist eine Zeile und endet nach 120 Zeichen mit „…“, eine gelöschte
+// Nachricht nennt statt seiner die Marke.
+export function zugaenglicherName({ von, zeit, text = '', zustand }) {
+  const kopf = `${von}, ${uhrzeit(zeit)}`;
+  if (zustand === 'geloescht') {
+    return `${kopf}, Nachricht gelöscht`;
+  }
+  let marke = '';
+  if (zustand === 'bearbeitet') {
+    marke = ', bearbeitet';
+  }
+  const anfang = textanfang(text);
+  if (anfang === '') {
+    return `${kopf}${marke}`;
+  }
+  return `${kopf}${marke}: ${anfang}`;
+}
+
+function textanfang(text) {
+  const eineZeile = text.replace(/\s+/gu, ' ').trim();
+  const zeichen = Array.from(eineZeile);
+  if (zeichen.length <= NAME_TEXTANFANG_ZEICHEN) {
+    return eineZeile;
+  }
+  return `${zeichen.slice(0, NAME_TEXTANFANG_ZEICHEN).join('')}…`;
 }
 
 // Mit Kopf: Kachel links, darüber Kennung und Uhrzeit; ohne Kopf: die Uhrzeit links (Gruppe).
