@@ -9,7 +9,7 @@
 import { nachrichtZeichnen, kopfSetzen, trennerZeichnen, langeEinklappen, langeUmschalten, markeUmschalten, kopierRueckmeldungZeigen } from './nachricht.js';
 import { gliederung, folgeGliedern, datumBenennen } from './gliederung.js';
 import { nachladen, einfuegen } from './fenster.js';
-import { pfeilRichtung, pfeilZiel, tabStopp, eigeneLetzte, nachrichtTaste, kopierTaste, antwortTaste } from './fokus.js';
+import { pfeilRichtung, pfeilZiel, tabStopp, eigeneLetzte, nachrichtTaste, kopierTaste, antwortTaste, tasteGehoertDemElement } from './fokus.js';
 import { bearbeitenAnlegen } from './bearbeiten.js';
 import { rueckfrageOeffnen, loeschenAuswerten } from './loeschen.js';
 import { kopieren, rueckmeldungFuer, RUECKMELDUNG_LEER, MENUE_OFFEN_MS } from './kopieren.js';
@@ -314,9 +314,10 @@ export function verlaufAnlegen({
       schalter(geklickt.dataset.aktion, geklickt.closest('[data-schluessel]').dataset.schluessel);
     }
   });
-  // Tasten in einem Textfeld des Verlaufs (dem Bearbeiten-Feld) gehören dem Text, nie dem Verlauf (R00041 UX M2).
+  // Tasten in einem Textfeld des Verlaufs (dem Bearbeiten-Feld) gehören dem Text, nie dem Verlauf (R00041 UX M2); Ende,
+  // Pos1, Leertaste und Pfeile im Fokus eines Players, Links oder Knopfs gehören dem Element (R00030 B0752).
   log.addEventListener('keydown', (ereignis) => {
-    if (ereignis.target.closest('textarea, input') !== null) {
+    if (ereignis.target.closest('textarea, input') !== null || tasteGehoertDemElement(ereignis, tagsBisZumVerlauf(ereignis.target))) {
       return;
     }
     const nurEnde = ereignis.key === 'End' && !ereignis.altKey && !ereignis.ctrlKey && !ereignis.metaKey && !ereignis.shiftKey;
@@ -329,6 +330,14 @@ export function verlaufAnlegen({
       tasteAufNachricht(ereignis);
     }
   });
+
+  function tagsBisZumVerlauf(ziel) {
+    const tags = [];
+    for (let knoten = ziel; knoten !== null && knoten !== log; knoten = knoten.parentElement) {
+      tags.push(knoten.localName);
+    }
+    return tags;
+  }
 
   // Aktionen an der Nachricht (R00041 F0135, F0139; R00046; R00047): aus der Leiste, dem Menü „⋯“ oder per Taste (R, C, E,
   // Entf) auf der fokussierten Nachricht — nur, wenn die Nachricht die Aktion trägt.

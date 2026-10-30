@@ -115,3 +115,12 @@ function buchstabeAufNachricht(ereignis, { zielIstNachricht, markierungLeer, dia
   }
   return zielIstNachricht && markierungLeer && !dialogOffen;
 }
+
+// Tasten gehören dem Element im Fokus (R00030 F0102 B0752, UX V2): `Ende`, `Pos1`, `Leertaste` und die Pfeile wirken im
+// Fokus eines Players, Links, Knopfs oder Dialogs — auch auf einem inneren Element davon — dort, nie am Verlauf; der
+// Verlauf prüft das vor seinen eigenen Tasten. vorfahren: Tag-Namen vom Ziel aufwärts, klein geschrieben.
+export function tasteGehoertDemElement(ereignis, vorfahren) {
+  const elementTasten = ['End', 'Home', ' ', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'];
+  const eigeneBedienung = ['video', 'audio', 'a', 'button', 'dialog'];
+  return elementTasten.includes(ereignis.key) && vorfahren.some((tag) => eigeneBedienung.includes(tag));
+}

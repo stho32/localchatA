@@ -167,3 +167,28 @@ test('Taste R: Ziel nicht die Nachricht, markierter Text, offener Dialog → nic
   assert.equal(antwortTaste(rTaste(), { ...LAGE, markierungLeer: false }), false);
   assert.equal(antwortTaste(rTaste(), { ...LAGE, dialogOffen: true }), false);
 });
+
+// Tasten gehören dem Element im Fokus (R00030 F0102 B0752, UX V2): Ende, Pos1, Leertaste und Pfeile im Fokus von video,
+// audio, a, button oder dialog — auch auf einem inneren Element davon — wirken dort, nie am Verlauf.
+import { tasteGehoertDemElement } from '../../web/fokus.js';
+
+test('Ende, Pos1, Leertaste und Pfeile auf video, audio, a, button, dialog und ihren Nachkommen gehören dem Element', () => {
+  for (const key of ['End', 'Home', ' ', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight']) {
+    for (const vorfahren of [['video'], ['audio'], ['a'], ['button'], ['dialog'], ['span', 'button', 'article'], ['div', 'video', 'div'], ['img', 'div', 'dialog', 'body']]) {
+      assert.equal(tasteGehoertDemElement(taste(key), vorfahren), true, `${JSON.stringify(key)} auf ${vorfahren.join(' < ')}`);
+    }
+  }
+});
+
+test('auf der Nachricht selbst und auf Text gehören dieselben Tasten dem Verlauf', () => {
+  for (const key of ['End', 'Home', ' ', 'ArrowUp', 'ArrowDown']) {
+    assert.equal(tasteGehoertDemElement(taste(key), ['article', 'div', 'div']), false);
+    assert.equal(tasteGehoertDemElement(taste(key), ['div', 'span', 'article']), false);
+  }
+});
+
+test('andere Tasten bleiben beim Verlauf, auch im Fokus eines Anhangs', () => {
+  for (const key of ['e', 'Delete', 'Escape', 'r', 'c', 'Enter', 'PageDown']) {
+    assert.equal(tasteGehoertDemElement(taste(key), ['a']), false, key);
+  }
+});

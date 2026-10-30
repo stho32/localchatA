@@ -114,3 +114,49 @@ test('Tab-Folge (B0732, V2): Zitat → „bearbeitet“ → Leiste → foto.png 
   }
   expect(lauf.a.fehler).toEqual([]);
 });
+
+/// Merkt sich je keydown, ob es nach dem Verlauf noch unverhindert war (Lauscher am Fenster, nach dem Verlauf).
+const verhinderteMitschreiben = (page) => page.evaluate(() => {
+  window.verhindert = [];
+  window.addEventListener('keydown', (ereignis) => window.verhindert.push(`${ereignis.key}:${ereignis.defaultPrevented}`));
+});
+
+test('Tasten gehören dem Element im Fokus (B0752, V2): auf „foto.png öffnen“, „foto.png groß anzeigen“ und im Bild-Dialog lassen Ende, Pos1, Leertaste und Pfeile den Verlauf stehen, ohne preventDefault des Verlaufs', async ({ browser }) => {
+  // Der Verlauf passt ins Fenster: was der Browser selbst auf einem Link oder Knopf scrollt (Pos1, Leertaste, Pfeile in
+  // einem scrollbaren Verlauf), bleibt außen vor — geprüft wird, dass der Verlauf die Taste nicht nimmt.
+  const lauf = await anzeigeStarten(browser, [{ text: 'Bild', namen: ['foto.png'] }]);
+  instanz = lauf.instanz;
+  const { page } = lauf.a;
+  const log = page.getByRole('log');
+  const knoten = nachrichtMitZeit(page, lauf.zeiten[0]);
+  await knoten.focus();
+  await verhinderteMitschreiben(page);
+  const ziele = [
+    knoten.getByRole('link', { name: 'foto.png öffnen', exact: true }),
+    knoten.getByRole('button', { name: 'foto.png groß anzeigen', exact: true }),
+  ];
+  for (const ziel of ziele) {
+    for (const taste of ['End', 'Home', 'Space', 'ArrowDown', 'ArrowUp']) {
+      await ziel.focus();
+      const stand = await log.evaluate((element) => element.scrollTop);
+      await page.keyboard.press(taste);
+      await page.waitForTimeout(100);
+      expect(await log.evaluate((element) => element.scrollTop), `${taste} auf ${await ziel.getAttribute('aria-label')}`).toBe(stand);
+      expect(await page.evaluate(() => window.verhindert.at(-1)), `${taste} auf ${await ziel.getAttribute('aria-label')}`).toMatch(/:false$/);
+      if (await page.locator('dialog[open]').count() > 0) {
+        await page.keyboard.press('Escape');
+      }
+    }
+  }
+  await ziele[1].click();
+  const schliessen = page.getByRole('dialog', { name: 'foto.png' }).getByRole('button', { name: 'Schließen', exact: true });
+  await expect(schliessen).toBeFocused();
+  const stand = await log.evaluate((element) => element.scrollTop);
+  for (const taste of ['End', 'Home', 'ArrowDown', 'ArrowUp']) {
+    await page.keyboard.press(taste);
+    expect(await log.evaluate((element) => element.scrollTop), `${taste} im Dialog`).toBe(stand);
+    expect(await page.evaluate(() => window.verhindert.at(-1)), `${taste} im Dialog`).toMatch(/:false$/);
+  }
+  await expect(schliessen).toBeFocused();
+  expect(lauf.a.fehler).toEqual([]);
+});
