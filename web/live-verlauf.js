@@ -120,3 +120,20 @@ export function hinweisTextNachziehen(knoten, selbstversuchend) {
   }
   return knoten;
 }
+
+// Eine geänderte Fassung einer Nachricht übernehmen (R00041 F0134, ADR-0048 Regel 11) — Ausnahme zu ADR-0028 Regel 5
+// nur über `geaendert`: die neue gilt, wenn ihr `geaendert` größer ist als das bekannte (`null` ist kleiner als jede
+// Zeit); gelöscht wird nie zurückgenommen; eine Nachricht, die nicht im Fenster steht (bekannt fehlt), bringt das
+// nächste Laden. → die neue Fassung oder null
+export function fassungUebernehmen(bekannt, neu) {
+  if (bekannt === undefined || bekannt === null || bekannt.zustand === 'geloescht' || neu.geaendert === null) {
+    return null;
+  }
+  if (bekannt.geaendert === null || bekannt.geaendert === undefined) {
+    return neu;
+  }
+  if (Date.parse(neu.geaendert) > Date.parse(bekannt.geaendert)) {
+    return neu;
+  }
+  return null;
+}
