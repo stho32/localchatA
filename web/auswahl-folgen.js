@@ -1,7 +1,8 @@
 // Auswahl folgen (ADR-0027, R00050 F0178): Adresse und Channel-Liste bestimmen, welches Gespräch Seitenleiste, Kopfzeile
 // und Mitte zeigen — Start, hashchange, jede neue Liste und Alt ↓/↑ leiten es neu ab.
 import {
-  auswahl, direktAuswahl, auswahlMerken, startadresse, MERKER, nachbarChannel, kuerzelRichtung, gespraechsfolge,
+  auswahl, direktAuswahl, auswahlMerken, direktMerken, gemerkterChannel, startadresse, MERKER, nachbarChannel, kuerzelRichtung,
+  gespraechsfolge,
 } from './auswahl.js';
 import { direktgespraech, adresseVon } from './gespraech.js';
 
@@ -42,6 +43,7 @@ export function auswahlEinrichten({
       mitteFuellen(mitte, ...keinGespraech(rueckwegChannel(liste)));
       return;
     }
+    direktMerken(window.sessionStorage, gegenueber);
     seitenleiste.auswahlZeigen(direktgespraech(gegenueber));
     kopf.direktZeigen(gegenueber);
     oeffnen(direktgespraech(gegenueber));
@@ -142,7 +144,7 @@ function mitteZeigen(mitte, gewaehlt, listeBekannt) {
 
 // Der Channel, zu dem der Rückweg führt: der zuletzt gewählte des Tabs, sonst der erste der Liste, sonst keiner.
 function rueckwegChannel(liste) {
-  const gemerkt = window.sessionStorage.getItem(MERKER);
+  const gemerkt = gemerkterChannel(window.sessionStorage.getItem(MERKER));
   if (gemerkt !== null) {
     return gemerkt;
   }

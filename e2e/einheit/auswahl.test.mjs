@@ -2,7 +2,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  auswahl, startadresse, auswahlMerken, MERKER, nachbarChannel, kuerzelRichtung, gespraechsfolge,
+  auswahl, startadresse, auswahlMerken, direktMerken, gemerkterChannel, MERKER, nachbarChannel, kuerzelRichtung, gespraechsfolge,
 } from '../../web/auswahl.js';
 import { adresseVon } from '../../web/gespraech.js';
 
@@ -103,4 +103,24 @@ test('Alt ↓/↑ über Channels und Direktnachrichten: allgemein → technik �
     auf.push(offen);
   }
   assert.deepEqual(auf, ['direkt:ben@127.0.0.3', 'technik', 'allgemein']);
+});
+
+// ux-reviewer #13 F0178 Optional 4: der Merker des Tabs kennt auch das zuletzt offene Direktgespräch — ein Neuladen ohne
+// Adresse kehrt dorthin zurück; ein unbrauchbarer Merker führt nirgends hin.
+test('Startadresse aus einem gemerkten Direktgespräch: #/d/<kennung>; ungültige Kennung → keine', () => {
+  assert.equal(startadresse('', 'direkt:ben@127.0.0.3'), '#/d/ben%40127.0.0.3');
+  assert.equal(startadresse('#', 'direkt:ben@::1'), '#/d/ben%40%3A%3A1');
+  assert.equal(startadresse('', 'direkt:BEN@127.0.0.3'), null);
+  assert.equal(startadresse('', 'direkt:'), null);
+  assert.equal(startadresse('#/c/allgemein', 'direkt:ben@127.0.0.3'), null);
+});
+
+test('direktMerken legt das Gespräch unter dem Merker ab, rueckwegChannel nimmt nur einen gemerkten Channel', () => {
+  const gemerkt = new Map();
+  const speicher = { setItem: (schluessel, wert) => gemerkt.set(schluessel, wert), getItem: (schluessel) => gemerkt.get(schluessel) };
+  direktMerken(speicher, 'ben@127.0.0.3');
+  assert.equal(gemerkt.get(MERKER), 'direkt:ben@127.0.0.3');
+  assert.equal(gemerkterChannel('direkt:ben@127.0.0.3'), null);
+  assert.equal(gemerkterChannel('allgemein'), 'allgemein');
+  assert.equal(gemerkterChannel(null), null);
 });

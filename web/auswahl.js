@@ -1,7 +1,7 @@
 // Channel-Auswahl (ADR-0027): die Auswahl ist eine Ableitung aus Adresse und Channel-Liste, kein eigener Zustand.
 // Nur `#/c/<name>` mit einem gültigen Channelnamen wählt; ist der Name nicht in der Liste, ist er unbekannt.
 import { pruefen } from './namensregel.js';
-import { DIREKT_ADRESSE, direktgespraech } from './gespraech.js';
+import { DIREKT_ADRESSE, direktgespraech, direktHash, gegenueberIn } from './gespraech.js';
 
 const PRAEFIX = '#/c/';
 
@@ -64,15 +64,20 @@ function hostnameDes(host) {
   }
 }
 
-// Zuletzt gewählt je Tab (ADR-0027 Regel 3): sessionStorage unter diesem Schlüssel.
+// Zuletzt gewählt je Tab (ADR-0027 Regel 3): sessionStorage unter diesem Schlüssel — der Gesprächsschlüssel, ein Channel
+// oder ein Direktgespräch (gespraech.js; ux-reviewer #13 F0178 Optional 4).
 export const MERKER = 'localchatA.channel';
 
-// Startet die Seite ohne Adresse, wird der gemerkte Channel zur Adresse (per replaceState); sonst bleibt sie.
+// Startet die Seite ohne Adresse, wird das gemerkte Gespräch zur Adresse (per replaceState); sonst bleibt sie.
 // → Adresse | null
 export function startadresse(hash, merker) {
   const ohneAdresse = hash === '' || hash === '#';
   if (!ohneAdresse || merker === null) {
     return null;
+  }
+  const gegenueber = gegenueberIn(merker);
+  if (gegenueber !== null) {
+    return gemerktesDirektgespraech(gegenueber);
   }
   const adresse = PRAEFIX + merker;
   if (auswahl(adresse, []) === null) {
@@ -81,10 +86,29 @@ export function startadresse(hash, merker) {
   return adresse;
 }
 
+function gemerktesDirektgespraech(gegenueber) {
+  if (!kanonischeKennung(gegenueber)) {
+    return null;
+  }
+  return direktHash(gegenueber);
+}
+
 export function auswahlMerken(speicher, gewaehlt) {
   if (gewaehlt !== null) {
     speicher.setItem(MERKER, gewaehlt.name);
   }
+}
+
+export function direktMerken(speicher, gegenueber) {
+  speicher.setItem(MERKER, direktgespraech(gegenueber));
+}
+
+// Der Rückweg aus einer Adresse ohne Gespräch führt nur zu einem gemerkten Channel. → Name | null
+export function gemerkterChannel(merker) {
+  if (merker === null || gegenueberIn(merker) !== null) {
+    return null;
+  }
+  return merker;
 }
 
 // Alt ↓ / Alt ↑ (ADR-0027 Regel 4): richtung 'ab' | 'auf' → Name | null; ohne bekannte Auswahl ↓ der erste,

@@ -171,3 +171,19 @@ test('Nicht geladen im Direktgespräch (O1): „Direktnachricht erneut wählen�
   await expect(mitte(anna.page).locator('.lc-fehler')).toHaveCount(0);
   expect(anna.fehler).toEqual([]);
 });
+
+// ux-reviewer #13 F0178 Optional 4: der Merker des Tabs kennt das offene Direktgespräch — ein Laden ohne Adresse öffnet
+// es wieder (vorher # allgemein); der Rückweg aus einer Adresse ohne Gespräch führt weiter zu einem Channel.
+test('Neuladen ohne Adresse (Optional 4): das zuletzt offene Direktgespräch öffnet wieder; Rückweg zu einem Channel', async ({ browser }) => {
+  const { instanz: gestartet, anna } = await starten(browser);
+  await direktOeffnen(anna.page, BEN);
+  await gespraechOffen(anna.page, BEN);
+
+  await anna.page.goto(gestartet.adresse);
+  await expect(anna.page).toHaveURL(new RegExp(`#/d/${encodeURIComponent(BEN)}$`));
+  await gespraechOffen(anna.page, BEN);
+
+  await direktOeffnen(anna.page, ANNA);
+  await expect(mitte(anna.page).getByRole('link', { name: 'Zurück zu # allgemein' })).toBeVisible();
+  expect(anna.fehler).toEqual([]);
+});
