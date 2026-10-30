@@ -3,7 +3,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  anmeldungBewerten, abweisungAnsage, prozentAus, hochladenBewerten, wartetText, selbstBlockiert, selbstBlockiertGrund,
+  anmeldungBewerten, abweisungAnsage, prozentAus, hochladenBewerten, wartetText, selbstBlockiert, selbstBlockiertGrund, eintragZustandText,
 } from '../../web/anhaenge.js';
 
 const antwort = (status, daten, wartenS = null) => ({ art: 'antwort', status, daten, wartenS });
@@ -95,4 +95,11 @@ test('Grund „selbst blockiert“ nennt den Platz, was frei bleibt, was die Dat
     'Nicht hochgeladen: die übrigen Dateien dieser Nachricht belegen den Platz für Anhänge — daneben bleiben 717 KiB, die Datei braucht 2,9 MiB. „Entfernen“ sendet die übrigen; diese Datei danach einzeln senden.',
   );
   assert.match(selbstBlockiertGrund({ hoechstens: MIB, gebunden: MIB, braucht: 2 * MIB }, MIB), /daneben bleiben 0 Byte,/);
+});
+
+// UX-Review #43 F0101 S3: eine Nachricht, die an einer abgewiesenen Datei hängt, sagt nicht mehr „wird hochgeladen …“.
+test('Zustand des Eintrags: „wird hochgeladen …“, mit abgewiesenen Dateien der Weg über „Entfernen“', () => {
+  assert.equal(eintragZustandText(0), ' wird hochgeladen …');
+  assert.equal(eintragZustandText(1), ' angehalten — nach „Entfernen“ der abgewiesenen Datei wird gesendet');
+  assert.equal(eintragZustandText(2), ' angehalten — nach „Entfernen“ der abgewiesenen Dateien wird gesendet');
 });

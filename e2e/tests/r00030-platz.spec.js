@@ -67,3 +67,23 @@ test('S2 Platz von der eigenen Nachricht belegt: Abweisung mit Text statt endlos
   expect(anfragen.find((anfrage) => anfrage.pfad.endsWith('/nachrichten')).koerper.anhaenge).toHaveLength(2);
   expect(fehler).toEqual([]);
 });
+
+test('S3 Nachricht hängt an einer abgewiesenen Datei: die Kopfzeile sagt nicht mehr „wird hochgeladen“, sondern nennt „Entfernen“', async ({ browser }) => {
+  instanz = await anhangStarten();
+  const { page, fehler } = await geraetOeffnen(browser, 'desktop', { zusaetzlich: { '/api/anhaenge': [422] } });
+  await imBrowserBeitreten(page, instanz.adresse, 'shoff');
+  const anfragen = anfragenMitschreiben(page);
+
+  await waehlen(page, [archivZip('gross.bin', 10 * MIB + 1), archivZip('klein.bin', 4 * 1024)]);
+  await knopf(page).click();
+
+  await expect(zeile(page, 'gross.bin').locator('.lc-hochladung-grund')).toContainText('⚠');
+  await expect(zeile(page, 'klein.bin').locator('.lc-hochladung-zustand')).toHaveText('hochgeladen');
+  const kopf = eintrag(page).locator('.lc-send').first();
+  await expect(kopf).not.toContainText('wird hochgeladen');
+  await expect(kopf).toContainText('nach „Entfernen“ der abgewiesenen Datei wird gesendet');
+
+  await zeile(page, 'gross.bin').getByRole('button', { name: 'gross.bin entfernen', exact: true }).click();
+  await expect.poll(() => anfragen.filter((anfrage) => anfrage.pfad.endsWith('/nachrichten')).length).toBe(1);
+  expect(fehler).toEqual([]);
+});

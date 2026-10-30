@@ -64,6 +64,18 @@ function daneben(platz, eigeneBytes) {
   return Math.max(0, platz.hoechstens - platz.gebunden - eigeneBytes);
 }
 
+// Die Zeile unter dem Text des Eintrags (S3), rein: hängt die Nachricht an abgewiesenen Dateien, sagt sie den Weg.
+export function eintragZustandText(abgewiesene) {
+  if (abgewiesene === 0) {
+    return ' wird hochgeladen …';
+  }
+  let dateien = 'Datei';
+  if (abgewiesene > 1) {
+    dateien = 'Dateien';
+  }
+  return ` angehalten — nach „Entfernen“ der abgewiesenen ${dateien} wird gesendet`;
+}
+
 // Der Fortschritt in ganzen Prozent (B0451), rein: abgerundet, 0 ohne bekannte Länge, höchstens 100.
 export function prozentAus(geladen, gesamt) {
   if (!(gesamt > 0)) {
@@ -144,7 +156,7 @@ export function hochladungenAnlegen({
     if (nurLeerraum(text)) {
       textFuerSenden = '';
     }
-    const eintrag = { channel: offenerChannel, text: textFuerSenden, bezug, dateien: [], artikel: null, liste: null };
+    const eintrag = { channel: offenerChannel, text: textFuerSenden, bezug, dateien: [], artikel: null, liste: null, zustandText: null };
     eintrag.artikel = eintragZeichnen(eintrag);
     eintrag.dateien = dateien.map((datei) => dateiAnlegen(eintrag, datei));
     eintraege.push(eintrag);
@@ -155,7 +167,8 @@ export function hochladungenAnlegen({
   function eintragZeichnen(eintrag) {
     const artikel = nachrichtZeichnen({ von: kennung, art: 'mensch', text: eintrag.text, antwort_auf: eintrag.bezug });
     artikel.classList.add('lc-vorlaeufig', 'lc-hochladung');
-    const zeile = element('div', { className: 'lc-send' }, [element('span', { textContent: '◌', ariaHidden: 'true' }), ' wird hochgeladen …']);
+    eintrag.zustandText = document.createTextNode(eintragZustandText(0));
+    const zeile = element('div', { className: 'lc-send' }, [element('span', { textContent: '◌', ariaHidden: 'true' }), eintrag.zustandText]);
     eintrag.liste = element('ul', { className: 'lc-hochladung-dateien' });
     const verwerfenSchalter = element('button', { type: 'button', textContent: 'Verwerfen' });
     verwerfenSchalter.addEventListener('click', () => eintragVerwerfen(eintrag));
@@ -339,7 +352,12 @@ export function hochladungenAnlegen({
     ansagen({ art: 'sofort', text: abweisungAnsage(datei.name, grund) });
   }
 
+  function kopfZeigen(eintrag) {
+    eintrag.zustandText.textContent = eintragZustandText(eintrag.dateien.filter((datei) => datei.zustand === 'abgewiesen').length);
+  }
+
   function dateiZeigen(eintrag, datei) {
+    kopfZeigen(eintrag);
     datei.zustandText.textContent = zustandBeschriftung(datei);
     balkenZeigen(datei);
     const mitGrund = datei.zustand === 'abgewiesen' || datei.zustand === 'fehlgeschlagen';
@@ -393,6 +411,7 @@ export function hochladungenAnlegen({
     const stelle = eintrag.dateien.indexOf(datei);
     eintrag.dateien = eintrag.dateien.filter((andere) => andere !== datei);
     datei.knoten.remove();
+    kopfZeigen(eintrag);
     if (eintrag.dateien.length === 0) {
       eintragBeenden(eintrag);
       if (eintrag.text !== '') {
