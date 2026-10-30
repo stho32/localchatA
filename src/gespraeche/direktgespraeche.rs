@@ -887,6 +887,37 @@ mod tests {
         );
     }
 
+    /// Code-Review #13 Wiederholung Härtungen, Sollte 1 (Abnahme-Probe wörtlich, deterministisch, ein Thread): drei
+    /// Paare von `anna@10.0.0.1` werden bereitgestellt, die Halter bleiben gehalten; das vierte Bereitstellen ist
+    /// `DirektGrenze{Herkunft,3}` und legt keinen Ordner an. Mit anderer Herkunft geht es. Mutanten „Anleger erst mit
+    /// der Nachricht“ (`Verlauf::default()`) und „ohne Vermerk in `aeltester_absender`“ sind in jedem Lauf rot.
+    #[test]
+    fn das_bereitstellen_zaehlt_den_anleger_sofort_das_vierte_paar_einer_herkunft_ist_die_grenze() {
+        let wurzel = tempfile::tempdir().expect("Wegwerf-Ordner");
+        let gespraeche = laden_mit(wurzel.path(), grenzen(100, 3));
+        let anna = anna_von("10.0.0.1");
+        let bereitstellen = |von: &Kennung, nummer: usize| {
+            let paar = Direktpaar::bilden(von, &gegenueber(nummer)).expect("Paar");
+            gespraeche.direkt_bereitstellen(&Gespraech::Direkt(paar), von)
+        };
+        let halter: Vec<_> = (0..3)
+            .map(|nummer| bereitstellen(&anna, nummer).expect("angelegt"))
+            .collect();
+        assert!(halter.iter().all(|(neu, _)| *neu));
+
+        let viertes = bereitstellen(&anna, 3);
+        let andere_herkunft = bereitstellen(&anna_von("10.0.0.2"), 3);
+
+        assert_eq!(viertes.err(), Some(herkunftsgrenze(3)));
+        assert!(andere_herkunft.is_ok(), "andere Herkunft");
+        assert_eq!(
+            eintraege(&wurzel.path().join("direkt")).len(),
+            4,
+            "3 von anna und 1 der anderen Herkunft, keiner für das abgewiesene"
+        );
+        drop(halter);
+    }
+
     /// Gegenprobe zu oben: die Gesamtgrenze 3 hält unter derselben Gleichzeitigkeit (sie zählte schon alle Ordner).
     #[test]
     fn gleichzeitig_beginnende_paare_halten_auch_die_gesamtgrenze_hart() {
