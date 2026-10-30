@@ -18,6 +18,16 @@ pub enum Richtung {
     NachUnten,
 }
 
+/// Mindestreserve des Löschens: 1 MiB ≈ 7.000 Löschsätze.
+const MINDESTRESERVE: u64 = 1_048_576;
+
+/// Reserve, um die Löschen die Quote überschreiten darf (ADR-0048 Regel 10, G3): `max(1 MiB, ⌈hoechstens / 100⌉)`
+/// — an der vollen Quote lässt sich eine Nachricht noch verbergen, die Platte bleibt begrenzt. Die Warnschwelle
+/// rechnet ohne sie.
+pub fn reserve(hoechstens: u64) -> u64 {
+    hoechstens.div_ceil(100).max(MINDESTRESERVE)
+}
+
 /// Ob `belegt` über 90 % von `hoechstens` liegt: `belegt × 10 > hoechstens × 9`, ganzzahlig.
 pub fn ueber_90(belegt: u64, hoechstens: u64) -> bool {
     u128::from(belegt) * 10 > u128::from(hoechstens) * 9
@@ -139,6 +149,16 @@ impl Belegung {
         Ok(())
     }
 
+    /// Wie `pruefen`, mit der Grenze `hoechstens + reserve(hoechstens)` (Löschen, ADR-0048 Regel 10); die Abweisung
+    /// nennt das echte `hoechstens`.
+    pub(super) fn pruefen_mit_reserve(&self, bytes: u64, hoechstens: u64) -> Result<(), Ueber> {
+        let grenze = hoechstens.saturating_add(reserve(hoechstens));
+        self.pruefen(bytes, grenze).map_err(|ueber| Ueber {
+            hoechstens,
+            ..ueber
+        })
+    }
+
     /// Erhöht um `bytes`; liefert den Stand davor. Gerufen nur unter der Schreibsperre, also überholen sich zwei
     /// Sendungen nie über die Quote (ADR-0044 Regel 2).
     pub(super) fn dazu(&self, bytes: u64) -> u64 {
@@ -170,7 +190,7 @@ pub(super) struct Ueber {
 #[cfg(test)]
 pub(super) mod tests {
     use super::super::*;
-    use super::{Belegung, Ueber};
+    use super::{Belegung, Ueber, reserve, ueber_90};
     use crate::uhr::GestellteUhr;
 
     pub const JETZT: &str = "2026-10-28T12:00:00.000+01:00";
@@ -233,6 +253,44 @@ pub(super) mod tests {
         assert_eq!(gespraeche.belegt(), 1_200);
         assert_eq!(summe_im_index(&gespraeche), 1_200);
         assert_eq!(gespraeche.kennzahlen().log_bytes, 1_200);
+    }
+
+    /// R00040 B0614 (ADR-0048 Regel 10, G3): R = max(1 MiB, ⌈hoechstens / 100⌉) — 4 GiB → 42.949.673, 10 MiB →
+    /// 1.048.576, 200 MiB → 2.097.152, 0 → 1.048.576.
+    #[test]
+    fn die_reserve_des_loeschens_ist_ein_prozent_mindestens_ein_mib() {
+        assert_eq!(reserve(4 * 1024 * 1024 * 1024), 42_949_673);
+        assert_eq!(reserve(10 * 1024 * 1024), 1_048_576);
+        assert_eq!(reserve(200 * 1024 * 1024), 2_097_152);
+        assert_eq!(reserve(0), 1_048_576);
+        assert_eq!(reserve(u64::MAX), u64::MAX.div_ceil(100));
+    }
+
+    /// R00040 „Reserve an der Plattenquote“ am Zähler: `hoechstens` 1.048.576, also Grenze 2.097.152; L Bytes des
+    /// Löschsatzes. `belegt` = 2.097.152 − L → passt, danach 2.097.152; das nächste L → abgewiesen mit dem echten
+    /// `hoechstens` (für den Text der 507) und gezählt; die Warnschwelle rechnet ohne Reserve.
+    #[test]
+    fn loeschen_darf_bis_zur_reserve_ueber_die_quote() {
+        const L: u64 = 97;
+        let belegung = Belegung::neu(2_097_152 - L);
+
+        assert_eq!(belegung.pruefen_mit_reserve(L, 1_048_576), Ok(()));
+        belegung.dazu(L);
+        assert_eq!(
+            belegung.pruefen_mit_reserve(L, 1_048_576),
+            Err(Ueber {
+                belegt: 2_097_152,
+                hoechstens: 1_048_576
+            })
+        );
+        assert_eq!(belegung.abgewiesen(), 1);
+        assert!(belegung.pruefen(1, 1_048_576).is_err());
+        assert!(
+            Belegung::neu(u64::MAX)
+                .pruefen_mit_reserve(1, u64::MAX)
+                .is_err()
+        );
+        assert!(ueber_90(943_719, 1_048_576) && !ueber_90(943_718, 1_048_576));
     }
 
     /// Abnahme-Probe B0356, Zahlen wörtlich am Zähler (ADR-0044 „Folgeentscheidungen“, erster Unit-Test): Quote
