@@ -185,9 +185,12 @@ body { background: var(--kd-bg); color: var(--kd-ink); font-family: var(--font-s
 .lc-comp-hinweisreihe .lc-comp-hinweis { flex: 1 1 12em; min-width: 0; }
 .lc-comp-bereinigen[hidden] { display: none; }
 .lc-comp-bereinigen button { touch-action: manipulation; }
-/* Tippanzeige (R00045 F0161): liegt über der leeren Hinweiszeile und teilt deren 20 px — keine Zusatzhöhe; Klicks gehen
-   durch sie hindurch an den Schalter „Steuerzeichen entfernen“ */
-.lc-comp-tipp { position: absolute; top: 0; left: 0; right: 0; margin: 0; height: 20px; pointer-events: none; font-size: 12px; line-height: 20px; color: var(--kd-ink-muted); }
+/* Tippanzeige (R00045 F0161, F0162; ux-reviewer B, D): liegt über der leeren Hinweiszeile und teilt deren 20 px — keine
+   Zusatzhöhe; eine Zeile, gekürzt mit Ellipse, ohne Bewegung; Klicks gehen durch sie hindurch an den Schalter
+   „Steuerzeichen entfernen“. Steht Text im Hinweis (Zähler, Fehler), hat er Vorrang: die Anzeige wird unsichtbar. */
+.lc-comp-tipp { position: absolute; top: 0; left: 0; right: 0; margin: 0; height: 20px; pointer-events: none; font-family: var(--font-sans); font-size: 12px; line-height: 20px; color: var(--kd-ink-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; animation-name: none; transition-duration: 0s; }
+.lc-comp-tipp-name { font-weight: 600; }
+.lc-comp-hinweis:not(:empty) ~ .lc-comp-tipp { visibility: hidden; }
 /* Leiste oben über der Mitte (Baustein VerlaufsMarken „Verbindung“; R00025 F0084): überlagernd wie Ladezeile und Pille,
    deckend, in jedem Text genau eine Zeile von 28 px — der Verlauf springt nicht; verloren in kd-danger */
 .lc-leiste { position: absolute; top: 0; left: 0; right: 0; z-index: 3; height: var(--kd-row); display: flex; align-items: center; padding: 0 var(--kd-space-12); font-size: 12px; font-weight: 600; color: var(--kd-ink-muted); background: var(--kd-surface); border-bottom: 1px solid var(--kd-line); white-space: nowrap; overflow: hidden; }

@@ -52,15 +52,59 @@ function vergleichen(links, rechts) {
   return 0;
 }
 
-export function anzeigeText(aktive) {
-  if (aktive.length === 0) {
-    return '';
+// Wortlaut (ux-reviewer A): je Zustand eine Gruppe, `tippt` zuerst, getrennt durch ` · `, am Ende ` …`; eine Person mit
+// Namen, zwei mit „und“, ab drei gezählt. Der Name ist der Teil der Kennung vor dem @ und wird halbfett gesetzt.
+// → [{ text, name }] (leer, wenn niemand aktiv ist)
+export function anzeigeTeile(aktive) {
+  const unbekannt = aktive.find((eintrag) => !GRUPPEN.some((gruppe) => gruppe.zustand === eintrag.zustand));
+  if (unbekannt !== undefined) {
+    throw new Error(`Tippanzeige: unbekannter Zustand ${unbekannt.zustand}`);
   }
-  const [erster] = aktive;
-  return `${erster.kennung.split('@')[0]} ${ZUSTAND_WORT[erster.zustand]} …`;
+  const gruppen = GRUPPEN
+    .map((gruppe) => gruppeTeile(gruppe, aktive.filter((eintrag) => eintrag.zustand === gruppe.zustand)))
+    .filter((teile) => teile.length > 0);
+  if (gruppen.length === 0) {
+    return [];
+  }
+  const verbunden = gruppen.flatMap((teile, stelle) => {
+    if (stelle === 0) {
+      return teile;
+    }
+    return [beiwerk(' · '), ...teile];
+  });
+  return [...verbunden, beiwerk(' …')];
 }
 
-const ZUSTAND_WORT = { tippt: 'tippt', denkt_nach: 'denkt nach' };
+export function anzeigeText(aktive) {
+  return anzeigeTeile(aktive).map((teil) => teil.text).join('');
+}
+
+const GRUPPEN = [
+  { zustand: 'tippt', einzahl: 'tippt', mehrzahl: 'tippen' },
+  { zustand: 'denkt_nach', einzahl: 'denkt nach', mehrzahl: 'denken nach' },
+];
+
+function gruppeTeile({ einzahl, mehrzahl }, mitglieder) {
+  const GEZAEHLT_AB = 3;
+  if (mitglieder.length >= GEZAEHLT_AB) {
+    return [beiwerk(`${mitglieder.length} Teilnehmer ${mehrzahl}`)];
+  }
+  if (mitglieder.length === 2) {
+    return [name(mitglieder[0]), beiwerk(' und '), name(mitglieder[1]), beiwerk(` ${mehrzahl}`)];
+  }
+  if (mitglieder.length === 1) {
+    return [name(mitglieder[0]), beiwerk(` ${einzahl}`)];
+  }
+  return [];
+}
+
+function name({ kennung }) {
+  return { text: kennung.split('@')[0], name: true };
+}
+
+function beiwerk(text) {
+  return { text, name: false };
+}
 
 // Die Zeile `p.lc-comp-tipp` für die Hinweisreihe der Eingabe; `kennung` ist die eigene.
 export function aktivitaetsanzeigeAnlegen({ kennung }) {
@@ -82,9 +126,9 @@ export function aktivitaetsanzeigeAnlegen({ kennung }) {
   function zeichnen() {
     bildBestellt = false;
     const aktive = aktiveIn(tabelle, channel, kennung, Date.now());
-    const text = anzeigeText(aktive);
-    if (zeile.textContent !== text) {
-      zeile.textContent = text;
+    const teile = anzeigeTeile(aktive);
+    if (zeile.textContent !== teile.map((teil) => teil.text).join('')) {
+      zeile.replaceChildren(...teile.map(teilAlsKnoten));
     }
     zumAblaufWecken(aktive);
   }
@@ -117,4 +161,14 @@ export function aktivitaetsanzeigeAnlegen({ kennung }) {
       zeichnenBestellen();
     },
   };
+}
+
+function teilAlsKnoten(teil) {
+  if (!teil.name) {
+    return document.createTextNode(teil.text);
+  }
+  const knoten = document.createElement('span');
+  knoten.className = 'lc-comp-tipp-name';
+  knoten.textContent = teil.text;
+  return knoten;
 }

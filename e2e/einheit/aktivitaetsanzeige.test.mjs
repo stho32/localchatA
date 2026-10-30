@@ -3,7 +3,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  AKTIVITAETEN_LEER, aktivitaetEinordnen, nachrichtEingetroffen, aktiveIn,
+  AKTIVITAETEN_LEER, aktivitaetEinordnen, nachrichtEingetroffen, aktiveIn, anzeigeTeile, anzeigeText,
 } from '../../web/aktivitaetsanzeige.js';
 
 const JETZT = '2026-10-30T10:00:00.000+01:00';
@@ -79,4 +79,54 @@ test('der Ablauf rechnet ab dem Empfang beim Leser: maßgeblich ist bis − jetz
 
 test('ein unbekanntes Ereignis ist ein Fehler', () => {
   assert.throws(() => aktivitaetEinordnen(AKTIVITAETEN_LEER, { art: 'teilnehmer' }, 0), /unbekanntes Ereignis teilnehmer/);
+});
+
+// Wortlaut (R00045 F0162 B0690, ux-reviewer A): je Zustand eine Gruppe, `tippt` zuerst, getrennt durch ` · `, am Ende
+// ` …` (U+2026) genau einmal; Name = Teil der Kennung vor dem @; die Eingabe ist schon alphabetisch nach Kennung.
+const aktiv = (...paare) => paare.map(([kennung, zustand]) => ({ kennung, zustand, ablaufMs: 1 }));
+
+test('Wortlaut: niemand → leer; ein, zwei, ab drei gezählt — je Zustand', () => {
+  assert.equal(anzeigeText([]), '');
+  assert.equal(anzeigeText(aktiv(['anna@10.0.0.7', 'tippt'])), 'anna tippt …');
+  assert.equal(anzeigeText(aktiv(['anna@x', 'tippt'], ['ben@y', 'tippt'])), 'anna und ben tippen …');
+  assert.equal(anzeigeText(aktiv(['anna@x', 'tippt'], ['ben@x', 'tippt'], ['cora@x', 'tippt'])), '3 Teilnehmer tippen …');
+  assert.equal(anzeigeText(aktiv(['claude@x', 'denkt_nach'])), 'claude denkt nach …');
+  assert.equal(anzeigeText(aktiv(['claude@x', 'denkt_nach'], ['codex@x', 'denkt_nach'])), 'claude und codex denken nach …');
+  const vier = aktiv(['a@x', 'denkt_nach'], ['b@x', 'denkt_nach'], ['c@x', 'denkt_nach'], ['d@x', 'denkt_nach']);
+  assert.equal(anzeigeText(vier), '4 Teilnehmer denken nach …');
+});
+
+test('Wortlaut: beide Zustände — tippt zuerst, auch wenn die Kennung des Nachdenkenden vorn steht', () => {
+  assert.equal(anzeigeText(aktiv(['anna@x', 'tippt'], ['claude@x', 'denkt_nach'])), 'anna tippt · claude denkt nach …');
+  assert.equal(anzeigeText(aktiv(['aaron@x', 'denkt_nach'], ['zora@x', 'tippt'])), 'zora tippt · aaron denkt nach …');
+  const vier = aktiv(['anna@x', 'tippt'], ['ben@x', 'tippt'], ['claude@x', 'denkt_nach'], ['codex@x', 'denkt_nach']);
+  assert.equal(anzeigeText(vier), 'anna und ben tippen · claude und codex denken nach …');
+  const fuenf = aktiv(['anna@x', 'tippt'], ['ben@x', 'tippt'], ['cora@x', 'tippt'], ['claude@x', 'denkt_nach']);
+  assert.equal(anzeigeText(fuenf), '3 Teilnehmer tippen · claude denkt nach …');
+});
+
+test('Wortlaut: „…“ ist U+2026 und steht genau einmal, am Ende nach einem Leerzeichen', () => {
+  const text = anzeigeText(aktiv(['anna@x', 'tippt'], ['claude@x', 'denkt_nach']));
+  assert.equal([...text].filter((zeichen) => zeichen === '\u2026').length, 1);
+  assert.ok(text.endsWith(' \u2026'));
+  assert.ok(!text.includes('...'));
+});
+
+test('Teile: Namen sind als Name markiert (halbfett), Zählung und Verben nicht', () => {
+  assert.deepEqual(anzeigeTeile(aktiv(['anna@x', 'tippt'], ['claude@x', 'denkt_nach'])), [
+    { text: 'anna', name: true }, { text: ' tippt', name: false }, { text: ' · ', name: false },
+    { text: 'claude', name: true }, { text: ' denkt nach', name: false }, { text: ' …', name: false },
+  ]);
+  assert.deepEqual(anzeigeTeile(aktiv(['anna@x', 'tippt'], ['ben@x', 'tippt'])), [
+    { text: 'anna', name: true }, { text: ' und ', name: false }, { text: 'ben', name: true },
+    { text: ' tippen', name: false }, { text: ' …', name: false },
+  ]);
+  assert.deepEqual(anzeigeTeile(aktiv(['a@x', 'tippt'], ['b@x', 'tippt'], ['c@x', 'tippt'])), [
+    { text: '3 Teilnehmer tippen', name: false }, { text: ' …', name: false },
+  ]);
+  assert.deepEqual(anzeigeTeile([]), []);
+});
+
+test('Wortlaut: ein unbekannter Zustand ist ein Fehler', () => {
+  assert.throws(() => anzeigeText(aktiv(['anna@x', 'schreibt'])), /unbekannter Zustand schreibt/);
 });
