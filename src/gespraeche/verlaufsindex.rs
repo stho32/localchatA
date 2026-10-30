@@ -301,6 +301,16 @@ impl Verlauf {
         })
     }
 
+    /// Die Zeit der jüngsten Nachricht mit `zeit ≤ grenze` (als Zeitpunkt); ohne eine solche keine. Eine Nachricht
+    /// über der Grenze, die zwischen dem Lesen der Grenze und diesem Aufruf eintraf, zählt nicht (ADR-0055 Regel 8).
+    pub fn letzte_nachrichtenzeit_bis(&self, grenze: &Zeit) -> Option<Zeit> {
+        self.tage.values().rev().find_map(|tag| {
+            let bis = grenze_im_tag(&tag.rohtext, &tag.nachrichten, grenze, Seite::Nach);
+            let anfang = tag.nachrichten.get(bis.checked_sub(1)?)?;
+            logformat::kopfzeit(&tag.rohtext[*anfang..])
+        })
+    }
+
     /// Wie viele Nachrichten der Index hält — Änderungssätze zählen nicht (ADR-0048 Regel 1).
     pub fn nachrichten(&self) -> u64 {
         self.tage

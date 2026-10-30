@@ -10,7 +10,9 @@
 use super::abfrage::{Abfrage, Abschnitt, Blockgroesse};
 use super::treffer::{Filter, Treffer, treffer};
 use super::verlaufsindex::Verlauf;
-use super::{Gespraech, Gespraeche, Kennung, Nachricht, lesend, nachricht_in_fassung, sperren};
+use super::{
+    Gespraech, Gespraeche, Kennung, Nachricht, lesend, nachricht_in_fassung, sichtbar_fuer, sperren,
+};
 use crate::uhr::Zeit;
 use std::cmp::Reverse;
 use std::collections::BinaryHeap;
@@ -53,7 +55,8 @@ pub fn kosten_eines_satzes(satzbytes: usize) -> usize {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Nachgeholt {
     pub treffer: Vec<Treffer>,
-    /// Bis hierher ist alles geprüft: bei `weitere` die zuletzt geprüfte Zeit, sonst `max(seit, marke)`.
+    /// Bis hierher ist alles geprüft: bei `weitere` die zuletzt geprüfte Zeit, sonst `max(seit, Hs)` mit der
+    /// sichtbaren Marke `Hs` (`sichtbare_marke`) — nie die globale Marke, sie verriete fremde Direktnachrichten.
     pub stand: Zeit,
     pub weitere: bool,
     /// So viele Kosten hat das Nachholen geprüft — die Abrechnung am Nachholkonto (ADR-0054 Ergänzung Regel 3).
@@ -140,8 +143,23 @@ impl Gespraeche {
                 });
             }
         }
-        ergebnis.stand = seit.max(marke);
+        ergebnis.stand = self
+            .sichtbare_marke(wartender, marke)
+            .map_or(seit, |sichtbar| seit.max(sichtbar));
         ergebnis
+    }
+
+    /// Die sichtbare Marke `Hs` (ADR-0055 Regel 8, Matrix G1, G2): die größte Nachrichtenzeit `≤ marke` über alle
+    /// Gespräche, die `wartender` sehen darf (`sichtbar_fuer`: die Channels und seine eigenen Direktgespräche); keine,
+    /// wenn er nichts Sichtbares hat. Zwischen `Hs` und `marke` liegt keine Nachricht, die er sehen darf — ein
+    /// Nachholen ab `Hs` verliert also nichts, und `Hs` verrät keinen Zeitpunkt einer fremden Direktnachricht.
+    pub fn sichtbare_marke(&self, wartender: &Kennung, marke: Zeit) -> Option<Zeit> {
+        lesend(&self.verzeichnis)
+            .verlaeufe
+            .iter()
+            .filter(|(gespraech, _)| sichtbar_fuer(gespraech, wartender, false))
+            .filter_map(|(_, verlauf)| sperren(verlauf).letzte_nachrichtenzeit_bis(&marke))
+            .max()
     }
 
     /// Je Gespräch, das der Filter berühren kann, ein Strang ab `seit` bis `marke` (Regel 3.4): genannte Channels,
@@ -893,5 +911,75 @@ mod tests {
             bezug: None,
             antwort_auf: None,
         }
+    }
+
+    /// B0774 (ADR-0055 Regel 8, Matrix G2; Mutante „Marke global“): `t1` in einem Channel, danach `t2` im
+    /// Direktgespräch von `anna` und `claude`. `dora` sieht nur den Channel — ihre sichtbare Marke ist `t1`, ein
+    /// Nachholen von vor `t1` endet mit `stand = t1`; die Beteiligten sehen `t2`. Eine Direktnachricht über der
+    /// angefragten Marke zählt nicht.
+    #[test]
+    fn die_sichtbare_marke_kennt_nur_channels_und_die_eigenen_direktgespraeche() {
+        let ablage = Arc::new(Speicherablage::neu());
+        let direkt = Gespraech::Direkt(super::super::Direktpaar::fuer_test(
+            "anna@127.0.0.1",
+            "claude@127.0.0.1",
+        ));
+        ablage.gespraech_anlegen(&Gespraech::channel("a"));
+        ablage.gespraech_anlegen(&direkt);
+        let uhr = Arc::new(GestellteUhr::neu(zeit("2026-10-30T12:00:00.000+01:00")));
+        let gespraeche = Gespraeche::laden(ablage, uhr.clone()).expect("geladen");
+        let t1 = gespraeche
+            .senden(&Gespraech::channel("a"), &anna(), Art::Mensch, "im Channel")
+            .expect("t1")
+            .zeit;
+        uhr.stellen(zeit("2026-10-30T12:00:05.000+01:00"));
+        let t2 = gespraeche
+            .senden(&direkt, &anna(), Art::Mensch, "nur wir")
+            .expect("t2")
+            .zeit;
+        let dora = kennung("dora@127.0.0.1");
+        let vorher = zeit("2026-10-30T11:00:00.000+01:00");
+
+        let nachgeholt = gespraeche.nachholen(vorher, t2, &dora, &Filter::default(), NACHHOLBUDGET);
+
+        assert_eq!(gespraeche.sichtbare_marke(&dora, t2), Some(t1), "dora");
+        assert_eq!(
+            gespraeche.sichtbare_marke(&claude(), t2),
+            Some(t2),
+            "claude"
+        );
+        assert_eq!(gespraeche.sichtbare_marke(&anna(), t2), Some(t2), "anna");
+        assert_eq!(
+            gespraeche.sichtbare_marke(&claude(), t1),
+            Some(t1),
+            "über der Marke zählt nicht"
+        );
+        assert_eq!(nachgeholt.stand, t1, "der Stand verrät t2 nicht");
+        assert_eq!(
+            gespraeche.sichtbare_marke(&kennung("nie@127.0.0.1"), t2),
+            Some(t1)
+        );
+    }
+
+    /// Ohne ein sichtbares Gespräch mit Nachricht gibt es keine sichtbare Marke.
+    #[test]
+    fn wer_nichts_sieht_hat_keine_sichtbare_marke() {
+        let ablage = Arc::new(Speicherablage::neu());
+        let direkt = Gespraech::Direkt(super::super::Direktpaar::fuer_test(
+            "anna@127.0.0.1",
+            "claude@127.0.0.1",
+        ));
+        ablage.gespraech_anlegen(&direkt);
+        let uhr = Arc::new(GestellteUhr::neu(zeit("2026-10-30T12:00:00.000+01:00")));
+        let gespraeche = Gespraeche::laden(ablage, uhr).expect("geladen");
+        let t = gespraeche
+            .senden(&direkt, &anna(), Art::Mensch, "nur wir")
+            .expect("gesendet")
+            .zeit;
+
+        assert_eq!(
+            gespraeche.sichtbare_marke(&kennung("dora@127.0.0.1"), t),
+            None
+        );
     }
 }

@@ -165,7 +165,7 @@ pub async fn warten<P: Nachholplatz>(
 }
 
 /// Liest die Marke `H` unter der Schreibsperre und holt `(Stand, H]` nach — auf dem Nachholplatz, mit dem Budget,
-/// das der Sammlung noch bleibt. Ohne Stand gilt „ab jetzt“: der Stand wird die Marke.
+/// das der Sammlung noch bleibt. Ohne Stand gilt „ab jetzt“: der Stand wird die sichtbare Marke `Hs ≤ H`.
 async fn nachholen<P: Nachholplatz>(
     gespraeche: &Arc<Gespraeche>,
     platz: &P,
@@ -185,10 +185,12 @@ async fn nachholen<P: Nachholplatz>(
             let marke = gespraeche.letzte_zeit();
             beobachter(Schritt::MarkeGelesen);
             let marke = marke?;
+            // Ohne `seit` gilt „ab jetzt“ — aber nur über das, was der Wartende sehen darf: die sichtbare Marke
+            // (ADR-0055 Regel 8). Sieht er noch nichts, gilt der Aufruf wie einer auf leerer Ablage.
             let ab = match stand {
                 Some(stand) => stand,
                 None if ab_anfang => anfang(),
-                None => marke,
+                None => gespraeche.sichtbare_marke(&wartender, marke)?,
             };
             Some(gespraeche.nachholen(ab, marke, &wartender, &filter, budget))
         })
