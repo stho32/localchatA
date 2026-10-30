@@ -10,7 +10,7 @@ const {
 } = require('./senden-hilfen');
 const { geraetOeffnen } = require('./r00027-hilfen');
 const {
-  browserOeffnen, imBrowserSenden, nachrichtMitZeit, loeschenPerApi, mitAnhaengenSenden, PNG, schriftKontrast,
+  browserOeffnen, imBrowserSenden, nachrichtMitZeit, loeschenPerApi, mitAnhaengenSenden, PNG, schriftKontrast, ansagenMitschreiben,
 } = require('./r00041-hilfen');
 const { WAECHTER, QUELLTEXT, lanStarten, pruefFeldAnlegen, ablageBelegen, ablageLesen, kanalPruefsumme } = require('./r00046-hilfen');
 
@@ -387,6 +387,157 @@ test('Taste C bietet nichts an einer gelöschten Nachricht und an einer reinen A
     expect(await ablageLesen(a.page), zeit).toBe(WAECHTER);
   }
 });
+
+const FEHLER_ANSAGE = 'Kopieren nicht möglich. Text markieren und Strg+C drücken.';
+
+/// Schreibt auf, wann der sichtbare Text des Knopfes „Kopieren“ wechselt: window.wechsel = [[Text, Millisekunden]].
+function anzeigeMitschreiben(page, zeit) {
+  return page.evaluate((nachrichtZeit) => {
+    const anzeige = document.querySelector(`.lc-msg[data-zeit="${nachrichtZeit}"] .lc-aktion[data-aktion="kopieren"]`);
+    window.wechsel = [];
+    new MutationObserver(() => window.wechsel.push([anzeige.textContent, performance.now()])).observe(anzeige, { childList: true, characterData: true, subtree: true });
+  }, zeit);
+}
+
+/// Bis der Text des Knopfes „Kopieren“ wieder „Kopieren“ lautet; → Dauer der Anzeige in Millisekunden (aus dem Browser).
+async function anzeigedauer(page) {
+  await page.waitForFunction(() => window.wechsel.length >= 2 && window.wechsel[window.wechsel.length - 1][0] === 'Kopieren', null, { polling: 'raf', timeout: 10000 });
+  const wechsel = await page.evaluate(() => window.wechsel);
+  return wechsel[wechsel.length - 1][1] - wechsel[0][1];
+}
+
+test('Rückmeldung (P5): „✓ Kopiert.“ 2000 ms am Knopf, Name bleibt „Kopieren“, Breite und Nachbarn unverändert, die Region sagt genau einmal „Kopiert.“', async ({ browser }) => {
+  instanz = await sendenStarten();
+  const a = await seiteOeffnen(browser, instanz.adresse);
+  const eigene = await imBrowserSenden(a.page, 'Hallo');
+  const lagen = () => nachrichtMitZeit(a.page, eigene).locator('.lc-aktion').evaluateAll((knoepfe) => knoepfe.map((knopf) => {
+    const rand = knopf.getBoundingClientRect();
+    return [rand.left, rand.width];
+  }));
+  const angesagt = await ansagenMitschreiben(a.page);
+  await nachrichtMitZeit(a.page, eigene).hover();
+  const vorher = await lagen();
+  await anzeigeMitschreiben(a.page, eigene);
+  await ablageBelegen(a.page);
+  await nachrichtMitZeit(a.page, eigene).hover();
+
+  await kopierKnopf(a.page, eigene).click();
+
+  const anzeige = kopierKnopf(a.page, eigene).locator('.lc-aktion-anzeige');
+  await expect(anzeige).toHaveText('✓ Kopiert.');
+  await expect(anzeige).toHaveAttribute('aria-hidden', 'true');
+  await expect(kopierKnopf(a.page, eigene)).toHaveAccessibleName('Kopieren');
+  expect(await lagen()).toEqual(vorher);
+  await a.page.waitForTimeout(1000);
+  await kopierKnopf(a.page, eigene).click();
+  const dauer = await anzeigedauer(a.page);
+  expect(dauer).toBeGreaterThanOrEqual(2000 - 300);
+  expect(dauer).toBeLessThanOrEqual(3000 + 300);
+  await expect(anzeige).toHaveText('Kopieren');
+  expect(await lagen()).toEqual(vorher);
+  expect(await angesagt()).toEqual(['Kopiert.']);
+  expect(a.fehler).toEqual([]);
+});
+
+test('Rückmeldung: die Anzeige endet 2000 ms nach dem Kopieren (± 300 ms)', async ({ browser }) => {
+  instanz = await sendenStarten();
+  const fremd = await claudeSendet(instanz.adresse, ['Zeit']);
+  const a = await seiteOeffnen(browser, instanz.adresse);
+  await expect(nachrichtMitZeit(a.page, fremd.zeiten[0])).toHaveCount(1);
+  await anzeigeMitschreiben(a.page, fremd.zeiten[0]);
+
+  await nachrichtMitZeit(a.page, fremd.zeiten[0]).hover();
+  await kopierKnopf(a.page, fremd.zeiten[0]).click();
+
+  const dauer = await anzeigedauer(a.page);
+  console.log(`Anzeigedauer Kopiert: ${Math.round(dauer)} ms`);
+  expect(dauer).toBeGreaterThanOrEqual(2000 - 300);
+  expect(dauer).toBeLessThanOrEqual(2000 + 300);
+});
+
+for (const [ort, wie] of [['http://<LAN-IP> (unsicherer Kontext)', 'lan'], ['http://127.0.0.1 (writeText ohne Berechtigung abgelehnt)', 'loopback']]) {
+  test(`Rückmeldung bei Fehlschlag, ${ort}: „⚠ Kopieren nicht möglich“ 5000 ms in kd-danger, die Region nennt den Ausweg, die Zwischenablage bleibt`, async ({ browser }) => {
+    let adresseApi;
+    let adresseSeite;
+    if (wie === 'lan') {
+      const lan = await lanStarten();
+      instanz = lan.instanz;
+      adresseApi = lan.api;
+      adresseSeite = lan.lan;
+    } else {
+      instanz = await sendenStarten();
+      adresseApi = instanz.adresse;
+      adresseSeite = instanz.adresse;
+    }
+    const fremd = await claudeSendet(adresseApi, ['Geht nicht']);
+    const a = await seiteOeffnen(browser, adresseSeite);
+    await expect(nachrichtMitZeit(a.page, fremd.zeiten[0])).toHaveCount(1);
+    await ablageBelegen(a.page);
+    await a.page.evaluate(() => { document.execCommand = () => false; });
+    const angesagt = await ansagenMitschreiben(a.page);
+    await anzeigeMitschreiben(a.page, fremd.zeiten[0]);
+    await nachrichtMitZeit(a.page, fremd.zeiten[0]).hover();
+
+    await kopierKnopf(a.page, fremd.zeiten[0]).click();
+
+    const anzeige = kopierKnopf(a.page, fremd.zeiten[0]).locator('.lc-aktion-anzeige');
+    await expect(anzeige).toHaveText('⚠ Kopieren nicht möglich');
+    await expect(kopierKnopf(a.page, fremd.zeiten[0])).toHaveAccessibleName('Kopieren');
+    const farben = await anzeige.evaluate((knoten) => {
+      const probe = document.createElement('span');
+      probe.style.color = 'var(--kd-danger)';
+      document.body.append(probe);
+      const gefahr = getComputedStyle(probe).color;
+      probe.remove();
+      return { ist: getComputedStyle(knoten).color, soll: gefahr };
+    });
+    expect(farben.ist).toBe(farben.soll);
+    const dauer = await anzeigedauer(a.page);
+    console.log(`Anzeigedauer Fehler (${wie}): ${Math.round(dauer)} ms`);
+    expect(dauer).toBeGreaterThanOrEqual(5000 - 300);
+    expect(dauer).toBeLessThanOrEqual(5000 + 300);
+    expect(await angesagt()).toEqual([FEHLER_ANSAGE]);
+    expect(await ablageLesen(a.page)).toBe(WAECHTER);
+  });
+}
+
+for (const fehlschlag of [false, true]) {
+  test(`Rückmeldung auf Touch (K2, ${fehlschlag ? 'Fehlschlag' : 'Gelingen'}): der Menüeintrag zeigt „${fehlschlag ? '⚠ Kopieren nicht möglich' : '✓ Kopiert.'}“, das Menü ist nach 1000 ms offen und nach 1500 ms zu, der Fokus liegt auf „Aktionen“`, async ({ browser }) => {
+    instanz = await sendenStarten();
+    const fremd = await claudeSendet(instanz.adresse, ['Eins', 'Zwei']);
+    const a = await geraetOeffnen(browser, 'telefon', { fenster: FENSTER_TELEFON, streng: true });
+    await imBrowserBeitreten(a.page, instanz.adresse, 'shoff');
+    await pruefFeldAnlegen(a.page);
+    await expect(nachrichtMitZeit(a.page, fremd.zeiten[1])).toHaveCount(1);
+    await ablageBelegen(a.page);
+    if (fehlschlag) {
+      await a.page.evaluate(() => { document.execCommand = () => false; });
+    }
+    const zeit = fremd.zeiten[1];
+    await schalter(a.page, zeit).tap();
+    await expect(kopierKnopf(a.page, zeit)).toBeVisible();
+
+    await kopierKnopf(a.page, zeit).tap();
+    const angetippt = Date.now();
+
+    await expect(kopierKnopf(a.page, zeit).locator('.lc-aktion-anzeige')).toHaveText(fehlschlag ? '⚠ Kopieren nicht möglich' : '✓ Kopiert.');
+    await expect(kopierKnopf(a.page, zeit)).toHaveAccessibleName('Kopieren');
+    const menueRechts = await nachrichtMitZeit(a.page, zeit).locator('.lc-aktionen').evaluate((menue) => menue.getBoundingClientRect().right);
+    const schalterLinks = await schalter(a.page, zeit).evaluate((knopf) => knopf.getBoundingClientRect().left);
+    expect(menueRechts, 'das Menü überdeckt den Schalter nicht').toBeLessThanOrEqual(schalterLinks);
+    await a.page.waitForTimeout(Math.max(0, 1000 - (Date.now() - angetippt)));
+    await expect(schalter(a.page, zeit)).toHaveAttribute('aria-expanded', 'true');
+    await a.page.waitForTimeout(Math.max(0, 1500 - (Date.now() - angetippt)));
+    await expect(schalter(a.page, zeit)).toHaveAttribute('aria-expanded', 'false');
+    await expect(schalter(a.page, zeit)).toBeFocused();
+    if (fehlschlag) {
+      expect(await ablageLesen(a.page)).toBe(WAECHTER);
+    } else {
+      expect(await ablageLesen(a.page)).toBe('Zwei');
+    }
+    expect(a.fehler).toEqual([]);
+  });
+}
 
 const FENSTER_TELEFON = { width: 375, height: 667 };
 const FENSTER_MIT_TASTATUR = { width: 375, height: 367 };

@@ -6,13 +6,13 @@
 // Abrufe ab, eine Antwort für einen nicht mehr gewählten Channel wird verworfen, Daten des vorigen Channels fallen
 // weg. Der Verlauf ist die einzige scrollende Fläche der Mitte: role="log", aria-live="off", mit der Tastatur
 // fokussierbar; Nachladen wird nie angesagt.
-import { nachrichtZeichnen, kopfSetzen, trennerZeichnen, langeEinklappen, langeUmschalten, markeUmschalten } from './nachricht.js';
+import { nachrichtZeichnen, kopfSetzen, trennerZeichnen, langeEinklappen, langeUmschalten, markeUmschalten, kopierRueckmeldungZeigen } from './nachricht.js';
 import { gliederung, folgeGliedern, datumBenennen } from './gliederung.js';
 import { nachladen, einfuegen } from './fenster.js';
 import { pfeilRichtung, pfeilZiel, tabStopp, eigeneLetzte, nachrichtTaste, kopierTaste } from './fokus.js';
 import { bearbeitenAnlegen } from './bearbeiten.js';
 import { rueckfrageOeffnen, loeschenAuswerten } from './loeschen.js';
-import { kopieren } from './kopieren.js';
+import { kopieren, rueckmeldungFuer, RUECKMELDUNG_LEER, MENUE_OFFEN_MS } from './kopieren.js';
 import { menueLage } from './menuelage.js';
 import { zeigerart } from './eingabe.js';
 import {
@@ -155,7 +155,6 @@ export function verlaufAnlegen({
     const aktion = ereignis.target.closest('.lc-aktion');
     if (aktion !== null && aktion.dataset.aktion === 'kopieren') {
       aktionAusfuehren('kopieren', aktion.closest('.lc-msg'));
-      menueNachKopierenSchliessen();
       return;
     }
     if (aktion !== null) {
@@ -464,8 +463,31 @@ export function verlaufAnlegen({
   // stehen, bis der Fokus auf ihren Knopf zurückgelegt ist.
   function nachrichtKopieren(artikel, text) {
     artikel.classList.add('lc-kopiert-laeuft');
-    kopieren(text, document);
+    const ausgang = kopieren(text, document);
     artikel.classList.remove('lc-kopiert-laeuft');
+    ausgang.then((ergebnis) => kopierenMelden(artikel, ergebnis));
+  }
+
+  // Rückmeldung nach dem Kopieren: am Knopf, in der Ansage-Region; ein offenes Menü auf Touch bleibt kurz stehen, damit
+  // man die Rückmeldung im Eintrag sieht, und schließt dann (UX K2).
+  let kopierZustand = RUECKMELDUNG_LEER;
+  function kopierenMelden(artikel, ergebnis) {
+    const rueckmeldung = rueckmeldungFuer(kopierZustand, ergebnis, artikel.dataset.zeit, Date.now());
+    kopierZustand = rueckmeldung.zustand;
+    kopierRueckmeldungZeigen(artikel, rueckmeldung.anzeige, rueckmeldung.dauerMs);
+    if (rueckmeldung.ansage !== null) {
+      ansagen(rueckmeldung.ansage);
+    }
+    const menueSchalter = artikel.querySelector('.lc-aktionen-schalter[aria-expanded="true"]');
+    if (menueSchalter !== null) {
+      // Die Rückmeldung kann den Eintrag verbreitern (Fehler): das Menü bleibt links neben dem Schalter.
+      menueEinpassen(menueSchalter, document.getElementById(menueSchalter.getAttribute('aria-controls')));
+      setTimeout(() => {
+        if (menueSchalter.getAttribute('aria-expanded') === 'true') {
+          menueNachKopierenSchliessen();
+        }
+      }, MENUE_OFFEN_MS);
+    }
   }
 
   // Löschen nach genau einer Rückfrage (F0139), höchstens ein Aufruf zugleich: gelöscht → die Fassung der Antwort, Fokus

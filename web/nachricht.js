@@ -43,8 +43,14 @@ export function nachrichtZeichnen(nachricht, eigeneKennung = '') {
 function aktionenZeichnen(aktionen, zeit) {
   const BESCHRIFTUNG = { kopieren: 'Kopieren', bearbeiten: 'Bearbeiten', loeschen: 'Löschen' };
   const knoepfe = aktionen.map((aktion) => {
-    const knopf = element('button', { type: 'button', className: 'lc-aktion', textContent: BESCHRIFTUNG[aktion] });
+    const knopf = element('button', { type: 'button', className: 'lc-aktion' });
     knopf.dataset.aktion = aktion;
+    knopf.append(element('span', { className: 'lc-aktion-anzeige', textContent: BESCHRIFTUNG[aktion] }));
+    if (aktion === 'kopieren') {
+      // Der sichtbare Text wechselt kurz auf die Rückmeldung (kopierRueckmeldungZeigen); der Name bleibt „Kopieren“.
+      knopf.firstChild.setAttribute('aria-hidden', 'true');
+      knopf.setAttribute('aria-label', BESCHRIFTUNG[aktion]);
+    }
     return knopf;
   });
   const leiste = element('div', { className: 'lc-aktionen', id: `lc-aktionen-${zeit}` }, knoepfe);
@@ -53,6 +59,27 @@ function aktionenZeichnen(aktionen, zeit) {
   schalter.setAttribute('aria-expanded', 'false');
   schalter.setAttribute('aria-controls', leiste.id);
   return [schalter, leiste];
+}
+
+const KOPIER_ANZEIGE = { kopiert: '✓ Kopiert.', nicht_moeglich: '⚠ Kopieren nicht möglich' };
+const kopierAnzeigeTimer = new WeakMap();
+
+// Rückmeldung am Knopf „Kopieren“ der Nachricht (R00046 I0042, UX-Vorprüfung): die Beschriftung wechselt für `dauerMs` auf
+// „✓ Kopiert.“ bzw. „⚠ Kopieren nicht möglich“ (Fehler in kd-danger, per CSS am Attribut); erneutes Kopieren beginnt die
+// Zeit neu. Die Breite ist per CSS für „✓ Kopiert.“ vorab reserviert.
+export function kopierRueckmeldungZeigen(artikel, anzeige, dauerMs) {
+  const knopf = artikel.querySelector('.lc-aktion[data-aktion="kopieren"]');
+  if (knopf === null) {
+    return;
+  }
+  const sichtbar = knopf.querySelector('.lc-aktion-anzeige');
+  sichtbar.textContent = KOPIER_ANZEIGE[anzeige];
+  knopf.dataset.rueckmeldung = anzeige;
+  clearTimeout(kopierAnzeigeTimer.get(knopf));
+  kopierAnzeigeTimer.set(knopf, setTimeout(() => {
+    sichtbar.textContent = 'Kopieren';
+    delete knopf.dataset.rueckmeldung;
+  }, dauerMs));
 }
 
 // Was eine Nachricht zeigt (R00041 F0134, ADR-0048 Regel 4): ihren Text und — bearbeitet — die Marke „bearbeitet“ mit

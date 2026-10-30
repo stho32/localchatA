@@ -301,6 +301,10 @@ button.lc-marke { min-width: 24px; min-height: 24px; padding: 0 var(--kd-space-4
 .lc-aktionen { position: absolute; top: 0; right: var(--kd-space-12); display: none; gap: var(--kd-space-4); padding: 0; background: var(--kd-surface-2); border: 1px solid var(--kd-line); }
 .lc-msg:hover > .lc-aktionen, .lc-msg:focus-within > .lc-aktionen, .lc-msg.lc-kopiert-laeuft > .lc-aktionen { display: flex; }
 .lc-aktion { min-width: 24px; min-height: 24px; padding: 0 var(--kd-space-8); border: 0; background: none; color: var(--kd-ink); font: inherit; font-size: 12px; font-weight: 600; cursor: pointer; touch-action: manipulation; }
+/* Rückmeldung am Knopf „Kopieren“ (R00046): die Breite ist für „✓ Kopiert.“ vorab reserviert (unsichtbarer Block ohne Höhe),
+   Nachbarn verschieben sich nicht; der Fehler steht in kd-danger */
+.lc-aktion[data-aktion="kopieren"]::after { content: "✓ Kopiert."; display: block; height: 0; overflow: hidden; visibility: hidden; }
+.lc-aktion[data-rueckmeldung="nicht_moeglich"] { color: var(--kd-danger); }
 /* Bearbeiten an Ort und Stelle (R00041 F0135): statt Text, Marken und Leiste das Feld mit „Abbrechen“ · „Speichern“;
    Feldrand kd-ink-muted ≥ 3 : 1 gegen kd-surface und kd-surface-2 (UX S6); das Feld wächst bis 10 Zeilen, dann scrollt es */
 .lc-im-bearbeiten .lc-body, .lc-im-bearbeiten .lc-zusatz, .lc-im-bearbeiten .lc-foldbar, .lc-msg.lc-im-bearbeiten > .lc-aktionen { display: none; }

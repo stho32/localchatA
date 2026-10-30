@@ -128,3 +128,60 @@ test('ohne Zwischenablage-Schnittstelle (navigator.clipboard fehlt) im sicheren 
 
   assert.equal(await kopieren(TEXT, dokument), 'nicht_moeglich');
 });
+
+// Rückmeldung (R00046 I0042 B0703, ADR-0052 Regel 3): was nach dem Kopieren am Knopf steht und angesagt wird.
+import { rueckmeldungFuer, ANZEIGE_KOPIERT_MS, ANZEIGE_FEHLER_MS, MENUE_OFFEN_MS, RUECKMELDUNG_LEER } from '../../web/kopieren.js';
+
+const ZEIT_A = '2026-10-30T14:00:00.000+01:00';
+const ZEIT_B = '2026-10-30T14:01:00.000+01:00';
+const FEHLER_ANSAGE = 'Kopieren nicht möglich. Text markieren und Strg+C drücken.';
+
+test('Dauern: 2000 ms „Kopiert.“ am Knopf, 5000 ms der Fehler, 1200 ms bleibt das Menü auf Touch offen', () => {
+  assert.equal(ANZEIGE_KOPIERT_MS, 2000);
+  assert.equal(ANZEIGE_FEHLER_MS, 5000);
+  assert.equal(MENUE_OFFEN_MS, 1200);
+});
+
+test('Gelingen: „✓ Kopiert.“ 2000 ms am Knopf und eine Ansage „Kopiert.“', () => {
+  const ergebnis = rueckmeldungFuer(RUECKMELDUNG_LEER, 'kopiert', ZEIT_A, 10000);
+
+  assert.equal(ergebnis.anzeige, 'kopiert');
+  assert.equal(ergebnis.dauerMs, 2000);
+  assert.equal(ergebnis.ansage, 'Kopiert.');
+});
+
+test('dieselbe Nachricht innerhalb von 2 s noch einmal: die Anzeige gilt neu, die Ansage entfällt (Mutant K6)', () => {
+  const erstes = rueckmeldungFuer(RUECKMELDUNG_LEER, 'kopiert', ZEIT_A, 10000);
+
+  const zweites = rueckmeldungFuer(erstes.zustand, 'kopiert', ZEIT_A, 11000);
+
+  assert.equal(zweites.anzeige, 'kopiert');
+  assert.equal(zweites.dauerMs, 2000);
+  assert.equal(zweites.ansage, null);
+  assert.equal(rueckmeldungFuer(erstes.zustand, 'kopiert', ZEIT_A, 11999).ansage, null);
+});
+
+test('nach 2 s oder an einer anderen Nachricht wird wieder angesagt', () => {
+  const erstes = rueckmeldungFuer(RUECKMELDUNG_LEER, 'kopiert', ZEIT_A, 10000);
+
+  assert.equal(rueckmeldungFuer(erstes.zustand, 'kopiert', ZEIT_A, 12000).ansage, 'Kopiert.');
+  assert.equal(rueckmeldungFuer(erstes.zustand, 'kopiert', ZEIT_B, 10500).ansage, 'Kopiert.');
+});
+
+test('Misslingen: „⚠ Kopieren nicht möglich“ 5000 ms und die Ansage mit dem Ausweg — jedes Mal', () => {
+  const erstes = rueckmeldungFuer(RUECKMELDUNG_LEER, 'nicht_moeglich', ZEIT_A, 10000);
+  const zweites = rueckmeldungFuer(erstes.zustand, 'nicht_moeglich', ZEIT_A, 10500);
+
+  for (const ergebnis of [erstes, zweites]) {
+    assert.equal(ergebnis.anzeige, 'nicht_moeglich');
+    assert.equal(ergebnis.dauerMs, 5000);
+    assert.equal(ergebnis.ansage, FEHLER_ANSAGE);
+  }
+});
+
+test('ein Fehlschlag löscht nicht, dass eben „Kopiert.“ angesagt wurde', () => {
+  const erstes = rueckmeldungFuer(RUECKMELDUNG_LEER, 'kopiert', ZEIT_A, 10000);
+  const fehler = rueckmeldungFuer(erstes.zustand, 'nicht_moeglich', ZEIT_A, 10300);
+
+  assert.equal(rueckmeldungFuer(fehler.zustand, 'kopiert', ZEIT_A, 10600).ansage, null);
+});
