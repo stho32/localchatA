@@ -57,3 +57,38 @@ export function antwortAufText(bezug) {
   }
   return original;
 }
+
+// Das Zitat lebt mit dem Original (R00047 F0160 B0720, ADR-0053 Regel 5): ein Ereignis `aenderung` mit `zitat` ersetzt
+// den Bezug jeder Nachricht, deren `antwort_auf.zeit` (als Zeitpunkt) die Zeit der geänderten Nachricht ist — wenn sein
+// `geaendert` größer ist als das bekannte (`null` kleiner als jede Zeit); gelöscht wird nie zurückgenommen, dieselbe Regel
+// wie für die Fassung (ADR-0048 Regel 11). Ein Ereignis ohne `zitat` ändert nichts. Unveränderte Nachrichten bleiben
+// dieselben Objekte. → die Nachrichten mit nachgeführten Zitaten
+export function zitatNachfuehren(nachrichten, ereignis) {
+  return nachrichten.map((nachricht) => {
+    const bezug = nachricht.antwort_auf;
+    if (bezug === undefined || bezug === null) {
+      return nachricht;
+    }
+    const neu = bezugNachfuehren(bezug, ereignis);
+    if (neu === bezug) {
+      return nachricht;
+    }
+    return { ...nachricht, antwort_auf: neu };
+  });
+}
+
+// Dieselbe Regel für einen einzelnen Bezug — den der offenen Antwortzeile; null bleibt null. → der geltende Bezug
+export function bezugNachfuehren(bezug, { nachricht, zitat }) {
+  if (bezug === null || zitat === undefined || zitat === null) {
+    return bezug;
+  }
+  const trifft = Date.parse(bezug.zeit) === Date.parse(nachricht.zeit);
+  if (!trifft || bezug.zustand === 'geloescht' || zitat.geaendert === null) {
+    return bezug;
+  }
+  const neuer = bezug.geaendert === null || Date.parse(zitat.geaendert) > Date.parse(bezug.geaendert);
+  if (!neuer) {
+    return bezug;
+  }
+  return zitat;
+}
