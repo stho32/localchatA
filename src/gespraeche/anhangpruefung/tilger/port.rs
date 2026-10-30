@@ -111,10 +111,17 @@ impl<'a> Port<'a> {
         Ok(())
     }
 
-    /// Ein gepufferter Leser für eine sequentielle Kette ab `pos`.
+    /// Ein gepufferter Leser für eine sequentielle Kette über die ganze Datei.
     pub fn kette(&self) -> Kette<'_, 'a> {
+        self.kette_bis(self.laenge)
+    }
+
+    /// Ein gepufferter Leser, der nie über `ende` hinaus liest oder schreibt — das Ende des Bereichs, den ein
+    /// Verweis nennt (ADR-0047 B1 Regel 3).
+    pub fn kette_bis(&self, ende: u64) -> Kette<'_, 'a> {
         Kette {
             port: self,
+            ende: ende.min(self.laenge),
             anfang: 0,
             puffer: Vec::new(),
             geaendert: false,
@@ -154,12 +161,18 @@ impl<'a> Port<'a> {
 /// und mit `fertig` zurückgeschrieben.
 pub struct Kette<'p, 'a> {
     port: &'p Port<'a>,
+    ende: u64,
     anfang: u64,
     puffer: Vec<u8>,
     geaendert: bool,
 }
 
 impl Kette<'_, '_> {
+    /// Ob `[pos, pos + n)` ganz im Bereich der Kette liegt (ohne Überlauf).
+    pub fn enthaelt(&self, pos: u64, n: u64) -> bool {
+        pos.checked_add(n).is_some_and(|ende| ende <= self.ende)
+    }
+
     /// Die Bytes `[pos, pos + n)` mit n ≤ 1 MiB, ganz in der Datei — sonst `metadaten`.
     pub fn bytes(&mut self, pos: u64, n: usize) -> Ergebnis<&[u8]> {
         self.laden(pos, n)?;
@@ -174,6 +187,9 @@ impl Kette<'_, '_> {
     /// Nullt `[pos, pos + n)`: bis 1 MiB im Puffer (zurückgeschrieben beim Weiterrücken oder mit `fertig`),
     /// größer als Nullziel direkt in Stücken ≤ 1 MiB, nie gelesen.
     pub fn nullen(&mut self, pos: u64, n: u64) -> Ergebnis<()> {
+        if !self.enthaelt(pos, n) {
+            return Err(Abbruch::Metadaten("Längen widersprechen sich"));
+        }
         if n > STUECK as u64 {
             self.fertig()?;
             self.puffer.clear();
@@ -209,7 +225,7 @@ impl Kette<'_, '_> {
         if n > STUECK {
             return Err(Abbruch::Metadaten("Leseziel über 1 MiB"));
         }
-        if !self.port.enthaelt(pos, n as u64) {
+        if !self.enthaelt(pos, n as u64) {
             return Err(Abbruch::Metadaten("Längen widersprechen sich"));
         }
         let ende = self.anfang + self.puffer.len() as u64;
@@ -217,7 +233,7 @@ impl Kette<'_, '_> {
             return Ok(());
         }
         self.fertig()?;
-        let laenge = (self.port.laenge - pos).min(STUECK as u64) as usize;
+        let laenge = (self.ende - pos).min(STUECK as u64) as usize;
         self.puffer.resize(laenge, 0);
         self.anfang = pos;
         self.port.voll_lesen(pos, &mut self.puffer)?;

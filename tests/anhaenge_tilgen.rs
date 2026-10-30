@@ -583,8 +583,8 @@ fn mpf_flut(tags: usize) -> Vec<u8> {
 
 /// Befund aus Teil A der Nacharbeit zu #9 (`tilger/mpf.rs`, `weitere_bilder`): viele gleiche `MP_ENTRY`-Tags ließen
 /// die Liste der weiteren Bilder auf Millionen Einträge wachsen. Probe: das präparierte JPEG → Speicherzuwachs
-/// (VmHWM) ≤ 1 MiB je Hochladung, Ergebnis wie heute (422 `metadaten`, über 100.000 Blöcke); Kontrolle: dasselbe
-/// Bild mit einem Tag → 200 ohne GPS.
+/// (VmHWM) ≤ 1 MiB je Hochladung, Ergebnis 422 `metadaten` (seit ADR-0047 B1 Regel 2 „Verweise doppelt“, vorher
+/// „über 100.000 Blöcke“); Kontrolle: dasselbe Bild mit einem Tag → 200 ohne GPS.
 #[tokio::test]
 async fn viele_gleiche_mp_eintraege_brauchen_keinen_speicher() {
     let wurzel = ordner();
@@ -614,10 +614,128 @@ async fn viele_gleiche_mp_eintraege_brauchen_keinen_speicher() {
         (
             422,
             &serde_json::json!("metadaten"),
-            &serde_json::json!("über 100.000 Blöcke")
+            &serde_json::json!("Verweise doppelt")
         ),
         "{}",
         antwort.json
     );
     assert!(zuwachs <= 1_048_576, "VmHWM +{zuwachs} Bytes");
+}
+
+/// Erstes JPEG mit `APP2` `MPF` aus `tags` gleichen `MP_ENTRY`-Feldern, dahinter `bilder`; der Index nennt die Bilder
+/// in der Reihenfolge `nennungen` (Versätze ab dem TIFF-Kopf bei Byte 10).
+fn mpf_index(tags: usize, bilder: &[Vec<u8>], nennungen: &[usize]) -> Vec<u8> {
+    use gemeinsam::dateien::jpeg;
+    let mpf = |weitere: &[(u32, u32)]| {
+        let mut mpf = b"MPF\0MM\0*\0\0\0\x08".to_vec();
+        mpf.extend((tags as u16).to_be_bytes());
+        for _ in 0..tags {
+            mpf.extend(0xB002u16.to_be_bytes());
+            mpf.extend(7u16.to_be_bytes());
+            mpf.extend((((weitere.len() + 1) * 16) as u32).to_be_bytes());
+            mpf.extend(((8 + 2 + tags * 12 + 4) as u32).to_be_bytes());
+        }
+        mpf.extend(0u32.to_be_bytes());
+        mpf.extend([0; 16]);
+        for (groesse, versatz) in weitere {
+            mpf.extend([0; 4]);
+            mpf.extend(groesse.to_be_bytes());
+            mpf.extend(versatz.to_be_bytes());
+            mpf.extend([0; 4]);
+        }
+        mpf
+    };
+    let laenge = jpeg(&[(0xe2, mpf(&vec![(0, 0); nennungen.len()]))], 4000, 3000).len();
+    let mut anfaenge = Vec::new();
+    let mut stelle = laenge;
+    for bild in bilder {
+        anfaenge.push(stelle);
+        stelle += bild.len();
+    }
+    let weitere: Vec<(u32, u32)> = nennungen
+        .iter()
+        .map(|&nummer| (bilder[nummer].len() as u32, (anfaenge[nummer] - 10) as u32))
+        .collect();
+    [
+        vec![jpeg(&[(0xe2, mpf(&weitere))], 4000, 3000)],
+        bilder.to_vec(),
+    ]
+    .concat()
+    .concat()
+}
+
+/// Ein JPEG von 64 Bytes mit Ortstext im `COM`.
+fn winziges_jpeg() -> Vec<u8> {
+    let mut kommentar = b"GPS 48.1371 11.5754".to_vec();
+    kommentar.resize(50, b'.');
+    let mut bild = vec![0xFF, 0xD8, 0xFF, 0xFE, 0, 52];
+    bild.extend(kommentar);
+    bild.extend([0xFF, 0xDA, 0, 3, 1, 0xAB, 0xFF, 0xD9]);
+    assert_eq!(bild.len(), 64);
+    bild
+}
+
+/// Lädt `inhalt` hoch und misst den `PUT`.
+async fn hochladen_gemessen(
+    basis: &str,
+    name: &str,
+    inhalt: Vec<u8>,
+) -> (gemeinsam::ApiAntwort, std::time::Duration) {
+    let beta = Absender::von("127.0.0.1");
+    let token = beitreten(&beta, basis, &name.replace('.', "-"), Some("agent")).await;
+    let angemeldet = id(&anmelden(&beta, basis, &token, name, inhalt.len() as u64).await);
+    let beginn = std::time::Instant::now();
+    let antwort = hochladen(&beta, basis, &token, &angemeldet, inhalt).await;
+    (antwort, beginn.elapsed())
+}
+
+/// ADR-0047 B1 P3 über das Programm (B0639): MP-Index mit 4.000 Einträgen auf dasselbe Bild → 422 binnen 2 s;
+/// 4.000 Einträge auf verschiedene Bilder je 64 Bytes → getilgt binnen 2 s; zwei `MP_ENTRY`-Felder → 422.
+#[tokio::test]
+async fn mehrfachverweise_im_mp_index_binnen_2_s() {
+    let wurzel = ordner();
+    let instanz = starten(wurzel.path(), &[], &[]);
+    let basis = instanz.adresse.as_str();
+
+    let (gleich, dauer) = hochladen_gemessen(
+        basis,
+        "gleich.jpg",
+        mpf_index(1, &[winziges_jpeg()], &[0; 4_000]),
+    )
+    .await;
+    assert_eq!(
+        (
+            gleich.status,
+            gleich.json["regel"].as_str(),
+            gleich.json["grund"].as_str()
+        ),
+        (422, Some("metadaten"), Some("Verweise überschneiden sich")),
+        "{}",
+        gleich.json
+    );
+    assert!(dauer.as_secs_f64() <= 2.0, "{dauer:?}");
+
+    let nennungen: Vec<usize> = (0..4_000).collect();
+    let (verschieden, dauer) = hochladen_gemessen(
+        basis,
+        "verschieden.jpg",
+        mpf_index(1, &vec![winziges_jpeg(); 4_000], &nennungen),
+    )
+    .await;
+    assert_eq!(verschieden.status, 200, "{}", verschieden.json);
+    assert!(dauer.as_secs_f64() <= 2.0, "{dauer:?}");
+    let getilgt = eingangsdatei(
+        wurzel.path(),
+        verschieden.json["anhang"]["id"].as_str().expect("id"),
+    );
+    assert!(!enthaelt(&getilgt, b"GPS"));
+
+    let (doppelt, _) =
+        hochladen_gemessen(basis, "doppelt.jpg", mpf_index(2, &[winziges_jpeg()], &[0])).await;
+    assert_eq!(
+        (doppelt.status, doppelt.json["grund"].as_str()),
+        (422, Some("Verweise doppelt")),
+        "{}",
+        doppelt.json
+    );
 }

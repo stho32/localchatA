@@ -40,10 +40,10 @@ pub struct JpegBild {
     pub mpf: Option<(u64, u64)>,
 }
 
-/// Ein JPEG-Bild ab `start` (`FF D8 FF`): Segmente bis `SOS` über die Längenkette — `APP1` Exif → minimales EXIF,
+/// Ein JPEG-Bild in `[start, ende)` (`FF D8 FF`), gelesen nur in diesem Bereich: Segmente bis `SOS` über die Längenkette — `APP1` Exif → minimales EXIF,
 /// `APP1` XMP (auch Extended), `APP13` und `COM` genullt; `APP0`, `APP2`, `APP14` und alles ab `SOS` unverändert.
-pub fn jpeg(port: &Port<'_>, start: u64, zaehler: &mut Zaehler) -> Ergebnis<JpegBild> {
-    let mut kette = port.kette();
+pub fn jpeg(port: &Port<'_>, start: u64, ende: u64, zaehler: &mut Zaehler) -> Ergebnis<JpegBild> {
+    let mut kette = port.kette_bis(ende);
     if kette.bytes(start, 3)? != [0xFF, 0xD8, 0xFF] {
         return metadaten("JPEG ohne FF D8 FF");
     }
@@ -69,7 +69,7 @@ pub fn jpeg(port: &Port<'_>, start: u64, zaehler: &mut Zaehler) -> Ergebnis<Jpeg
         let laenge = u64::from(u16::from_be_bytes(
             kette.bytes(pos, 2)?.try_into().unwrap_or([0, 0]),
         ));
-        if laenge < 2 || !port.enthaelt(pos, laenge) {
+        if laenge < 2 || !kette.enthaelt(pos, laenge) {
             return metadaten("Längen widersprechen sich");
         }
         zaehler.block()?;
@@ -334,7 +334,7 @@ mod tests {
     }
 
     fn jpeg_erstes(port: &Port<'_>, zaehler: &mut Zaehler) -> Ergebnis<()> {
-        jpeg(port, 0, zaehler).map(|_| ())
+        jpeg(port, 0, port.laenge(), zaehler).map(|_| ())
     }
 
     #[test]
@@ -399,7 +399,7 @@ mod tests {
         let port = Port::neu(&datei).expect("Port");
 
         assert!(matches!(
-            jpeg(&port, 0, &mut Zaehler::default()),
+            jpeg(&port, 0, port.laenge(), &mut Zaehler::default()),
             Err(Abbruch::Metadaten(_))
         ));
     }
