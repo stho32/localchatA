@@ -593,3 +593,4 @@ Nie vom User erfragen.
 | 2026-10-30 | R00029 Anhänge über die API | Nacharbeit mpf Speicher | Standard | 0,4h | 0,05h | 0,05h | autonom (entw2) |
 | 2026-10-30 | R00029 Anhänge über die API | B0586 Puffer und Kopfgrenze (ohne QS4) | Standard | 0,4h | 0,05h | 0,05h | autonom (entw2) |
 | 2026-10-30 | R00029 Anhänge über die API | Gate und Anpassungen Teil B | Konsolidierung | — | 0,75h | 0,75h | autonom (entw2) |
+| 2026-10-30 | R00038 Protokoll Kontext der Quelle, frist, reguläre Anhangdateien | B0588–B0593 (6 Bubbles, Wanduhr gesamt) | Standard | 2,4h | 0,27h | 0,27h | autonom (entw3) |
