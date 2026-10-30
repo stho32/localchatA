@@ -169,6 +169,15 @@ mod tests {
         Direktpaar::bilden(&anna(), &ben()).expect("Paar")
     }
 
+    /// `anna<nummer>@10.0.0.7`: das Gegenüber von `ben` im Paar Nummer `nummer`.
+    fn anna_n(nummer: usize) -> Kennung {
+        kennung(&format!("anna{nummer}@10.0.0.7"))
+    }
+
+    fn paar_von(nummer: usize) -> Direktpaar {
+        Direktpaar::bilden(&anna_n(nummer), &ben()).expect("Paar")
+    }
+
     fn sendung(text: &str) -> Sendung<'_> {
         Sendung {
             text,
@@ -267,6 +276,56 @@ mod tests {
             2,
             "Index zählt beide"
         );
+    }
+
+    /// B0767 W5 (Nacharbeit code-reviewer #13 F0172, Sollte 2): der Haken oben erzwingt eine feste Verschränkung, aber
+    /// nicht die Lücke zwischen Prüfen und Einfügen. Hier laufen zwei Threads über `PAARE` Paare; vor jedem Paar
+    /// stellt sie eine gemeinsame Schranke auf denselben Start, danach senden beide als Erste. Je Paar zählt der Index
+    /// zwei Nachrichten und es gibt genau einen Ordner (Mutante M13 „Nachschlagen und Anlegen unter getrennten
+    /// Sperren“: ein Sender ersetzt den eben angelegten Verlauf des anderen und dessen Nachricht fehlt im Index).
+    #[test]
+    fn zwei_threads_legen_hunderte_paare_gleichzeitig_an_ohne_luecke_zwischen_pruefen_und_einfuegen()
+     {
+        const PAARE: usize = 400;
+        let wurzel = tempfile::tempdir().expect("Wegwerf-Ordner");
+        let gespraeche = Arc::new(laden(wurzel.path()));
+        let start = Arc::new(std::sync::Barrier::new(2));
+        let zweig = |von: fn(usize) -> Kennung| {
+            let (gespraeche, start) = (Arc::clone(&gespraeche), Arc::clone(&start));
+            std::thread::spawn(move || {
+                (0..PAARE)
+                    .filter(|&nummer| {
+                        start.wait();
+                        gespraeche
+                            .direkt_senden(
+                                &paar_von(nummer),
+                                &von(nummer),
+                                Art::Agent,
+                                sendung("hallo"),
+                            )
+                            .is_err()
+                    })
+                    .count()
+            })
+        };
+        let von_anna = zweig(anna_n);
+        let von_ben = zweig(|_| ben());
+
+        let fehler = von_anna.join().expect("Thread") + von_ben.join().expect("Thread");
+
+        assert_eq!(fehler, 0, "kein Senden scheitert");
+        assert_eq!(
+            gespraeche.kennzahlen().direkt_nachrichten,
+            2 * PAARE as u64,
+            "der Index zählt beide Nachrichten je Paar"
+        );
+        assert_eq!(eintraege(&wurzel.path().join("direkt")).len(), PAARE);
+        for nummer in 0..PAARE {
+            let ordner = paar_von(nummer).ordnername();
+            let log = std::fs::read_to_string(wurzel.path().join(format!("direkt/{ordner}/{TAG}")))
+                .expect("Tagesdatei");
+            assert_eq!(log.matches("hallo").count(), 2, "{ordner}");
+        }
     }
 
     #[test]
