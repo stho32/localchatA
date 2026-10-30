@@ -41,6 +41,12 @@ fn direkt_als_symlink_endet_mit_exit_2_und_aendert_nichts() {
         "{}",
         ende.stderr
     );
+    // Observability-Review #13 Optional O1: der Satz nennt die Wurzeln der Gespräche, nicht nur `.eingang`.
+    assert!(
+        ende.stderr.contains("`channels/`") && ende.stderr.contains("`direkt/`"),
+        "{}",
+        ende.stderr
+    );
     assert!(!wurzel.path().join("logs").exists(), "nichts angelegt");
     assert_eq!(
         std::fs::read_dir(ziel.path()).expect("Ziel").count(),

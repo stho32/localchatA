@@ -94,7 +94,7 @@ async fn loeschen_in(
     let wer = teilnehmer.kennung.als_text().to_string();
     let ort = Koerperort {
         protokoll: &zustand.protokoll,
-        route: ROUTE,
+        route: ziel.route(ROUTE),
         herkunft: teilnehmer.herkunft,
         kennung: Some(&wer),
     };
@@ -112,7 +112,7 @@ async fn loeschen_in(
         return mit_regel(zeit_abgewiesen(), "zeit", Some(&wer));
     };
     let ort = Grenzort {
-        route: ROUTE,
+        route: ziel.route(ROUTE),
         operation: "nachricht_loeschen",
         kennung: Some(&wer),
         ziel: Some(&ziel),

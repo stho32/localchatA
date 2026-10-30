@@ -213,3 +213,55 @@ async fn f2_der_leere_paarordner_verschwindet_ein_ordner_mit_fremdem_bleibt() {
         "ein Link als anhaenge wird nicht gefolgt"
     );
 }
+
+/// Observability-Review #13 (Frage): Anhänge ohne Tagesdatei in einem Direktgespräch entfallen mit ihrem Tag nach der
+/// Frist — der Ordner `anhaenge/2026-10-23` und mit ihm das Paar verschwinden, der jüngere Tag bleibt und zählt als
+/// Waise weiter; die Warnung zum alten Tag steht einmal beim Start, bevor die Pflege ihn nimmt, und kommt nie wieder.
+#[tokio::test]
+async fn anhaenge_ohne_tagesdatei_entfallen_mit_ihrem_tag_und_das_paar_verschwindet() {
+    use gemeinsam::protokoll::{alle_zeilen, mit};
+    let wurzel = ordner();
+    let w = wurzel.path();
+    datei(
+        w,
+        &format!("direkt/{ANNA_BEN}/anhaenge/2026-10-23/x.bin"),
+        b"alt",
+    );
+    datei(
+        w,
+        &format!("direkt/{ANNA_CORA}/anhaenge/2026-10-29/y.bin"),
+        b"neu",
+    );
+    let mut instanz = starten(w, &[("LOCALCHATA_JETZT", HEUTE)]);
+
+    instanz.signal_und_warten("TERM");
+
+    assert!(
+        !w.join(format!("direkt/{ANNA_BEN}")).exists(),
+        "alter Tag samt Paar weg"
+    );
+    assert!(
+        w.join(format!("direkt/{ANNA_CORA}/anhaenge/2026-10-29/y.bin"))
+            .exists()
+    );
+    let zeilen = alle_zeilen(w);
+    assert!(mit(&zeilen, "ERROR", "frist").is_empty(), "{zeilen:#?}");
+    let alt = |zeilen: &[String]| {
+        mit(zeilen, "WARNING", "laden")
+            .into_iter()
+            .filter(|zeile| zeile.contains("tag=2026-10-23"))
+            .count()
+    };
+    assert_eq!(
+        alt(&zeilen),
+        1,
+        "beim Start einmal, bevor die Pflege den Tag nimmt"
+    );
+    let mut zweiter = starten(w, &[("LOCALCHATA_JETZT", HEUTE)]);
+    zweiter.signal_und_warten("TERM");
+    assert_eq!(
+        alt(&alle_zeilen(w)),
+        1,
+        "nach dem Entfallen kommt die Warnung zum alten Tag nicht wieder"
+    );
+}

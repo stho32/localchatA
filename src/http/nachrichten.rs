@@ -118,7 +118,7 @@ async fn verlauf_in(
             &zustand.protokoll,
             &abbruch,
             &Grenzort {
-                route: ROUTE,
+                route: ziel.route(ROUTE),
                 operation: "verlauf",
                 kennung: Some(teilnehmer.kennung.als_text()),
                 ziel: Some(&ziel),
@@ -138,7 +138,7 @@ fn nicht_gelesen(zustand: &Zustand, kennung: &str, ziel: &Ziel, ursache: &str) -
         Bereich::Verlauf,
         "Verlauf nicht gelesen — Block ließ sich nicht serialisieren",
         Kontext::neu()
-            .mit(Schluessel::Route, ROUTE)
+            .mit(Schluessel::Route, ziel.route(ROUTE))
             .mit(Schluessel::Operation, "verlauf")
             .mit(Schluessel::Status, 500)
             .mit(ziel.bezug(), ziel.name())

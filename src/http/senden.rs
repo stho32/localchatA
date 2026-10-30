@@ -22,6 +22,7 @@ use crate::gespraeche::{
     Antwortfehler, Gesendet, Gespraech, Grenzart, Grenze, Nachricht, Sendefehler, Sendung,
 };
 use crate::protokoll::episoden::{Auftreten, Quelle};
+use crate::protokoll::grenze::{Gegriffen, grenzauftreten};
 use crate::protokoll::vorlauf;
 use crate::protokoll::{Bereich, Kontext, Schluessel, Stufe};
 use crate::schreibkonto::eimer::kosten_senden;
@@ -93,7 +94,7 @@ async fn senden_in(
     let wer = teilnehmer.kennung.als_text().to_string();
     let ort = Koerperort {
         protokoll: &zustand.protokoll,
-        route: ROUTE,
+        route: ziel.route(ROUTE),
         herkunft: teilnehmer.herkunft,
         kennung: Some(&wer),
     };
@@ -221,6 +222,7 @@ async fn senden_in(
             mit_regel(unbekannt_wie(&ziel), unbekannt_regel(&ziel), Some(&wer))
         }
         Ok(Err(Sendefehler::DirektGrenze(grenze))) => {
+            direkt_grenze_melden(&zustand, teilnehmer.herkunft, grenze);
             mit_regel(direkt_grenze_erreicht(grenze), "direkt_grenze", Some(&wer))
         }
         Ok(Err(Sendefehler::Ablage { datei, grund })) => {
@@ -292,6 +294,24 @@ fn gesendet_melden(
 fn gesendet(status: StatusCode, ziel: &Ziel, nachricht: &Nachricht) -> Response {
     let antwort = ziel.antwort_mit(json!(NachrichtAntwort::aus(nachricht)));
     (status, Json(antwort)).into_response()
+}
+
+/// Jede Abweisung an der Grenze zählt in eine Episode `WARNING direkt` je Herkunft (ADR-0055 Regel 11, Muster
+/// `channels`): Herkunft, Grenze und Zahl — nie die Kennung des Gegenübers, nie ein Ordner.
+fn direkt_grenze_melden(zustand: &Zustand, herkunft: std::net::IpAddr, grenze: Grenze) {
+    let art = match grenze.art {
+        Grenzart::Gesamt => crate::protokoll::grenze::Grenzart::Gesamt,
+        Grenzart::Herkunft => crate::protokoll::grenze::Grenzart::Herkunft,
+    };
+    zustand.protokoll.episode(grenzauftreten(
+        Bereich::Direkt,
+        crate::protokoll::episodentexte::DIREKT_GRENZE,
+        herkunft,
+        Gegriffen {
+            art,
+            hoechstens: grenze.hoechstens,
+        },
+    ));
 }
 
 /// 429 an der Grenze neuer Direktgespräche (ADR-0055 Regel 4, E16): `{fehler, grenze: "direktgespraeche", art,
@@ -508,7 +528,7 @@ fn abgebrochen(zustand: &Zustand, abbruch: &Abgebrochen, wer: &str, ziel: &Ziel)
         &zustand.protokoll,
         abbruch,
         &Grenzort {
-            route: ROUTE,
+            route: ziel.route(ROUTE),
             operation: "senden",
             kennung: Some(wer),
             ziel: Some(ziel),

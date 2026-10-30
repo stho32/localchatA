@@ -45,6 +45,27 @@ impl Ziel {
         }
     }
 
+    /// Die Route fürs Protokoll: für einen Channel die Route des Handlers, für ein Direktgespräch dieselbe mit dem
+    /// Muster `/api/direkt/{kennung}` — nie das Channel-Muster für ein Direktgespräch und nie die Kennung selbst
+    /// (ADR-0055 Regel 11).
+    pub(super) fn route(&self, kanal: &'static str) -> &'static str {
+        match self {
+            Ziel::Channel(_) => kanal,
+            Ziel::Direkt { .. } => match kanal {
+                "POST /api/channels/{name}/nachrichten" => "POST /api/direkt/{kennung}/nachrichten",
+                "GET /api/channels/{name}/nachrichten" => "GET /api/direkt/{kennung}/nachrichten",
+                "POST /api/channels/{name}/nachrichten/bearbeiten" => {
+                    "POST /api/direkt/{kennung}/nachrichten/bearbeiten"
+                }
+                "POST /api/channels/{name}/nachrichten/loeschen" => {
+                    "POST /api/direkt/{kennung}/nachrichten/loeschen"
+                }
+                "PUT /api/channels/{name}/aktivitaet" => "PUT /api/direkt/{kennung}/aktivitaet",
+                _ => "/api/direkt/{kennung}/…",
+            },
+        }
+    }
+
     pub(super) fn gespraech(&self) -> Gespraech {
         match self {
             Ziel::Channel(name) => Gespraech::channel(name),

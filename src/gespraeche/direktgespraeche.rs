@@ -38,12 +38,29 @@ impl Default for Direktgrenzen {
 /// Die Zeichen, die ein Ordnername im Protokoll höchstens trägt (ADR-0055 Regel 11, Matrix P2).
 const ORDNER_IM_PROTOKOLL_HOECHSTENS: usize = 128;
 
+/// Steuerzeichen, Zeilentrenner (U+2028/2029) und unsichtbare Format- und Richtungszeichen (Soft-Hyphen, Arabic Letter
+/// Mark, Zero-Width, Bidi-Einbettungen und -Isolate, Wortverbinder, BOM) — nichts davon darf eine Zeile teilen oder
+/// ihre Leserichtung ändern.
+fn ersetzen(zeichen: char) -> bool {
+    zeichen.is_control()
+        || matches!(
+            zeichen,
+            '\u{00AD}'
+                | '\u{061C}'
+                | '\u{200B}'..='\u{200F}'
+                | '\u{2028}'..='\u{202E}'
+                | '\u{2060}'..='\u{2064}'
+                | '\u{2066}'..='\u{206F}'
+                | '\u{FEFF}'
+        )
+}
+
 /// `direkt/<name>` für eine Protokollzeile: Steuerzeichen durch `?` ersetzt, auf 128 Zeichen gekürzt — der Name
 /// eines Ordners von Hand ist fremder Text und ergibt genau eine Zeile.
 pub(super) fn ordner_fuer_protokoll(name: &str) -> String {
     format!("direkt/{name}")
         .chars()
-        .map(|zeichen| if zeichen.is_control() { '?' } else { zeichen })
+        .map(|zeichen| if ersetzen(zeichen) { '?' } else { zeichen })
         .take(ORDNER_IM_PROTOKOLL_HOECHSTENS)
         .collect()
 }
@@ -888,5 +905,27 @@ mod tests {
         assert_eq!(DIREKT_GESAMT, 8_192);
         assert_eq!(DIREKT_GESAMT, 2 * DIREKT_JE_HERKUNFT);
         assert_eq!(Direktgrenzen::default(), grenzen(8_192, 4_096));
+    }
+
+    /// Security-Review #13 (Optional): `ordner_fuer_protokoll` ersetzt auch Zeilentrenner (U+2028/2029, U+0085) und
+    /// Richtungs- und Formatzeichen (Bidi, Zero-Width, BOM) — ein Ordnername von Hand bleibt eine Zeile und kehrt
+    /// die Lesrichtung der Zeile nicht um.
+    #[test]
+    fn der_ordner_im_protokoll_traegt_keine_zeilentrenner_und_keine_richtungszeichen() {
+        for zeichen in [
+            '\u{2028}', '\u{2029}', '\u{85}', '\u{202E}', '\u{202A}', '\u{2066}', '\u{2069}',
+            '\u{200B}', '\u{200F}', '\u{FEFF}', '\u{061C}', '\u{00AD}', '\n', '\u{7}',
+        ] {
+            let name = format!("a{zeichen}b");
+
+            let im_protokoll = ordner_fuer_protokoll(&name);
+
+            assert_eq!(im_protokoll, "direkt/a?b", "U+{:04X}", zeichen as u32);
+        }
+        assert_eq!(
+            ordner_fuer_protokoll("anna@fd00%3A%3A7+ben@1.1.1.1"),
+            "direkt/anna@fd00%3A%3A7+ben@1.1.1.1"
+        );
+        assert_eq!(ordner_fuer_protokoll("müller+ünal"), "direkt/müller+ünal");
     }
 }

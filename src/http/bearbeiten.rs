@@ -94,7 +94,7 @@ async fn bearbeiten_in(
     let wer = teilnehmer.kennung.als_text().to_string();
     let ort = Koerperort {
         protokoll: &zustand.protokoll,
-        route: ROUTE,
+        route: ziel.route(ROUTE),
         herkunft: teilnehmer.herkunft,
         kennung: Some(&wer),
     };
@@ -411,7 +411,7 @@ fn abgebrochen(zustand: &Zustand, abbruch: &Abgebrochen, wer: &str, ziel: &Ziel)
         &zustand.protokoll,
         abbruch,
         &Grenzort {
-            route: ROUTE,
+            route: ziel.route(ROUTE),
             operation: "bearbeiten",
             kennung: Some(wer),
             ziel: Some(ziel),

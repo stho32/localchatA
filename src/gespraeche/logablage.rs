@@ -148,7 +148,23 @@ impl Dateiablage {
                     _ => Err(kein_ordner(ordner)),
                 }
             }
-            angelegt => angelegt,
+            Ok(()) => {
+                // Regel 11: das Anlegen eines Paars steht auf DEBUG, nie auf INFORMATION (am Wachstum von
+                // `protokoll_bytes_heute` läse jeder ohne Sitzung ab, dass ein Paar entstand).
+                if let Some(name) = ordner.file_name().and_then(|name| name.to_str()) {
+                    self.protokoll.eintragen(
+                        Stufe::Debug,
+                        Bereich::Channels,
+                        "Direktgespräch angelegt",
+                        Kontext::neu().mit(
+                            Schluessel::Ordner,
+                            super::direktgespraeche::ordner_fuer_protokoll(name),
+                        ),
+                    );
+                }
+                Ok(())
+            }
+            Err(fehler) => Err(fehler),
         }
     }
 }

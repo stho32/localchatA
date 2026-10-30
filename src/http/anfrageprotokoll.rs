@@ -77,7 +77,7 @@ pub async fn schicht(
     let grund = abweisung.map_or(je_status, |abweisung| abweisung.regel);
     let ziel = muster
         .clone()
-        .unwrap_or_else(|| ids_gekuerzt(&prozent_dekodiert(&pfad)));
+        .unwrap_or_else(|| pfad_fuers_protokoll(&pfad));
     let mut kontext = Kontext::neu()
         .mit(Schluessel::Route, format!("{methode} {ziel}"))
         .mit(Schluessel::Status, status);
@@ -119,6 +119,17 @@ fn grund(status: u16) -> Option<&'static str> {
         507 => "quote",
         _ => return None,
     })
+}
+
+/// Der Pfad einer Anfrage ohne passende Route: dekodiert, Anhang-IDs gekürzt; unter `/api/direkt/` steht das Segment
+/// der Kennung des Gegenübers nie im Protokoll, nur das Muster `/api/direkt/{kennung}` und `/…` für den Rest
+/// (ADR-0055 Regel 11, Probe S3 des observability-reviewers #13).
+fn pfad_fuers_protokoll(pfad: &str) -> String {
+    match pfad.strip_prefix("/api/direkt/") {
+        Some(rest) if rest.contains('/') => "/api/direkt/{kennung}/…".to_string(),
+        Some(_) => "/api/direkt/{kennung}".to_string(),
+        None => ids_gekuerzt(&prozent_dekodiert(pfad)),
+    }
 }
 
 /// Der Pfadparameter `{name}` der passenden Route, dekodiert wie der Router; ohne Muster oder ohne `{name}` nichts

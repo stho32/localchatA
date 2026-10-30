@@ -4,6 +4,7 @@
 //! entsteht hier, mit seinem Test. Den Vorlauf bildet `uhr::vorlauf_text` mit seinem Wert (geprüft dort).
 
 pub const CHANNEL_GRENZE: &str = "Anlegen an der Channel-Grenze abgewiesen";
+pub const DIREKT_GRENZE: &str = "Neues Direktgespräch an der Grenze abgewiesen";
 pub const SITZUNGSGRENZE: &str = "Beitritt an der Sitzungsgrenze abgewiesen";
 pub const PLATZGRENZE: &str = "Verbindung an der Platzgrenze abgewiesen";
 pub const ABRISSGRENZE: &str = "Verbindung an der Abrissgrenze geschlossen";
@@ -61,6 +62,7 @@ mod tests {
 
     wortlaut! {
         channel_grenze: CHANNEL_GRENZE = "Anlegen an der Channel-Grenze abgewiesen";
+        direkt_grenze: DIREKT_GRENZE = "Neues Direktgespräch an der Grenze abgewiesen";
         sitzungsgrenze: SITZUNGSGRENZE = "Beitritt an der Sitzungsgrenze abgewiesen";
         platzgrenze: PLATZGRENZE = "Verbindung an der Platzgrenze abgewiesen";
         abrissgrenze: ABRISSGRENZE = "Verbindung an der Abrissgrenze geschlossen";

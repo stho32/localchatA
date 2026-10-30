@@ -164,7 +164,7 @@ impl std::fmt::Display for Eingangsfehler {
             ),
             Eingangsfehler::Wurzel { pfad, art } => write!(
                 f,
-                "{} ist kein echter Ordner ({art}) — Anhänge brauchen einen Ordner auf derselben Platte wie .eingang. Den Instanzordner selbst an den Zielort legen; er darf ein Link sein.",
+                "{} ist kein echter Ordner ({art}) — die Wurzeln der Gespräche (`channels/`, `direkt/`) und ihre Anhänge brauchen echte Ordner auf derselben Platte wie .eingang. Den Instanzordner selbst an den Zielort legen; er darf ein Link sein.",
                 pfad.display()
             ),
             Eingangsfehler::Platte { pfad, grund } => {

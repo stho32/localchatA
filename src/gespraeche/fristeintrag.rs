@@ -30,8 +30,12 @@ pub fn pflege_eintrag(bericht: &Pflegebericht) -> Eintrag {
                 bezug(Kontext::neu(), gespraech).mit(Schluessel::Anzahl, tage.len()),
                 anlass,
             );
+            let stufe = match gespraech {
+                Pflegegespraech::Channel(_) => Stufe::Information,
+                Pflegegespraech::Direkt(_) => Stufe::Debug,
+            };
             Eintrag::neu(
-                Stufe::Information,
+                stufe,
                 Bereich::Frist,
                 format!(
                     "{} entfallen ({}; Frist {})",
@@ -347,6 +351,27 @@ mod tests {
             "{zeile}"
         );
         assert!(!zeile.contains("channel="), "{zeile}");
+    }
+
+    /// ADR-0055 Regel 11: das Entfallen von Tagen eines Direktgesprächs steht auf DEBUG (beim Channel INFORMATION) und
+    /// nennt den Ordner — sonst läse jeder ohne Sitzung am Wachstum von `protokoll_bytes_heute` ab, wann ein Paar
+    /// entfiel. Mutante: INFORMATION-Zeile beim Entfallen.
+    #[test]
+    fn das_entfallen_im_direktgespraech_ist_debug_mit_ordner() {
+        let anna = Kennung::bilden("anna@10.0.0.7").expect("Kennung");
+        let paar = crate::gespraeche::Direktpaar::bilden(&anna, &beta()).expect("Paar");
+        let bericht = Pflegebericht::Entfallen {
+            gespraech: Pflegegespraech::Direkt(paar),
+            tage: vec![tag("2026-10-20"), tag("2026-10-21")],
+            nachrichten: 5,
+            frist: 7,
+            anlass: Pflegeanlass::Tageswechsel,
+        };
+
+        assert_eq!(
+            ab_der_stufe(&pflege_eintrag(&bericht)),
+            "DEBUG frist 2 Tage entfallen (2026-10-20 bis 2026-10-21; Frist 7 Tage) | ordner=direkt/anna@10.0.0.7+beta@127.0.0.1 anzahl=2 grund=tageswechsel"
+        );
     }
 
     /// ADR-0055 Regel 11: das Entfernen eines leeren Paarordners steht auf DEBUG, ein gescheitertes als ERROR mit

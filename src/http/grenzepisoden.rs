@@ -319,3 +319,49 @@ async fn das_neue_direktgespraech_ueber_der_gesamtgrenze_ist_429_direktgespraech
     assert_eq!(antwort["art"], "gesamt", "{antwort}");
     assert_eq!(antwort["hoechstens"], 2, "{antwort}");
 }
+
+/// B0780 (ADR-0055 Regel 11, Muster `channels`): jede Abweisung an der Grenze neuer Direktgespräche zählt in eine
+/// Episode `WARNING direkt` je Herkunft — eine Beginn-Zeile mit Herkunft, Grenze und Zahl, am Ende die Zählung; nie
+/// die Kennung des Gegenübers, nie ein Ordner.
+#[tokio::test]
+async fn abweisungen_an_der_direkt_grenze_sind_eine_episode_je_herkunft() {
+    let instanz = starten_mit(Direktgrenzen {
+        gesamt: 100,
+        je_herkunft: 1,
+    })
+    .await;
+    let anna = instanz.beitreten("127.0.0.2", "anna").await;
+    for nummer in 1..=4 {
+        instanz.beitreten("127.0.0.9", &format!("p{nummer}")).await;
+    }
+    let (erstes, _) = instanz
+        .direkt_senden("127.0.0.2", &anna, "p1@127.0.0.9", "hallo")
+        .await;
+    assert_eq!(erstes, 201);
+    for nummer in 2..=4 {
+        let (status, _) = instanz
+            .direkt_senden("127.0.0.2", &anna, &format!("p{nummer}@127.0.0.9"), "hallo")
+            .await;
+        assert_eq!(status, 429);
+    }
+
+    let warnungen = instanz.warnungen_nach_der_ruhe("direkt");
+
+    assert_eq!(warnungen.len(), 2, "{warnungen:#?}");
+    assert!(
+        warnungen[0].ends_with(
+            " WARNING direkt Neues Direktgespräch an der Grenze abgewiesen — Episode beginnt | herkunft=127.0.0.2 grenze=herkunft hoechstens=1"
+        ),
+        "{warnungen:#?}"
+    );
+    assert!(
+        warnungen[1].contains(" — Episode endet: 3 in 0 s (herkunft 3)"),
+        "{warnungen:#?}"
+    );
+    assert!(
+        warnungen
+            .iter()
+            .all(|zeile| !zeile.contains("p1@") && !zeile.contains("direkt/")),
+        "{warnungen:#?}"
+    );
+}

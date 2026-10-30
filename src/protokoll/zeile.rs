@@ -69,6 +69,8 @@ pub enum Bereich {
     Warten,
     /// Nachholen von `warten` am Nachholkonto (ADR-0054 Ergänzung „Nachholen von `warten` …“ Regel 8).
     Nachholen,
+    /// Direktgespräche an der Grenze neuer Paare (ADR-0055 Regel 11).
+    Direkt,
 }
 
 impl Bereich {
@@ -96,6 +98,7 @@ impl Bereich {
             Bereich::Aktivitaet => "aktivitaet",
             Bereich::Warten => "warten",
             Bereich::Nachholen => "nachholen",
+            Bereich::Direkt => "direkt",
         }
     }
 }

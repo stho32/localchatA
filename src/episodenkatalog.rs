@@ -312,6 +312,16 @@ fn katalog() -> Vec<Zeile> {
             bauen: |a, _| platzgrenze(a, Bereich::Channels, texte::CHANNEL_GRENZE),
         },
         Zeile {
+            name: "direkt · Neues Direktgespräch an der Grenze abgewiesen",
+            bauweise: "protokoll::grenze::grenzauftreten",
+            texte: 1,
+            quelle: &[S::Herkunft],
+            beginn: &[S::Grenze, S::Hoechstens],
+            ende: &[],
+            ende_wert: &[],
+            bauen: |a, _| platzgrenze(a, Bereich::Direkt, texte::DIREKT_GRENZE),
+        },
+        Zeile {
             name: "körper · Körper abgewiesen",
             bauweise: "http::koerper::koerper_auftreten",
             texte: 1,
@@ -894,7 +904,7 @@ fn jede_stelle_im_quelltext_hat_eine_bauweise_im_katalog() {
 }
 
 /// Die Zeilen der Tabelle in ADR-0042, Ergänzung „Karte #70“, in ihrer Reihenfolge, und die Zeile der Ergänzung „Karte #77“.
-const ZEILEN_DER_TABELLE: [&str; 26] = [
+const ZEILEN_DER_TABELLE: [&str; 27] = [
     "verbindung · Verbindung an der Platzgrenze abgewiesen",
     "verbindung · Verbindung an der Abrissgrenze geschlossen",
     "verbindung · Verbindung nicht angenommen",
@@ -902,6 +912,7 @@ const ZEILEN_DER_TABELLE: [&str; 26] = [
     "grenzschutz · Namensauflösung zu langsam",
     "sitzung · Beitritt an der Sitzungsgrenze abgewiesen",
     "channels · Anlegen an der Channel-Grenze abgewiesen",
+    "direkt · Neues Direktgespräch an der Grenze abgewiesen",
     "körper · Körper abgewiesen",
     "senden · Nachricht nicht gespeichert",
     "senden · Wiederholschlüssel vor Ablauf verdrängt",
