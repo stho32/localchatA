@@ -79,11 +79,14 @@ function anhangZeichnen(anhang) {
 
 // Bildvorschau (B0458): der Platz steht aus `width`/`height`, bevor ein Byte lädt — bis dahin mit Name und Maßen auf
 // kd-surface-2; das Bild zeichnet gedreht (EXIF, die Maße kommen schon getauscht) und unverzerrt. Scheitert die Anfrage,
-// bleibt der Platz und sagt „Bild nicht verfügbar.“ — ein Ladefehler belegt kein Löschen (F0118).
+// bleibt der Platz und sagt „Bild nicht verfügbar.“ — ein Ladefehler belegt kein Löschen (F0118). Die Vorschau ist der
+// Schalter „<name> groß anzeigen“ (B0459).
 function vorschauZeichnen(anhang, { breite, hoehe }) {
   const platz = element('span', { className: 'lc-vorschau-platz', textContent: `${anhang.name} · ${anhang.breite} × ${anhang.hoehe}` });
   const bild = element('img', { width: breite, height: hoehe, loading: 'lazy', decoding: 'async', alt: anhang.name });
-  const vorschau = element('span', { className: 'lc-vorschau' }, [platz, bild]);
+  const vorschau = element('button', { type: 'button', className: 'lc-vorschau' }, [platz, bild]);
+  vorschau.setAttribute('aria-label', `${anhang.name} groß anzeigen`);
+  vorschau.addEventListener('click', () => bildGrossZeigen(anhang, vorschau));
   vorschau.dataset.zustand = 'laedt';
   bild.addEventListener('load', () => {
     vorschau.dataset.zustand = 'geladen';
@@ -100,6 +103,37 @@ function vorschauZeichnen(anhang, { breite, hoehe }) {
 // einem neuen Tab, wo der Browser die Art darstellt, und „Laden“ unter dem Anzeigenamen; alles nur als Text. Reicht der
 // Platz dem Namen nicht für 96 px, brechen die Links in eine zweite Zeile um (CSS, UX V1). Ein gelöschter Anhang hat
 // keine Links (Wortlaut und Ansage bringt F0118).
+// Bild im Dialog (B0459): das Original in den Bildschirm eingepasst, modal, mit dem Anzeigenamen als Namen; der Fokus
+// steht auf „Schließen“ und bleibt im Dialog. Esc, „Schließen“ oder Tippen daneben schließen, der Fokus kehrt auf die
+// Vorschau zurück. Der Dialog hängt am Dokument, nicht an der Nachricht: er überlebt das Neuzeichnen des Verlaufs.
+function bildGrossZeigen(anhang, vorschau) {
+  const schliessen = element('button', { type: 'button', className: 'lc-btn', textContent: 'Schließen' });
+  const bild = element('img', { className: 'lc-bild-gross', src: anhang.url, alt: anhang.name });
+  const dialog = element('dialog', { className: 'lc-bild-dialog' }, [element('div', { className: 'lc-bild-rahmen' }, [bild, schliessen])]);
+  dialog.setAttribute('aria-label', anhang.name);
+  schliessen.addEventListener('click', () => dialog.close());
+  dialog.addEventListener('click', (ereignis) => {
+    if (ereignis.target === dialog) {
+      dialog.close();
+    }
+  });
+  dialog.addEventListener('keydown', (ereignis) => {
+    if (ereignis.key === 'Tab') {
+      ereignis.preventDefault();
+      schliessen.focus();
+    }
+  });
+  dialog.addEventListener('close', () => {
+    dialog.remove();
+    if (vorschau.isConnected) {
+      vorschau.focus();
+    }
+  });
+  document.body.append(dialog);
+  dialog.showModal();
+  schliessen.focus();
+}
+
 function dateiZeileZeichnen(anhang, { form, oeffnen }) {
   const kuerzel = element('span', { className: 'lc-datei-kuerzel', textContent: typKuerzel(anhang.name) });
   kuerzel.setAttribute('aria-hidden', 'true');

@@ -69,3 +69,27 @@ test('Eine Zeile, wenn der Name 96 px behält (B0457, V1): bericht.pdf am Deskto
   expect(laden.left).toBeGreaterThan(name.right);
   expect(lauf.a.fehler).toEqual([]);
 });
+
+test('Bild auf dem Telefon (B0459): Tippen auf die Vorschau → Dialog, das Bild passt in 375 × 812 ohne Querscrollen; Tippen auf „Schließen“ → zu', async ({ browser }) => {
+  const lauf = await anzeigeStarten(browser, [{ namen: ['foto.png'] }], { geraet: telefon(375) });
+  instanz = lauf.instanz;
+  const { page } = lauf.a;
+  await nachrichtMitZeit(page, lauf.zeiten[0]).getByRole('button', { name: 'foto.png groß anzeigen', exact: true }).tap();
+  const dialog = page.getByRole('dialog', { name: 'foto.png', exact: true });
+  await expect(dialog).toBeVisible();
+  const bild = dialog.getByRole('img', { name: 'foto.png', exact: true });
+  await expect.poll(() => bild.evaluate((element) => element.complete && element.naturalWidth > 0)).toBe(true);
+  const rahmen = await rechteck(bild);
+  expect(rahmen.left).toBeGreaterThanOrEqual(0);
+  expect(rahmen.right).toBeLessThanOrEqual(375);
+  expect(rahmen.top).toBeGreaterThanOrEqual(0);
+  expect(rahmen.bottom).toBeLessThanOrEqual(812);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  const schliessen = dialog.getByRole('button', { name: 'Schließen', exact: true });
+  const flaeche = await rechteck(schliessen);
+  expect(flaeche.width).toBeGreaterThanOrEqual(44);
+  expect(flaeche.height).toBeGreaterThanOrEqual(44);
+  await schliessen.tap();
+  await expect(dialog).toHaveCount(0);
+  expect(lauf.a.fehler).toEqual([]);
+});

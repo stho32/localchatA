@@ -430,8 +430,18 @@ button.lc-marke { min-width: 24px; min-height: 24px; padding: 0 var(--kd-space-4
 }
 /* Bildvorschau: höchstens 360 × 240 im Seitenverhältnis, schmaler als der Inhalt proportional kleiner; der Platz kommt aus
    width/height des Bilds, bis zum Laden kd-surface-2 mit Name und Maßen (≥ 4,5 : 1), bei Fehler der Hinweis */
-.lc-vorschau { position: relative; display: block; width: max-content; max-width: 100%; margin-bottom: var(--kd-space-2); background: var(--kd-surface-2); }
+.lc-vorschau { position: relative; display: block; width: max-content; max-width: 100%; margin: 0 0 var(--kd-space-2); padding: 0; border: 0; background: var(--kd-surface-2); font: inherit; cursor: zoom-in; touch-action: manipulation; }
+.lc .lc-vorschau:focus-visible { outline: 2px solid var(--kd-focus); outline-offset: 2px; }
 .lc-vorschau img { position: relative; display: block; max-width: 100%; height: auto; object-fit: contain; }
 .lc-vorschau-platz { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; padding: var(--kd-space-4); overflow: hidden; font-size: 12px; line-height: 20px; color: var(--kd-ink-muted); text-align: center; overflow-wrap: anywhere; }
 .lc-vorschau[data-zustand="geladen"] .lc-vorschau-platz { visibility: hidden; }
 .lc-vorschau[data-zustand="fehler"] img { visibility: hidden; }
+/* Bild im Dialog (B0459): das Original in den Bildschirm eingepasst, darunter „Schließen“ (Touch 44 × 44 px) */
+.lc-bild-dialog { max-width: calc(100vw - 2 * var(--kd-space-16)); max-height: calc(100dvh - 2 * var(--kd-space-16)); padding: 0; background: var(--kd-surface); color: var(--kd-ink); border: 1px solid var(--kd-line-strong); }
+.lc-bild-dialog::backdrop { background: rgb(0 0 0 / 60%); }
+.lc-bild-rahmen { display: flex; flex-direction: column; align-items: flex-end; gap: var(--kd-space-8); padding: var(--kd-space-8); }
+.lc-bild-gross { display: block; max-width: calc(100vw - 2 * var(--kd-space-16) - 2 * var(--kd-space-8) - 2px); max-height: calc(100dvh - 2 * var(--kd-space-16) - 2 * var(--kd-space-8) - var(--kd-space-8) - 44px - 2px); object-fit: contain; }
+.lc .lc-bild-dialog .lc-btn:focus-visible { outline: 2px solid var(--kd-focus); outline-offset: 2px; }
+@media (pointer: coarse) {
+  .lc-bild-dialog .lc-btn { min-width: 44px; height: 44px; }
+}

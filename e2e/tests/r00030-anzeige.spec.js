@@ -258,3 +258,76 @@ function avifOhneMasse() {
   const heic = testdateien()['foto.heic'];
   return Buffer.concat([heic.subarray(0, 8), Buffer.from('avif', 'latin1'), heic.subarray(12)]);
 }
+
+const vorschauSchalter = (knoten, name) => knoten.getByRole('button', { name: `${name} groß anzeigen`, exact: true });
+
+test('Bild im Dialog (B0459): Klick → modaler <dialog> „foto.png“ mit dem Bild, Fokus auf „Schließen“, Tab bleibt im Dialog; Esc → zu, Fokus auf der Vorschau', async ({ browser }) => {
+  const lauf = await anzeigeStarten(browser, [{ namen: ['foto.png'] }]);
+  instanz = lauf.instanz;
+  const { page } = lauf.a;
+  const knoten = nachrichtMitZeit(page, lauf.zeiten[0]);
+  const vorschau = vorschauSchalter(knoten, 'foto.png');
+  await vorschau.click();
+  const dialog = page.getByRole('dialog', { name: 'foto.png', exact: true });
+  await expect(dialog).toBeVisible();
+  expect(await dialog.evaluate((element) => element.matches(':modal'))).toBe(true);
+  await expect(dialog.getByRole('img', { name: 'foto.png', exact: true })).toHaveCount(1);
+  const schliessen = dialog.getByRole('button', { name: 'Schließen', exact: true });
+  await expect(schliessen).toBeFocused();
+  for (const taste of ['Tab', 'Tab', 'Shift+Tab']) {
+    await page.keyboard.press(taste);
+    expect(await dialog.evaluate((element) => element.contains(document.activeElement))).toBe(true);
+  }
+  await page.keyboard.press('Escape');
+  await expect(page.locator('dialog')).toHaveCount(0);
+  await expect(vorschau).toBeFocused();
+  expect(lauf.a.fehler).toEqual([]);
+});
+
+test('Bild im Dialog (B0459): Enter auf der Vorschau öffnet; „Schließen“ und Tippen daneben schließen, der Fokus kehrt auf die Vorschau zurück', async ({ browser }) => {
+  const lauf = await anzeigeStarten(browser, [{ namen: ['foto.png'] }]);
+  instanz = lauf.instanz;
+  const { page } = lauf.a;
+  const vorschau = vorschauSchalter(nachrichtMitZeit(page, lauf.zeiten[0]), 'foto.png');
+  const dialog = page.getByRole('dialog', { name: 'foto.png', exact: true });
+  await vorschau.focus();
+  await page.keyboard.press('Enter');
+  await expect(dialog).toBeVisible();
+  await dialog.getByRole('button', { name: 'Schließen', exact: true }).click();
+  await expect(dialog).toHaveCount(0);
+  await expect(vorschau).toBeFocused();
+  await vorschau.click();
+  await expect(dialog).toBeVisible();
+  await page.mouse.click(5, 5);
+  await expect(dialog).toHaveCount(0);
+  await expect(vorschau).toBeFocused();
+  expect(lauf.a.fehler).toEqual([]);
+});
+
+test('Fokus sichtbar (UX M3) an der Vorschau (Umriss ≥ 2 px außerhalb) und an „Schließen“', async ({ browser }) => {
+  const lauf = await anzeigeStarten(browser, [{ namen: ['foto.png'] }]);
+  instanz = lauf.instanz;
+  const { page } = lauf.a;
+  const knoten = nachrichtMitZeit(page, lauf.zeiten[0]);
+  const umriss = (locator) => locator.evaluate((element) => {
+    const stil = getComputedStyle(element);
+    return { art: stil.outlineStyle, breite: parseFloat(stil.outlineWidth), abstand: parseFloat(stil.outlineOffset) };
+  });
+  await knoten.focus();
+  await page.keyboard.press('Tab');
+  const vorschau = vorschauSchalter(knoten, 'foto.png');
+  await expect(vorschau).toBeFocused();
+  const anVorschau = await umriss(vorschau);
+  expect(anVorschau.art).not.toBe('none');
+  expect(anVorschau.breite).toBeGreaterThanOrEqual(2);
+  expect(anVorschau.abstand).toBeGreaterThanOrEqual(2);
+  await page.keyboard.press('Enter');
+  const schliessen = page.getByRole('dialog').getByRole('button', { name: 'Schließen', exact: true });
+  await expect(schliessen).toBeFocused();
+  await page.keyboard.press('Tab');
+  const anSchliessen = await umriss(schliessen);
+  expect(anSchliessen.art).not.toBe('none');
+  expect(anSchliessen.breite).toBeGreaterThanOrEqual(2);
+  expect(anSchliessen.abstand).toBeGreaterThanOrEqual(0);
+  expect(lauf.a.fehler).toEqual([]);
+});
