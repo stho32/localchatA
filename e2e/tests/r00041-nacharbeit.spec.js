@@ -4,7 +4,9 @@
 // hängen an ihrem Signal, Löschen sendet höchstens einen Aufruf zugleich, eigenes Löschen sagt nicht „inzwischen“.
 const { test, expect } = require('./rahmen');
 const { netzAus, netzAn, leiste } = require('./r00012-hilfen');
-const { sendenStarten, imBrowserBeitreten, beitreten, senden } = require('./senden-hilfen');
+const {
+  sendenStarten, imBrowserBeitreten, beitreten, senden, kontextOeffnen, eingabe,
+} = require('./senden-hilfen');
 const { channelAnlegen } = require('./hilfen');
 const {
   betaVerlauf, betaSendet, bearbeitenPerApi, loeschenPerApi, browserOeffnen, imBrowserSenden, nachrichtMitZeit,
@@ -240,5 +242,57 @@ test('B2 Gegenprobe: alte Nachricht gelöscht, während A weg ist → Feld zu, �
   await expect(feld(a.page)).toHaveCount(0);
   await nachObenBis(a.page, alt);
   await expect(nachrichtMitZeit(a.page, alt).locator('.lc-body')).toHaveText('Nachricht gelöscht');
+  expect(a.fehler).toEqual([]);
+});
+
+// A2: verlaufAnlegen und bearbeitenAnlegen hängen ihre Listener an document (pointerdown) und window (resize) an das
+// Signal der Ansicht — nach zwei neuen Hauptansichten (401 beim Senden, 409 beim stillen Beitritt, Beitritt unter
+// anderem Namen) sind es so viele wie nach der ersten. Gezählt über das DevTools-Protokoll.
+async function lauscherZahl(page, ziel, art) {
+  const cdp = await page.context().newCDPSession(page);
+  const { result } = await cdp.send('Runtime.evaluate', { expression: ziel });
+  const { listeners } = await cdp.send('DOMDebugger.getEventListeners', { objectId: result.objectId });
+  await cdp.detach();
+  return listeners.filter((lauscher) => lauscher.type === art).length;
+}
+
+async function lauscherStand(page) {
+  return { pointerdown: await lauscherZahl(page, 'document', 'pointerdown'), resize: await lauscherZahl(page, 'window', 'resize') };
+}
+
+async function hauptansichtNeuZeichnen(page, name) {
+  let erste = true;
+  await page.route('**/api/channels/allgemein/nachrichten', async (route) => {
+    if (route.request().method() !== 'POST' || !erste) {
+      await route.continue();
+      return;
+    }
+    erste = false;
+    await route.fulfill({ status: 401, contentType: 'application/json', body: JSON.stringify({ fehler: 'Sitzung unbekannt.' }) });
+  });
+  await page.route('**/api/beitreten', (route) => route.fulfill({
+    status: 409,
+    contentType: 'application/json',
+    body: JSON.stringify({ fehler: 'Der Name ist vergeben.', belegt_von: '127.0.0.9', seit: '2026-10-28T15:00:00+01:00', vorschlag: name }),
+  }), { times: 1 });
+  await eingabe(page).fill('eins');
+  await eingabe(page).press('Enter');
+  await expect(page.getByLabel('Name')).toBeVisible();
+  await page.unroute('**/api/channels/allgemein/nachrichten');
+  await page.getByLabel('Name').fill(name);
+  await page.getByLabel('Name').press('Enter');
+  await expect(eingabe(page)).toBeVisible();
+}
+
+test('A2 Listener der Ansicht am Signal: nach zwei neuen Hauptansichten so viele pointerdown- und resize-Listener wie nach der ersten', async ({ browser }) => {
+  instanz = await sendenStarten();
+  const a = await kontextOeffnen(browser, { zusaetzlich: { '/api/channels/allgemein/nachrichten': [401], '/api/beitreten': [409] } });
+  await imBrowserBeitreten(a.page, instanz.adresse, 'shoff');
+  const vorher = await lauscherStand(a.page);
+
+  await hauptansichtNeuZeichnen(a.page, 'shoff-2');
+  await hauptansichtNeuZeichnen(a.page, 'shoff-3');
+
+  expect(await lauscherStand(a.page)).toEqual(vorher);
   expect(a.fehler).toEqual([]);
 });

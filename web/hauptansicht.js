@@ -79,6 +79,7 @@ export function zeichnen(wurzel, teilnehmer, optionen) {
     ansagen: (text) => ansagen.melden({ art: 'sofort', text }),
     fokusRueckgaengig: (schluessel) => senden.rueckgaengigFokussiert(schluessel),
     fokusVerloren: () => eingabe.fokussieren(),
+    signal: vorigeAnsichtAbmelden.signal,
     schalter: (aktion, schluessel) => {
       if (aktion === 'rueckgaengig') {
         verlauf.nachRueckgaengigFokussieren(schluessel);

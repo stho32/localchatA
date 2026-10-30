@@ -27,10 +27,10 @@ import {
 // „Verwerfen“ schalter('erneut' | 'verwerfen', schluessel) (ADR-0038 Regel 5).
 // bearbeitenSpeichern: async (channel, zeit, text) → Antwort (api.js nachrichtBearbeiten); loeschen: async (channel, zeit) →
 // Antwort (api.js nachrichtLoeschen); hinweisen(text): die Hinweiszeile der Seite; ansagen(text): eine Ansage über die
-// Region der Seite (R00041 F0135, F0139).
+// Region der Seite (R00041 F0135, F0139). signal: Abbau der Ansicht — Listener an document und window enden mit ihr.
 export function verlaufAnlegen({
   abrufen, schalter = () => {}, fokusRueckgaengig = () => {}, fokusVerloren = () => {}, bearbeitenSpeichern = async () => ({ art: 'netzfehler' }),
-  loeschen = async () => ({ art: 'netzfehler' }), hinweisen = () => {}, ansagen = () => {},
+  loeschen = async () => ({ art: 'netzfehler' }), hinweisen = () => {}, ansagen = () => {}, signal = new AbortController().signal,
 }) {
   const inhalt = element('div', { className: 'lc-log-inhalt' });
   const ausstehend = element('div', { className: 'lc-ausstehend' });
@@ -300,6 +300,7 @@ export function verlaufAnlegen({
     geschlossen: nachFeldNeuZeichnen,
     hinweisen,
     ansagen,
+    signal,
   });
 
   // Menü „⋯“ auf Touch-Geräten (UX M6, PO 125): höchstens eines offen; ein zweites Tippen, ein Tippen daneben und Esc
@@ -325,7 +326,7 @@ export function verlaufAnlegen({
     if (ereignis.target.closest('.lc-aktionen-schalter, .lc-aktionen') === null) {
       menueSchliessen();
     }
-  });
+  }, { signal });
   log.addEventListener('keydown', (ereignis) => {
     const offenerSchalter = inhalt.querySelector('.lc-aktionen-schalter[aria-expanded="true"]');
     if (ereignis.key === 'Escape' && offenerSchalter !== null) {

@@ -77,13 +77,13 @@ function fehlerText({ status, daten }) {
 // ansagen(text): genau eine Ansage über die Region der Seite (UX S2); beim Öffnen keine (S3) · inSicht(element): das
 // Element ganz in den sichtbaren Teil des Verlaufs (UX M7, auch bei offener Bildschirmtastatur) · geschlossen(zeit): das
 // Feld ist zu, die Nachricht soll ihre bekannte Fassung zeigen · feldHolen(): der Verlauf holt die Nachricht des offenen
-// Felds wieder in den Blick und setzt es mit Fokus ein.
+// Felds wieder in den Blick und setzt es mit Fokus ein · signal: Abbau der Ansicht, beendet den Listener am Fenster.
 // beginnen(channel, artikel, nachricht) öffnet das Feld in `artikel`; offeneZeitIn(channel) sagt, an welcher Nachricht
 // des Channels es steht.
 // Das Feld gehört dem Tab, nicht dem Knoten (F0142, PO 124): zeichnet der Verlauf die Nachricht neu oder wechselt der
 // Channel, bleibt es samt Text und Schreibmarke im Speicher; einsetzen(artikel, mitFokus) hängt es wieder ein.
 export function bearbeitenAnlegen({
-  zeiger, fokusAufNachricht, inSicht, feldHolen, speichern, uebernehmen, alsGeloeschtZeigen, hinweisen, ansagen, geschlossen,
+  zeiger, fokusAufNachricht, inSicht, feldHolen, speichern, uebernehmen, alsGeloeschtZeigen, hinweisen, ansagen, geschlossen, signal,
 }) {
   let offen = null;
 
@@ -156,7 +156,7 @@ export function bearbeitenAnlegen({
       inSicht(offen.rahmen);
     }
   }
-  window.addEventListener('resize', imBlickHalten);
+  window.addEventListener('resize', imBlickHalten, { signal });
 
   // Nicht verfügbar heißt aria-disabled, nie disabled: der Knopf bleibt fokussierbar und wird vorgelesen.
   function bereitZeigen() {
