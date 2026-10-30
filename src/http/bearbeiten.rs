@@ -20,7 +20,7 @@ use super::senden::{
 };
 use super::teilnehmer::Teilnehmer;
 use crate::gespraeche::textregel::{Textfehler, laenge_und_zeichen_pruefen};
-use crate::gespraeche::{Bearbeitet, Bearbeitfehler, Gespraech, Nachricht};
+use crate::gespraeche::{Bearbeitet, Bearbeitfehler, Gespraech, Kennung, Nachricht};
 use crate::protokoll::episoden::Auftreten;
 use crate::protokoll::vorlauf;
 use crate::protokoll::{Bereich, Kontext, Protokoll, Schluessel, Stufe};
@@ -198,7 +198,7 @@ fn abweisung_melden(protokoll: &Protokoll, fehler: &Bearbeitfehler, channel: &st
 }
 
 /// Quelle der Episode „fremd“ ist die Kennung (M16: je Kennung eine Episode); der Channel steht nur am Beginn.
-fn fremd_auftreten(channel: &str, wer: &str) -> Auftreten {
+pub(super) fn fremd_auftreten(channel: &str, wer: &str) -> Auftreten {
     Auftreten {
         stufe: Stufe::Warning,
         bereich: Bereich::Aendern,
@@ -215,7 +215,12 @@ fn fremd_auftreten(channel: &str, wer: &str) -> Auftreten {
 }
 
 /// Quelle des Schreibfehlers sind Datei und Grund; die Kennung gehört dem einzelnen Auftreten.
-fn schreibfehler_auftreten(channel: &str, wer: &str, datei: &str, grund: &str) -> Auftreten {
+pub(super) fn schreibfehler_auftreten(
+    channel: &str,
+    wer: &str,
+    datei: &str,
+    grund: &str,
+) -> Auftreten {
     Auftreten {
         stufe: Stufe::Error,
         bereich: Bereich::Aendern,
@@ -237,24 +242,10 @@ fn schreibfehler_auftreten(channel: &str, wer: &str, datei: &str, grund: &str) -
 fn abgewiesen(fehler: Bearbeitfehler, channel: &str, wer: &str) -> Response {
     match fehler {
         Bearbeitfehler::Unbekannt => mit_regel(unbekannt(channel), "channel_unbekannt", Some(wer)),
-        Bearbeitfehler::Nachricht => mit_regel(
-            regel_antwort(
-                StatusCode::NOT_FOUND,
-                "Diese Nachricht gibt es nicht (mehr).",
-                "nachricht",
-            ),
-            "nachricht",
-            Some(wer),
-        ),
-        Bearbeitfehler::Fremd { absender } => mit_regel(
-            regel_antwort(
-                StatusCode::FORBIDDEN,
-                &format!("Nur der Absender {absender} kann diese Nachricht ändern."),
-                "fremd",
-            ),
-            "fremd",
-            Some(wer),
-        ),
+        Bearbeitfehler::Nachricht => mit_regel(nachricht_fehlt(), "nachricht", Some(wer)),
+        Bearbeitfehler::Fremd { absender } => {
+            mit_regel(fremd_abgewiesen(&absender), "fremd", Some(wer))
+        }
         Bearbeitfehler::Geloescht => mit_regel(
             regel_antwort(
                 StatusCode::CONFLICT,
@@ -267,9 +258,11 @@ fn abgewiesen(fehler: Bearbeitfehler, channel: &str, wer: &str) -> Response {
         Bearbeitfehler::Leer => {
             mit_regel(text_abgewiesen(Textfehler::Leer), "text_leer", Some(wer))
         }
-        Bearbeitfehler::Quote { belegt, hoechstens } => {
-            mit_regel(quote_erreicht(belegt, hoechstens), "quote", Some(wer))
-        }
+        Bearbeitfehler::Quote { belegt, hoechstens } => mit_regel(
+            quote_erreicht("Nicht bearbeitet", belegt, hoechstens),
+            "quote",
+            Some(wer),
+        ),
         Bearbeitfehler::Ablage { .. } => nicht_gespeichert_antwort(),
         Bearbeitfehler::SchluesselAnders => mit_regel(
             schluessel_abgewiesen(SCHLUESSEL_ANDERS),
@@ -279,12 +272,30 @@ fn abgewiesen(fehler: Bearbeitfehler, channel: &str, wer: &str) -> Response {
     }
 }
 
+/// 404 `nachricht` (ADR-0048 Regel 5): nie da, entfallen oder ein anderer Channel — kein Orakel.
+pub(super) fn nachricht_fehlt() -> Response {
+    regel_antwort(
+        StatusCode::NOT_FOUND,
+        "Diese Nachricht gibt es nicht (mehr).",
+        "nachricht",
+    )
+}
+
+/// 403 `fremd` mit der Kennung des Absenders (ADR-0048 Regel 5).
+pub(super) fn fremd_abgewiesen(absender: &Kennung) -> Response {
+    regel_antwort(
+        StatusCode::FORBIDDEN,
+        &format!("Nur der Absender {absender} kann diese Nachricht ändern."),
+        "fremd",
+    )
+}
+
 fn bearbeitet(channel: &str, nachricht: &Nachricht) -> Response {
     let antwort = json!({ "channel": channel, "nachricht": NachrichtAntwort::aus(nachricht) });
     (StatusCode::OK, Json(antwort)).into_response()
 }
 
-fn regel_antwort(status: StatusCode, fehler: &str, regel: &str) -> Response {
+pub(super) fn regel_antwort(status: StatusCode, fehler: &str, regel: &str) -> Response {
     (status, Json(json!({ "fehler": fehler, "regel": regel }))).into_response()
 }
 
@@ -297,7 +308,7 @@ fn weiteres_feld(wert: &Value) -> Option<String> {
 }
 
 /// `zeit` als Zeitpunkt nach RFC 3339 — verglichen wird später als Zeitpunkt, gleich in welcher Schreibweise.
-fn zeit_lesen(wert: &Value) -> Option<Zeit> {
+pub(super) fn zeit_lesen(wert: &Value) -> Option<Zeit> {
     let text = wert.get("zeit")?.as_str()?;
     Zeit::parse_from_rfc3339(text).ok()
 }
@@ -314,7 +325,7 @@ fn feld_abgewiesen(feld: &str) -> Response {
         .into_response()
 }
 
-fn zeit_abgewiesen() -> Response {
+pub(super) fn zeit_abgewiesen() -> Response {
     regel_antwort(
         StatusCode::UNPROCESSABLE_ENTITY,
         "Der Körper braucht zeit als Zeitpunkt nach RFC 3339 — die zeit der Nachricht, zum Beispiel \
@@ -331,10 +342,11 @@ fn text_fehlt() -> Response {
     )
 }
 
-/// 507 an der Plattenquote (ADR-0048 Regel 13, Form nach ADR-0044 Regel 4), ohne `Retry-After`.
-fn quote_erreicht(belegt: u64, hoechstens: u64) -> Response {
+/// 507 an der Plattenquote (ADR-0048 Regel 13, Form nach ADR-0044 Regel 4), ohne `Retry-After`; `was` beginnt den
+/// Text („Nicht bearbeitet“, „Nicht gelöscht“).
+pub(super) fn quote_erreicht(was: &str, belegt: u64, hoechstens: u64) -> Response {
     let fehler = format!(
-        "Nicht bearbeitet: die Gespräche belegen {}, die Quote dieser Instanz ist {}. Platz entsteht, wenn alte \
+        "{was}: die Gespräche belegen {}, die Quote dieser Instanz ist {}. Platz entsteht, wenn alte \
          Tage nach ihrer Aufbewahrungsfrist entfallen (beim nächsten Tageswechsel) oder eine Frist verkürzt wird; \
          die Quote stellt der Betreiber beim Start mit --plattenquote ein.",
         groesse_in_worten(belegt),

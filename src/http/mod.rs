@@ -24,6 +24,7 @@ mod grenzschutz;
 mod hostnamen;
 mod ich;
 mod koerper;
+mod nachricht_loeschen;
 mod nachrichten;
 mod namensauskunft;
 mod oberflaeche;
@@ -117,6 +118,10 @@ pub fn router(zustand: Zustand) -> Router {
         .route(
             "/api/channels/{name}/nachrichten/bearbeiten",
             post(bearbeiten::bearbeiten),
+        )
+        .route(
+            "/api/channels/{name}/nachrichten/loeschen",
+            post(nachricht_loeschen::loeschen),
         )
         .route("/api/channels/{name}/frist", put(frist::setzen))
         .route("/api/ich", get(ich::beantworten))
