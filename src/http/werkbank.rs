@@ -15,6 +15,12 @@ pub fn erlaubnisse_aus_kernen(kerne: usize) -> usize {
     kerne.max(MINDESTENS)
 }
 
+/// Plätze der Nachholbank aus der Zahl der Kerne: die Hälfte, mindestens 1 — K2 (ADR-0054 Ergänzung „Nachholen von
+/// `warten` …“ Regel 1, R00049 F0170). Rein.
+pub fn nachholbank_plaetze(kerne: usize) -> usize {
+    (kerne / 2).max(1)
+}
+
 /// Wartet auf eine Erlaubnis der Hochladebank (ADR-0048 K3, neben `Werkbank::erwerben`): eine geschlossene Bank ist
 /// derselbe Abbruch wie eine geschlossene Werkbank (`Abbruchart::Geschlossen`), nie ein stilles 500.
 pub async fn bank_erwerben(bank: &Arc<Semaphore>) -> Result<OwnedSemaphorePermit, Abgebrochen> {
@@ -46,6 +52,12 @@ impl Werkbank {
     pub fn aus_kernen() -> Werkbank {
         let kerne = std::thread::available_parallelism().map_or(1, usize::from);
         Werkbank::mit(erlaubnisse_aus_kernen(kerne))
+    }
+
+    /// Die Nachholbank: eine eigene Semaphore mit `nachholbank_plaetze` aus den Kernen, fest seit dem Start.
+    pub fn nachholbank() -> Werkbank {
+        let kerne = std::thread::available_parallelism().map_or(1, usize::from);
+        Werkbank::mit(nachholbank_plaetze(kerne))
     }
 
     /// Genau so viele Erlaubnisse (Tests).
@@ -98,6 +110,14 @@ mod tests {
         assert_eq!(erlaubnisse_aus_kernen(1), 2);
         assert_eq!(erlaubnisse_aus_kernen(2), 2);
         assert_eq!(erlaubnisse_aus_kernen(8), 8);
+    }
+
+    /// N2 (B0756, K2): Kerne 1 → 1, 2 → 1, 8 → 4, 9 → 4.
+    #[test]
+    fn die_nachholbank_hat_die_haelfte_der_kerne_mindestens_einen_platz() {
+        let plaetze: Vec<usize> = [1, 2, 8, 9].map(nachholbank_plaetze).to_vec();
+
+        assert_eq!(plaetze, [1, 1, 4, 4]);
     }
 
     #[test]

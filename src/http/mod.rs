@@ -27,6 +27,7 @@ mod ich;
 pub(crate) mod koerper;
 #[cfg(test)]
 mod loeschaufbau;
+pub(crate) mod nachholplatz;
 mod nachricht_loeschen;
 mod nachrichten;
 mod namensauskunft;
@@ -81,6 +82,9 @@ pub struct Zustand {
     pub grenzschutz: Grenzschutz,
     /// Plätze für schwere Arbeit (ADR-0039 Regel 4).
     pub werkbank: Werkbank,
+    /// Eigene Bank für das Nachholen von `warten`, nie die Werkbank (ADR-0054 Ergänzung „Nachholen von `warten` …“
+    /// Regel 1, K2).
+    pub nachholbank: Werkbank,
     /// Token-Eimer gegen Flut beim Senden (A00014).
     pub schreibkonto: Arc<Schreibkonto>,
     /// Betriebsprotokoll der Instanz (A00015).
@@ -215,6 +219,7 @@ pub(crate) mod testserver {
             ende: Ende::nie(),
             grenzschutz: Grenzschutz::neu(None, Vec::new()),
             werkbank: Werkbank::aus_kernen(),
+            nachholbank: Werkbank::nachholbank(),
             schreibkonto: Arc::new(crate::schreibkonto::Schreibkonto::neu(Arc::new(Systemuhr))),
             protokoll: Arc::new(crate::protokoll::Protokoll::ohne_ablage()),
             testpanik: crate::protokoll::testpanik::Testpanik::keine(),

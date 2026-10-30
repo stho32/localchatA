@@ -6,6 +6,7 @@
 use super::Zustand;
 use super::abbruch::{Grenzort, abbruch_beantworten};
 use super::anfrageprotokoll::mit_regel;
+use super::nachholplatz::Platz;
 use super::nachrichten::{NachrichtAntwort, dekodieren};
 use super::teilnehmer::{Teilnehmer, gemeldetes_token, nicht_erkannt};
 use super::teilnehmerliste::zeit_als_text;
@@ -189,7 +190,7 @@ pub async fn beantworten(
     let ergebnis = warten(
         Arc::clone(&zustand.gespraeche),
         &zustand.bus,
-        &zustand.werkbank,
+        &Platz::auf(&zustand.nachholbank),
         auftrag,
         Arc::new(|_| {}),
     )
@@ -389,6 +390,110 @@ mod tests {
 
     fn zeit(text: &str) -> Zeit {
         Zeit::parse_from_rfc3339(text).expect("Testzeit")
+    }
+
+    /// Ein Zustand wie im Programm mit `# allgemein`, einer Nachricht von `anna` und dem Token von `claude`.
+    fn zustand_mit_claude() -> (super::super::Zustand, String) {
+        use crate::anwesenheit::Beitrittswunsch;
+        use crate::gespraeche::{Art, Kennung};
+        let zustand =
+            super::super::testserver::zustand(std::path::Path::new("/tmp/lc-nachholbank"));
+        let wunsch = Beitrittswunsch::pruefen(&json!({"name": "claude"})).expect("Wunsch");
+        let token = zustand
+            .anwesenheit
+            .beitreten(&wunsch, "127.0.0.1".parse().expect("IP"))
+            .expect("beigetreten")
+            .sitzung
+            .token
+            .als_text()
+            .to_string();
+        let anna = Kennung::bilden("anna@127.0.0.1").expect("Kennung");
+        zustand
+            .gespraeche
+            .channel_anlegen("allgemein", None, &anna)
+            .expect("angelegt");
+        zustand
+            .gespraeche
+            .senden(
+                &Gespraech::channel("allgemein"),
+                &anna,
+                Art::Mensch,
+                "hallo",
+            )
+            .expect("gesendet");
+        (zustand, token)
+    }
+
+    fn holen(
+        basis: &str,
+        pfad: &str,
+        token: &str,
+    ) -> impl Future<Output = reqwest::Result<reqwest::Response>> {
+        reqwest::Client::new()
+            .get(format!("{basis}{pfad}"))
+            .header("X-LocalchatA-Sitzung", token)
+            .send()
+    }
+
+    const NACHHOLEN_ALT: &str = "api/warten?bis=0&seit=2000-01-01T00:00:00.000Z";
+
+    /// N2 (B0756, K2): hält der Test die Werkbank (ein Platz), antwortet `warten?bis=0&seit=<alt>` trotzdem binnen
+    /// 1 s — das Nachholen läuft nie auf der Werkbank.
+    #[tokio::test]
+    async fn eine_gehaltene_werkbank_haelt_das_nachholen_nicht_auf() {
+        let (mut zustand, token) = zustand_mit_claude();
+        zustand.werkbank = super::super::Werkbank::mit(1);
+        let gehalten = zustand.werkbank.erwerben().await.expect("Erlaubnis");
+        let basis = super::super::testserver::app_starten(super::super::router(zustand)).await;
+
+        let antwort =
+            tokio::time::timeout(Duration::from_secs(1), holen(&basis, NACHHOLEN_ALT, &token))
+                .await;
+
+        let antwort = antwort
+            .expect("Antwort trotz gehaltener Werkbank")
+            .expect("HTTP");
+        assert_eq!(antwort.status(), 200);
+        let koerper: serde_json::Value = antwort.json().await.expect("JSON");
+        assert_eq!(koerper["nachrichten"].as_array().map(Vec::len), Some(1));
+        drop(gehalten);
+    }
+
+    /// N2 (B0756, K2): hält der Test die Nachholbank (ein Platz), antwortet der Verlauf `n=50` sofort, `warten` erst
+    /// nach der Freigabe (Stil K7 in `nachrichten.rs`).
+    #[tokio::test]
+    async fn eine_gehaltene_nachholbank_haelt_den_verlauf_nicht_auf() {
+        let (mut zustand, token) = zustand_mit_claude();
+        zustand.nachholbank = super::super::Werkbank::mit(1);
+        let gehalten = zustand.nachholbank.erwerben().await.expect("Erlaubnis");
+        let basis = super::super::testserver::app_starten(super::super::router(zustand)).await;
+        let warten = holen(&basis, NACHHOLEN_ALT, &token);
+        let mut warten = std::pin::pin!(warten);
+
+        let verlauf = tokio::time::timeout(
+            Duration::from_secs(1),
+            holen(&basis, "api/channels/allgemein/nachrichten?n=50", &token),
+        )
+        .await;
+        let solange_gehalten = tokio::time::timeout(Duration::from_secs(1), &mut warten).await;
+        assert!(
+            solange_gehalten.is_err(),
+            "warten trotz gehaltener Nachholbank"
+        );
+        drop(gehalten);
+        let nach_freigabe = tokio::time::timeout(Duration::from_secs(1), &mut warten).await;
+
+        assert_eq!(
+            verlauf.expect("Verlauf binnen 1 s").expect("HTTP").status(),
+            200
+        );
+        assert_eq!(
+            nach_freigabe
+                .expect("warten nach der Freigabe")
+                .expect("HTTP")
+                .status(),
+            200
+        );
     }
 
     /// W6c: vier Plätze je Kennung, der fünfte nicht; ein freigegebener Platz ist wieder da; andere Kennungen zählen

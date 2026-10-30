@@ -571,6 +571,7 @@ async fn nach_der_sperre(
             )))
             .mit_alle_namen(auftrag.alle_namen),
         werkbank: http::Werkbank::aus_kernen(),
+        nachholbank: http::Werkbank::nachholbank(),
         schreibkonto: Arc::new(Schreibkonto::neu(Arc::clone(&uhr))),
         protokoll: Arc::clone(&protokoll),
         testpanik,

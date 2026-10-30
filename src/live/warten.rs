@@ -7,14 +7,30 @@ use crate::anwesenheit::status::Status;
 use crate::gespraeche::nachholen::{NACHHOLBUDGET, Nachgeholt, Nachholbudget, lieferbytes};
 use crate::gespraeche::treffer::{Filter, Treffer, treffer};
 use crate::gespraeche::{Gespraech, Gespraeche, Kennung, Nachricht};
-use crate::http::Werkbank;
-use crate::http::abbruch::Abgebrochen;
 use crate::live::bus::{Abonnement, Bus, Empfang, Ereignis};
 use crate::protokoll::{Bereich, Kontext, Protokoll, Schluessel, Stufe};
 use crate::start::ende::Ende as Programmende;
 use crate::uhr::Zeit;
+use std::future::Future;
+use std::pin::Pin;
 use std::sync::Arc;
 use std::time::Duration;
+
+/// Port des Nachholens (ADR-0054 Ergänzung „Nachholen von `warten` …“ Regel 9): führt die Arbeit des Nachholens
+/// auf der Nachholbank aus und rechnet sie ab — `warten` kennt weder Bank noch Konto. `Fehler` ist der Abbruch
+/// der Bank.
+pub trait Nachholplatz: Send + Sync {
+    type Fehler: Send;
+
+    /// Führt `arbeit` auf einem Platz der Bank aus; der Platz lebt bis zum Ende der Arbeit.
+    fn ausfuehren<F>(&self, arbeit: F) -> Nacharbeit<Self::Fehler>
+    where
+        F: FnOnce() -> Option<Nachgeholt> + Send + 'static;
+}
+
+/// Die laufende Arbeit eines Nachholplatzes; besitzt alles, was sie braucht (`'static`), damit `warten` in jedem
+/// Executor `Send` bleibt.
+pub type Nacharbeit<E> = Pin<Box<dyn Future<Output = Result<Option<Nachgeholt>, E>> + Send>>;
 
 /// Ein Warte-Aufruf: ab `seit` (ohne: ab der Marke), höchstens `bis`, für `wartender` unter `filter`.
 #[derive(Clone)]
@@ -71,7 +87,7 @@ pub struct Warteergebnis {
 pub enum Schritt {
     /// Der Bus ist abonniert, die Marke noch nicht gelesen.
     Abonniert,
-    /// Die Marke ist gelesen, nachgeholt ist noch nicht (auf der Werkbank gerufen).
+    /// Die Marke ist gelesen, nachgeholt ist noch nicht (auf dem Nachholplatz gerufen).
     MarkeGelesen,
     /// Nachgeholt ist, auf den Bus wird noch nicht gewartet.
     Nachgeholt,
@@ -80,14 +96,14 @@ pub enum Schritt {
 /// Beobachter der Schritte; im Programm tut er nichts.
 pub type Beobachter = Arc<dyn Fn(Schritt) + Send + Sync>;
 
-/// Wartet nach Regel 3; `Err` nur, wenn die Arbeit auf der Werkbank abbrach.
-pub async fn warten(
+/// Wartet nach Regel 3; `Err` nur, wenn die Arbeit auf dem Nachholplatz abbrach.
+pub async fn warten<P: Nachholplatz>(
     gespraeche: Arc<Gespraeche>,
     bus: &Bus,
-    werkbank: &Werkbank,
+    platz: &P,
     auftrag: Warteauftrag,
     beobachter: Beobachter,
-) -> Result<Warteergebnis, Abgebrochen> {
+) -> Result<Warteergebnis, P::Fehler> {
     let frist = tokio::time::Instant::now() + auftrag.bis;
     let mut abonnement = bus.abonnieren();
     beobachter(Schritt::Abonniert);
@@ -97,7 +113,7 @@ pub async fn warten(
         stand: auftrag.seit,
         ab_anfang: false,
     };
-    let nachgeholt = nachholen(&gespraeche, werkbank, &auftrag, &sammlung, &beobachter).await?;
+    let nachgeholt = nachholen(&gespraeche, platz, &auftrag, &sammlung, &beobachter).await?;
     beobachter(Schritt::Nachgeholt);
     // Ohne `seit` auf leerer Ablage gibt es nichts „davor“: was später im Index steht, ist neu.
     sammlung.ab_anfang = auftrag.seit.is_none() && nachgeholt.is_none();
@@ -132,22 +148,22 @@ pub async fn warten(
             Some(Empfang::NeuerStand { verpasst }) => {
                 ueberholt_melden(&auftrag, verpasst);
                 let nachgeholt =
-                    nachholen(&gespraeche, werkbank, &auftrag, &sammlung, &beobachter).await?;
+                    nachholen(&gespraeche, platz, &auftrag, &sammlung, &beobachter).await?;
                 sammlung.aufnehmen(nachgeholt)
             }
         };
     }
 }
 
-/// Liest die Marke `H` unter der Schreibsperre und holt `(Stand, H]` nach — auf der Werkbank, mit dem Budget, das
-/// der Sammlung noch bleibt. Ohne Stand gilt „ab jetzt“: der Stand wird die Marke.
-async fn nachholen(
+/// Liest die Marke `H` unter der Schreibsperre und holt `(Stand, H]` nach — auf dem Nachholplatz, mit dem Budget,
+/// das der Sammlung noch bleibt. Ohne Stand gilt „ab jetzt“: der Stand wird die Marke.
+async fn nachholen<P: Nachholplatz>(
     gespraeche: &Arc<Gespraeche>,
-    werkbank: &Werkbank,
+    platz: &P,
     auftrag: &Warteauftrag,
     sammlung: &Sammlung,
     beobachter: &Beobachter,
-) -> Result<Option<Nachgeholt>, Abgebrochen> {
+) -> Result<Option<Nachgeholt>, P::Fehler> {
     let gespraeche = Arc::clone(gespraeche);
     let beobachter = Arc::clone(beobachter);
     let stand = sammlung.stand;
@@ -155,7 +171,7 @@ async fn nachholen(
     let budget = sammlung.restbudget();
     let wartender = auftrag.wartender.clone();
     let filter = auftrag.filter.clone();
-    werkbank
+    platz
         .ausfuehren(move || {
             let marke = gespraeche.letzte_zeit();
             beobachter(Schritt::MarkeGelesen);
@@ -279,6 +295,20 @@ impl Sammlung {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Nachholplatz im Test: die Arbeit auf einem Blocking-Thread, ohne Bank und Konto.
+    struct Blockierend;
+
+    impl Nachholplatz for Blockierend {
+        type Fehler = tokio::task::JoinError;
+
+        fn ausfuehren<F>(&self, arbeit: F) -> Nacharbeit<Self::Fehler>
+        where
+            F: FnOnce() -> Option<Nachgeholt> + Send + 'static,
+        {
+            Box::pin(tokio::task::spawn_blocking(arbeit))
+        }
+    }
     use crate::gespraeche::{Angehaengt, Art, Logablage, Speicherablage};
     use crate::uhr::GestellteUhr;
     use chrono::NaiveDate;
@@ -385,7 +415,7 @@ mod tests {
         let ergebnis = warten(
             Arc::clone(&gespraeche),
             &bus,
-            &Werkbank::aus_kernen(),
+            &Blockierend,
             auftrag(Some(t0), LANG),
             beobachter,
         )
@@ -416,7 +446,7 @@ mod tests {
         let ergebnis = warten(
             Arc::clone(&gespraeche),
             &bus,
-            &Werkbank::aus_kernen(),
+            &Blockierend,
             auftrag(Some(t0), KURZ),
             beobachter,
         )
@@ -446,7 +476,7 @@ mod tests {
         let ergebnis = warten(
             Arc::clone(&gespraeche),
             &bus,
-            &Werkbank::aus_kernen(),
+            &Blockierend,
             auftrag(Some(t0), KURZ),
             beobachter,
         )
@@ -487,7 +517,7 @@ mod tests {
         let aufruf = tokio::spawn({
             let gespraeche = Arc::clone(&gespraeche);
             let bus = Arc::clone(&bus);
-            async move { warten(gespraeche, &bus, &Werkbank::aus_kernen(), warte, still()).await }
+            async move { warten(gespraeche, &bus, &Blockierend, warte, still()).await }
         });
         tokio::time::sleep(Duration::from_millis(200)).await;
         assert!(!aufruf.is_finished(), "der Aufruf wartet");
@@ -508,16 +538,7 @@ mod tests {
         let aufruf = tokio::spawn({
             let gespraeche = Arc::clone(&gespraeche);
             let bus = Arc::clone(&bus);
-            async move {
-                warten(
-                    gespraeche,
-                    &bus,
-                    &Werkbank::aus_kernen(),
-                    auftrag(None, KURZ),
-                    still(),
-                )
-                .await
-            }
+            async move { warten(gespraeche, &bus, &Blockierend, auftrag(None, KURZ), still()).await }
         });
         tokio::time::sleep(Duration::from_millis(200)).await;
         bus.veroeffentlichen(weg_von("anna@127.0.0.1", "anna"));
@@ -543,7 +564,7 @@ mod tests {
             let ergebnis = warten(
                 Arc::clone(gespraeche),
                 bus,
-                &Werkbank::aus_kernen(),
+                &Blockierend,
                 auftrag(seit, KURZ),
                 still(),
             )
@@ -621,7 +642,7 @@ mod tests {
                 warten(
                     gespraeche,
                     &bus,
-                    &Werkbank::aus_kernen(),
+                    &Blockierend,
                     auftrag(Some(t0), LANG),
                     beobachter,
                 )
@@ -689,7 +710,7 @@ mod tests {
                 warten(
                     gespraeche,
                     &bus,
-                    &Werkbank::aus_kernen(),
+                    &Blockierend,
                     auftrag(None, LANG),
                     beobachter,
                 )
@@ -732,7 +753,7 @@ mod tests {
                 let gespraeche = Arc::clone(&gespraeche);
                 let bus = Arc::clone(&bus);
                 tokio::spawn(async move {
-                    warten(gespraeche, &bus, &Werkbank::aus_kernen(), warte, beobachter).await
+                    warten(gespraeche, &bus, &Blockierend, warte, beobachter).await
                 })
             };
             nachgeholt.await.expect("nachgeholt");
@@ -793,7 +814,7 @@ mod tests {
         let ergebnis = warten(
             Arc::clone(&gespraeche),
             &bus,
-            &Werkbank::aus_kernen(),
+            &Blockierend,
             auftrag(Some(t0), Duration::from_millis(300)),
             beobachter,
         )
@@ -818,7 +839,7 @@ mod tests {
         let ergebnis = warten(
             Arc::clone(&gespraeche),
             &bus,
-            &Werkbank::aus_kernen(),
+            &Blockierend,
             auftrag(None, Duration::ZERO),
             still(),
         )
@@ -842,7 +863,7 @@ mod tests {
         let erster = warten(
             Arc::clone(&gespraeche),
             &bus,
-            &Werkbank::aus_kernen(),
+            &Blockierend,
             auftrag(Some(t0), LANG),
             still(),
         )
