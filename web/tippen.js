@@ -62,28 +62,60 @@ function ohneMeldung(zustand) {
 // Die Verdrahtung für die Eingabe: hält den Zustand und schickt jeden Aufruf über `melden`
 // (async { art, channel } → { art: 'antwort', status, wartenS } | { art: 'netzfehler' }). Ein 429 sperrt bis
 // Retry-After; jeder andere Fehler bleibt ohne Hinweis — die Anzeige ist Beiwerk (ADR-0051 Regel 8).
+// Die Aufrufe eines Channels gehen nacheinander hinaus: im WLAN überholte sonst ein Löschen das langsamere Setzen, und
+// das Setzen ließe die Anzeige nach dem Ende bis zu 6 s stehen. Wird gesendet, während ein Setzen noch unterwegs ist,
+// kann der Server es nach der Nachricht sehen und beendet nichts mehr — dann folgt der Antwort ein Löschen.
 export function tippenAnlegen({ melden, jetzt = () => Date.now() }) {
   const ZU_VIELE_ANFRAGEN = 429;
   let zustand = TIPPEN_LEER;
+  const unterwegs = new Map();
 
   function anwenden(ereignis) {
     const ergebnis = tippen(zustand, ereignis, jetzt());
     zustand = ergebnis.zustand;
     if (ergebnis.aufruf !== null) {
-      ausfuehren(ergebnis.aufruf);
+      einreihen(ergebnis.aufruf);
     }
+  }
+
+  function einreihen(aufruf) {
+    const bisher = unterwegs.get(aufruf.channel) ?? { anzahl: 0, setzen: 0, ende: null };
+    const bearbeiten = () => ausfuehren(aufruf);
+    const ende = bisher.ende === null ? bearbeiten() : bisher.ende.then(bearbeiten);
+    unterwegs.set(aufruf.channel, {
+      anzahl: bisher.anzahl + 1,
+      setzen: bisher.setzen + (aufruf.art === 'setzen' ? 1 : 0),
+      ende,
+    });
   }
 
   async function ausfuehren(aufruf) {
     const antwort = await melden(aufruf);
+    abgeschlossen(aufruf);
     if (antwort.art === 'antwort' && antwort.status === ZU_VIELE_ANFRAGEN) {
       anwenden({ art: 'gebremst', wartenS: antwort.wartenS });
     }
   }
 
+  function abgeschlossen({ art, channel }) {
+    const bisher = unterwegs.get(channel);
+    if (bisher.anzahl === 1) {
+      unterwegs.delete(channel);
+      return;
+    }
+    unterwegs.set(channel, { ...bisher, anzahl: bisher.anzahl - 1, setzen: bisher.setzen - (art === 'setzen' ? 1 : 0) });
+  }
+
+  function gesendet(channel) {
+    anwenden({ art: 'gesendet', channel });
+    if ((unterwegs.get(channel)?.setzen ?? 0) > 0) {
+      einreihen({ art: 'loeschen', channel });
+    }
+  }
+
   return {
     eingabe: (channel, text) => anwenden({ art: 'eingabe', channel, text }),
-    gesendet: (channel) => anwenden({ art: 'gesendet', channel }),
+    gesendet,
     gewechselt: (channel) => anwenden({ art: 'gewechselt', channel }),
     verbindung: (verbunden) => anwenden({ art: 'verbindung', verbunden }),
   };

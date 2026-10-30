@@ -5,8 +5,8 @@
 // Neuladen und beim neuen Strom (Mutante M12).
 const { test, expect } = require('./rahmen');
 const { sichtbarNach } = require('./hilfen');
-const { sendenStarten, imBrowserBeitreten, eingabe, mitText } = require('./senden-hilfen');
-const { browserOeffnen } = require('./r00041-hilfen');
+const { eingabe, mitText } = require('./senden-hilfen');
+const { ANNA_TIPPT, zeigtTipp, zweiBrowserStarten } = require('./r00045-hilfen');
 
 let instanz;
 test.afterEach(async () => {
@@ -17,59 +17,13 @@ test.afterEach(async () => {
 });
 
 const ZUSTELLUNG_MS = 1000;
-const ANNA_TIPPT = 'anna tippt …';
 const tippzeile = (page) => page.locator('.lc-comp .lc-comp-tipp');
 const warten = (ms) => new Promise((weiter) => setTimeout(weiter, ms));
 
-function zeigtTipp(text) {
-  const zeile = document.querySelector('.lc-comp .lc-comp-tipp');
-  return zeile !== null && zeile.textContent === text;
-}
-
-async function zweiBrowser(browser, { benOhneWorker = false } = {}) {
-  instanz = await sendenStarten();
-  const anna = await browserOeffnen(browser);
-  const ben = await browserOeffnen(browser, { ohneWorker: benOhneWorker });
-  if (benOhneWorker) {
-    await stromTrennbarMachen(ben.kontext);
-  }
-  await imBrowserBeitreten(anna.page, instanz.adresse, 'anna');
-  await imBrowserBeitreten(ben.page, instanz.adresse, 'ben');
-  await eingabe(anna.page).click();
-  return { anna, ben };
-}
-
-/// Ohne SharedWorker hält der Tab den Strom selbst; die Hülle um fetch macht ihn per `window.stromTrennen()` trennbar
-/// (page.route kann einen offenen Strom nicht abbrechen).
-function stromTrennbarMachen(kontext) {
-  return kontext.addInitScript(() => {
-    const echt = window.fetch.bind(window);
-    window.fetch = async (pfad, optionen) => {
-      const antwort = await echt(pfad, optionen);
-      if (!String(pfad).endsWith('/api/ereignisse') || antwort.body === null) {
-        return antwort;
-      }
-      const leser = antwort.body.getReader();
-      let steuerung;
-      const koerper = new ReadableStream({
-        start: (zugriff) => { steuerung = zugriff; },
-        pull: async (zugriff) => {
-          const { value: stueck, done: zuEnde } = await leser.read();
-          if (zuEnde) {
-            zugriff.close();
-            return;
-          }
-          zugriff.enqueue(stueck);
-        },
-        cancel: () => leser.cancel(),
-      });
-      window.stromTrennen = () => {
-        steuerung.error(new TypeError('Strom im Test getrennt'));
-        leser.cancel();
-      };
-      return new Response(koerper, { status: antwort.status, headers: antwort.headers });
-    };
-  });
+async function zweiBrowser(browser, optionen) {
+  const paar = await zweiBrowserStarten(browser, optionen);
+  instanz = paar.instanz;
+  return paar;
 }
 
 async function annaTipptBenSieht(anna, ben, taste = 'H') {

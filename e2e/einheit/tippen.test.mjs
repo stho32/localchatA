@@ -140,10 +140,13 @@ test('tippenAnlegen meldet über melden und führt den Zustand', async () => {
   welt.griffe.eingabe('allgemein', 'ha');
   welt.griffe.gewechselt('allgemein');
   welt.griffe.eingabe('technik', 'x');
+  await new Promise((weiter) => setImmediate(weiter));
   welt.griffe.gesendet('technik');
   welt.griffe.eingabe('technik', '');
-  await Promise.resolve();
-  assert.deepEqual(welt.gemeldet, ['setzen allgemein', 'loeschen allgemein', 'setzen technik']);
+  await new Promise((weiter) => setImmediate(weiter));
+  // Je Channel nacheinander (Karte #83 A3): das Löschen in allgemein folgt der Antwort auf sein Setzen.
+  assert.deepEqual(welt.gemeldet.filter((aufruf) => aufruf.endsWith(' allgemein')), ['setzen allgemein', 'loeschen allgemein']);
+  assert.deepEqual(welt.gemeldet.filter((aufruf) => aufruf.endsWith(' technik')), ['setzen technik']);
 });
 
 test('tippenAnlegen: 429 mit Retry-After sperrt das Melden; ein Netzfehler bleibt ohne Folgen', async () => {
@@ -163,4 +166,73 @@ test('tippenAnlegen: 429 mit Retry-After sperrt das Melden; ein Netzfehler bleib
   zweite.stellen(1999);
   zweite.griffe.eingabe('allgemein', 'n');
   assert.deepEqual(zweite.gemeldet, ['setzen allgemein']);
+});
+
+// Rennen (Karte #83 A3): ein langsames Setzen darf ein schnelleres Löschen nicht überholen. `melden` hängt hier an
+// Hand gesteuerten Antworten; die Aufrufe je Channel gehen nacheinander hinaus.
+function verzoegert() {
+  let jetztMs = 0;
+  const gemeldet = [];
+  const offen = [];
+  const griffe = tippenAnlegen({
+    melden: (aufruf) => {
+      gemeldet.push(`${aufruf.art} ${aufruf.channel}`);
+      return new Promise((antworten) => offen.push(() => antworten({ art: 'antwort', status: 200, wartenS: null })));
+    },
+    jetzt: () => jetztMs,
+  });
+  const beantworten = async () => {
+    offen.shift()();
+    await new Promise((weiter) => setImmediate(weiter));
+  };
+  return { griffe, gemeldet, beantworten, stellen: (ms) => { jetztMs = ms; } };
+}
+
+test('Löschen wartet auf die Antwort des Setzens im selben Channel, ein anderer Channel wartet nicht', async () => {
+  const welt = verzoegert();
+  welt.griffe.eingabe('allgemein', 'h');
+  welt.griffe.eingabe('allgemein', '');
+  assert.deepEqual(welt.gemeldet, ['setzen allgemein']);
+  welt.griffe.eingabe('technik', 'x');
+  assert.deepEqual(welt.gemeldet, ['setzen allgemein', 'setzen technik']);
+  await welt.beantworten();
+  assert.deepEqual(welt.gemeldet, ['setzen allgemein', 'setzen technik', 'loeschen allgemein']);
+});
+
+test('Wechsel des Channels mit Setzen im Flug: das Löschen folgt der Antwort', async () => {
+  const welt = verzoegert();
+  welt.griffe.eingabe('allgemein', 'h');
+  welt.griffe.gewechselt('allgemein');
+  assert.deepEqual(welt.gemeldet, ['setzen allgemein']);
+  await welt.beantworten();
+  assert.deepEqual(welt.gemeldet, ['setzen allgemein', 'loeschen allgemein']);
+});
+
+test('Senden mit Setzen im Flug: der Server kann das Setzen nach der Nachricht sehen — nach der Antwort folgt ein Löschen', async () => {
+  const welt = verzoegert();
+  welt.griffe.eingabe('allgemein', 'h');
+  welt.griffe.gesendet('allgemein');
+  assert.deepEqual(welt.gemeldet, ['setzen allgemein']);
+  await welt.beantworten();
+  assert.deepEqual(welt.gemeldet, ['setzen allgemein', 'loeschen allgemein']);
+});
+
+test('Senden ohne Setzen im Flug: kein Löschen (der Server beendet selbst)', async () => {
+  const welt = verzoegert();
+  welt.griffe.eingabe('allgemein', 'h');
+  await welt.beantworten();
+  welt.griffe.gesendet('allgemein');
+  await new Promise((weiter) => setImmediate(weiter));
+  assert.deepEqual(welt.gemeldet, ['setzen allgemein']);
+});
+
+test('Setzen nach einem Löschen im Flug geht erst nach dessen Antwort hinaus (Reihenfolge je Channel bleibt)', async () => {
+  const welt = verzoegert();
+  welt.griffe.eingabe('allgemein', 'h');
+  await welt.beantworten();
+  welt.griffe.eingabe('allgemein', '');
+  welt.griffe.eingabe('allgemein', 'n');
+  assert.deepEqual(welt.gemeldet, ['setzen allgemein', 'loeschen allgemein']);
+  await welt.beantworten();
+  assert.deepEqual(welt.gemeldet, ['setzen allgemein', 'loeschen allgemein', 'setzen allgemein']);
 });
