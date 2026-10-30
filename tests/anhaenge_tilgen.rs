@@ -739,3 +739,104 @@ async fn mehrfachverweise_im_mp_index_binnen_2_s() {
         doppelt.json
     );
 }
+
+fn kiste(typ: &[u8], inhalt: &[u8]) -> Vec<u8> {
+    let mut bytes = ((8 + inhalt.len()) as u32).to_be_bytes().to_vec();
+    bytes.extend(typ);
+    bytes.extend(inhalt);
+    bytes
+}
+
+fn infe(id: u16, typ: &[u8; 4]) -> Vec<u8> {
+    kiste(
+        b"infe",
+        &[&[2u8, 0, 0, 0][..], &id.to_be_bytes(), &[0, 0], typ, b"\0"].concat(),
+    )
+}
+
+/// HEIC aus `infe`, einem `iloc` (Version 1, Breiten 4/4) mit (ID, Versatz im `mdat`, Länge) und `mdat`-Inhalt.
+fn heic(infe: &[Vec<u8>], verweise: &[(u16, u64, u64)], mdat: &[u8]) -> Vec<u8> {
+    let iinf = kiste(
+        b"iinf",
+        &[&[0u8, 0, 0, 0, 0, 0][..], &infe.concat()].concat(),
+    );
+    let bauen = |mdat_anfang: u64| {
+        let mut iloc = vec![1u8, 0, 0, 0, 0x44, 0x00];
+        iloc.extend((verweise.len() as u16).to_be_bytes());
+        for (id, ab, lang) in verweise {
+            iloc.extend(id.to_be_bytes());
+            iloc.extend([0, 0, 0, 0]);
+            iloc.extend(1u16.to_be_bytes());
+            iloc.extend(((mdat_anfang + ab) as u32).to_be_bytes());
+            iloc.extend((*lang as u32).to_be_bytes());
+        }
+        let meta = kiste(
+            b"meta",
+            &[
+                &[0u8, 0, 0, 0][..],
+                &kiste(b"hdlr", &[&[0u8; 8][..], b"pict", &[0; 13]].concat()),
+                &iinf,
+                &kiste(b"iloc", &iloc),
+            ]
+            .concat(),
+        );
+        [kiste(b"ftyp", b"heic\0\0\0\0mif1heic"), meta].concat()
+    };
+    let mdat_anfang = bauen(0).len() as u64 + 8;
+    [bauen(mdat_anfang), kiste(b"mdat", mdat)].concat()
+}
+
+/// Exif-Item mit Ort, das `mdat` dahinter auf `bis` Bytes aufgefüllt.
+fn exif_item_mit_ort(bis: usize) -> (Vec<u8>, u64) {
+    use gemeinsam::dateien::tiff;
+    let mut exif = 0u32.to_be_bytes().to_vec();
+    exif.extend(tiff(
+        &[(0x0112, 3, 1, 6), (0x8825, 4, 1, 38)],
+        b"GPS52.5200N13.4050E",
+    ));
+    let lang = exif.len() as u64;
+    exif.resize(bis, 0x77);
+    (exif, lang)
+}
+
+/// ADR-0047 B1 P1 und P2 über das Programm (B0638): HEIC 32 MiB, ein Exif-Item, dessen `infe` 2.000-mal mit derselben
+/// `item_ID` steht → 422 `metadaten` binnen 2 s, `reserviert` 0, keine Datei im Eingang; 2.000 Exif-Items auf
+/// denselben Bereich → 422 binnen 2 s; ein Exif-Item über eine Bildkachel um ein Byte → 422.
+#[tokio::test]
+async fn mehrfachverweise_in_heif_binnen_2_s() {
+    let wurzel = ordner();
+    let instanz = starten(wurzel.path(), &["--anhangquote", "1GiB"], &[]);
+    let basis = instanz.adresse.as_str();
+    let (mdat, lang) = exif_item_mit_ort(32 * MIB as usize);
+    let doppelt = heic(&vec![infe(1, b"Exif"); 2_000], &[(1, 0, lang)], &mdat);
+    let (mdat_klein, _) = exif_item_mit_ort(4_096);
+    let alle: Vec<Vec<u8>> = (1..=2_000).map(|id| infe(id, b"Exif")).collect();
+    let verweise: Vec<(u16, u64, u64)> = (1..=2_000).map(|id| (id, 0, lang)).collect();
+    let gleich = heic(&alle, &verweise, &mdat_klein);
+    let kachel = heic(
+        &[infe(1, b"hvc1"), infe(2, b"Exif")],
+        &[(1, 0, 50), (2, 49, lang)],
+        &[vec![0x5A; 50], mdat_klein.clone()].concat(),
+    );
+
+    for (name, inhalt, grund) in [
+        ("doppelt.heic", doppelt, "Verweise doppelt"),
+        ("gleich.heic", gleich, "Verweise überschneiden sich"),
+        ("kachel.heic", kachel, "Verweise überschneiden sich"),
+    ] {
+        let (antwort, dauer) = hochladen_gemessen(basis, name, inhalt).await;
+        assert_eq!(
+            (
+                antwort.status,
+                antwort.json["regel"].as_str(),
+                antwort.json["grund"].as_str()
+            ),
+            (422, Some("metadaten"), Some(grund)),
+            "{name}: {}",
+            antwort.json
+        );
+        assert!(dauer.as_secs_f64() <= 2.0, "{name}: {dauer:?}");
+        assert_eq!(gesundheit(basis).await["reserviert"], 0, "{name}");
+        assert!(im_eingang(wurzel.path()).is_empty(), "{name}");
+    }
+}

@@ -225,7 +225,9 @@ fn lies_zahl(bytes: &[u8], stelle: usize, breite: usize) -> Ergebnis<u64> {
 }
 
 /// Das oberste `meta` (HEIF): Items `Exif` → minimales EXIF hinter dem `exif_tiff_header_offset`, XMP-Items genullt;
-/// nur über `iloc`-Ausdehnungen mit `construction_method` 0 innerhalb der Datei.
+/// nur über `iloc`-Ausdehnungen mit `construction_method` 0 innerhalb der Datei. Vor dem ersten Schreiben (ADR-0047
+/// B1 Regel 1): jede `item_ID` höchstens einmal in `iinf` und in `iloc`, kein Ziel überschneidet ein anderes Ziel
+/// oder die Ausdehnung eines anderen Items.
 fn oberstes_meta(port: &Port<'_>, meta: Kiste, zaehler: &mut Zaehler) -> Ergebnis<()> {
     if zu_gross(meta) {
         return metadaten("meta über 64 MiB");
@@ -235,27 +237,50 @@ fn oberstes_meta(port: &Port<'_>, meta: Kiste, zaehler: &mut Zaehler) -> Ergebni
     let Some(iinf) = kinder.iter().find(|kind| &kind.typ == b"iinf") else {
         return Ok(());
     };
-    let items = items(port, *iinf, zaehler)?;
-    if items.is_empty() {
-        return Ok(());
-    }
+    let ziele = items(port, *iinf, zaehler)?;
     let Some(iloc) = kinder.iter().find(|kind| &kind.typ == b"iloc") else {
-        return metadaten("Exif-Item ohne iloc");
+        if ziele.is_empty() {
+            return Ok(());
+        }
+        return metadaten("Exif-Item nicht als Bytebereich der Datei");
     };
-    let mut orte = HashMap::new();
-    for (kennung, ort) in ausdehnungen(port, *iloc)? {
-        orte.entry(kennung).or_insert(ort);
-    }
-    for (id, item) in items {
-        let Some(&(pos, laenge)) = orte.get(&id) else {
+    let orte = ausdehnungen(port, *iloc)?;
+    ueberschneidungsfrei(&orte.bereiche, &ziele)?;
+    let mut schritte = Vec::with_capacity(ziele.len());
+    for (id, item) in ziele {
+        let Some(&(pos, laenge)) = orte.einzeln.get(&id) else {
             return metadaten("Exif-Item nicht als Bytebereich der Datei");
         };
         if !port.enthaelt(pos, laenge) {
             return metadaten("Exif-Item nicht als Bytebereich der Datei");
         }
+        schritte.push((pos, laenge, item));
+    }
+    for (pos, laenge, item) in schritte {
         match item {
             Item::Exif => exif_item(port, pos, laenge, zaehler)?,
             Item::Xmp => port.nullen(pos, laenge)?,
+        }
+    }
+    Ok(())
+}
+
+/// Kein Ziel überschneidet ein anderes Ziel oder die Ausdehnung eines anderen Items: über die nach Anfang sortierten
+/// Bereiche, je mit dem weitesten Ende aller Bereiche und aller Ziele davor.
+fn ueberschneidungsfrei(bereiche: &[(u64, u64, u32)], ziele: &HashMap<u32, Item>) -> Ergebnis<()> {
+    let mut sortiert: Vec<(u64, u64, bool)> = bereiche
+        .iter()
+        .map(|&(anfang, ende, id)| (anfang, ende, ziele.contains_key(&id)))
+        .collect();
+    sortiert.sort_unstable();
+    let (mut ende_alle, mut ende_ziele) = (0u64, 0u64);
+    for (anfang, ende, ziel) in sortiert {
+        if anfang < ende_ziele || (ziel && anfang < ende_alle) {
+            return metadaten("Verweise überschneiden sich");
+        }
+        ende_alle = ende_alle.max(ende);
+        if ziel {
+            ende_ziele = ende_ziele.max(ende);
         }
     }
     Ok(())
@@ -267,14 +292,16 @@ enum Item {
     Xmp,
 }
 
-/// `iinf`: die Items vom Typ `Exif` und `mime` mit XMP (`infe` ab Version 2).
-fn items(port: &Port<'_>, iinf: Kiste, zaehler: &mut Zaehler) -> Ergebnis<Vec<(u32, Item)>> {
+/// `iinf`: die Ziele — Items vom Typ `Exif` und `mime` mit XMP (`infe` ab Version 2); jede `item_ID` höchstens einmal
+/// (alle `infe`, jede Version), sonst „Verweise doppelt“.
+fn items(port: &Port<'_>, iinf: Kiste, zaehler: &mut Zaehler) -> Ergebnis<HashMap<u32, Item>> {
     let kopf = port.lesen(iinf.inhalt, 8.min(iinf.ende - iinf.inhalt))?;
     let version = *kopf
         .first()
         .ok_or(Abbruch::Metadaten("Längen widersprechen sich"))?;
     let anfang = iinf.inhalt + if version == 0 { 6 } else { 8 };
-    let mut gefunden = Vec::new();
+    let mut gesehen = HashSet::new();
+    let mut gefunden = HashMap::new();
     for infe in kinder(port, anfang.min(iinf.ende), iinf.ende, zaehler)? {
         if &infe.typ != b"infe" {
             continue;
@@ -283,29 +310,38 @@ fn items(port: &Port<'_>, iinf: Kiste, zaehler: &mut Zaehler) -> Ergebnis<Vec<(u
         let version = *bytes
             .first()
             .ok_or(Abbruch::Metadaten("Längen widersprechen sich"))?;
+        let breite = if version == 3 { 4 } else { 2 };
+        let id = lies_zahl(&bytes, 4, breite)? as u32;
+        if !gesehen.insert(id) {
+            return metadaten("Verweise doppelt");
+        }
         if version < 2 {
             continue;
         }
-        let breite = if version == 2 { 2 } else { 4 };
-        let id = lies_zahl(&bytes, 4, breite)? as u32;
         let typ = bytes
             .get(4 + breite + 2..4 + breite + 6)
             .ok_or(Abbruch::Metadaten("Längen widersprechen sich"))?;
         if typ == b"Exif" {
-            gefunden.push((id, Item::Exif));
+            gefunden.insert(id, Item::Exif);
         } else if typ == b"mime" {
             let rest = String::from_utf8_lossy(&bytes[4 + breite + 6..]).to_lowercase();
             if rest.contains("rdf+xml") || rest.contains("xmp") {
-                gefunden.push((id, Item::Xmp));
+                gefunden.insert(id, Item::Xmp);
             }
         }
     }
     Ok(gefunden)
 }
 
-/// `iloc`: je Item mit genau einer Ausdehnung, `construction_method` 0 und `data_reference_index` 0 → (Anfang,
-/// Länge); jedes andere Item fehlt in der Liste.
-fn ausdehnungen(port: &Port<'_>, iloc: Kiste) -> Ergebnis<Vec<(u32, (u64, u64))>> {
+/// Was `iloc` nennt: je Item mit genau einer Ausdehnung, `construction_method` 0 und `data_reference_index` 0 →
+/// (Anfang, Länge); dazu jede nicht leere Ausdehnung mit `construction_method` 0 als (Anfang, Ende, ID).
+struct Orte {
+    einzeln: HashMap<u32, (u64, u64)>,
+    bereiche: Vec<(u64, u64, u32)>,
+}
+
+/// `iloc` lesen; eine `item_ID` zweimal → „Verweise doppelt“.
+fn ausdehnungen(port: &Port<'_>, iloc: Kiste) -> Ergebnis<Orte> {
     let bytes = port.lesen(iloc.inhalt, iloc.ende - iloc.inhalt)?;
     let version = *bytes
         .first()
@@ -325,10 +361,17 @@ fn ausdehnungen(port: &Port<'_>, iloc: Kiste) -> Ergebnis<Vec<(u32, (u64, u64))>
     let mut stelle = 6;
     let anzahl = lies_zahl(&bytes, stelle, id_breite)?;
     stelle += id_breite;
-    let mut liste = Vec::new();
+    let mut orte = Orte {
+        einzeln: HashMap::new(),
+        bereiche: Vec::new(),
+    };
+    let mut gesehen = HashSet::new();
     for _ in 0..anzahl {
         let id = lies_zahl(&bytes, stelle, id_breite)? as u32;
         stelle += id_breite;
+        if !gesehen.insert(id) {
+            return metadaten("Verweise doppelt");
+        }
         let methode = if version >= 1 {
             stelle += 2;
             lies_zahl(&bytes, stelle - 2, 2)? & 0xF
@@ -341,28 +384,40 @@ fn ausdehnungen(port: &Port<'_>, iloc: Kiste) -> Ergebnis<Vec<(u32, (u64, u64))>
         stelle += basis;
         let ausdehnungen = lies_zahl(&bytes, stelle, 2)?;
         stelle += 2;
+        // Ausdehnungen ohne Bytes für Versatz und Länge sind leer: sie werden übersprungen, nicht gezählt — die
+        // Arbeit hängt an den Bytes, nicht an `extent_count` (Befund #51 B1).
+        if versatz + laenge == 0 {
+            stelle += (ausdehnungen as usize) * index;
+            if stelle > bytes.len() {
+                return metadaten("Längen widersprechen sich");
+            }
+            continue;
+        }
         let mut erste = None;
-        if ausdehnungen > 0 {
+        for nummer in 0..ausdehnungen {
             stelle += index;
             let ab = lies_zahl(&bytes, stelle, versatz)?;
             stelle += versatz;
             let lang = lies_zahl(&bytes, stelle, laenge)?;
             stelle += laenge;
-            erste = Some((ab, lang));
+            let anfang = basis_versatz.checked_add(ab);
+            if nummer == 0 {
+                erste = anfang.map(|anfang| (anfang, lang));
+            }
+            if let (0, Some(anfang)) = (methode, anfang)
+                && lang > 0
+            {
+                let ende = anfang
+                    .checked_add(lang)
+                    .ok_or(Abbruch::Metadaten("Längen widersprechen sich"))?;
+                orte.bereiche.push((anfang, ende, id));
+            }
         }
-        // Die übrigen Ausdehnungen nur überspringen: die Arbeit hängt an den Bytes, nicht an `extent_count` — bei
-        // Feldbreite 0 belegen 0xFFFF Ausdehnungen kein Byte (Befund #51 B1).
-        stelle += (ausdehnungen.saturating_sub(1) as usize) * (index + versatz + laenge);
-        if stelle > bytes.len() {
-            return metadaten("Längen widersprechen sich");
-        }
-        if let (Some((ab, lang)), 0, 0, 1) = (erste, methode, referenz, ausdehnungen)
-            && let Some(anfang) = basis_versatz.checked_add(ab)
-        {
-            liste.push((id, (anfang, lang)));
+        if let (Some(ort), 0, 0, 1) = (erste, methode, referenz, ausdehnungen) {
+            orte.einzeln.insert(id, ort);
         }
     }
-    Ok(liste)
+    Ok(orte)
 }
 
 /// Exif-Item: `exif_tiff_header_offset` (u32), dahinter das TIFF → minimales EXIF; Leseziel sind TIFF-Kopf und IFD0
@@ -731,7 +786,8 @@ mod tests {
 
     /// Befund #51 B1, gleiche Klasse: 50.000 Exif-Items gegen ein volles `iloc` (Items am Ende) — Suche je Item nicht
     /// linear. 150.000 Einträge passen in kein `iloc` ≤ 1 MiB (Eintrag ≥ 10 Bytes ab Version 2, darunter 16-Bit-Zahl);
-    /// hier 69.000 Einträge zu 15 Bytes.
+    /// hier 69.000 Einträge zu 15 Bytes. Seit ADR-0047 B1 Regel 1 hat jedes Item seinen eigenen Bereich (je ein
+    /// Exif im `mdat`, die fremden dahinter) — derselbe Bereich für alle wäre „Verweise überschneiden sich“.
     #[test]
     fn viele_exif_items_gegen_ein_volles_iloc_enden_in_2_s() {
         let exif = [
@@ -745,17 +801,21 @@ mod tests {
         let iloc = |mdat_anfang: u64| {
             let mut inhalt = vec![2u8, 0, 0, 0, 0x01, 0x40];
             inhalt.extend_from_slice(&(fremde + items).to_be_bytes());
-            let ids = (1..=fremde).map(|n| 1_000_000 + n).chain(1..=items);
-            for id in ids {
+            let lang = exif.len() as u64;
+            let fremde_ab = mdat_anfang + u64::from(items) * lang;
+            let ids = (1..=fremde)
+                .map(|n| (1_000_000 + n, fremde_ab + u64::from(n) * lang))
+                .chain((1..=items).map(|id| (id, mdat_anfang + u64::from(id - 1) * lang)));
+            for (id, ab) in ids {
                 inhalt.extend_from_slice(&id.to_be_bytes());
                 inhalt.extend_from_slice(&[0, 0, 0, 0]);
-                inhalt.extend_from_slice(&(mdat_anfang as u32).to_be_bytes());
+                inhalt.extend_from_slice(&(ab as u32).to_be_bytes());
                 inhalt.extend_from_slice(&1u16.to_be_bytes());
                 inhalt.push(exif.len() as u8);
             }
             kiste(b"iloc", &inhalt)
         };
-        let daten = heic_aus(&infe, iloc, &exif);
+        let daten = heic_aus(&infe, iloc, &exif.repeat(items as usize));
 
         let zaehler = in_hoechstens_2_s("50.000 Items", daten, |ergebnis| {
             ergebnis
@@ -910,5 +970,123 @@ mod tests {
                 "{methode} {versatz}"
             );
         }
+    }
+
+    /// `iloc` Version 1 mit Feldbreiten 4/4, ohne Basis: je Eintrag (ID, Anfang, Länge), `construction_method` 0.
+    fn iloc_aus(eintraege: &[(u16, u64, u64)]) -> Vec<u8> {
+        let mut inhalt = vec![1u8, 0, 0, 0, 0x44, 0x00];
+        inhalt.extend_from_slice(&(eintraege.len() as u16).to_be_bytes());
+        for (id, ab, lang) in eintraege {
+            inhalt.extend_from_slice(&id.to_be_bytes());
+            inhalt.extend_from_slice(&[0, 0, 0, 0]);
+            inhalt.extend_from_slice(&1u16.to_be_bytes());
+            inhalt.extend_from_slice(&(*ab as u32).to_be_bytes());
+            inhalt.extend_from_slice(&(*lang as u32).to_be_bytes());
+        }
+        kiste(b"iloc", &inhalt)
+    }
+
+    fn item_infe(id: u16, typ: &[u8; 4]) -> Vec<u8> {
+        kiste(
+            b"infe",
+            &[&[2u8, 0, 0, 0][..], &id.to_be_bytes(), &[0, 0], typ, b"\0"].concat(),
+        )
+    }
+
+    /// Exif-Item mit Ort (`exif_tiff_header_offset` 0, TIFF mit GPS-Text).
+    fn exif_mit_ort() -> Vec<u8> {
+        let mut tiff = tiff(
+            Ordnung::Intel,
+            &[(0x0112, 3, 1, 6), (0x8825, 4, 1, 40)],
+            None,
+        );
+        tiff.extend_from_slice(b"GPS 52.5200 13.4050");
+        [&0u32.to_be_bytes()[..], &tiff].concat()
+    }
+
+    /// Ergebnis und ob die Datei unverändert blieb; je Fall ≤ 2 s.
+    fn verweise(daten: Vec<u8>) -> (Option<&'static str>, bool) {
+        let start = std::time::Instant::now();
+        let (ergebnis, datei) = tilgen(daten.clone());
+        assert!(
+            start.elapsed().as_secs_f64() <= 2.0,
+            "{:?}",
+            start.elapsed()
+        );
+        let grund = match ergebnis {
+            Err(Abbruch::Metadaten(grund)) => Some(grund),
+            _ => None,
+        };
+        (grund, datei.inhalt() == daten)
+    }
+
+    /// ADR-0047 B1 P1 (B0638): ein Exif-Item, dessen `infe` 2.000-mal mit derselben `item_ID` steht → „Verweise
+    /// doppelt“, nichts geschrieben; dasselbe für eine `item_ID` zweimal in `iloc`.
+    #[test]
+    fn doppelte_item_ids_sind_nicht_tilgbar() {
+        let exif = exif_mit_ort();
+        let lang = exif.len() as u64;
+        let infe = vec![item_infe(1, b"Exif"); 2_000];
+        let daten = heic_aus(&infe, |ab| iloc_aus(&[(1, ab, lang)]), &exif);
+        assert_eq!(verweise(daten), (Some("Verweise doppelt"), true));
+
+        let daten = heic_aus(
+            &[item_infe(1, b"Exif")],
+            |ab| iloc_aus(&[(1, ab, lang), (1, ab, lang)]),
+            &exif,
+        );
+        assert_eq!(verweise(daten), (Some("Verweise doppelt"), true));
+    }
+
+    /// ADR-0047 B1 P2 (B0638): 2.000 verschiedene Exif-Items auf denselben Bereich; zwei, die sich um ein Byte
+    /// überschneiden; ein Exif-Item, das eine Bildkachel um ein Byte überdeckt → „Verweise überschneiden sich“,
+    /// nichts geschrieben (die Kachel byte-gleich).
+    #[test]
+    fn ueberschneidende_ziele_sind_nicht_tilgbar() {
+        let exif = exif_mit_ort();
+        let lang = exif.len() as u64;
+        let infe: Vec<_> = (1..=2_000).map(|id| item_infe(id, b"Exif")).collect();
+        let daten = heic_aus(
+            &infe,
+            |ab| iloc_aus(&(1..=2_000).map(|id| (id, ab, lang)).collect::<Vec<_>>()),
+            &exif,
+        );
+        assert_eq!(verweise(daten), (Some("Verweise überschneiden sich"), true));
+
+        let zwei = [exif.clone(), exif.clone()].concat();
+        let daten = heic_aus(
+            &[item_infe(1, b"Exif"), item_infe(2, b"Exif")],
+            |ab| iloc_aus(&[(1, ab, lang), (2, ab + lang - 1, lang)]),
+            &zwei,
+        );
+        assert_eq!(verweise(daten), (Some("Verweise überschneiden sich"), true));
+
+        let kachel = vec![0x5A; 50];
+        let mit_kachel = [kachel.clone(), exif.clone()].concat();
+        let daten = heic_aus(
+            &[item_infe(1, b"hvc1"), item_infe(2, b"Exif")],
+            |ab| iloc_aus(&[(1, ab, 50), (2, ab + 49, lang)]),
+            &mit_kachel,
+        );
+        assert_eq!(verweise(daten), (Some("Verweise überschneiden sich"), true));
+    }
+
+    /// Kontrolle: Exif-Item direkt hinter der Kachel (keine Überschneidung) → getilgt, Kachel byte-gleich.
+    #[test]
+    fn ein_exif_item_direkt_hinter_der_kachel_wird_getilgt() {
+        let exif = exif_mit_ort();
+        let lang = exif.len() as u64;
+        let kachel = vec![0x5A; 50];
+        let daten = heic_aus(
+            &[item_infe(1, b"hvc1"), item_infe(2, b"Exif")],
+            |ab| iloc_aus(&[(1, ab, 50), (2, ab + 50, lang)]),
+            &[kachel.clone(), exif].concat(),
+        );
+
+        let (ergebnis, datei) = tilgen(daten);
+
+        assert!(ergebnis.expect("getilgt").ort);
+        let getilgt = datei.inhalt();
+        assert!(enthaelt(&getilgt, &kachel) && !enthaelt(&getilgt, b"GPS"));
     }
 }
