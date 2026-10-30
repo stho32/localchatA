@@ -29,6 +29,7 @@ mod schranke;
 mod speicherablage;
 pub mod textanfang;
 pub mod textregel;
+pub mod treffer;
 mod verlaufsindex;
 mod verzeichnis;
 pub mod wiederholung;
