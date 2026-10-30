@@ -88,6 +88,35 @@ pub fn anwesenheit_veroeffentlichen(
     })
 }
 
+/// Die Veröffentlichung für die Anwesenheit mit Ende der Aktivität (ADR-0051 Regel 7 d, e): jeder Wechsel als
+/// Ereignis auf den Bus, danach — noch unter der Sperre der Anwesenheit, Sperrfolge Anwesenheit → Aktivität — enden
+/// alle Zustände der Kennung, wenn ihr Wechsel sie beendet.
+pub fn anwesenheit_mit_aktivitaet_veroeffentlichen(
+    bus: &std::sync::Arc<Bus>,
+    aktivitaet: &std::sync::Arc<crate::aktivitaet::Aktivitaet>,
+) -> crate::anwesenheit::Veroeffentlichen {
+    let an_den_bus = anwesenheit_veroeffentlichen(bus);
+    let aktivitaet = std::sync::Arc::clone(aktivitaet);
+    std::sync::Arc::new(move |wechsel: &Wechsel| {
+        an_den_bus(wechsel);
+        if beendet_aktivitaet(&wechsel.teilnehmer) {
+            aktivitaet.beenden_alle(&wechsel.teilnehmer.kennung);
+        }
+    })
+}
+
+/// `weg` beendet für jeden; `offline` nur für die Art `mensch` — ein Agent ist zwischen zwei Warte-Aufrufen immer
+/// `offline` (ADR-0051 F5, Bestätigung beim product-owner offen).
+fn beendet_aktivitaet(zeile: &crate::anwesenheit::Teilnehmerzeile) -> bool {
+    use crate::anwesenheit::Art;
+    use crate::anwesenheit::status::Status;
+    match zeile.status {
+        Status::Weg => true,
+        Status::Offline => zeile.art == Art::Mensch,
+        Status::Online => false,
+    }
+}
+
 /// Die Veröffentlichung für die Channels: jeder Wechsel als Ereignis auf den Bus (ADR-0023 Regel 2).
 pub fn channels_veroeffentlichen(
     bus: &std::sync::Arc<Bus>,
@@ -217,6 +246,39 @@ mod tests {
                 weg_um: None,
             },
         })
+    }
+
+    /// B0694 (ADR-0051 Regel 7 d, e; Mutante M6): `weg` beendet jede Art, `offline` nur `mensch`, `online` nichts.
+    #[test]
+    fn weg_beendet_jeden_offline_nur_menschen() {
+        let zeile = |art, status| {
+            let Ereignis::Anwesenheit(mut wechsel) = wechsel(1) else {
+                unreachable!("Anwesenheit")
+            };
+            wechsel.teilnehmer.art = art;
+            wechsel.teilnehmer.status = status;
+            wechsel.teilnehmer
+        };
+
+        let tabelle: Vec<(Art, Status, bool)> = [Art::Mensch, Art::Agent]
+            .into_iter()
+            .flat_map(|art| {
+                [Status::Online, Status::Offline, Status::Weg]
+                    .map(|status| (art, status, beendet_aktivitaet(&zeile(art, status))))
+            })
+            .collect();
+
+        assert_eq!(
+            tabelle,
+            [
+                (Art::Mensch, Status::Online, false),
+                (Art::Mensch, Status::Offline, true),
+                (Art::Mensch, Status::Weg, true),
+                (Art::Agent, Status::Online, false),
+                (Art::Agent, Status::Offline, false),
+                (Art::Agent, Status::Weg, true),
+            ]
+        );
     }
 
     #[tokio::test]

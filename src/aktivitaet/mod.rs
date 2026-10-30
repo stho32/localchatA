@@ -211,10 +211,6 @@ impl Aktivitaet {
     }
 
     /// Beendet alle Zustände der Kennung (Verlassen, offline eines Menschen); Ende-Signale nach Gespräch geordnet.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "Verlassen und offline rufen es ab B0694")
-    )]
     pub fn beenden_alle(&self, kennung: &Kennung) {
         let mut inneres = self.sperre();
         let jetzt = self.uhr.jetzt();

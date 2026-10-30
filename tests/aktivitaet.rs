@@ -7,7 +7,7 @@ mod gemeinsam;
 
 use gemeinsam::protokoll::zeilen;
 use gemeinsam::senden::{HEUTE, beitreten, ordner, senden, starten};
-use gemeinsam::strom::{Empfangen, Strom};
+use gemeinsam::strom::{Empfangen, Strom, ist_wechsel};
 use gemeinsam::{Absender, ApiAntwort, Instanz, api_antwort, gesundheit};
 use serde_json::{Value, json};
 use std::time::Duration;
@@ -693,4 +693,163 @@ async fn bremse_je_herkunft_nach_120_meldungen_einer_adresse() {
             "Zu viele Aktivitätsmeldungen von 127.0.0.1 (alle Teilnehmer dieser Adresse zusammen) in # {gespraech} — wieder möglich in 1 s."
         )
     );
+}
+
+/// Erst der Wechsel der Anwesenheit, dann das Ende der Aktivität von `kennung` (beide können im selben Stück kommen) —
+/// mit der Zeit vom Auslöser bis zum Ende.
+async fn ende_nach_wechsel(
+    strom: &mut Strom,
+    kennung: &'static str,
+    status: &'static str,
+    ausgeloest: Instant,
+) -> (Option<Empfangen>, Option<Duration>) {
+    let ab = strom.ereignisse.len();
+    let ist_ende = move |e: &Empfangen| aktivitaet_von(kennung)(e) && e.data["zustand"].is_null();
+    let wechsel = strom
+        .bis(Duration::from_secs(5), ist_wechsel(kennung, status))
+        .await;
+    let schon = strom.ereignisse[ab..].iter().find(|e| ist_ende(e)).cloned();
+    let ende = match schon {
+        Some(ende) => Some(ende),
+        None => strom.bis(Duration::from_secs(5), ist_ende).await,
+    };
+    let reihenfolge = ende
+        .as_ref()
+        .zip(wechsel.as_ref())
+        .map(|(e, w)| e.ankunft >= w.ankunft);
+    assert_ne!(reihenfolge, Some(false), "Ende nach dem Wechsel");
+    (
+        wechsel,
+        ende.map(|e| e.ankunft.saturating_duration_since(ausgeloest)),
+    )
+}
+
+/// B0694, P7 Mensch (ADR-0051 Regel 7 d, e; R00045 „Verlassen und offline eines Menschen“): `anna` (`art: mensch`, mit
+/// Strom) tippt; ihr Strom wird geschlossen → `ben` liest erst `offline`, dann `aktivitaet` mit `zustand: null`, binnen
+/// 2 s nach dem Schließen. `anna` verbindet neu, tippt und verlässt → `weg`, dann das Ende, binnen 1 s.
+#[tokio::test]
+async fn p7_offline_und_verlassen_eines_menschen_beenden_seinen_zustand() {
+    let wurzel = ordner();
+    let instanz = starten(wurzel.path(), &[]);
+    let absender = Absender::von("127.0.0.1");
+    let anna = beitreten(&absender, &instanz.adresse, "anna", Some("mensch")).await;
+    let ben = beitreten(&absender, &instanz.adresse, "ben", Some("mensch")).await;
+    let mut strom_ben = Strom::oeffnen(&absender, &instanz.adresse, &ben).await;
+    let strom_anna = Strom::oeffnen(&absender, &instanz.adresse, &anna).await;
+    let anna_tippt = async |strom_ben: &mut Strom| {
+        let gesetzt = setzen(
+            &absender,
+            &instanz,
+            Some(&anna),
+            "allgemein",
+            json!({"zustand": "tippt"}),
+        )
+        .await;
+        assert_eq!(gesetzt.status, 200, "{}", gesetzt.json);
+        strom_ben
+            .bis(Duration::from_secs(5), aktivitaet_von("anna@127.0.0.1"))
+            .await
+            .expect("gesetzt bei ben");
+    };
+    // Anlauf vorbei: ein `offline` aus der Zeit vor dem Strom ist gelesen, bevor der Strom schließt.
+    strom_ben.mitlesen(Duration::from_millis(1_200)).await;
+    anna_tippt(&mut strom_ben).await;
+
+    drop(strom_anna);
+    let geschlossen = Instant::now();
+    let (offline, nach_offline) =
+        ende_nach_wechsel(&mut strom_ben, "anna@127.0.0.1", "offline", geschlossen).await;
+    let _strom_anna = Strom::oeffnen(&absender, &instanz.adresse, &anna).await;
+    anna_tippt(&mut strom_ben).await;
+    let verlassen = api_antwort(
+        absender
+            .anfrage(
+                reqwest::Method::POST,
+                format!("{}api/verlassen", instanz.adresse),
+            )
+            .header("X-LocalchatA-Sitzung", &anna),
+    )
+    .await;
+    let verlassen_um = Instant::now();
+    let (weg, nach_weg) =
+        ende_nach_wechsel(&mut strom_ben, "anna@127.0.0.1", "weg", verlassen_um).await;
+
+    assert!(offline.is_some(), "offline bei ben");
+    let nach_offline = nach_offline.expect("Ende nach dem Schließen");
+    println!("Ende nach Schließen: {} ms", nach_offline.as_millis());
+    assert!(nach_offline <= Duration::from_secs(2), "{nach_offline:?}");
+    assert!(
+        (200..300).contains(&verlassen.status),
+        "{} {}",
+        verlassen.status,
+        verlassen.json
+    );
+    assert!(weg.is_some(), "weg bei ben");
+    let nach_weg = nach_weg.expect("Ende nach dem Verlassen");
+    println!("Ende nach Verlassen: {} ms", nach_weg.as_millis());
+    assert!(nach_weg <= Duration::from_secs(1), "{nach_weg:?}");
+}
+
+/// B0694 Sperrfolge Anwesenheit → Aktivität ohne Verklemmung (Gnadenfrist 200 ms): acht Menschen öffnen je einen
+/// Strom und setzen in Schleife; mittendrin schließt ihr Strom (offline beendet unter der Sperre der Anwesenheit,
+/// während die anderen weiter setzen), später schweigen sie 1,5 s (weg nach der Gnadenfrist) und setzen danach wieder.
+/// Alles endet binnen 20 s, jede Antwort ist 200, 401 (Sitzung weg) oder 429, und die Instanz antwortet danach.
+#[tokio::test]
+async fn sperrfolge_offline_weg_und_setzen_gleichzeitig_ohne_verklemmung() {
+    let wurzel = ordner();
+    let instanz = starten(wurzel.path(), &[("LOCALCHATA_GNADENFRIST_MS", "200")]);
+    let absender = std::sync::Arc::new(Absender::von("127.0.0.1"));
+    let mut aufgaben = Vec::new();
+    for n in 0..8_u64 {
+        let token = beitreten(
+            &absender,
+            &instanz.adresse,
+            &format!("m{n}"),
+            Some("mensch"),
+        )
+        .await;
+        let (absender, adresse) = (std::sync::Arc::clone(&absender), instanz.adresse.clone());
+        aufgaben.push(tokio::spawn(async move {
+            let mut strom = Some(Strom::oeffnen(&absender, &adresse, &token).await);
+            let mut status = Vec::new();
+            for runde in 0..30 {
+                if runde == 5 + n {
+                    strom.take();
+                }
+                if runde == 20 {
+                    tokio::time::sleep(Duration::from_millis(1_500)).await;
+                }
+                let antwort = api_antwort(
+                    absender
+                        .anfrage(
+                            reqwest::Method::PUT,
+                            format!("{adresse}api/channels/allgemein/aktivitaet"),
+                        )
+                        .header("X-LocalchatA-Sitzung", &token)
+                        .header("Content-Type", "application/json")
+                        .body(r#"{"zustand":"tippt"}"#),
+                )
+                .await;
+                status.push(antwort.status);
+                tokio::time::sleep(Duration::from_millis(40 * (n % 3))).await;
+            }
+            status
+        }));
+    }
+
+    let alle = tokio::time::timeout(Duration::from_secs(20), async {
+        let mut alle = Vec::new();
+        for aufgabe in aufgaben {
+            alle.extend(aufgabe.await.expect("Aufgabe"));
+        }
+        alle
+    })
+    .await
+    .expect("keine Verklemmung");
+    let (gesund, _) = gesundheit(&instanz.adresse).await;
+
+    assert_eq!(alle.len(), 240);
+    assert!(alle.iter().all(|s| [200, 401, 429].contains(s)), "{alle:?}");
+    assert!(alle.contains(&401), "Gnadenfrist abgelaufen: {alle:?}");
+    assert_eq!(gesund, 200);
 }

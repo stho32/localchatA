@@ -471,7 +471,7 @@ async fn nach_der_sperre(
             Arc::new(Betriebssystemzufall),
             gnadenfrist,
         )
-        .mit_veroeffentlichen(anwesenheit_veroeffentlichen(&bus, &protokoll)),
+        .mit_veroeffentlichen(anwesenheit_veroeffentlichen(&bus, &aktivitaet, &protokoll)),
     );
     let listener = port::listener_binden(&auftrag.host, auftrag.port).await?;
     let adresse = listener.local_addr().map_err(|fehler| Startfehler::Port {
@@ -885,12 +885,14 @@ fn frist_pflegen(
     }
 }
 
-/// Wechsel an den Bus; online/offline zusätzlich als DEBUG `sitzung` (ADR-0042 Regel 2).
+/// Wechsel an den Bus und an die Aktivität (ADR-0051 Regel 7 d, e); online/offline zusätzlich als DEBUG `sitzung`
+/// (ADR-0042 Regel 2).
 fn anwesenheit_veroeffentlichen(
     bus: &Arc<Bus>,
+    aktivitaet: &Arc<crate::aktivitaet::Aktivitaet>,
     protokoll: &Arc<Protokoll>,
 ) -> crate::anwesenheit::Veroeffentlichen {
-    let an_den_bus = bus::anwesenheit_veroeffentlichen(bus);
+    let an_den_bus = bus::anwesenheit_mit_aktivitaet_veroeffentlichen(bus, aktivitaet);
     let protokoll = Arc::clone(protokoll);
     Arc::new(move |wechsel: &crate::anwesenheit::Wechsel| {
         let text = match wechsel.teilnehmer.status {
@@ -1175,7 +1177,11 @@ mod tests {
     #[test]
     fn online_und_offline_sind_je_genau_eine_debug_zeile_mit_kennung_weg_keine() {
         let (protokoll, speicher, _, _) = im_speicher("2026-10-28T12:00:00+01:00", Stufe::Debug);
-        let veroeffentlichen = anwesenheit_veroeffentlichen(&Arc::new(Bus::neu(16)), &protokoll);
+        let aktivitaet = Arc::new(crate::aktivitaet::Aktivitaet::neu(Arc::new(
+            crate::uhr::Systemuhr,
+        )));
+        let veroeffentlichen =
+            anwesenheit_veroeffentlichen(&Arc::new(Bus::neu(16)), &aktivitaet, &protokoll);
 
         veroeffentlichen(&wechsel(1, Status::Online));
         veroeffentlichen(&wechsel(2, Status::Offline));

@@ -185,22 +185,24 @@ pub(crate) mod testserver {
         .expect("leerer Ordner geladen")
         .mit_veroeffentlichen(crate::live::bus::channels_veroeffentlichen(&bus))
         .mit_nachricht_veroeffentlichen(crate::live::bus::nachrichten_veroeffentlichen(&bus));
+        let aktivitaet = Arc::new(
+            crate::aktivitaet::Aktivitaet::neu(Arc::new(Systemuhr))
+                .mit_veroeffentlichen(crate::live::bus::aktivitaet_veroeffentlichen(&signalbus)),
+        );
         let anwesenheit = Anwesenheit::neu(
             Arc::new(Systemuhr),
             Arc::new(Betriebssystemzufall),
             Duration::from_secs(60),
         )
-        .mit_veroeffentlichen(crate::live::bus::anwesenheit_veroeffentlichen(&bus));
+        .mit_veroeffentlichen(
+            crate::live::bus::anwesenheit_mit_aktivitaet_veroeffentlichen(&bus, &aktivitaet),
+        );
         Zustand {
             ordner: ordner.to_path_buf(),
             gespraeche: Arc::new(gespraeche),
             anwesenheit: Arc::new(anwesenheit),
             bus,
-            aktivitaet: Arc::new(
-                crate::aktivitaet::Aktivitaet::neu(Arc::new(Systemuhr)).mit_veroeffentlichen(
-                    crate::live::bus::aktivitaet_veroeffentlichen(&signalbus),
-                ),
-            ),
+            aktivitaet,
             signalbus,
             herzschlag: Duration::from_secs(5),
             ende: Ende::nie(),
