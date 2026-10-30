@@ -200,3 +200,4 @@ Regeln:
 - Referenz Teams-Chat „Zitierte Antwort“ (laut PO 146 abgerufen 2026-10-30): normale Nachricht mit Vorschau, Klick springt zum Original
 
 ## Ergänzungen
+- **2026-10-30 (Karte #17, I0016):** Regel 9 ist ein Zweig der einen Trefferfunktion von `warten` ([ADR-0054](0054-warten-long-poll-ueber-alle-gespraeche-ein-zeiger-seit-filter-als-vereinigung-nur-nachrichten-wecken.md) Regel 2: `anlass` `antwort`, zählt unter dem Filter `erwaehnung`), für Nachholen und live dieselbe — B0712 muss nicht geteilt werden. Zu „Folgen für andere Knoten / I0013“: `@name` trifft über den **Namen** (ADR-0054 Regel 6, E10); Regel 9 bleibt bei der Kennung.
