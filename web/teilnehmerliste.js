@@ -99,17 +99,37 @@ export function zeichnen(region, gruppen, { versatz = 0, jetzt = Date.now() } = 
     }
     inhalt.push(...gruppe.zeilen.map(zeileFuer));
   }
+  const fokussiert = fokussierteZeile(region);
   region.replaceChildren(...inhalt);
+  if (fokussiert !== null) {
+    zeileMitKennung(region, fokussiert)?.querySelector('.lc-person-knopf')?.focus();
+  }
 }
 
-// Zeichnet eine Zeile an ihrem Platz neu (Sekundentakt) — die übrigen Zeilen bleiben unberührt.
+// Lag der Fokus in einer Zeile, kehrt er nach dem Neuzeichnen auf den Knopf der Zeile gleicher Kennung zurück.
+function fokussierteZeile(region) {
+  const zeile = document.activeElement?.closest('.lc-person');
+  if (zeile === null || zeile === undefined || !region.contains(zeile)) {
+    return null;
+  }
+  return zeile.dataset.kennung;
+}
+
+function zeileMitKennung(region, kennung) {
+  return [...region.querySelectorAll('.lc-person')].find((kandidat) => kandidat.dataset.kennung === kennung);
+}
+
+// Der Sekundentakt erneuert nur Status und Form einer Zeile an ihrem Platz — Knopf und Menü der Zeile bleiben, und mit
+// ihnen der Fokus (R00050 V6); die übrigen Zeilen bleiben unberührt.
 export function zeileNeuZeichnen(region, zeile, { versatz = 0, jetzt = Date.now() } = {}) {
   const uhr = { versatz, jetzt, standUnbekannt: region.closest('.lc-unbekannt') !== null };
-  const bisher = [...region.querySelectorAll('.lc-person')].find((kandidat) => kandidat.dataset.kennung === zeile.kennung);
+  const bisher = zeileMitKennung(region, zeile.kennung);
   if (bisher === undefined) {
     return;
   }
-  bisher.replaceWith(zeileZeichnen(zeile, uhr));
+  const neu = zeileZeichnen(zeile, uhr);
+  bisher.className = neu.className;
+  bisher.querySelector('.lc-person-status').replaceWith(neu.querySelector('.lc-person-status'));
 }
 
 // Die Form einer Zeile (rein): ● online — bei unbekanntem Stand „zuletzt online“ —, ○ „offline“, oder bis 60 s
@@ -139,6 +159,8 @@ function unterkopf(herkunft) {
 
 // Kachel, dann Kennung mit „Agent“ und „(du)“ dahinter (umbrochen erst bei Platzmangel, die Kennung vor dem @),
 // rechts der Status in einer festen Spalte — so verschiebt ein Wechsel nach offline oder „gleich weg“ keine Zeile.
+// Jede andere Zeile trägt Kachel und Kennung in einem Knopf, der das Menü öffnet (teilnehmermenue.js); die eigene
+// nicht — an sich selbst gibt es keine Direktnachricht (R00050 P4).
 function zeileZeichnen(zeile, uhr) {
   const art = artDer(zeile);
   const form = statusform(zeile, uhr);
@@ -162,9 +184,21 @@ function zeileZeichnen(zeile, uhr) {
   if (zeile.status === 'offline') {
     klassen += ' off';
   }
-  const zeilenElement = element('div', { className: klassen }, [kachel, text, status]);
+  let person = [kachel, text];
+  if (!zeile.eigene) {
+    person = [menueKnopf(kachel, text)];
+  }
+  const zeilenElement = element('div', { className: klassen }, [...person, status]);
   zeilenElement.dataset.kennung = zeile.kennung;
   return zeilenElement;
+}
+
+// Nicht im Tab-Fluss: welcher Knopf der eine Tab-Stopp der Liste ist, bestimmt teilnehmermenue.js.
+function menueKnopf(kachel, text) {
+  const knopf = element('button', { type: 'button', className: 'lc-person-knopf', tabIndex: -1 }, [kachel, text]);
+  knopf.setAttribute('aria-haspopup', 'menu');
+  knopf.setAttribute('aria-expanded', 'false');
+  return knopf;
 }
 
 // Die Restzeit ist für Bildschirmleser verborgen: der Punkt trägt den statischen Namen (ADR-0019 Regel 5).

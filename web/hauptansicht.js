@@ -16,6 +16,7 @@ import * as seitenleiste from './seitenleiste.js';
 import { dialogEinrichten } from './channel-anlegen.js';
 import { einstellungenEinrichten } from './channel-einstellungen.js';
 import { onlineBenennen } from './teilnehmerliste.js';
+import { teilnehmermenueEinrichten } from './teilnehmermenue.js';
 import { eingabeAnlegen } from './eingabe.js';
 import { sendenEinrichten, neuerSchluessel } from './senden.js';
 import { hochladungenAnlegen, ablegenAbfangen } from './anhaenge.js';
@@ -74,7 +75,7 @@ export function zeichnen(wurzel, teilnehmer, optionen) {
     statusZeigen: statusMelden,
     signal: vorigeAnsichtAbmelden.signal,
   });
-  einAusblendenBedienen({ schalter, region, haupt }, vorigeAnsichtAbmelden.signal);
+  const teilnehmerPanel = einAusblendenBedienen({ schalter, region, haupt }, vorigeAnsichtAbmelden.signal);
   let letzterZustand = 'verbunden';
   channels.channelsZeigen([]);
   const hochladen = hochladungenAnlegen({
@@ -166,9 +167,21 @@ export function zeichnen(wurzel, teilnehmer, optionen) {
     seitenleiste: channels, kopf, mitte, verlauf, eingabe, beiAuswahl, beiOeffnen, erneutWaehlen: wieder.erneutWaehlen,
     eigeneKennung: teilnehmer.kennung,
   }, vorigeAnsichtAbmelden.signal);
+  // Ein Direktgespräch beginnt nur hier (R00050 P5): die Adresse wählt es, das Panel geht unter 1100 px zu, der Fokus in
+  // die Eingabe (V6).
+  teilnehmermenueEinrichten({
+    zeilen,
+    direktnachricht: (kennung) => {
+      window.location.hash = `#/d/${encodeURIComponent(kennung)}`;
+      auswahlFolgen.folgen();
+      teilnehmerPanel.schliessenUnterDerGrenze();
+      eingabe.fokussieren();
+    },
+    signal: vorigeAnsichtAbmelden.signal,
+  });
   return {
     region: zeilen,
-    channelsZeigen: auswahlFolgen,
+    channelsZeigen: auswahlFolgen.listeZeigen,
     // Serverzeit aus einem Ereignis (RFC 3339 mit Versatz): ihr Datum ist das heutige des Servers.
     serverzeitZeigen: (jetzt) => verlauf.heuteSetzen(jetzt.slice(0, 10)),
     nachrichtEmpfangen: (ereignis) => {
@@ -432,7 +445,7 @@ function fokusOrt(verlauf) {
   return 'sonst';
 }
 
-// Liefert channelsZeigen(liste): die Liste ist erst mit dem ersten Stand bekannt — bis dahin bleibt ein
+// Liefert { folgen, listeZeigen(liste) }: die Liste ist erst mit dem ersten Stand bekannt — bis dahin bleibt ein
 // gewählter Name ohne Urteil, damit „gibt es nicht“ nie vor dem Stand erscheint. Ein Direktgespräch (`#/d/<kennung>`)
 // braucht die Liste nicht: es öffnet sofort, im Privat-Modus (R00050 F0178).
 function auswahlEinrichten({
@@ -520,10 +533,13 @@ function auswahlEinrichten({
     }
   }, { signal });
   folgen();
-  return (neueListe) => {
-    liste = neueListe;
-    seitenleiste.channelsZeigen(neueListe);
-    folgen();
+  return {
+    folgen,
+    listeZeigen: (neueListe) => {
+      liste = neueListe;
+      seitenleiste.channelsZeigen(neueListe);
+      folgen();
+    },
   };
 }
 
@@ -610,7 +626,8 @@ function statusZeigen(statuszeile, text) {
 const UEBERLAGERT_UNTER_PX = 720;
 
 // Der Wunsch des Menschen gilt bis zum Neuladen; ohne ihn folgt die Liste der Fensterbreite. Liegt der Fokus
-// beim Ausblenden in der Liste — auch wenn sie durch Verkleinern einklappt —, geht er auf den Schalter.
+// beim Ausblenden in der Liste — auch wenn sie durch Verkleinern einklappt —, geht er auf den Schalter. Wer unter 1100 px
+// ein Gespräch aus der Liste beginnt, schließt sie damit (schliessenUnterDerGrenze, R00050 V6).
 function einAusblendenBedienen({ schalter, region, haupt }, signal) {
   let wunsch = null;
   function anwenden() {
@@ -651,6 +668,15 @@ function einAusblendenBedienen({ schalter, region, haupt }, signal) {
   }, { signal });
   window.matchMedia(`(min-width: ${SICHTBAR_AB_PX}px)`).addEventListener('change', anwenden, { signal });
   anwenden();
+  return {
+    schliessenUnterDerGrenze: () => {
+      if (window.innerWidth >= SICHTBAR_AB_PX || region.hidden) {
+        return;
+      }
+      wunsch = 'aus';
+      anwenden();
+    },
+  };
 }
 
 // Designsystem README: unter 1100 px klappt die Teilnehmerliste ein, damit der Chat neben die IDE passt; hat der
