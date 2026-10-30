@@ -13,8 +13,8 @@ use super::nachholplatz::{
 use super::nachrichten::{NachrichtAntwort, dekodieren};
 use super::teilnehmer::{gemeldetes_token, nicht_erkannt};
 use super::teilnehmerliste::zeit_als_text;
-use crate::gespraeche::Gespraech;
 use crate::gespraeche::treffer::{Filter, Treffer};
+use crate::gespraeche::{Gespraech, Kennung};
 use crate::live::warten::{Ende, Warteauftrag, Warteergebnis, warten};
 use crate::protokoll::episoden::{Auftreten, Quelle};
 use crate::protokoll::episodentexte;
@@ -232,7 +232,7 @@ pub async fn beantworten(
     drop(wartend);
     drop(halter);
     match ergebnis {
-        Ok(ergebnis) => beantwortet(&ergebnis),
+        Ok(ergebnis) => beantwortet(&ergebnis, &sitzung.kennung),
         Err(abbruch) => abbruch_beantworten(
             &zustand.protokoll,
             &abbruch,
@@ -343,9 +343,13 @@ struct Warteantwort<'a> {
     ende: &'static str,
 }
 
-fn beantwortet(ergebnis: &Warteergebnis) -> Response {
+fn beantwortet(ergebnis: &Warteergebnis, wartender: &Kennung) -> Response {
     let antwort = Warteantwort {
-        nachrichten: ergebnis.treffer.iter().map(eintrag).collect(),
+        nachrichten: ergebnis
+            .treffer
+            .iter()
+            .map(|treffer| eintrag(treffer, wartender))
+            .collect(),
         seit: ergebnis.seit.as_ref().map(zeit_als_text),
         ende: match ergebnis.ende {
             Ende::Treffer => "treffer",
@@ -358,14 +362,20 @@ fn beantwortet(ergebnis: &Warteergebnis) -> Response {
     ([(CACHE_CONTROL, "no-store")], Json(antwort)).into_response()
 }
 
-fn eintrag(treffer: &Treffer) -> Eintrag<'_> {
-    let channel = match &treffer.gespraech {
-        Gespraech::Channel(name) => Some(name.as_str()),
-        Gespraech::Direkt(_) => None,
+/// Ein Treffer aus Sicht von `wartender`: im Channel dessen Name und `direkt: null`, im Direktgespräch
+/// `channel: null` und `direkt` = die Kennung des Gegenübers (ADR-0055 Regel 6, E8).
+fn eintrag<'a>(treffer: &'a Treffer, wartender: &Kennung) -> Eintrag<'a> {
+    let (channel, direkt) = match &treffer.gespraech {
+        Gespraech::Channel(name) => (Some(name.as_str()), None),
+        Gespraech::Direkt(paar) => (
+            None,
+            paar.gegenueber(wartender)
+                .map(|gegenueber| gegenueber.als_text()),
+        ),
     };
     Eintrag {
         channel,
-        direkt: None,
+        direkt,
         anlass: treffer
             .anlass
             .iter()
