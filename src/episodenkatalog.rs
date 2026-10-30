@@ -729,22 +729,43 @@ fn quelltexte() -> Vec<(std::path::PathBuf, String)> {
         .collect()
 }
 
-/// Die Zahl der Stellen `Auftreten::neu(` außerhalb von Testmodulen (ab der ersten Zeile `#[cfg(test)]` oder
-/// `#[cfg(all(test` gilt der Rest einer Datei als Test) und ohne Kommentarzeilen.
+/// Die Zahl der Stellen `Auftreten::neu(` außerhalb von Testcode und ohne Kommentarzeilen. Testcode ist jedes
+/// Item, das mit `#[cfg(test)]` bzw. `#[cfg(all(test` in Spalte 0 beginnt: es endet an der ersten Zeile in Spalte 0,
+/// die mit `;` schließt (`mod x;`, `use …;`) oder mit `}` beginnt bzw. auf `}` endet (rustfmt-Form) — danach
+/// zählt der Produktivcode wieder.
 fn stellen_im_quelltext(quelltexte: &[(std::path::PathBuf, String)]) -> usize {
     quelltexte
         .iter()
-        .map(|(_, inhalt)| {
-            inhalt
-                .lines()
-                .take_while(|zeile| {
-                    !zeile.starts_with("#[cfg(test)]") && !zeile.starts_with("#[cfg(all(test")
-                })
-                .filter(|zeile| !zeile.trim_start().starts_with("//"))
-                .map(|zeile| zeile.matches("Auftreten::neu(").count())
-                .sum::<usize>()
-        })
+        .map(|(_, inhalt)| stellen_ausserhalb_von_testitems(inhalt))
         .sum()
+}
+
+fn stellen_ausserhalb_von_testitems(inhalt: &str) -> usize {
+    let mut im_testitem = false;
+    let mut stellen = 0;
+    for zeile in inhalt.lines() {
+        if !im_testitem
+            && (zeile.starts_with("#[cfg(test)]") || zeile.starts_with("#[cfg(all(test"))
+        {
+            im_testitem = true;
+            continue;
+        }
+        if im_testitem {
+            im_testitem = !schliesst_item(zeile);
+            continue;
+        }
+        if !zeile.trim_start().starts_with("//") {
+            stellen += zeile.matches("Auftreten::neu(").count();
+        }
+    }
+    stellen
+}
+
+/// Schließt die Zeile ein Item der obersten Ebene ab?
+fn schliesst_item(zeile: &str) -> bool {
+    let oberste_ebene = !zeile.starts_with(char::is_whitespace);
+    let ende = zeile.trim_end();
+    oberste_ebene && (ende.ends_with(';') || ende.starts_with('}') || ende.ends_with('}'))
 }
 
 /// Vollständigkeit: jede Stelle, die ein `Auftreten` baut, hat eine Bauweise-Funktion im Katalog — eine neue
@@ -772,4 +793,41 @@ fn die_zaehlung_der_stellen_ignoriert_kommentare_und_testmodule() {
     )];
 
     assert_eq!(stellen_im_quelltext(&quelltexte), 2);
+}
+
+/// Produktivcode hinter einem `#[cfg(test)]`-Einzelitem (Funktion, `mod x;`, `impl`) zählt; nur das Item selbst
+/// und ein `#[cfg(test)] mod tests { … }` (auch mitten in der Datei) zählen nicht.
+#[test]
+fn die_zaehlung_der_stellen_zaehlt_produktivcode_nach_einem_testeinzelitem() {
+    let quelltext = [
+        "fn a() { Auftreten::neu(1) }",
+        "#[cfg(test)]",
+        "async fn nur_im_test(kopf: &Kopf) -> Result<Wert, Fehler> {",
+        "    Auftreten::neu(2)",
+        "}",
+        "#[cfg(test)]",
+        "mod nur_im_test;",
+        "#[cfg(test)]",
+        "impl Hilfe {",
+        "    fn x() { Auftreten::neu(3) }",
+        "}",
+        "fn b() { Auftreten::neu(4) }",
+        "#[cfg(test)]",
+        "mod tests {",
+        "    use super::*;",
+        "    fn c() { Auftreten::neu(5) }",
+        "}",
+        "fn d() { Auftreten::neu(6) }",
+        "#[cfg(test)]",
+        "mod tests_am_ende {",
+        "    fn e() { Auftreten::neu(7) }",
+        "}",
+    ]
+    .join("\n");
+    let quelltexte = vec![(
+        std::path::PathBuf::from("beispiel.rs"),
+        quelltext.to_string(),
+    )];
+
+    assert_eq!(stellen_im_quelltext(&quelltexte), 3);
 }
