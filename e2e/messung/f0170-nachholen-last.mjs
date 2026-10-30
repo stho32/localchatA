@@ -8,13 +8,14 @@
 // freien Port mit 100.000 Nachrichten in 10 Channels. Die 64 Schleifen laufen in einem eigenen Worker, damit ihre
 // Last auf dem Client die Messung des Beobachters nicht verfälscht. Beobachter und Sender kommen von 127.0.0.3,
 // weil eine Gegenstelle höchstens 64 Verbindungen hält und die 64 Schleifen 127.0.0.1 ausschöpfen.
-import { spawn, execFileSync } from 'node:child_process';
+import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
 import { Worker, isMainThread, parentPort, workerData } from 'node:worker_threads';
 import { fileURLToPath } from 'node:url';
 import { kennwerte, wartezeitInMs } from './last-auswertung.mjs';
+import { anfragen, beitreten, gesundheit, starten, warten } from './last-instanz.mjs';
 
 const ALTES_SEIT = '2000-01-01T00:00:00.000Z';
 const NACHHOLEN = `api/warten?bis=0&seit=${ALTES_SEIT}&erwaehnung`;
@@ -265,83 +266,4 @@ function grosseSaetzeSchreiben(ordner, erzeuger) {
   fs.mkdirSync(path.join(ordner, 'channels', 'allgemein'), { recursive: true });
   fs.writeFileSync(path.join(ordner, 'channels', 'allgemein', tagesdatei), saetze.join(''));
   fs.rmSync(muster, { recursive: true, force: true });
-}
-
-function starten(programm, ordner) {
-  return new Promise((bereit, gescheitert) => {
-    const prozess = spawn(programm, [ordner, '--port', '0', '--host', '127.0.0.1', '--kein-browser'], {
-      env: { ...process.env, TZ: 'Europe/Berlin' },
-      stdio: ['ignore', 'pipe', 'inherit'],
-    });
-    let ausgabe = '';
-    prozess.stdout.on('data', (stueck) => {
-      ausgabe += stueck;
-      const treffer = ausgabe.match(/unter (http:\/\/[^\s]+\/)/);
-      if (treffer) {
-        bereit({ prozess, adresse: treffer[1] });
-      }
-    });
-    prozess.once('exit', (code) => gescheitert(new Error(`Instanz endete vor der Startzeile mit ${code}`)));
-  });
-}
-
-async function beitreten(adresse, name, herkunft) {
-  const antwort = await anfragen(adresse, { methode: 'POST', pfad: 'api/beitreten', herkunft, koerper: { name, art: 'agent' } });
-  if (antwort.status !== 201) {
-    throw new Error(`Beitritt ${name}: ${antwort.status} ${JSON.stringify(antwort.daten)}`);
-  }
-  return antwort.daten.token;
-}
-
-async function gesundheit(adresse) {
-  return (await anfragen(adresse, { pfad: 'api/gesundheit' })).daten;
-}
-
-// Eine Anfrage; liefert Status, Daten, Retry-After, die Dauer bis zur vollständigen Antwort und deren Augenblick.
-function anfragen(adresse, { methode = 'GET', pfad, token, herkunft = '127.0.0.1', koerper, agent }) {
-  const ziel = new URL(pfad, adresse);
-  const kopf = {};
-  if (token) {
-    kopf['X-LocalchatA-Sitzung'] = token;
-  }
-  let inhalt;
-  if (koerper) {
-    inhalt = JSON.stringify(koerper);
-    kopf['Content-Type'] = 'application/json';
-  }
-  return new Promise((erledigt, gescheitert) => {
-    const beginn = performance.now();
-    const anfrage = http.request({
-      host: ziel.hostname, port: ziel.port, path: `${ziel.pathname}${ziel.search}`, method: methode,
-      localAddress: herkunft, headers: kopf, agent,
-    }, (antwort) => {
-      let text = '';
-      antwort.setEncoding('utf8');
-      antwort.on('data', (stueck) => { text += stueck; });
-      antwort.on('end', () => {
-        const empfangen = performance.now();
-        erledigt({
-          status: antwort.statusCode,
-          daten: datenLesen(text),
-          retryAfter: antwort.headers['retry-after'],
-          dauerInMs: empfangen - beginn,
-          empfangen,
-        });
-      });
-    });
-    anfrage.once('error', gescheitert);
-    anfrage.end(inhalt);
-  });
-}
-
-function datenLesen(text) {
-  try {
-    return JSON.parse(text);
-  } catch {
-    return {};
-  }
-}
-
-function warten(ms) {
-  return new Promise((weiter) => setTimeout(weiter, Math.max(ms, 0)));
 }
