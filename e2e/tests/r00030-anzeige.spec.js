@@ -3,7 +3,7 @@
 // Größe, „Öffnen“ und „Laden“ (B0457), Vorschau (B0458), Bild im Dialog (B0459), Anhänge an der Nachricht (B0461).
 const { test, expect } = require('./rahmen');
 const { nachrichtMitZeit } = require('./r00041-hilfen');
-const { anzeigeStarten, dateiZeile } = require('./r00030-anzeige-hilfen');
+const { anzeigeStarten, dateiZeile, testdateien } = require('./r00030-anzeige-hilfen');
 
 let instanz;
 test.afterEach(async () => {
@@ -140,3 +140,121 @@ test('Fokus sichtbar (UX M3) an „Öffnen“ und „Laden“: outline nicht non
   }
   expect(lauf.a.fehler).toEqual([]);
 });
+
+/// Hält jede Anfrage an `/anhaenge/` `ms` zurück (verzögerter Fake: zwischen Zeichnen und Bild liegt Zeit).
+async function bilderVerzoegern(page, ms) {
+  await page.context().route('**/anhaenge/**', async (route) => {
+    await new Promise((weiter) => setTimeout(weiter, ms));
+    await route.continue();
+  });
+}
+
+const unterkante = (knoten) => knoten.evaluate((element) => element.getBoundingClientRect().bottom);
+const bildGeladen = (bild) => bild.evaluate((element) => element.complete && element.naturalWidth > 0);
+
+/// Misst die Unterkante der Nachricht vor dem Laden ihres Bilds und danach; → { vorher, nachher, bild }.
+async function sprungBeimLaden(page, zeit) {
+  const knoten = nachrichtMitZeit(page, zeit);
+  const bild = knoten.locator('.lc-vorschau img');
+  await expect(bild).toHaveCount(1);
+  expect(await bildGeladen(bild)).toBe(false);
+  const vorher = await unterkante(knoten);
+  await expect.poll(() => bildGeladen(bild), { timeout: 10000 }).toBe(true);
+  return { vorher, nachher: await unterkante(knoten), bild };
+}
+
+/// Startet mit verzögerten Bildern: der Browser tritt erst bei, wenn die Verzögerung steht.
+async function mitVerzoegertenBildern(browser, nachrichten) {
+  const lauf = await anzeigeStarten(browser, nachrichten, {
+    vorSeite: (page) => bilderVerzoegern(page, 1000),
+  });
+  instanz = lauf.instanz;
+  return lauf;
+}
+
+test('Bild (B0458): foto.png → <img width="360" height="225" loading="lazy" alt="foto.png">; Platz mit Name und Maßen vor dem Laden; Unterkante springt ≤ 1 px', async ({ browser }) => {
+  const lauf = await mitVerzoegertenBildern(browser, [{ namen: ['foto.png'] }]);
+  const { page } = lauf.a;
+  const knoten = nachrichtMitZeit(page, lauf.zeiten[0]);
+  const bild = knoten.locator('.lc-vorschau img');
+  await expect(bild).toHaveAttribute('width', '360');
+  await expect(bild).toHaveAttribute('height', '225');
+  await expect(bild).toHaveAttribute('loading', 'lazy');
+  await expect(bild).toHaveAttribute('decoding', 'async');
+  await expect(bild).toHaveAttribute('alt', 'foto.png');
+  await expect(knoten.locator('.lc-vorschau-platz')).toHaveText('foto.png · 1280 × 800');
+  const { vorher, nachher } = await sprungBeimLaden(page, lauf.zeiten[0]);
+  expect(Math.abs(nachher - vorher)).toBeLessThanOrEqual(1);
+  const rahmen = await knoten.locator('.lc-vorschau').evaluate((element) => element.getBoundingClientRect());
+  expect(Math.abs(rahmen.width - 360)).toBeLessThanOrEqual(1);
+  expect(Math.abs(rahmen.height - 225)).toBeLessThanOrEqual(1);
+  await expect(knoten.locator('.lc-vorschau-platz')).toBeHidden();
+  await expect(dateiZeile(knoten, 'foto.png').getByRole('link', { name: 'foto.png öffnen', exact: true })).toHaveCount(1);
+  expect(lauf.a.fehler).toEqual([]);
+});
+
+test('Hochformatfoto (B0458, F4): hochkant.jpg (4000 × 3000, Orientation 6) → Platz 180 × 240 vor dem ersten Byte, gezeichnet 3 : 4 ± 1 % mit object-fit: contain, Höhe springt ≤ 1 px', async ({ browser }) => {
+  const lauf = await mitVerzoegertenBildern(browser, [{ namen: ['hochkant.jpg'] }]);
+  const { page } = lauf.a;
+  const knoten = nachrichtMitZeit(page, lauf.zeiten[0]);
+  const bild = knoten.locator('.lc-vorschau img');
+  await expect(bild).toHaveAttribute('width', '180');
+  await expect(bild).toHaveAttribute('height', '240');
+  const platz = await bild.evaluate((element) => element.getBoundingClientRect());
+  expect(Math.abs(platz.width / platz.height - 3 / 4)).toBeLessThanOrEqual(0.0075);
+  const { vorher, nachher } = await sprungBeimLaden(page, lauf.zeiten[0]);
+  expect(Math.abs(nachher - vorher)).toBeLessThanOrEqual(1);
+  const gezeichnet = await bild.evaluate((element) => ({ breite: element.naturalWidth, hoehe: element.naturalHeight, passen: getComputedStyle(element).objectFit }));
+  expect(gezeichnet.passen).toBe('contain');
+  expect(Math.abs(gezeichnet.breite / gezeichnet.hoehe - 3 / 4)).toBeLessThanOrEqual(0.0075);
+  expect(lauf.a.fehler).toEqual([]);
+});
+
+test('AVIF (B0458): foto.avif (4032 × 3024) → <img width="320" height="240">, Unterkante springt ≤ 1 px; ein AVIF ohne lesbare Maße → nur Datei-Zeile mit „Öffnen“', async ({ browser }) => {
+  const ohneMasse = { name: 'leer.avif', inhalt: avifOhneMasse() };
+  const lauf = await mitVerzoegertenBildern(browser, [{ namen: ['foto.avif'] }, { namen: [ohneMasse] }]);
+  const { page } = lauf.a;
+  const bild = nachrichtMitZeit(page, lauf.zeiten[0]).locator('.lc-vorschau img');
+  await expect(bild).toHaveAttribute('width', '320');
+  await expect(bild).toHaveAttribute('height', '240');
+  const { vorher, nachher } = await sprungBeimLaden(page, lauf.zeiten[0]);
+  expect(Math.abs(nachher - vorher)).toBeLessThanOrEqual(1);
+  const ohne = nachrichtMitZeit(page, lauf.zeiten[1]);
+  await expect(ohne.locator('img, video, audio')).toHaveCount(0);
+  await expect(dateiZeile(ohne, 'leer.avif').getByRole('link', { name: 'leer.avif öffnen', exact: true })).toHaveCount(1);
+  expect(lauf.a.fehler).toEqual([]);
+});
+
+test('Fehlerzustand (B0458): scheitert die Bildanfrage, bleibt der Platz und zeigt „Bild nicht verfügbar.“ — nicht „Gelöscht“', async ({ browser }) => {
+  const lauf = await anzeigeStarten(browser, [{ namen: ['foto.png'] }], {
+    vorSeite: (page) => page.context().route('**/anhaenge/**', (route) => route.abort('failed')),
+  });
+  instanz = lauf.instanz;
+  const knoten = nachrichtMitZeit(lauf.a.page, lauf.zeiten[0]);
+  const vorschau = knoten.locator('.lc-vorschau');
+  await expect(vorschau.locator('.lc-vorschau-platz')).toHaveText('Bild nicht verfügbar.');
+  await expect(vorschau.locator('.lc-vorschau-platz')).toBeVisible();
+  const rahmen = await vorschau.evaluate((element) => element.getBoundingClientRect());
+  expect(Math.abs(rahmen.width - 360)).toBeLessThanOrEqual(1);
+  expect(Math.abs(rahmen.height - 225)).toBeLessThanOrEqual(1);
+  await expect(knoten).not.toContainText('Gelöscht');
+  expect(lauf.a.fehler.filter((zeile) => !/Failed to load resource/.test(zeile))).toEqual([]);
+});
+
+test('Bild-Polyglot (B0458, QS1): PNG-Kopf mit angehängtem HTML als Vorschau → kein Skript läuft, localStorage der App bleibt', async ({ browser }) => {
+  const polyglot = Buffer.concat([testdateien()['foto.png'], Buffer.from("<script>document.title='ausgefuehrt';localStorage.setItem('fremd','1')</script>")]);
+  const lauf = await anzeigeStarten(browser, [{ namen: [{ name: 'polyglot.png', inhalt: polyglot }] }]);
+  instanz = lauf.instanz;
+  const { page } = lauf.a;
+  const bild = nachrichtMitZeit(page, lauf.zeiten[0]).locator('.lc-vorschau img');
+  await expect.poll(() => bildGeladen(bild), { timeout: 10000 }).toBe(true);
+  expect(await page.title()).not.toBe('ausgefuehrt');
+  expect(await page.evaluate(() => localStorage.getItem('fremd'))).toBeNull();
+  expect(lauf.a.fehler).toEqual([]);
+});
+
+/// ISOBMFF mit Hauptmarke `avif` ohne `ispe`: der Server erkennt `image/avif` ohne Maße.
+function avifOhneMasse() {
+  const heic = testdateien()['foto.heic'];
+  return Buffer.concat([heic.subarray(0, 8), Buffer.from('avif', 'latin1'), heic.subarray(12)]);
+}

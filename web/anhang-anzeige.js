@@ -70,7 +70,30 @@ export function anhaengeZeichnen(anhaenge) {
 
 function anhangZeichnen(anhang) {
   const darstellung = darstellungWaehlen(anhang);
-  return element('div', { className: 'lc-anhang' }, [dateiZeileZeichnen(anhang, darstellung)]);
+  const teile = [dateiZeileZeichnen(anhang, darstellung)];
+  if (darstellung.form === 'vorschau') {
+    teile.unshift(vorschauZeichnen(anhang, darstellung));
+  }
+  return element('div', { className: 'lc-anhang' }, teile);
+}
+
+// Bildvorschau (B0458): der Platz steht aus `width`/`height`, bevor ein Byte lädt — bis dahin mit Name und Maßen auf
+// kd-surface-2; das Bild zeichnet gedreht (EXIF, die Maße kommen schon getauscht) und unverzerrt. Scheitert die Anfrage,
+// bleibt der Platz und sagt „Bild nicht verfügbar.“ — ein Ladefehler belegt kein Löschen (F0118).
+function vorschauZeichnen(anhang, { breite, hoehe }) {
+  const platz = element('span', { className: 'lc-vorschau-platz', textContent: `${anhang.name} · ${anhang.breite} × ${anhang.hoehe}` });
+  const bild = element('img', { width: breite, height: hoehe, loading: 'lazy', decoding: 'async', alt: anhang.name });
+  const vorschau = element('span', { className: 'lc-vorschau' }, [platz, bild]);
+  vorschau.dataset.zustand = 'laedt';
+  bild.addEventListener('load', () => {
+    vorschau.dataset.zustand = 'geladen';
+  });
+  bild.addEventListener('error', () => {
+    vorschau.dataset.zustand = 'fehler';
+    platz.textContent = 'Bild nicht verfügbar.';
+  });
+  bild.src = anhang.url;
+  return vorschau;
 }
 
 // Datei-Zeile (B0457, Designsystem Anhang): Kürzel (nur für die Augen), Name mit Ellipse, Größe in Worten, „Öffnen“ in

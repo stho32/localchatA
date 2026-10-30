@@ -77,8 +77,9 @@ function heic() {
 }
 
 /// Instanz mit `allgemein`; `beta` sendet je Eintrag von `nachrichten` ({ text, namen }) eine Nachricht mit diesen
-/// Testdateien (oder eigenen { name, inhalt }); A (`shoff`) ist im Browser beigetreten. → { instanz, a, zeiten, ids: je Nachricht die IDs }
-async function anzeigeStarten(browser, nachrichten, { geraet, vorbereiten } = {}) {
+/// Testdateien (oder eigenen { name, inhalt }); `vorSeite(page)` läuft vor dem Beitritt (Netz-Fakes); A (`shoff`) ist im
+/// Browser beigetreten. → { instanz, a, zeiten, ids: je Nachricht die IDs }
+async function anzeigeStarten(browser, nachrichten, { geraet, vorbereiten, vorSeite = async () => {} } = {}) {
   const instanz = await sendenStarten({ vorbereiten });
   const beta = await betaSendet(instanz.adresse, []);
   const zeiten = [];
@@ -94,6 +95,7 @@ async function anzeigeStarten(browser, nachrichten, { geraet, vorbereiten } = {}
     optionen.geraet = geraet;
   }
   const a = await browserOeffnen(browser, optionen);
+  await vorSeite(a.page);
   await imBrowserBeitreten(a.page, instanz.adresse, 'shoff');
   for (const zeit of zeiten) {
     await nachrichtMitZeit(a.page, zeit).waitFor();
