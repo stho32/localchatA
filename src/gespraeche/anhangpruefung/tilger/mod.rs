@@ -20,12 +20,14 @@ pub struct Zaehler {
     pub ort: bool,
 }
 
-/// Was getilgt wurde — fürs Protokoll, nie mit Inhalt.
+/// Was getilgt wurde — fürs Protokoll, nie mit Inhalt; `arbeit` sind die gelesenen und geschriebenen Bytes
+/// (ADR-0047 B1 Regel 4, Kontrollen gegen das Budget).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Getilgt {
     pub art: &'static str,
     pub bloecke: u64,
     pub ort: bool,
+    pub arbeit: u64,
 }
 
 /// Tilgt eine fertige Teildatei nach ihrer Struktur (nicht nach der Art des Erkenners): JPEG samt MPF-Bildern, PNG,
@@ -61,6 +63,7 @@ pub fn tilgen(datei: &dyn Teildatei) -> Ergebnis<Option<Getilgt>> {
         art,
         bloecke: zaehler.bloecke,
         ort: zaehler.ort,
+        arbeit: port.verbraucht(),
     }))
 }
 
@@ -94,6 +97,24 @@ mod tests {
             assert_eq!(tilgen(&datei).expect("kein Fehler"), None);
             assert_eq!(datei.inhalt(), inhalt);
         }
+    }
+
+    /// B0640: die Arbeit im Ergebnis ist die Summe aller Lese- und Schreiblängen am Port.
+    #[test]
+    fn die_arbeit_ist_die_summe_aller_zugriffe() {
+        let datei = Datei::mit(super::bild::tests::handy_jpeg());
+
+        let getilgt = tilgen(&datei).expect("getilgt").expect("JPEG");
+
+        let gelesen: usize = datei.lesungen.lock().expect("Lesungen").iter().sum();
+        let geschrieben: usize = datei
+            .schreibungen
+            .lock()
+            .expect("Schreibungen")
+            .iter()
+            .sum();
+        assert!(getilgt.arbeit > 0);
+        assert_eq!(getilgt.arbeit, (gelesen + geschrieben) as u64);
     }
 
     #[test]

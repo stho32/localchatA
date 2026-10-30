@@ -840,3 +840,453 @@ async fn mehrfachverweise_in_heif_binnen_2_s() {
         assert!(im_eingang(wurzel.path()).is_empty(), "{name}");
     }
 }
+
+/// Die `arbeit` der DEBUG-Zeilen „Metadaten getilgt“ in der Reihenfolge der Hochladungen.
+fn arbeit_je_hochladung(ordner: &Path) -> Vec<u64> {
+    alle_zeilen(ordner)
+        .iter()
+        .filter(|zeile| zeile.contains("DEBUG anhang Metadaten getilgt"))
+        .map(|zeile| {
+            let wert = zeile.split("arbeit=").nth(1).expect("arbeit=");
+            wert.split(|c: char| !c.is_ascii_digit())
+                .next()
+                .expect("Zahl")
+                .parse()
+                .expect("Zahl")
+        })
+        .collect()
+}
+
+/// JPEG mit `APP1` Exif samt Ort, den Segmenten `davor` und einem `APP2` `MPF`, dessen Index auf die `weiteren`
+/// Bilder dahinter zeigt (Größe, Anfang); `weitere` hängen an.
+fn jpeg_mit_mpf(davor: &[(u8, Vec<u8>)], weitere: &[Vec<u8>]) -> Vec<u8> {
+    use gemeinsam::dateien::{jpeg, tiff};
+    let mut exif = b"Exif\0\0".to_vec();
+    exif.extend(tiff(
+        &[(0x0112, 3, 1, 1), (0x8825, 4, 1, 38)],
+        b"GPS52.5200N13.4050E",
+    ));
+    let index = |anfaenge: &[u32]| {
+        let mut mpf = b"MPF\0MM\0*\0\0\0\x08\0\x01".to_vec();
+        mpf.extend(0xB002u16.to_be_bytes());
+        mpf.extend(7u16.to_be_bytes());
+        mpf.extend((((weitere.len() + 1) * 16) as u32).to_be_bytes());
+        mpf.extend(26u32.to_be_bytes());
+        mpf.extend(0u32.to_be_bytes());
+        mpf.extend([0; 16]);
+        for (bild, anfang) in weitere.iter().zip(anfaenge) {
+            mpf.extend([0; 4]);
+            mpf.extend((bild.len() as u32).to_be_bytes());
+            mpf.extend(anfang.to_be_bytes());
+            mpf.extend([0; 4]);
+        }
+        mpf
+    };
+    let segmente = |mpf: Vec<u8>| {
+        let mut alle = vec![(0xe1, exif.clone())];
+        alle.extend(davor.iter().cloned());
+        alle.push((0xe2, mpf));
+        jpeg(&alle, 4000, 3000)
+    };
+    let probe = segmente(index(&vec![0; weitere.len()]));
+    let tiff = probe.windows(4).position(|f| f == b"MPF\0").expect("MPF") + 4;
+    let mut stelle = probe.len();
+    let anfaenge: Vec<u32> = weitere
+        .iter()
+        .map(|bild| {
+            let anfang = (stelle - tiff) as u32;
+            stelle += bild.len();
+            anfang
+        })
+        .collect();
+    [vec![segmente(index(&anfaenge))], weitere.to_vec()]
+        .concat()
+        .concat()
+}
+
+/// HEIC aus Items (Typ, `infe`-Rest, Daten), Eigenschaften in `ipco` und `iref`.
+fn heic_voll(items: &[(&[u8; 4], &[u8], Vec<u8>)], ipco: &[Vec<u8>], iref: &[u8]) -> Vec<u8> {
+    let iinf = kiste(
+        b"iinf",
+        &[
+            &[0u8, 0, 0, 0][..],
+            &(items.len() as u16).to_be_bytes(),
+            &items
+                .iter()
+                .enumerate()
+                .map(|(n, (typ, rest, _))| {
+                    kiste(
+                        b"infe",
+                        &[
+                            &[2u8, 0, 0, 0][..],
+                            &(n as u16 + 1).to_be_bytes(),
+                            &[0, 0],
+                            &typ[..],
+                            b"\0",
+                            rest,
+                        ]
+                        .concat(),
+                    )
+                })
+                .collect::<Vec<_>>()
+                .concat(),
+        ]
+        .concat(),
+    );
+    let bauen = |mdat_anfang: u64| {
+        let mut iloc = vec![1u8, 0, 0, 0, 0x44, 0x00];
+        iloc.extend((items.len() as u16).to_be_bytes());
+        let mut ab = mdat_anfang;
+        for (n, (_, _, daten)) in items.iter().enumerate() {
+            iloc.extend((n as u16 + 1).to_be_bytes());
+            iloc.extend([0, 0, 0, 0]);
+            iloc.extend(1u16.to_be_bytes());
+            iloc.extend((ab as u32).to_be_bytes());
+            iloc.extend((daten.len() as u32).to_be_bytes());
+            ab += daten.len() as u64;
+        }
+        let meta = kiste(
+            b"meta",
+            &[
+                &[0u8; 4][..],
+                &kiste(b"hdlr", &[&[0u8; 8][..], b"pict", &[0; 13]].concat()),
+                &kiste(b"pitm", b"\0\0\0\0\0\x01"),
+                &iinf,
+                &kiste(b"iref", &[&[0u8; 4][..], iref].concat()),
+                &kiste(b"iloc", &iloc),
+                &kiste(
+                    b"iprp",
+                    &[kiste(b"ipco", &ipco.concat()), kiste(b"ipma", &[0; 8])].concat(),
+                ),
+            ]
+            .concat(),
+        );
+        [kiste(b"ftyp", b"heic\0\0\0\0mif1heic"), meta].concat()
+    };
+    let mdat_anfang = bauen(0).len() as u64 + 8;
+    let daten: Vec<u8> = items
+        .iter()
+        .flat_map(|(_, _, daten)| daten.clone())
+        .collect();
+    [bauen(mdat_anfang), kiste(b"mdat", &daten)].concat()
+}
+
+/// Die Kontrollen aus ADR-0047 B1 als Nachbauten mit dem Aufbau der Telefondateien (echte Dateien im Entwicklertest).
+fn kontrollen(ordner: &Path) -> Vec<(&'static str, Vec<u8>)> {
+    use gemeinsam::dateien::jpeg;
+    let (mut exif, laenge) = exif_item_mit_ort(4_096);
+    exif.truncate(laenge as usize);
+    let iso = (0xe2, b"urn:iso:std:iso:ts:21496:-1\0\0\0\0\0".to_vec());
+    let xmp_hdr = (
+        0xe1,
+        b"http://ns.adobe.com/xap/1.0/\0<hdrgm:Version>1.0</hdrgm:Version>".to_vec(),
+    );
+    let gainmap = jpeg(&[xmp_hdr.clone(), iso.clone()], 1000, 750);
+    let ultra_hdr = jpeg_mit_mpf(&[xmp_hdr, iso], &[gainmap]);
+    let mut exif_rechts = b"Exif\0\0".to_vec();
+    exif_rechts.extend(gemeinsam::dateien::tiff(
+        &[(0x8825, 4, 1, 26)],
+        b"GPS52.5200N13.4050E",
+    ));
+    let mpo = jpeg_mit_mpf(&[], &[jpeg(&[(0xe1, exif_rechts)], 4000, 3000)]);
+    let kachel = |n: u8| vec![n; 4_096];
+    let iphone = heic_voll(
+        &[
+            (b"grid", b"", vec![0, 0, 0x01, 0x01, 0x0f, 0xc0, 0x0b, 0xd0]),
+            (b"hvc1", b"", kachel(1)),
+            (b"hvc1", b"", kachel(2)),
+            (b"hvc1", b"", kachel(3)),
+            (b"hvc1", b"", kachel(4)),
+            (b"Exif", b"", exif.clone()),
+            (
+                b"mime",
+                b"application/rdf+xml\0",
+                b"<x:xmpmeta>GPS 52.5200</x:xmpmeta>".to_vec(),
+            ),
+            (b"hvc1", b"", kachel(8)),
+            (b"tmap", b"", vec![0x7b; 64]),
+        ],
+        &[
+            kiste(b"hvcC", &[0x11; 32]),
+            kiste(b"ispe", b"\0\0\0\0\0\0\x0f\xc0\0\0\x0b\xd0"),
+            kiste(b"colr", b"prof\0\0\x02\x24Profil"),
+            kiste(b"irot", b"\x03"),
+            kiste(
+                b"auxC",
+                b"\0\0\0\0urn:com:apple:photo:2020:aux:hdrgainmap\0",
+            ),
+        ],
+        &[
+            kiste(b"dimg", b"\0\x01\0\x04\0\x02\0\x03\0\x04\0\x05"),
+            kiste(b"cdsc", b"\0\x06\0\x01\0\x01"),
+            kiste(b"auxl", b"\0\x08\0\x01\0\x01"),
+        ]
+        .concat(),
+    );
+    let sammlung = heic_voll(
+        &[
+            (b"hvc1", b"", kachel(1)),
+            (b"hvc1", b"", kachel(2)),
+            (b"Exif", b"", exif.clone()),
+            (b"Exif", b"", exif),
+        ],
+        &[kiste(b"ispe", b"\0\0\0\0\0\0\x10\0\0\0\x10\0")],
+        &[
+            kiste(b"cdsc", b"\0\x03\0\x01\0\x01"),
+            kiste(b"cdsc", b"\0\x04\0\x01\0\x02"),
+        ]
+        .concat(),
+    );
+    let pfad = ordner.join("telefon.mp4");
+    let erzeugt = std::process::Command::new("ffmpeg")
+        .args([
+            "-v",
+            "error",
+            "-y",
+            "-f",
+            "lavfi",
+            "-i",
+            "testsrc=d=2:s=320x240:r=30",
+        ])
+        .args([
+            "-metadata",
+            "location=+52.5200+013.4050/",
+            "-c:v",
+            "libx264",
+            "-pix_fmt",
+            "yuv420p",
+        ])
+        .arg(&pfad)
+        .status()
+        .expect("Vorbedingung fehlt: ffmpeg");
+    assert!(erzeugt.success());
+    vec![
+        ("ultra-hdr.jpg", ultra_hdr),
+        ("stereo.mpo", mpo),
+        ("iphone.heic", iphone),
+        ("sammlung.heic", sammlung),
+        ("telefon.mp4", std::fs::read(&pfad).expect("Film")),
+    ]
+}
+
+/// ADR-0047 B1 Kontrollen als Nachbauten (B0640): Ultra-HDR-JPEG (MPF mit Gain-Map, ISO 21496-1), MPO-Stereobild,
+/// HEIC nach Art des iPhone (`grid` aus Kacheln, Exif, XMP, Hilfsbild, `tmap`), HEIF-Sammlung mit zwei Bildern und je
+/// einem Exif-Item, MP4 eines Telefons → je 200, Ort getilgt, gezählte Bytes ≤ 1,5 × Länge + 4 MiB.
+#[tokio::test]
+async fn kontrollen_bleiben_tilgbar_und_im_budget() {
+    let wurzel = ordner();
+    let instanz = starten(wurzel.path(), &["--protokoll-stufe", "debug"], &[]);
+    let basis = instanz.adresse.as_str();
+    let werkstatt = ordner();
+    let faelle = kontrollen(werkstatt.path());
+
+    let mut laengen = Vec::new();
+    for (name, inhalt) in &faelle {
+        let (antwort, _) = hochladen_gemessen(basis, name, inhalt.clone()).await;
+        assert_eq!(antwort.status, 200, "{name}: {}", antwort.json);
+        let getilgt = eingangsdatei(
+            wurzel.path(),
+            antwort.json["anhang"]["id"].as_str().expect("id"),
+        );
+        for spur in [&b"GPS"[..], b"52.5200"] {
+            assert!(
+                !enthaelt(&getilgt, spur),
+                "{name}: {}",
+                String::from_utf8_lossy(spur)
+            );
+        }
+        laengen.push(inhalt.len() as u64);
+    }
+    drop(instanz);
+
+    let arbeit = arbeit_je_hochladung(wurzel.path());
+    assert_eq!(arbeit.len(), faelle.len(), "{arbeit:?}");
+    for ((name, _), (arbeit, laenge)) in faelle.iter().zip(arbeit.iter().zip(&laengen)) {
+        assert!(
+            *arbeit <= laenge * 3 / 2 + 4 * MIB,
+            "{name}: {arbeit} Bytes bei {laenge}"
+        );
+    }
+}
+
+/// K1 (R00029 „Matrix“): `alpha@127.0.0.1` meldet ein PNG von 300 KiB an → 201, `PUT` → 200 `image/png`, Senden → 201,
+/// `GET /anhaenge/<id>` → 200 mit `sandbox`-CSP, `Range: bytes=0-99` → 206.
+async fn k1(basis: &str, name: &str) {
+    let alpha = Absender::von("127.0.0.1");
+    let token = beitreten(&alpha, basis, name, Some("agent")).await;
+    let mut bild = gemeinsam::dateien::png(64, 64);
+    bild.resize(307_200, 0);
+    let angemeldet = id(&anmelden(&alpha, basis, &token, "k1.png", bild.len() as u64).await);
+    let antwort = hochladen(&alpha, basis, &token, &angemeldet, bild).await;
+    assert_eq!(
+        (antwort.status, antwort.json["anhang"]["art"].as_str()),
+        (200, Some("image/png")),
+        "K1"
+    );
+    let koerper = json!({"text": "", "anhaenge": [angemeldet]})
+        .to_string()
+        .into_bytes();
+    let gesendet = roh_senden(
+        &alpha,
+        basis,
+        Some(&token),
+        "allgemein",
+        "application/json",
+        koerper,
+    )
+    .await;
+    assert_eq!(gesendet.status, 201, "K1: {}", gesendet.json);
+    let url = format!("{basis}anhaenge/{angemeldet}");
+    let ganz = alpha
+        .anfrage(reqwest::Method::GET, url.clone())
+        .send()
+        .await
+        .expect("GET");
+    assert_eq!(ganz.status(), 200, "K1");
+    assert!(
+        ganz.headers()["content-security-policy"]
+            .to_str()
+            .expect("CSP")
+            .starts_with("sandbox")
+    );
+    let teil = alpha
+        .anfrage(reqwest::Method::GET, url)
+        .header("Range", "bytes=0-99")
+        .send()
+        .await
+        .expect("Range");
+    assert_eq!(teil.status(), 206, "K1");
+}
+
+/// K2 nach den Grenzen aus Teil B (ADR-0046 Ergänzung „Karte #9 Nacharbeit F1“): eine Kennung von 127.0.0.3 mit 10
+/// offenen Anmeldungen, die 11. → 429 `offen_kennung`.
+async fn k2(basis: &str) {
+    let gamma = Absender::von("127.0.0.3");
+    let token = beitreten(&gamma, basis, "gamma", Some("agent")).await;
+    for _ in 0..10 {
+        id(&anmelden(&gamma, basis, &token, "x", 1).await);
+    }
+    let elfte = anmelden(&gamma, basis, &token, "x", 1).await;
+    assert_eq!(
+        (elfte.status, elfte.json["grenze"].as_str()),
+        (429, Some("offen_kennung")),
+        "K2"
+    );
+}
+
+/// MP4 von 1 GiB: `moov` mit `mvhd`, `trak` (`tkhd`, `udta/©xyz`), dahinter `mdat` aus Nullen.
+fn mp4_1_gib() -> Vec<u8> {
+    let xyz = kiste(b"\xa9xyz", b"\0\x12\x15\xc7+52.5200+013.4050/");
+    let mut tkhd = vec![0u8; 84];
+    tkhd[4..8].copy_from_slice(&3_876_122_096u32.to_be_bytes());
+    let trak = kiste(
+        b"trak",
+        &[kiste(b"tkhd", &tkhd), kiste(b"udta", &xyz)].concat(),
+    );
+    let kopf = [
+        kiste(b"ftyp", b"isom\0\0\x02\0isommp41"),
+        kiste(b"moov", &[kiste(b"mvhd", &[0; 100]), trak].concat()),
+    ]
+    .concat();
+    let mdat = 1_073_741_824 - kopf.len() - 8;
+    let mut video = kopf;
+    video.extend(((mdat + 8) as u32).to_be_bytes());
+    video.extend(b"mdat");
+    video.resize(1_073_741_824, 0);
+    video
+}
+
+/// ADR-0047 B1 P5 und die Kontrolle MP4 1 GiB im Release-Build (B0640, Linie L2): 8 Hochladungen nach P1 (HEIC
+/// 32 MiB, 2.000 gleiche `infe`) gleichzeitig von 127.0.0.2 (2 Kennungen × 4), währenddessen ein Upload von 4 MiB von
+/// 127.0.0.1 → dessen `PUT` 200; alle 8 → 422 binnen 2 s. MP4 1 GiB → 200, Ort getilgt, gezählte Bytes
+/// ≤ 1,5 × Länge + 4 MiB. Kontrollpaar K1, K2 grün.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "Systemprobe im Release-Build: cargo test --release --test anhaenge_tilgen -- --ignored systemprobe"]
+async fn systemprobe_arbeit_des_tilgers() {
+    let wurzel = ordner();
+    let instanz = starten(
+        wurzel.path(),
+        &["--anhangquote", "2GiB", "--protokoll-stufe", "debug"],
+        &[],
+    );
+    let basis = instanz.adresse.clone();
+    k1(&basis, "alpha").await;
+    k2(&basis).await;
+
+    let (mdat, lang) = exif_item_mit_ort(32 * MIB as usize);
+    let p1 = std::sync::Arc::new(heic(&vec![infe(1, b"Exif"); 2_000], &[(1, 0, lang)], &mdat));
+    let mut laeufe = Vec::new();
+    for name in ["eins", "zwei"] {
+        let absender = Absender::von("127.0.0.2");
+        let token = beitreten(&absender, &basis, name, Some("agent")).await;
+        for nummer in 0..4 {
+            let angemeldet = id(&anmelden(
+                &absender,
+                &basis,
+                &token,
+                &format!("p1-{nummer}.heic"),
+                p1.len() as u64,
+            )
+            .await);
+            laeufe.push((token.clone(), angemeldet));
+        }
+    }
+    let beta = Absender::von("127.0.0.1");
+    let token_beta = beitreten(&beta, &basis, "beta", Some("agent")).await;
+    let opfer = id(&anmelden(&beta, &basis, &token_beta, "opfer.bin", 4 * MIB).await);
+
+    let angriffe: Vec<_> = laeufe
+        .into_iter()
+        .map(|(token, angemeldet)| {
+            let (basis, p1) = (basis.clone(), std::sync::Arc::clone(&p1));
+            tokio::spawn(async move {
+                let absender = Absender::von("127.0.0.2");
+                let beginn = std::time::Instant::now();
+                let antwort = hochladen(&absender, &basis, &token, &angemeldet, p1.to_vec()).await;
+                (
+                    antwort.status,
+                    antwort.json["grund"].clone(),
+                    beginn.elapsed(),
+                )
+            })
+        })
+        .collect();
+    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    let beginn = std::time::Instant::now();
+    let antwort = hochladen(
+        &beta,
+        &basis,
+        &token_beta,
+        &opfer,
+        vec![0x42; 4 * MIB as usize],
+    )
+    .await;
+    println!("Opfer: {} nach {:?}", antwort.status, beginn.elapsed());
+    assert_eq!(antwort.status, 200, "Opfer: {}", antwort.json);
+    for angriff in angriffe {
+        let (status, grund, dauer) = angriff.await.expect("Lauf");
+        println!("P1: {status} {grund} nach {dauer:?}");
+        assert_eq!((status, grund), (422, json!("Verweise doppelt")));
+        assert!(dauer.as_secs_f64() <= 2.0, "{dauer:?}");
+    }
+
+    let video = mp4_1_gib();
+    let laenge = video.len() as u64;
+    let angemeldet = id(&anmelden(&beta, &basis, &token_beta, "gross.mp4", laenge).await);
+    let antwort = hochladen(&beta, &basis, &token_beta, &angemeldet, video).await;
+    assert_eq!(antwort.status, 200, "{}", antwort.json);
+    let mut kopf = vec![0u8; 4_096];
+    use std::os::unix::fs::FileExt;
+    std::fs::File::open(wurzel.path().join(".eingang").join(&angemeldet))
+        .expect("im Eingang")
+        .read_at(&mut kopf, 0)
+        .expect("Kopf");
+    assert!(!enthaelt(&kopf, b"+52.5200") && !enthaelt(&kopf, &3_876_122_096u32.to_be_bytes()));
+    k1(&basis, "alpha2").await;
+    drop(instanz);
+    let arbeit = *arbeit_je_hochladung(wurzel.path())
+        .last()
+        .expect("DEBUG-Zeile");
+    println!("MP4 1 GiB: arbeit {arbeit} Bytes");
+    assert!(arbeit <= laenge * 3 / 2 + 4 * MIB, "{arbeit}");
+}

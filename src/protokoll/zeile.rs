@@ -138,6 +138,8 @@ pub enum Schluessel {
     Tag,
     /// Gedeutete Blöcke des Tilgers.
     Bloecke,
+    /// Gelesene und geschriebene Bytes des Tilgers (ADR-0047 B1 Regel 4).
+    Arbeit,
     /// Zahlen eines Löschens (ADR-0042 Ergänzung „F1′“).
     Anhaenge,
     Gespraeche,
@@ -200,6 +202,7 @@ impl Schluessel {
             Schluessel::Tag => "tag",
             Schluessel::Anhang => "anhang",
             Schluessel::Bloecke => "bloecke",
+            Schluessel::Arbeit => "arbeit",
             Schluessel::Anhaenge => "anhaenge",
             Schluessel::Gespraeche => "gespraeche",
             Schluessel::Fremde => "fremde",

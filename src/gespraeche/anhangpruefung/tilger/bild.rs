@@ -331,7 +331,7 @@ pub fn crc32(teile: &[&[u8]], nullen: u64) -> u32 {
 }
 
 #[cfg(test)]
-mod tests {
+pub mod tests {
     use super::super::port::attrappe::Datei;
     use super::*;
     use crate::gespraeche::anhangpruefung::exif::Ordnung;

@@ -88,7 +88,8 @@ pub async fn hochladen(
             Kontext::neu()
                 .mit(Schluessel::Art, getilgt.art)
                 .mit(Schluessel::Bloecke, getilgt.bloecke)
-                .mit(Schluessel::Ort, if getilgt.ort { "ja" } else { "nein" }),
+                .mit(Schluessel::Ort, if getilgt.ort { "ja" } else { "nein" })
+                .mit(Schluessel::Arbeit, getilgt.arbeit),
         ),
         Ergebnis::Frist(_) | Ergebnis::Lebensende => {
             zustand
