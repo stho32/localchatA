@@ -644,3 +644,4 @@ Nie vom User erfragen.
 | 2026-10-30 | R00050 Anhänge und Health im Direktgespräch | F0174 (B0775, B0776), F0177 (B0782, B0783) (Wanduhr gesamt) | Entwicklung | 3,2–5,2h | 0,6h | 0,6h | autonom (entw3) |
 | 2026-10-30 | R00050 Strom, Aktivität und Warten im Direktgespräch | F0173 (B0772–B0774) (Wanduhr gesamt) | Entwicklung | 4,4–8,4h | 0,8h | 0,8h | autonom (entw2) |
 | 2026-10-30 | R00049 Härtung nach Reviews #17 | Befund 4 (Zitat), 5/S1 (Tag::kopieren), S2, O1–O3 (Wanduhr gesamt) | Nacharbeit | — | 0,6h | 0,6h | autonom (entw) |
+| 2026-10-30 | R00050 Architekturtest Sichtbarkeit | F0176 (B0781) (Wanduhr gesamt) | Entwicklung | 0,4h | 0,3h | 0,3h | autonom (entw) |
