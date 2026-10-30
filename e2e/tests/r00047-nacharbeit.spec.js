@@ -153,3 +153,66 @@ test('UX S2 (b): Antwortzeile offen, das Original wird per API gelöscht → bin
   await expect(eingabe(b.page)).toHaveValue('Ja');
   expect(b.fehler).toEqual([]);
 });
+
+const ABGEWIESEN = 'Die Nachricht, auf die du antwortest, ist gelöscht.';
+const SENDEN = '/api/channels/allgemein/nachrichten';
+
+/// Hält jedes POST an `…/allgemein/nachrichten` `ms` lang auf, dann antwortet die Instanz.
+const sendenVerzoegern = (page, ms) => page.route(`**${SENDEN}`, async (route) => {
+  if (route.request().method() === 'POST') {
+    await new Promise((weiter) => setTimeout(weiter, ms));
+  }
+  await route.continue();
+});
+
+/// ben beginnt eine Antwort auf annas „Frage?“, anna löscht sie, ben tippt „Ja“ und sendet (verzögert); → { anna }.
+async function antwortAufGeloeschtesSenden(page) {
+  const anna = await annaSchreibt(instanz.adresse, ['Frage?']);
+  await expect(nachrichtMitZeit(page, anna.zeiten[0])).toHaveCount(1);
+  await ueberHoverAntworten(page, anna.zeiten[0]);
+  await eingabe(page).fill('Ja');
+  expect((await loeschenPerApi(instanz.adresse, anna.token, anna.zeiten[0], '127.0.0.2')).status).toBe(200);
+  await sendenVerzoegern(page, 1500);
+  await eingabe(page).press('Enter');
+  await expect(page.getByRole('log').locator('.lc-vorlaeufig')).toHaveCount(1);
+  return { anna };
+}
+
+test('code-reviewer S1: 422 der Instanz → am Feld „⚠ Die Nachricht, auf die du antwortest, ist gelöscht.“, der zurückgegebene Text vor dem inzwischen getippten, einmal angesagt', async ({ browser }) => {
+  instanz = await sendenStarten();
+  const b = await benOeffnen(browser, instanz.adresse, { zusaetzlich: { [SENDEN]: [422] } });
+  await antwortAufGeloeschtesSenden(b.page);
+  const angesagt = await ansagenMitschreiben(b.page);
+  await eingabe(b.page).fill('Inzwischen');
+
+  const hinweisZeile = b.page.locator('#lc-comp-hinweis');
+  await expect(hinweisZeile).toHaveText(`⚠ ${ABGEWIESEN}`, { timeout: 10000 });
+  await expect(hinweisZeile).toHaveClass(/lc-fehler/);
+  await expect(eingabe(b.page)).toHaveValue('Ja\nInzwischen');
+  await expect(b.page.getByRole('log').locator('.lc-vorlaeufig')).toHaveCount(0);
+  await expect.poll(angesagt).toEqual([ABGEWIESEN]);
+  await b.page.waitForTimeout(500);
+  expect(await angesagt()).toEqual([ABGEWIESEN]);
+  expect(b.fehler).toEqual([]);
+});
+
+test('code-reviewer S1: Channelwechsel zwischen Senden und Abweisen → der Text geht in den Entwurf von # allgemein, # technik bleibt unberührt und ohne Hinweis', async ({ browser }) => {
+  instanz = await sendenStarten();
+  const b = await benOeffnen(browser, instanz.adresse, { zusaetzlich: { [SENDEN]: [422] } });
+  const abgewiesen = b.page.waitForResponse((antwort) => antwort.url().endsWith(SENDEN) && antwort.status() === 422);
+  await antwortAufGeloeschtesSenden(b.page);
+  await b.page.getByRole('link', { name: 'technik' }).click();
+  await expect(b.page.getByRole('log')).toHaveAttribute('aria-label', 'Verlauf # technik');
+  await eingabe(b.page).fill('Hallo technik');
+
+  await abgewiesen;
+  await b.page.waitForTimeout(300);
+  await expect(eingabe(b.page)).toHaveValue('Hallo technik');
+  await expect(b.page.locator('#lc-comp-hinweis')).not.toContainText(ABGEWIESEN);
+  await b.page.getByRole('link', { name: 'allgemein' }).click();
+  await expect(b.page.getByRole('log')).toHaveAttribute('aria-label', 'Verlauf # allgemein');
+  await expect(eingabe(b.page)).toHaveValue('Ja');
+  await b.page.getByRole('link', { name: 'technik' }).click();
+  await expect(eingabe(b.page)).toHaveValue('Hallo technik');
+  expect(b.fehler).toEqual([]);
+});
