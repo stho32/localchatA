@@ -145,6 +145,9 @@ export function hochladungenAnlegen({
   const bereich = element('div', { className: 'lc-hochladungen' });
   const eintraege = [];
   let offenerChannel = null;
+  // Ohne Verbindung (R00030 F0119 B0520, Zustand aus dem Wiederverbinden der Hauptansicht) wartet jede Datei, statt
+  // zu scheitern.
+  let verbunden = true;
 
   function zeigen() {
     bereich.replaceChildren(...eintraege.filter((eintrag) => eintrag.channel === offenerChannel).map((eintrag) => eintrag.artikel));
@@ -204,6 +207,10 @@ export function hochladungenAnlegen({
   }
 
   async function dateiAnmelden(eintrag, datei) {
+    if (!verbunden) {
+      aufVerbindungWarten(eintrag, datei);
+      return;
+    }
     datei.zustand = 'anmelden';
     dateiZeigen(eintrag, datei);
     const ergebnis = anmeldungBewerten(await anmelden(datei.name, datei.bytes));
@@ -228,6 +235,9 @@ export function hochladungenAnlegen({
       datei.zeitgeber = zeitgeber.stellen(SEKUNDE_MS, () => wartenZaehlen(eintrag, datei));
     } else if (ergebnis.art === 'abgewiesen') {
       dateiScheitert(eintrag, datei, 'abgewiesen', ergebnis.grund);
+      return;
+    } else if (!verbunden) {
+      aufVerbindungWarten(eintrag, datei);
       return;
     } else {
       dateiScheitert(eintrag, datei, 'fehlgeschlagen', KEINE_ANTWORT);
@@ -270,15 +280,24 @@ export function hochladungenAnlegen({
       if (!eintrag.dateien.includes(datei)) {
         return;
       }
+      if (!verbunden) {
+        aufVerbindungWarten(eintrag, datei);
+        return;
+      }
       datei.zustand = 'laedt';
       dateiZeigen(eintrag, datei);
       datei.laufend = hochladen(datei.id, datei.datei, (geladen, gesamt) => {
         datei.prozent = prozentAus(geladen, gesamt);
         balkenZeigen(datei);
       });
-      const ergebnis = hochladenBewerten(await datei.laufend.ergebnis);
+      const antwort = await datei.laufend.ergebnis;
+      const ergebnis = hochladenBewerten(antwort);
       datei.laufend = null;
       if (!eintrag.dateien.includes(datei) || ergebnis.art === 'abgebrochen') {
+        return;
+      }
+      if (antwort.art === 'netzfehler' && !verbunden) {
+        aufVerbindungWarten(eintrag, datei);
         return;
       }
       if (ergebnis.art === 'fertig') {
@@ -305,6 +324,43 @@ export function hochladungenAnlegen({
         dateiScheitert(eintrag, datei, 'fehlgeschlagen', `Nicht hochgeladen (${ausnahme.message}).`);
       }
     });
+  }
+
+  function aufVerbindungWarten(eintrag, datei) {
+    datei.zustand = 'wartetAufVerbindung';
+    dateiZeigen(eintrag, datei);
+  }
+
+  // Die Verbindung ist weg (B0520): ein laufender PUT bricht ab und wartet — sein Abbruch ist kein Fehlschlag —, ebenso
+  // eine Datei, die eben ohne Antwort scheiterte; „Erneut hochladen“ gibt es nur bei bestehender Verbindung.
+  function verbindungGetrennt() {
+    verbunden = false;
+    for (const eintrag of eintraege) {
+      for (const datei of eintrag.dateien) {
+        const ohneAntwortGescheitert = datei.zustand === 'fehlgeschlagen' && datei.grund === KEINE_ANTWORT;
+        if (datei.zustand === 'laedt' || ohneAntwortGescheitert) {
+          aufVerbindungWarten(eintrag, datei);
+        }
+        if (datei.laufend !== null) {
+          datei.laufend.abbrechen();
+        }
+      }
+    }
+  }
+
+  // „Wieder verbunden“: jede wartende Datei meldet sich neu an bzw. lädt dieselbe Anmeldung neu (nach `abgelaufen`
+  // meldet dateiHochladen neu an).
+  function wiederVerbunden() {
+    verbunden = true;
+    for (const eintrag of eintraege) {
+      for (const datei of eintrag.dateien.filter((wartend) => wartend.zustand === 'wartetAufVerbindung')) {
+        if (datei.id === null) {
+          dateiAnmelden(eintrag, datei);
+        } else {
+          dateiHochladen(eintrag, datei);
+        }
+      }
+    }
   }
 
   // „Erneut hochladen“: dieselbe Anmeldung neu — scheiterte schon die Anmeldung, eine neue —, der Fokus auf
@@ -479,6 +535,8 @@ export function hochladungenAnlegen({
       channel: eintrag.channel, text: eintrag.text, namen: eintrag.dateien.map((datei) => datei.name),
     })),
     alleAnhalten,
+    verbindungGetrennt,
+    wiederVerbunden,
   };
 }
 
@@ -488,6 +546,9 @@ function zustandBeschriftung(datei) {
   }
   if (datei.zustand === 'wartetAufPlatz') {
     return 'wartet';
+  }
+  if (datei.zustand === 'wartetAufVerbindung') {
+    return 'wartet auf Verbindung';
   }
   if (datei.zustand === 'fertig') {
     return 'hochgeladen';

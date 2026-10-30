@@ -144,7 +144,7 @@ export function zeichnen(wurzel, teilnehmer, optionen) {
     signal: vorigeAnsichtAbmelden.signal,
   });
   const wieder = wiederverbindenEinrichten({
-    mitte, verlauf, senden, abrufen: optionen.verlaufNachholen, ansagen: ansagen.melden,
+    mitte, verlauf, senden, hochladen, abrufen: optionen.verlaufNachholen, ansagen: ansagen.melden,
   }, vorigeAnsichtAbmelden.signal);
   fokusTastenBedienen({ verlauf, eingabe }, vorigeAnsichtAbmelden.signal);
   const beiAuswahl = (channel) => {
@@ -216,13 +216,14 @@ function hochladenUnterbrechbar(hochladen, signal) {
 }
 
 // Getrennt heißt Strom unterbrochen oder Netz des Tabs aus (wiederverbinden.js): die Leiste oben im Verlauf sagt es,
-// die Warteschlange ruht. Wieder verbunden → Ereignisse wieder annehmen, für den offenen Channel nachholen — oder,
+// die Warteschlange ruht, Hochladungen warten (R00030 B0520). Wieder verbunden → Ereignisse wieder annehmen, für den
+// offenen Channel nachholen — oder,
 // war er nie geladen, ihn laden (nachhollauf.js) —, erst nach dem Gelingen 4 s melden und weitersenden — so stehen fremde Nachrichten aus der Trennung
 // vor den eigenen gepufferten (ADR-0037 Regel 7). Scheitert das Nachholen, bleibt die Leiste „Verbindung verloren“.
 // Nach jedem Nachholen liest der Verlauf die Fassungen seines Fensters neu (ADR-0048 Regel 11).
 // Die Leiste liegt über der Mitte, nicht im Verlauf — mit und ohne offenen Channel, einmal je Hauptansicht; Ein- und
 // Ausblenden verschiebt nichts (ADR-0038 Ergänzung Karte #36).
-function wiederverbindenEinrichten({ mitte, verlauf, senden, abrufen, ansagen }, signal) {
+function wiederverbindenEinrichten({ mitte, verlauf, senden, hochladen, abrufen, ansagen }, signal) {
   const leiste = element('div', { className: 'lc-leiste', hidden: true });
   mitte.prepend(leiste);
   let zustand = VERBINDUNG_ANFANG;
@@ -293,6 +294,7 @@ function wiederverbindenEinrichten({ mitte, verlauf, senden, abrufen, ansagen },
       }
       anzeige = { ...anzeige, getrennt: false };
       senden.verbunden();
+      hochladen.wiederVerbunden();
       requestAnimationFrame(() => meldungNachDemEinfuegen(wiederVerbundenText(ergebnis)));
     },
   });
@@ -322,6 +324,7 @@ function wiederverbindenEinrichten({ mitte, verlauf, senden, abrufen, ansagen },
       naechsterVersuch.nachholen = null;
       anzeige = { ...anzeige, getrennt: true };
       senden.getrennt();
+      hochladen.verbindungGetrennt();
       ansagen({ art: 'getrennt' });
     }
     if (anzeige.getrennt) {
