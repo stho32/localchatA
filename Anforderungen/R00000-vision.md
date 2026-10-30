@@ -3,7 +3,7 @@ id: R00000
 titel: Vision — localchatA
 status: Lebend
 angelegt: 2026-10-27
-zuletzt-ergaenzt: 2026-10-29
+zuletzt-ergaenzt: 2026-10-30
 ---
 
 # R00000: Vision — localchatA
@@ -70,6 +70,11 @@ helfen können.
   Online-Status. Bricht die Verbindung ab, erscheint ein Teilnehmer sofort als
   offline; kehrt er nicht innerhalb etwa einer Minute zurück, verschwindet er aus der
   Liste.
+
+- **Wer tippt oder nachdenkt, ist sichtbar.** Wer in einem Gespräch gerade tippt,
+  wird den anderen, die dieses Gespräch geöffnet haben, an der Eingabe angezeigt.
+  Ein Agent kann auf ähnliche Weise einblenden, dass er gerade nachdenkt. Die Anzeige
+  ist flüchtig: sie wird nicht gespeichert und verfällt von selbst.
 
 - **Mehrere Channels.** Gespräche sind nach Thema oder Zusammenarbeit getrennt —
   zum Beispiel ein Channel zwischen Security-Factory und Entwicklungs-Factory.
@@ -208,3 +213,4 @@ Derzeit keine.
 | 2026-10-29 | Zielbild „Channels lassen sich archivieren“ ergänzt: Bereich „Archiv“ im Browser, archivierte Channels dort und über die API nur lesbar, Wiederherstellen durch jeden Teilnehmer, solange das Archiv besteht, Anhänge gekennzeichnet im Laufwerk zum Laden und Löschen — Betreiber 2026-10-29: „Bitte durch PO entscheiden lassen alles“; entschieden vom PO, AI-Team/po-entscheidungen.md Zeile 106 und 107 |
 | 2026-10-29 | Richtungsfragen „Laufwerk — Wer gelöscht hat“ und „Laufwerk — Dateien ohne Nachricht“ entschieden und ausgetragen: Teilnehmer sehen nur „gelöscht“, wer gelöscht hat, steht in der `INFORMATION`-Zeile des Betriebsprotokolls (entschieden vom PO, Zeile 79); Dateien ohne Nachricht entfallen mit der Aufbewahrungsfrist ihres Channels, gerechnet ab dem Ablegen (entschieden vom PO, Zeile 80) |
 | 2026-10-29 | Richtungsfragen „Laufwerk — Rückgängig“ (kein Rückgängig, kein Papierkorb; Zeile 99), „Unterordner“ (ja, nur für Dateien ohne Nachricht; Zeile 101), „Umbenennen“ (nur Dateien ohne Nachricht; Zeile 102), „Verschieben“ (nur innerhalb des Channels, kein Kopieren; Zeile 103), „Ersetzen und Versionen“ (neue Fassung ist neue Datei; Zeile 104), „Ordner hochladen“ (ja, mit Struktur; Zeile 104), „Archiv herunterladen“ (Auswahl oder Verzeichnis als ZIP; Zeile 105) entschieden und ausgetragen; „Offene Richtungsfragen“: „Derzeit keine.“ — Betreiber 2026-10-29: „Bitte durch PO entscheiden lassen alles“; entschieden vom PO, AI-Team/po-entscheidungen.md Zeile 99–105 |
+| 2026-10-30 | Zielbild: „Wer tippt oder nachdenkt, ist sichtbar“ (Anzeige „tippt“ für Menschen im Browser, „denkt nach“ für Agenten über die API; flüchtig) — Betreiber 2026-10-30 (Karte #77): „Wenn ein Benutzer gerade tippt, dann sollte dieser Status üblich angezeigt werden. Bei AI Agents soll es auf ähnliche Weise möglich sein, dass sie einblenden können, dass sie "gerade nachdenken".“; Leitplanken und Nicht-Ziele unverändert (PO-Entscheidung Zeile 134) |
