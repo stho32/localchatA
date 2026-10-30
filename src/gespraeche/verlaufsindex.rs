@@ -16,6 +16,9 @@ pub struct Verlauf {
     tage: BTreeMap<NaiveDate, Tag>,
     /// Fassung je geänderter Nachricht (ADR-0048 Regel 3), über die Nachrichtenzeit als Zeitpunkt.
     fassungen: BTreeMap<Zeit, Fassung>,
+    /// Wer ein Direktgespräch bereitgestellt hat, solange es keine Nachricht hat (ADR-0055 E18); nicht geladen, nur im
+    /// Speicher.
+    vorgemerkter_anleger: Option<super::Kennung>,
 }
 
 /// Die aktuelle Fassung einer geänderten Nachricht: Zeit des letzten gültigen Änderungssatzes und Zustand.
@@ -59,6 +62,15 @@ pub enum Aenderungsgrund {
 }
 
 impl Verlauf {
+    /// Ein leerer Verlauf, den `anleger` eben bereitgestellt hat: er gilt als Anleger, bis eine Nachricht im Index
+    /// steht.
+    pub fn angelegt_von(anleger: super::Kennung) -> Verlauf {
+        Verlauf {
+            vorgemerkter_anleger: Some(anleger),
+            ..Verlauf::default()
+        }
+    }
+
     /// Bildet die Fassungen aus allen Änderungssätzen, nachdem alle Tage aufgenommen sind: in Zeitfolge über alle
     /// Tage (ADR-0048 Regel 3, Pre-Mortem 1); Bearbeitet ersetzt Bearbeitet, Geloescht ist endgültig.
     pub fn fassungen_bilden(&mut self) -> Fassungsbericht {
@@ -311,10 +323,13 @@ impl Verlauf {
         })
     }
 
-    /// Der Absender der ältesten Nachricht im Index (aus der Kopfzeile ihres Satzes); ohne Nachricht keiner. Der
-    /// Anleger eines Direktgesprächs (ADR-0055 E18): im Index stehen nur Tage in der Frist.
+    /// Der Absender der ältesten Nachricht im Index (aus der Kopfzeile ihres Satzes); ohne Nachricht der, der den
+    /// Verlauf bereitstellte, sonst keiner. Der Anleger eines Direktgesprächs (ADR-0055 E18): im Index stehen nur Tage in
+    /// der Frist; nach einem Neustart gilt allein der Index.
     pub fn aeltester_absender(&self) -> Option<super::Kennung> {
-        let tag = self.tage.values().find(|tag| !tag.nachrichten.is_empty())?;
+        let Some(tag) = self.tage.values().find(|tag| !tag.nachrichten.is_empty()) else {
+            return self.vorgemerkter_anleger.clone();
+        };
         logformat::kopf(&tag.rohtext[tag.nachrichten[0]..]).map(|(_, von)| von)
     }
 

@@ -153,7 +153,8 @@ impl Gespraeche {
     }
 
     /// Stellt das Paar bereit: unter der Sperre des Verzeichnisses nachschlagen, fehlt es, Ordner anlegen und den
-    /// leeren Verlauf eintragen. `true`, wenn dieser Aufruf es angelegt hat. Gleichzeitiges erstes Senden beider
+    /// leeren Verlauf eintragen, der den Anleger schon vermerkt — die Grenze je Herkunft zählt ihn vom Bereitstellen an,
+    /// nicht erst mit seiner ersten Nachricht (sonst zählten gleichzeitig beginnende Paare nicht mit). `true`, wenn dieser Aufruf es angelegt hat. Gleichzeitiges erstes Senden beider
     /// Seiten ergibt einen Ordner, weil das Nachschlagen und das Anlegen unter derselben Sperre liegen.
     fn direkt_bereitstellen(
         &self,
@@ -179,16 +180,22 @@ impl Gespraeche {
                 });
             }
         };
-        verzeichnis
-            .verlaeufe
-            .insert(gespraech.clone(), Arc::new(Mutex::new(Verlauf::default())));
+        verzeichnis.verlaeufe.insert(
+            gespraech.clone(),
+            Arc::new(Mutex::new(if angelegt {
+                Verlauf::angelegt_von(von.clone())
+            } else {
+                Verlauf::default()
+            })),
+        );
         Ok(angelegt)
     }
 
     /// Die Grenzen neuer Paare (ADR-0055 Regel 4, E16–E18), unter der Schreibsperre des Verzeichnisses, nur für ein
     /// Paar, dessen Ordner neu entstünde: zuerst die Gesamtgrenze (alle geladenen Paarordner, auch leere), dann die
-    /// Grenze je Herkunft (Paare, deren Anleger — Absender der ältesten Nachricht in der Frist — diese Herkunft
-    /// trägt; ein Ordner ohne Nachricht hat keinen Anleger). Ohne Herkunft in der Kennung gilt nur die Gesamtgrenze.
+    /// Grenze je Herkunft (Paare, deren Anleger — Absender der ältesten Nachricht in der Frist, bis dahin der
+    /// Sender, der das Paar bereitstellte — diese Herkunft trägt; ein von Hand angelegter Ordner ohne Nachricht hat
+    /// keinen Anleger). Ohne Herkunft in der Kennung gilt nur die Gesamtgrenze.
     fn direkt_grenze_pruefen(
         &self,
         verzeichnis: &Verzeichnis,
@@ -753,6 +760,96 @@ mod tests {
             4,
             "3 von anna, 1 von der anderen Herkunft — kein Ordner für das abgewiesene"
         );
+    }
+
+    /// `anzahl` Threads starten zugleich (gemeinsame Schranke) und senden je `von(nummer)` an das Gegenüber `nummer`;
+    /// das Ergebnis je Nummer.
+    fn gleichzeitig_senden(
+        gespraeche: &Arc<Gespraeche>,
+        anzahl: usize,
+        von: impl Fn(usize) -> Kennung + Send + Sync + 'static,
+    ) -> Vec<Result<Gesendet, Sendefehler>> {
+        let start = Arc::new(std::sync::Barrier::new(anzahl));
+        let von = Arc::new(von);
+        let threads: Vec<_> = (0..anzahl)
+            .map(|nummer| {
+                let (gespraeche, start, von) =
+                    (Arc::clone(gespraeche), Arc::clone(&start), Arc::clone(&von));
+                std::thread::spawn(move || {
+                    start.wait();
+                    senden_an(&gespraeche, &von(nummer), nummer)
+                })
+            })
+            .collect();
+        threads
+            .into_iter()
+            .map(|thread| thread.join().expect("Thread"))
+            .collect()
+    }
+
+    fn kurz(ergebnisse: &[Result<Gesendet, Sendefehler>]) -> String {
+        ergebnisse
+            .iter()
+            .map(|e| match e {
+                Ok(_) => "Ok".to_string(),
+                Err(fehler) => format!("{fehler:?}"),
+            })
+            .collect::<Vec<_>>()
+            .join(" ")
+    }
+
+    /// Code-Review #13 F0175 Sollte 1 (Abnahme-Probe wörtlich): 32 Threads, eine Schranke, alle senden mit
+    /// `anna@10.0.0.1` an g0…g31, Herkunftsgrenze 3 → genau 3 × `Neu` und 29 × `DirektGrenze{Herkunft,3}`, danach
+    /// genau 3 Paarordner. Der Anleger zählt schon ab dem Bereitstellen, nicht erst mit der ersten Nachricht (Mutante
+    /// „Anleger erst mit der Nachricht“: 32 × Ok). Nach dem Neustart bleibt die Zählung gleich.
+    #[test]
+    fn gleichzeitig_beginnende_paare_einer_herkunft_halten_die_herkunftsgrenze_hart() {
+        let wurzel = tempfile::tempdir().expect("Wegwerf-Ordner");
+        let gespraeche = Arc::new(laden_mit(wurzel.path(), grenzen(100, 3)));
+
+        let ergebnisse = gleichzeitig_senden(&gespraeche, 32, |_| anna_von("10.0.0.1"));
+
+        let neu = ergebnisse
+            .iter()
+            .filter(|e| matches!(e, Ok(Gesendet::Neu(_))))
+            .count();
+        let abgewiesen = ergebnisse
+            .iter()
+            .filter(|e| **e == Err(herkunftsgrenze(3)))
+            .count();
+        assert_eq!((neu, abgewiesen), (3, 29), "{}", kurz(&ergebnisse));
+        assert_eq!(eintraege(&wurzel.path().join("direkt")).len(), 3);
+        drop(gespraeche);
+
+        let nach_neustart = laden_mit(wurzel.path(), grenzen(100, 3));
+
+        assert_eq!(
+            senden_an(&nach_neustart, &anna_von("10.0.0.1"), 40),
+            Err(herkunftsgrenze(3)),
+            "Anleger aus dem Index"
+        );
+    }
+
+    /// Gegenprobe zu oben: die Gesamtgrenze 3 hält unter derselben Gleichzeitigkeit (sie zählte schon alle Ordner).
+    #[test]
+    fn gleichzeitig_beginnende_paare_halten_auch_die_gesamtgrenze_hart() {
+        let wurzel = tempfile::tempdir().expect("Wegwerf-Ordner");
+        let gespraeche = Arc::new(laden_mit(wurzel.path(), grenzen(3, 100)));
+
+        let ergebnisse = gleichzeitig_senden(&gespraeche, 32, |nummer| {
+            anna_von(&format!("10.0.{nummer}.1"))
+        });
+
+        let neu = ergebnisse
+            .iter()
+            .filter(|e| matches!(e, Ok(Gesendet::Neu(_))))
+            .count();
+        let abgewiesen = ergebnisse
+            .iter()
+            .filter(|e| **e == Err(gesamtgrenze(3)))
+            .count();
+        assert_eq!((neu, abgewiesen), (3, 29), "{}", kurz(&ergebnisse));
+        assert_eq!(eintraege(&wurzel.path().join("direkt")).len(), 3);
     }
 
     /// Gesamtgrenze 5 → 429 `gesamt`, und sie steht vor der Herkunftsgrenze: auch `anna@10.0.0.1` mit ihren 3 Paaren
