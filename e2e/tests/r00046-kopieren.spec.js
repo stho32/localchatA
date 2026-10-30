@@ -919,3 +919,77 @@ test('Markierung im Eingabefeld bleibt: „Welt“ markiert, „Kopieren“ an e
   expect(await ablageLesen(a.page)).toBe('Zweite');
   expect(a.fehler).toEqual([]);
 });
+
+// Nacharbeit #78 (code-reviewer A3): die Zeitgrenzen der Rückmeldung, im Browser ereignisgenau gemessen — das Menü auf
+// Touch schließt 1200 ms nach dem Tippen, und ein zweites Kopieren beginnt die 2000 ms am Knopf neu.
+for (const fehlschlag of [false, true]) {
+  test(`Touch (${fehlschlag ? 'Fehlschlag' : 'Gelingen'}): das Menü schließt 1200 bis 1500 ms nach dem Tippen auf „Kopieren“ (A3 Probe a)`, async ({ browser }) => {
+    instanz = await sendenStarten();
+    const fremd = await claudeSendet(instanz.adresse, ['Eins', 'Zwei']);
+    const a = await geraetOeffnen(browser, 'telefon', { fenster: FENSTER_TELEFON, streng: true });
+    await imBrowserBeitreten(a.page, instanz.adresse, 'shoff');
+    const zeit = fremd.zeiten[1];
+    await expect(nachrichtMitZeit(a.page, zeit)).toHaveCount(1);
+    if (fehlschlag) {
+      await a.page.evaluate(() => { document.execCommand = () => false; });
+    }
+    await schalter(a.page, zeit).tap();
+    await expect(kopierKnopf(a.page, zeit)).toBeVisible();
+    await a.page.evaluate((nachrichtZeit) => {
+      const menueSchalter = document.querySelector(`.lc-msg[data-zeit="${nachrichtZeit}"] .lc-aktionen-schalter`);
+      window.menueZeiten = { getippt: null, zu: null };
+      document.addEventListener('click', (ereignis) => {
+        if (ereignis.target.closest('.lc-aktion[data-aktion="kopieren"]') !== null) {
+          window.menueZeiten.getippt = performance.now();
+        }
+      }, true);
+      new MutationObserver(() => {
+        if (menueSchalter.getAttribute('aria-expanded') === 'false' && window.menueZeiten.zu === null) {
+          window.menueZeiten.zu = performance.now();
+        }
+      }).observe(menueSchalter, { attributes: true, attributeFilter: ['aria-expanded'] });
+    }, zeit);
+
+    await kopierKnopf(a.page, zeit).tap();
+
+    await a.page.waitForFunction(() => window.menueZeiten.zu !== null, null, { polling: 'raf', timeout: 10000 });
+    const { getippt, zu } = await a.page.evaluate(() => window.menueZeiten);
+    console.log(`Menü offen nach dem Tippen (${fehlschlag ? 'Fehlschlag' : 'Gelingen'}): ${Math.round(zu - getippt)} ms`);
+    expect(getippt).not.toBeNull();
+    expect(zu - getippt).toBeGreaterThanOrEqual(1200);
+    expect(zu - getippt).toBeLessThanOrEqual(1500);
+    expect(a.fehler).toEqual([]);
+  });
+}
+
+test('Desktop: Kopieren bei t = 0 und t ≈ 1000 — bei t ≈ 2500 steht noch „✓ Kopiert.“, die Anzeige endet 2000 ms nach dem zweiten Mal (A3 Probe b)', async ({ browser }) => {
+  instanz = await sendenStarten();
+  const fremd = await claudeSendet(instanz.adresse, ['Zweimal']);
+  const a = await seiteOeffnen(browser, instanz.adresse);
+  const zeit = fremd.zeiten[0];
+  await expect(nachrichtMitZeit(a.page, zeit)).toHaveCount(1);
+  await anzeigeMitschreiben(a.page, zeit);
+  await a.page.evaluate(() => {
+    window.klicks = [];
+    document.addEventListener('click', (ereignis) => {
+      if (ereignis.target.closest('.lc-aktion[data-aktion="kopieren"]') !== null) {
+        window.klicks.push(performance.now());
+      }
+    }, true);
+  });
+
+  await ueberHoverKopieren(a.page, zeit);
+  await a.page.waitForTimeout(1000);
+  await kopierKnopf(a.page, zeit).click();
+
+  await a.page.waitForFunction(() => window.wechsel.some(([text]) => text === 'Kopieren'), null, { polling: 'raf', timeout: 10000 });
+  const { klicks, wechsel } = await a.page.evaluate(() => ({ klicks: window.klicks, wechsel: window.wechsel }));
+  const ende = wechsel.find(([text]) => text === 'Kopieren')[1];
+  console.log(`Anzeige nach zweimal Kopieren: Abstand ${Math.round(klicks[1] - klicks[0])} ms, Ende ${Math.round(ende - klicks[0])} ms nach dem ersten`);
+  expect(klicks).toHaveLength(2);
+  expect(klicks[1] - klicks[0]).toBeGreaterThanOrEqual(900);
+  expect(ende - klicks[0], 'bei t ≈ 2500 steht noch „✓ Kopiert.“').toBeGreaterThanOrEqual(2500);
+  expect(ende - klicks[1]).toBeGreaterThanOrEqual(2000 - 300);
+  expect(ende - klicks[1]).toBeLessThanOrEqual(2000 + 300);
+  expect(a.fehler).toEqual([]);
+});
