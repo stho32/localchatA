@@ -34,6 +34,7 @@ use crate::http::nachholplatz::gebremst_auftreten as nachholen_gebremst_auftrete
 use crate::http::senden::{quote_auftreten, schreibfehler_auftreten};
 use crate::http::teilnehmer::Teilnehmer;
 use crate::http::warten::gebremst_auftreten as warten_gebremst_auftreten;
+use crate::http::ziel::Ziel;
 use crate::name::Name;
 use crate::protokoll::episoden::{Auftreten, Episoden, RUHE};
 use crate::protokoll::episodentexte as texte;
@@ -330,7 +331,7 @@ fn katalog() -> Vec<Zeile> {
             ende_wert: &[],
             bauen: |a, _| {
                 schreibfehler_auftreten(
-                    &a.text_der_quelle("channel"),
+                    &Ziel::Channel(a.text_der_quelle("channel")),
                     &a.kennung_je_aufruf(),
                     &a.text_der_quelle("datei.log"),
                     &a.text_der_quelle("Platte voll"),
@@ -406,7 +407,7 @@ fn katalog() -> Vec<Zeile> {
                     "loeschen"
                 };
                 quote_auftreten(
-                    &a.text("channel"),
+                    &Ziel::Channel(a.text("channel")),
                     &a.kennung_der_quelle(),
                     a.zahl(),
                     5000 * a.quelle(),
@@ -513,7 +514,9 @@ fn katalog() -> Vec<Zeile> {
             beginn: &[S::Channel],
             ende: &[],
             ende_wert: &[],
-            bauen: |a, _| fremd_auftreten(&a.text("channel"), &a.kennung_der_quelle()),
+            bauen: |a, _| {
+                fremd_auftreten(&Ziel::Channel(a.text("channel")), &a.kennung_der_quelle())
+            },
         },
         Zeile {
             name: "aendern · Änderung nicht geschrieben",
@@ -525,7 +528,7 @@ fn katalog() -> Vec<Zeile> {
             ende_wert: &[],
             bauen: |a, _| {
                 aenderung_nicht_geschrieben_auftreten(
-                    &a.text_der_quelle("channel"),
+                    &Ziel::Channel(a.text_der_quelle("channel")),
                     &a.kennung_je_aufruf(),
                     &a.text_der_quelle("datei.log"),
                     &a.text_der_quelle("Platte voll"),
@@ -546,7 +549,11 @@ fn katalog() -> Vec<Zeile> {
                 } else {
                     AktivitaetGrenze::Herkunft
                 };
-                aktivitaet_gebremst_auftreten(&a.kennung_der_quelle(), &a.text("channel"), grenze)
+                aktivitaet_gebremst_auftreten(
+                    &a.kennung_der_quelle(),
+                    &Ziel::Channel(a.text("channel")),
+                    grenze,
+                )
             },
         },
         Zeile {

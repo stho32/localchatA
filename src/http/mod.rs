@@ -43,7 +43,7 @@ pub(crate) mod warten;
 #[cfg(test)]
 mod warten_nachholen;
 mod werkbank;
-mod ziel;
+pub(crate) mod ziel;
 
 pub use anhaenge::hochladen::HOCHLADEBANK;
 pub use auskunft::Auskunft;

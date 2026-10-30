@@ -71,7 +71,7 @@ pub async fn loeschen(
         route: ROUTE,
         operation: "anhaenge_loeschen",
         kennung: Some(&wer),
-        channel: None,
+        ziel: None,
     };
     let erlaubnis = match bank_erwerben(&zustand.hochladebank).await {
         Ok(erlaubnis) => erlaubnis,

@@ -4,6 +4,7 @@
 //! geschlossene Werkbank → `EXCEPTION programmfehler … grund=werkbank_geschlossen`. Der Text des Abbruchs
 //! (englisch, von tokio) steht nur im Protokoll, im Wert `ursache` (ADR-0042 Ergänzung #24 Punkte 5 und 6).
 
+use super::ziel::Ziel;
 use crate::protokoll::{Bereich, Kontext, Protokoll, Schluessel, Stufe};
 use axum::Json;
 use axum::http::StatusCode;
@@ -42,12 +43,12 @@ impl From<JoinError> for Abgebrochen {
     }
 }
 
-/// Wo der Abbruch geschah: Routenmuster, Fachoperation, Kennung und Channel, falls bekannt.
+/// Wo der Abbruch geschah: Routenmuster, Fachoperation, Kennung und Gespräch (Channel oder Direktgespräch), falls bekannt.
 pub struct Grenzort<'a> {
     pub route: &'static str,
     pub operation: &'static str,
     pub kennung: Option<&'a str>,
-    pub channel: Option<&'a str>,
+    pub ziel: Option<&'a Ziel>,
 }
 
 /// 500 `{fehler: "Interner Fehler — <was>; bitte erneut versuchen"}` und genau ein Eintrag.
@@ -100,8 +101,8 @@ fn eintrag_schreiben(
     if let Some(kennung) = ort.kennung {
         kontext = kontext.mit(Schluessel::Kennung, kennung);
     }
-    if let Some(channel) = ort.channel {
-        kontext = kontext.mit(super::ziel::bezug(channel), channel);
+    if let Some(ziel) = ort.ziel {
+        kontext = kontext.mit(ziel.bezug(), ziel.name());
     }
     protokoll.eintragen(
         stufe,
@@ -131,7 +132,7 @@ mod tests {
         route: "GET /api/channels",
         operation: "channels",
         kennung: None,
-        channel: None,
+        ziel: None,
     };
 
     async fn antwort_als_json(antwort: Response) -> serde_json::Value {
@@ -198,7 +199,7 @@ mod tests {
                 route: "GET /api/channels/{name}/nachrichten",
                 operation: "verlauf",
                 kennung: Some("beta@127.0.0.1"),
-                channel: Some("allgemein"),
+                ziel: Some(&Ziel::Channel("allgemein".to_string())),
             },
             "Verlauf nicht gelesen",
         );
@@ -266,7 +267,7 @@ mod tests {
                 route: "GET /api/ereignisse",
                 operation: "channels_stand",
                 kennung: Some("beta@127.0.0.1"),
-                channel: None,
+                ziel: None,
             },
             "Ereignisstrom beendet — Stand der Channels nicht geholt; der Client verbindet neu",
         );

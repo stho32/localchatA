@@ -15,7 +15,7 @@ use super::bearbeiten::{unbekannt_regel, unbekannt_wie};
 use super::koerper::{Koerperfehler, Koerperort, json_lesen, koerperfehler_beantworten};
 use super::teilnehmer::Teilnehmer;
 use super::teilnehmerliste::zeit_als_text;
-use super::ziel::{Segment, Ziel, bezug, ziel_aus_pfad};
+use super::ziel::{Segment, Ziel, ziel_aus_pfad};
 use crate::aktivitaet::{self, Abweisung, Gebremst, Gesetzt, Grenze};
 use crate::gespraeche::{Gespraech, sichtbar_fuer};
 use crate::protokoll::episoden::{Auftreten, Quelle};
@@ -261,8 +261,7 @@ fn gebremst_melden(
     ziel: &Ziel,
 ) -> Response {
     let wer = teilnehmer.kennung.als_text();
-    let name = ziel.name();
-    protokoll.episode(gebremst_auftreten(wer, &name, gebremst.grenze));
+    protokoll.episode(gebremst_auftreten(wer, ziel, gebremst.grenze));
     let wo = match ziel {
         Ziel::Channel(name) => format!("# {name}"),
         Ziel::Direkt { .. } => "dem Direktgespräch".to_string(),
@@ -292,14 +291,14 @@ fn gebremst_melden(
 
 /// Das Auftreten einer 429 der Aktivität: Quelle ist die Kennung; Channel und Grenze stehen nur in der Beginn-Zeile,
 /// die Grenze zählt als Art für die Ende-Zeile `(gespraech <g>; herkunft <h>)`.
-pub(crate) fn gebremst_auftreten(wer: &str, channel: &str, grenze: Grenze) -> Auftreten {
+pub(crate) fn gebremst_auftreten(wer: &str, ziel: &Ziel, grenze: Grenze) -> Auftreten {
     Auftreten::neu(
         Stufe::Warning,
         Bereich::Aktivitaet,
         episodentexte::AKTIVITAET_GEBREMST,
         Quelle::neu().mit(Schluessel::Kennung, wer),
     )
-    .einzeln(bezug(channel), channel)
+    .einzeln(ziel.bezug(), ziel.name())
     .einzeln(Schluessel::Grenze, grenze.als_text())
     .art(grenze.als_text())
 }

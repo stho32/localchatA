@@ -19,7 +19,7 @@ use super::senden::{
     text_abgewiesen, unbekannt,
 };
 use super::teilnehmer::Teilnehmer;
-use super::ziel::{Segment, Ziel, bezug, ziel_aus_pfad};
+use super::ziel::{Segment, Ziel, ziel_aus_pfad};
 use crate::gespraeche::textregel::{Textfehler, laenge_und_zeichen_pruefen};
 use crate::gespraeche::{Bearbeitet, Bearbeitfehler, Kennung, Nachricht};
 use crate::protokoll::episoden::{Auftreten, Quelle};
@@ -74,11 +74,10 @@ pub(super) async fn bearbeiten_direkt(
 async fn bearbeiten_in(
     teilnehmer: Teilnehmer,
     zustand: Arc<Zustand>,
-    ziel_gespraech: Ziel,
+    ziel: Ziel,
     kopf: HeaderMap,
     koerper: Body,
 ) -> Response {
-    let name = ziel_gespraech.name();
     let eintritt = Instant::now();
     if let Err(gebremst) =
         zustand
@@ -105,19 +104,15 @@ async fn bearbeiten_in(
         {
             Ok(Ok(wert)) => wert,
             Ok(Err(fehler)) => return koerper_abgewiesen(fehler),
-            Err(abbruch) => return abgebrochen(&zustand, &abbruch, &wer, &name),
+            Err(abbruch) => return abgebrochen(&zustand, &abbruch, &wer, &ziel),
         };
     if let Some(feld) = weiteres_feld(&wert) {
         return mit_regel(feld_abgewiesen(&feld), "feld_unbekannt", Some(&wer));
     }
-    if !gespraech_bekannt(&zustand, &ziel_gespraech) {
-        return mit_regel(
-            unbekannt_wie(&ziel_gespraech),
-            unbekannt_regel(&ziel_gespraech),
-            Some(&wer),
-        );
+    if !gespraech_bekannt(&zustand, &ziel) {
+        return mit_regel(unbekannt_wie(&ziel), unbekannt_regel(&ziel), Some(&wer));
     }
-    let Some(ziel) = zeit_lesen(&wert) else {
+    let Some(zeit) = zeit_lesen(&wert) else {
         return mit_regel(zeit_abgewiesen(), "zeit", Some(&wer));
     };
     let Some(text) = wert.get("text").and_then(Value::as_str) else {
@@ -151,35 +146,35 @@ async fn bearbeiten_in(
     }
     let text_bytes = text.len();
     let gespraeche = Arc::clone(&zustand.gespraeche);
-    let gespraech = ziel_gespraech.gespraech();
+    let gespraech = ziel.gespraech();
     let von = teilnehmer.kennung.clone();
     let text = text.to_string();
     let ergebnis = tokio::task::spawn_blocking(move || {
-        gespraeche.bearbeiten_mit(&gespraech, &von, ziel, &text, schluessel.as_deref())
+        gespraeche.bearbeiten_mit(&gespraech, &von, zeit, &text, schluessel.as_deref())
     })
     .await;
     let melden = |grund| {
-        bearbeitet_melden(&zustand.protokoll, &name, &wer, text_bytes, eintritt, grund);
+        bearbeitet_melden(&zustand.protokoll, &ziel, &wer, text_bytes, eintritt, grund);
     };
     match ergebnis {
         Ok(Ok(Bearbeitet::Neu(nachricht))) => {
             vorlauf::eintragen(&zustand.protokoll, zustand.gespraeche.zeit_vorlauf_ms());
             melden(None);
-            bearbeitet(&ziel_gespraech, &nachricht)
+            bearbeitet(&ziel, &nachricht)
         }
         Ok(Ok(Bearbeitet::Wiederholt(nachricht))) => {
             melden(Some("wiederholung"));
-            bearbeitet(&ziel_gespraech, &nachricht)
+            bearbeitet(&ziel, &nachricht)
         }
         Ok(Ok(Bearbeitet::Unveraendert(nachricht))) => {
             melden(Some("unveraendert"));
-            bearbeitet(&ziel_gespraech, &nachricht)
+            bearbeitet(&ziel, &nachricht)
         }
         Ok(Err(fehler)) => {
-            abweisung_melden(&zustand.protokoll, &fehler, &name, &wer);
-            abgewiesen(fehler, &ziel_gespraech, &wer)
+            abweisung_melden(&zustand.protokoll, &fehler, &ziel, &wer);
+            abgewiesen(fehler, &ziel, &wer)
         }
-        Err(abbruch) => abgebrochen(&zustand, &Abgebrochen::from(abbruch), &wer, &name),
+        Err(abbruch) => abgebrochen(&zustand, &Abgebrochen::from(abbruch), &wer, &ziel),
     }
 }
 
@@ -187,14 +182,14 @@ async fn bearbeiten_in(
 /// Zeit vom Eintritt in den Handler bis zum Schreiben; ohne Satz `grund=wiederholung|unveraendert` — nie der Text.
 fn bearbeitet_melden(
     protokoll: &Protokoll,
-    channel: &str,
+    ziel: &Ziel,
     wer: &str,
     text_bytes: usize,
     eintritt: Instant,
     grund: Option<&str>,
 ) {
     let kontext = Kontext::neu()
-        .mit(bezug(channel), channel)
+        .mit(ziel.bezug(), ziel.name())
         .mit(Schluessel::Kennung, wer)
         .mit(Schluessel::Anzahl, text_bytes)
         .mit(Schluessel::DauerMs, eintritt.elapsed().as_millis());
@@ -212,15 +207,15 @@ fn bearbeitet_melden(
 
 /// Abweisungen unter der Sperre mit eigener Episode: 403 `fremd` je Kennung (WARNING), 500 je Datei und Grund
 /// (ERROR), 507 in der Quote-Episode der Kennung mit `route=bearbeiten`.
-fn abweisung_melden(protokoll: &Protokoll, fehler: &Bearbeitfehler, channel: &str, wer: &str) {
+fn abweisung_melden(protokoll: &Protokoll, fehler: &Bearbeitfehler, ziel: &Ziel, wer: &str) {
     match fehler {
-        Bearbeitfehler::Fremd { .. } => protokoll.episode(fremd_auftreten(channel, wer)),
+        Bearbeitfehler::Fremd { .. } => protokoll.episode(fremd_auftreten(ziel, wer)),
         Bearbeitfehler::Ablage { datei, grund } => {
-            protokoll.episode(schreibfehler_auftreten(channel, wer, datei, grund));
+            protokoll.episode(schreibfehler_auftreten(ziel, wer, datei, grund));
         }
         Bearbeitfehler::Quote { belegt, hoechstens } => {
             protokoll.episode(
-                quote_auftreten(channel, wer, *belegt, *hoechstens)
+                quote_auftreten(ziel, wer, *belegt, *hoechstens)
                     .einzeln(Schluessel::Route, "bearbeiten"),
             );
         }
@@ -229,19 +224,19 @@ fn abweisung_melden(protokoll: &Protokoll, fehler: &Bearbeitfehler, channel: &st
 }
 
 /// Quelle der Episode „fremd“ ist die Kennung (M16: je Kennung eine Episode); der Channel steht nur am Beginn.
-pub(crate) fn fremd_auftreten(channel: &str, wer: &str) -> Auftreten {
+pub(crate) fn fremd_auftreten(ziel: &Ziel, wer: &str) -> Auftreten {
     Auftreten::neu(
         Stufe::Warning,
         Bereich::Aendern,
         crate::protokoll::episodentexte::FREMD_ABGEWIESEN,
         Quelle::neu().mit(Schluessel::Kennung, wer),
     )
-    .einzeln(bezug(channel), channel)
+    .einzeln(ziel.bezug(), ziel.name())
 }
 
 /// Quelle des Schreibfehlers sind Datei und Grund; die Kennung gehört dem einzelnen Auftreten.
 pub(crate) fn schreibfehler_auftreten(
-    channel: &str,
+    ziel: &Ziel,
     wer: &str,
     datei: &str,
     grund: &str,
@@ -251,7 +246,7 @@ pub(crate) fn schreibfehler_auftreten(
         Bereich::Aendern,
         crate::protokoll::episodentexte::AENDERUNG_NICHT_GESCHRIEBEN,
         Quelle::neu()
-            .mit(bezug(channel), channel)
+            .mit(ziel.bezug(), ziel.name())
             .mit(Schluessel::Datei, datei)
             .mit(Schluessel::Grund, grund),
     )
@@ -411,7 +406,7 @@ pub(super) fn quote_erreicht(was: &str, belegt: u64, hoechstens: u64) -> Respons
         .into_response()
 }
 
-fn abgebrochen(zustand: &Zustand, abbruch: &Abgebrochen, wer: &str, channel: &str) -> Response {
+fn abgebrochen(zustand: &Zustand, abbruch: &Abgebrochen, wer: &str, ziel: &Ziel) -> Response {
     abbruch_beantworten(
         &zustand.protokoll,
         abbruch,
@@ -419,7 +414,7 @@ fn abgebrochen(zustand: &Zustand, abbruch: &Abgebrochen, wer: &str, channel: &st
             route: ROUTE,
             operation: "bearbeiten",
             kennung: Some(wer),
-            channel: Some(channel),
+            ziel: Some(ziel),
         },
         "Nachricht nicht bearbeitet",
     )
@@ -441,6 +436,10 @@ fn koerper_abgewiesen(fehler: Koerperfehler) -> Response {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn allgemein() -> Ziel {
+        Ziel::Channel("allgemein".to_string())
+    }
 
     /// Feld und Zeit des Körpers: ein weiteres Feld wird genannt; `zeit` gilt nur als RFC 3339 in einer Zeichenkette.
     #[test]
@@ -480,17 +479,17 @@ mod tests {
         };
 
         for wer in ["gamma@127.0.0.1", "gamma@127.0.0.1", "delta@127.0.0.1"] {
-            abweisung_melden(&protokoll, &fremd("beta@127.0.0.1"), "allgemein", wer);
+            abweisung_melden(&protokoll, &fremd("beta@127.0.0.1"), &allgemein(), wer);
         }
-        abweisung_melden(&protokoll, &ablage, "allgemein", "beta@127.0.0.1");
-        abweisung_melden(&protokoll, &ablage, "allgemein", "gamma@127.0.0.1");
+        abweisung_melden(&protokoll, &ablage, &allgemein(), "beta@127.0.0.1");
+        abweisung_melden(&protokoll, &ablage, &allgemein(), "gamma@127.0.0.1");
         abweisung_melden(
             &protokoll,
             &Bearbeitfehler::Quote {
                 belegt: 100,
                 hoechstens: 1000,
             },
-            "allgemein",
+            &allgemein(),
             "beta@127.0.0.1",
         );
         uhr.stellen(zeit("2026-10-28T12:01:00+01:00"));

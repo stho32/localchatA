@@ -240,7 +240,7 @@ pub async fn beantworten(
                 route: ROUTE,
                 operation: "warten",
                 kennung: Some(kennung),
-                channel: None,
+                ziel: None,
             },
             "Warten abgebrochen",
         ),

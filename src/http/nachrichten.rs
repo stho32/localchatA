@@ -7,7 +7,7 @@ use super::abbruch::{Grenzort, abbruch_beantworten, interner_fehler};
 use super::anfrageprotokoll::mit_regel;
 use super::teilnehmer::Teilnehmer;
 use super::teilnehmerliste::zeit_als_text;
-use super::ziel::{Segment, Ziel, bezug, ziel_aus_pfad};
+use super::ziel::{Segment, Ziel, ziel_aus_pfad};
 use crate::gespraeche::abfrage::{Abfrage, Abschnitt, Blockgroesse};
 use crate::gespraeche::zitat::Zitat;
 use crate::gespraeche::{Aenderungszustand, Art, Nachricht, Nachrichtenblock, Unbekannt};
@@ -62,7 +62,6 @@ async fn verlauf_in(
     ziel: Ziel,
     query: Option<String>,
 ) -> Response {
-    let name = ziel.name();
     let abfrage = match abfrage_lesen(query.as_deref()) {
         Ok(abfrage) => abfrage,
         Err(fehler) => {
@@ -98,21 +97,21 @@ async fn verlauf_in(
                 Bereich::Verlauf,
                 "Verlaufsblock gelesen",
                 Kontext::neu()
-                    .mit(bezug(&name), &name)
+                    .mit(ziel.bezug(), ziel.name())
                     .mit(Schluessel::Anzahl, anzahl)
                     .mit(Schluessel::DauerMs, beginn.elapsed().as_millis()),
             );
             ([(CONTENT_TYPE, "application/json")], bytes).into_response()
         }
         Ok(Err(Unbekannt)) => mit_regel(
-            unbekannt(&name),
+            unbekannt(&ziel.name()),
             "channel_unbekannt",
             Some(teilnehmer.kennung.als_text()),
         ),
         Ok(Ok((_, Err(fehler)))) => nicht_gelesen(
             &zustand,
             teilnehmer.kennung.als_text(),
-            &name,
+            &ziel,
             &fehler.to_string(),
         ),
         Err(abbruch) => abbruch_beantworten(
@@ -122,7 +121,7 @@ async fn verlauf_in(
                 route: ROUTE,
                 operation: "verlauf",
                 kennung: Some(teilnehmer.kennung.als_text()),
-                channel: Some(&name),
+                ziel: Some(&ziel),
             },
             NICHT_GELESEN,
         ),
@@ -134,7 +133,7 @@ const ROUTE: &str = "GET /api/channels/{name}/nachrichten";
 
 /// Ein Block ließ sich nicht serialisieren — eine verletzte Annahme (ADR-0042 Ergänzung #24 Punkt 4): EXCEPTION
 /// mit Ort und `grund=serialisierung`, der Fremdtext von `serde_json` nur in `ursache`; 500 mit deutschem Satz.
-fn nicht_gelesen(zustand: &Zustand, kennung: &str, channel: &str, ursache: &str) -> Response {
+fn nicht_gelesen(zustand: &Zustand, kennung: &str, ziel: &Ziel, ursache: &str) -> Response {
     zustand.protokoll.exception(
         Bereich::Verlauf,
         "Verlauf nicht gelesen — Block ließ sich nicht serialisieren",
@@ -142,7 +141,7 @@ fn nicht_gelesen(zustand: &Zustand, kennung: &str, channel: &str, ursache: &str)
             .mit(Schluessel::Route, ROUTE)
             .mit(Schluessel::Operation, "verlauf")
             .mit(Schluessel::Status, 500)
-            .mit(bezug(channel), channel)
+            .mit(ziel.bezug(), ziel.name())
             .mit(Schluessel::Kennung, kennung)
             .mit(Schluessel::Grund, "serialisierung")
             .mit(Schluessel::Ursache, ursache),
@@ -393,6 +392,10 @@ pub(super) fn dekodieren(text: &str) -> Option<String> {
 mod tests {
     use super::*;
 
+    fn allgemein() -> Ziel {
+        Ziel::Channel("allgemein".to_string())
+    }
+
     fn zeit(text: &str) -> Zeit {
         Zeit::parse_from_rfc3339(text).expect("Testzeit")
     }
@@ -455,7 +458,7 @@ mod tests {
     #[tokio::test]
     async fn ein_abgebrochener_verlauf_ist_500_mit_grund() {
         let zustand = crate::http::testserver::zustand(std::path::Path::new("/tmp"));
-        let antwort = nicht_gelesen(&zustand, "beta@127.0.0.1", "allgemein", "Probe");
+        let antwort = nicht_gelesen(&zustand, "beta@127.0.0.1", &allgemein(), "Probe");
 
         assert_eq!(antwort.status(), StatusCode::INTERNAL_SERVER_ERROR);
         let koerper = axum::body::to_bytes(antwort.into_body(), 1024)
@@ -483,7 +486,7 @@ mod tests {
         let antwort = nicht_gelesen(
             &zustand,
             "beta@127.0.0.1",
-            "allgemein",
+            &allgemein(),
             "key must be a string",
         );
 

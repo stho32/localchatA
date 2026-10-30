@@ -13,6 +13,7 @@ use super::bremse::{Gegenstand, gebremst_melden};
 use super::channels::channel_als_json;
 use super::koerper::{Koerperfehler, Koerperort, json_lesen, koerperfehler_beantworten};
 use super::teilnehmer::Teilnehmer;
+use super::ziel::Ziel;
 use crate::gespraeche::fristeintrag::{
     frist_gesetzt_eintrag, frist_nicht_gesetzt_eintrag, pflege_eintrag,
     tage_nicht_ermittelt_eintrag,
@@ -118,7 +119,7 @@ pub async fn setzen(
                 route: ROUTE,
                 operation: "frist_setzen",
                 kennung: Some(teilnehmer.kennung.als_text()),
-                channel: Some(&name),
+                ziel: Some(&Ziel::Channel(name.clone())),
             },
             "Frist nicht gesetzt",
         ),

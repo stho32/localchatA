@@ -15,7 +15,7 @@ use super::koerper::{
 };
 use super::nachrichten::NachrichtAntwort;
 use super::teilnehmer::Teilnehmer;
-use super::ziel::{Segment, Ziel, bezug, in_teilnehmerliste, ziel_aus_pfad};
+use super::ziel::{Segment, Ziel, in_teilnehmerliste, ziel_aus_pfad};
 use crate::gespraeche::anhangid::Anhangid;
 use crate::gespraeche::textregel::{TEXT_HOECHSTENS_BYTES, Textfehler, text_pruefen};
 use crate::gespraeche::{Antwortfehler, Gesendet, Gespraech, Nachricht, Sendefehler, Sendung};
@@ -75,7 +75,6 @@ async fn senden_in(
     kopf: HeaderMap,
     koerper: Body,
 ) -> Response {
-    let name = ziel.name();
     let eintritt = Instant::now();
     if let Err(gebremst) =
         zustand
@@ -101,12 +100,12 @@ async fn senden_in(
     {
         Ok(Ok(wert)) => wert,
         Ok(Err(fehler)) => return koerper_abgewiesen(fehler),
-        Err(abbruch) => return abgebrochen(&zustand, &abbruch, &wer, &name),
+        Err(abbruch) => return abgebrochen(&zustand, &abbruch, &wer, &ziel),
     };
-    if let Ziel::Channel(_) = ziel
-        && !zustand.gespraeche.channel_bekannt(&name)
+    if let Ziel::Channel(name) = &ziel
+        && !zustand.gespraeche.channel_bekannt(name)
     {
-        return mit_regel(unbekannt(&name), "channel_unbekannt", Some(&wer));
+        return mit_regel(unbekannt(name), "channel_unbekannt", Some(&wer));
     }
     let (text, anhaenge) = match sendekoerper_lesen(&wert) {
         Ok((text, anhaenge)) => (text.to_string(), anhaenge),
@@ -195,13 +194,13 @@ async fn senden_in(
                 .aktivitaet
                 .beenden(&teilnehmer.kennung, &ziel.gespraech());
             vorlauf::eintragen(&zustand.protokoll, zustand.gespraeche.zeit_vorlauf_ms());
-            gesendet_melden(&zustand, &name, &wer, text_bytes, eintritt, None);
+            gesendet_melden(&zustand, &ziel, &wer, text_bytes, eintritt, None);
             gesendet(StatusCode::CREATED, &ziel, &nachricht)
         }
         Ok(Ok(Gesendet::Wiederholt(nachricht))) => {
             gesendet_melden(
                 &zustand,
-                &name,
+                &ziel,
                 &wer,
                 text_bytes,
                 eintritt,
@@ -220,10 +219,10 @@ async fn senden_in(
             mit_regel(unbekannt_wie(&ziel), unbekannt_regel(&ziel), Some(&wer))
         }
         Ok(Err(Sendefehler::Ablage { datei, grund })) => {
-            nicht_gespeichert(&zustand, &name, &wer, &datei, &grund)
+            nicht_gespeichert(&zustand, &ziel, &wer, &datei, &grund)
         }
         Ok(Err(Sendefehler::Quote { belegt, hoechstens })) => {
-            quote_melden(&zustand, &name, &wer, belegt, hoechstens);
+            quote_melden(&zustand, &ziel, &wer, belegt, hoechstens);
             mit_regel(quote_erreicht(belegt, hoechstens), "quote", Some(&wer))
         }
         Ok(Err(Sendefehler::Anhang { id, grund })) => mit_regel(
@@ -247,10 +246,10 @@ async fn senden_in(
             grund,
             waisen,
         })) => {
-            nicht_gebunden(&zustand, &name, &wer, tag, &datei, &grund, &waisen);
+            nicht_gebunden(&zustand, &ziel, &wer, tag, &datei, &grund, &waisen);
             nicht_gespeichert_antwort()
         }
-        Err(abbruch) => abgebrochen(&zustand, &Abgebrochen::from(abbruch), &wer, &name),
+        Err(abbruch) => abgebrochen(&zustand, &Abgebrochen::from(abbruch), &wer, &ziel),
     }
 }
 
@@ -265,14 +264,14 @@ pub(super) fn unbekannt(name: &str) -> Response {
 /// nie der Text.
 fn gesendet_melden(
     zustand: &Zustand,
-    channel: &str,
+    ziel: &Ziel,
     wer: &str,
     text_bytes: usize,
     eintritt: Instant,
     grund: Option<&str>,
 ) {
     let kontext = Kontext::neu()
-        .mit(bezug(channel), channel)
+        .mit(ziel.bezug(), ziel.name())
         .mit(Schluessel::Kennung, wer)
         .mit(Schluessel::Anzahl, text_bytes)
         .mit(Schluessel::DauerMs, eintritt.elapsed().as_millis());
@@ -337,14 +336,14 @@ pub(super) fn schluessel_lesen(kopf: &HeaderMap) -> Result<Option<String>, ()> {
 /// ERROR auch auf stderr — nie der Nachrichtentext.
 fn nicht_gespeichert(
     zustand: &Zustand,
-    channel: &str,
+    ziel: &Ziel,
     wer: &str,
     datei: &str,
     grund: &str,
 ) -> Response {
     zustand
         .protokoll
-        .episode(schreibfehler_auftreten(channel, wer, datei, grund));
+        .episode(schreibfehler_auftreten(ziel, wer, datei, grund));
     let fehler = "Nicht gespeichert — der Server konnte nicht schreiben.";
     (
         StatusCode::INTERNAL_SERVER_ERROR,
@@ -355,7 +354,7 @@ fn nicht_gespeichert(
 
 /// Das Auftreten eines Schreibfehlers: die Quelle ist Datei und Grund, die Kennung gehört dem einzelnen Auftreten.
 pub(crate) fn schreibfehler_auftreten(
-    channel: &str,
+    ziel: &Ziel,
     wer: &str,
     datei: &str,
     grund: &str,
@@ -365,7 +364,7 @@ pub(crate) fn schreibfehler_auftreten(
         Bereich::Senden,
         crate::protokoll::episodentexte::NICHT_GESPEICHERT,
         Quelle::neu()
-            .mit(bezug(channel), channel)
+            .mit(ziel.bezug(), ziel.name())
             .mit(Schluessel::Datei, datei)
             .mit(Schluessel::Grund, grund),
     )
@@ -376,7 +375,7 @@ pub(crate) fn schreibfehler_auftreten(
 /// je Waise eine weitere Zeile — nie Anhang-ID oder Anzeigename (M19).
 fn nicht_gebunden(
     zustand: &Zustand,
-    channel: &str,
+    ziel: &Ziel,
     wer: &str,
     tag: chrono::NaiveDate,
     datei: &str,
@@ -388,7 +387,7 @@ fn nicht_gebunden(
         Bereich::Senden,
         "Anhang nicht gebunden — die Nachricht ist nicht gesendet, die Anhänge liegen wieder im Eingang",
         Kontext::neu()
-            .mit(bezug(channel), channel)
+            .mit(ziel.bezug(), ziel.name())
             .mit(Schluessel::Kennung, wer)
             .mit(Schluessel::Tag, tag.format("%Y-%m-%d"))
             .mit(Schluessel::Datei, datei)
@@ -400,7 +399,7 @@ fn nicht_gebunden(
             Bereich::Senden,
             "Zurücklegen gescheitert — die Datei bleibt als Waise im Tag und zählt an der Anhang-Quote",
             Kontext::neu()
-                .mit(bezug(channel), channel)
+                .mit(ziel.bezug(), ziel.name())
                 .mit(Schluessel::Tag, tag.format("%Y-%m-%d"))
                 .mit(Schluessel::Datei, waise.as_str()),
         );
@@ -417,15 +416,15 @@ pub(super) fn nicht_gespeichert_antwort() -> Response {
 
 /// Jede 507 der Quote zählt in eine Episode `WARNING quote` je Kennung (ADR-0044 Regel 8); die einzelne Abweisung
 /// trägt die Schicht des Anfrageprotokolls als DEBUG ein.
-fn quote_melden(zustand: &Zustand, channel: &str, wer: &str, belegt: u64, hoechstens: u64) {
+fn quote_melden(zustand: &Zustand, ziel: &Ziel, wer: &str, belegt: u64, hoechstens: u64) {
     zustand
         .protokoll
-        .episode(quote_auftreten(channel, wer, belegt, hoechstens));
+        .episode(quote_auftreten(ziel, wer, belegt, hoechstens));
 }
 
 /// Quelle der Quote-Episode ist die Kennung (mit der Grenze); Channel und Belegung sind Werte der einzelnen
 /// Abweisung und stehen nur in der Beginn-Zeile (ADR-0044 Ergänzung Karte #66).
-pub(crate) fn quote_auftreten(channel: &str, wer: &str, belegt: u64, hoechstens: u64) -> Auftreten {
+pub(crate) fn quote_auftreten(ziel: &Ziel, wer: &str, belegt: u64, hoechstens: u64) -> Auftreten {
     Auftreten::neu(
         Stufe::Warning,
         Bereich::Quote,
@@ -434,7 +433,7 @@ pub(crate) fn quote_auftreten(channel: &str, wer: &str, belegt: u64, hoechstens:
             .mit(Schluessel::Kennung, wer)
             .mit(Schluessel::Hoechstens, hoechstens),
     )
-    .einzeln(bezug(channel), channel)
+    .einzeln(ziel.bezug(), ziel.name())
     .einzeln(Schluessel::Belegt, belegt)
 }
 
@@ -475,7 +474,7 @@ fn quote_erreicht(belegt: u64, hoechstens: u64) -> Response {
         .into_response()
 }
 
-fn abgebrochen(zustand: &Zustand, abbruch: &Abgebrochen, wer: &str, channel: &str) -> Response {
+fn abgebrochen(zustand: &Zustand, abbruch: &Abgebrochen, wer: &str, ziel: &Ziel) -> Response {
     abbruch_beantworten(
         &zustand.protokoll,
         abbruch,
@@ -483,7 +482,7 @@ fn abgebrochen(zustand: &Zustand, abbruch: &Abgebrochen, wer: &str, channel: &st
             route: ROUTE,
             operation: "senden",
             kennung: Some(wer),
-            channel: Some(channel),
+            ziel: Some(ziel),
         },
         "Nachricht nicht gesendet",
     )
@@ -689,6 +688,10 @@ mod tests {
     use super::*;
     use serde_json::json;
 
+    fn allgemein() -> Ziel {
+        Ziel::Channel("allgemein".to_string())
+    }
+
     /// R00011 F0042 „Vorlauf“ mit der Episode des Betriebsprotokolls (R00016): über 60 s eine Zeile `WARNING zeit`
     /// mit Stunden und Minuten und `dauer_ms`; die zweite Nachricht keine; nach der Ruhe endet die Episode; ein neuer
     /// Vorlauf beginnt eine neue. 60.000 ms gibt keine Zeile.
@@ -751,13 +754,13 @@ mod tests {
             im_speicher("2026-10-28T12:00:00+01:00", Stufe::Information);
         let datei = "channels/allgemein/2026-10-28.log";
         protokoll.episode(schreibfehler_auftreten(
-            "allgemein",
+            &allgemein(),
             "beta@127.0.0.1",
             datei,
             "Kein Platz mehr",
         ));
         protokoll.episode(schreibfehler_auftreten(
-            "allgemein",
+            &allgemein(),
             "gamma@127.0.0.1",
             datei,
             "Kein Platz mehr",

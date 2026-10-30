@@ -20,7 +20,7 @@ use super::nachrichten::NachrichtAntwort;
 use super::senden::{nicht_gespeichert_antwort, quote_auftreten};
 use super::teilnehmer::Teilnehmer;
 use super::werkbank::bank_erwerben;
-use super::ziel::{Segment, Ziel, bezug, ziel_aus_pfad};
+use super::ziel::{Segment, Ziel, ziel_aus_pfad};
 use crate::gespraeche::loeschen::Geloescht;
 use crate::gespraeche::nachricht_loeschen::{Loeschfehler, NachrichtGeloescht};
 use crate::gespraeche::{Gespraeche, Nachricht};
@@ -74,11 +74,10 @@ pub(super) async fn loeschen_direkt(
 async fn loeschen_in(
     teilnehmer: Teilnehmer,
     zustand: Arc<Zustand>,
-    gespraech_ziel: Ziel,
+    ziel: Ziel,
     kopf: HeaderMap,
     koerper: Body,
 ) -> Response {
-    let name = gespraech_ziel.name();
     let eintritt = Instant::now();
     if let Err(gebremst) =
         zustand
@@ -106,50 +105,40 @@ async fn loeschen_in(
     if let Some(feld) = weiteres_feld(&wert) {
         return mit_regel(feld_abgewiesen(&feld), "feld_unbekannt", Some(&wer));
     }
-    if !gespraech_bekannt(&zustand, &gespraech_ziel) {
-        return mit_regel(
-            unbekannt_wie(&gespraech_ziel),
-            unbekannt_regel(&gespraech_ziel),
-            Some(&wer),
-        );
+    if !gespraech_bekannt(&zustand, &ziel) {
+        return mit_regel(unbekannt_wie(&ziel), unbekannt_regel(&ziel), Some(&wer));
     }
-    let Some(ziel) = zeit_lesen(&wert) else {
+    let Some(zeit) = zeit_lesen(&wert) else {
         return mit_regel(zeit_abgewiesen(), "zeit", Some(&wer));
     };
     let ort = Grenzort {
         route: ROUTE,
         operation: "nachricht_loeschen",
         kennung: Some(&wer),
-        channel: Some(&name),
+        ziel: Some(&ziel),
     };
-    let erlaubnis =
-        if zustand
-            .gespraeche
-            .anhangzahl(&gespraech_ziel.gespraech(), &teilnehmer.kennung, ziel)
-            > 0
-        {
-            match bank_erwerben(&zustand.hochladebank).await {
-                Ok(erlaubnis) => Some(erlaubnis),
-                Err(abbruch) => {
-                    return abbruch_beantworten(
-                        &zustand.protokoll,
-                        &abbruch,
-                        &ort,
-                        NICHT_GELOESCHT,
-                    );
-                }
+    let erlaubnis = if zustand
+        .gespraeche
+        .anhangzahl(&ziel.gespraech(), &teilnehmer.kennung, zeit)
+        > 0
+    {
+        match bank_erwerben(&zustand.hochladebank).await {
+            Ok(erlaubnis) => Some(erlaubnis),
+            Err(abbruch) => {
+                return abbruch_beantworten(&zustand.protokoll, &abbruch, &ort, NICHT_GELOESCHT);
             }
-        } else {
-            None
-        };
+        }
+    } else {
+        None
+    };
     let testpanik = zustand.testpanik.clone();
     let auftrag = Loeschauftrag {
         gespraeche: Arc::clone(&zustand.gespraeche),
         protokoll: Arc::clone(&zustand.protokoll),
         bus: Arc::clone(&zustand.bus),
         teilnehmer: teilnehmer.clone(),
-        gespraech: gespraech_ziel,
-        ziel,
+        ziel: ziel.clone(),
+        zeit,
         eintritt,
     };
     let fertig = tokio::task::spawn_blocking(move || {
@@ -179,19 +168,18 @@ struct Loeschauftrag {
     protokoll: Arc<Protokoll>,
     bus: Arc<Bus>,
     teilnehmer: Teilnehmer,
-    gespraech: Ziel,
-    ziel: Zeit,
+    ziel: Ziel,
+    zeit: Zeit,
     eintritt: Instant,
 }
 
 impl Loeschauftrag {
     fn ausfuehren(&self) -> Response {
         let wer = self.teilnehmer.kennung.als_text();
-        let channel = self.gespraech.name();
         let ergebnis = self.gespraeche.nachricht_loeschen(
-            &self.gespraech.gespraech(),
+            &self.ziel.gespraech(),
             &self.teilnehmer.kennung,
-            self.ziel,
+            self.zeit,
         );
         match ergebnis {
             Ok(NachrichtGeloescht::Neu {
@@ -207,15 +195,15 @@ impl Loeschauftrag {
                     Anlass::Nachricht,
                 );
                 veroeffentlichen(&self.bus, &anhaenge);
-                geloescht(&self.gespraech, &nachricht, "geloescht", Some(&anhaenge))
+                geloescht(&self.ziel, &nachricht, "geloescht", Some(&anhaenge))
             }
             Ok(NachrichtGeloescht::Schon(nachricht)) => {
                 self.melden(0, Some("schon_geloescht"));
-                geloescht(&self.gespraech, &nachricht, "schon_geloescht", None)
+                geloescht(&self.ziel, &nachricht, "schon_geloescht", None)
             }
             Err(fehler) => {
-                abweisung_melden(&self.protokoll, &fehler, &channel, wer);
-                abgewiesen(fehler, &self.gespraech, wer)
+                abweisung_melden(&self.protokoll, &fehler, &self.ziel, wer);
+                abgewiesen(fehler, &self.ziel, wer)
             }
         }
     }
@@ -223,7 +211,7 @@ impl Loeschauftrag {
     fn melden(&self, anhaenge: u64, grund: Option<&str>) {
         geloescht_melden(
             &self.protokoll,
-            &self.gespraech.name(),
+            &self.ziel,
             self.teilnehmer.kennung.als_text(),
             anhaenge,
             self.eintritt,
@@ -236,14 +224,14 @@ impl Loeschauftrag {
 /// vom Eintritt in den Handler bis zum Ende; ohne Satz `grund=schon_geloescht` — nie Text.
 fn geloescht_melden(
     protokoll: &Protokoll,
-    channel: &str,
+    ziel: &Ziel,
     wer: &str,
     anhaenge: u64,
     eintritt: Instant,
     grund: Option<&str>,
 ) {
     let kontext = Kontext::neu()
-        .mit(bezug(channel), channel)
+        .mit(ziel.bezug(), ziel.name())
         .mit(Schluessel::Kennung, wer)
         .mit(Schluessel::Anhaenge, anhaenge)
         .mit(Schluessel::DauerMs, eintritt.elapsed().as_millis());
@@ -261,15 +249,15 @@ fn geloescht_melden(
 
 /// Abweisungen unter der Sperre mit eigener Episode wie beim Bearbeiten: 403 `fremd` je Kennung, 500 je Datei und
 /// Grund, 507 in der Quote-Episode der Kennung mit `route=loeschen`.
-fn abweisung_melden(protokoll: &Protokoll, fehler: &Loeschfehler, channel: &str, wer: &str) {
+fn abweisung_melden(protokoll: &Protokoll, fehler: &Loeschfehler, ziel: &Ziel, wer: &str) {
     match fehler {
-        Loeschfehler::Fremd { .. } => protokoll.episode(fremd_auftreten(channel, wer)),
+        Loeschfehler::Fremd { .. } => protokoll.episode(fremd_auftreten(ziel, wer)),
         Loeschfehler::Ablage { datei, grund } => {
-            protokoll.episode(schreibfehler_auftreten(channel, wer, datei, grund));
+            protokoll.episode(schreibfehler_auftreten(ziel, wer, datei, grund));
         }
         Loeschfehler::Quote { belegt, hoechstens } => {
             protokoll.episode(
-                quote_auftreten(channel, wer, *belegt, *hoechstens)
+                quote_auftreten(ziel, wer, *belegt, *hoechstens)
                     .einzeln(Schluessel::Route, "loeschen"),
             );
         }

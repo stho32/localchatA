@@ -18,7 +18,7 @@ use std::convert::Infallible;
 use std::sync::Arc;
 
 #[derive(Debug, Clone)]
-pub(super) enum Ziel {
+pub(crate) enum Ziel {
     Channel(String),
     Direkt {
         paar: Direktpaar,
@@ -29,10 +29,19 @@ pub(super) enum Ziel {
 impl Ziel {
     /// Der Name für Protokoll und Fehlertexte: der Channelname, bei einem Direktgespräch `direkt/<ordner>` —
     /// nie die Kennung des Gegenübers allein, nie ein Text.
-    pub(super) fn name(&self) -> String {
+    pub(crate) fn name(&self) -> String {
         match self {
             Ziel::Channel(name) => name.clone(),
             Ziel::Direkt { paar, .. } => format!("direkt/{}", paar.ordnername()),
+        }
+    }
+
+    /// Der Schlüssel, unter dem das Gespräch im Protokoll steht: `channel=` für einen Channel, `ordner=` für ein
+    /// Direktgespräch (ADR-0055 Regel 11) — zusammen mit `name()` der Wert der Zeile.
+    pub(crate) fn bezug(&self) -> Schluessel {
+        match self {
+            Ziel::Channel(_) => Schluessel::Channel,
+            Ziel::Direkt { .. } => Schluessel::Ordner,
         }
     }
 
@@ -71,16 +80,6 @@ impl Ziel {
                 "nachricht": nachricht,
             }),
         }
-    }
-}
-
-/// Der Schlüssel, unter dem ein Gespräch im Protokoll steht: `channel=` für einen Channel, `ordner=` für ein
-/// Direktgespräch (ADR-0055 Regel 11) — erkannt am Namen aus `Ziel::name`; ein Channelname trägt nie einen `/`.
-pub(super) fn bezug(name: &str) -> Schluessel {
-    if name.starts_with("direkt/") {
-        Schluessel::Ordner
-    } else {
-        Schluessel::Channel
     }
 }
 
@@ -209,10 +208,21 @@ mod tests {
 
     #[test]
     fn der_bezug_im_protokoll_ist_channel_oder_ordner() {
-        assert_eq!(bezug("allgemein"), Schluessel::Channel);
+        let paar = Direktpaar::bilden(
+            &Kennung::bilden("anna@10.0.0.7").expect("Kennung"),
+            &Kennung::bilden("ben@10.0.0.8").expect("Kennung"),
+        )
+        .expect("Paar");
+        let direkt = Ziel::Direkt {
+            paar,
+            gegenueber: Kennung::bilden("ben@10.0.0.8").expect("Kennung"),
+        };
+
         assert_eq!(
-            bezug("direkt/anna@10.0.0.7+ben@10.0.0.8"),
-            Schluessel::Ordner
+            Ziel::Channel("allgemein".to_string()).bezug(),
+            Schluessel::Channel
         );
+        assert_eq!(direkt.bezug(), Schluessel::Ordner);
+        assert_eq!(direkt.name(), "direkt/anna@10.0.0.7+ben@10.0.0.8");
     }
 }

@@ -11,6 +11,7 @@ use super::anfrageprotokoll::mit_regel;
 use super::koerper::{Koerperfehler, Koerperort, json_lesen, koerperfehler_beantworten};
 use super::teilnehmer::Teilnehmer;
 use super::teilnehmerliste::zeit_als_text;
+use super::ziel::Ziel;
 use crate::gespraeche::einstellungen::{Beschreibung, Beschreibungsfehler};
 use crate::gespraeche::{Anlegefehler, Channel, ChannelStand, Frist, Grenzart, Grenze};
 use crate::name::{NAMENSREGEL, Namensfehler, RESERVIERT};
@@ -115,7 +116,7 @@ pub async fn anlegen(
                 route: "POST /api/channels",
                 operation: "channel_anlegen",
                 kennung: Some(&wer),
-                channel: Some(&name),
+                ziel: Some(&Ziel::Channel(name.clone())),
             },
             "Channel nicht angelegt",
         ),
@@ -133,7 +134,7 @@ pub async fn auflisten(teilnehmer: Teilnehmer, State(zustand): State<Arc<Zustand
                 route: "GET /api/channels",
                 operation: "channels",
                 kennung: Some(teilnehmer.kennung.als_text()),
-                channel: None,
+                ziel: None,
             },
             "Channels nicht gelesen",
         ),

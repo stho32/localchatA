@@ -56,7 +56,7 @@ fn channels_ort(kennung: &str) -> Grenzort<'_> {
         route: "GET /api/ereignisse",
         operation: "channels_stand",
         kennung: Some(kennung),
-        channel: None,
+        ziel: None,
     }
 }
 

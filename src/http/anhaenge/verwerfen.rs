@@ -39,7 +39,7 @@ pub async fn verwerfen(
                 route: ROUTE,
                 operation: "anhaenge_verwerfen",
                 kennung: Some(teilnehmer.kennung.als_text()),
-                channel: None,
+                ziel: None,
             },
             "Anhang nicht verworfen",
         ),

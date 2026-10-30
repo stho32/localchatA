@@ -114,7 +114,7 @@ pub async fn anmelden(
                 route: ROUTE,
                 operation: "anhaenge_anmelden",
                 kennung: Some(&wer),
-                channel: None,
+                ziel: None,
             },
             "Anhang nicht angemeldet",
         ),
