@@ -157,3 +157,29 @@ pub fn paarinhalt(ordner: &Path, paarordner: &str) -> Vec<u8> {
     )
     .unwrap_or_default()
 }
+
+/// Alle Dateien unter `direkt/` mit Inhalt — „byte-gleich“ heißt: nichts geschrieben.
+pub fn direkt_stand(ordner: &Path) -> std::collections::BTreeMap<String, Vec<u8>> {
+    fn sammeln(
+        wurzel: &Path,
+        ordner: &Path,
+        stand: &mut std::collections::BTreeMap<String, Vec<u8>>,
+    ) {
+        for eintrag in std::fs::read_dir(ordner).into_iter().flatten().flatten() {
+            let pfad = eintrag.path();
+            if pfad.is_dir() {
+                sammeln(wurzel, &pfad, stand);
+            } else {
+                let name = pfad
+                    .strip_prefix(wurzel)
+                    .expect("darunter")
+                    .display()
+                    .to_string();
+                stand.insert(name, std::fs::read(&pfad).expect("Datei"));
+            }
+        }
+    }
+    let mut stand = std::collections::BTreeMap::new();
+    sammeln(ordner, &ordner.join("direkt"), &mut stand);
+    stand
+}

@@ -105,7 +105,7 @@ impl Gespraeche {
             let stand = sperren(&self.schreiben);
             let mut kandidaten = Vec::new();
             for (stelle, id) in ids.iter().enumerate() {
-                match self.anhangverzeichnis.finden(id) {
+                match self.anhangverzeichnis.finden_fuer(id, aufrufer) {
                     Some(eintrag) if eintrag.zustand() == Zustand::Vorhanden => {
                         kandidaten.push((stelle, eintrag))
                     }

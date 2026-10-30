@@ -8,6 +8,7 @@ use super::anhangid::Anhangid;
 use super::anhangquote::zaehlmass;
 use super::logablage::Gespraech;
 use super::logformat::{self, Anhangbefund};
+use super::sichtbar_fuer;
 use crate::uhr::Zeit;
 use chrono::NaiveDate;
 use std::collections::{HashMap, HashSet};
@@ -237,6 +238,15 @@ impl Anhangverzeichnis {
 
     pub fn finden(&self, id: &Anhangid) -> Option<Arc<Eintrag>> {
         self.lesend().eintraege.get(id).cloned()
+    }
+
+    /// Die Auflösung einer ID **für einen Aufrufer** (ADR-0055 Regel 5 „Anhänge löschen“, B3): ein Eintrag eines
+    /// Gesprächs, das der Aufrufer nicht sehen darf, gibt es für ihn nicht — `None`, wie bei einer nie vergebenen ID.
+    /// Damit sehen Vorschau, `schon_geloescht` und der verlorene Wettlauf denselben Eintrag nicht. Die Zugehörigkeit
+    /// einer ID zu ihrem Gespräch ändert sich nie. Archivierte Channels gibt es erst mit I0022.
+    pub fn finden_fuer(&self, id: &Anhangid, aufrufer: &Kennung) -> Option<Arc<Eintrag>> {
+        self.finden(id)
+            .filter(|eintrag| sichtbar_fuer(&eintrag.gespraech, aufrufer, false))
     }
 
     /// Eine Waise im Tag (Datei ohne Metazeile, oder Zurücklegen gescheitert): zählt an `G` bis zum Entfallen.
@@ -521,6 +531,51 @@ mod tests {
              + anhang: {ID_B} 65537 image/png 2x3 140000000-2-b.png Bild B.png\n  zwei\n\n\
              @ 2026-10-29T14:01:00.000+01:00 gamma@127.0.0.1\n+ anhang: zu kurz\n  kaputt\n\n"
         )
+    }
+
+    /// B0776 (ADR-0055 B3): `finden_fuer` löst eine ID nur für den auf, der das Gespräch sehen darf — in jedem Zustand;
+    /// ein Channel-Anhang bleibt für jeden mit Sitzung auflösbar.
+    #[test]
+    fn finden_fuer_kennt_nur_sichtbare_gespraeche_in_jedem_zustand() {
+        let kennung = |text: &str| Kennung::bilden(text).expect(text);
+        let (anna, ben, cora) = (
+            kennung("anna@10.0.0.7"),
+            kennung("ben@10.0.0.8"),
+            kennung("cora@10.0.0.9"),
+        );
+        let paar = Gespraech::Direkt(super::super::Direktpaar::bilden(&anna, &ben).expect("Paar"));
+        let verzeichnis = Anhangverzeichnis::default();
+        let text = |id: &str| {
+            format!(
+                "@ 2026-10-29T14:00:00.000+01:00 anna@10.0.0.7\n\
+                 + anhang: {id} 1 application/octet-stream - 140000000-1-a.bin a.bin\n  x\n\n"
+            )
+        };
+        verzeichnis.tag_laden(
+            &paar,
+            tag(),
+            text(ID_A).as_bytes(),
+            &[datei("140000000-1-a.bin", 1)],
+        );
+        verzeichnis.tag_laden(
+            &allgemein(),
+            tag(),
+            text(ID_B).as_bytes(),
+            &[datei("140000000-1-a.bin", 1)],
+        );
+        let a = Anhangid::lesen(ID_A).expect("ID");
+        let b = Anhangid::lesen(ID_B).expect("ID");
+        let wer_sieht = |id: &Anhangid| {
+            [&anna, &ben, &cora].map(|wer| verzeichnis.finden_fuer(id, wer).is_some())
+        };
+
+        assert_eq!(wer_sieht(&a), [true, true, false], "vorhanden");
+        assert_eq!(wer_sieht(&b), [true, true, true], "Channel: jeder");
+        let eintrag = verzeichnis.finden(&a).expect("a");
+        assert!(eintrag.tauschen(Zustand::Vorhanden, Zustand::Geloescht));
+        assert_eq!(wer_sieht(&a), [true, true, false], "gelöscht");
+        verzeichnis.tag_entfernen(&paar, tag());
+        assert_eq!(wer_sieht(&a), [false, false, false], "entfallen: weg");
     }
 
     /// A00016 „Erster Test“: zwei Sätze, einer mit zwei `+ anhang:`-Zeilen, einer mit einer kaputten → zwei

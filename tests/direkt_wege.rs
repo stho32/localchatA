@@ -7,12 +7,11 @@ mod gemeinsam;
 
 use gemeinsam::anhaenge::{ablegen, starten as starten_anhaenge};
 use gemeinsam::direkt::{
-    ANNA, ANNA_BEN, BEN, CORA, Runde, direkt_eintraege, paarinhalt, runde, runde_mit,
+    ANNA, ANNA_BEN, BEN, CORA, Runde, direkt_eintraege, direkt_stand, paarinhalt, runde, runde_mit,
 };
 use gemeinsam::senden::{JETZT, ordner};
 use gemeinsam::{ApiAntwort, api_antwort};
 use serde_json::{Value, json};
-use std::path::Path;
 use std::time::Duration;
 
 const ANNA_CORA: &str = "anna@127.0.0.2+cora@127.0.0.1";
@@ -23,32 +22,6 @@ fn zeit(antwort: &ApiAntwort) -> String {
         .as_str()
         .expect("zeit")
         .to_string()
-}
-
-/// Alle Dateien unter `direkt/` mit Inhalt — „byte-gleich“ heißt: nichts geschrieben.
-fn direkt_stand(ordner: &Path) -> std::collections::BTreeMap<String, Vec<u8>> {
-    fn sammeln(
-        wurzel: &Path,
-        ordner: &Path,
-        stand: &mut std::collections::BTreeMap<String, Vec<u8>>,
-    ) {
-        for eintrag in std::fs::read_dir(ordner).into_iter().flatten().flatten() {
-            let pfad = eintrag.path();
-            if pfad.is_dir() {
-                sammeln(wurzel, &pfad, stand);
-            } else {
-                let name = pfad
-                    .strip_prefix(wurzel)
-                    .expect("darunter")
-                    .display()
-                    .to_string();
-                stand.insert(name, std::fs::read(&pfad).expect("Datei"));
-            }
-        }
-    }
-    let mut stand = std::collections::BTreeMap::new();
-    sammeln(ordner, &ordner.join("direkt"), &mut stand);
-    stand
 }
 
 /// Der Rundweg wörtlich: Senden, Verlauf, Antwort, Bearbeiten, Löschen und Anhang im Direktgespräch; jede Antwort
