@@ -2,11 +2,11 @@
 //!
 //! Reihenfolge: Aufruf lesen → Uhr → Gnadenfrist → Herzschlag → Ordner vorbereiten → sperren → Bus → Verlauf laden (Channel-Wechsel an den Bus) → Fristpflege (Start) → Anwesenheit → binden → Ende-Signal → Takt → Startzeile → Browser → ausliefern bis zum Signal.
 
-mod abriss;
+pub(crate) mod abriss;
 pub(crate) mod abrisspflege;
 mod allenamen;
 mod anhangquote;
-mod annahmefehler;
+pub(crate) mod annahmefehler;
 mod aufruf;
 pub(crate) mod ausliefern;
 mod browser;
@@ -1000,11 +1000,11 @@ mod tests {
     use crate::name::Name;
     use crate::protokoll::testhilfe::{im_speicher, zeit};
 
-    /// R00038 B0590 (ADR-0042 Ergänzung Karte #66, wörtlich): zwei verfallene Anmeldungen von `10.0.0.9`
-    /// (Kennungen `alpha`, `beta`; `bytes` 5 und 6) → Ende nur `herkunft=10.0.0.9`; die DEBUG-Zeile je Ablauf trägt
-    /// weiter alle drei Schlüssel. Mutante „Kontext des ersten Auftretens“ rot.
+    /// R00038 B0590, nach R00042 B0659 ohne die Ende-Zeile (die prüft der Episodenkatalog): zwei verfallene
+    /// Anmeldungen von `10.0.0.9` (Kennungen `alpha`, `beta`; `bytes` 5 und 6) → die Beginn-Zeile der Episode nennt
+    /// Quelle, Kennung und Bytes in dieser Reihenfolge; die DEBUG-Zeile je Ablauf trägt weiter alle drei Schlüssel.
     #[test]
-    fn die_ende_zeile_verfallener_reservierungen_nennt_nur_die_herkunft() {
+    fn verfallene_reservierungen_stehen_als_episode_und_je_ablauf_als_debug_zeile() {
         let (protokoll, speicher, uhr, _) = im_speicher("2026-10-28T12:00:00+01:00", Stufe::Debug);
         let verfallen = |kennung: &str, bytes: u64| crate::gespraeche::anhangeingang::Verfallen {
             id: crate::gespraeche::anhangid::Anhangid::lesen("abcdefghijklmnopqrstuvwxyz")
@@ -1032,7 +1032,6 @@ mod tests {
             "{episode:#?}"
         );
         assert!(episode[1].contains("Episode endet: 2 in "), "{episode:#?}");
-        assert!(episode[1].ends_with("| herkunft=10.0.0.9"), "{episode:#?}");
         let debug: Vec<&String> = zeilen
             .iter()
             .filter(|z| z.contains(" DEBUG anhang Anmeldung verfallen"))

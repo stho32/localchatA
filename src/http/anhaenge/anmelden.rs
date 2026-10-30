@@ -453,48 +453,6 @@ fn koerper_abgewiesen(fehler: Koerperfehler) -> Response {
 mod tests {
     use super::*;
 
-    /// R00038 B0590 (ADR-0042 Ergänzung Karte #66, wörtlich): zwei Anmeldungen derselben Kennung (`bytes` 5 GiB und
-    /// 6 GiB) → Ende `kennung=… herkunft=…` ohne `bytes=` und `hochladen_bis=`. Mutante „`herkunft` als Einzelwert“ rot.
-    #[test]
-    fn die_ende_zeile_des_grossen_anspruchs_nennt_kennung_und_herkunft() {
-        use crate::protokoll::Stufe;
-        use crate::protokoll::testhilfe::{im_speicher, zeit};
-        let (protokoll, speicher, uhr, _) =
-            im_speicher("2026-10-28T12:00:00+01:00", Stufe::Information);
-        let herkunft = "10.0.0.9".parse().expect("IP");
-        const GIB: u64 = 1 << 30;
-        protokoll.episode(anspruch_auftreten(
-            "beta@10.0.0.9",
-            herkunft,
-            5 * GIB,
-            "2026-10-28T13:00:00+01:00",
-        ));
-        protokoll.episode(anspruch_auftreten(
-            "beta@10.0.0.9",
-            herkunft,
-            6 * GIB,
-            "2026-10-28T13:00:05+01:00",
-        ));
-        uhr.stellen(zeit("2026-10-28T12:01:00+01:00"));
-        protokoll.episoden_schliessen();
-
-        let zeilen: Vec<String> = speicher
-            .zeilen()
-            .into_iter()
-            .filter(|z| z.contains(" INFORMATION anhang Großer Anspruch"))
-            .collect();
-        assert_eq!(zeilen.len(), 2, "{zeilen:#?}");
-        assert!(
-            zeilen[0].contains("bytes=5368709120 hochladen_bis=2026-10-28T13:00:00+01:00"),
-            "{zeilen:#?}"
-        );
-        assert!(zeilen[1].contains("Episode endet: 2 in "), "{zeilen:#?}");
-        assert!(
-            zeilen[1].ends_with("| kennung=beta@10.0.0.9 herkunft=10.0.0.9"),
-            "{zeilen:#?}"
-        );
-    }
-
     /// R00038 B0591 (Bestandsaufnahme): `voll`, `hochladungen` und `platte` — je zwei Abweisungen mit verschiedenen
     /// Werten; das Ende nennt nur die Quelle (und die Grenze), nie `bytes`, `belegt`, `reserviert`, `frei`.
     #[test]

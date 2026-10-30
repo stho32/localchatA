@@ -3,6 +3,8 @@
 #![forbid(unsafe_code)]
 
 mod anwesenheit;
+#[cfg(test)]
+mod episodenkatalog;
 pub mod fehler;
 pub mod gespraeche;
 mod http;

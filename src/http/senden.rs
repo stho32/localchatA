@@ -276,7 +276,7 @@ fn nicht_gespeichert(
 }
 
 /// Das Auftreten eines Schreibfehlers: die Quelle ist Datei und Grund, die Kennung gehört dem einzelnen Auftreten.
-pub(super) fn schreibfehler_auftreten(
+pub(crate) fn schreibfehler_auftreten(
     channel: &str,
     wer: &str,
     datei: &str,
@@ -347,7 +347,7 @@ fn quote_melden(zustand: &Zustand, channel: &str, wer: &str, belegt: u64, hoechs
 
 /// Quelle der Quote-Episode ist die Kennung (mit der Grenze); Channel und Belegung sind Werte der einzelnen
 /// Abweisung und stehen nur in der Beginn-Zeile (ADR-0044 Ergänzung Karte #66).
-pub(super) fn quote_auftreten(channel: &str, wer: &str, belegt: u64, hoechstens: u64) -> Auftreten {
+pub(crate) fn quote_auftreten(channel: &str, wer: &str, belegt: u64, hoechstens: u64) -> Auftreten {
     Auftreten::neu(
         Stufe::Warning,
         Bereich::Quote,
@@ -659,38 +659,6 @@ mod tests {
         assert!(!zeilen[1].contains("kennung="), "{zeilen:#?}");
         assert!(zeilen[1].contains(&format!("datei={datei}")), "{zeilen:#?}");
         assert!(zeilen[1].contains("channel=allgemein"), "{zeilen:#?}");
-    }
-
-    /// R00038 B0589 (ADR-0042 Ergänzung Karte #66, wörtlich): `alpha@10.0.0.9` in `a` (`belegt=100`), danach in `b`
-    /// (`belegt=200`), `hoechstens=1000` → Beginn mit `channel=a belegt=100`; Ende `… Episode endet: 2 in <d> s |
-    /// kennung=alpha@10.0.0.9 hoechstens=1000` ohne `channel=` und `belegt=`. Mutanten „Kontext des ersten
-    /// Auftretens“ und „`kennung` als Einzelwert“ → rot.
-    #[test]
-    fn die_ende_zeile_der_quote_nennt_kennung_und_grenze_ohne_channel_und_belegung() {
-        use crate::protokoll::Stufe;
-        use crate::protokoll::testhilfe::{im_speicher, zeit};
-        let (protokoll, speicher, uhr, _) =
-            im_speicher("2026-10-28T12:00:00+01:00", Stufe::Information);
-        protokoll.episode(quote_auftreten("a", "alpha@10.0.0.9", 100, 1000));
-        protokoll.episode(quote_auftreten("b", "alpha@10.0.0.9", 200, 1000));
-        uhr.stellen(zeit("2026-10-28T12:01:00+01:00"));
-        protokoll.episoden_schliessen();
-
-        let zeilen: Vec<String> = speicher
-            .zeilen()
-            .into_iter()
-            .filter(|zeile| zeile.contains(" WARNING quote "))
-            .collect();
-        assert_eq!(zeilen.len(), 2, "{zeilen:#?}");
-        assert!(
-            zeilen[0].ends_with("| kennung=alpha@10.0.0.9 hoechstens=1000 channel=a belegt=100"),
-            "{zeilen:#?}"
-        );
-        assert!(zeilen[1].contains("Episode endet: 2 in "), "{zeilen:#?}");
-        assert!(
-            zeilen[1].ends_with("| kennung=alpha@10.0.0.9 hoechstens=1000"),
-            "{zeilen:#?}"
-        );
     }
 
     /// R00022 B0345 (zweiter Test, wörtlich): `zeit` mit 61.001 ms, dann 7.410.002 ms → Ende mit

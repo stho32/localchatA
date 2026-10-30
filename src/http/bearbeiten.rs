@@ -197,7 +197,7 @@ fn abweisung_melden(protokoll: &Protokoll, fehler: &Bearbeitfehler, channel: &st
 }
 
 /// Quelle der Episode „fremd“ ist die Kennung (M16: je Kennung eine Episode); der Channel steht nur am Beginn.
-pub(super) fn fremd_auftreten(channel: &str, wer: &str) -> Auftreten {
+pub(crate) fn fremd_auftreten(channel: &str, wer: &str) -> Auftreten {
     Auftreten::neu(
         Stufe::Warning,
         Bereich::Aendern,
@@ -208,7 +208,7 @@ pub(super) fn fremd_auftreten(channel: &str, wer: &str) -> Auftreten {
 }
 
 /// Quelle des Schreibfehlers sind Datei und Grund; die Kennung gehört dem einzelnen Auftreten.
-pub(super) fn schreibfehler_auftreten(
+pub(crate) fn schreibfehler_auftreten(
     channel: &str,
     wer: &str,
     datei: &str,

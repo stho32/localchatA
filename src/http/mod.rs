@@ -3,16 +3,16 @@
 mod abbruch;
 mod abweisungsseite;
 mod anfrageprotokoll;
-mod anhaenge;
-mod auskunft;
-mod bearbeiten;
+pub(crate) mod anhaenge;
+pub(crate) mod auskunft;
+pub(crate) mod bearbeiten;
 mod beitreten;
-mod bremse;
+pub(crate) mod bremse;
 mod channels;
 mod eingebettet;
 #[cfg(test)]
 mod eingriffsbudget;
-mod ereignisse;
+pub(crate) mod ereignisse;
 mod felder;
 mod frist;
 #[cfg(test)]
@@ -20,16 +20,16 @@ mod fristspur;
 mod gesundheit;
 #[cfg(test)]
 mod grenzepisoden;
-mod grenzschutz;
+pub(crate) mod grenzschutz;
 mod hostnamen;
 mod ich;
-mod koerper;
+pub(crate) mod koerper;
 mod nachricht_loeschen;
 mod nachrichten;
 mod namensauskunft;
 mod oberflaeche;
-mod senden;
-mod teilnehmer;
+pub(crate) mod senden;
+pub(crate) mod teilnehmer;
 mod teilnehmerliste;
 #[cfg(test)]
 mod testauskunft;

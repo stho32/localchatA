@@ -249,6 +249,15 @@ impl Kontext {
         self
     }
 
+    /// Schlüsselwort und Wert je Eintrag in der Reihenfolge des Setzens.
+    #[cfg(test)]
+    pub(crate) fn paare(&self) -> Vec<(&'static str, &str)> {
+        self.0
+            .iter()
+            .map(|(schluessel, wert)| (schluessel.als_text(), wert.as_str()))
+            .collect()
+    }
+
     /// Die Werte in der Reihenfolge, in der sie gesetzt wurden (roh, an der Quelle gekürzt).
     pub(super) fn werte(&self) -> impl Iterator<Item = &str> {
         self.0.iter().map(|(_, wert)| wert.as_str())

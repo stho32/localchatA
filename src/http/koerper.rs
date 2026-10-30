@@ -466,11 +466,10 @@ mod tests {
             "Der Körper kam nicht innerhalb von 7 s vollständig an — Anfrage abgebrochen; den Körper ohne Pause senden."
         );
     }
-    /// R00022 B0345 (Körper-Episode an `POST …/nachrichten`): zwei Kennungen derselben Herkunft → Beginn mit
-    /// `kennung=` der ersten; Ende mit Zählung je Art, `herkunft=`, `route=`, größtem `bytes=`, ohne `kennung=`.
-    /// Mutante „Kontext des ersten Auftretens“ → rot.
+    /// R00022 B0345, nach R00042 B0659 ohne die Prüfung der Ende-Kennung (die prüft der Episodenkatalog): zwei
+    /// Kennungen derselben Herkunft → Beginn mit `kennung=` der ersten; Ende mit Zählung je Art und größtem `bytes=`.
     #[test]
-    fn die_ende_zeile_der_koerper_episode_nennt_die_quelle_und_keine_kennung() {
+    fn die_koerper_episode_zaehlt_je_art_und_nennt_die_groesste_bytezahl() {
         use crate::protokoll::testhilfe::{im_speicher, zeit};
         let (protokoll, speicher, uhr, _) =
             im_speicher("2026-10-28T12:00:00+01:00", Stufe::Information);
@@ -502,12 +501,6 @@ mod tests {
         assert!(zeilen[0].contains("kennung=beta@127.0.0.1"), "{zeilen:#?}");
         assert!(zeilen[1].contains("Episode endet: 2 in "), "{zeilen:#?}");
         assert!(zeilen[1].contains("(zu groß 2;"), "{zeilen:#?}");
-        assert!(!zeilen[1].contains("kennung="), "{zeilen:#?}");
-        assert!(zeilen[1].contains("herkunft=127.0.0.1"), "{zeilen:#?}");
-        assert!(
-            zeilen[1].contains("route=\"POST /api/channels/{name}/nachrichten\""),
-            "{zeilen:#?}"
-        );
         assert!(zeilen[1].contains("bytes=200000"), "{zeilen:#?}");
     }
 
