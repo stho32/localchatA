@@ -620,3 +620,4 @@ Nie vom User erfragen.
 | 2026-10-30 | R00045 Tippanzeige und denkt nach | F0163 und I0041 Server B0692–B0698 (Wanduhr gesamt) | Entwicklung | 14–20h | 0,7h | 0,7h | autonom (entw2) |
 | 2026-10-30 | R00048 Wachsende Eingabe verdeckt die letzte Nachricht nicht | B0723, B0724 (Wanduhr gesamt; Ursache im Feld statt im Verlauf) | Entwicklung | 2,4h | 0,5h | 0,5h | autonom (entw3) |
 | 2026-10-30 | R00047 Mit Zitat antworten | F0157 Bezug senden und lesen B0704–B0711 (Wanduhr gesamt) | Entwicklung | 14,4–22,4h | 0,75h | 0,75h | autonom (entw2) |
+| 2026-10-30 | R00041 Eigene Nachrichten im Browser bearbeiten und löschen | F0134, F0135, F0138, F0139, F0142 (21 Bubbles, Wanduhr gesamt) | Entwicklung | — | 2,1h | 2,1h | autonom (entw) |
