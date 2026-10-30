@@ -6,8 +6,9 @@ use super::schranke::Vorgang;
 use super::verlaufsindex::Verlauf;
 use super::{
     Art, Direktpaar, Gesendet, Gespraech, Gespraeche, Kennung, Sendefehler, Sendung, lesend,
-    schreibend, sperren,
+    schreibend, sichtbar_fuer, sperren,
 };
+use crate::uhr::Zeit;
 use std::sync::{Arc, Mutex};
 
 /// Die Zeichen, die ein Ordnername im Protokoll höchstens trägt (ADR-0055 Regel 11, Matrix P2).
@@ -23,7 +24,41 @@ pub(super) fn ordner_fuer_protokoll(name: &str) -> String {
         .collect()
 }
 
+/// Ein Direktgespräch in der Liste der eigenen: das Gegenüber und die Zeit der jüngsten Nachricht.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DirektUebersicht {
+    pub gegenueber: Kennung,
+    pub letzte: Zeit,
+}
+
 impl Gespraeche {
+    /// Die Direktgespräche von `kennung` mit mindestens einer Nachricht, jüngste zuerst (ADR-0055 Regel 3). Über alle
+    /// Gespräche läuft nur diese Schleife, und sie fragt für jedes `sichtbar_fuer` — ein fremdes Gespräch kommt nie in
+    /// die Liste.
+    pub fn direktgespraeche_von(&self, kennung: &Kennung) -> Vec<DirektUebersicht> {
+        let sichtbare: Vec<(Gespraech, Arc<Mutex<Verlauf>>)> = lesend(&self.verzeichnis)
+            .verlaeufe
+            .iter()
+            .filter(|(gespraech, _)| sichtbar_fuer(gespraech, kennung, false))
+            .map(|(gespraech, verlauf)| (gespraech.clone(), Arc::clone(verlauf)))
+            .collect();
+        let mut liste: Vec<DirektUebersicht> = sichtbare
+            .into_iter()
+            .filter_map(|(gespraech, verlauf)| {
+                let Gespraech::Direkt(paar) = gespraech else {
+                    return None;
+                };
+                let letzte = sperren(&verlauf).letzte_nachrichtenzeit()?;
+                Some(DirektUebersicht {
+                    gegenueber: paar.gegenueber(kennung)?.clone(),
+                    letzte,
+                })
+            })
+            .collect();
+        liste.sort_by_key(|eintrag| std::cmp::Reverse(eintrag.letzte));
+        liste
+    }
+
     /// Sendet im Direktgespräch des Paars; das erste Senden legt es an (ADR-0055 Regel 4). Scheitert dieses erste
     /// Senden (Quote, Bezug, Anhang, Platte), wird ein dabei entstandener leerer Ordner wieder entfernt — ein Paar
     /// ohne Nachricht belegt nichts. Jede Prüfung davor (Teilnehmerliste, Grenzen) macht der Aufrufer.

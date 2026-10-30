@@ -10,6 +10,7 @@ pub(crate) mod bearbeiten;
 mod beitreten;
 pub(crate) mod bremse;
 mod channels;
+mod direktliste;
 mod eingebettet;
 #[cfg(test)]
 mod eingriffsbudget;
@@ -150,6 +151,7 @@ pub fn router(zustand: Zustand) -> Router {
                 .delete(aktivitaet::loeschen)
                 .get(aktivitaet::lesen),
         )
+        .route("/api/direkt", get(direktliste::auflisten))
         .route(
             "/api/direkt/{kennung}/nachrichten",
             get(nachrichten::beantworten_direkt).post(senden::senden_direkt),

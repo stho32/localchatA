@@ -293,6 +293,14 @@ impl Verlauf {
         anfang
     }
 
+    /// Die Zeit der jüngsten Nachricht im Index (aus der Kopfzeile ihres Satzes); ohne Nachricht keine.
+    pub fn letzte_nachrichtenzeit(&self) -> Option<Zeit> {
+        self.tage.values().rev().find_map(|tag| {
+            let anfang = tag.nachrichten.last()?;
+            logformat::kopfzeit(&tag.rohtext[*anfang..])
+        })
+    }
+
     /// Wie viele Nachrichten der Index hält — Änderungssätze zählen nicht (ADR-0048 Regel 1).
     pub fn nachrichten(&self) -> u64 {
         self.tage

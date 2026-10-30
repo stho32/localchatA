@@ -43,6 +43,7 @@ pub use crate::anwesenheit::Art;
 pub use anhaenge::{
     Anhangkennzahlen, Anhangschwelle, AnhangschwelleMelden, Anmeldefehler, STANDARD_ANHANGQUOTE,
 };
+pub use direktgespraeche::DirektUebersicht;
 pub use direktpaar::{Direktpaar, Selbst};
 pub use frist::{FRIST_MAX, FRIST_MIN, Frist, STANDARD_FRIST_TAGE, frist_in_spanne};
 pub use kennung::Kennung;
