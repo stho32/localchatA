@@ -29,7 +29,7 @@ import { fokusTaste } from './fokus.js';
 import { VERBINDUNG_ANFANG, verbindung } from './wiederverbinden.js';
 import { nachholLaufAnlegen } from './nachhollauf.js';
 import { wiederVerbundenText, leisteInhalt, geltenderZeitpunkt, leisteFuellen } from './verbindungsleiste.js';
-import { ANSAGE_LEER, ansage, ansageSchreiberAnlegen } from './ansage.js';
+import { ANSAGE_LEER, ansage, ansageWartet, ansageSchreiberAnlegen } from './ansage.js';
 
 const STAND_UNBEKANNT = 'Stand unbekannt — zuletzt bekannte Liste.';
 let vorigeAnsichtAbmelden = new AbortController();
@@ -428,7 +428,7 @@ function ansageEinrichten() {
   function taktStellen() {
     const ABSTAND_MS = 10000;
     clearTimeout(takt);
-    if (zustand.gesammelt === 0) {
+    if (!ansageWartet(zustand)) {
       return;
     }
     const wartenMs = Math.max(0, zustand.letzteAnsageMs + ABSTAND_MS - Date.now());

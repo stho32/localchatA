@@ -1,7 +1,7 @@
 // Unit-Tests der gebündelten Ansage (R00012 F0049 „Bündeln“, B0251; ADR-0038 Regel 10; node --test, gestellte Zeit).
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { ANSAGE_LEER, ansage, ansageSchreiberAnlegen } from '../../web/ansage.js';
+import { ANSAGE_LEER, ansage, ansageWartet, ansageSchreiberAnlegen } from '../../web/ansage.js';
 
 const OFFEN = 'allgemein';
 const fremd = (von = 'claude@10.0.0.5', channel = OFFEN) => ({ art: 'fremd', von, channel, offenerChannel: OFFEN });
@@ -187,6 +187,66 @@ test('im offenen Direktgespräch nennt die Ansage das Gespräch ohne „#“ (R0
   const zweite = ansage(erste.zustand, fremd, 1000);
   const gesammelt = ansage(zweite.zustand, { art: 'takt' }, 10000);
 
-  assert.equal(erste.text, 'Neue Nachricht von ben@127.0.0.3 in Direktnachricht mit ben@127.0.0.3');
+  // Seit F0180 (V11, US-26; ux-reviewer #13 F0178 Optional 4 „redundant“) ohne die Kennung zweimal.
+  assert.equal(erste.text, 'Neue Direktnachricht von ben@127.0.0.3');
   assert.equal(gesammelt.text, '1 neue Nachricht in Direktnachricht mit ben@127.0.0.3');
+});
+
+// ---- R00050 F0180 B0790 (V11): Direktnachrichten ------------------------------------------------------------------
+
+const BEN_DIREKT = 'direkt:ben@127.0.0.3';
+const direktVon = (von, offenerChannel = OFFEN) => ({ art: 'fremd', von, channel: `direkt:${von}`, offenerChannel });
+
+test('eine fremde Direktnachricht in einem nicht offenen Gespräch: „Neue Direktnachricht von <kennung>“, ohne „#“', () => {
+  const texte = ablauf([[0, direktVon('ben@127.0.0.3')]]);
+  assert.deepEqual(texte, [[0, 'Neue Direktnachricht von ben@127.0.0.3']]);
+});
+
+test('im offenen Direktgespräch dieselbe Ansage — ohne „#“ und ohne die Kennung doppelt; gesammelt „… in Direktnachricht mit …“', () => {
+  const texte = ablauf([
+    [0, direktVon('ben@127.0.0.3', BEN_DIREKT)],
+    [1000, direktVon('ben@127.0.0.3', BEN_DIREKT)], [2000, direktVon('ben@127.0.0.3', BEN_DIREKT)],
+    [10000, TAKT],
+  ]);
+  assert.deepEqual(texte, [
+    [0, 'Neue Direktnachricht von ben@127.0.0.3'],
+    [1000, null], [2000, null],
+    [10000, '2 neue Nachrichten in Direktnachricht mit ben@127.0.0.3'],
+  ]);
+  assert.ok(texte.every(([, text]) => text === null || !text.includes('#')));
+});
+
+test('Takt: kurz nach einer Ansage gesammelt, je Absender einmal, mit dem Takt zusammen mit den Nachrichten des offenen Channels', () => {
+  const texte = ablauf([
+    [0, fremd()],
+    [1000, direktVon('ben@127.0.0.3')], [2000, direktVon('ben@127.0.0.3')], [3000, direktVon('cora@127.0.0.9')],
+    [4000, fremd()],
+    [9999, TAKT],
+    [10000, TAKT],
+    [10001, TAKT],
+  ]);
+  assert.deepEqual(texte, [
+    [0, 'Neue Nachricht von claude@10.0.0.5 in # allgemein'],
+    [1000, null], [2000, null], [3000, null], [4000, null],
+    [9999, null],
+    [10000, '1 neue Nachricht in # allgemein. Neue Direktnachricht von ben@127.0.0.3. Neue Direktnachricht von cora@127.0.0.9'],
+    [10001, null],
+  ]);
+});
+
+test('eine Direktnachricht in Ruhe nach einer gesammelten wartet auf den Takt — sie überholt nichts; ansageWartet sagt, ob der Takt nötig ist', () => {
+  let zustand = ANSAGE_LEER;
+  assert.equal(ansageWartet(zustand), false);
+  zustand = ansage(zustand, direktVon('ben@127.0.0.3'), 0).zustand;
+  assert.equal(ansageWartet(zustand), false);
+  const gesammelt = ansage(zustand, direktVon('cora@127.0.0.9'), 5000);
+  assert.equal(gesammelt.text, null);
+  assert.equal(ansageWartet(gesammelt.zustand), true);
+  const nachDemWechsel = ansage(gesammelt.zustand, { art: 'gewechselt' }, 6000);
+  assert.equal(ansageWartet(nachDemWechsel.zustand), true, 'ein Wechsel verwirft keine Direktnachricht eines anderen Gesprächs');
+  assert.equal(ansage(nachDemWechsel.zustand, TAKT, 10000).text, 'Neue Direktnachricht von cora@127.0.0.9');
+});
+
+test('eine fremde Nachricht in einem anderen, nicht offenen Channel bleibt still (Kontrolle zu V11)', () => {
+  assert.deepEqual(ablauf([[0, fremd('claude@10.0.0.5', 'technik')]]), [[0, null]]);
 });
