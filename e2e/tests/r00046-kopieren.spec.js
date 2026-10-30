@@ -823,3 +823,52 @@ test('Touch-Menü: Wischen im Verlauf schließt es (UX S1 Zusatz)', async ({ bro
   await expect(schalter(a.page, zeit)).toHaveAttribute('aria-expanded', 'false');
   expect(a.fehler).toEqual([]);
 });
+
+// Nacharbeit #78 (UX S2): an der Nachricht im Bearbeiten-Feld gibt es kein Menü — der Schalter „⋯“ ist weg, solange das
+// Feld offen ist, und ein offenes Menü schließt, wenn das Feld aufgeht.
+const schalterAnzeige = (page, zeit) => nachrichtMitZeit(page, zeit).locator('.lc-aktionen-schalter').evaluate((knopf) => getComputedStyle(knopf).display);
+
+for (const ende of ['Abbrechen', 'Speichern']) {
+  test(`Touch: Bearbeiten über das Menü — am Feld kein Schalter „⋯“ und kein Menü; nach ${ende} wieder da (UX S2)`, async ({ browser }) => {
+    instanz = await sendenStarten();
+    const a = await geraetOeffnen(browser, 'telefon', { fenster: FENSTER_TELEFON, streng: true });
+    await imBrowserBeitreten(a.page, instanz.adresse, 'shoff');
+    const zeit = await imBrowserSenden(a.page, 'Eigene');
+    await schalter(a.page, zeit).tap();
+    await nachrichtMitZeit(a.page, zeit).getByRole('button', { name: 'Bearbeiten', exact: true }).tap();
+    const feld = a.page.getByRole('log').getByRole('textbox', { name: 'Nachricht bearbeiten' });
+    await expect(feld).toBeFocused();
+
+    expect(await schalterAnzeige(a.page, zeit)).toBe('none');
+    await expect(a.page.locator('.lc-aktionen-schalter[aria-expanded="true"]')).toHaveCount(0);
+    await expect(nachrichtMitZeit(a.page, zeit).locator('.lc-aktionen')).toBeHidden();
+
+    if (ende === 'Speichern') {
+      await feld.fill('Eigene, geändert');
+    }
+    await nachrichtMitZeit(a.page, zeit).getByRole('button', { name: ende, exact: true }).tap();
+    await expect(feld).toHaveCount(0);
+    expect(await schalterAnzeige(a.page, zeit)).toBe('flex');
+    await schalter(a.page, zeit).tap();
+    await expect(schalter(a.page, zeit)).toHaveAttribute('aria-expanded', 'true');
+    await expect(kopierKnopf(a.page, zeit)).toBeVisible();
+    expect(a.fehler).toEqual([]);
+  });
+}
+
+test('Touch mit Tastatur: Menü offen, Taste E auf der Nachricht öffnet das Feld — das Menü schließt (UX S2)', async ({ browser }) => {
+  instanz = await sendenStarten();
+  const a = await geraetOeffnen(browser, 'telefon', { fenster: FENSTER_TELEFON, streng: true });
+  await imBrowserBeitreten(a.page, instanz.adresse, 'shoff');
+  const zeit = await imBrowserSenden(a.page, 'Eigene');
+  await schalter(a.page, zeit).tap();
+  await expect(schalter(a.page, zeit)).toHaveAttribute('aria-expanded', 'true');
+
+  await nachrichtMitZeit(a.page, zeit).focus();
+  await a.page.keyboard.press('e');
+
+  await expect(a.page.getByRole('log').getByRole('textbox', { name: 'Nachricht bearbeiten' })).toBeFocused();
+  await expect(a.page.locator('.lc-aktionen-schalter[aria-expanded="true"]')).toHaveCount(0);
+  await expect(nachrichtMitZeit(a.page, zeit).locator('.lc-aktionen')).toBeHidden();
+  expect(a.fehler).toEqual([]);
+});

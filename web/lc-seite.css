@@ -307,7 +307,7 @@ button.lc-marke { min-width: 24px; min-height: 24px; padding: 0 var(--kd-space-4
 .lc-aktion[data-rueckmeldung="nicht_moeglich"] { color: var(--kd-danger); }
 /* Bearbeiten an Ort und Stelle (R00041 F0135): statt Text, Marken und Leiste das Feld mit „Abbrechen“ · „Speichern“;
    Feldrand kd-ink-muted ≥ 3 : 1 gegen kd-surface und kd-surface-2 (UX S6); das Feld wächst bis 10 Zeilen, dann scrollt es */
-.lc-im-bearbeiten .lc-body, .lc-im-bearbeiten .lc-zusatz, .lc-im-bearbeiten .lc-foldbar, .lc-msg.lc-im-bearbeiten > .lc-aktionen { display: none; }
+.lc-im-bearbeiten .lc-body, .lc-im-bearbeiten .lc-zusatz, .lc-im-bearbeiten .lc-foldbar, .lc-msg.lc-im-bearbeiten > .lc-aktionen, .lc-msg.lc-im-bearbeiten > .lc-aktionen-schalter { display: none; }
 .lc-bearbeiten { margin-top: var(--kd-space-4); }
 .lc .lc-bearbeiten-feld { display: block; box-sizing: border-box; width: 100%; min-height: 40px; max-height: calc(10 * 20px + 2 * var(--kd-space-8) + 2px); overflow-y: auto; resize: none; padding: var(--kd-space-8); border: 1px solid var(--kd-ink-muted); background: var(--kd-surface); color: var(--kd-ink); font: inherit; line-height: 20px; }
 .lc .lc-bearbeiten-feld:focus { outline: 2px solid var(--kd-focus); outline-offset: 1px; }

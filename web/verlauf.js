@@ -472,6 +472,7 @@ export function verlaufAnlegen({
       nachrichtKopieren(artikel, bekannt.nachricht.text);
     }
     if (aktion === 'bearbeiten') {
+      menueSchliessen();
       bearbeiten.beginnen(offenerName, artikel, bekannt.nachricht);
     }
     if (aktion === 'loeschen') {
