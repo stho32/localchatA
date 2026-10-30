@@ -221,6 +221,9 @@ pub struct Gespraeche {
     anhangbefunde: Vec<Anhangladebefund>,
     /// Anhang-Tagordner ohne Tagesdatei beim Laden (`WARNING laden Anhänge ohne Tagesdatei`).
     waisentage: Vec<Waisentag>,
+    /// Anhänge gelöschter Nachrichten, deren Datei beim Laden noch Bytes hatte — gekürzt vor der Startzeile
+    /// (ADR-0048 Regel 9 „Atomarität“).
+    geloescht_nachzukuerzen: Mutex<Vec<Arc<anhangverzeichnis::Eintrag>>>,
     /// Ob `gebunden` über 90 % der Anhang-Quote steht (B0515); gewechselt nur über `anhangschwelle_pruefen`.
     anhangschwelle: std::sync::atomic::AtomicBool,
     anhangschwelle_melden: anhaenge::AnhangschwelleMelden,
@@ -417,6 +420,7 @@ impl Gespraeche {
             anhangverzeichnis: anhangverzeichnis::Anhangverzeichnis::default(),
             anhangbefunde: Vec::new(),
             waisentage: Vec::new(),
+            geloescht_nachzukuerzen: Mutex::new(Vec::new()),
             anhangschwelle: std::sync::atomic::AtomicBool::new(false),
             anhangschwelle_melden: Arc::new(|_: &anhaenge::Anhangschwelle| {}),
             zufall: Arc::new(crate::zufall::Betriebssystemzufall),

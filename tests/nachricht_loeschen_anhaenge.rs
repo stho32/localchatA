@@ -283,6 +283,90 @@ async fn scheitert_das_kuerzen_bleibt_der_anhang_geloescht_und_gezaehlt() {
         "{}",
         protokoll(wurzel.path())
     );
+    drop(instanz);
+    let neu = starten(wurzel.path());
+
+    assert_eq!(anhang_belegt(&neu.adresse).await, 0);
+    assert_eq!(laenge(&datei), 0);
+    assert_eq!(abrufen(&beta, &neu.adresse, &gegeben.bericht).await.0, 410);
+}
+
+/// Ein Ordner mit einer Nachricht von `beta` (t1) mit einem gebundenen Anhang in voller Länge (4.096 Bytes) und
+/// danach von Hand einem Löschsatz derselben Kennung — wie nach einem Absturz zwischen Löschsatz und Kürzen.
+fn nach_absturz(ordner: &Path) -> (String, PathBuf) {
+    const ID: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaa";
+    let t1 = "2026-10-28T11:00:00.000+01:00";
+    let tag = ordner.join(format!("channels/allgemein/anhaenge/{HEUTE}"));
+    std::fs::create_dir_all(&tag).expect("Anhangordner");
+    let datei = tag.join("110000000-1-geheim.bin");
+    std::fs::write(&datei, vec![5u8; 4_096]).expect("Datei");
+    std::fs::write(
+        ordner.join(format!("channels/allgemein/{HEUTE}.log")),
+        format!(
+            "@ {t1} beta@127.0.0.1\n+ art: agent\n+ anhang: {ID} 4096 application/octet-stream - 110000000-1-geheim.bin geheim.bin\n  Geheim\n\n\
+             @ 2026-10-28T11:00:01.000+01:00 beta@127.0.0.1\n+ geloescht: {t1}\n\n"
+        ),
+    )
+    .expect("Tagesdatei");
+    (ID.to_string(), datei)
+}
+
+/// R00040 „Absturz zwischen Löschsatz und Kürzen“ (QE3, Pre-Mortem 3): nach dem Start antwortet der Abruf 410,
+/// `anhang_belegt` ist 0, die Datei hat 0 Bytes; der Verlauf zeigt die Nachricht gelöscht ohne Anhänge.
+#[tokio::test]
+async fn ein_start_nach_dem_absturz_loescht_die_anhaenge_fertig() {
+    let wurzel = ordner();
+    let (id, datei) = nach_absturz(wurzel.path());
+    let instanz = starten(wurzel.path());
+    let basis = instanz.adresse.as_str();
+    let beta = Absender::von("127.0.0.1");
+    let token = beitreten(&beta, basis, "beta", Some("agent")).await;
+
+    let abruf = abrufen(&beta, basis, &id).await;
+    let jetzt = verlauf(&beta, basis, &token, "allgemein").await;
+
+    assert_eq!(abruf.0, 410);
+    assert_eq!(anhang_belegt(basis).await, 0);
+    assert_eq!(laenge(&datei), 0);
+    assert_eq!(jetzt["nachrichten"][0]["zustand"], "geloescht");
+    assert_eq!(jetzt["nachrichten"][0]["anhaenge"], json!([]));
+}
+
+/// Wie nach dem Absturz, aber die Datei ist schreibgeschützt (nicht als root): nach dem Start bleibt der Anhang
+/// gelöscht (410) und gezählt, das Protokoll nennt `ERROR anhang Löschen gescheitert` ohne Namen und ohne ID.
+#[cfg(unix)]
+#[tokio::test]
+async fn scheitert_das_kuerzen_beim_start_bleibt_der_anhang_geloescht() {
+    use std::os::unix::fs::PermissionsExt;
+    let wurzel = ordner();
+    let (id, datei) = nach_absturz(wurzel.path());
+    std::fs::set_permissions(&datei, std::fs::Permissions::from_mode(0o444)).expect("Rechte");
+    let instanz = starten(wurzel.path());
+    let basis = instanz.adresse.as_str();
+    let beta = Absender::von("127.0.0.1");
+
+    let abruf = abrufen(&beta, basis, &id).await;
+
+    std::fs::set_permissions(&datei, std::fs::Permissions::from_mode(0o644)).expect("Rechte");
+    assert_eq!(abruf.0, 410);
+    assert_eq!(
+        anhang_belegt(basis).await,
+        65_536,
+        "Zählmaß z(4.096) = 64 KiB"
+    );
+    let protokoll = protokoll(wurzel.path());
+    let fehler: Vec<&str> = protokoll
+        .lines()
+        .filter(|zeile| zeile.contains(" ERROR anhang Löschen gescheitert"))
+        .collect();
+    assert_eq!(fehler.len(), 1, "{protokoll}");
+    assert!(
+        fehler[0].contains("anhang=110000000-1")
+            && !fehler[0].contains("geheim")
+            && !fehler[0].contains(&id),
+        "{}",
+        fehler[0]
+    );
 }
 
 /// R00040 „Fremd und nicht da“, Teil Anhänge (M1): `gamma` löscht t3 → 403; beide Anhänge weiter abrufbar (200).

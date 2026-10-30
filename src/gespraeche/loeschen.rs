@@ -253,6 +253,19 @@ impl Gespraeche {
             .collect()
     }
 
+    /// Nach dem Laden, vor der Startzeile: die Anhänge gelöschter Nachrichten, deren Datei noch Bytes hat, kürzen und
+    /// abziehen (ADR-0048 Regel 9 „Atomarität“). Liefert je Datei das Ergebnis fürs Protokoll.
+    pub fn geloeschte_anhaenge_kuerzen(&self) -> Vec<Gekuerzt> {
+        let gewonnen = std::mem::take(&mut *sperren(&self.geloescht_nachzukuerzen));
+        let dateien = self
+            .kuerzen_und_abziehen(gewonnen, BeiFehler::BleibtGeloescht)
+            .into_iter()
+            .map(|(_, datei)| datei)
+            .collect();
+        self.anhangschwelle_pruefen("geloescht");
+        dateien
+    }
+
     fn bericht(
         &self,
         ergebnisse: Vec<(Anhangid, Einzelergebnis)>,

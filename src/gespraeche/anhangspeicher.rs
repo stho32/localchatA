@@ -111,6 +111,11 @@ impl Anhangspeicher {
         self.innen().kuerzen_scheitert.insert(datei.to_string());
     }
 
+    /// Diese Datei lässt sich wieder kürzen (Rechte zurückgesetzt).
+    pub fn kuerzen_gelingt(&self, datei: &str) {
+        self.innen().kuerzen_scheitert.remove(datei);
+    }
+
     /// Das nächste Entfernen von `anhaenge/<tag>` scheitert, die Dateien bleiben.
     pub fn tag_entfernen_scheitert_einmal(&self, gespraech: &Gespraech, tag: NaiveDate) {
         self.innen()

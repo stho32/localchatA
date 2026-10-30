@@ -123,6 +123,14 @@ impl Verlauf {
         })
     }
 
+    /// Die Zeiten der gelöschten Nachrichten, aufsteigend.
+    pub fn geloeschte(&self) -> impl Iterator<Item = Zeit> + '_ {
+        self.fassungen
+            .iter()
+            .filter(|(_, fassung)| fassung.zustand == Fassungszustand::Geloescht)
+            .map(|(zeit, _)| *zeit)
+    }
+
     /// Die Fassung der Nachricht mit dieser Zeit, wenn sie geändert ist.
     pub fn fassung(&self, zeit: &Zeit) -> Option<Fassung> {
         self.fassungen.get(zeit).copied()

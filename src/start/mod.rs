@@ -441,6 +441,7 @@ async fn nach_der_sperre(
             kontext,
         );
     }
+    geloeschte_anhaenge_kuerzen(&gespraeche, &protokoll);
     for waisentag in gespraeche.waisentage() {
         protokoll.eintragen(
             Stufe::Warning,
@@ -584,6 +585,33 @@ async fn nach_der_sperre(
         ende_kontext(signal.get().copied(), beginn),
     );
     Ok(())
+}
+
+/// Kürzt nach dem Laden, vor der Startzeile, die Anhänge gelöschter Nachrichten, deren Datei noch Bytes hat (ADR-0048
+/// Regel 9 „Atomarität“: so heilt ein Start einen Absturz zwischen Löschsatz und Kürzen). Je Datei `DEBUG` bzw.
+/// `ERROR` — nie Anhang-ID oder Anzeigename.
+fn geloeschte_anhaenge_kuerzen(gespraeche: &Gespraeche, protokoll: &Protokoll) {
+    for datei in gespraeche.geloeschte_anhaenge_kuerzen() {
+        let ort = Kontext::neu()
+            .mit(Schluessel::Ordner, datei.gespraech.pfad())
+            .mit(Schluessel::Tag, datei.tag.format("%Y-%m-%d"))
+            .mit(Schluessel::Anhang, datei.datei.as_str())
+            .mit(Schluessel::Bytes, datei.bytes);
+        match &datei.grund {
+            None => protokoll.eintragen(
+                Stufe::Debug,
+                Bereich::Anhang,
+                "Anhang gelöscht",
+                ort.mit(Schluessel::Grund, "nachricht"),
+            ),
+            Some(grund) => protokoll.eintragen(
+                Stufe::Error,
+                Bereich::Anhang,
+                "Löschen gescheitert — der Anhang bleibt gelöscht, der nächste Start kürzt die Datei",
+                ort.mit(Schluessel::Grund, grund.as_str()),
+            ),
+        }
+    }
 }
 
 /// Lädt den Verlauf vor dem Binden — ab der Startzeile ist er vollständig da (A00003).

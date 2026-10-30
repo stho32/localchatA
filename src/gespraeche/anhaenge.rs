@@ -338,10 +338,45 @@ impl Gespraeche {
         self.anhangzaehler
             .gebunden
             .store(gebunden, Ordering::SeqCst);
+        self.geloescht_nachzukuerzen =
+            std::sync::Mutex::new(self.anhaenge_geloeschter_nachrichten());
         self.anhangbefunde = befunde;
         self.waisentage = waisentage;
         self.ladezeit += beginn.elapsed();
         self
+    }
+
+    /// Die Anhänge gelöschter Nachrichten sind `geloescht`, gleich welche Länge ihre Datei hat (ADR-0048 Regel 9,
+    /// ändert ADR-0046 F1′ Regel 8 für diesen Fall): ein beim Laden `vorhandener` wird getauscht und bleibt in G gezählt,
+    /// bis er gekürzt ist. Liefert diese Einträge.
+    fn anhaenge_geloeschter_nachrichten(
+        &self,
+    ) -> Vec<std::sync::Arc<super::anhangverzeichnis::Eintrag>> {
+        use super::anhangverzeichnis::Zustand;
+        let verzeichnis = super::lesend(&self.verzeichnis);
+        let mut gewonnen = Vec::new();
+        for (gespraech, verlauf) in &verzeichnis.verlaeufe {
+            let verlauf = sperren(verlauf);
+            for zeit in verlauf.geloeschte() {
+                let Some(nachricht) = verlauf
+                    .nachricht(&zeit)
+                    .and_then(|kopie| super::logformat::satz_als_nachricht(&kopie.satz))
+                else {
+                    continue;
+                };
+                gewonnen.extend(
+                    nachricht
+                        .anhaenge
+                        .iter()
+                        .filter_map(|zeile| self.anhangverzeichnis.finden(&zeile.id))
+                        .filter(|eintrag| {
+                            eintrag.gespraech == *gespraech && eintrag.satzzeit == zeit
+                        })
+                        .filter(|eintrag| eintrag.tauschen(Zustand::Vorhanden, Zustand::Geloescht)),
+                );
+            }
+        }
+        gewonnen
     }
 
     /// Die Tage `tage` (mit Tagesdatei) und die Tage, die es nur in `anhaenge/` gibt (Befund #53 B1), aufsteigend.
@@ -1648,5 +1683,81 @@ mod tests {
         );
         let gekuerzt: Vec<usize> = speicher.anhaenge().values().map(Vec::len).collect();
         assert_eq!(gekuerzt.iter().filter(|laenge| **laenge == 0).count(), 3);
+    }
+
+    /// R00040 B0619 (ADR-0048 Regel 9 „Atomarität“, Pre-Mortem 3; „Erster Unit-Test Löschen mit Anhängen“, Teil
+    /// Neuladen): das Kürzen des dritten Anhangs scheiterte; nach dem Neuladen sind alle drei `geloescht`, gleich welche
+    /// Länge ihre Datei hat, der dritte zählt in G, bis `geloeschte_anhaenge_kuerzen` (nach dem Laden, vor der
+    /// Startzeile) ihn kürzt und abzieht; ein zweiter Aufruf tut nichts. Scheitert das Kürzen dort, bleibt er gelöscht
+    /// und gezählt (Mutante „Laden nach Dateilänge“ rot).
+    #[test]
+    fn das_laden_leitet_geloescht_aus_dem_loeschsatz_ab_und_kuerzt_nach() {
+        use crate::gespraeche::anhangverzeichnis::Zustand;
+        let (gespraeche, ablage, speicher) = mit_ablage();
+        let ids: Vec<Anhangid> = (0..3)
+            .map(|nummer| {
+                fertig(
+                    &gespraeche,
+                    "beta@127.0.0.1",
+                    &format!("a{nummer}.bin"),
+                    &vec![nummer as u8; MIB as usize],
+                )
+            })
+            .collect();
+        let Ok(crate::gespraeche::Gesendet::Neu(nachricht)) = gespraeche.senden_mit_anhaengen(
+            &Gespraech::channel("allgemein"),
+            &kennung("beta@127.0.0.1"),
+            Art::Agent,
+            "Bericht",
+            &ids,
+            None,
+        ) else {
+            panic!("gesendet")
+        };
+        let dritte = gespraeche
+            .anhangverzeichnis
+            .finden(&ids[2])
+            .expect("dritte")
+            .datei
+            .clone();
+        speicher.kuerzen_scheitert(&dritte);
+        gespraeche
+            .nachricht_loeschen(
+                &Gespraech::channel("allgemein"),
+                &kennung("beta@127.0.0.1"),
+                nachricht.zeit,
+            )
+            .expect("gelöscht");
+        let neu_laden = || {
+            let uhr = Arc::new(GestellteUhr::neu(
+                chrono::DateTime::parse_from_rfc3339("2026-10-29T12:00:00.000+01:00")
+                    .expect("Zeit"),
+            ));
+            Gespraeche::laden(ablage.clone(), uhr)
+                .expect("geladen")
+                .mit_anhangquote(Some(10 * MIB))
+                .mit_anhangablage(speicher.clone())
+        };
+
+        let noch_gesperrt = neu_laden();
+        let gescheitert = noch_gesperrt.geloeschte_anhaenge_kuerzen();
+        speicher.kuerzen_gelingt(&dritte);
+        let neu = neu_laden();
+        let zustaende: Vec<Zustand> = ids.iter().map(|id| zustand(&neu, id)).collect();
+        let g_nach_dem_laden = neu.anhangkennzahlen().gebunden;
+        let gekuerzt = neu.geloeschte_anhaenge_kuerzen();
+        let zweites_mal = neu.geloeschte_anhaenge_kuerzen();
+
+        assert_eq!(zustand(&noch_gesperrt, &ids[2]), Zustand::Geloescht);
+        assert_eq!(gescheitert.len(), 1);
+        assert!(gescheitert[0].grund.is_some(), "{gescheitert:?}");
+        assert_eq!(noch_gesperrt.anhangkennzahlen().gebunden, MIB);
+        assert_eq!(zustaende, vec![Zustand::Geloescht; 3]);
+        assert_eq!(g_nach_dem_laden, MIB);
+        assert_eq!(gekuerzt.len(), 1);
+        assert_eq!(gekuerzt[0].grund, None);
+        assert_eq!(neu.anhangkennzahlen().gebunden, 0);
+        assert!(zweites_mal.is_empty());
+        assert!(speicher.anhaenge().values().all(Vec::is_empty));
     }
 }
