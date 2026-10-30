@@ -37,8 +37,9 @@ export function taste(ereignis, text, zeiger) {
 // sendet Enter nicht; was die Zeile ansagt, geht ohne ⚠ an die eine Ansage-Region (`ansagen`, R00025 F0084). Der
 // Entwurf (entwurf.js) folgt dem Channel (Regel 7). `eigeneLetzteFokussieren()` holt bei ↑ in der leeren Eingabe den
 // Fokus auf die eigene letzte Nachricht im Verlauf (R00041 F0141, 1-tastatur.md); im leeren Feld hat ↑ sonst keine
-// Wirkung, darum wird die Taste dort immer verbraucht.
-export function eingabeAnlegen({ senden, entwurf, ansagen, eigeneLetzteFokussieren = () => {} }) {
+// Wirkung, darum wird die Taste dort immer verbraucht. `tippen` (tippen.js) erfährt jede Eingabe, das Senden und den
+// Wechsel des Channels — nie das Wiederherstellen des Entwurfs (R00045 F0161).
+export function eingabeAnlegen({ senden, entwurf, ansagen, tippen, eigeneLetzteFokussieren = () => {} }) {
   const feld = document.createElement('textarea');
   feld.rows = 1;
   feld.className = 'lc-comp-feld';
@@ -91,6 +92,7 @@ export function eingabeAnlegen({ senden, entwurf, ansagen, eigeneLetzteFokussier
     hoeheAnpassen(feld);
     textBewerten();
     entwurf.eingabe(channel, feld.value);
+    tippen.eingabe(channel, feld.value);
   });
   // Die Zeigerart wird je Tastendruck gefragt: steckt jemand eine Maus ans Tablet, gilt sofort die neue Regel (K5).
   // Bei 'zeile' und während einer Komposition schreibt der Browser bzw. die Bildschirmtastatur die Zeile selbst.
@@ -155,6 +157,7 @@ export function eingabeAnlegen({ senden, entwurf, ansagen, eigeneLetzteFokussier
     hoeheAnpassen(feld);
     textBewerten();
     entwurf.gesendet(channel);
+    tippen.gesendet(channel);
     senden(text);
     feld.focus();
   }
@@ -170,6 +173,7 @@ export function eingabeAnlegen({ senden, entwurf, ansagen, eigeneLetzteFokussier
     channelSetzen: (name) => {
       if (channel !== null) {
         entwurf.weggehen(channel, feld.value);
+        tippen.gewechselt(channel);
       }
       channel = name;
       const beschriftung = `Nachricht an # ${name}`;

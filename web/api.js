@@ -32,6 +32,37 @@ export function fristSetzen(name, tage, bestaetigt, { token }, holen = holenImBr
   return rufen(`/api/channels/${encodeURIComponent(name)}/frist`, { koerper, token, methode: 'PUT' }, holen);
 }
 
+// Tippen melden (ADR-0051 Regel 4): setzen ist PUT {"zustand":"tippt"}, loeschen DELETE ohne Körper.
+// → { art: 'antwort', status, wartenS } (wartenS aus Retry-After nur bei 429, sonst null) | { art: 'netzfehler' }
+export async function aktivitaetMelden({ art, channel }, { token }, holen = holenImBrowser) {
+  const ZU_VIELE_ANFRAGEN = 429;
+  const optionen = { method: 'DELETE', headers: { [SITZUNGS_HEADER]: token } };
+  if (art === 'setzen') {
+    optionen.method = 'PUT';
+    optionen.headers['Content-Type'] = 'application/json';
+    optionen.body = JSON.stringify({ zustand: 'tippt' });
+  }
+  let antwort;
+  try {
+    antwort = await holen(`/api/channels/${encodeURIComponent(channel)}/aktivitaet`, optionen);
+  } catch (ausnahme) {
+    return { art: 'netzfehler' };
+  }
+  let wartenS = null;
+  if (antwort.status === ZU_VIELE_ANFRAGEN) {
+    wartenS = sekundenAusRetryAfter(antwort.headers.get('Retry-After'));
+  }
+  return { art: 'antwort', status: antwort.status, wartenS };
+}
+
+function sekundenAusRetryAfter(kopf) {
+  const sekunden = Number(kopf);
+  if (kopf === null || !Number.isInteger(sekunden) || sekunden < 1) {
+    return 1;
+  }
+  return sekunden;
+}
+
 function holenImBrowser(pfad, optionen) {
   return globalThis.fetch(pfad, optionen);
 }

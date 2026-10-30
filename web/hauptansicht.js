@@ -5,7 +5,7 @@
 // „Teilnehmer“ blenden die Liste ein und aus (1-tastatur.md). `+` und `Strg Alt N` öffnen „Channel anlegen“; die
 // Statuszeile meldet den angelegten Channel (ADR-0024 Regeln 4, 5). optionen.channelAnlegen: async (name, beschreibung) → Antwort.
 // `# name` in der Kopfzeile öffnet die Channel-Einstellungen (ADR-0033); optionen.fristSetzen: async (name, tage,
-// bestaetigt) → Antwort.
+// bestaetigt) → Antwort. optionen.aktivitaetMelden: async ({ art, channel }) → Antwort (tippen.js).
 // Die Auswahl folgt allein Adresse und Channel-Liste (ADR-0027): Start, hashchange und jede neue Liste leiten sie
 // neu ab — Seitenleiste, Kopfzeile und Mitte zeigen sie.
 import * as kopfzeile from './kopfzeile.js';
@@ -18,6 +18,7 @@ import { onlineBenennen } from './teilnehmerliste.js';
 import { eingabeAnlegen } from './eingabe.js';
 import { sendenEinrichten, neuerSchluessel } from './senden.js';
 import { entwurfAnlegen } from './entwurf.js';
+import { tippenAnlegen } from './tippen.js';
 import { fokusTaste } from './fokus.js';
 import { VERBINDUNG_ANFANG, verbindung } from './wiederverbinden.js';
 import { nachholLaufAnlegen } from './nachhollauf.js';
@@ -104,6 +105,7 @@ export function zeichnen(wurzel, teilnehmer, optionen) {
     senden: senden.senden,
     entwurf: entwurfAnlegen({ speicher: window.sessionStorage }),
     ansagen: ansagen.melden,
+    tippen: tippenAnlegen({ melden: optionen.aktivitaetMelden }),
     eigeneLetzteFokussieren: verlauf.eigeneLetzteFokussieren,
   });
   const wieder = wiederverbindenEinrichten({
