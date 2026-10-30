@@ -31,6 +31,7 @@ pub mod textregel;
 mod verlaufsindex;
 mod verzeichnis;
 pub mod wiederholung;
+pub mod zitat;
 
 pub use crate::anwesenheit::Art;
 pub use anhaenge::{
