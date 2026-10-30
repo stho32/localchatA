@@ -201,3 +201,20 @@ test('Volles Neuzeichnen (S4): dora tritt bei → Fokus auf ben bleibt; emil tri
   await expect(knopfVon(anna.page, BEN)).toBeFocused();
   expect(anna.fehler).toEqual([]);
 });
+
+// ux-reviewer #13 F0178 Optional 3 (Bestand, mit F0180): der Schalter „Teilnehmer n“ ist mit grobem Zeiger ein Ziel von
+// mindestens 44 × 44 px — auf dem Telefon und dem Tablet; mit feinem Zeiger bleibt er 28 px hoch.
+for (const geraet of ['telefonSchmal', 'telefon', 'tablet', 'desktop']) {
+  test(`Schalter „Teilnehmer“ (Optional 3) — ${geraet}: Touch ≥ 44 × 44 px, fein 28 px`, async ({ browser }) => {
+    const { anna } = await dreiTeilnehmer(browser, { geraet: GERAETE[geraet] });
+    const kasten = await anna.page.getByRole('button', { name: /^Teilnehmer/ }).boundingBox();
+    if (geraet === 'desktop') {
+      expect(kasten.height).toBe(28);
+    } else {
+      expect(kasten.height).toBeGreaterThanOrEqual(44);
+      expect(kasten.width).toBeGreaterThanOrEqual(44);
+    }
+    expect(await anna.page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+    expect(anna.fehler).toEqual([]);
+  });
+}
