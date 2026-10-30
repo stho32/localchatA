@@ -46,6 +46,10 @@ const DIREKT_ERLAUBT: &[(&str, &str)] = &[
         "Trefferregel: fragt zuerst sichtbar_fuer; Direkt nur für den Anlass direkt und den Filter direkt",
     ),
     (
+        "src/gespraeche/pflege.rs",
+        "Pflege nach fester Frist (7 Tage) und Aufräumen leerer Paarordner: gibt keinem Aufrufer etwas aus, der Bericht nennt das Paar nur fürs Betriebsprotokoll",
+    ),
+    (
         "src/gespraeche/sichtbarkeit.rs",
         "die eine Entscheidung selbst (A00020)",
     ),
@@ -74,6 +78,11 @@ const ALLE_OHNE_PRUEFUNG: &[(&str, usize, &str)] = &[
         "src/gespraeche/anhaenge.rs",
         2,
         "Abgleich beim Start und Tilgen gelöschter Nachrichten: liest Dateien, gibt keinem Aufrufer etwas aus",
+    ),
+    (
+        "src/gespraeche/pflege.rs",
+        1,
+        "Pflege beim Start und Tageswechsel: Tage jenseits der Frist entfernen und leere Paarordner aufräumen, gibt keinem Aufrufer etwas aus (Bericht nur ans Betriebsprotokoll)",
     ),
     (
         "src/gespraeche/mod.rs",
