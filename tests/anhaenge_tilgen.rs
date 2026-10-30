@@ -180,15 +180,15 @@ fn rss(pid: u32) -> u64 {
         * 1024
 }
 
-/// MP4 mit `moov` von 64 MiB − 1 (große `trak`, `©xyz` am Ende).
+/// MP4 mit `moov` von 64 MiB − 1 (große `trak` aus einer Box — der Tilger steigt in `trak` ab —, `©xyz` am Ende).
 fn grosses_mp4() -> Vec<u8> {
     let boxe = |typ: &[u8], inhalt: &[u8]| {
         [&((8 + inhalt.len()) as u32).to_be_bytes()[..], typ, inhalt].concat()
     };
     let xyz = boxe(b"\xa9xyz", b"\0\x12\x15\xc7+52.5200+013.4050/");
     let udta = boxe(b"udta", &xyz);
-    let fuellung = 64 * MIB as usize - 1 - 8 - 8 - udta.len();
-    let trak = boxe(b"trak", &vec![7u8; fuellung]);
+    let fuellung = 64 * MIB as usize - 1 - 8 - 8 - 8 - udta.len();
+    let trak = boxe(b"trak", &boxe(b"edts", &vec![7u8; fuellung]));
     let moov = boxe(b"moov", &[trak, udta].concat());
     assert_eq!(moov.len(), 64 * MIB as usize - 1);
     [

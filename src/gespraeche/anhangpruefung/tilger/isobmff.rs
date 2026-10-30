@@ -1,6 +1,6 @@
 //! Ortsangaben in ISOBMFF tilgen (B0503, A00018 Ergänzung F4; ADR-0047 Ergänzung „Karte #9 Security-Gate“ Regeln
-//! 1–3): MP4, MOV, M4A, 3GP, HEIC, HEIF, AVIF über Boxköpfe per Position. Abstieg nur in `moov`, `moov/udta`,
-//! `moov/meta`, `moov/meta/ilst` und das oberste `meta`; Leseziele ≤ 1 MiB, Nullziele nie gelesen.
+//! 1–3; Ergänzung „Karte #9 Security-Review B2“ Regel 5): MP4, MOV, M4A, 3GP, HEIC, HEIF, AVIF über Boxköpfe per
+//! Position, je Ebene eine Erlaubnisliste; Leseziele ≤ 1 MiB, Nullziele nie gelesen.
 
 use super::Zaehler;
 use super::minimal::{minimales_exif, traegt_ort};
@@ -10,10 +10,21 @@ use std::collections::{HashMap, HashSet};
 
 /// `moov` und `meta` sind höchstens so groß — nur als Längengrenze, nie als Puffer.
 pub const HOECHSTENS_MOOV: u64 = 64 * 1_048_576;
-/// Typ der XMP-`uuid`-Box.
-pub const XMP_UUID: [u8; 16] = [
-    0xBE, 0x7A, 0xCF, 0xCB, 0x97, 0xA9, 0x42, 0xE8, 0x9C, 0x71, 0x99, 0x94, 0x91, 0xE3, 0xAF, 0xAC,
+
+/// Erlaubnisliste der obersten Ebene (ADR-0047 Ergänzung „Karte #9 Security-Review B2“ Regel 5a); jede andere Box,
+/// auch jede `uuid`, wird unkenntlich.
+const OBEN_ERLAUBT: &[&[u8; 4]] = &[
+    b"ftyp", b"styp", b"moov", b"mdat", b"moof", b"mfra", b"sidx", b"ssix", b"prft", b"emsg",
+    b"pdin", b"meco", b"meta", b"free", b"skip", b"wide",
 ];
+
+/// Erlaubnisliste in `moov` (Regel 5b); `cmov` ist nicht prüfbar.
+const MOOV_ERLAUBT: &[&[u8; 4]] = &[
+    b"mvhd", b"trak", b"mvex", b"iods", b"pssh", b"udta", b"meta", b"free", b"skip", b"wide",
+];
+
+/// Erlaubnisliste in `udta` (Regel 5c): Kapitel, Spurauswahl, `meta`.
+const UDTA_ERLAUBT: &[&[u8; 4]] = &[b"chpl", b"tsel", b"meta"];
 
 fn metadaten<T>(grund: &'static str) -> Ergebnis<T> {
     Err(Abbruch::Metadaten(grund))
@@ -85,8 +96,8 @@ pub fn isobmff(port: &Port<'_>, zaehler: &mut Zaehler) -> Ergebnis<()> {
         match &kiste.typ {
             b"moov" => moov(port, kiste, zaehler)?,
             b"meta" => oberstes_meta(port, kiste, zaehler)?,
-            b"uuid" => xmp_uuid(port, kiste)?,
-            _ => {}
+            typ if OBEN_ERLAUBT.contains(&typ) => {}
+            _ => unkenntlich(port, kiste, zaehler)?,
         }
         if kiste.ende <= pos {
             return metadaten("Längen widersprechen sich");
@@ -100,46 +111,51 @@ fn zu_gross(kiste: Kiste) -> bool {
     kiste.ende - kiste.pos > HOECHSTENS_MOOV
 }
 
-/// `uuid` mit dem XMP-Typ → Typ `free`, Inhalt samt den 16 Bytes des Typs genullt.
-fn xmp_uuid(port: &Port<'_>, kiste: Kiste) -> Ergebnis<()> {
-    if kiste.ende - kiste.inhalt < 16 || port.lesen(kiste.inhalt, 16)? != XMP_UUID {
-        return Ok(());
-    }
-    frei_machen(port, kiste)
-}
-
-fn frei_machen(port: &Port<'_>, kiste: Kiste) -> Ergebnis<()> {
+/// Eine Box außerhalb der Erlaubnisliste → Typ `free`, Inhalt genullt (bei `uuid` samt den 16 Bytes des Typs), nie
+/// gelesen; `©xyz` und `loci` sind ein Ort.
+fn unkenntlich(port: &Port<'_>, kiste: Kiste, zaehler: &mut Zaehler) -> Ergebnis<()> {
+    zaehler.ort |= matches!(&kiste.typ, [0xA9, b'x', b'y', b'z'] | b"loci");
     port.schreiben(kiste.pos + 4, b"free")?;
     port.nullen(kiste.inhalt, kiste.ende - kiste.inhalt)
 }
 
-fn inhalt_nullen(port: &Port<'_>, kiste: Kiste, zaehler: &mut Zaehler) -> Ergebnis<()> {
-    zaehler.ort = true;
-    port.nullen(kiste.inhalt, kiste.ende - kiste.inhalt)
-}
-
+/// `moov`: Erlaubnisliste, `cmov` ist nicht prüfbar; Abstieg in `trak`, `udta`, `meta`.
 fn moov(port: &Port<'_>, moov: Kiste, zaehler: &mut Zaehler) -> Ergebnis<()> {
     if zu_gross(moov) {
         return metadaten("moov über 64 MiB");
     }
     for kind in kinder(port, moov.inhalt, moov.ende, zaehler)? {
         match &kind.typ {
+            b"cmov" => return metadaten("cmov nicht prüfbar"),
+            b"trak" => trak(port, kind, zaehler)?,
             b"udta" => udta(port, kind, zaehler)?,
             b"meta" => moov_meta(port, kind, zaehler)?,
-            b"uuid" => xmp_uuid(port, kind)?,
+            typ if MOOV_ERLAUBT.contains(&typ) => {}
+            _ => unkenntlich(port, kind, zaehler)?,
+        }
+    }
+    Ok(())
+}
+
+/// `trak`: Abstieg nur zu `udta` und `meta`; alles andere ist Wiedergabestruktur und bleibt.
+fn trak(port: &Port<'_>, trak: Kiste, zaehler: &mut Zaehler) -> Ergebnis<()> {
+    for kind in kinder(port, trak.inhalt, trak.ende, zaehler)? {
+        match &kind.typ {
+            b"udta" => udta(port, kind, zaehler)?,
+            b"meta" => moov_meta(port, kind, zaehler)?,
             _ => {}
         }
     }
     Ok(())
 }
 
+/// `udta` (unter `moov` und `trak`): Erlaubnisliste, Abstieg in `meta`; ein Rest unter 8 Bytes ist kein Block.
 fn udta(port: &Port<'_>, udta: Kiste, zaehler: &mut Zaehler) -> Ergebnis<()> {
     for kind in kinder(port, udta.inhalt, udta.ende, zaehler)? {
         match &kind.typ {
-            [0xA9, b'x', b'y', b'z'] | b"loci" => inhalt_nullen(port, kind, zaehler)?,
-            b"XMP_" => frei_machen(port, kind)?,
-            b"uuid" => xmp_uuid(port, kind)?,
-            _ => {}
+            b"meta" => moov_meta(port, kind, zaehler)?,
+            typ if UDTA_ERLAUBT.contains(&typ) => {}
+            _ => unkenntlich(port, kind, zaehler)?,
         }
     }
     Ok(())
@@ -447,6 +463,11 @@ mod tests {
     use crate::gespraeche::anhangpruefung::exif::tests::tiff;
 
     const MIB: usize = 1_048_576;
+    /// Typ der XMP-`uuid`-Box.
+    const XMP_UUID: [u8; 16] = [
+        0xBE, 0x7A, 0xCF, 0xCB, 0x97, 0xA9, 0x42, 0xE8, 0x9C, 0x71, 0x99, 0x94, 0x91, 0xE3, 0xAF,
+        0xAC,
+    ];
 
     fn kiste(typ: &[u8], inhalt: &[u8]) -> Vec<u8> {
         let mut bytes = ((inhalt.len() + 8) as u32).to_be_bytes().to_vec();
@@ -478,7 +499,7 @@ mod tests {
         let stco = kiste(b"stco", b"\0\0\0\0\0\0\0\x01\0\0\0\x30");
         let trak = kiste(
             b"trak",
-            &[&stco[..], &vec![7u8; trak_fuellung][..]].concat(),
+            &[stco, kiste(b"edts", &vec![7u8; trak_fuellung])].concat(),
         );
         let udta = kiste(
             b"udta",
@@ -515,13 +536,14 @@ mod tests {
             enthaelt(&getilgt, b"stco\0\0\0\0\0\0\0\x01\0\0\0\x30")
                 && enthaelt(&getilgt, b"Mediendaten")
         );
-        assert_eq!(getilgt.windows(4).filter(|f| f == b"free").count(), 2);
+        // `uuid` oben, `udta/XMP_` und `udta/©xyz` (Erlaubnisliste, ADR-0047 B2 Regeln 5a, 5c).
+        assert_eq!(getilgt.windows(4).filter(|f| f == b"free").count(), 3);
         assert!(zaehler.ort);
     }
 
     #[test]
     fn moov_knapp_unter_64_mib_mit_xyz_am_ende() {
-        let original = mp4(64 * MIB - 108, b"+52.5200+013.4050/");
+        let original = mp4(64 * MIB - 116, b"+52.5200+013.4050/");
         let moov = original
             .windows(4)
             .position(|f| f == b"moov")
@@ -1088,5 +1110,99 @@ mod tests {
         assert!(ergebnis.expect("getilgt").ort);
         let getilgt = datei.inhalt();
         assert!(enthaelt(&getilgt, &kachel) && !enthaelt(&getilgt, b"GPS"));
+    }
+
+    /// Typ der C2PA-`uuid`-Box.
+    const C2PA_UUID: [u8; 16] = [
+        0xD8, 0xFE, 0xC3, 0xD6, 0x1B, 0x0E, 0x48, 0x3C, 0x92, 0x97, 0x58, 0x28, 0x87, 0x7E, 0xC4,
+        0x81,
+    ];
+
+    const ORT: &[u8] = b"GPSLatitude 52.52 +52.5200+013.4050/";
+
+    /// Eine Box ist `free` mit Nullen (bei `uuid` samt den 16 Bytes des Typs), gleich lang wie `alt`.
+    fn frei_an(getilgt: &[u8], alt: &[u8]) -> bool {
+        getilgt.windows(alt.len()).any(|kiste| {
+            kiste[..4] == alt[..4] && &kiste[4..8] == b"free" && kiste[8..].iter().all(|b| *b == 0)
+        })
+    }
+
+    /// ADR-0047 B2 P4, P6 und Regeln 5a–5c (B0644): oben `uuid` C2PA und eine unbekannte Box, in `moov` eine
+    /// unbekannte Box, in `moov/trak/udta` `©xyz`, in `moov/udta` `©day` → je `free` mit Nullen; `chpl`, `stco`,
+    /// `mdat` byte-gleich; ein Rest von 4 Nullbytes am Ende von `udta` ist kein Block.
+    #[test]
+    fn isobmff_behaelt_nur_erlaubte_boxen_oben_in_moov_trak_und_udta() {
+        let uuid = kiste(b"uuid", &[&C2PA_UUID[..], ORT].concat());
+        let oben = kiste(b"abcd", ORT);
+        let im_moov = kiste(b"xyzw", ORT);
+        let xyz = kiste(&[0xA9, b'x', b'y', b'z'], ORT);
+        let tag = kiste(&[0xA9, b'd', b'a', b'y'], b"2026-10-29T12:34:56Z");
+        let chpl = kiste(b"chpl", b"\x01\0\0\0\0\x01Kapitel");
+        let stco = kiste(b"stco", b"\0\0\0\0\0\0\0\x01\0\0\0\x30");
+        let trak = kiste(
+            b"trak",
+            &[
+                stco.clone(),
+                kiste(b"udta", &[xyz.clone(), vec![0; 4]].concat()),
+            ]
+            .concat(),
+        );
+        let udta = kiste(b"udta", &[chpl.clone(), tag.clone()].concat());
+        let mdat = kiste(b"mdat", b"Mediendaten");
+        let moov = kiste(
+            b"moov",
+            &[kiste(b"mvhd", &[0; 100]), trak, im_moov.clone(), udta].concat(),
+        );
+        let original = [ftyp(), uuid.clone(), oben.clone(), moov, mdat.clone()].concat();
+
+        let (ergebnis, datei) = tilgen(original.clone());
+
+        ergebnis.expect("getilgt");
+        let getilgt = datei.inhalt();
+        assert_eq!(getilgt.len(), original.len());
+        assert!(!enthaelt(&getilgt, b"52.52") && !enthaelt(&getilgt, b"GPS"));
+        assert!(!enthaelt(&getilgt, &C2PA_UUID) && !enthaelt(&getilgt, b"2026-10-29"));
+        for (was, alt) in [
+            ("uuid", &uuid),
+            ("oben", &oben),
+            ("moov", &im_moov),
+            ("xyz", &xyz),
+            ("day", &tag),
+        ] {
+            assert!(frei_an(&getilgt, alt), "{was}");
+        }
+        for bleibt in [&chpl, &stco, &mdat] {
+            assert!(
+                enthaelt(&getilgt, bleibt),
+                "{}",
+                String::from_utf8_lossy(&bleibt[4..8])
+            );
+        }
+    }
+
+    /// ADR-0047 B2 P9 (B0644): `cmov` in `moov` → `metadaten`; eine Box in `udta` mit `size` über das Ende von
+    /// `udta` → `metadaten`.
+    #[test]
+    fn cmov_und_eine_box_ueber_das_ende_von_udta_sind_nicht_tilgbar() {
+        let cmov = [ftyp(), kiste(b"moov", &kiste(b"cmov", b"gepackt"))].concat();
+        let (ergebnis, _) = tilgen(cmov);
+        assert!(
+            matches!(ergebnis, Err(Abbruch::Metadaten(_))),
+            "{ergebnis:?}"
+        );
+
+        let mut zu_lang = kiste(&[0xA9, b'x', b'y', b'z'], ORT);
+        zu_lang[3] += 1;
+        let udta = kiste(b"udta", &zu_lang);
+        let ueber = [
+            ftyp(),
+            kiste(b"moov", &[udta, kiste(b"free", b"x")].concat()),
+        ]
+        .concat();
+        let (ergebnis, _) = tilgen(ueber);
+        assert!(
+            matches!(ergebnis, Err(Abbruch::Metadaten(_))),
+            "{ergebnis:?}"
+        );
     }
 }

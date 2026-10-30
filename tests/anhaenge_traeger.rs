@@ -118,6 +118,32 @@ impl Lauf {
     }
 }
 
+impl Lauf {
+    /// Hochladen mit erwarteter 422; liefert `grund`.
+    async fn abgewiesen(&self, name: &str, inhalt: &[u8]) -> String {
+        let basis = self.instanz.adresse.as_str();
+        let angemeldet = anmelden(&self.beta, basis, &self.token, name, inhalt.len() as u64).await;
+        let antwort = hochladen(
+            &self.beta,
+            basis,
+            &self.token,
+            &id(&angemeldet),
+            inhalt.to_vec(),
+        )
+        .await;
+        assert_eq!(
+            (antwort.status, antwort.json["regel"].as_str()),
+            (422, Some("metadaten")),
+            "{name}: {}",
+            antwort.json
+        );
+        antwort.json["grund"]
+            .as_str()
+            .unwrap_or_default()
+            .to_string()
+    }
+}
+
 /// `(Art, Breite, Höhe)` aus der 200 des Hochladens.
 fn art_und_masse(anhang: &Value) -> (String, Value, Value) {
     (
@@ -365,4 +391,70 @@ async fn webp_und_gif_traeger_ohne_ort_animation_und_farbe_bleiben() {
         art_und_masse(&geliefert.anhang),
         ("image/gif".to_string(), json!(64), json!(48))
     );
+}
+
+fn kiste(typ: &[u8], inhalt: &[u8]) -> Vec<u8> {
+    let mut bytes = ((8 + inhalt.len()) as u32).to_be_bytes().to_vec();
+    bytes.extend(typ);
+    bytes.extend(inhalt);
+    bytes
+}
+
+/// Typ der C2PA-`uuid`-Box.
+const C2PA_UUID: [u8; 16] = [
+    0xD8, 0xFE, 0xC3, 0xD6, 0x1B, 0x0E, 0x48, 0x3C, 0x92, 0x97, 0x58, 0x28, 0x87, 0x7E, 0xC4, 0x81,
+];
+
+/// MP4: `ftyp`, die Boxen `oben`, `moov` mit `mvhd` und `moov_rest`, `mdat`.
+fn mp4_mit(oben: &[Vec<u8>], moov_rest: &[Vec<u8>]) -> Vec<u8> {
+    let moov = kiste(
+        b"moov",
+        &[vec![kiste(b"mvhd", &[0; 100])], moov_rest.to_vec()]
+            .concat()
+            .concat(),
+    );
+    [
+        vec![kiste(b"ftyp", b"isom\0\0\x02\0isommp41")],
+        oben.to_vec(),
+        vec![moov, kiste(b"mdat", b"MEDIENDATEN-MEDIENDATEN")],
+    ]
+    .concat()
+    .concat()
+}
+
+fn mdat(bytes: &[u8]) -> &[u8] {
+    let stelle = bytes.windows(4).rposition(|f| f == b"mdat").expect("mdat");
+    &bytes[stelle - 4..]
+}
+
+/// ADR-0047 B2 P4, P6, P9 (B0644): GPS nur in einer `uuid` oben mit C2PA-Typ bzw. nur in `moov/trak/udta/©xyz` →
+/// ausgeliefert ohne Ort, `mdat` byte-gleich; `cmov` in `moov` → 422; `udta` mit 4 Nullbytes am Ende → getilgt;
+/// eine Box in `udta` mit `size` über das Ende von `udta` → 422.
+#[tokio::test]
+async fn mp4_traeger_oben_und_in_trak_ohne_ort_leser_grenzen() {
+    let lauf = Lauf::neu().await;
+    let p4 = mp4_mit(&[kiste(b"uuid", &[&C2PA_UUID[..], &ort()].concat())], &[]);
+    let xyz = kiste(&[0xa9, b'x', b'y', b'z'], &ort());
+    let p6 = mp4_mit(&[], &[kiste(b"trak", &kiste(b"udta", &xyz))]);
+    for (name, original) in [("p4.mp4", p4), ("p6.mp4", p6)] {
+        let geliefert = lauf.ausliefern(name, &original).await;
+        ohne_ort(name, &geliefert.bytes);
+        assert!(!enthaelt(&geliefert.bytes, &C2PA_UUID), "{name}");
+        assert_eq!(mdat(&geliefert.bytes), mdat(&original), "{name}");
+    }
+
+    let cmov = mp4_mit(&[], &[kiste(b"cmov", b"gepackter Filmkopf")]);
+    assert_eq!(
+        lauf.abgewiesen("cmov.mp4", &cmov).await,
+        "cmov nicht prüfbar"
+    );
+
+    let abschluss = mp4_mit(&[], &[kiste(b"udta", &[xyz.clone(), vec![0; 4]].concat())]);
+    let geliefert = lauf.ausliefern("abschluss.mov", &abschluss).await;
+    ohne_ort("abschluss.mov", &geliefert.bytes);
+
+    let mut zu_lang = xyz.clone();
+    zu_lang[3] += 1;
+    let ueber = mp4_mit(&[], &[kiste(b"udta", &zu_lang), kiste(b"free", b"x")]);
+    lauf.abgewiesen("ueber.mp4", &ueber).await;
 }
