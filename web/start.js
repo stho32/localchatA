@@ -89,11 +89,13 @@ function bildschirmZeigen(zustand, abgelehntesToken) {
 // Der Strom beginnt mit dem eben geprüften bzw. vergebenen Token, nie neu aus dem Speicher gelesen: den kann ein
 // Nachbar-Tab ohne Web Locks geleert haben, oder er nimmt nichts an (Befund #58).
 function hauptansichtZeigen(teilnehmer, token, nachEingabe) {
+  let tokenDesStroms = token;
   const wiederBeitreten = wiederbeitrittAnlegen({
     speicher,
     api,
     sperre: sitzungSperren,
     gelungen: (token) => {
+      tokenDesStroms = token;
       if (laufenderStrom !== null) {
         laufenderStrom.tokenSetzen(token);
       }
@@ -126,7 +128,8 @@ function hauptansichtZeigen(teilnehmer, token, nachEingabe) {
     }),
     nachrichtLoeschen: (channel, zeit) => nachrichtLoeschen(channel, zeit, { token: speicher.getItem(sitzung.SITZUNG) }),
     aktivitaetMelden: (aufruf) => aktivitaetMelden(aufruf, { token: speicher.getItem(sitzung.SITZUNG) }),
-    direktgespraecheAbrufen: () => rufen('/api/direkt', { token: speicher.getItem(sitzung.SITZUNG) }),
+    // Die Liste lädt schon mit dem ersten Stand — auch wenn der Speicher das Token nicht angenommen hat (Befund #58).
+    direktgespraecheAbrufen: () => rufen('/api/direkt', { token: gemerktOderDesStroms(tokenDesStroms) }),
     anhangAnmelden: (name, bytes) => anhangAnmelden(name, bytes, { token: speicher.getItem(sitzung.SITZUNG) }),
     anhangVerwerfen: (id) => anhangVerwerfen(id, { token: speicher.getItem(sitzung.SITZUNG) }),
     anhangHochladen: (id, datei, fortschritt) => anhangHochladen(id, datei, { token: speicher.getItem(sitzung.SITZUNG), fortschritt }),
@@ -200,6 +203,14 @@ function sitzungSperren(arbeit) {
     return arbeit({ neuesToken: aufTokenEinesAnderenTabsWarten });
   }
   return navigator.locks.request(sitzung.SITZUNG, () => arbeit());
+}
+
+function gemerktOderDesStroms(tokenDesStroms) {
+  const gemerkt = speicher.getItem(sitzung.SITZUNG);
+  if (gemerkt === null) {
+    return tokenDesStroms;
+  }
+  return gemerkt;
 }
 
 function alleZeilen(gruppen) {
