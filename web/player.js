@@ -41,6 +41,13 @@ export function mediumSpielt(wurzel) {
   return Array.from(wurzel.querySelectorAll('video, audio')).some((medium) => !medium.paused);
 }
 
+// `Ende` im Player eines Mediums, dessen Wiedergabe noch nie begonnen hat (PO Zeile 178): die Taste soll nichts tun — weder
+// das Medium ans Ende setzen (das lüde es) noch den Verlauf scrollen. `played` ist leer, bis es einmal gespielt hat.
+export function endeVorWiedergabe(ereignis) {
+  const medium = ereignis.target;
+  return ereignis.key === 'End' && ['VIDEO', 'AUDIO'].includes(medium.tagName) && medium.played.length === 0;
+}
+
 // Eine Nachricht wird ersetzt (B0734, R00041): jeder Player des alten Knotens, dessen Anhang auch der neue zeigt, zieht
 // samt seinem Element in den neuen Knoten um — Wiedergabe und Stelle bleiben, nichts lädt neu; der Fokus fällt auf die
 // Nachricht (V4). Zeigt der neue ihn nicht mehr (gelöscht), hält er an und lädt nichts mehr nach. Der Umzug geschieht,

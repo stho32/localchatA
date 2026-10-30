@@ -16,7 +16,7 @@ import { kopieren, rueckmeldungFuer, RUECKMELDUNG_LEER, MENUE_OFFEN_MS } from '.
 import { menueLage, schalterGanzSichtbar } from './menuelage.js';
 import { zitatNachfuehren } from './zitat.js';
 import { zeigerart } from './eingabe.js';
-import { mediumSpielt, medienUebernehmen, medienAblageAnlegen, blockSpielt } from './player.js';
+import { mediumSpielt, medienUebernehmen, medienAblageAnlegen, blockSpielt, endeVorWiedergabe } from './player.js';
 import {
   einordnen, zusammenfuehren, fassungUebernehmen, buendlerAnlegen, folgenOderZaehlen, pillenText, auslaufNach, nichtGeladenText, hinweisTextNachziehen,
   sprungZiel as sprungZielBerechnen, scrollTopNachHoehe, fensterNeuLesen, zeitDanach, zeitDavor, anhaengeAlsGeloescht, geloeschteAnhaenge,
@@ -330,7 +330,14 @@ export function verlaufAnlegen({
   // Tasten in einem Textfeld des Verlaufs (dem Bearbeiten-Feld) gehören dem Text, nie dem Verlauf (R00041 UX M2); Ende,
   // Pos1, Leertaste und Pfeile im Fokus eines Players, Links oder Knopfs gehören dem Element (R00030 B0752).
   log.addEventListener('keydown', (ereignis) => {
-    if (ereignis.target.closest('textarea, input') !== null || tasteGehoertDemElement(ereignis, tagsBisZumVerlauf(ereignis.target))) {
+    if (ereignis.target.closest('textarea, input') !== null) {
+      return;
+    }
+    if (tasteGehoertDemElement(ereignis, tagsBisZumVerlauf(ereignis.target))) {
+      // `Ende` im Player wirkt erst nach begonnener Wiedergabe; vorher bleibt der Verlauf stehen und nichts lädt (PO 178).
+      if (endeVorWiedergabe(ereignis)) {
+        ereignis.preventDefault();
+      }
       return;
     }
     const nurEnde = ereignis.key === 'End' && !ereignis.altKey && !ereignis.ctrlKey && !ereignis.metaKey && !ereignis.shiftKey;

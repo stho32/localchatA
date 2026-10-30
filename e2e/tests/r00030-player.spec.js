@@ -145,7 +145,30 @@ test('Rollfokus (B0460, B0732): der Player einer nicht fokussierten Nachricht is
   expect(lauf.a.fehler).toEqual([]);
 });
 
-test('Tasten im Player (B0460, V2): Fokus im Player, Ende → currentTime am Ende, Pos1 → Anfang, Leertaste → Wiedergabe an/aus, Pfeil; der Verlauf scrollt nicht und verhindert nichts', async ({ browser }) => {
+test('Ende im Player vor dem Beginn der Wiedergabe (PO 178, B0752): Fokus im Player eines nie gespielten Videos, Ende → nichts wirkt (Stelle 0, Verlauf scrollt nicht, Fokus bleibt) und es entsteht keine Anfrage an /anhaenge/', async ({ browser }) => {
+  const danach = Array.from({ length: 30 }, (_, nummer) => ({ text: `Danach ${nummer + 1}`, namen: [] }));
+  const lauf = await anzeigeStarten(browser, [{ text: 'Video', namen: ['film.webm'] }, ...danach]);
+  instanz = lauf.instanz;
+  const { page } = lauf.a;
+  const log = page.getByRole('log');
+  const video = player(nachrichtMitZeit(page, lauf.zeiten[0]), 'film.webm');
+  await video.scrollIntoViewIfNeeded();
+  const anfragen = anhangAnfragenMitschreiben(page);
+  await video.focus();
+  const scrollVorher = await log.evaluate((element) => element.scrollTop);
+
+  await page.keyboard.press('End');
+  await page.waitForTimeout(500);
+
+  expect((await wiedergabe(video)).zeit).toBe(0);
+  expect(await video.evaluate((element) => element.readyState)).toBe(0);
+  expect(anfragen).toEqual([]);
+  expect(await log.evaluate((element) => element.scrollTop)).toBe(scrollVorher);
+  expect(await page.evaluate(() => document.activeElement.getAttribute('aria-label'))).toBe('film.webm');
+  expect(lauf.a.fehler).toEqual([]);
+});
+
+test('Tasten im Player (B0460, V2): Fokus im Player nach begonnener Wiedergabe, Ende → currentTime am Ende, Pos1 → Anfang, Leertaste → Wiedergabe an/aus, Pfeil; der Verlauf scrollt nicht und verhindert nichts', async ({ browser }) => {
   const danach = Array.from({ length: 30 }, (_, nummer) => ({ text: `Danach ${nummer + 1}`, namen: [] }));
   const lauf = await anzeigeStarten(browser, [{ text: 'Video', namen: ['film.webm'] }, ...danach]);
   instanz = lauf.instanz;
