@@ -161,3 +161,20 @@ Nicht in I0004: Rate-Begrenzung je Herkunft (die Sitzungsgrenze aus ADR-0012 und
   6. E2E M-1 und M-3 in Chromium (`tests/`-Playwright wie die bestehende Anhang-Suite), zuerst rot gegen den Stand `main`.
 
   **Folgen:** ADR-0047 Regel 3 (Verweis), Probe 12 (Korrektur); [A00005](../Architektur/A00005-weboberflaeche.md) und die Anhang-Bausteine nennen die zweite CSP; `R00029` Kriterium „Kopfzeilen“ und `R00030` (Direktlink) erhalten M-1 bis M-5 — beides Sache des `planer`.
+
+  **Erprobt (2026-10-30, entwickler, B0660 Spike; Playwright-Chromium 143.0.7499.4 headless, Python-Server im Scratchpad mit Range-Unterstützung, `nosniff` auf jeder Antwort; Dateien aus `ffmpeg`, je 4 s).** Direkte Navigation auf die Datei, danach `play()` (stumm), 1,5 s gewartet, Sprung auf `duration − 0,1`:
+
+  | Datei | `ANHANG_CSP` | `ANHANG_CSP` + CORP `same-origin` | `ANHANG_CSP_MEDIUM` | `ANHANG_CSP_MEDIUM` + CORP `same-origin` | `ANHANG_CSP_MEDIUM` + CORP `cross-origin` |
+  |---|---|---|---|---|---|
+  | WebM VP8/Opus | blockiert durch CSP | blockiert durch CSP | **spielt** | **blockiert durch CORP** | spielt |
+  | MP4 VP9/Opus | blockiert durch CSP | blockiert durch CSP | **spielt** | **blockiert durch CORP** | spielt |
+  | MP3 | blockiert durch CSP | blockiert durch CSP | **spielt** | **blockiert durch CORP** | spielt |
+  | MP4 H.264/AAC (zusätzlich; dieses Chromium kann es) | blockiert durch CSP | blockiert durch CSP | **spielt** | **blockiert durch CORP** | spielt |
+
+  - *blockiert durch CSP*: Konsole „Loading media from '…' violates the following Content Security Policy directive: "default-src 'none'". Note that 'media-src' was not explicitly set …“, `readyState` 0, `networkState` 3 (keine Quelle), `currentTime` bleibt 0, nur die Navigationsantwort 200, kein Medienabruf.
+  - *blockiert durch CORP*: Konsole „Failed to load resource: net::ERR_BLOCKED_BY_RESPONSE.NotSameOrigin“, der Medienabruf (`Range: bytes=0-` → 206) wird vom Browser verworfen, `readyState` 0. Bestätigt Beleg (d): das sandboxed Medien-Dokument hat einen undurchsichtigen Ursprung und ist für CORP `same-origin` nie derselbe Ursprung.
+  - *spielt*: `readyState` 4, `error` `null`, Konsole leer, `currentTime` nach 1,5 s ≈ 1,46 s, nach dem Sprung `ended` = `true`; Abrufe 200 (Navigation) und 206 (`Range: bytes=0-`). Bei Dateien dieser Größe (33–82 KiB) lädt der erste Medienabruf die ganze Datei, der Sprung löst **keinen** weiteren Abruf aus — für „Sprung ans Ende ergibt 206“ (M-1) braucht der E2E eine Datei, die größer ist als der erste Abruf, oder er wertet die 206 des ersten Medienabrufs.
+  - Fremde Seite (anderer Port, `127.0.0.1`) mit `<video src=…>` und `fetch`: bei CORP `same-origin` lädt das Video nicht (`ERR_BLOCKED_BY_RESPONSE.NotSameOrigin`), `fetch(…, {mode: "cors"})` → `TypeError`. Bei CORP `cross-origin` **spielt das eingebettete Video auf der fremden Seite** (`readyState` 4, `duration` 4,008 lesbar), `fetch(…, {mode: "cors"})` → `TypeError` (kein `Access-Control-Allow-Origin`), `fetch(…, {mode: "no-cors"})` → undurchsichtige Antwort (`type` `opaque`, Status 0, 0 Bytes).
+  - Werkzeughinweis für B0665: im sandboxed Medien-Dokument laufen keine Seiten-Timer (`setTimeout` in `page.evaluate` kehrt nie zurück) und `page.goto` erreicht `load` nicht, solange das Medium blockiert ist — Navigation mit `waitUntil: 'commit'`, im Dokument nur synchron abfragen, gewartet wird in Node.
+
+  **Ergebnis des Spikes: Regel 4 gilt.** Mit der Medien-CSP allein spielt der Direktlink in Chromium nicht, weil CORP `same-origin` (heute auf jeder Antwort der Route, `kopfzeilen::route` und Header-Satz) das Medien-Dokument sperrt; erst CORP `cross-origin` auf den Medienantworten lässt ihn spielen. Preis (geprobt): jede fremde Seite, die die ID kennt, kann das Medium einbetten und abspielen und dabei Dauer und Maße lesen; die Bytes liest sie weder per `cors` noch per `no-cors`. Der Bau von B0662–B0665 ruht, bis der `security-reviewer` diesen Fall bewertet hat (Auftrag des Directors: „STOPP und melden“). Status bleibt **Vorgeschlagen**. Firefox ungeprobt.
