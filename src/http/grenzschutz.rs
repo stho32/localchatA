@@ -393,6 +393,16 @@ pub fn sicherheitsheader_setzen(kopf: &mut HeaderMap, pfad: &str, host: Option<&
 /// Laden — der Anhang ist ein eigener, leerer Ursprung.
 pub const ANHANG_CSP: &str = "sandbox; default-src 'none'";
 
+/// CSP der Antworten auf die sechs Medienarten (ADR-0014 Ergänzung „Karte #71“ Regel 1): das Medien-Dokument des
+/// Browsers darf genau die eigene URL als Medium laden; sonst gleich `ANHANG_CSP`. Es gibt keine dritte Anhang-CSP.
+pub const ANHANG_CSP_MEDIUM: &str = "sandbox; default-src 'none'; media-src 'self'";
+
+/// Marker in den Erweiterungen der Antwort (Regel 2): die Route sagt der Weiche, dass die vom Server aus dem Inhalt
+/// bestimmte Art eine Medienart ist. Ein Typ ohne Inhalt — keine freie Zeichenkette, von außen nicht setzbar; er wählt
+/// nur zwischen den beiden Anhang-CSP (und CORP nach Regel 4).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct AnhangMedium;
+
 /// Ob der Pfad — roh oder prozent-dekodiert — `/anhaenge` ist oder darunter liegt (B0467).
 fn anhangpfad(pfad: &str) -> bool {
     let unter = |pfad: &str| pfad == "/anhaenge" || pfad.starts_with("/anhaenge/");
@@ -835,6 +845,17 @@ mod tests {
         }
         sicherheitsheader_setzen(&mut kopf, pfad, host);
         kopf
+    }
+
+    /// B0661: die Medien-CSP ist die Anhang-CSP plus genau `media-src 'self'` — kein `*`, kein `data:`/`blob:`, kein
+    /// `allow-same-origin`, keine weitere Direktive (Mutanten der ADR-0014 Ergänzung „Karte #71“).
+    #[test]
+    fn die_medien_csp_hat_genau_diesen_wortlaut() {
+        assert_eq!(
+            ANHANG_CSP_MEDIUM,
+            "sandbox; default-src 'none'; media-src 'self'"
+        );
+        assert_eq!(ANHANG_CSP, "sandbox; default-src 'none'");
     }
 
     /// B0467: unter `/anhaenge` (roh oder dekodiert) genau `sandbox; default-src 'none'`, sonst die App-CSP; alle
