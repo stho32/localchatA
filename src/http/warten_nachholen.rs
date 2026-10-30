@@ -315,14 +315,19 @@ async fn die_pruefungen_vor_dem_reservieren_gehen_vor() {
     while aufbau.gesundheit().await["wartend"] != 4 {
         tokio::time::sleep(Duration::from_millis(10)).await;
     }
-    aufbau
+    // `wartend` zählt ab dem Halter, die vier Aufrufe erstatten ihre Reservierung erst nach dem Nachholen — das Konto
+    // ist leer, sobald der ganze Vorrat genommen ist, nicht schon bei `wartend` 4 (wackelte 2 von 30).
+    let kennung = Kennung::bilden("claude@127.0.0.1").expect("Kennung");
+    let herkunft = "127.0.0.1".parse().expect("IP");
+    let frist = std::time::Instant::now() + Duration::from_secs(5);
+    while aufbau
         .konto
-        .reservieren(
-            &Kennung::bilden("claude@127.0.0.1").expect("Kennung"),
-            "127.0.0.1".parse().expect("IP"),
-            100_000,
-        )
-        .expect("Vorrat");
+        .reservieren(&kennung, herkunft, 100_000)
+        .is_err()
+    {
+        assert!(std::time::Instant::now() < frist, "Vorrat wird nicht frei");
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
 
     let ohne_sitzung = aufbau.holen(None, SCHWER).await;
     let falsch = aufbau.holen(Some("claude"), "api/warten?bis=abc").await;
