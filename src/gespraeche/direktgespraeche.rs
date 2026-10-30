@@ -225,7 +225,7 @@ mod tests {
         let log = std::fs::read_to_string(wurzel.path().join(format!("direkt/{PAARORDNER}/{TAG}")))
             .expect("Tagesdatei");
         assert!(log.contains("eins") && log.contains("zwei"), "{log}");
-        assert_eq!(gespraeche.kennzahlen().nachrichten, 2);
+        assert_eq!(gespraeche.kennzahlen().direkt_nachrichten, 2);
     }
 
     /// B0767 W5: beide senden gleichzeitig zuerst — der eine steht an der Schranke vor der Sperre des
@@ -262,7 +262,11 @@ mod tests {
         let log = std::fs::read_to_string(wurzel.path().join(format!("direkt/{PAARORDNER}/{TAG}")))
             .expect("Tagesdatei");
         assert!(log.contains("von anna") && log.contains("von ben"), "{log}");
-        assert_eq!(gespraeche.kennzahlen().nachrichten, 2, "Index zählt beide");
+        assert_eq!(
+            gespraeche.kennzahlen().direkt_nachrichten,
+            2,
+            "Index zählt beide"
+        );
     }
 
     #[test]
@@ -276,7 +280,7 @@ mod tests {
         let neu = laden(wurzel.path());
 
         assert!(neu.direkt_bekannt(&paar()));
-        assert_eq!(neu.kennzahlen().nachrichten, 1);
+        assert_eq!(neu.kennzahlen().direkt_nachrichten, 1);
         assert!(neu.defekte().is_empty(), "{:?}", neu.defekte());
     }
 
@@ -323,7 +327,11 @@ mod tests {
                 defekt.datei
             );
         }
-        assert_eq!(gespraeche.kennzahlen().nachrichten, 1, "nur die Kontrolle");
+        assert_eq!(
+            gespraeche.kennzahlen().direkt_nachrichten,
+            1,
+            "nur die Kontrolle"
+        );
         assert_eq!(gespraeche.kennzahlen().defekte_zeilen, 0);
         assert_eq!(
             gespraeche.letzte_zeit().map(|zeit| zeit.to_rfc3339()),

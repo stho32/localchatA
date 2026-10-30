@@ -523,9 +523,15 @@ async fn nach_der_sperre(
             .mit(Schluessel::Stufe, protokoll.mindeststufe().als_wert())
             .mit(Schluessel::Option, stufe_herkunft)
             .mit(Schluessel::Plattenquote, quote.als_wert())
-            .mit(Schluessel::Belegt, kennzahlen.log_bytes)
+            .mit(
+                Schluessel::Belegt,
+                kennzahlen.log_bytes + kennzahlen.direkt_bytes,
+            )
             .mit(Schluessel::PlattenquoteOption, quote_herkunft)
-            .mit(Schluessel::Anzahl, kennzahlen.nachrichten)
+            .mit(
+                Schluessel::Anzahl,
+                kennzahlen.nachrichten + kennzahlen.direkt_nachrichten,
+            )
             .mit(Schluessel::DauerMs, kennzahlen.ladezeit_ms)
             .mit(
                 Schluessel::Anhangquote,

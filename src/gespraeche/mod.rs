@@ -396,8 +396,14 @@ impl fmt::Display for Ladedefekt {
 /// Kennzahlen für den Health-Check (R00002).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Kennzahlen {
+    /// Nachrichten der Channels — Direktgespräche zählen im Health-Check nie mit (ADR-0055 Regel 9, Orakel O2).
     pub nachrichten: u64,
+    /// Bytes der Tageslogs der Channels.
     pub log_bytes: u64,
+    /// Nachrichten der Direktgespräche; nur das Startprotokoll liest sie, nie der Health-Check.
+    pub direkt_nachrichten: u64,
+    /// Bytes der Tageslogs der Direktgespräche; der Health-Check nennt sie nur als `direkt_mib`.
+    pub direkt_bytes: u64,
     pub ladezeit_ms: u64,
     pub defekte_zeilen: u64,
     /// Channels im Verzeichnis — wie nah die Gesamtgrenze ist (ADR-0021).
@@ -994,14 +1000,23 @@ impl Gespraeche {
     }
 
     pub fn kennzahlen(&self) -> Kennzahlen {
-        let mut nachrichten = 0;
+        let (mut nachrichten, mut log_bytes) = (0, 0);
+        let (mut direkt_nachrichten, mut direkt_bytes) = (0, 0);
         let verzeichnis = lesend(&self.verzeichnis);
-        for verlauf in verzeichnis.verlaeufe.values() {
-            nachrichten += sperren(verlauf).nachrichten();
+        for (gespraech, verlauf) in &verzeichnis.verlaeufe {
+            let verlauf = sperren(verlauf);
+            let (zaehler, bytes) = match gespraech {
+                Gespraech::Channel(_) => (&mut nachrichten, &mut log_bytes),
+                Gespraech::Direkt(_) => (&mut direkt_nachrichten, &mut direkt_bytes),
+            };
+            *zaehler += verlauf.nachrichten();
+            *bytes += verlauf.bytes();
         }
         Kennzahlen {
             nachrichten,
-            log_bytes: self.belegt(),
+            log_bytes,
+            direkt_nachrichten,
+            direkt_bytes,
             ladezeit_ms: u64::try_from(self.ladezeit.as_millis()).unwrap_or(u64::MAX),
             // Ein übergangener Direktordner steht nur im Protokoll, nie im Health-Check (ADR-0055 Regel 9, O2).
             defekte_zeilen: self
@@ -1922,8 +1937,11 @@ mod tests {
         let gespraeche = laden_um(ordner, "2026-10-27T12:00:00+01:00");
 
         let kennzahlen = gespraeche.kennzahlen();
-        assert_eq!(kennzahlen.nachrichten, 5);
-        assert_eq!(kennzahlen.log_bytes, (128 + 127 + DIREKT.len()) as u64);
+        // Direktgespräche zählen im Health-Check nie mit (ADR-0055 Regel 9): eigene Zähler.
+        assert_eq!(kennzahlen.nachrichten, 4);
+        assert_eq!(kennzahlen.log_bytes, 128 + 127);
+        assert_eq!(kennzahlen.direkt_nachrichten, 1);
+        assert_eq!(kennzahlen.direkt_bytes, DIREKT.len() as u64);
         assert_eq!(kennzahlen.defekte_zeilen, 1);
         assert_eq!(
             gespraeche

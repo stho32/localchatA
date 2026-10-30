@@ -9,6 +9,8 @@ use axum::extract::State;
 use serde::Serialize;
 use std::sync::Arc;
 
+const BYTES_JE_MIB: u64 = 1_048_576;
+
 /// `nachholen {saetze, kosten, gebremst, bank_plaetze, bank_belegt}`: seit dem Start geprüfte Sätze und deren
 /// Kosten (ADR-0054 Ergänzung „Kosten-Einheit des Nachholens“ Regel 4; `kosten` ≥ `saetze`), Zahl der 429
 /// `nachholen`, Plätze der Nachholbank (fest) und belegte (Momentwert).
@@ -26,8 +28,12 @@ pub struct Gesundheit {
     status: &'static str,
     version: &'static str,
     ordner: String,
+    /// Nur Channels (ADR-0055 Regel 9): ohne Sitzung lesbar, ein Direktgespräch darf hier nichts bewegen.
     nachrichten: u64,
+    /// Nur Channels; die Plattenquote misst `log_bytes + direkt_mib · 1 MiB` mit einem Fehler unter 1 MiB.
     log_bytes: u64,
+    /// Bytes aller Tageslogs der Direktgespräche, abgerundet auf ganze MiB (ADR-0055 Regel 9, Restorakel (d)).
+    direkt_mib: u64,
     ladezeit_ms: u64,
     defekte_zeilen: u64,
     channels: u64,
@@ -104,6 +110,7 @@ pub async fn beantworten(State(zustand): State<Arc<Zustand>>) -> Json<Gesundheit
         ordner: zustand.ordner.display().to_string(),
         nachrichten: kennzahlen.nachrichten,
         log_bytes: kennzahlen.log_bytes,
+        direkt_mib: kennzahlen.direkt_bytes / BYTES_JE_MIB,
         ladezeit_ms: kennzahlen.ladezeit_ms,
         defekte_zeilen: kennzahlen.defekte_zeilen,
         channels: kennzahlen.channels,
@@ -199,6 +206,10 @@ mod tests {
             .as_object_mut()
             .and_then(|felder| felder.remove("wartend"));
         assert_eq!(wartend, Some(json!(0)));
+        let direkt_mib = inhalt
+            .as_object_mut()
+            .and_then(|felder| felder.remove("direkt_mib"));
+        assert_eq!(direkt_mib, Some(json!(0)));
         let nachholen = inhalt
             .as_object_mut()
             .and_then(|felder| felder.remove("nachholen"));
