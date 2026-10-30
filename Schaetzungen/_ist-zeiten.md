@@ -650,3 +650,4 @@ Nie vom User erfragen.
 | 2026-10-30 | R00050 Härtung Welle 2 | Sollte 1–3, Optional 6 aus code-reviewer Welle 2 (Wanduhr gesamt) | Nacharbeit | — | 0,7h | 0,7h | autonom (entw) |
 | 2026-10-30 | R00030 Tests an angepasste Stories | 375×480, Folgen nur am Ende, Player außerhalb, Ende vor Wiedergabe (Wanduhr gesamt) | Nacharbeit | — | 0,5h | 0,5h | autonom (entw) |
 | 2026-10-30 | R00050 Direktnachricht im Browser beginnen und schreiben | F0178 (B0784, B0785, B0787–B0789) + Designsystem (Wanduhr gesamt) | Entwicklung | 10–20h | 1,0h | 1,0h | autonom (entw2) |
+| 2026-10-30 | R00050 Härtung F0175 | Herkunftsgrenze atomar, still bei Links, Halter beim Zurückbauen (Wanduhr gesamt) | Nacharbeit | — | 0,4h | 0,4h | autonom (entw3) |
