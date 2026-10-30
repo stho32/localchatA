@@ -720,7 +720,11 @@ mod tests {
 
         let mit_linkordner = ablage.leeren_ordner_entfernen(&paar());
 
-        assert!(mit_linkordner.is_err(), "{mit_linkordner:?}");
+        assert_eq!(
+            mit_linkordner.expect_err("Link").kind(),
+            std::io::ErrorKind::DirectoryNotEmpty,
+            "ein Link in anhaenge ist Inhalt (still), kein Fehler des Öffnens"
+        );
         assert!(
             ziel.path().join("leer").is_dir(),
             "Ziel von anhaenge bleibt"
@@ -731,7 +735,11 @@ mod tests {
 
         let mit_linkdatei = ablage.leeren_ordner_entfernen(&paar());
 
-        assert!(mit_linkdatei.is_err(), "{mit_linkdatei:?}");
+        assert_eq!(
+            mit_linkdatei.expect_err("Link").kind(),
+            std::io::ErrorKind::DirectoryNotEmpty,
+            "ein Link als Tagesdatei ist Inhalt (still)"
+        );
         assert!(ordner.join("2026-10-22.log").symlink_metadata().is_ok());
         fs::remove_file(ordner.join("2026-10-22.log")).expect("Link weg");
         fs::remove_dir(&ordner).expect("Paar leer");

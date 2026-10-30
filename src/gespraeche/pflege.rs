@@ -1169,6 +1169,24 @@ mod tests {
         assert!(gespraeche.direkt_bekannt(&direkt_paar()));
     }
 
+    /// Code-Review #13 F0175 Sollte 2: ein Paarordner ohne Nachricht, in dem die Ablage doch etwas findet (hier eine
+    /// leere Tagesdatei, auf Platte eine Fremddatei oder ein Link), bleibt still — kein Bericht, kein Fehler je Pflege
+    /// — und zählt weiter (Mutante „`DirectoryNotEmpty` nicht still“: `OrdnerNichtEntfernt` bei jeder Pflege).
+    #[test]
+    fn ein_paarordner_ohne_nachricht_aber_mit_fremdem_bleibt_still_und_ohne_bericht() {
+        let ablage = Arc::new(Speicherablage::neu());
+        let direkt = Gespraech::Direkt(direkt_paar());
+        ablage.tag_setzen(&direkt, tag("2026-10-29"), "");
+        let gespraeche = geladen(&ablage);
+
+        let erste = gespraeche.pflegen(tag("2026-10-30"), Pflegeanlass::Tageswechsel);
+        let zweite = gespraeche.pflegen(tag("2026-10-30"), Pflegeanlass::Tageswechsel);
+
+        assert!(erste.is_empty(), "{erste:?}");
+        assert!(zweite.is_empty(), "{zweite:?}");
+        assert!(gespraeche.direkt_bekannt(&direkt_paar()), "zählt weiter");
+    }
+
     /// Ein Sender, der das Paar eben angelegt hat (er hält den Verlauf schon), behält seinen Ordner: die Pflege
     /// räumt nur auf, was niemand hält (Mutante „Halter nicht beachtet“) — und holt es nach, sobald er fertig ist.
     #[test]

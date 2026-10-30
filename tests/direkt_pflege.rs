@@ -212,6 +212,14 @@ async fn f2_der_leere_paarordner_verschwindet_ein_ordner_mit_fremdem_bleibt() {
         b"fremd",
         "ein Link als anhaenge wird nicht gefolgt"
     );
+    // Fremdes, Links und ein nicht leerer Paarordner sind still (`DirectoryNotEmpty`): kein ERROR „Leerer Ordner nicht
+    // entfernt“ je Pflege. (Die ERROR-Zeile „Anhänge eines Tags nicht entfernt“ zu Fall 5 ist ADR-0046 und bleibt.)
+    let zeilen = gemeinsam::protokoll::alle_zeilen(w);
+    let nicht_entfernt: Vec<_> = gemeinsam::protokoll::mit(&zeilen, "ERROR", "frist")
+        .into_iter()
+        .filter(|zeile| zeile.contains("Leerer Ordner nicht entfernt"))
+        .collect();
+    assert!(nicht_entfernt.is_empty(), "{nicht_entfernt:#?}");
 }
 
 /// Observability-Review #13 (Frage): Anhänge ohne Tagesdatei in einem Direktgespräch entfallen mit ihrem Tag nach der
