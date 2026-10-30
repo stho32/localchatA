@@ -853,7 +853,8 @@ export function verlaufAnlegen({
     if (uebernommen === null) {
       return;
     }
-    const feldDaran = bearbeiten.offeneZeitIn(offenerName) !== null && Date.parse(bearbeiten.offeneZeitIn(offenerName)) === Date.parse(fassung.zeit);
+    const feldZeit = bearbeiten.offeneZeitIn(offenerName);
+    const feldDaran = feldZeit !== null && Date.parse(feldZeit) === Date.parse(fassung.zeit);
     if (feldDaran && uebernommen.zustand !== 'geloescht') {
       fenster.bloecke[bekannt.blockStelle][bekannt.stelle] = uebernommen;
       return;
