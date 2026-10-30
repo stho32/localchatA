@@ -27,11 +27,7 @@ pub struct Defekt {
 /// Der Satz einer Nachricht: Kopfzeile, Text mit zwei Leerzeichen eingerückt (leere Zeile bleibt leer),
 /// `\r\n` als `\n`, ohne abschließende Leerzeilen, danach eine Leerzeile als Abschluss.
 pub fn satz(nachricht: &Nachricht) -> String {
-    let mut satz = format!(
-        "@ {} {}\n",
-        nachricht.zeit.format("%Y-%m-%dT%H:%M:%S%.3f%:z"),
-        nachricht.von
-    );
+    let mut satz = format!("@ {} {}\n", zeit_im_log(&nachricht.zeit), nachricht.von);
     if let Some(art) = nachricht.art {
         satz.push_str(&format!("{ART_METAZEILE}{}\n", art_als_text(art)));
     }
@@ -39,11 +35,111 @@ pub fn satz(nachricht: &Nachricht) -> String {
         satz.push_str(&anhangzeile(anhang));
         satz.push('\n');
     }
-    let text = nachricht.text.replace("\r\n", "\n");
+    text_einruecken(&mut satz, &nachricht.text, !nachricht.anhaenge.is_empty());
+    satz
+}
+
+/// Bezugs-Metazeile eines Bearbeitungssatzes (ADR-0048 Regel 1).
+const BEARBEITET_METAZEILE: &str = "+ bearbeitet: ";
+/// Bezugs-Metazeile eines Löschsatzes (ADR-0048 Regel 1).
+const GELOESCHT_METAZEILE: &str = "+ geloescht: ";
+
+/// Worauf sich ein Änderungssatz bezieht: die Nachricht bekommt einen neuen Text oder ist gelöscht.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Bezug {
+    Bearbeitet,
+    Geloescht,
+}
+
+/// Warum ein Satz mit Bezugs-Metazeile nicht gilt (ADR-0048 Regel 1) — beim Laden `WARNING laden`, nie still.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Aenderungsdefekt {
+    /// Mehr als eine Bezugs-Metazeile.
+    ZweiBezuege,
+    /// Die Bezugszeit ist kein RFC 3339.
+    Bezugszeit,
+    /// Die Bezugszeit liegt nicht echt vor der eigenen Zeit.
+    NichtVorher,
+    /// Ein Änderungssatz trägt `+ anhang:`.
+    Anhang,
+}
+
+/// Was ein gültiger Satz ist: eine Nachricht, eine Änderung an der Nachricht mit der Zeit `ziel` oder ein
+/// defekter Änderungssatz — der ist weder Nachricht noch Änderung.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Satzart {
+    Nachricht,
+    Aenderung { ziel: Zeit, bezug: Bezug },
+    DefekteAenderung(Aenderungsdefekt),
+}
+
+/// Deutet einen Satz (ab seinem Kopf) über die Metazeilen direkt nach dem Kopf; eingerückter Text zählt nie
+/// (M14). Rein.
+pub fn satzart(satz: &[u8]) -> Satzart {
+    let mut bezuege = Vec::new();
+    let mut traegt_anhang = false;
+    for zeile in satz
+        .split(|byte| *byte == b'\n')
+        .skip(1)
+        .take_while(|zeile| zeile.starts_with(b"+ "))
+    {
+        traegt_anhang |= zeile.starts_with(ANHANG_METAZEILE.as_bytes());
+        for (metazeile, bezug) in [
+            (BEARBEITET_METAZEILE, Bezug::Bearbeitet),
+            (GELOESCHT_METAZEILE, Bezug::Geloescht),
+        ] {
+            if let Some(wert) = zeile.strip_prefix(metazeile.as_bytes()) {
+                bezuege.push((bezug, wert));
+            }
+        }
+    }
+    let [(bezug, wert)] = bezuege[..] else {
+        return if bezuege.is_empty() {
+            Satzart::Nachricht
+        } else {
+            Satzart::DefekteAenderung(Aenderungsdefekt::ZweiBezuege)
+        };
+    };
+    let Some(ziel) = std::str::from_utf8(wert)
+        .ok()
+        .and_then(|wert| DateTime::parse_from_rfc3339(wert).ok())
+    else {
+        return Satzart::DefekteAenderung(Aenderungsdefekt::Bezugszeit);
+    };
+    if kopfzeit(satz).is_none_or(|eigene| ziel >= eigene) {
+        return Satzart::DefekteAenderung(Aenderungsdefekt::NichtVorher);
+    }
+    if traegt_anhang {
+        return Satzart::DefekteAenderung(Aenderungsdefekt::Anhang);
+    }
+    Satzart::Aenderung { ziel, bezug }
+}
+
+/// Der Bearbeitungssatz (ADR-0048 Regel 1): eigene Kopfzeile, genau eine Bezugs-Metazeile, darunter der ganze
+/// neue Text eingerückt wie bei einer Nachricht; ein leerer Text ist nur die abschließende Leerzeile.
+pub fn bearbeitungssatz(zeit: Zeit, von: &Kennung, ziel: Zeit, text: &str) -> String {
+    let mut satz = format!(
+        "@ {} {von}\n{BEARBEITET_METAZEILE}{}\n",
+        zeit_im_log(&zeit),
+        zeit_im_log(&ziel)
+    );
+    text_einruecken(&mut satz, text, true);
+    satz
+}
+
+/// Eine Zeit, wie sie im Log steht: Millisekunden und Versatz (ADR-0004).
+fn zeit_im_log(zeit: &Zeit) -> chrono::format::DelayedFormat<chrono::format::StrftimeItems<'_>> {
+    zeit.format("%Y-%m-%dT%H:%M:%S%.3f%:z")
+}
+
+/// Hängt den Text eingerückt an (leere Zeile bleibt leer, `\r\n` als `\n`, ohne abschließende Leerzeilen) und
+/// schließt mit einer Leerzeile; ist der Text leer und `leer_erlaubt`, nur die Leerzeile.
+fn text_einruecken(satz: &mut String, text: &str, leer_erlaubt: bool) {
+    let text = text.replace("\r\n", "\n");
     let zeilen = text.trim_end_matches('\n');
-    if zeilen.is_empty() && !nachricht.anhaenge.is_empty() {
+    if zeilen.is_empty() && leer_erlaubt {
         satz.push('\n');
-        return satz;
+        return;
     }
     for zeile in zeilen.split('\n') {
         if !zeile.is_empty() {
@@ -53,7 +149,6 @@ pub fn satz(nachricht: &Nachricht) -> String {
         satz.push('\n');
     }
     satz.push('\n');
-    satz
 }
 
 /// Der Text eines Satzes ohne Kopf, Metazeilen und Einrückung (Umkehrung von `satz`).
@@ -540,6 +635,140 @@ mod tests {
         assert!(defekte(rohtext).is_empty());
         let gelesen = anhaenge_im_satz(rohtext);
         assert_eq!(gelesen, vec![(2, Err(Anhangbefund::Id))]);
+    }
+
+    const T1: &str = "2026-10-27T14:07:12.345+01:00";
+    const T2: &str = "2026-10-29T15:02:11.004+01:00";
+
+    fn t(text: &str) -> Zeit {
+        DateTime::parse_from_rfc3339(text).expect("Zeit")
+    }
+
+    /// R00039 B0594 „Logformat“ (ADR-0048 erster Unit-Test): `@ t2 k / + bearbeitet: t1 / text` → Änderung
+    /// Bearbeitet mit Ziel t1 und Text; `+ geloescht:` ohne Text → Löschsatz; zwei Bezugszeilen, unlesbare Bezugszeit,
+    /// `t1 ≥ t2` und `+ anhang:` → defekt; eine Nachricht ohne Bezugszeile bleibt Nachricht (Mutante „Nachricht ohne
+    /// Bezugszeile als Änderung erkannt“ rot).
+    #[test]
+    fn aenderungssaetze_werden_erkannt_und_defekte_abgewiesen() {
+        let bearbeitet =
+            format!("@ {T2} claude@10.0.0.5\n+ bearbeitet: {T1}\n  Der Scan ist durch.\n\n");
+        let geloescht = format!("@ {T2} claude@10.0.0.5\n+ geloescht: {T1}\n\n");
+        let anhang = "+ anhang: aaaaaaaaaaaaaaaaaaaaaaaaaa 5 application/octet-stream - 140000000-1-x.bin x.bin";
+        let defekt = |satz: String| satzart(satz.as_bytes());
+
+        assert_eq!(
+            satzart(bearbeitet.as_bytes()),
+            Satzart::Aenderung {
+                ziel: t(T1),
+                bezug: Bezug::Bearbeitet
+            }
+        );
+        assert_eq!(text(&bearbeitet), "Der Scan ist durch.");
+        assert_eq!(
+            satzart(geloescht.as_bytes()),
+            Satzart::Aenderung {
+                ziel: t(T1),
+                bezug: Bezug::Geloescht
+            }
+        );
+        assert_eq!(
+            defekt(format!(
+                "@ {T2} k@b\n+ bearbeitet: {T1}\n+ geloescht: {T1}\n  x\n\n"
+            )),
+            Satzart::DefekteAenderung(Aenderungsdefekt::ZweiBezuege)
+        );
+        assert_eq!(
+            defekt(format!(
+                "@ {T2} k@b\n+ bearbeitet: {T1}\n+ bearbeitet: {T1}\n\n"
+            )),
+            Satzart::DefekteAenderung(Aenderungsdefekt::ZweiBezuege)
+        );
+        assert_eq!(
+            defekt(format!("@ {T2} k@b\n+ bearbeitet: gestern\n  x\n\n")),
+            Satzart::DefekteAenderung(Aenderungsdefekt::Bezugszeit)
+        );
+        for ziel in [T2, "2026-10-29T15:02:11.005+01:00"] {
+            assert_eq!(
+                defekt(format!("@ {T2} k@b\n+ bearbeitet: {ziel}\n  x\n\n")),
+                Satzart::DefekteAenderung(Aenderungsdefekt::NichtVorher),
+                "{ziel}"
+            );
+        }
+        assert_eq!(
+            defekt(format!("@ {T2} k@b\n+ bearbeitet: {T1}\n{anhang}\n  x\n\n")),
+            Satzart::DefekteAenderung(Aenderungsdefekt::Anhang)
+        );
+        for nachricht in [
+            format!("@ {T1} beta@127.0.0.1\n+ art: agent\n  Hallo\n\n"),
+            format!("@ {T1} beta@127.0.0.1\n{anhang}\n\n"),
+            format!("@ {T1} beta@127.0.0.1\n  + bearbeitet: {T1}\n\n"),
+        ] {
+            assert_eq!(
+                satzart(nachricht.as_bytes()),
+                Satzart::Nachricht,
+                "{nachricht}"
+            );
+        }
+    }
+
+    /// B0594 schreiben: Kopf mit eigener Zeit und Kennung, die Bezugs-Metazeile mit der Zeit der Nachricht, der
+    /// Text eingerückt mit `\r\n` als `\n`; liest sich als Änderung mit demselben Text zurück. Leerer Text (mit
+    /// Anhang erlaubt) ist nur die Abschlusszeile.
+    #[test]
+    fn ein_bearbeitungssatz_wird_geschrieben_und_zurueckgelesen() {
+        let von = Kennung::bilden("claude@10.0.0.5").expect("Kennung");
+
+        let geschrieben = bearbeitungssatz(
+            t(T2),
+            &von,
+            t(T1),
+            "Der Scan ist durch.\r\n**Drei Befunde:**\n\n",
+        );
+        let leer = bearbeitungssatz(t(T2), &von, t(T1), "");
+
+        assert_eq!(
+            geschrieben,
+            format!(
+                "@ {T2} claude@10.0.0.5\n+ bearbeitet: {T1}\n  Der Scan ist durch.\n  **Drei Befunde:**\n\n"
+            )
+        );
+        assert_eq!(text(&geschrieben), "Der Scan ist durch.\n**Drei Befunde:**");
+        assert_eq!(
+            leer,
+            format!("@ {T2} claude@10.0.0.5\n+ bearbeitet: {T1}\n\n")
+        );
+        assert_eq!(text(&leer), "");
+        for satz in [&geschrieben, &leer] {
+            assert_eq!(saetze(satz.as_bytes()).len(), 1);
+            assert_eq!(
+                satzart(satz.as_bytes()),
+                Satzart::Aenderung {
+                    ziel: t(T1),
+                    bezug: Bezug::Bearbeitet
+                }
+            );
+        }
+    }
+
+    /// M14: ein Text, der eine Bezugs-Metazeile oder eine Kopfzeile vortäuscht, bleibt eingerückter Text — ein Satz,
+    /// eine Bezugszeile.
+    #[test]
+    fn ein_vorgetaeuschter_bezug_im_text_bleibt_text() {
+        let von = Kennung::bilden("beta@127.0.0.1").expect("Kennung");
+        let falsch =
+            format!("x\n+ geloescht: {T1}\n@ 2026-10-30T15:00:00.000+01:00 gamma@127.0.0.1\n  y");
+
+        let geschrieben = bearbeitungssatz(t(T2), &von, t(T1), &falsch);
+
+        assert_eq!(saetze(geschrieben.as_bytes()).len(), 1);
+        assert_eq!(
+            satzart(geschrieben.as_bytes()),
+            Satzart::Aenderung {
+                ziel: t(T1),
+                bezug: Bezug::Bearbeitet
+            }
+        );
+        assert_eq!(text(&geschrieben), falsch);
     }
 
     #[test]
