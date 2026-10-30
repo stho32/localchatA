@@ -330,7 +330,7 @@ fn n_lesen(wert: &str) -> Result<Blockgroesse, Abfragefehler> {
 
 /// Formular-Kodierung: `+` ist ein Leerzeichen, `%XX` ein Byte; eine kaputte Sequenz oder kein UTF-8 heißt
 /// unlesbar.
-fn dekodieren(text: &str) -> Option<String> {
+pub(super) fn dekodieren(text: &str) -> Option<String> {
     let mut bytes = Vec::with_capacity(text.len());
     let mut rest = text.as_bytes();
     while let Some((&erstes, danach)) = rest.split_first() {

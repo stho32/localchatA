@@ -37,6 +37,11 @@ mod teilnehmerliste;
 #[cfg(test)]
 mod testauskunft;
 mod verlassen;
+#[cfg_attr(
+    not(test),
+    expect(dead_code, reason = "die Route verdrahtet B0739 (R00049)")
+)]
+mod warten;
 mod werkbank;
 
 pub use anhaenge::hochladen::HOCHLADEBANK;
