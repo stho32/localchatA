@@ -3,7 +3,7 @@
 // ist (R00013 K8: Blöcke aus großen Nachrichten sind niedriger als zwei Sichthöhen).
 // masse: { abstandOben, abstandUnten, hoeheOben, hoeheUnten, sicht, obenGeschuetzt?, untenGeschuetzt? } — Abstand des
 // Blicks zu den Rändern des Inhalts und Höhe des obersten und untersten Blocks, in Pixeln; ein geschütztes Ende (es
-// trägt ein offenes Bearbeiten-Feld, R00041 F0142) wird nie abgeworfen.
+// trägt ein offenes Bearbeiten-Feld, R00041 F0142, oder ein spielendes Medium, R00030 B0754) wird nie abgeworfen.
 
 const SCHWELLE_IN_SICHTHOEHEN = 2;
 const REGEL_BLOECKE = 5;

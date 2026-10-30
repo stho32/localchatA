@@ -66,22 +66,25 @@ function aeltereNachrichten(anzahl) {
   };
 }
 
-let langesVideoVorrat = null;
+const langeMedien = new Map();
 
-/// Ein Video von 30 s ({ name: 'film.webm', inhalt }) für Proben, die während der Wiedergabe länger handeln (Bearbeiten,
-/// Channelwechsel, Scrollen) — die 6 s der Testdatei wären vorher zu Ende.
-function langesVideo() {
-  if (langesVideoVorrat === null) {
+/// Ein Video bzw. Ton von 30 s ({ name, inhalt }) für Proben, die während der Wiedergabe länger handeln (Bearbeiten,
+/// Channelwechsel, Scrollen) — die 6 s der Testdateien wären vorher zu Ende.
+const langesVideo = () => langesMedium('film.webm', ['-f', 'lavfi', '-i', 'testsrc=d=30:s=64x48:r=5', '-f', 'lavfi', '-i', 'sine=d=30', '-c:v', 'libvpx', '-c:a', 'libopus']);
+const langerTon = () => langesMedium('ton.ogg', ['-f', 'lavfi', '-i', 'sine=d=30', '-c:a', 'libopus']);
+
+function langesMedium(name, argumente) {
+  if (!langeMedien.has(name)) {
     const ordner = fs.mkdtempSync(path.join(os.tmpdir(), 'localchata-e2e-r00030-lang-'));
-    const pfad = path.join(ordner, 'film.webm');
+    const pfad = path.join(ordner, name);
     try {
-      execFileSync('ffmpeg', ['-v', 'error', '-y', '-f', 'lavfi', '-i', 'testsrc=d=30:s=64x48:r=5', '-f', 'lavfi', '-i', 'sine=d=30', '-c:v', 'libvpx', '-c:a', 'libopus', pfad]);
-      langesVideoVorrat = fs.readFileSync(pfad);
+      execFileSync('ffmpeg', ['-v', 'error', '-y', ...argumente, pfad]);
+      langeMedien.set(name, fs.readFileSync(pfad));
     } finally {
       fs.rmSync(ordner, { recursive: true, force: true });
     }
   }
-  return { name: 'film.webm', inhalt: langesVideoVorrat };
+  return { name, inhalt: langeMedien.get(name) };
 }
 
 /// `beta` sendet `text` über die API; → die Zeit der Nachricht.
@@ -96,5 +99,5 @@ const scrollStand = (page) => page.getByRole('log').evaluate((log) => ({
 }));
 
 module.exports = {
-  player, abspielen, wiedergabe, elementMerken, istDasselbe, anhangAnfragenMitschreiben, aeltereNachrichten, betaSchreibt, scrollStand, langesVideo,
+  player, abspielen, wiedergabe, elementMerken, istDasselbe, anhangAnfragenMitschreiben, aeltereNachrichten, betaSchreibt, scrollStand, langesVideo, langerTon,
 };

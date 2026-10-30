@@ -16,7 +16,7 @@ import { kopieren, rueckmeldungFuer, RUECKMELDUNG_LEER, MENUE_OFFEN_MS } from '.
 import { menueLage, schalterGanzSichtbar } from './menuelage.js';
 import { zitatNachfuehren } from './zitat.js';
 import { zeigerart } from './eingabe.js';
-import { mediumSpielt, medienUebernehmen } from './player.js';
+import { mediumSpielt, medienUebernehmen, medienAufbewahren } from './player.js';
 import {
   einordnen, zusammenfuehren, fassungUebernehmen, buendlerAnlegen, folgenOderZaehlen, pillenText, auslaufNach, nichtGeladenText, hinweisTextNachziehen,
   sprungZiel as sprungZielBerechnen, scrollTopNachHoehe, fensterNeuLesen, zeitDanach, zeitDavor,
@@ -491,6 +491,11 @@ export function verlaufAnlegen({
     oeffnen(offenerName, undefined, { vor: zeitDanach(bearbeiten.offeneZeitIn(offenerName)) });
   }
 
+  // Ein Block mit spielendem Medium wird nicht entladen (R00030 B0754, V7) — sonst verstummte es beim Scrollen.
+  function blockSpielt(knoten) {
+    return knoten.some(mediumSpielt);
+  }
+
   function blockMitFeld(block) {
     const zeit = bearbeiten.offeneZeitIn(offenerName);
     return zeit !== null && block !== undefined && block.some((nachricht) => Date.parse(nachricht.zeit) === Date.parse(zeit));
@@ -890,6 +895,7 @@ export function verlaufAnlegen({
   // es abgebrochen. Ein erneutes Öffnen nach „Verlauf nicht geladen“ lässt den Hinweis bis zum Ergebnis stehen (7k).
   async function oeffnen(name, signal = new AbortController().signal, cursor = {}) {
     const rueckkehr = name !== offenerName;
+    aufbewahren();
     laufend.abort();
     laufend = new AbortController();
     const dieser = laufend;
@@ -941,6 +947,7 @@ export function verlaufAnlegen({
     const knoten = gegliedertZeichnen(ergebnis.block.nachrichten, null, { heute, kennung: eigeneKennung });
     bloeckeKnoten = [knoten];
     inhalt.replaceChildren(...knoten);
+    medienZurueck(name);
     langeEinklappen(nurNachrichten(knoten));
     ansEnde();
     lageMerken();
@@ -948,6 +955,23 @@ export function verlaufAnlegen({
     gepuffertesAnnehmen();
     pruefen();
     return { art: 'geladen' };
+  }
+
+  // Wiedergabe beim Verlassen (R00030 B0754): wer den Inhalt verlässt, hält jedes Medium an; was schon gespielt hat,
+  // wartet je Channel in einer Ablage und kehrt mit dem Channel an seine Stelle zurück — dasselbe Element, angehalten.
+  const medienJeChannel = new Map();
+  function aufbewahren() {
+    if (offenerName !== null) {
+      medienJeChannel.set(offenerName, medienAufbewahren(inhalt));
+    }
+  }
+
+  function medienZurueck(name) {
+    const ablage = medienJeChannel.get(name);
+    if (ablage !== undefined) {
+      medienJeChannel.delete(name);
+      medienUebernehmen(ablage, inhalt);
+    }
   }
 
   // „Verlauf nicht geladen“: steht der Hinweis schon, bleibt er derselbe Knoten (kein zweiter Alarm). Was bis hier
@@ -1418,7 +1442,7 @@ export function verlaufAnlegen({
   }
 
   // Abstand des Blicks zu den Rändern und Höhe des obersten und untersten Blocks (fenster.js, Abwurfschutz); ein Ende
-  // mit dem offenen Bearbeiten-Feld ist geschützt (F0142).
+  // mit dem offenen Bearbeiten-Feld (F0142) oder einem spielenden Medium (R00030 B0754) ist geschützt.
   function masse() {
     return {
       abstandOben: log.scrollTop,
@@ -1426,8 +1450,8 @@ export function verlaufAnlegen({
       hoeheOben: blockHoehe(bloeckeKnoten[0]),
       hoeheUnten: blockHoehe(bloeckeKnoten[bloeckeKnoten.length - 1]),
       sicht: log.clientHeight,
-      obenGeschuetzt: blockMitFeld(fenster.bloecke[0]),
-      untenGeschuetzt: blockMitFeld(fenster.bloecke[fenster.bloecke.length - 1]),
+      obenGeschuetzt: blockMitFeld(fenster.bloecke[0]) || blockSpielt(bloeckeKnoten[0]),
+      untenGeschuetzt: blockMitFeld(fenster.bloecke[fenster.bloecke.length - 1]) || blockSpielt(bloeckeKnoten[bloeckeKnoten.length - 1]),
     };
   }
 
@@ -1535,6 +1559,7 @@ export function verlaufAnlegen({
   }
 
   function schliessen() {
+    aufbewahren();
     laufend.abort();
     offenerName = null;
     rollZeit = null;

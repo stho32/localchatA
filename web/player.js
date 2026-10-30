@@ -51,3 +51,18 @@ function anhalten(medium) {
   medium.removeAttribute('src');
   medium.load();
 }
+
+// Der Verlauf verlässt seinen Inhalt (Channelwechsel, B0754; product-owner Zeile 162): jedes Medium hält an, ohne Ansage.
+// Was schon gespielt hat, kommt mit seinem Element in eine Ablage — bei der Rückkehr setzt medienUebernehmen(ablage, …)
+// es an dieselbe Stelle, angehalten an derselben Zeit. → die Ablage
+export function medienAufbewahren(wurzel) {
+  const ablage = document.createElement('div');
+  for (const player of wurzel.querySelectorAll('.lc-player')) {
+    const medium = player.querySelector('video, audio');
+    medium.pause();
+    if (medium.currentTime > 0) {
+      ablage.append(player);
+    }
+  }
+  return ablage;
+}
