@@ -5,17 +5,23 @@
 /// So viele Zeichen hat ein Textanfang höchstens, „…“ mitgezählt.
 pub const TEXTANFANG_ZEICHEN: usize = 120;
 
+/// So viele Zeichen liest `textanfang_aus` höchstens, Leerraum mitgezählt (ADR-0053 Regel 3): ein Original aus
+/// Leerzeilen kostet je Antwort nie mehr als diese Obergrenze, gleich wie lang sein Satz ist. Danach endet der
+/// Textanfang, wo er steht.
+pub const LESEGRENZE_ZEICHEN: usize = 256;
+
 /// Der Textanfang eines Texts.
 pub fn textanfang(text: &str) -> String {
     textanfang_aus(text.chars())
 }
 
-/// Der Textanfang aus den Zeichen eines Texts; liest nur so weit, bis feststeht, ob gekürzt wird.
+/// Der Textanfang aus den Zeichen eines Texts; liest nur so weit, bis feststeht, ob gekürzt wird, und nie mehr als
+/// `LESEGRENZE_ZEICHEN` Zeichen.
 pub fn textanfang_aus(zeichen: impl Iterator<Item = char>) -> String {
     let mut anfang = String::new();
     let mut anzahl = 0;
     let mut leerraum_davor = false;
-    for zeichen in zeichen {
+    for zeichen in zeichen.take(LESEGRENZE_ZEICHEN) {
         if zeichen.is_whitespace() {
             leerraum_davor = anzahl > 0;
             continue;
@@ -87,5 +93,34 @@ mod tests {
             textanfang(&format!("a  b{}", "c".repeat(200))),
             format!("a b{}…", "c".repeat(116))
         );
+    }
+
+    /// B1 (Security-Review #79), Abnahme-Probe (b): Leerraum am Ende fällt weg, ohne Panik; normale Texte bleiben
+    /// unverändert, auch mit langem Leerraum unter der Lesegrenze.
+    #[test]
+    fn leerzeilen_am_ende_fallen_weg_normale_texte_bleiben() {
+        let lang = format!("a{}b", " ".repeat(LESEGRENZE_ZEICHEN - 3));
+
+        assert_eq!(textanfang(&format!("a{}", "\n".repeat(100))), "a");
+        assert_eq!(textanfang("Frage?\n\nZweite Zeile"), "Frage? Zweite Zeile");
+        assert_eq!(textanfang(&lang), "a b");
+    }
+
+    /// B1 Obergrenze: ein Text aus Leerraum wird nur bis `LESEGRENZE_ZEICHEN` gelesen — nicht bis zu seinem Ende
+    /// (Mutante ohne Obergrenze liest alle 1.000.000); was dahinter steht, zählt nicht mehr.
+    #[test]
+    fn leerraum_wird_nur_bis_zur_lesegrenze_gelesen() {
+        for fuell in ['\n', ' '] {
+            let gelesen = std::cell::Cell::new(0_usize);
+            let zeichen = std::iter::once('x')
+                .chain(std::iter::repeat_n(fuell, 1_000_000))
+                .chain(std::iter::once('y'))
+                .inspect(|_| gelesen.set(gelesen.get() + 1));
+
+            let anfang = textanfang_aus(zeichen);
+
+            assert_eq!(anfang, "x", "{fuell:?}");
+            assert!(gelesen.get() <= LESEGRENZE_ZEICHEN + 1, "{}", gelesen.get());
+        }
     }
 }
