@@ -9,7 +9,7 @@
 import { nachrichtZeichnen, kopfSetzen, trennerZeichnen, langeEinklappen, langeUmschalten, markeUmschalten } from './nachricht.js';
 import { gliederung, folgeGliedern, datumBenennen } from './gliederung.js';
 import { nachladen, einfuegen } from './fenster.js';
-import { pfeilRichtung, pfeilZiel, tabStopp, eigeneLetzte, nachrichtTaste } from './fokus.js';
+import { pfeilRichtung, pfeilZiel, tabStopp, eigeneLetzte, nachrichtTaste, kopierTaste } from './fokus.js';
 import { bearbeitenAnlegen } from './bearbeiten.js';
 import { rueckfrageOeffnen, loeschenAuswerten } from './loeschen.js';
 import { kopieren } from './kopieren.js';
@@ -289,7 +289,7 @@ export function verlaufAnlegen({
     }
   });
 
-  // Aktionen an der eigenen Nachricht (R00041 F0135, F0139): aus der Leiste, dem Menü „⋯“ oder per Taste (E, Entf) auf
+  // Aktionen an der Nachricht (R00041 F0135, F0139; R00046): aus der Leiste, dem Menü „⋯“ oder per Taste (C, E, Entf) auf
   // der fokussierten Nachricht — nur, wenn die Nachricht die Aktion trägt.
   const bearbeiten = bearbeitenAnlegen({
     zeiger: zeigerart,
@@ -425,6 +425,16 @@ export function verlaufAnlegen({
   }
 
   function tasteAufNachricht(ereignis) {
+    const lage = {
+      zielIstNachricht: ereignis.target.matches('.lc-msg'),
+      markierungLeer: document.getSelection().isCollapsed,
+      dialogOffen: document.querySelector('dialog[open]') !== null,
+    };
+    if (kopierTaste(ereignis, lage) && ereignis.target.querySelector('.lc-aktion[data-aktion="kopieren"]') !== null) {
+      ereignis.preventDefault();
+      aktionAusfuehren('kopieren', ereignis.target);
+      return;
+    }
     const aktion = nachrichtTaste(ereignis);
     if (aktion === null || ereignis.target.querySelector(`.lc-aktion[data-aktion="${aktion}"]`) === null) {
       return;

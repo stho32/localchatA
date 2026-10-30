@@ -99,3 +99,44 @@ test('ohne eigene Nachricht keine; eine ähnliche Kennung ist nicht meine', () =
   assert.equal(eigeneLetzte([satz(ICH, 'geloescht')], ICH), null);
   assert.equal(eigeneLetzte([], ICH), null);
 });
+
+// Taste C auf der fokussierten Nachricht (R00046 I0042 B0702, ADR-0052 Regel C1): nur Abkürzung, ausgewertet wird `key`.
+import { kopierTaste } from '../../web/fokus.js';
+
+const LAGE = { zielIstNachricht: true, markierungLeer: true, dialogOffen: false };
+const cTaste = (extra = {}) => ({ key: 'c', code: 'KeyC', ctrlKey: false, altKey: false, metaKey: false, shiftKey: false, repeat: false, isComposing: false, ...extra });
+
+test('c und C bei Feststelltaste (ohne Umschalt) auf der Nachricht → kopieren', () => {
+  assert.equal(kopierTaste(cTaste(), LAGE), true);
+  assert.equal(kopierTaste(cTaste({ key: 'C', shiftKey: false }), LAGE), true);
+});
+
+test('Strg, Alt, Meta oder Umschalt dazu → nicht (Strg+C bleibt dem Browser)', () => {
+  assert.equal(kopierTaste(cTaste({ ctrlKey: true }), LAGE), false);
+  assert.equal(kopierTaste(cTaste({ altKey: true }), LAGE), false);
+  assert.equal(kopierTaste(cTaste({ metaKey: true }), LAGE), false);
+  assert.equal(kopierTaste(cTaste({ key: 'C', shiftKey: true }), LAGE), false);
+});
+
+test('Wiederholung durch Halten und Eingabemethode → nicht', () => {
+  assert.equal(kopierTaste(cTaste({ repeat: true }), LAGE), false);
+  assert.equal(kopierTaste(cTaste({ isComposing: true }), LAGE), false);
+});
+
+test('ausgewertet wird key, nicht code: key „c“ an anderer Stelle der Tastatur kopiert, key „j“ auf KeyC nicht', () => {
+  assert.equal(kopierTaste(cTaste({ key: 'c', code: 'KeyJ' }), LAGE), true);
+  assert.equal(kopierTaste(cTaste({ key: 'j', code: 'KeyC' }), LAGE), false);
+  assert.equal(kopierTaste(cTaste({ key: 'e', code: 'KeyC' }), LAGE), false);
+});
+
+test('Ziel nicht die Nachricht selbst (Eingabefeld, Bearbeiten-Feld, Knopf, Zitat) → nicht', () => {
+  assert.equal(kopierTaste(cTaste(), { ...LAGE, zielIstNachricht: false }), false);
+});
+
+test('markierter Text → nicht (es gilt das gewohnte Kopieren des Browsers)', () => {
+  assert.equal(kopierTaste(cTaste(), { ...LAGE, markierungLeer: false }), false);
+});
+
+test('offener Dialog → nicht', () => {
+  assert.equal(kopierTaste(cTaste(), { ...LAGE, dialogOffen: true }), false);
+});

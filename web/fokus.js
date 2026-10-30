@@ -91,3 +91,18 @@ export function nachrichtTaste(ereignis) {
   }
   return null;
 }
+
+// Taste `C` auf der fokussierten Nachricht (R00046 I0042, ADR-0052 Regel C1): nur Abkürzung für „Kopieren“, nie der einzige
+// Weg. Ausgewertet wird `key` (nicht `code`: auf anderen Belegungen sitzt `C` anderswo); `c` und `C` bei Feststelltaste
+// zählen, Strg, Alt, Meta und Umschalt nicht (Strg+C gehört dem Browser), ebenso wenig Wiederholung und Eingabemethode.
+// lage: zielIstNachricht — der Fokus steht auf der Nachricht selbst, nicht in einem Feld, auf einem Knopf oder einem Zitat;
+// markierungLeer — nichts ist markiert (sonst gilt das gewohnte Kopieren des Browsers); dialogOffen.
+export function kopierTaste(ereignis, { zielIstNachricht, markierungLeer, dialogOffen }) {
+  if (ereignis.ctrlKey || ereignis.altKey || ereignis.metaKey || ereignis.shiftKey || ereignis.repeat || ereignis.isComposing) {
+    return false;
+  }
+  if (ereignis.key !== 'c' && ereignis.key !== 'C') {
+    return false;
+  }
+  return zielIstNachricht && markierungLeer && !dialogOffen;
+}

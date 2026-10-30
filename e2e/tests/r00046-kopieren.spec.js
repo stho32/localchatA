@@ -6,7 +6,7 @@
 const { test, expect } = require('./rahmen');
 const { instanzStarten, channelAnlegen } = require('./hilfen');
 const {
-  JETZT, sendenStarten, beitreten, senden, anfragen, imBrowserBeitreten, nachrichten,
+  JETZT, sendenStarten, beitreten, senden, anfragen, imBrowserBeitreten, nachrichten, eingabe,
 } = require('./senden-hilfen');
 const { geraetOeffnen } = require('./r00027-hilfen');
 const {
@@ -241,6 +241,151 @@ test('Leiste (Sollte): Knöpfe ≥ 24 × 24 px und innerhalb der Zeile, die Zeil
   await a.page.mouse.move(0, 0);
   await nachrichtMitZeit(a.page, fremd.zeiten[2]).focus();
   await expect(kopierKnopf(a.page, fremd.zeiten[2])).toBeVisible();
+});
+
+/// Fokussiert die Nachricht, belegt vorher die Zwischenablage mit dem Wächter (das Prüffeld nimmt dabei den Fokus).
+async function nachrichtFokussiertMitWaechter(page, zeit) {
+  await ablageBelegen(page);
+  await nachrichtMitZeit(page, zeit).focus();
+  await expect(nachrichtMitZeit(page, zeit)).toBeFocused();
+}
+
+test('Taste C: auf der fokussierten Nachricht kopiert c, auch C bei Feststelltaste; der Fokus bleibt auf der Nachricht (B0702)', async ({ browser }) => {
+  instanz = await sendenStarten();
+  const fremd = await claudeSendet(instanz.adresse, ['Eins', 'Zwei **fett**']);
+  const a = await seiteOeffnen(browser, instanz.adresse);
+  await expect(nachrichtMitZeit(a.page, fremd.zeiten[1])).toHaveCount(1);
+  await a.page.evaluate(() => {
+    window.tasten = [];
+    document.addEventListener('keydown', (ereignis) => window.tasten.push([ereignis.key, ereignis.shiftKey, ereignis.ctrlKey]), true);
+  });
+
+  for (const taste of ['c', 'C']) {
+    await nachrichtFokussiertMitWaechter(a.page, fremd.zeiten[1]);
+    await a.page.keyboard.press(taste);
+    await expect(nachrichtMitZeit(a.page, fremd.zeiten[1])).toBeFocused();
+    expect(await ablageLesen(a.page), `Taste „${taste}“`).toBe('Zwei **fett**');
+  }
+  expect(await a.page.evaluate(() => window.tasten.filter(([taste, , strg]) => taste === 'C' && !strg))).toEqual([['C', false, false]]);
+  expect(a.fehler).toEqual([]);
+});
+
+test('Taste C wertet key, nicht code: key „c“ auf der Taste J kopiert, key „j“ auf der Taste C nicht (B0702)', async ({ browser }) => {
+  instanz = await sendenStarten();
+  const fremd = await claudeSendet(instanz.adresse, ['Dvorak']);
+  const a = await seiteOeffnen(browser, instanz.adresse);
+  const befehle = await a.page.context().newCDPSession(a.page);
+  const druecken = async (key, code, windowsVirtualKeyCode) => {
+    await befehle.send('Input.dispatchKeyEvent', { type: 'keyDown', key, code, text: key, windowsVirtualKeyCode });
+    await befehle.send('Input.dispatchKeyEvent', { type: 'keyUp', key, code, windowsVirtualKeyCode });
+  };
+  await expect(nachrichtMitZeit(a.page, fremd.zeiten[0])).toHaveCount(1);
+
+  await nachrichtFokussiertMitWaechter(a.page, fremd.zeiten[0]);
+  await druecken('j', 'KeyC', 74);
+  expect(await ablageLesen(a.page)).toBe(WAECHTER);
+
+  await nachrichtFokussiertMitWaechter(a.page, fremd.zeiten[0]);
+  await druecken('c', 'KeyJ', 67);
+  expect(await ablageLesen(a.page)).toBe('Dvorak');
+});
+
+test('Taste C mit Strg, Alt, Meta oder Umschalt kopiert nichts über die Aktion (B0702)', async ({ browser }) => {
+  instanz = await sendenStarten();
+  const fremd = await claudeSendet(instanz.adresse, ['Nur Abkürzung']);
+  const a = await seiteOeffnen(browser, instanz.adresse);
+  await expect(nachrichtMitZeit(a.page, fremd.zeiten[0])).toHaveCount(1);
+
+  for (const kombination of ['Control+c', 'Alt+c', 'Meta+c', 'Shift+c']) {
+    await nachrichtFokussiertMitWaechter(a.page, fremd.zeiten[0]);
+    await a.page.keyboard.press(kombination);
+    expect(await ablageLesen(a.page), kombination).toBe(WAECHTER);
+  }
+});
+
+test('Taste C nie im Eingabefeld und nie im Bearbeiten-Feld: sie tippt den Buchstaben, die Zwischenablage bleibt (B0702)', async ({ browser }) => {
+  instanz = await sendenStarten();
+  const a = await seiteOeffnen(browser, instanz.adresse);
+  const eigene = await imBrowserSenden(a.page, 'Hallo');
+
+  await ablageBelegen(a.page);
+  await eingabe(a.page).focus();
+  await a.page.keyboard.press('c');
+  await expect(eingabe(a.page)).toHaveValue('c');
+  expect(await ablageLesen(a.page)).toBe(WAECHTER);
+
+  await eingabe(a.page).fill('');
+  await nachrichtMitZeit(a.page, eigene).focus();
+  await a.page.keyboard.press('e');
+  const feld = a.page.getByRole('textbox', { name: 'Nachricht bearbeiten' });
+  await expect(feld).toBeFocused();
+  await ablageBelegen(a.page);
+  await feld.focus();
+  await a.page.keyboard.press('End');
+  await a.page.keyboard.press('c');
+  await expect(feld).toHaveValue('Halloc');
+  expect(await ablageLesen(a.page)).toBe(WAECHTER);
+});
+
+test('Taste C wirkungslos bei offenem Dialog, auf dem Knopf „Kopieren“ und bei markiertem Text; danach kopiert Strg+C genau die Markierung (B0702)', async ({ browser }) => {
+  instanz = await sendenStarten();
+  const fremd = await claudeSendet(instanz.adresse, ['Ein Wort steht hier']);
+  const a = await seiteOeffnen(browser, instanz.adresse);
+  await expect(nachrichtMitZeit(a.page, fremd.zeiten[0])).toHaveCount(1);
+
+  await nachrichtFokussiertMitWaechter(a.page, fremd.zeiten[0]);
+  await a.page.evaluate(() => {
+    const dialog = document.createElement('dialog');
+    dialog.id = 'lc-pruefen-dialog';
+    dialog.setAttribute('open', '');
+    document.body.append(dialog);
+  });
+  await nachrichtMitZeit(a.page, fremd.zeiten[0]).focus();
+  await a.page.keyboard.press('c');
+  expect(await ablageLesen(a.page), 'Dialog offen').toBe(WAECHTER);
+  await a.page.evaluate(() => document.getElementById('lc-pruefen-dialog').remove());
+
+  await nachrichtFokussiertMitWaechter(a.page, fremd.zeiten[0]);
+  await a.page.keyboard.press('Tab');
+  await expect(kopierKnopf(a.page, fremd.zeiten[0])).toBeFocused();
+  await a.page.keyboard.press('c');
+  expect(await ablageLesen(a.page), 'Fokus auf dem Knopf').toBe(WAECHTER);
+
+  const wortMarkieren = async () => {
+    await nachrichtFokussiertMitWaechter(a.page, fremd.zeiten[0]);
+    await a.page.evaluate((zeit) => {
+      const knoten = document.querySelector(`.lc-msg[data-zeit="${zeit}"] .lc-body`).firstChild;
+      const bereich = document.createRange();
+      bereich.setStart(knoten, 4);
+      bereich.setEnd(knoten, 8);
+      getSelection().removeAllRanges();
+      getSelection().addRange(bereich);
+    }, fremd.zeiten[0]);
+    await expect(nachrichtMitZeit(a.page, fremd.zeiten[0])).toBeFocused();
+    expect(await a.page.evaluate(() => getSelection().toString())).toBe('Wort');
+  };
+  await wortMarkieren();
+  await a.page.keyboard.press('c');
+  expect(await ablageLesen(a.page), 'markierter Text').toBe(WAECHTER);
+
+  await wortMarkieren();
+  await a.page.keyboard.press('Control+c');
+  expect(await ablageLesen(a.page), 'Strg+C auf der Markierung').toBe('Wort');
+});
+
+test('Taste C bietet nichts an einer gelöschten Nachricht und an einer reinen Anhang-Nachricht (B0702)', async ({ browser }) => {
+  instanz = await sendenStarten();
+  const fremd = await claudeSendet(instanz.adresse, ['Wird gelöscht']);
+  await loeschenPerApi(instanz.adresse, fremd.token, fremd.zeiten[0], '127.0.0.1');
+  const nurAnhang = await mitAnhaengenSenden(instanz.adresse, fremd.token, '', [{ name: 'a.png', inhalt: PNG }], '127.0.0.1');
+  const a = await seiteOeffnen(browser, instanz.adresse);
+  await expect(nachrichtMitZeit(a.page, nurAnhang)).toHaveCount(1);
+
+  for (const zeit of [fremd.zeiten[0], nurAnhang]) {
+    await nachrichtFokussiertMitWaechter(a.page, zeit);
+    await a.page.keyboard.press('c');
+    expect(await ablageLesen(a.page), zeit).toBe(WAECHTER);
+  }
 });
 
 const FENSTER_TELEFON = { width: 375, height: 667 };
