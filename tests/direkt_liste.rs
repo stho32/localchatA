@@ -6,7 +6,7 @@
 mod gemeinsam;
 
 use gemeinsam::direkt::{ANNA, ANNA_BEN, BEN, CORA, Teilnehmer, runde, runde_mit};
-use gemeinsam::senden::{ordner, starten};
+use gemeinsam::senden::{JETZT, ordner, starten};
 use gemeinsam::{ApiAntwort, api_antwort};
 use serde_json::{Value, json};
 
@@ -132,6 +132,37 @@ async fn ein_geladenes_gespraech_erscheint_ein_leerer_ordner_und_ohne_sitzung_ni
         json!({"direktgespraeche": [{"kennung": BEN, "letzte": "2026-10-27T15:00:00.000+01:00", "frist_tage": 7}]})
     );
     assert_eq!(ohne.status, 401, "{}", ohne.json);
+}
+
+/// Nacharbeit code-reviewer #13 F0172, Sollte 3 (wörtlich): ein Paar mit den Tagesdateien vom 26. und 27. → `GET
+/// /api/direkt` nennt als `letzte` die Zeit vom 27., die jüngste Nachricht des jüngsten Tages — auch wenn der ältere
+/// Tag die spätere Uhrzeit trägt. Mutante: `letzte_nachrichtenzeit` ohne `.rev()` nimmt den ältesten Tag.
+#[tokio::test]
+async fn letzte_ist_die_juengste_nachricht_des_juengsten_von_mehreren_tagen() {
+    let wurzel = ordner();
+    let paar = wurzel.path().join("direkt").join(ANNA_BEN);
+    std::fs::create_dir_all(&paar).expect("Paar");
+    std::fs::write(
+        paar.join("2026-10-26.log"),
+        "@ 2026-10-26T23:00:00.000+01:00 anna@127.0.0.2\n+ art: agent\n  vorgestern spät\n\n",
+    )
+    .expect("Tag 26");
+    std::fs::write(
+        paar.join("2026-10-27.log"),
+        "@ 2026-10-27T08:00:00.000+01:00 ben@127.0.0.3\n+ art: agent\n  gestern früh\n\n\
+         @ 2026-10-27T09:30:00.000+01:00 anna@127.0.0.2\n+ art: agent\n  gestern später\n\n",
+    )
+    .expect("Tag 27");
+    let instanz = starten(wurzel.path(), &[("LOCALCHATA_JETZT", JETZT)]);
+    let r = runde_mit(wurzel, instanz).await;
+    let basis = r.instanz.adresse.clone();
+
+    let annas = liste(&r.anna, &basis).await;
+
+    assert_eq!(
+        annas.json,
+        json!({"direktgespraeche": [{"kennung": BEN, "letzte": "2026-10-27T09:30:00.000+01:00", "frist_tage": 7}]})
+    );
 }
 
 /// R7 (wörtlich): `Host: evil.example`; `Origin: http://evil.example` mit Sitzungskopf → 403 vor allem (Host); bei
