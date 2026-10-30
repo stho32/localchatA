@@ -55,3 +55,43 @@ test('Antwort, selbst bearbeitet: die Marke steht vor dem Bezug; ohne Bezug (nul
   assert.equal(zugaenglicherName(nachricht({ text: 'Ja', zustand: 'bearbeitet', antwort_auf: bezug() })), 'beta@127.0.0.1, 14:09, bearbeitet, Antwort auf anna@127.0.0.2 14:03: Ja');
   assert.equal(zugaenglicherName(nachricht({ antwort_auf: null })), 'beta@127.0.0.1, 14:09: Hallo');
 });
+
+// Anhänge (R00030 F0102 B0461, UX V5): ohne Text nennt der Name die Anhänge, mit Text ihre Zahl im Kopf.
+const datei = (name, zustand = 'vorhanden') => ({ id: name, name, bytes: 1, art: 'image/png', breite: 1, hoehe: 1, url: `/anhaenge/${name}`, zustand });
+
+test('ohne Text, ein Anhang: „<Kennung>, <HH:MM>: Anhang: <name>“', () => {
+  assert.equal(zugaenglicherName(nachricht({ text: '', anhaenge: [datei('foto.png')] })), 'beta@127.0.0.1, 14:09: Anhang: foto.png');
+});
+
+test('ohne Text, zwei Anhänge: Zahl vorn, Namen in Sendefolge', () => {
+  assert.equal(zugaenglicherName(nachricht({ text: '', anhaenge: [datei('foto.png'), datei('bericht.pdf')] })),
+    'beta@127.0.0.1, 14:09: 2 Anhänge: foto.png, bericht.pdf');
+});
+
+test('ohne Text, zwölf lange Namen: die Namensliste endet nach 120 Zeichen mit „…“, die Zahl bleibt vorn', () => {
+  const namen = Array.from({ length: 12 }, (_, nummer) => `bericht-aus-dem-dritten-quartal-${nummer + 1}.pdf`);
+  const liste = namen.join(', ');
+  assert.equal(zugaenglicherName(nachricht({ text: ' ', anhaenge: namen.map((name) => datei(name)) })),
+    `beta@127.0.0.1, 14:09: 12 Anhänge: ${Array.from(liste).slice(0, 120).join('')}…`);
+});
+
+test('mit Text: der Kopf nennt die Zahl — „, 1 Anhang“ bzw. „, 2 Anhänge“ — dann der Textanfang', () => {
+  assert.equal(zugaenglicherName(nachricht({ text: 'Bericht Q3', anhaenge: [datei('bericht.pdf')] })), 'beta@127.0.0.1, 14:09, 1 Anhang: Bericht Q3');
+  assert.equal(zugaenglicherName(nachricht({ text: 'Bericht Q3', anhaenge: [datei('a.pdf'), datei('b.pdf')] })), 'beta@127.0.0.1, 14:09, 2 Anhänge: Bericht Q3');
+});
+
+test('bearbeitet mit Anhängen: „…, bearbeitet, 2 Anhänge: …“', () => {
+  assert.equal(zugaenglicherName(nachricht({ text: 'Neu', zustand: 'bearbeitet', anhaenge: [datei('a.pdf'), datei('b.pdf')] })),
+    'beta@127.0.0.1, 14:09, bearbeitet, 2 Anhänge: Neu');
+});
+
+test('ein gelöschter Anhang heißt „<name> (gelöscht)“; eine gelöschte Nachricht nennt keine Anhänge', () => {
+  assert.equal(zugaenglicherName(nachricht({ text: '', anhaenge: [datei('foto.png', 'geloescht'), datei('log.txt')] })),
+    'beta@127.0.0.1, 14:09: 2 Anhänge: foto.png (gelöscht), log.txt');
+  assert.equal(zugaenglicherName(nachricht({ zustand: 'geloescht', text: '', anhaenge: [datei('foto.png')] })), 'beta@127.0.0.1, 14:09, Nachricht gelöscht');
+});
+
+test('ein Name mit Markup bleibt Text', () => {
+  assert.equal(zugaenglicherName(nachricht({ text: '', anhaenge: [datei('<img src=x onerror=alert(1)>.png')] })),
+    'beta@127.0.0.1, 14:09: Anhang: <img src=x onerror=alert(1)>.png');
+});

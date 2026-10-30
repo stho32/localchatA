@@ -93,3 +93,68 @@ test('Bild auf dem Telefon (B0459): Tippen auf die Vorschau → Dialog, das Bild
   await expect(dialog).toHaveCount(0);
   expect(lauf.a.fehler).toEqual([]);
 });
+
+const NAME_120 = `${'f'.repeat(116)}.png`;
+
+for (const breite of [320, 375]) {
+  test(`Schmal mit Bild (B0461, PO 157) bei ${breite} px: Vorschau und Datei-Zeilen (Name mit 120 Zeichen) liegen im Artikel links von „⋯ Aktionen“, kein Querscrollen`, async ({ browser }) => {
+    const lauf = await anzeigeStarten(browser, [{ namen: [{ name: NAME_120, inhalt: testdateien()['foto.png'] }, 'bericht.pdf'] }], { geraet: telefon(breite) });
+    instanz = lauf.instanz;
+    const { page } = lauf.a;
+    const knoten = nachrichtMitZeit(page, lauf.zeiten[0]);
+    const artikel = await rechteck(knoten);
+    const schalter = await rechteck(knoten.getByRole('button', { name: 'Aktionen', exact: true }));
+    const teile = [knoten.locator('.lc-vorschau'), dateiZeile(knoten, 'ffff'), dateiZeile(knoten, 'bericht.pdf')];
+    for (const teil of teile) {
+      const flaeche = await rechteck(teil);
+      expect(ueberschneiden(flaeche, schalter)).toBe(false);
+      expect(flaeche.right).toBeLessThanOrEqual(schalter.left);
+      expect(flaeche.left).toBeGreaterThanOrEqual(artikel.left);
+      expect(flaeche.bottom).toBeLessThanOrEqual(artikel.bottom);
+    }
+    for (const link of await knoten.getByRole('link').all()) {
+      const flaeche = await rechteck(link);
+      expect(flaeche.width).toBeGreaterThanOrEqual(44);
+      expect(flaeche.height).toBeGreaterThanOrEqual(44);
+    }
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+    expect(await page.getByRole('log').evaluate((log) => log.scrollWidth <= log.clientWidth)).toBe(true);
+    expect(lauf.a.fehler).toEqual([]);
+  });
+}
+
+const GERAETE = [
+  { titel: 'Telefon 320', geraet: telefon(320) },
+  { titel: 'Telefon 375', geraet: telefon(375) },
+  { titel: 'Tablet 768', geraet: { viewport: { width: 768, height: 1024 }, hasTouch: true, isMobile: true, deviceScaleFactor: 2 } },
+];
+
+for (const { titel, geraet } of GERAETE) {
+  test(`Breiten (B0461, V1) ${titel}: Vorschau und Datei-Zeile sind min(360, Inhaltsbreite) breit, die Vorschau proportional, ihr Platz steht vor dem Laden, Sprung ≤ 1 px`, async ({ browser }) => {
+    const lauf = await anzeigeStarten(browser, [{ namen: ['foto.png', 'bericht.pdf'] }], {
+      geraet,
+      vorSeite: (page) => page.context().route('**/anhaenge/**', async (route) => {
+        await new Promise((weiter) => setTimeout(weiter, 1000));
+        await route.continue();
+      }),
+    });
+    instanz = lauf.instanz;
+    const { page } = lauf.a;
+    const knoten = nachrichtMitZeit(page, lauf.zeiten[0]);
+    const inhaltsbreite = (await rechteck(knoten.locator('.lc-msg-inhalt'))).width;
+    const rahmen = Math.min(360, inhaltsbreite);
+    test.info().annotations.push({ type: 'Inhaltsbreite', description: `${titel}: ${inhaltsbreite} px, Rahmen ${rahmen} px` });
+    const bild = knoten.locator('.lc-vorschau img');
+    expect(await bild.evaluate((element) => element.complete && element.naturalWidth > 0)).toBe(false);
+    const vorher = await rechteck(knoten.locator('.lc-vorschau'));
+    const unterkanteVorher = (await rechteck(knoten)).bottom;
+    expect(Math.abs(vorher.width - rahmen)).toBeLessThanOrEqual(1);
+    expect(Math.abs(vorher.height - (rahmen * 800) / 1280)).toBeLessThanOrEqual(1);
+    for (const name of ['foto.png', 'bericht.pdf']) {
+      expect(Math.abs((await rechteck(dateiZeile(knoten, name))).width - rahmen)).toBeLessThanOrEqual(1);
+    }
+    await expect.poll(() => bild.evaluate((element) => element.complete && element.naturalWidth > 0), { timeout: 10000 }).toBe(true);
+    expect(Math.abs((await rechteck(knoten)).bottom - unterkanteVorher)).toBeLessThanOrEqual(1);
+    expect(lauf.a.fehler).toEqual([]);
+  });
+}

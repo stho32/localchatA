@@ -181,8 +181,10 @@ const NAME_TEXTANFANG_ZEICHEN = 120;
 
 // Der zugängliche Name einer Nachricht im Verlauf (F0141, B0632): „<Kennung>, <HH:MM>[, bearbeitet | , Nachricht
 // gelöscht][, Antwort auf <Kennung> <HH:MM>]: <Textanfang>“; der Textanfang ist eine Zeile und endet nach 120 Zeichen mit
-// „…“, eine gelöschte Nachricht nennt statt seiner die Marke; eine Antwort nennt ihr Original (R00047 Z1).
-export function zugaenglicherName({ von, zeit, text = '', zustand, antwort_auf: bezug = null }) {
+// „…“, eine gelöschte Nachricht nennt statt seiner die Marke; eine Antwort nennt ihr Original (R00047 Z1). Anhänge (R00030
+// B0461, UX V5): mit Text steht ihre Zahl im Kopf („, 2 Anhänge“), ohne Text stehen statt des Textanfangs die Namen
+// („Anhang: <name>“ bzw. „<n> Anhänge: <namen>“, nach derselben Regel gekürzt).
+export function zugaenglicherName({ von, zeit, text = '', zustand, antwort_auf: bezug = null, anhaenge = [] }) {
   const kopf = `${von}, ${uhrzeit(zeit)}`;
   if (zustand === 'geloescht') {
     return `${kopf}, Nachricht gelöscht`;
@@ -197,9 +199,37 @@ export function zugaenglicherName({ von, zeit, text = '', zustand, antwort_auf: 
   }
   const anfang = textanfang(text);
   if (anfang === '') {
-    return `${kopf}${marke}${antwortAuf}`;
+    return `${kopf}${marke}${antwortAuf}${anhaengeStattText(anhaenge)}`;
   }
-  return `${kopf}${marke}${antwortAuf}: ${anfang}`;
+  return `${kopf}${marke}${antwortAuf}${anhangZahl(anhaenge)}: ${anfang}`;
+}
+
+function anhaengeStattText(anhaenge) {
+  if (anhaenge.length === 0) {
+    return '';
+  }
+  const namen = textanfang(anhaenge.map(anhangName).join(', '));
+  if (anhaenge.length === 1) {
+    return `: Anhang: ${namen}`;
+  }
+  return `: ${anhaenge.length} Anhänge: ${namen}`;
+}
+
+function anhangZahl(anhaenge) {
+  if (anhaenge.length === 0) {
+    return '';
+  }
+  if (anhaenge.length === 1) {
+    return ', 1 Anhang';
+  }
+  return `, ${anhaenge.length} Anhänge`;
+}
+
+function anhangName({ name, zustand }) {
+  if (zustand === 'geloescht') {
+    return `${name} (gelöscht)`;
+  }
+  return name;
 }
 
 function textanfang(text) {
@@ -251,7 +281,7 @@ function darstellungsart(art) {
 }
 
 // Lange Nachricht (Designsystem LangeNachricht): jeder Inhalt ist per CSS auf lc-collapse begrenzt; läuft er über,
-// steht darunter die Leiste „Ganze Nachricht anzeigen · n Zeilen“. Gemessen wird erst, wenn alle Nachrichten eines
+// steht darunter die Leiste „Ganze Nachricht anzeigen · n Zeilen“ — vor den Anhängen (R00030 B0461). Gemessen wird erst, wenn alle Nachrichten eines
 // Blocks im DOM stehen — einmal lesen, dann schreiben (ADR-0026 Regel 4).
 export function langeEinklappen(artikel) {
   const ueberlang = artikel.filter((einzeln) => {
@@ -264,7 +294,8 @@ export function langeEinklappen(artikel) {
     schalter.setAttribute('aria-controls', text.id);
     schalter.dataset.zeilen = String(text.textContent.split('\n').length);
     leisteBeschriften(schalter, false);
-    einzeln.querySelector('.lc-msg-inhalt').append(element('div', { className: 'lc-foldbar' }, [schalter]));
+    const inhalt = einzeln.querySelector('.lc-msg-inhalt');
+    inhalt.insertBefore(element('div', { className: 'lc-foldbar' }, [schalter]), inhalt.querySelector(':scope > .lc-anhaenge'));
   }
 }
 

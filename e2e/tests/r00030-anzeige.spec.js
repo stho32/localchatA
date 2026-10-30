@@ -2,7 +2,7 @@
 // R00030 F0102 „Anhänge im Verlauf zeigen“ (Desktop 1280 × 800, Gegeben über die API): Datei-Zeile mit Kürzel, Name,
 // Größe, „Öffnen“ und „Laden“ (B0457), Vorschau (B0458), Bild im Dialog (B0459), Anhänge an der Nachricht (B0461).
 const { test, expect } = require('./rahmen');
-const { nachrichtMitZeit } = require('./r00041-hilfen');
+const { nachrichtMitZeit, mitAnhaengenSenden } = require('./r00041-hilfen');
 const { anzeigeStarten, dateiZeile, testdateien } = require('./r00030-anzeige-hilfen');
 
 let instanz;
@@ -329,5 +329,52 @@ test('Fokus sichtbar (UX M3) an der Vorschau (Umriss ≥ 2 px außerhalb) und an
   expect(anSchliessen.art).not.toBe('none');
   expect(anSchliessen.breite).toBeGreaterThanOrEqual(2);
   expect(anSchliessen.abstand).toBeGreaterThanOrEqual(0);
+  expect(lauf.a.fehler).toEqual([]);
+});
+
+test('An der Nachricht (B0461): lange Nachricht (40 Zeilen) mit foto.png → Text, direkt darunter „Ganze Nachricht anzeigen“, darunter die Vorschau; zugängliche Namen nur mit Anhängen', async ({ browser }) => {
+  const lang = Array.from({ length: 40 }, (_, nummer) => `Zeile ${nummer + 1}`).join('\n');
+  const lauf = await anzeigeStarten(browser, [{ text: lang, namen: ['foto.png'] }, { namen: ['foto.png', 'bericht.pdf'] }, { namen: ['foto.png'] }]);
+  instanz = lauf.instanz;
+  const { page } = lauf.a;
+  const langeNachricht = nachrichtMitZeit(page, lauf.zeiten[0]);
+  const reihenfolge = await langeNachricht.locator('.lc-msg-inhalt').evaluate((inhalt) => Array.from(inhalt.children).map((kind) => kind.className));
+  expect(reihenfolge).toEqual(['lc-meta', 'lc-body lc-fold', 'lc-foldbar', 'lc-anhaenge']);
+  const text = await langeNachricht.locator('.lc-body').evaluate((element) => element.getBoundingClientRect());
+  const leiste = await langeNachricht.locator('.lc-foldbar').evaluate((element) => element.getBoundingClientRect());
+  const vorschau = await langeNachricht.locator('.lc-vorschau').evaluate((element) => element.getBoundingClientRect());
+  expect(leiste.top - text.bottom).toBeLessThanOrEqual(4 + 0.5);
+  expect(vorschau.top).toBeGreaterThanOrEqual(leiste.bottom);
+  const uhr = await nachrichtMitZeit(page, lauf.zeiten[1]).locator('.lc-time').first().textContent();
+  await expect(nachrichtMitZeit(page, lauf.zeiten[1])).toHaveAttribute('aria-label', `beta@127.0.0.2, ${uhr}: 2 Anhänge: foto.png, bericht.pdf`);
+  await expect(nachrichtMitZeit(page, lauf.zeiten[2])).toHaveAttribute('aria-label', /^beta@127\.0\.0\.2, \d\d:\d\d: Anhang: foto\.png$/);
+  expect(lauf.a.fehler).toEqual([]);
+});
+
+test('Gestapelt (B0461): drei Anhänge stehen in Sendefolge untereinander mit kd-space-4 Abstand', async ({ browser }) => {
+  const lauf = await anzeigeStarten(browser, [{ text: 'Drei', namen: ['foto.png', 'bericht.pdf', 'log.txt'] }]);
+  instanz = lauf.instanz;
+  const anhaenge = await nachrichtMitZeit(lauf.a.page, lauf.zeiten[0]).locator('.lc-anhang').evaluateAll((alle) => alle.map((einzeln) => ({
+    name: einzeln.querySelector('.lc-datei-name').textContent, top: einzeln.getBoundingClientRect().top, bottom: einzeln.getBoundingClientRect().bottom,
+  })));
+  expect(anhaenge.map((einzeln) => einzeln.name)).toEqual(['foto.png', 'bericht.pdf', 'log.txt']);
+  expect(anhaenge[1].top - anhaenge[0].bottom).toBeCloseTo(4, 0);
+  expect(anhaenge[2].top - anhaenge[1].bottom).toBeCloseTo(4, 0);
+  expect(lauf.a.fehler).toEqual([]);
+});
+
+test('Live aus dem Strom (B0461): beta sendet foto.png und bericht.pdf, während A den Channel offen hat → Vorschau und Datei-Zeilen ohne Neuladen', async ({ browser }) => {
+  const lauf = await anzeigeStarten(browser, []);
+  instanz = lauf.instanz;
+  const { page } = lauf.a;
+  await page.evaluate(() => { window.nichtNeuGeladen = true; });
+  const zeit = await mitAnhaengenSenden(instanz.adresse, lauf.beta.token, 'Live', [
+    { name: 'foto.png', inhalt: testdateien()['foto.png'] }, { name: 'bericht.pdf', inhalt: testdateien()['bericht.pdf'] },
+  ]);
+  const knoten = nachrichtMitZeit(page, zeit);
+  await expect(vorschauSchalter(knoten, 'foto.png')).toHaveCount(1);
+  await expect(dateiZeile(knoten, 'bericht.pdf').getByRole('link', { name: 'bericht.pdf öffnen', exact: true })).toHaveCount(1);
+  await expect(knoten).toHaveAttribute('aria-label', /, 2 Anhänge: Live$/);
+  expect(await page.evaluate(() => window.nichtNeuGeladen)).toBe(true);
   expect(lauf.a.fehler).toEqual([]);
 });
