@@ -56,3 +56,11 @@ test('Hochladen: 200 fertig, 422 `metadaten` abgewiesen, sonst fehlgeschlagen mi
   assert.deepEqual(hochladenBewerten({ art: 'netzfehler' }), { art: 'fehlgeschlagen', grund: 'Keine Antwort vom Server.' });
   assert.deepEqual(hochladenBewerten({ art: 'abgebrochen' }), { art: 'abgebrochen' });
 });
+
+// R00030 „Fehlschlag und Erneut“ (B0452): nach 404 `abgelaufen` oder `unbekannt` meldet der Browser neu an.
+test('Hochladen: 404 `abgelaufen` und `unbekannt` → neu anmelden, ein anderes 404 ist ein Fehlschlag', () => {
+  const abgelaufen = { fehler: 'Diese Anmeldung ist abgelaufen — neu anmelden.', grund: 'abgelaufen' };
+  assert.deepEqual(hochladenBewerten(antwort(404, abgelaufen)), { art: 'neuAnmelden', grund: abgelaufen.fehler });
+  assert.deepEqual(hochladenBewerten(antwort(404, { fehler: 'weg', grund: 'unbekannt' })), { art: 'neuAnmelden', grund: 'weg' });
+  assert.deepEqual(hochladenBewerten(antwort(404, { fehler: 'anders' })), { art: 'fehlgeschlagen', grund: 'anders' });
+});

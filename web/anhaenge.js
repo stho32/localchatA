@@ -43,7 +43,8 @@ export function prozentAus(geladen, gesamt) {
 
 // Wie ein Hochladen ausging (B0451), rein: 200 fertig; 422 `metadaten` (nach dem letzten Byte, F4) eine Abweisung mit dem
 // Text der Instanz; jeder andere Status und „ohne Antwort“ ein Fehlschlag mit Grund, der „Erneut hochladen“ anbietet.
-// → { art: 'fertig' } | { art: 'abgewiesen', grund } | { art: 'fehlgeschlagen', grund } | { art: 'abgebrochen' }
+// 404 `abgelaufen` oder `unbekannt`: die Anmeldung ist weg, der Browser meldet neu an (B0452).
+// → { art: 'fertig' } | { art: 'abgewiesen' | 'fehlgeschlagen' | 'neuAnmelden', grund } | { art: 'abgebrochen' }
 export function hochladenBewerten(antwort) {
   if (antwort.art === 'abgebrochen') {
     return { art: 'abgebrochen' };
@@ -56,6 +57,10 @@ export function hochladenBewerten(antwort) {
     return { art: 'fertig' };
   }
   const mitText = daten !== null && typeof daten.fehler === 'string';
+  const anmeldungWeg = status === 404 && daten !== null && (daten.grund === 'abgelaufen' || daten.grund === 'unbekannt');
+  if (anmeldungWeg) {
+    return { art: 'neuAnmelden', grund: daten.fehler };
+  }
   if (status === 422 && mitText && daten.regel === 'metadaten') {
     return { art: 'abgewiesen', grund: daten.fehler };
   }
@@ -78,11 +83,13 @@ export function abweisungAnsage(name, grund) {
 
 // Die Einträge des Tabs. kennung: die eigene; anmelden(name, bytes) → Antwort (api.js anhangAnmelden); hochladen(id, datei,
 // fortschritt) → { abbrechen, ergebnis } (api.js anhangHochladen); plaetze: höchstens 2 Hochladungen zugleich je Browser
-// (Web Locks, ohne sie je Tab); senden(text,
+// (Web Locks, ohne sie je Tab); verwerfen(id): die Anmeldung freigeben (api.js anhangVerwerfen); zurueckgeben({ text, bezug }):
+// „Verwerfen“ legt Text und Bezug zurück in die Eingabe; senden(text,
 // bezug, { channel, anhaenge }): die Sendeschlange (senden.js); ansagen: die eine Ansage-Region; fokusVerloren(): der
 // Fokus geht ins Feld; zeitgeber: { stellen(ms, rueckruf) → id, loeschen(id) }.
 export function hochladungenAnlegen({
-  kennung, anmelden, hochladen, senden, ansagen, fokusVerloren, zeitgeber = ECHTE_ZEITGEBER, plaetze = plaetzeImBrowser(),
+  kennung, anmelden, hochladen, verwerfen, zurueckgeben, senden, ansagen, fokusVerloren, zeitgeber = ECHTE_ZEITGEBER,
+  plaetze = plaetzeImBrowser(),
 }) {
   const bereich = element('div', { className: 'lc-hochladungen' });
   const eintraege = [];
@@ -111,14 +118,17 @@ export function hochladungenAnlegen({
     artikel.classList.add('lc-vorlaeufig', 'lc-hochladung');
     const zeile = element('div', { className: 'lc-send' }, [element('span', { textContent: '◌', ariaHidden: 'true' }), ' wird hochgeladen …']);
     eintrag.liste = element('ul', { className: 'lc-hochladung-dateien' });
-    artikel.querySelector('.lc-msg-inhalt').append(zeile, eintrag.liste);
+    const verwerfenSchalter = element('button', { type: 'button', textContent: 'Verwerfen' });
+    verwerfenSchalter.addEventListener('click', () => eintragVerwerfen(eintrag));
+    artikel.querySelector('.lc-msg-inhalt').append(zeile, eintrag.liste, element('div', { className: 'lc-send-schalter' }, [verwerfenSchalter]));
     return artikel;
   }
 
   function dateiAnlegen(eintrag, datei) {
     const eintragDatei = {
       datei, name: datei.name, bytes: datei.size, zustand: 'anmelden', id: null, grund: '', sekunden: 0, zeitgeber: null,
-      prozent: 0, laufend: null, knoten: null, zustandText: null, grundText: null, schalter: null, balken: null,
+      prozent: 0, laufend: null, neuAngemeldet: false, schalterArt: null, knoten: null, zustandText: null, grundText: null,
+      schalter: null, balken: null,
     };
     const kuerzel = element('span', { className: 'lc-datei-kuerzel', textContent: typkuerzel(datei.name) });
     kuerzel.setAttribute('aria-hidden', 'true');
@@ -189,11 +199,54 @@ export function hochladungenAnlegen({
       }
       if (ergebnis.art === 'fertig') {
         datei.zustand = 'fertig';
+        datei.neuAngemeldet = false;
         dateiZeigen(eintrag, datei);
+        return;
+      }
+      if (ergebnis.art === 'neuAnmelden' && !datei.neuAngemeldet) {
+        datei.neuAngemeldet = true;
+        datei.id = null;
+        dateiAnmelden(eintrag, datei);
+        return;
+      }
+      if (ergebnis.art === 'neuAnmelden') {
+        dateiScheitert(eintrag, datei, 'fehlgeschlagen', ergebnis.grund);
         return;
       }
       dateiScheitert(eintrag, datei, ergebnis.art, ergebnis.grund);
     });
+  }
+
+  // „Erneut hochladen“: dieselbe Anmeldung neu, der Fokus auf „Abbrechen“ derselben Datei.
+  function erneutHochladen(eintrag, datei) {
+    datei.neuAngemeldet = false;
+    dateiHochladen(eintrag, datei);
+    datei.schalter.querySelector('button').focus();
+  }
+
+  // „Abbrechen“: der PUT bricht ab, die Anmeldung wird freigegeben, die Datei verlässt den Eintrag.
+  function dateiAbbrechen(eintrag, datei) {
+    anmeldungFreigeben(datei);
+    dateiEntfernen(eintrag, datei);
+  }
+
+  function anmeldungFreigeben(datei) {
+    zeitgeber.loeschen(datei.zeitgeber);
+    if (datei.laufend !== null) {
+      datei.laufend.abbrechen();
+    }
+    if (datei.id !== null) {
+      verwerfen(datei.id);
+    }
+  }
+
+  // „Verwerfen“ (U2): alle Hochladungen brechen ab, Text und Bezug gehen zurück in die Eingabe.
+  function eintragVerwerfen(eintrag) {
+    const dateien = eintrag.dateien;
+    eintrag.dateien = [];
+    dateien.forEach(anmeldungFreigeben);
+    eintragBeenden(eintrag);
+    zurueckgeben({ text: eintrag.text, bezug: eintrag.bezug });
   }
 
   // Abgewiesen (nur „Entfernen“) oder fehlgeschlagen („Erneut hochladen“): ⚠ mit dem Grund an der Datei, sofort angesagt.
@@ -214,13 +267,32 @@ export function hochladungenAnlegen({
       datei.grundText.textContent = `⚠ ${datei.grund}`;
     }
     datei.knoten.classList.toggle('lc-fehlgeschlagen', mitGrund);
-    if (datei.zustand === 'abgewiesen') {
-      datei.schalter.replaceChildren(schalterZeichnen('Entfernen', `${datei.name} entfernen`, () => dateiEntfernen(eintrag, datei)));
-    } else if (datei.zustand === 'fehlgeschlagen') {
-      datei.schalter.replaceChildren(schalterZeichnen('Erneut hochladen', `${datei.name} erneut hochladen`, () => dateiHochladen(eintrag, datei)));
-    } else {
-      datei.schalter.replaceChildren();
+    schalterZeigen(eintrag, datei);
+  }
+
+  // Der Schalter der Datei wird nur neu gebaut, wenn seine Art wechselt — ein Fokus auf „Abbrechen“ übersteht den
+  // Wechsel von „wartet“ zu „lädt“.
+  function schalterZeigen(eintrag, datei) {
+    let art = 'abbrechen';
+    if (datei.zustand === 'abgewiesen' || datei.zustand === 'fehlgeschlagen') {
+      art = datei.zustand;
     }
+    if (art === datei.schalterArt) {
+      return;
+    }
+    datei.schalterArt = art;
+    if (art === 'abgewiesen') {
+      datei.schalter.replaceChildren(schalterZeichnen('Entfernen', `${datei.name} entfernen`, () => dateiEntfernen(eintrag, datei)));
+      return;
+    }
+    if (art === 'fehlgeschlagen') {
+      datei.schalter.replaceChildren(
+        schalterZeichnen('Erneut hochladen', `${datei.name} erneut hochladen`, () => erneutHochladen(eintrag, datei)),
+        schalterZeichnen('Entfernen', `${datei.name} entfernen`, () => dateiAbbrechen(eintrag, datei)),
+      );
+      return;
+    }
+    datei.schalter.replaceChildren(schalterZeichnen('Abbrechen', `${datei.name}: Hochladen abbrechen`, () => dateiAbbrechen(eintrag, datei)));
   }
 
   function balkenZeigen(datei) {

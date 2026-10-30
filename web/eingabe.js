@@ -64,12 +64,12 @@ export function eingabeAnlegen({
   const bereinigenGruppe = element('div', { className: 'lc-send-schalter lc-comp-bereinigen', hidden: true }, [bereinigen]);
   const hinweisReihe = element('div', { className: 'lc-comp-hinweisreihe' }, [zeile, tippzeile, bereinigenGruppe]);
   const antwort = antwortzeileAnlegen(feld, ansagen);
-  let dateiHinweis = '';
+  let zusatzHinweis = '';
   const dateien = dateilisteAnlegen({
     feld,
     ansagen,
     geaendert: ({ hinweis: neuerHinweis }) => {
-      dateiHinweis = neuerHinweis;
+      zusatzHinweis = neuerHinweis;
       textBewerten();
     },
   });
@@ -103,7 +103,7 @@ export function eingabeAnlegen({
     bereinigenGruppe.hidden = ergebnis.art !== 'zeichen';
     zeile.textContent = neu.text;
     if (neu.stufe === 'leer') {
-      zeile.textContent = dateiHinweis;
+      zeile.textContent = zusatzHinweis;
     }
     zeile.classList.toggle('lc-fehler', neu.stufe === 'fehler');
     if (neu.stufe === 'fehler') {
@@ -265,6 +265,23 @@ export function eingabeAnlegen({
     },
     fokussieren: () => feld.focus(),
     bezugAbgewiesen,
+    // „Verwerfen“ am Eintrag „wird hochgeladen …“ (R00030 B0452, U2): Text und Bezug zurück ins leere Feld, sonst nennt
+    // die Hinweiszeile den Anfang des Texts; der Fokus geht ins Feld.
+    textZurueck: ({ text, bezug }) => {
+      if (feld.value === '') {
+        feld.value = text;
+        hoeheAnpassen(feld);
+        entwurf.eingabe(channel, feld.value);
+        if (bezug !== null) {
+          antwort.beginnen(bezug);
+        }
+      } else if (text !== '') {
+        zusatzHinweis = `Verworfen: ${textAnfang(text)}`;
+        ansagen({ art: 'sofort', text: zusatzHinweis });
+      }
+      textBewerten();
+      feld.focus();
+    },
     // Ein Ereignis `aenderung` führt die offene Zeile des Channels nach (R00047 B0722, ADR-0053 Regel 5): bearbeitet zeigt
     // den neuen Textanfang, gelöscht „Nachricht gelöscht“; der Text im Feld bleibt.
     zitatNachfuehren: (ereignis) => {
@@ -400,6 +417,16 @@ function sichthoeheFolgen(rahmen, signal) {
 function anhangTaste(ereignis) {
   const mitStrg = ereignis.ctrlKey || ereignis.metaKey;
   return mitStrg && ereignis.shiftKey && !ereignis.altKey && ereignis.key.toLowerCase() === 'u';
+}
+
+// Der Anfang eines Texts für die Hinweiszeile: eine Zeile, höchstens 40 Zeichen, längerer mit „…“.
+function textAnfang(text) {
+  const HOECHSTENS_ZEICHEN = 40;
+  const zeichen = Array.from(text.replace(/\s+/gu, ' ').trim());
+  if (zeichen.length <= HOECHSTENS_ZEICHEN) {
+    return zeichen.join('');
+  }
+  return `${zeichen.slice(0, HOECHSTENS_ZEICHEN).join('')}…`;
 }
 
 function zusammen(zurueck, inzwischen) {

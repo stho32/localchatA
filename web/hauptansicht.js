@@ -78,6 +78,8 @@ export function zeichnen(wurzel, teilnehmer, optionen) {
     kennung: teilnehmer.kennung,
     anmelden: optionen.anhangAnmelden,
     hochladen: optionen.anhangHochladen,
+    verwerfen: optionen.anhangVerwerfen,
+    zurueckgeben: (zurueck) => eingabe.textZurueck(zurueck),
     senden: (text, bezug, weiteres) => senden.senden(text, bezug, weiteres),
     ansagen: ansagen.melden,
     fokusVerloren: () => eingabe.fokussieren(),
