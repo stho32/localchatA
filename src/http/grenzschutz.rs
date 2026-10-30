@@ -379,9 +379,10 @@ pub fn sicherheitsheader_setzen(
         kopf.insert(name, HeaderValue::from_static(wert));
     }
     if anhangpfad(pfad) {
-        let (csp, corp) = anhang_csp_und_corp(medium);
-        kopf.insert(CONTENT_SECURITY_POLICY, HeaderValue::from_static(csp));
-        kopf.insert(CROSS_ORIGIN_RESOURCE_POLICY, HeaderValue::from_static(corp));
+        kopf.insert(
+            CONTENT_SECURITY_POLICY,
+            HeaderValue::from_static(anhang_csp(medium)),
+        );
     }
     let opener = HeaderName::from_static("cross-origin-opener-policy");
     if ursprung_vertrauenswuerdig(host) {
@@ -398,23 +399,26 @@ pub fn sicherheitsheader_setzen(
 /// Laden — der Anhang ist ein eigener, leerer Ursprung.
 pub const ANHANG_CSP: &str = "sandbox; default-src 'none'";
 
-/// CSP der Antworten auf die sechs Medienarten (ADR-0014 Ergänzung „Karte #71“ Regel 1): das Medien-Dokument des
-/// Browsers darf genau die eigene URL als Medium laden; sonst gleich `ANHANG_CSP`. Es gibt keine dritte Anhang-CSP.
-pub const ANHANG_CSP_MEDIUM: &str = "sandbox; default-src 'none'; media-src 'self'";
+/// CSP der Antworten auf die fünf Medienarten (ADR-0014 Ergänzung „Karte #71 (Chrome 154)“ Regel 1): das
+/// Medien-Dokument des Browsers läuft im Ursprung der Instanz (Google Chrome lädt das Medium sonst als CORS-Abruf aus
+/// dem Ursprung `null`) und darf genau die eigene URL als Medium laden. Nie `allow-scripts`, nie `allow-downloads`,
+/// nie ein weiteres Token: neben `allow-same-origin` bliebe sonst nur `default-src 'none'` vor dem Sitzungs-Token.
+/// Es gibt keine dritte Anhang-CSP.
+pub const ANHANG_CSP_MEDIUM: &str =
+    "sandbox allow-same-origin; default-src 'none'; media-src 'self'";
 
 /// Marker in den Erweiterungen der Antwort (Regel 2): die Route sagt der Weiche, dass die vom Server aus dem Inhalt
 /// bestimmte Art eine Medienart ist. Ein Typ ohne Inhalt — keine freie Zeichenkette, von außen nicht setzbar; er wählt
-/// nur zwischen den beiden Anhang-CSP (und CORP nach Regel 4).
+/// nur zwischen den beiden Anhang-CSP.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct AnhangMedium;
 
-/// Weiche unter `/anhaenge` (ADR-0014 Ergänzung „Karte #71“ Regeln 3, 4): mit Marker die Medien-CSP und CORP
-/// `cross-origin` — das sandboxed Medien-Dokument hat einen undurchsichtigen Ursprung, `same-origin` sperrte es —,
-/// sonst `ANHANG_CSP` und `same-origin`. Nach dem Header-Satz gesetzt, damit nichts den Wert überschreibt (B1).
-fn anhang_csp_und_corp(medium: Option<AnhangMedium>) -> (&'static str, &'static str) {
+/// Weiche unter `/anhaenge` (ADR-0014 Ergänzung „Karte #71 (Chrome 154)“ Regeln 1–3): mit Marker die Medien-CSP,
+/// sonst `ANHANG_CSP`. CORP bleibt `same-origin` aus dem Header-Satz, auch mit Marker.
+fn anhang_csp(medium: Option<AnhangMedium>) -> &'static str {
     match medium {
-        Some(AnhangMedium) => (ANHANG_CSP_MEDIUM, "cross-origin"),
-        None => (ANHANG_CSP, "same-origin"),
+        Some(AnhangMedium) => ANHANG_CSP_MEDIUM,
+        None => ANHANG_CSP,
     }
 }
 
@@ -866,7 +870,7 @@ mod tests {
         let mut kopf = HeaderMap::new();
         for (name, wert) in [
             ("content-security-policy", "script-src *"),
-            ("cross-origin-resource-policy", "same-origin"),
+            ("cross-origin-resource-policy", "cross-origin"),
             ("access-control-allow-origin", "*"),
             ("x-content-type-options", "nosniff"),
             ("x-frame-options", "DENY"),
@@ -877,24 +881,27 @@ mod tests {
         kopf
     }
 
-    /// B0662 (ADR-0014 Ergänzung „Karte #71“ Regeln 3, 4; Bedingungen B1–B5): unter `/anhaenge` wählt der Marker die
-    /// Medien-CSP und CORP `cross-origin` — gesetzt nach dem Header-Satz und nach dem `same-origin` der Route (B1) —,
-    /// ohne Marker bleiben `ANHANG_CSP` und `same-origin`; außerhalb von `/anhaenge` wirkt der Marker nicht. `nosniff`,
+    /// B0662, B0727 (ADR-0014 Ergänzung „Karte #71 (Chrome 154)“ Regeln 1–4; B2–B5): unter `/anhaenge` wählt der
+    /// Marker nur die CSP — mit Marker die Medien-CSP, ohne `ANHANG_CSP`; CORP ist in beiden Fällen `same-origin`, auch
+    /// wenn die Route etwas anderes setzt; außerhalb von `/anhaenge` wirkt der Marker nicht. `nosniff`,
     /// `X-Frame-Options`, `Referrer-Policy` unverändert (B4), keine CORS-Freigabe, kein COEP (B5). Mutanten „Weiche
-    /// ignoriert Marker“ und „Marker auf Nicht-Anhangpfad wirkt“ werden rot.
+    /// ignoriert Marker“, „Marker auf Nicht-Anhangpfad wirkt“ und „CORP `cross-origin` mit Marker“ werden rot.
     #[test]
     fn die_csp_weiche_nach_dem_marker() {
         for pfad in ["/anhaenge/x", "/anhaenge/x/y", "/%61nhaenge/x"] {
-            for (medium, csp, corp) in [
-                (Some(AnhangMedium), ANHANG_CSP_MEDIUM, "cross-origin"),
-                (None, ANHANG_CSP, "same-origin"),
+            for (medium, csp) in [
+                (
+                    Some(AnhangMedium),
+                    "sandbox allow-same-origin; default-src 'none'; media-src 'self'",
+                ),
+                (None, "sandbox; default-src 'none'"),
             ] {
                 let kopf = kopf_mit_marker(pfad, medium);
                 let fall = format!("{pfad} {medium:?}");
                 assert_eq!(wert(&kopf, "content-security-policy"), Some(csp), "{fall}");
                 assert_eq!(
                     wert(&kopf, "cross-origin-resource-policy"),
-                    Some(corp),
+                    Some("same-origin"),
                     "{fall}"
                 );
                 assert_eq!(
@@ -924,13 +931,14 @@ mod tests {
         }
     }
 
-    /// B0661: die Medien-CSP ist die Anhang-CSP plus genau `media-src 'self'` — kein `*`, kein `data:`/`blob:`, kein
-    /// `allow-same-origin`, keine weitere Direktive (Mutanten der ADR-0014 Ergänzung „Karte #71“).
+    /// B0727 (Regel 1 und 2 der ADR-0014 Ergänzung „Karte #71 (Chrome 154)“): die Medien-CSP ist `sandbox` mit genau
+    /// dem einen Token `allow-same-origin`, `default-src 'none'` und genau `media-src 'self'` — kein `allow-scripts`,
+    /// kein `allow-downloads`, kein `*`, kein `data:`/`blob:`, keine weitere Direktive; die Anhang-CSP ohne Token.
     #[test]
     fn die_medien_csp_hat_genau_diesen_wortlaut() {
         assert_eq!(
             ANHANG_CSP_MEDIUM,
-            "sandbox; default-src 'none'; media-src 'self'"
+            "sandbox allow-same-origin; default-src 'none'; media-src 'self'"
         );
         assert_eq!(ANHANG_CSP, "sandbox; default-src 'none'");
     }
