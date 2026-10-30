@@ -30,9 +30,59 @@ fn im_namen(byte: u8) -> bool {
 
 /// Ob der Text den Namen erwähnt.
 pub fn erwaehnt(text: &str, name: &Name) -> bool {
-    erwaehnte_namen(text)
+    erwaehnt_name(text, name.als_text())
+}
+
+/// Ob der Text den Namen `name` (in ASCII-Kleinbuchstaben) erwähnt — dieselbe Regel wie `erwaehnte_namen`, aber
+/// ohne Allokation und mit frühem Abbruch (Nacharbeit security-reviewer #17 Befund 2): an jedem `@`, das eine
+/// Erwähnung beginnt, gleicht die Folge dem Namen, wenn sie mit ihm beginnt (Groß/Klein egal) und danach nur noch `-`
+/// folgen. Die Folgen zweier Erwähnungen überlappen nie, denn vor einem `@` darf kein Zeichen der Folge stehen.
+pub fn erwaehnt_name(text: &str, name: &str) -> bool {
+    let bytes = text.as_bytes();
+    bytes.chunks(STUECK).enumerate().any(|(nummer, stueck)| {
+        enthaelt_klammeraffen(stueck)
+            && erwaehnt_im_stueck(bytes, nummer * STUECK, stueck, name.as_bytes())
+    })
+}
+
+/// So viele Bytes prüft `erwaehnt_name` am Stück auf ein `@`, bevor es Byte für Byte sucht — ein Text ohne `@` kostet
+/// so kaum mehr als ein Lesen (Gegenprobe des Befunds: 16 KiB ≤ 5 µs).
+const STUECK: usize = 64;
+
+/// Ob ein `@` im Stück steht — ohne frühen Abbruch, damit der Übersetzer den Vergleich bündeln kann.
+fn enthaelt_klammeraffen(stueck: &[u8]) -> bool {
+    stueck
         .iter()
-        .any(|erwaehnt| erwaehnt == name.als_text())
+        .fold(false, |gefunden, byte| gefunden | (*byte == b'@'))
+}
+
+/// Ob eine Erwähnung, die im `stueck` ab `anfang` von `bytes` beginnt, `name` ist; je `@` zuerst nur der Blick auf
+/// das Zeichen danach.
+fn erwaehnt_im_stueck(bytes: &[u8], anfang: usize, stueck: &[u8], name: &[u8]) -> bool {
+    let erstes = name.first().copied();
+    stueck.iter().enumerate().any(|(versatz, byte)| {
+        let stelle = anfang + versatz;
+        *byte == b'@'
+            && bytes.get(stelle + 1).map(u8::to_ascii_lowercase) == erstes
+            && (stelle == 0 || !im_namen(bytes[stelle - 1]))
+            && folge_gleicht(&bytes[stelle + 1..], name)
+    })
+}
+
+/// Ob die Folge am Anfang von `rest` ohne `-` am Ende `name` ist; bricht am ersten abweichenden Zeichen ab.
+fn folge_gleicht(rest: &[u8], name: &[u8]) -> bool {
+    let Some((anfang, danach)) = rest.split_at_checked(name.len()) else {
+        return false;
+    };
+    !name.is_empty()
+        && anfang
+            .iter()
+            .zip(name)
+            .all(|(zeichen, gesucht)| zeichen.to_ascii_lowercase() == *gesucht)
+        && danach
+            .iter()
+            .take_while(|byte| im_namen(**byte))
+            .all(|byte| *byte == b'-')
 }
 
 #[cfg(test)]
@@ -82,6 +132,41 @@ mod tests {
             erwaehnte_namen("@claude-entwickler"),
             vec!["claude-entwickler"]
         );
+    }
+
+    /// Nacharbeit security-reviewer #17 Befund 2: die Prüfung je Name sagt für jeden Text dasselbe wie die Liste der
+    /// erwähnten Namen — Groß/Klein, Striche am Ende, `@` am Ende, Doppel-`@`, Folge länger als der Name, Nicht-ASCII
+    /// davor und danach, erwähnungsdicht.
+    #[test]
+    fn die_pruefung_je_name_gleicht_der_liste_der_namen() {
+        let dicht = "@a ".repeat(5_461);
+        let texte = [
+            "@claude hi",
+            "hi @Claude.",
+            "@CLAUDE--- x",
+            "@claude-entwickler",
+            "@claudex @claude",
+            "shoff@claude",
+            "@ claude",
+            "@@claude",
+            "x@claude @",
+            "ü@claude",
+            "@claudeü",
+            "@-claude",
+            "@cla",
+            "",
+            "@",
+            dicht.as_str(),
+        ];
+        for text in texte {
+            for gesucht in ["claude", "a", "claude-entwickler", "cla"] {
+                assert_eq!(
+                    erwaehnt_name(text, gesucht),
+                    erwaehnte_namen(text).iter().any(|name| name == gesucht),
+                    "{text:?} / {gesucht}"
+                );
+            }
+        }
     }
 
     /// Die Namen in Textfolge, klein, ohne `-` am Ende; ein `@` mitten in einer Folge beginnt keine Erwähnung.

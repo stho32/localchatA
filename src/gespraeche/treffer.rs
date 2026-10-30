@@ -5,7 +5,7 @@
 //! Nachricht; mit Filter genügt **ein** passender Teil (Vereinigung). Direktgespräche treffen erst, wenn ihre
 //! Beteiligten bekannt sind (I0012, B0747), bis dahin nie.
 
-use super::erwaehnung::erwaehnte_namen;
+use super::erwaehnung::erwaehnt_name;
 use super::{Aenderungszustand, Gespraech, Kennung, Nachricht};
 use std::collections::BTreeSet;
 
@@ -81,10 +81,7 @@ pub fn treffer(
 fn anlaesse(nachricht: &Nachricht, wartender: &Kennung) -> Vec<Anlass> {
     let mut anlass = Vec::new();
     let name = wartender.name();
-    if erwaehnte_namen(&nachricht.text)
-        .iter()
-        .any(|erwaehnt| erwaehnt == name)
-    {
+    if erwaehnt_name(&nachricht.text, name) {
         anlass.push(Anlass::Erwaehnung);
     }
     if nachricht
@@ -485,6 +482,48 @@ mod tests {
                 "{fall}"
             );
         }
+    }
+
+    /// Median in µs von `wiederholungen` Aufrufen der Trefferregel für `claude` mit `erwaehnung` auf `text`.
+    fn median_in_us(text: &str, wiederholungen: usize) -> f64 {
+        let b = Gespraech::channel("b");
+        let nachricht = mit_text(ANNA, text);
+        let wartender = kennung(CLAUDE);
+        let filter = erwaehnung(&[]);
+        let mut dauern: Vec<f64> = (0..wiederholungen)
+            .map(|_| {
+                let beginn = std::time::Instant::now();
+                std::hint::black_box(treffer(
+                    std::hint::black_box(&b),
+                    std::hint::black_box(&nachricht),
+                    &wartender,
+                    &filter,
+                ));
+                beginn.elapsed().as_secs_f64() * 1e6
+            })
+            .collect();
+        dauern.sort_by(f64::total_cmp);
+        dauern[dauern.len() / 2]
+    }
+
+    /// Nacharbeit security-reviewer #17 Befund 2: erwähnungsdicht 16 KiB „@a “ × 5.461, 2.000 Aufrufe → Median
+    /// ≤ 20 µs (vorher 464 µs: ein String je `@`); Gegenprobe 16 KiB „x“ ≤ 5 µs. Ein Zeitmaß gilt nur optimiert —
+    /// im Debug-Build übersprungen, gefahren mit `cargo test --release --lib erwaehnungsdicht`.
+    #[test]
+    #[cfg_attr(
+        debug_assertions,
+        ignore = "Zeitmaß nur im Release: cargo test --release --lib erwaehnungsdicht"
+    )]
+    fn erwaehnungsdicht_bleibt_die_trefferregel_unter_20_us() {
+        let dicht = "@a ".repeat(5_461);
+        let ohne = "x".repeat(16_384);
+
+        let dicht_us = median_in_us(&dicht, 2_000);
+        let ohne_us = median_in_us(&ohne, 2_000);
+        println!("erwähnungsdicht {dicht_us:.1} µs, ohne @ {ohne_us:.1} µs");
+
+        assert!(dicht_us <= 20.0, "erwähnungsdicht Median {dicht_us:.1} µs");
+        assert!(ohne_us <= 5.0, "ohne @ Median {ohne_us:.1} µs");
     }
 
     #[test]
