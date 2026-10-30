@@ -36,6 +36,16 @@ pub const NACHHOLBUDGET: Nachholbudget = Nachholbudget {
     saetze: 2_000,
 };
 
+/// Wie viele Satzbytes eine Kosteneinheit trägt — K6 (ADR-0054 Ergänzung „Kosten-Einheit des Nachholens“ Regel 1,
+/// R00049 F0171): ein Satz kostet `1 + ⌊Satzbytes / 1.024⌋`; die Einheit steht für ≈ 5 µs Rechenzeit, gleich ob der
+/// Satz kurz ist oder 16 KiB lang.
+const BYTE_JE_KOSTENEINHEIT: usize = 1_024;
+
+/// Die Kosten eines Satzes der Länge `satzbytes` (Länge in der Tagesdatei) — Sätze unter 1 KiB kosten 1.
+pub fn kosten_eines_satzes(satzbytes: usize) -> usize {
+    1 + satzbytes / BYTE_JE_KOSTENEINHEIT
+}
+
 /// Was das Nachholen ergab: Treffer in Zeitfolge, der verarbeitete Stand und ob ein Budget vor der Marke endete.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Nachgeholt {
@@ -486,6 +496,17 @@ mod tests {
                 (vec![t[4_001]], t[4_500], false),
             ]
         );
+    }
+
+    /// K1 (B0760, K6): Satzbytes 0 / 1.023 / 1.024 / 16.384 / 32.768 → Kosten 1 / 1 / 2 / 17 / 33 — abgerundet,
+    /// ein kurzer Satz kostet nie weniger als 1, ein Satz zu 16 KiB das 17-fache.
+    #[test]
+    fn die_kosten_eines_satzes_wachsen_mit_den_satzbytes_je_kibibyte() {
+        let kosten: Vec<usize> = [0, 1_023, 1_024, 16_384, 32_768]
+            .map(kosten_eines_satzes)
+            .to_vec();
+
+        assert_eq!(kosten, vec![1, 1, 2, 17, 33]);
     }
 
     /// Lieferbytes: der Text zählt mit seiner Länge in Bytes.
