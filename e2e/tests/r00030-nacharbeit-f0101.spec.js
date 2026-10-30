@@ -232,3 +232,61 @@ test('A5 Hinweis „Verworfen: …“ verschwindet mit der nächsten Eingabe', a
   await expect(page.locator('#lc-comp-hinweis')).toHaveText('');
   expect(fehler).toEqual([]);
 });
+
+/// ID → Name aus den Antworten der Anmeldung.
+function namenMerken(page) {
+  const namen = new Map();
+  page.on('response', async (antwort) => {
+    if (antwort.request().method() === 'POST' && new URL(antwort.url()).pathname === '/api/anhaenge' && antwort.status() === 201) {
+      const { anhang } = await antwort.json();
+      namen.set(anhang.name, anhang.id);
+    }
+  });
+  return namen;
+}
+
+const zeile = (page, name) => eintrag(page).locator('.lc-hochladung-datei', { hasText: name });
+
+// A7: Abbrechen im Zustand „wartet“ (auf einen Platz) — DELETE der Anmeldung, die beiden anderen laden und gehen hinaus.
+test('A7 Abbrechen einer Datei, die auf einen Platz wartet: DELETE, die anderen beiden werden gesendet, reserviert 0', async ({ browser }) => {
+  const { page, anfragen, fehler } = await seiteAuf(browser, { bytesJeSekunde: 200 * 1024 });
+  const namen = namenMerken(page);
+
+  await waehlen(page, ['a.txt', 'b.txt', 'c.txt'].map((name) => textDatei(name, 300 * 1024)));
+  await knopf(page).click();
+  await expect(zeile(page, 'c.txt').locator('.lc-hochladung-zustand')).toHaveText('wartet');
+  await expect.poll(() => namen.has('c.txt')).toBe(true);
+  await abbrechen(page, 'c.txt').click();
+
+  await expect(zeile(page, 'c.txt')).toHaveCount(0);
+  await expect.poll(() => loeschungen(anfragen)).toEqual([`/api/anhaenge/${namen.get('c.txt')}`]);
+  await expect.poll(() => anfragen.filter((anfrage) => anfrage.pfad.endsWith('/nachrichten')).length, { timeout: 15000 }).toBe(1);
+  const gesendet = anfragen.find((anfrage) => anfrage.pfad.endsWith('/nachrichten')).koerper;
+  expect(gesendet.anhaenge).toEqual([namen.get('a.txt'), namen.get('b.txt')]);
+  expect(anfragen.filter((anfrage) => anfrage.methode === 'PUT' && anfrage.pfad.endsWith(namen.get('c.txt')))).toEqual([]);
+  await expect.poll(reserviert).toBe(0);
+  expect(fehler).toEqual([]);
+});
+
+// A7 / UX O1: an einer fertigen Datei heißt der Schalter „Entfernen“ („<name> entfernen“), nicht „Hochladen abbrechen“;
+// er gibt die Anmeldung frei und nimmt die Datei aus der Nachricht.
+test('A7 fertige Datei: „Entfernen“ statt „Hochladen abbrechen“; entfernt, freigegeben, die andere wird gesendet', async ({ browser }) => {
+  const { page, anfragen, fehler } = await seiteAuf(browser);
+  const namen = namenMerken(page);
+
+  await waehlen(page, [textDatei('klein.txt', 2 * 1024), textDatei('gross.txt', 600 * 1024)]);
+  await knopf(page).click();
+  await expect(zeile(page, 'klein.txt').locator('.lc-hochladung-zustand')).toHaveText('hochgeladen');
+
+  await expect(abbrechen(page, 'klein.txt')).toHaveCount(0);
+  const entfernen = zeile(page, 'klein.txt').getByRole('button', { name: 'klein.txt entfernen', exact: true });
+  await expect(entfernen).toHaveText('Entfernen');
+  await entfernen.click();
+
+  await expect(zeile(page, 'klein.txt')).toHaveCount(0);
+  await expect.poll(() => loeschungen(anfragen)).toEqual([`/api/anhaenge/${namen.get('klein.txt')}`]);
+  await expect.poll(() => anfragen.filter((anfrage) => anfrage.pfad.endsWith('/nachrichten')).length, { timeout: 20000 }).toBe(1);
+  expect(anfragen.find((anfrage) => anfrage.pfad.endsWith('/nachrichten')).koerper.anhaenge).toEqual([namen.get('gross.txt')]);
+  await expect.poll(reserviert).toBe(0);
+  expect(fehler).toEqual([]);
+});

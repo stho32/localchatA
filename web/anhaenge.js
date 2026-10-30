@@ -300,10 +300,11 @@ export function hochladungenAnlegen({
   }
 
   // Der Schalter der Datei wird nur neu gebaut, wenn seine Art wechselt — ein Fokus auf „Abbrechen“ übersteht den
-  // Wechsel von „wartet“ zu „lädt“.
+  // Wechsel von „wartet“ zu „lädt“. Eine fertige Datei trägt „Entfernen“: sie gibt die Anmeldung frei und verlässt die
+  // Nachricht (Code-Review #43 F0101 A7, UX O1).
   function schalterZeigen(eintrag, datei) {
     let art = 'abbrechen';
-    if (datei.zustand === 'abgewiesen' || datei.zustand === 'fehlgeschlagen') {
+    if (['abgewiesen', 'fehlgeschlagen', 'fertig'].includes(datei.zustand)) {
       art = datei.zustand;
     }
     if (art === datei.schalterArt) {
@@ -319,6 +320,10 @@ export function hochladungenAnlegen({
         schalterZeichnen('Erneut hochladen', `${datei.name} erneut hochladen`, () => erneutHochladen(eintrag, datei)),
         schalterZeichnen('Entfernen', `${datei.name} entfernen`, () => dateiAbbrechen(eintrag, datei)),
       );
+      return;
+    }
+    if (art === 'fertig') {
+      datei.schalter.replaceChildren(schalterZeichnen('Entfernen', `${datei.name} entfernen`, () => dateiAbbrechen(eintrag, datei)));
       return;
     }
     datei.schalter.replaceChildren(schalterZeichnen('Abbrechen', `${datei.name}: Hochladen abbrechen`, () => dateiAbbrechen(eintrag, datei)));
