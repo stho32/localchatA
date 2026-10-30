@@ -523,30 +523,38 @@ mod tests {
             herkunft: "10.0.0.9".parse().expect("IP"),
             art: Art::Agent,
         };
-        let stand = |zahl: u64| Quotestand {
-            belegt: 100 + zahl,
-            gebunden: 1,
-            reserviert: 10 + zahl,
-            hoechstens: 1000,
-            frei: 0,
-            braucht: 1,
-        };
-        let faelle: [(&str, Box<dyn Fn(u64) -> Anmeldefehler>, &str, &str); 3] = [
+        fn stand(zahl: u64) -> Quotestand {
+            Quotestand {
+                belegt: 100 + zahl,
+                gebunden: 1,
+                reserviert: 10 + zahl,
+                hoechstens: 1000,
+                frei: 0,
+                braucht: 1,
+            }
+        }
+        type Fall = (
+            &'static str,
+            fn(u64) -> Anmeldefehler,
+            &'static str,
+            &'static str,
+        );
+        let faelle: [Fall; 3] = [
             (
                 "Platz für Anhänge voll",
-                Box::new(move |n| Anmeldefehler::Platz(Platzfehler::Voll(stand(n)))),
+                |n| Anmeldefehler::Platz(Platzfehler::Voll(stand(n))),
                 "bytes=5 belegt=101 hoechstens=1000",
                 "| kennung=beta@10.0.0.9 hoechstens=1000",
             ),
             (
                 "laufende Hochladungen belegen den Platz",
-                Box::new(move |n| Anmeldefehler::Platz(Platzfehler::Hochladungen(stand(n)))),
+                |n| Anmeldefehler::Platz(Platzfehler::Hochladungen(stand(n))),
                 "reserviert=11 hoechstens=1000",
                 "| kennung=beta@10.0.0.9 hoechstens=1000",
             ),
             (
                 "Platte fast voll",
-                Box::new(|n| Anmeldefehler::Platz(Platzfehler::Platte { frei: 7 + n })),
+                |n| Anmeldefehler::Platz(Platzfehler::Platte { frei: 7 + n }),
                 "bytes=5 frei=8",
                 "| herkunft=10.0.0.9",
             ),
