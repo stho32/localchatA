@@ -36,7 +36,7 @@ Uhr-Provider ([Zeit](Aspekte/X00007-zeit.md)); Eimer-Typ aus dem [Schreibkonto](
 ## Entscheidungen
 
 - [ADR-0051: Aktivität „tippt“ / „denkt nach“ — flüchtig im Speicher mit Ablauf, eigener Signalbus neben dem Ereignisbus, eine Route je Gespräch für Mensch und Agent, eigene Bremse](../ADRs/0051-aktivitaet-tippt-und-denkt-nach-fluechtig-im-speicher-eigener-signalbus-eine-route-je-gespraech.md) — Akzeptiert, 2026-10-30
-- [ADR-0055: Direktgespräche — Paar aus zwei vollen Kennungen, das Gegenüber im Pfad, Anlegen beim ersten Senden, eine Sichtbarkeitsregel für alle verteilenden Wege, `seit` als sichtbare Marke](../ADRs/0055-direktgespraeche-paar-aus-zwei-kennungen-gegenueber-im-pfad-anlegen-beim-ersten-senden-eine-sichtbarkeitsregel-sichtbare-marke.md) — Vorgeschlagen, 2026-10-30
+- [ADR-0055: Direktgespräche — Paar aus zwei vollen Kennungen, das Gegenüber im Pfad, Anlegen beim ersten Senden, eine Sichtbarkeitsregel für alle verteilenden Wege, `seit` als sichtbare Marke](../ADRs/0055-direktgespraeche-paar-aus-zwei-kennungen-gegenueber-im-pfad-anlegen-beim-ersten-senden-eine-sichtbarkeitsregel-sichtbare-marke.md) — Akzeptiert, 2026-10-30
 
 ## Offene Fragen
 

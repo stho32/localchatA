@@ -32,11 +32,11 @@ Entscheidet als einzige Stelle, welche Kennungen ein Gespräch sehen dürfen, ü
 
 ## Entscheidungen
 
-- [ADR-0055: Direktgespräche — Paar aus zwei vollen Kennungen, das Gegenüber im Pfad, Anlegen beim ersten Senden, eine Sichtbarkeitsregel für alle verteilenden Wege, `seit` als sichtbare Marke](../ADRs/0055-direktgespraeche-paar-aus-zwei-kennungen-gegenueber-im-pfad-anlegen-beim-ersten-senden-eine-sichtbarkeitsregel-sichtbare-marke.md) — Vorgeschlagen, 2026-10-30
+- [ADR-0055: Direktgespräche — Paar aus zwei vollen Kennungen, das Gegenüber im Pfad, Anlegen beim ersten Senden, eine Sichtbarkeitsregel für alle verteilenden Wege, `seit` als sichtbare Marke](../ADRs/0055-direktgespraeche-paar-aus-zwei-kennungen-gegenueber-im-pfad-anlegen-beim-ersten-senden-eine-sichtbarkeitsregel-sichtbare-marke.md) — Akzeptiert, 2026-10-30
 
 ## Offene Fragen
 
-- Für den `product-owner` (P2 in ADR-0055): bleibt ein Direktgespräch bei zwei Beteiligten? Entwurf nach Empfehlung: ja; `Direktpaar` wäre sonst eine sortierte Menge.
+- Keine. P2 ist entschieden (Karte #13): Gruppen-Direktgespräche gibt es nicht, `Direktpaar` bleibt ein Paar.
 
 ## Notizen / Quellen
 
@@ -44,5 +44,6 @@ Entscheidet als einzige Stelle, welche Kennungen ein Gespräch sehen dürfen, ü
 - **Grenzregel:** die Routen unter `/api/direkt/{kennung}/` fragen diese Regel **nicht** — dort bildet die Integration das Paar aus der Kennung der Sitzung und dem Pfad, ein fremdes Gespräch ist nicht adressierbar (ADR-0055 V1). Jeder Weg, der über mehrere Gespräche verteilt oder auflistet, fragt sie, mit vollständigem `match` über `Gespraech`.
 - **Erster Test (Unit, rein, keine Provider):** D1–D3 in ADR-0055 — `Direktpaar::bilden(ben@10.0.0.8, anna@10.0.0.7).ordnername()` → `anna@10.0.0.7+ben@10.0.0.8`; `claude@fd00::7` → `claude@fd00%3A%3A7` und zurück; `aus_ordnername("b@1.1.1.1+a@1.1.1.1")` → `None`; `sichtbar_fuer(paar, anna@10.0.0.70)` → false; IPv6-Beteiligter → true.
 - **Befund im Bestand (Ist):** `aktivitaet::sichtbar` (`src/aktivitaet/mod.rs:285`) vergleicht die Teile des **kodierten** Ordnernamens — ein Beteiligter mit IPv6-Herkunft sähe sein Gespräch nicht; `Dateiablage::gespraeche` (`src/gespraeche/logablage.rs:116`) lädt jeden Unterordner von `direkt/` ungeprüft. Beides löst der Typ `Direktpaar`.
-- **Betrieb:** kein Start-Schritt, keine Einstellung, kein Health-Feld.
+- **Genau eine Funktion (B5):** `sichtbar_fuer` ist die einzige Entscheidung über Sichtbarkeit; `aktivitaet::sichtbar` entfällt ersatzlos. Der **Architekturtest** (`tests/architektur_sichtbarkeit.rs`, D14) hält das fest: `Gespraech::Direkt` nur in Dateien einer begründeten Liste, `sichtbar_fuer(` Pflicht in Dateien, die über alle Gespräche laufen, kein zweiter Name, kein `_ =>` in den verteilenden Wegen.
+- **Betrieb:** kein Start-Schritt, keine Einstellung, kein Health-Feld. Das Anlegen neuer Paare begrenzen nicht diese Regel, sondern [Gespräche](A00006-gespraeche.md) (Grenzen je Herkunft und gesamt, B1).
 - Entworfen am 2026-10-30 (Karte #13, I0012) als eigener Baustein, weil fünf Wege (Strom, Warten, Nachholen, Anhänge, Aktivität) und zwei künftige (Suche, Laufwerk) dieselbe Antwort brauchen — Pre-Mortem 1 der ADR.
