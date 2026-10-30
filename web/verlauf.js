@@ -140,8 +140,14 @@ export function verlaufAnlegen({
       markeUmschalten(marke);
       return;
     }
+    const menueSchalter = ereignis.target.closest('.lc-aktionen-schalter');
+    if (menueSchalter !== null) {
+      menueUmschalten(menueSchalter);
+      return;
+    }
     const aktion = ereignis.target.closest('.lc-aktion');
     if (aktion !== null) {
+      menueSchliessen();
       aktionAusfuehren(aktion.dataset.aktion, aktion.closest('.lc-msg'));
       return;
     }
@@ -286,6 +292,39 @@ export function verlaufAnlegen({
     alsGeloeschtZeigen: geloeschtSetzen,
     hinweisen,
     ansagen,
+  });
+
+  // Menü „⋯“ auf Touch-Geräten (UX M6, PO 125): höchstens eines offen; ein zweites Tippen, ein Tippen daneben und Esc
+  // schließen es — nach Esc steht der Fokus wieder auf „Aktionen“. Reicht der Platz unter der Nachricht nicht, öffnet
+  // es nach oben.
+  function menueUmschalten(menueSchalter) {
+    const warOffen = menueSchalter.getAttribute('aria-expanded') === 'true';
+    menueSchliessen();
+    if (warOffen) {
+      return;
+    }
+    menueSchalter.setAttribute('aria-expanded', 'true');
+    const menue = document.getElementById(menueSchalter.getAttribute('aria-controls'));
+    menue.classList.toggle('lc-nach-oben', menue.getBoundingClientRect().bottom > log.getBoundingClientRect().bottom);
+  }
+
+  function menueSchliessen() {
+    for (const offenerSchalter of inhalt.querySelectorAll('.lc-aktionen-schalter[aria-expanded="true"]')) {
+      offenerSchalter.setAttribute('aria-expanded', 'false');
+    }
+  }
+  document.addEventListener('pointerdown', (ereignis) => {
+    if (ereignis.target.closest('.lc-aktionen-schalter, .lc-aktionen') === null) {
+      menueSchliessen();
+    }
+  });
+  log.addEventListener('keydown', (ereignis) => {
+    const offenerSchalter = inhalt.querySelector('.lc-aktionen-schalter[aria-expanded="true"]');
+    if (ereignis.key === 'Escape' && offenerSchalter !== null) {
+      ereignis.preventDefault();
+      menueSchliessen();
+      offenerSchalter.focus();
+    }
   });
 
   function tasteAufNachricht(ereignis) {

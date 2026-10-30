@@ -30,22 +30,29 @@ export function nachrichtZeichnen(nachricht, eigeneKennung = '') {
   artikel.append(element('div', { className: 'g' }), inhalt);
   const aktionen = aktionenFuer(nachricht, eigeneKennung);
   if (aktionen.length > 0) {
-    artikel.append(aktionenZeichnen(aktionen));
+    artikel.append(...aktionenZeichnen(aktionen, nachricht.zeit));
   }
   kopfSetzen(artikel, true);
   return artikel;
 }
 
-// Die Leiste der Aktionen (Designsystem Nachricht): am Desktop rechts oben bei Hover und Fokus; die Knöpfe tragen ihre
-// Aktion in data-aktion, der Verlauf führt sie aus.
-function aktionenZeichnen(aktionen) {
+// Die Leiste der Aktionen (Designsystem Nachricht): am Desktop rechts oben bei Hover und Fokus; auf Touch-Geräten statt
+// dessen der Schalter „⋯“ mit dem Namen „Aktionen“, der sie als Menü öffnet (UX M6, PO 125) — welcher Weg gilt,
+// entscheidet das CSS nach der Zeigerart. Die Knöpfe tragen ihre Aktion in data-aktion, der Verlauf führt sie aus.
+// → [Schalter, Leiste]
+function aktionenZeichnen(aktionen, zeit) {
   const BESCHRIFTUNG = { bearbeiten: 'Bearbeiten', loeschen: 'Löschen' };
   const knoepfe = aktionen.map((aktion) => {
     const knopf = element('button', { type: 'button', className: 'lc-aktion', textContent: BESCHRIFTUNG[aktion] });
     knopf.dataset.aktion = aktion;
     return knopf;
   });
-  return element('div', { className: 'lc-aktionen' }, knoepfe);
+  const leiste = element('div', { className: 'lc-aktionen', id: `lc-aktionen-${zeit}` }, knoepfe);
+  const schalter = element('button', { type: 'button', className: 'lc-aktionen-schalter', textContent: '⋯' });
+  schalter.setAttribute('aria-label', 'Aktionen');
+  schalter.setAttribute('aria-expanded', 'false');
+  schalter.setAttribute('aria-controls', leiste.id);
+  return [schalter, leiste];
 }
 
 // Was eine Nachricht zeigt (R00041 F0134, ADR-0048 Regel 4): ihren Text und — bearbeitet — die Marke „bearbeitet“ mit

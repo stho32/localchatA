@@ -106,10 +106,11 @@ async function browserOeffnen(browser, { ohneWorker = false, geraet = { viewport
   return { kontext, page, fehler: fehlerSammeln(page, sammeln) };
 }
 
-/// Sendet im Browser und wartet auf die Bestätigung; → die Zeit der Nachricht.
+/// Sendet im Browser über den Knopf „Senden“ (auf Touch-Geräten macht Enter eine Zeile) und wartet auf die Bestätigung;
+/// → die Zeit der Nachricht.
 async function imBrowserSenden(page, text) {
   await eingabe(page).fill(text);
-  await eingabe(page).press('Enter');
+  await page.locator('.lc-comp').getByRole('button', { name: 'Senden', exact: true }).click();
   const bestaetigt = page.getByRole('log').locator('.lc-msg:not(.lc-vorlaeufig)')
     .filter({ has: page.locator('.lc-body', { hasText: new RegExp(`^${text}$`) }) });
   await expect(bestaetigt).toHaveCount(1);
