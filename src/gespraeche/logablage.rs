@@ -77,9 +77,10 @@ pub trait Logablage: Send + Sync {
     /// Entfernt den Ordner des Gesprächs samt Inhalt — nur für den Rückbau eines eben angelegten.
     fn ordner_entfernen(&self, gespraech: &Gespraech) -> io::Result<()>;
 
-    /// Entfernt den Ordner eines Direktgesprächs nur, wenn er **leer** ist (`rmdir`, nie `remove_dir_all`): der
-    /// Rückbau eines Paars, dessen erstes Senden scheiterte (ADR-0055 Regel 4). Ist er nicht leer, geschieht
-    /// nichts und es ist ein Fehler.
+    /// Entfernt den Ordner eines Direktgesprächs nur, wenn er **leer** ist (`rmdir` von innen nach außen, nie
+    /// `remove_dir_all`; leere Unterordner wie `anhaenge/` zählen nicht): der Rückbau eines Paars, dessen erstes
+    /// Senden scheiterte (ADR-0055 Regel 4), und das Aufräumen der Pflege (Regel 10). Ist er nicht leer, geschieht
+    /// nichts und es ist ein Fehler (`DirectoryNotEmpty`).
     fn leeren_ordner_entfernen(&self, gespraech: &Gespraech) -> io::Result<()> {
         let _ = gespraech;
         Err(io::Error::new(
@@ -264,7 +265,20 @@ impl Logablage for Dateiablage {
     }
 
     fn leeren_ordner_entfernen(&self, gespraech: &Gespraech) -> io::Result<()> {
-        std::fs::remove_dir(self.ordner.join(gespraech.pfad()))
+        let Gespraech::Direkt(paar) = gespraech else {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "leere Ordner entfernen: nur Direktgespräche",
+            ));
+        };
+        let instanz = rustix::fs::open(
+            &self.ordner,
+            rustix::fs::OFlags::DIRECTORY
+                | rustix::fs::OFlags::CLOEXEC
+                | rustix::fs::OFlags::RDONLY,
+            rustix::fs::Mode::empty(),
+        )?;
+        super::paarordner::leer_entfernen(&instanz, paar)
     }
 
     fn direkt_uebergangen(&self) -> io::Result<Vec<String>> {
@@ -609,6 +623,127 @@ mod tests {
             "x",
         );
         assert_eq!(gekuerzt, Some(55));
+    }
+
+    const PAAR: &str = "direkt/a@10.0.0.1+c@10.0.0.2";
+
+    fn paar() -> Gespraech {
+        Gespraech::Direkt(Direktpaar::fuer_test("a@10.0.0.1", "c@10.0.0.2"))
+    }
+
+    /// Code-Review #13 F0172 Sollte 1 (wörtlich): Paarordner mit `anhaenge/2026-10-28/x.bin` →
+    /// `leeren_ordner_entfernen` ist ein Fehler, die Datei bleibt (Mutante `remove_dir_all`).
+    #[test]
+    fn ein_paarordner_mit_anhangdatei_wird_nie_entfernt_die_datei_bleibt() {
+        let wurzel = tempfile::tempdir().expect("Wegwerf-Ordner");
+        let datei = wurzel.path().join(PAAR).join("anhaenge/2026-10-28/x.bin");
+        fs::create_dir_all(datei.parent().expect("Tag")).expect("Ordner");
+        fs::write(&datei, b"anhang").expect("Datei");
+
+        let ergebnis = ohne_spur(wurzel.path()).leeren_ordner_entfernen(&paar());
+
+        assert!(ergebnis.is_err(), "{ergebnis:?}");
+        assert_eq!(fs::read(&datei).expect("Anhang bleibt"), b"anhang");
+    }
+
+    /// ADR-0055 Regel 10: von innen nach außen, nur leere Ordner — ein Paarordner, in dem nur noch die leeren Ordner
+    /// `anhaenge/` und `anhaenge/<tag>/` stehen, verschwindet ganz; `direkt/` bleibt.
+    #[test]
+    fn ein_paarordner_mit_nur_leeren_unterordnern_verschwindet_von_innen_nach_aussen() {
+        let wurzel = tempfile::tempdir().expect("Wegwerf-Ordner");
+        fs::create_dir_all(wurzel.path().join(PAAR).join("anhaenge/2026-10-28")).expect("Ordner");
+
+        let ergebnis = ohne_spur(wurzel.path()).leeren_ordner_entfernen(&paar());
+
+        assert!(ergebnis.is_ok(), "{ergebnis:?}");
+        assert!(!wurzel.path().join(PAAR).exists());
+        assert!(wurzel.path().join("direkt").is_dir());
+    }
+
+    /// Fremddatei im Paarordner: Fehler, nichts entfernt — auch nicht der leere Ordner `anhaenge/` daneben.
+    #[test]
+    fn eine_fremddatei_haelt_den_paarordner_und_alles_darin() {
+        let wurzel = tempfile::tempdir().expect("Wegwerf-Ordner");
+        let ordner = wurzel.path().join(PAAR);
+        fs::create_dir_all(&ordner).expect("Paar");
+        fs::write(ordner.join("notiz.txt"), b"fremd").expect("Datei");
+        // Viele leere Geschwister: wie auch immer das Dateisystem die Einträge ordnet, ein Entfernen vor dem Prüfen
+        // erwischte einige davon, bevor es auf die Fremddatei stößt.
+        let leere: Vec<String> = std::iter::once("anhaenge".to_string())
+            .chain((0..12).map(|nummer| format!("leer{nummer:02}")))
+            .collect();
+        for name in &leere {
+            fs::create_dir(ordner.join(name)).expect("leerer Ordner");
+        }
+
+        let ergebnis = ohne_spur(wurzel.path()).leeren_ordner_entfernen(&paar());
+
+        assert!(ergebnis.is_err(), "{ergebnis:?}");
+        assert_eq!(
+            fs::read(ordner.join("notiz.txt")).expect("Fremddatei"),
+            b"fremd"
+        );
+        for name in &leere {
+            assert!(ordner.join(name).is_dir(), "{name} bleibt");
+        }
+    }
+
+    /// Ein Symlink wird nicht gefolgt: weder `anhaenge` als Link noch der Paarordner als Link, ein Link als Tagesdatei
+    /// zählt als Inhalt; die Ziele bleiben, wie sie sind.
+    #[test]
+    fn links_werden_nie_gefolgt_und_halten_den_paarordner() {
+        let wurzel = tempfile::tempdir().expect("Wegwerf-Ordner");
+        let ziel = tempfile::tempdir().expect("Ziel");
+        fs::create_dir_all(ziel.path().join("leer/unter")).expect("Ziel mit leerem Unterordner");
+        fs::write(ziel.path().join("fremd.log"), b"nicht anfassen").expect("Ziel-Datei");
+        let ordner = wurzel.path().join(PAAR);
+        fs::create_dir_all(&ordner).expect("Paar");
+        std::os::unix::fs::symlink(ziel.path().join("leer"), ordner.join("anhaenge"))
+            .expect("Link anhaenge");
+        let ablage = ohne_spur(wurzel.path());
+
+        let mit_linkordner = ablage.leeren_ordner_entfernen(&paar());
+
+        assert!(mit_linkordner.is_err(), "{mit_linkordner:?}");
+        assert!(
+            ziel.path().join("leer").is_dir(),
+            "Ziel von anhaenge bleibt"
+        );
+        fs::remove_file(ordner.join("anhaenge")).expect("Link weg");
+        std::os::unix::fs::symlink(ziel.path().join("fremd.log"), ordner.join("2026-10-22.log"))
+            .expect("Link als Tagesdatei");
+
+        let mit_linkdatei = ablage.leeren_ordner_entfernen(&paar());
+
+        assert!(mit_linkdatei.is_err(), "{mit_linkdatei:?}");
+        assert!(ordner.join("2026-10-22.log").symlink_metadata().is_ok());
+        fs::remove_file(ordner.join("2026-10-22.log")).expect("Link weg");
+        fs::remove_dir(&ordner).expect("Paar leer");
+        std::os::unix::fs::symlink(ziel.path().join("leer"), &ordner).expect("Link als Paarordner");
+
+        let als_link = ablage.leeren_ordner_entfernen(&paar());
+
+        assert!(als_link.is_err(), "{als_link:?}");
+        assert!(
+            ziel.path().join("leer/unter").is_dir(),
+            "Ziel des Paarordners bleibt samt Inhalt"
+        );
+        assert_eq!(
+            fs::read(ziel.path().join("fremd.log")).expect("Ziel-Datei"),
+            b"nicht anfassen"
+        );
+    }
+
+    /// Nur Direktgespräche: ein Channel-Ordner wird so nie entfernt.
+    #[test]
+    fn ein_channel_ordner_wird_nicht_entfernt() {
+        let wurzel = tempfile::tempdir().expect("Wegwerf-Ordner");
+        let (ablage, allgemein) = allgemein(wurzel.path());
+
+        let ergebnis = ablage.leeren_ordner_entfernen(&allgemein);
+
+        assert!(ergebnis.is_err(), "{ergebnis:?}");
+        assert!(wurzel.path().join("channels/allgemein").is_dir());
     }
 
     #[test]

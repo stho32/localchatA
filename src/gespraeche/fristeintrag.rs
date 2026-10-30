@@ -99,6 +99,22 @@ pub fn pflege_eintrag(bericht: &Pflegebericht) -> Eintrag {
             )
             .mit(Schluessel::Ursache, ursache),
         ),
+        Pflegebericht::OrdnerEntfernt { gespraech, anlass } => Eintrag::neu(
+            Stufe::Debug,
+            Bereich::Frist,
+            "Leerer Ordner entfernt",
+            mit_anlass(bezug(Kontext::neu(), gespraech), anlass),
+        ),
+        Pflegebericht::OrdnerNichtEntfernt {
+            gespraech,
+            anlass,
+            ursache,
+        } => Eintrag::neu(
+            Stufe::Error,
+            Bereich::Frist,
+            "Leerer Ordner nicht entfernt — erneuter Versuch beim nächsten Anlass",
+            mit_anlass(bezug(Kontext::neu(), gespraech), anlass).mit(Schluessel::Ursache, ursache),
+        ),
         Pflegebericht::Gesperrt {
             gespraech,
             datei,
@@ -331,6 +347,35 @@ mod tests {
             "{zeile}"
         );
         assert!(!zeile.contains("channel="), "{zeile}");
+    }
+
+    /// ADR-0055 Regel 11: das Entfernen eines leeren Paarordners steht auf DEBUG, ein gescheitertes als ERROR mit
+    /// `ursache`; beide nennen den Ordner und den Anlass, nie einen Channel.
+    #[test]
+    fn das_entfernen_eines_leeren_paarordners_ist_debug_und_ein_fehler_ist_error() {
+        let paar = || {
+            let anna = Kennung::bilden("anna@10.0.0.7").expect("Kennung");
+            crate::gespraeche::Direktpaar::bilden(&anna, &beta()).expect("Paar")
+        };
+
+        let entfernt = ab_der_stufe(&pflege_eintrag(&Pflegebericht::OrdnerEntfernt {
+            gespraech: Pflegegespraech::Direkt(paar()),
+            anlass: Pflegeanlass::Tageswechsel,
+        }));
+        let nicht = ab_der_stufe(&pflege_eintrag(&Pflegebericht::OrdnerNichtEntfernt {
+            gespraech: Pflegegespraech::Direkt(paar()),
+            anlass: Pflegeanlass::Start,
+            ursache: "Permission denied (os error 13)".into(),
+        }));
+
+        assert_eq!(
+            entfernt,
+            "DEBUG frist Leerer Ordner entfernt | ordner=direkt/anna@10.0.0.7+beta@127.0.0.1 grund=tageswechsel"
+        );
+        assert_eq!(
+            nicht,
+            "ERROR frist Leerer Ordner nicht entfernt — erneuter Versuch beim nächsten Anlass | ordner=direkt/anna@10.0.0.7+beta@127.0.0.1 grund=start ursache=\"Permission denied (os error 13)\""
+        );
     }
 
     fn nicht_entfallen(anlass: Pflegeanlass) -> Pflegebericht {

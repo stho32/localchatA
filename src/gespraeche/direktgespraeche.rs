@@ -60,8 +60,8 @@ impl Gespraeche {
     }
 
     /// Sendet im Direktgespräch des Paars; das erste Senden legt es an (ADR-0055 Regel 4). Scheitert dieses erste
-    /// Senden (Quote, Bezug, Anhang, Platte), wird ein dabei entstandener leerer Ordner wieder entfernt — ein Paar
-    /// ohne Nachricht belegt nichts. Jede Prüfung davor (Teilnehmerliste, Grenzen) macht der Aufrufer.
+    /// Senden (Quote, Bezug, Anhang, Platte) oder wird es nur wiederholt, wird ein dabei entstandener leerer Ordner
+    /// wieder entfernt — ein Paar ohne Nachricht belegt nichts. Jede Prüfung davor (Teilnehmerliste, Grenzen) macht der Aufrufer.
     pub fn direkt_senden(
         &self,
         paar: &Direktpaar,
@@ -78,7 +78,9 @@ impl Gespraeche {
                 schreibend(&self.verzeichnis).verlaeufe.remove(&gespraech);
             }
             let ergebnis = self.senden_sendung(&gespraech, von, art, sendung);
-            if neu && ergebnis.is_err() {
+            // Was keinen Satz schrieb (Fehler, aber auch `Wiederholt` für ein Paar, das die Pflege inzwischen entfernt
+            // hat), lässt keinen leeren Ordner zurück.
+            if neu && !matches!(ergebnis, Ok(Gesendet::Neu(_))) {
                 self.direkt_zurueckbauen(&gespraech);
             }
             // Ein anderer Sender hat das eben angelegte Paar wegen seines gescheiterten ersten Sendens
@@ -475,5 +477,107 @@ mod tests {
         );
         assert!(!gespraeche_a.direkt_bekannt(&paar()));
         assert!(!gespraeche_b.direkt_bekannt(&paar()));
+    }
+
+    /// Code-Review #13 F0172 (Hinweis zu F0175): ein Wiederholschlüssel überlebt das Paar (10 Minuten), das die Pflege
+    /// samt Ordner entfernt hat; dasselbe Senden legt das Paar neu an und antwortet `Wiederholt`, ohne einen Satz zu
+    /// schreiben — den eben angelegten leeren Ordner nimmt `direkt_senden` zurück, er belegte sonst einen Platz der
+    /// Grenzen bis zur nächsten Pflege.
+    #[test]
+    fn eine_wiederholung_nach_entferntem_paar_laesst_keinen_leeren_ordner_stehen() {
+        let wurzel = tempfile::tempdir().expect("Wegwerf-Ordner");
+        let gespraeche = laden(wurzel.path());
+        let mit_schluessel = || Sendung {
+            schluessel: Some("k1"),
+            ..sendung("einmal")
+        };
+        let erste = gespraeche.direkt_senden(&paar(), &anna(), Art::Agent, mit_schluessel());
+        assert!(matches!(erste, Ok(Gesendet::Neu(_))), "{erste:?}");
+        let berichte = gespraeche.pflegen(
+            chrono::NaiveDate::from_ymd_opt(2026, 11, 5).expect("Tag"),
+            crate::gespraeche::Pflegeanlass::Tageswechsel,
+        );
+        assert!(!gespraeche.direkt_bekannt(&paar()), "{berichte:?}");
+        assert!(!wurzel.path().join("direkt").join(PAARORDNER).exists());
+
+        let zweite = gespraeche.direkt_senden(&paar(), &anna(), Art::Agent, mit_schluessel());
+
+        assert!(matches!(zweite, Ok(Gesendet::Wiederholt(_))), "{zweite:?}");
+        assert!(!gespraeche.direkt_bekannt(&paar()));
+        assert!(
+            !wurzel.path().join("direkt").join(PAARORDNER).exists(),
+            "kein leerer Paarordner"
+        );
+    }
+
+    /// Eine Ablage, die jeden Ordner „leer“ nennt: die Leer-Prüfung des Rückbaus muss vom Verlauf kommen, nicht nur
+    /// vom `rmdir` (Code-Review #13 F0172 Sollte 1, Mutante „Leer-Prüfung weg“).
+    struct LeerLuegner(Arc<crate::gespraeche::Speicherablage>);
+
+    impl crate::gespraeche::Logablage for LeerLuegner {
+        fn gespraeche(&self) -> std::io::Result<Vec<Gespraech>> {
+            self.0.gespraeche()
+        }
+        fn tage(&self, gespraech: &Gespraech) -> std::io::Result<Vec<chrono::NaiveDate>> {
+            self.0.tage(gespraech)
+        }
+        fn lesen(&self, gespraech: &Gespraech, tag: chrono::NaiveDate) -> std::io::Result<Vec<u8>> {
+            self.0.lesen(gespraech, tag)
+        }
+        fn anhaengen(
+            &self,
+            gespraech: &Gespraech,
+            tag: chrono::NaiveDate,
+            satz: &str,
+        ) -> std::io::Result<crate::gespraeche::Angehaengt> {
+            self.0.anhaengen(gespraech, tag, satz)
+        }
+        fn channel_ordner_anlegen(&self, gespraech: &Gespraech) -> std::io::Result<()> {
+            self.0.channel_ordner_anlegen(gespraech)
+        }
+        fn einstellungen_schreiben(
+            &self,
+            gespraech: &Gespraech,
+            bytes: &[u8],
+        ) -> std::io::Result<()> {
+            self.0.einstellungen_schreiben(gespraech, bytes)
+        }
+        fn einstellungen_lesen(&self, gespraech: &Gespraech) -> std::io::Result<Option<Vec<u8>>> {
+            self.0.einstellungen_lesen(gespraech)
+        }
+        fn ordner_entfernen(&self, gespraech: &Gespraech) -> std::io::Result<()> {
+            self.0.ordner_entfernen(gespraech)
+        }
+        fn leeren_ordner_entfernen(&self, _: &Gespraech) -> std::io::Result<()> {
+            Ok(())
+        }
+        fn tag_entfernen(
+            &self,
+            gespraech: &Gespraech,
+            tag: chrono::NaiveDate,
+        ) -> std::io::Result<()> {
+            self.0.tag_entfernen(gespraech, tag)
+        }
+    }
+
+    #[test]
+    fn der_rueckbau_nimmt_ein_paar_mit_nachricht_nie_zurueck_auch_wenn_die_ablage_leer_meldet() {
+        let uhr = GestellteUhr::neu(
+            chrono::DateTime::parse_from_rfc3339("2026-10-28T12:00:00.000+01:00").expect("Zeit"),
+        );
+        let gespraeche = Gespraeche::laden(
+            Arc::new(LeerLuegner(Arc::new(
+                crate::gespraeche::Speicherablage::neu(),
+            ))),
+            Arc::new(uhr),
+        )
+        .expect("geladen");
+        gespraeche
+            .direkt_senden(&paar(), &anna(), Art::Agent, sendung("bleibt"))
+            .expect("gesendet");
+
+        gespraeche.direkt_zurueckbauen(&Gespraech::Direkt(paar()));
+
+        assert!(gespraeche.direkt_besteht(&paar()), "Nachricht im Verlauf");
     }
 }

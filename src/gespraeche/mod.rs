@@ -24,6 +24,7 @@ mod logablage;
 pub mod logformat;
 pub mod nachholen;
 pub mod nachricht_loeschen;
+mod paarordner;
 mod pflege;
 pub mod platte;
 pub mod quote;

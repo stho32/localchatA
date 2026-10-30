@@ -75,6 +75,18 @@ pub enum Pflegebericht {
         datei: String,
         ziel: NaiveDate,
     },
+    /// Der leere Ordner eines Direktgesprächs ist entfernt (ADR-0055 Regel 10): nach dem letzten Tag, nur `rmdir`.
+    OrdnerEntfernt {
+        gespraech: Pflegegespraech,
+        anlass: Pflegeanlass,
+    },
+    /// Der leere Ordner eines Direktgesprächs ließ sich nicht entfernen (nicht: weil etwas Fremdes darin liegt — das
+    /// ist gewollt und still); jede nächste Pflege versucht es erneut.
+    OrdnerNichtEntfernt {
+        gespraech: Pflegegespraech,
+        anlass: Pflegeanlass,
+        ursache: String,
+    },
     /// Die Einstellungen sind defekt — in diesem Channel entfällt nichts (ADR-0032 Regel 5).
     Gesperrt {
         gespraech: Pflegegespraech,
@@ -150,14 +162,61 @@ impl Gespraeche {
         else {
             return Vec::new();
         };
-        self.gespraech_pflegen(
+        let mut berichte = self.gespraech_pflegen(
             &gespraech,
             Pflegegespraech::Direkt(paar.clone()),
             &verlauf,
             DIREKT_FRIST_TAGE,
             heute,
             anlass,
-        )
+        );
+        drop(verlauf);
+        berichte.extend(self.direkt_aufraeumen(paar, anlass));
+        berichte
+    }
+
+    /// Ein Paarordner ohne Tag und ohne Nachricht verschwindet (ADR-0055 Regel 10, E17): unter der Schreibsperre des
+    /// Verzeichnisses, nur wenn niemand sonst den Verlauf hält — ein Sender, der das Paar eben angelegt hat und noch
+    /// nicht schreibt, hat ihn schon (Arc geklont unter der Lesesperre) und behält seinen Ordner —, nur `rmdir`; liegt
+    /// etwas Fremdes darin, bleibt der Ordner und zählt weiter für die Grenzen. Ein Sender, der das Nachsehen hat,
+    /// legt neu an (`direkt_senden`).
+    fn direkt_aufraeumen(&self, paar: &Direktpaar, anlass: &Pflegeanlass) -> Option<Pflegebericht> {
+        let gespraech = Gespraech::Direkt(paar.clone());
+        let mut verzeichnis = schreibend(&self.verzeichnis);
+        let verlauf = verzeichnis.verlaeufe.get(&gespraech)?;
+        if std::sync::Arc::strong_count(verlauf) > 1 {
+            return None;
+        }
+        {
+            let verlauf = sperren(verlauf);
+            if verlauf.nachrichten() > 0 || verlauf.bytes() > 0 {
+                return None;
+            }
+        }
+        let bericht = |ursache: Option<String>| {
+            let gespraech = Pflegegespraech::Direkt(paar.clone());
+            let anlass = anlass.clone();
+            match ursache {
+                None => Pflegebericht::OrdnerEntfernt { gespraech, anlass },
+                Some(ursache) => Pflegebericht::OrdnerNichtEntfernt {
+                    gespraech,
+                    anlass,
+                    ursache,
+                },
+            }
+        };
+        match self.ablage.leeren_ordner_entfernen(&gespraech) {
+            Ok(()) => {
+                verzeichnis.verlaeufe.remove(&gespraech);
+                Some(bericht(None))
+            }
+            Err(fehler) if fehler.kind() == std::io::ErrorKind::NotFound => {
+                verzeichnis.verlaeufe.remove(&gespraech);
+                None
+            }
+            Err(fehler) if fehler.kind() == std::io::ErrorKind::DirectoryNotEmpty => None,
+            Err(fehler) => Some(bericht(Some(fehler.to_string()))),
+        }
     }
 
     /// Ein Channel: Frist und Verlauf lesend nachschlagen, dann wie jedes Gespräch.
@@ -334,6 +393,8 @@ impl FristGesetzt {
                 | Pflegebericht::Zurueckgestellt { .. }
                 | Pflegebericht::AnhaengeNichtEntfernt { .. }
                 | Pflegebericht::TageNichtErmittelt { .. }
+                | Pflegebericht::OrdnerEntfernt { .. }
+                | Pflegebericht::OrdnerNichtEntfernt { .. }
                 | Pflegebericht::Gesperrt { .. } => None,
             })
             .fold(
@@ -1051,6 +1112,84 @@ mod tests {
             crate::gespraeche::Logablage::tage(ablage.as_ref(), &direkt).expect("Tage"),
             vec![tag("2026-10-24"), tag("2026-10-30")]
         );
+    }
+
+    fn direkt_paar() -> crate::gespraeche::Direktpaar {
+        crate::gespraeche::Direktpaar::fuer_test("a@10.0.0.1", "b@10.0.0.2")
+    }
+
+    /// R00050 B0778 (ADR-0055 Regel 10, E17): nach dem letzten Tag ist der Paarordner leer und verschwindet in
+    /// derselben Pflege — der Bericht nennt erst das Entfallen, dann das Entfernen; das Paar ist danach unbekannt und
+    /// zählt nicht mehr.
+    #[test]
+    fn nach_dem_letzten_tag_wird_der_leere_paarordner_entfernt_und_vergessen() {
+        let ablage = Arc::new(Speicherablage::neu());
+        let direkt = Gespraech::Direkt(direkt_paar());
+        ablage.tag_setzen(&direkt, tag("2026-10-23"), &satz("2026-10-23"));
+        let gespraeche = geladen(&ablage);
+
+        let berichte = gespraeche.pflegen(tag("2026-10-30"), Pflegeanlass::Tageswechsel);
+
+        assert_eq!(berichte.len(), 2, "{berichte:?}");
+        assert!(matches!(&berichte[0], Pflegebericht::Entfallen { .. }));
+        assert_eq!(
+            berichte[1],
+            Pflegebericht::OrdnerEntfernt {
+                gespraech: Pflegegespraech::Direkt(direkt_paar()),
+                anlass: Pflegeanlass::Tageswechsel,
+            }
+        );
+        assert!(!gespraeche.direkt_bekannt(&direkt_paar()));
+        assert!(
+            crate::gespraeche::Logablage::gespraeche(ablage.as_ref())
+                .expect("Gespräche")
+                .is_empty()
+        );
+    }
+
+    /// Ein Ordner, der noch einen Tag hat, bleibt; einer ohne Tag, aber mit Fremdem darin, bleibt still (kein
+    /// Bericht) und zählt weiter — hier die Speicherablage, die „nicht leer“ meldet.
+    #[test]
+    fn ein_paar_mit_tag_in_der_frist_bleibt_und_ein_nicht_leerer_ordner_bleibt_still() {
+        let ablage = Arc::new(Speicherablage::neu());
+        let direkt = Gespraech::Direkt(direkt_paar());
+        ablage.tag_setzen(&direkt, tag("2026-10-29"), &satz("2026-10-29"));
+        ablage.tag_setzen(&direkt, tag("2026-10-23"), &satz("2026-10-23"));
+        ablage.entfernen_scheitern(&direkt, tag("2026-10-23"));
+        let gespraeche = geladen(&ablage);
+
+        let berichte = gespraeche.pflegen(tag("2026-10-30"), Pflegeanlass::Tageswechsel);
+
+        assert!(
+            berichte
+                .iter()
+                .all(|bericht| !matches!(bericht, Pflegebericht::OrdnerEntfernt { .. })),
+            "{berichte:?}"
+        );
+        assert!(gespraeche.direkt_bekannt(&direkt_paar()));
+    }
+
+    /// Ein Sender, der das Paar eben angelegt hat (er hält den Verlauf schon), behält seinen Ordner: die Pflege
+    /// räumt nur auf, was niemand hält (Mutante „Halter nicht beachtet“) — und holt es nach, sobald er fertig ist.
+    #[test]
+    fn die_pflege_raeumt_kein_paar_ab_das_ein_sender_gerade_haelt() {
+        let ablage = Arc::new(Speicherablage::neu());
+        ablage.gespraech_anlegen(&Gespraech::Direkt(direkt_paar()));
+        let gespraeche = geladen(&ablage);
+        let haelt = lesend(&gespraeche.verzeichnis)
+            .verlaeufe
+            .get(&Gespraech::Direkt(direkt_paar()))
+            .cloned()
+            .expect("Verlauf");
+
+        let waehrend = gespraeche.pflegen(tag("2026-10-30"), Pflegeanlass::Tageswechsel);
+
+        assert!(waehrend.is_empty(), "{waehrend:?}");
+        assert!(gespraeche.direkt_bekannt(&direkt_paar()));
+        drop(haelt);
+        let danach = gespraeche.pflegen(tag("2026-10-30"), Pflegeanlass::Tageswechsel);
+        assert_eq!(danach.len(), 1, "{danach:?}");
+        assert!(!gespraeche.direkt_bekannt(&direkt_paar()));
     }
 
     /// R00019 F0063, erster Test aus ADR-0031 Ergänzung R00019 (Speicherablage „Auflisten scheitert“, Frist 30):

@@ -205,7 +205,10 @@ impl Logablage for Speicherablage {
                 innen.gespraeche.remove(gespraech);
                 Ok(())
             }
-            Some(_) => Err(io::Error::other("Ordner nicht leer (Speicher-Logablage)")),
+            Some(_) => Err(io::Error::new(
+                io::ErrorKind::DirectoryNotEmpty,
+                "Ordner nicht leer (Speicher-Logablage)",
+            )),
         }
     }
 
