@@ -6,7 +6,7 @@ mod gemeinsam;
 
 use gemeinsam::Absender;
 use gemeinsam::anhaenge::{anmelden, hochladen, id, starten};
-use gemeinsam::dateien::{jpeg, jpeg_segment};
+use gemeinsam::dateien::{jpeg, jpeg_segment, png_chunk};
 use gemeinsam::senden::{beitreten, ordner, roh_senden};
 use serde_json::{Value, json};
 
@@ -207,5 +207,62 @@ async fn jpeg_traeger_ohne_ort_farbe_und_hdr_bleiben() {
         art_und_masse(&geliefert.anhang),
         ("image/jpeg".to_string(), json!(3000), json!(4000)),
         "Orientierung 6 bleibt"
+    );
+}
+
+/// PNG 64 × 48 mit den Chunks `davor` hinter `IHDR` und einem `IDAT`.
+fn png_mit(davor: &[(&[u8; 4], Vec<u8>)]) -> Vec<u8> {
+    let mut bytes = b"\x89PNG\r\n\x1a\n".to_vec();
+    png_chunk(
+        &mut bytes,
+        b"IHDR",
+        &[0, 0, 0, 64, 0, 0, 0, 48, 8, 2, 0, 0, 0],
+    );
+    for (typ, daten) in davor {
+        png_chunk(&mut bytes, typ, daten);
+    }
+    png_chunk(&mut bytes, b"IDAT", &[0x78, 0x9c, 0x63, 0, 0, 0, 1, 0, 1]);
+    png_chunk(&mut bytes, b"IEND", &[]);
+    bytes
+}
+
+/// ADR-0047 B2 P3 und P8 (PNG-Teil) (B0642): GPS nur in `caBX` → ausgeliefert ohne Ort, `IDAT` byte-gleich;
+/// `iCCP`, `cICP`, `mDCV`, `cLLI`, `pHYs`, APNG (`acTL`/`fcTL`/`fdAT`) → byte-gleich, Art und Maße wie vorher.
+#[tokio::test]
+async fn png_traeger_ohne_ort_farbe_hdr_und_animation_bleiben() {
+    let lauf = Lauf::neu().await;
+    let original = png_mit(&[(b"caBX", [&b"jumb c2pa stds.exif "[..], &ort()].concat())]);
+
+    let geliefert = lauf.ausliefern("p3-cabx.png", &original).await;
+
+    ohne_ort("p3-cabx.png", &geliefert.bytes);
+    let idat = original.len() - 12 - 21;
+    assert_eq!(geliefert.bytes[idat..], original[idat..], "IDAT und IEND");
+    assert_eq!(
+        art_und_masse(&geliefert.anhang),
+        ("image/png".to_string(), json!(64), json!(48))
+    );
+
+    let mut fctl = 0u32.to_be_bytes().to_vec();
+    fctl.extend([
+        0, 0, 0, 64, 0, 0, 0, 48, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 10, 0, 0,
+    ]);
+    let original = png_mit(&[
+        (b"iCCP", b"Profil\0\0Farbe".to_vec()),
+        (b"cICP", vec![9, 16, 0, 1]),
+        (b"mDCV", vec![1; 24]),
+        (b"cLLI", vec![0, 0, 3, 232, 0, 0, 1, 144]),
+        (b"pHYs", vec![0, 0, 11, 19, 0, 0, 11, 19, 1]),
+        (b"acTL", vec![0, 0, 0, 2, 0, 0, 0, 0]),
+        (b"fcTL", fctl),
+        (b"fdAT", vec![0, 0, 0, 1, 0x78, 0x9c]),
+    ]);
+
+    let geliefert = lauf.ausliefern("p8-qualitaet.png", &original).await;
+
+    assert_eq!(geliefert.bytes, original);
+    assert_eq!(
+        art_und_masse(&geliefert.anhang),
+        ("image/png".to_string(), json!(64), json!(48))
     );
 }

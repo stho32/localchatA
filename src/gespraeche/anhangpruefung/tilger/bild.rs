@@ -110,7 +110,14 @@ pub fn jpeg(port: &Port<'_>, start: u64, ende: u64, zaehler: &mut Zaehler) -> Er
     Ok(JpegBild { sos, mpf })
 }
 
-/// PNG bis `IEND`: `eXIf` → minimales EXIF; `tEXt`, `zTXt`, `iTXt`, `tIME` → Typ `lcAx`, Inhalt genullt; CRC neu.
+/// Erlaubnisliste PNG (ADR-0047 Ergänzung „Karte #9 Security-Review B2“ Regel 2): Struktur, Farbe, HDR, Animation.
+const PNG_ERLAUBT: &[&[u8; 4]] = &[
+    b"IHDR", b"PLTE", b"IDAT", b"IEND", b"tRNS", b"cHRM", b"gAMA", b"iCCP", b"sBIT", b"sRGB",
+    b"cICP", b"mDCV", b"cLLI", b"bKGD", b"hIST", b"pHYs", b"acTL", b"fcTL", b"fdAT",
+];
+
+/// PNG bis `IEND`: `eXIf` → minimales EXIF; jeder Chunk außerhalb der Erlaubnisliste → Typ `lcAx`, Inhalt genullt
+/// (nie gelesen), CRC neu.
 /// `IDAT`/`fdAT` zählen nicht als Block und werden über ihren Kopf übersprungen.
 pub fn png(port: &Port<'_>, zaehler: &mut Zaehler) -> Ergebnis<()> {
     let mut kette = port.kette();
@@ -136,14 +143,14 @@ pub fn png(port: &Port<'_>, zaehler: &mut Zaehler) -> Ergebnis<()> {
                 let pruefsumme = crc32(&[&typ[..], &neu[..]], 0);
                 kette.schreiben(daten + laenge, &pruefsumme.to_be_bytes())?;
             }
-            b"tEXt" | b"zTXt" | b"iTXt" | b"tIME" => {
+            b"IEND" => break,
+            typ if PNG_ERLAUBT.contains(&typ) => {}
+            _ => {
                 kette.schreiben(pos + 4, b"lcAx")?;
                 kette.nullen(daten, laenge)?;
                 let pruefsumme = crc32(&[b"lcAx"], laenge);
                 kette.schreiben(daten + laenge, &pruefsumme.to_be_bytes())?;
             }
-            b"IEND" => break,
-            _ => {}
         }
         pos = daten + laenge + 4;
     }
@@ -599,6 +606,91 @@ mod tests {
             pos += 12 + laenge;
         }
         assert!(zaehler.ort);
+    }
+
+    /// Die Chunks eines PNG als `(Typ, ganzer Chunk)`.
+    fn chunks(bytes: &[u8]) -> Vec<([u8; 4], Vec<u8>)> {
+        let mut pos = 8;
+        let mut alle = Vec::new();
+        while pos + 12 <= bytes.len() {
+            let laenge =
+                u32::from_be_bytes(bytes[pos..pos + 4].try_into().expect("Länge")) as usize;
+            let typ: [u8; 4] = bytes[pos + 4..pos + 8].try_into().expect("Typ");
+            alle.push((typ, bytes[pos..pos + 12 + laenge].to_vec()));
+            pos += 12 + laenge;
+        }
+        alle
+    }
+
+    /// ADR-0047 B2 P3 (B0642): Ort nur in `caBX`, dazu `tEXt`, privater `iDOT`, unbekannter kritischer `ABCD` → je
+    /// `lcAx`, Inhalt genullt, CRC stimmt; `IDAT` byte-gleich.
+    #[test]
+    fn jeder_nicht_erlaubte_png_chunk_wird_lcax_mit_nullen() {
+        let ihdr = chunk(b"IHDR", &[0, 0, 0, 2, 0, 0, 0, 1, 8, 2, 0, 0, 0]);
+        let idat = chunk(b"IDAT", b"Bilddaten");
+        let original = [
+            PNG_SIGNATUR.to_vec(),
+            ihdr.clone(),
+            chunk(b"caBX", &[&b"jumb c2pa stds.exif "[..], &ort()].concat()),
+            chunk(b"iDOT", &ort()),
+            chunk(b"ABCD", &ort()),
+            idat.clone(),
+            chunk(b"IEND", b""),
+        ]
+        .concat();
+
+        let (getilgt, _, _) = tilgen(original.clone(), png);
+
+        assert_eq!(getilgt.len(), original.len());
+        assert!(ohne_ort(&getilgt), "Ort bleibt");
+        let typen: Vec<[u8; 4]> = chunks(&getilgt).iter().map(|(typ, _)| *typ).collect();
+        assert_eq!(
+            typen,
+            vec![*b"IHDR", *b"lcAx", *b"lcAx", *b"lcAx", *b"IDAT", *b"IEND"]
+        );
+        for (typ, ganz) in chunks(&getilgt) {
+            let daten = &ganz[8..ganz.len() - 4];
+            let crc = u32::from_be_bytes(ganz[ganz.len() - 4..].try_into().expect("CRC"));
+            assert_eq!(crc, crc32(&[&typ, daten], 0));
+            if &typ == b"lcAx" {
+                assert!(daten.iter().all(|b| *b == 0));
+            }
+        }
+        assert!(enthaelt(&getilgt, &idat) && enthaelt(&getilgt, &ihdr));
+    }
+
+    /// ADR-0047 B2 P8 (PNG-Teil): `iCCP`, `cICP`, `mDCV`, `cLLI`, `pHYs`, APNG (`acTL`/`fcTL`/`fdAT`) und die übrigen
+    /// erlaubten Chunks bleiben byte-gleich.
+    #[test]
+    fn erlaubte_png_chunks_bleiben_byte_gleich() {
+        let erlaubt: Vec<Vec<u8>> = [
+            &b"IHDR"[..],
+            b"PLTE",
+            b"tRNS",
+            b"cHRM",
+            b"gAMA",
+            b"iCCP",
+            b"sBIT",
+            b"sRGB",
+            b"cICP",
+            b"mDCV",
+            b"cLLI",
+            b"bKGD",
+            b"hIST",
+            b"pHYs",
+            b"acTL",
+            b"fcTL",
+            b"IDAT",
+            b"fdAT",
+        ]
+        .iter()
+        .map(|typ| chunk(typ, &[&typ[..], b" Inhalt"].concat()))
+        .collect();
+        let original = [PNG_SIGNATUR.to_vec(), erlaubt.concat(), chunk(b"IEND", b"")].concat();
+
+        let (getilgt, _, _) = tilgen(original.clone(), png);
+
+        assert_eq!(getilgt, original);
     }
 
     #[test]
