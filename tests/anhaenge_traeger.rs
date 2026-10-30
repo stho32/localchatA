@@ -266,3 +266,103 @@ async fn png_traeger_ohne_ort_farbe_hdr_und_animation_bleiben() {
         ("image/png".to_string(), json!(64), json!(48))
     );
 }
+
+fn webp_teil(typ: &[u8; 4], daten: &[u8]) -> Vec<u8> {
+    let mut bytes = typ.to_vec();
+    bytes.extend((daten.len() as u32).to_le_bytes());
+    bytes.extend(daten);
+    if daten.len() % 2 == 1 {
+        bytes.push(0);
+    }
+    bytes
+}
+
+/// WebP 64 × 48 (`VP8X` mit `flaggen`) mit den Chunks dahinter.
+fn webp_mit(flaggen: u8, teile: &[Vec<u8>]) -> Vec<u8> {
+    let vp8x = webp_teil(b"VP8X", &[flaggen, 0, 0, 0, 63, 0, 0, 47, 0, 0]);
+    let inhalt = [&b"WEBP"[..], &vp8x, &teile.concat()].concat();
+    [&b"RIFF"[..], &(inhalt.len() as u32).to_le_bytes(), &inhalt].concat()
+}
+
+/// GIF 64 × 48 mit den Erweiterungen vor zwei Bildern.
+fn gif_mit(erweiterungen: &[u8]) -> Vec<u8> {
+    let mut bytes = b"GIF89a\x40\0\x30\0\x80\0\0\0\0\0\xFF\xFF\xFF".to_vec();
+    bytes.extend(erweiterungen);
+    for _ in 0..2 {
+        bytes.extend(b"\x21\xF9\x04\x04\x0a\0\0\0");
+        bytes.extend(b"\x2C\0\0\0\0\x40\0\x30\0\0\x02\x02\x44\x01\0");
+    }
+    bytes.push(0x3B);
+    bytes
+}
+
+/// ADR-0047 B2 P7 und P8 (WebP-, GIF-Teil) (B0643): WebP mit `C2PA` und unbekanntem `ABCD` → ohne Ort; GIF mit
+/// Anwendung `ABCDEFGH123` → ohne Ort; WebP animiert mit `ICCP` und GIF animiert mit `NETSCAPE2.0` und
+/// `ICCRGBG1012` → byte-gleich, Art und Maße wie vorher.
+#[tokio::test]
+async fn webp_und_gif_traeger_ohne_ort_animation_und_farbe_bleiben() {
+    let lauf = Lauf::neu().await;
+    let vp8 = webp_teil(b"VP8 ", b"Bilddaten");
+    let original = webp_mit(
+        0,
+        &[
+            webp_teil(b"C2PA", &ort()),
+            webp_teil(b"ABCD", &ort()),
+            vp8.clone(),
+        ],
+    );
+    let geliefert = lauf.ausliefern("p7.webp", &original).await;
+    ohne_ort("p7.webp", &geliefert.bytes);
+    assert!(enthaelt(&geliefert.bytes, &vp8));
+    assert_eq!(
+        art_und_masse(&geliefert.anhang),
+        ("image/webp".to_string(), json!(64), json!(48))
+    );
+
+    let mut anwendung = b"\x21\xFF\x0bABCDEFGH123".to_vec();
+    anwendung.push(ort().len() as u8);
+    anwendung.extend(ort());
+    anwendung.push(0);
+    let original = gif_mit(&anwendung);
+    let geliefert = lauf.ausliefern("p7.gif", &original).await;
+    ohne_ort("p7.gif", &geliefert.bytes);
+    assert!(!enthaelt(&geliefert.bytes, b"ABCDEFGH"));
+    assert_eq!(
+        art_und_masse(&geliefert.anhang),
+        ("image/gif".to_string(), json!(64), json!(48))
+    );
+
+    let rahmen = |bild: &[u8]| {
+        let kopf = [0u8, 0, 0, 0, 0, 0, 63, 0, 0, 47, 0, 0, 100, 0, 0, 0];
+        webp_teil(b"ANMF", &[&kopf[..], &webp_teil(b"VP8 ", bild)].concat())
+    };
+    let original = webp_mit(
+        0x22,
+        &[
+            webp_teil(b"ICCP", b"Farbprofil"),
+            webp_teil(b"ANIM", &[0, 0, 0, 0, 0, 0]),
+            rahmen(b"Rahmen eins"),
+            rahmen(b"Rahmen zwei"),
+        ],
+    );
+    let geliefert = lauf.ausliefern("p8.webp", &original).await;
+    assert_eq!(geliefert.bytes, original);
+    assert_eq!(
+        art_und_masse(&geliefert.anhang),
+        ("image/webp".to_string(), json!(64), json!(48))
+    );
+
+    let original = gif_mit(
+        &[
+            &b"\x21\xFF\x0bNETSCAPE2.0\x03\x01\0\0\0"[..],
+            b"\x21\xFF\x0bICCRGBG1012\x0aFarbprofil\0",
+        ]
+        .concat(),
+    );
+    let geliefert = lauf.ausliefern("p8.gif", &original).await;
+    assert_eq!(geliefert.bytes, original);
+    assert_eq!(
+        art_und_masse(&geliefert.anhang),
+        ("image/gif".to_string(), json!(64), json!(48))
+    );
+}

@@ -157,7 +157,20 @@ pub fn png(port: &Port<'_>, zaehler: &mut Zaehler) -> Ergebnis<()> {
     kette.fertig()
 }
 
-/// WebP (`RIFF`…`WEBP`): `EXIF` → minimales EXIF; `XMP ` → `JUNK`, genullt, XMP-Bit in `VP8X` gelöscht.
+/// Erlaubnisliste WebP (ADR-0047 Ergänzung „Karte #9 Security-Review B2“ Regel 3); `EXIF` wird minimal.
+const WEBP_ERLAUBT: &[&[u8; 4]] = &[
+    b"VP8 ", b"VP8L", b"VP8X", b"ALPH", b"ANIM", b"ANMF", b"ICCP",
+];
+
+/// Im Rahmen eines `ANMF` bleiben nach dem Rahmenkopf nur diese Chunks.
+const ANMF_ERLAUBT: &[&[u8; 4]] = &[b"ALPH", b"VP8 ", b"VP8L"];
+
+/// Länge des Rahmenkopfs eines `ANMF` (Lage, Größe, Dauer, Flaggen).
+const ANMF_KOPF: u64 = 16;
+
+/// WebP (`RIFF`…`WEBP`): `EXIF` → minimales EXIF; jeder Chunk außerhalb der Erlaubnisliste → `JUNK`, genullt; in
+/// `ANMF` nach dem Rahmenkopf dasselbe mit der Liste des Rahmens (eine Ebene); wurde ein `XMP ` getilgt, wird das
+/// XMP-Bit in `VP8X` gelöscht.
 pub fn webp(port: &Port<'_>, zaehler: &mut Zaehler) -> Ergebnis<()> {
     let mut kette = port.kette();
     let kopf = kette.bytes(0, 12)?.to_vec();
@@ -172,14 +185,7 @@ pub fn webp(port: &Port<'_>, zaehler: &mut Zaehler) -> Ergebnis<()> {
     let mut vp8x = None;
     let mut xmp_entfernt = false;
     while pos + 8 <= riff {
-        let kopf = kette.bytes(pos, 8)?.to_vec();
-        let typ: [u8; 4] = [kopf[0], kopf[1], kopf[2], kopf[3]];
-        let laenge = u64::from(u32::from_le_bytes([kopf[4], kopf[5], kopf[6], kopf[7]]));
-        let daten = pos + 8;
-        if !port.enthaelt(daten, laenge) || daten + laenge > riff {
-            return metadaten("Längen widersprechen sich");
-        }
-        zaehler.block()?;
+        let (typ, daten, laenge) = webp_chunk(&mut kette, pos, riff, zaehler)?;
         match &typ {
             b"VP8X" if laenge >= 1 => vp8x = Some(daten),
             b"EXIF" => {
@@ -190,12 +196,22 @@ pub fn webp(port: &Port<'_>, zaehler: &mut Zaehler) -> Ergebnis<()> {
                 };
                 exif_ersetzen(&mut kette, daten, laenge, praefix, zaehler)?;
             }
-            b"XMP " => {
-                kette.schreiben(pos, b"JUNK")?;
-                kette.nullen(daten, laenge)?;
-                xmp_entfernt = true;
+            b"ANMF" if laenge >= ANMF_KOPF => {
+                let ende = daten + laenge;
+                let mut innen = daten + ANMF_KOPF;
+                while innen + 8 <= ende {
+                    let (typ, inhalt, n) = webp_chunk(&mut kette, innen, ende, zaehler)?;
+                    if !ANMF_ERLAUBT.contains(&&typ) {
+                        webp_unkenntlich(&mut kette, innen, n)?;
+                    }
+                    innen = inhalt + n + (n & 1);
+                }
             }
-            _ => {}
+            typ if WEBP_ERLAUBT.contains(&typ) => {}
+            _ => {
+                xmp_entfernt |= &typ == b"XMP ";
+                webp_unkenntlich(&mut kette, pos, laenge)?;
+            }
         }
         pos = daten + laenge + (laenge & 1);
     }
@@ -206,8 +222,36 @@ pub fn webp(port: &Port<'_>, zaehler: &mut Zaehler) -> Ergebnis<()> {
     kette.fertig()
 }
 
-/// GIF: Kommentar- und `XMP DataXMP`-Erweiterung — ihre Unterblöcke genullt, Längenbytes bleiben; Unterblöcke zählen
-/// nie als Block.
+/// Kopf eines WebP-Chunks bei `pos`, ganz vor `ende`: Typ, Anfang der Daten, Länge; zählt als Block.
+fn webp_chunk(
+    kette: &mut Kette<'_, '_>,
+    pos: u64,
+    ende: u64,
+    zaehler: &mut Zaehler,
+) -> Ergebnis<([u8; 4], u64, u64)> {
+    let kopf = kette.bytes(pos, 8)?;
+    let typ: [u8; 4] = [kopf[0], kopf[1], kopf[2], kopf[3]];
+    let laenge = u64::from(u32::from_le_bytes([kopf[4], kopf[5], kopf[6], kopf[7]]));
+    let daten = pos + 8;
+    if !kette.enthaelt(daten, laenge) || daten + laenge > ende {
+        return metadaten("Längen widersprechen sich");
+    }
+    zaehler.block()?;
+    Ok((typ, daten, laenge))
+}
+
+/// Ein WebP-Chunk wird `JUNK` mit Nullen (nie gelesen).
+fn webp_unkenntlich(kette: &mut Kette<'_, '_>, pos: u64, laenge: u64) -> Ergebnis<()> {
+    kette.schreiben(pos, b"JUNK")?;
+    kette.nullen(pos + 8, laenge)
+}
+
+/// Erlaubnisliste GIF (ADR-0047 Ergänzung „Karte #9 Security-Review B2“ Regel 4): Anwendungen, deren Kennung bleibt
+/// (Wiederholung, Farbprofil); Grafiksteuerung `F9` und Klartext `01` bleiben immer.
+const GIF_ANWENDUNGEN: &[&[u8]] = &[b"NETSCAPE2.0", b"ANIMEXTS1.0", b"ICCRGBG1012"];
+
+/// GIF: Bildbeschreibungen, Grafiksteuerung, Klartext und erlaubte Anwendungen bleiben; jede andere Erweiterung —
+/// alle Unterblöcke samt Kennung genullt, Längenbytes bleiben; Unterblöcke zählen nie als Block.
 pub fn gif(port: &Port<'_>, zaehler: &mut Zaehler) -> Ergebnis<()> {
     let mut kette = port.kette();
     let kopf = kette.bytes(0, 13)?.to_vec();
@@ -223,15 +267,13 @@ pub fn gif(port: &Port<'_>, zaehler: &mut Zaehler) -> Ergebnis<()> {
                 let marke = kette.byte(pos + 1)?;
                 pos += 2;
                 let nullen = match marke {
-                    0xFE => true,
+                    0xF9 | 0x01 => false,
                     0xFF => {
-                        let erster = u64::from(kette.byte(pos)?);
-                        let kennung = kette.bytes(pos + 1, erster as usize)?;
-                        let xmp = kennung == b"XMP DataXMP";
-                        pos += 1 + erster;
-                        xmp
+                        let erster = kette.byte(pos)?;
+                        let kennung = kette.bytes(pos + 1, usize::from(erster))?;
+                        !GIF_ANWENDUNGEN.contains(&kennung)
                     }
-                    _ => false,
+                    _ => true,
                 };
                 pos = unterbloecke(&mut kette, pos, nullen)?;
             }
@@ -729,6 +771,116 @@ mod tests {
         let exif = getilgt.windows(4).position(|f| f == b"EXIF").expect("EXIF");
         assert_eq!(orientierung(&getilgt[exif + 8..]), Some(6));
         assert_eq!(zaehler.bloecke, 4);
+    }
+
+    fn webp_teil(typ: &[u8], daten: &[u8]) -> Vec<u8> {
+        let mut bytes = typ.to_vec();
+        bytes.extend_from_slice(&(daten.len() as u32).to_le_bytes());
+        bytes.extend_from_slice(daten);
+        if daten.len() % 2 == 1 {
+            bytes.push(0);
+        }
+        bytes
+    }
+
+    fn riff(teile: &[Vec<u8>]) -> Vec<u8> {
+        let inhalt = [&b"WEBP"[..], &teile.concat()].concat();
+        [&b"RIFF"[..], &(inhalt.len() as u32).to_le_bytes(), &inhalt].concat()
+    }
+
+    /// ADR-0047 B2 P7 und P8 (WebP-Teil) (B0643): `C2PA`, unbekanntes `ABCD` und im Rahmen eines `ANMF` ein
+    /// unbekanntes `XYZW` → `JUNK`, Inhalt genullt; `VP8X`, `ICCP`, `ANIM`, Rahmenkopf, `ALPH`, `VP8 ` byte-gleich.
+    #[test]
+    fn webp_behaelt_nur_erlaubte_chunks_auch_im_animationsrahmen() {
+        let vp8x = webp_teil(b"VP8X", &[0x32, 0, 0, 0, 1, 0, 0, 1, 0, 0]);
+        let iccp = webp_teil(b"ICCP", b"Farbprofil");
+        let anim = webp_teil(b"ANIM", &[0, 0, 0, 0, 0, 0]);
+        let rahmenkopf = [0u8; 16];
+        let alph = webp_teil(b"ALPH", b"Alpha");
+        let vp8 = webp_teil(b"VP8 ", b"Bilddaten");
+        let fremd_im_rahmen = webp_teil(b"XYZW", &ort());
+        let anmf = webp_teil(
+            b"ANMF",
+            &[&rahmenkopf[..], &alph, &fremd_im_rahmen, &vp8].concat(),
+        );
+        let c2pa = webp_teil(b"C2PA", &ort());
+        let abcd = webp_teil(b"ABCD", &ort());
+        let original = riff(&[
+            vp8x.clone(),
+            iccp.clone(),
+            anim.clone(),
+            anmf,
+            c2pa.clone(),
+            abcd.clone(),
+        ]);
+
+        let (getilgt, _, _) = tilgen(original.clone(), webp);
+
+        assert_eq!(getilgt.len(), original.len());
+        assert!(ohne_ort(&getilgt), "Ort bleibt");
+        for bleibt in [&vp8x, &iccp, &anim, &alph, &vp8] {
+            assert!(
+                enthaelt(&getilgt, bleibt),
+                "{}",
+                String::from_utf8_lossy(&bleibt[..4])
+            );
+        }
+        assert!(
+            !enthaelt(&getilgt, b"C2PA")
+                && !enthaelt(&getilgt, b"ABCD")
+                && !enthaelt(&getilgt, b"XYZW")
+        );
+        let junk: Vec<usize> = getilgt
+            .windows(4)
+            .enumerate()
+            .filter(|(_, f)| f == b"JUNK")
+            .map(|(stelle, _)| stelle)
+            .collect();
+        assert_eq!(junk.len(), 3);
+        for stelle in junk {
+            let laenge =
+                u32::from_le_bytes(getilgt[stelle + 4..stelle + 8].try_into().expect("Länge"));
+            assert!(
+                getilgt[stelle + 8..stelle + 8 + laenge as usize]
+                    .iter()
+                    .all(|b| *b == 0)
+            );
+        }
+    }
+
+    /// ADR-0047 B2 P7 und P8 (GIF-Teil) (B0643): Anwendung `ABCDEFGH123` mit Ort → alle Unterblöcke samt Kennung
+    /// Nullen, Längenbytes bleiben; `NETSCAPE2.0`, `ICCRGBG1012`, `ANIMEXTS1.0`, Grafiksteuerung und Klartext
+    /// bleiben byte-gleich.
+    #[test]
+    fn gif_behaelt_nur_erlaubte_erweiterungen() {
+        let kopf = b"GIF89a\x01\0\x01\0\x80\0\0\0\0\0\xFF\xFF\xFF".to_vec();
+        let bleiben = [
+            &b"\x21\xFF\x0bNETSCAPE2.0\x03\x01\0\0\0"[..],
+            b"\x21\xFF\x0bANIMEXTS1.0\x03\x01\0\0\0",
+            b"\x21\xFF\x0bICCRGBG1012\x05Farbe\0",
+            b"\x21\xF9\x04\x04\x0a\0\0\0",
+            b"\x21\x01\x0c\0\0\0\0\x01\0\x01\0\x08\x08\0\0\x04Text\0",
+        ]
+        .concat();
+        let mut fremd = b"\x21\xFF\x0bABCDEFGH123".to_vec();
+        fremd.push(ort().len() as u8);
+        fremd.extend(ort());
+        fremd.push(0);
+        let bild = b"\x2C\0\0\0\0\x01\0\x01\0\0\x02\x01\x44\0\x3B".to_vec();
+        let original = [kopf.clone(), bleiben.clone(), fremd.clone(), bild.clone()].concat();
+
+        let (getilgt, _, _) = tilgen(original.clone(), super::gif);
+
+        assert!(ohne_ort(&getilgt) && !enthaelt(&getilgt, b"ABCDEFGH"));
+        let bis = kopf.len() + bleiben.len();
+        assert_eq!(getilgt[..bis], original[..bis]);
+        let mut erwartet = vec![0x21, 0xFF, 0x0b];
+        erwartet.extend([0; 11]);
+        erwartet.push(ort().len() as u8);
+        erwartet.extend(vec![0; ort().len()]);
+        erwartet.push(0);
+        assert_eq!(getilgt[bis..bis + fremd.len()], erwartet[..]);
+        assert_eq!(getilgt[bis + fremd.len()..], bild[..]);
     }
 
     /// GIF mit 300.000 Unterblöcken in den Bilddaten und einem Kommentar im letzten Bild.
