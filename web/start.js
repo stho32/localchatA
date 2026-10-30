@@ -146,6 +146,10 @@ function hauptansichtZeigen(teilnehmer, token, nachEingabe) {
         ansicht.aenderungEmpfangen(ereignis);
         return;
       }
+      if (ereignis.art === 'aktivitaet' || ereignis.art === 'aktivitaet_luecke') {
+        ansicht.aktivitaetEmpfangen(ereignis);
+        return;
+      }
       if (ereignis.art === 'teilnehmer') {
         ansicht.standEmpfangen();
       }

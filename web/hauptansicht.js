@@ -19,6 +19,7 @@ import { eingabeAnlegen } from './eingabe.js';
 import { sendenEinrichten, neuerSchluessel } from './senden.js';
 import { entwurfAnlegen } from './entwurf.js';
 import { tippenAnlegen } from './tippen.js';
+import { aktivitaetsanzeigeAnlegen } from './aktivitaetsanzeige.js';
 import { fokusTaste } from './fokus.js';
 import { VERBINDUNG_ANFANG, verbindung } from './wiederverbinden.js';
 import { nachholLaufAnlegen } from './nachhollauf.js';
@@ -101,11 +102,13 @@ export function zeichnen(wurzel, teilnehmer, optionen) {
     netzAus: () => navigator.onLine === false,
     ansagen: ansagen.melden,
   });
+  const tippanzeige = aktivitaetsanzeigeAnlegen({ kennung: teilnehmer.kennung });
   const eingabe = eingabeAnlegen({
     senden: senden.senden,
     entwurf: entwurfAnlegen({ speicher: window.sessionStorage }),
     ansagen: ansagen.melden,
     tippen: tippenAnlegen({ melden: optionen.aktivitaetMelden }),
+    tippzeile: tippanzeige.zeile,
     eigeneLetzteFokussieren: verlauf.eigeneLetzteFokussieren,
   });
   const wieder = wiederverbindenEinrichten({
@@ -121,6 +124,7 @@ export function zeichnen(wurzel, teilnehmer, optionen) {
   const beiOeffnen = (name) => {
     wieder.channelGewechselt();
     eingabe.channelSetzen(name);
+    tippanzeige.oeffnen(name);
     senden.channelGeoeffnet(name);
     ansagen.melden({ art: 'gewechselt' });
   };
@@ -132,12 +136,18 @@ export function zeichnen(wurzel, teilnehmer, optionen) {
     channelsZeigen: auswahlFolgen,
     // Serverzeit aus einem Ereignis (RFC 3339 mit Versatz): ihr Datum ist das heutige des Servers.
     serverzeitZeigen: (jetzt) => verlauf.heuteSetzen(jetzt.slice(0, 10)),
-    nachrichtEmpfangen: (ereignis) => senden.empfangen(ereignis),
+    nachrichtEmpfangen: (ereignis) => {
+      tippanzeige.nachricht(ereignis);
+      senden.empfangen(ereignis);
+    },
+    aktivitaetEmpfangen: (ereignis) => tippanzeige.ereignis(ereignis),
     aenderungEmpfangen: (ereignis) => senden.fassungEmpfangen(ereignis),
     anzahlZeigen: (wieViele) => {
       anzahl.textContent = String(wieViele);
     },
+    // Jeder Beginn und jedes Ende eines Stroms leert die Tippanzeige: nach einem Abriss wird nichts nachgeholt.
     verbindungZeigen: (zustand, naechsterVersuchUm) => {
+      tippanzeige.leeren();
       letzterZustand = verbindungZeigen({ region, standUnbekannt }, letzterZustand, zustand);
       wieder.melden({ art: 'strom', zustand, naechsterVersuchUm });
     },

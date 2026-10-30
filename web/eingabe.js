@@ -38,8 +38,9 @@ export function taste(ereignis, text, zeiger) {
 // Entwurf (entwurf.js) folgt dem Channel (Regel 7). `eigeneLetzteFokussieren()` holt bei ↑ in der leeren Eingabe den
 // Fokus auf die eigene letzte Nachricht im Verlauf (R00041 F0141, 1-tastatur.md); im leeren Feld hat ↑ sonst keine
 // Wirkung, darum wird die Taste dort immer verbraucht. `tippen` (tippen.js) erfährt jede Eingabe, das Senden und den
-// Wechsel des Channels — nie das Wiederherstellen des Entwurfs (R00045 F0161).
-export function eingabeAnlegen({ senden, entwurf, ansagen, tippen, eigeneLetzteFokussieren = () => {} }) {
+// Wechsel des Channels — nie das Wiederherstellen des Entwurfs (R00045 F0161). `tippzeile` (aktivitaetsanzeige.js)
+// steht in der Hinweisreihe hinter der Hinweiszeile, nie in ihr und nie in aria-describedby.
+export function eingabeAnlegen({ senden, entwurf, ansagen, tippen, tippzeile, eigeneLetzteFokussieren = () => {} }) {
   const feld = document.createElement('textarea');
   feld.rows = 1;
   feld.className = 'lc-comp-feld';
@@ -52,7 +53,7 @@ export function eingabeAnlegen({ senden, entwurf, ansagen, tippen, eigeneLetzteF
   // Neben, nicht in der Hinweiszeile: deren Text ist die Beschreibung von Feld und Knopf (R00025 F0086, V17).
   const bereinigen = element('button', { type: 'button', textContent: 'Steuerzeichen entfernen' });
   const bereinigenGruppe = element('div', { className: 'lc-send-schalter lc-comp-bereinigen', hidden: true }, [bereinigen]);
-  const hinweisReihe = element('div', { className: 'lc-comp-hinweisreihe' }, [zeile, bereinigenGruppe]);
+  const hinweisReihe = element('div', { className: 'lc-comp-hinweisreihe' }, [zeile, tippzeile, bereinigenGruppe]);
   const rahmen = element('div', { className: 'lc-comp' }, [kasten, hinweisReihe]);
   let channel = null;
   let gezeigt = hinweis(textPruefen(''));

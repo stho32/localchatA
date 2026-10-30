@@ -33,6 +33,7 @@ export function fristSetzen(name, tage, bestaetigt, { token }, holen = holenImBr
 }
 
 // Tippen melden (ADR-0051 Regel 4): setzen ist PUT {"zustand":"tippt"}, loeschen DELETE ohne Körper.
+// Der Körper der Antwort wird gelesen, sonst hält der Browser die Verbindung fest.
 // → { art: 'antwort', status, wartenS } (wartenS aus Retry-After nur bei 429, sonst null) | { art: 'netzfehler' }
 export async function aktivitaetMelden({ art, channel }, { token }, holen = holenImBrowser) {
   const ZU_VIELE_ANFRAGEN = 429;
@@ -45,6 +46,7 @@ export async function aktivitaetMelden({ art, channel }, { token }, holen = hole
   let antwort;
   try {
     antwort = await holen(`/api/channels/${encodeURIComponent(channel)}/aktivitaet`, optionen);
+    await antwort.text();
   } catch (ausnahme) {
     return { art: 'netzfehler' };
   }

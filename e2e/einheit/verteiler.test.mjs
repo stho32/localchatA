@@ -204,3 +204,19 @@ test('unterbrochen mit Zeitpunkt geht an alle Tabs, ein neuer Tab bekommt densel
   assert.deepEqual(zustaende(zweiter)[0], { art: 'zustand', zustand: 'unterbrochen', beitreten: false, naechsterVersuchUm: 7000 });
   assert.deepEqual(zustaende(zweiter)[1], { art: 'zustand', zustand: 'verbunden', beitreten: false, naechsterVersuchUm: null });
 });
+
+test('R00045 B0689 (M12): der Verteiler reicht aktivitaet nur durch — ein neuer Tab bekommt sie nicht nachgereicht', () => {
+  const { halter, verteiler } = anlegen();
+  const eins = port();
+  verteiler.verbinden(eins);
+  eins.senden({ art: 'token', token: 't1' });
+  const aktivitaet = { art: 'aktivitaet', channel: 'allgemein', kennung: 'anna@x', zustand: 'tippt', bis: 'b', jetzt: 'j' };
+
+  halter.angelegt[0].optionen.beiEreignis({ art: 'teilnehmer', stand: 1, liste: [] }, 0);
+  halter.angelegt[0].optionen.beiEreignis(aktivitaet, 0);
+  const zwei = port();
+  verteiler.verbinden(zwei);
+
+  assert.deepEqual(ereignisseIn(eins).map((ereignis) => ereignis.art), ['teilnehmer', 'aktivitaet']);
+  assert.deepEqual(ereignisseIn(zwei).map((ereignis) => ereignis.art), ['teilnehmer']);
+});

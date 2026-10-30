@@ -7,8 +7,16 @@ import { aktivitaetMelden } from '../../web/api.js';
 function antwortenMit(status, kopf = {}) {
   const aufrufe = [];
   const holen = async (pfad, optionen) => {
-    aufrufe.push({ pfad, optionen });
-    return { status, headers: new Headers(kopf), text: async () => '' };
+    const aufruf = { pfad, optionen, koerperGelesen: false };
+    aufrufe.push(aufruf);
+    return {
+      status,
+      headers: new Headers(kopf),
+      text: async () => {
+        aufruf.koerperGelesen = true;
+        return '';
+      },
+    };
   };
   return { holen, aufrufe };
 }
@@ -24,6 +32,7 @@ test('Setzen schickt PUT {"zustand":"tippt"} mit Sitzung an …/aktivitaet', asy
   assert.equal(aufrufe[0].optionen.headers['X-LocalchatA-Sitzung'], 't');
   assert.equal(aufrufe[0].optionen.headers['Content-Type'], 'application/json');
   assert.deepEqual(JSON.parse(aufrufe[0].optionen.body), { zustand: 'tippt' });
+  assert.equal(aufrufe[0].koerperGelesen, true, 'ungelesene Körper halten Verbindungen des Browsers fest');
 });
 
 test('Löschen schickt DELETE ohne Körper mit Sitzung', async () => {
