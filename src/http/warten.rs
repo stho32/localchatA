@@ -58,6 +58,18 @@ pub enum Parameterfehler {
     Parameter(String),
 }
 
+impl Parameterfehler {
+    /// Der Grund im Betriebsprotokoll: die verletzte Regel (ohne den Namen aus der Anfrage).
+    fn grund(&self) -> &'static str {
+        match self {
+            Parameterfehler::Cursor => "abfrage_cursor",
+            Parameterfehler::Bis => "abfrage_bis",
+            Parameterfehler::Filter => "abfrage_filter",
+            Parameterfehler::Parameter(_) => "abfrage_parameter",
+        }
+    }
+}
+
 /// Der Query-Text (ohne `?`) als Warteparameter.
 pub fn parameter_lesen(query: Option<&str>) -> Result<Warteparameter, Parameterfehler> {
     let mut seit = None;
@@ -138,7 +150,7 @@ pub async fn beantworten(
     let kennung = teilnehmer.kennung.als_text();
     let parameter = match parameter_lesen(query.as_deref()) {
         Ok(parameter) => parameter,
-        Err(fehler) => return mit_regel(abgewiesen(&fehler), "abfrage_ungueltig", Some(kennung)),
+        Err(fehler) => return mit_regel(abgewiesen(&fehler), fehler.grund(), Some(kennung)),
     };
     if let Some(unbekannt) = parameter
         .channels

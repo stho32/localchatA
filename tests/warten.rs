@@ -380,3 +380,35 @@ async fn warten_bucht_nichts_am_schreibkonto() {
     assert_eq!(gesendet.status, 201, "{}", gesendet.json);
     assert_eq!(gesundheit(&instanz.adresse).await.1["gebremst"], 0);
 }
+
+/// O1 (observability-reviewer #17): jede der vier 422 steht im Betriebsprotokoll (DEBUG) mit der verletzten Regel als
+/// `grund` (`abfrage_<regel>`), nicht mit einem gemeinsamen Grund.
+#[tokio::test]
+async fn die_422_nennen_ihre_regel_im_protokoll() {
+    let wurzel = ordner();
+    let instanz = starten(wurzel.path(), &[("LOCALCHATA_PROTOKOLL_STUFE", "debug")]);
+    let absender = Absender::von("127.0.0.1");
+    let claude = beitreten(&absender, &instanz.adresse, "claude", None).await;
+    let faelle = [
+        ("seit=gestern", "abfrage_cursor"),
+        ("bis=3601", "abfrage_bis"),
+        ("erwaehnung=1", "abfrage_filter"),
+        ("erwahnung", "abfrage_parameter"),
+    ];
+
+    for (query, _) in faelle {
+        let antwort = warten(&absender, &instanz, Some(&claude), query, None).await;
+        assert_eq!(antwort.status, 422, "{query}");
+    }
+    let zeilen = gemeinsam::protokoll::alle_zeilen(wurzel.path());
+
+    for (query, grund) in faelle {
+        let treffer: Vec<_> = zeilen
+            .iter()
+            .filter(|zeile| {
+                zeile.contains("GET /api/warten") && zeile.contains(&format!("grund={grund}"))
+            })
+            .collect();
+        assert_eq!(treffer.len(), 1, "{query} → {grund}: {zeilen:#?}");
+    }
+}
