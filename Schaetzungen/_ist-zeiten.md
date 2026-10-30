@@ -640,3 +640,4 @@ Nie vom User erfragen.
 | 2026-10-30 | R00030 Hochladen übersteht Neuladen | F0119 (B0519, B0520) + Nacharbeit F0101 (Wanduhr gesamt) | Entwicklung/Nacharbeit | — | 2,9h | 2,9h | autonom (entw3) |
 | 2026-10-30 | R00049 Nacharbeit Befund 3 (security-reviewer #17) | Nachholen liest nur, was gebucht ist (Option 1 realist-consultant) (Wanduhr gesamt) | Nacharbeit | — | 0,6h | 0,6h | autonom (entw3) |
 | 2026-10-30 | R00050 Direktnachricht senden und lesen | F0172 (B0764–B0771) (Wanduhr gesamt) | Entwicklung | 8–14h | 1,1h | 1,1h | autonom (entw2) |
+| 2026-10-30 | R00030 Gelöschte Anhänge im Verlauf | F0118 (B0517, B0518) + Nacharbeit F0165 und F0119 (Wanduhr gesamt) | Entwicklung/Nacharbeit | — | 2,6h | 2,6h | autonom (entw) |
