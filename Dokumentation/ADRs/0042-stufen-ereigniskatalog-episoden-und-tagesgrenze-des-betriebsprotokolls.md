@@ -86,21 +86,21 @@ Regeln:
    | `ende` | Ende-Signal, Instanz beendet | INFORMATION | `grund` (Strg+C/SIGTERM), `dauer_ms` (Laufzeit) | neu |
    | `laden` | defekte Zeile | WARNING | `datei`, `zeile`; je Datei höchstens 10 Zeilen einzeln, dann eine Zeile „und n weitere“ | ✓ ADR-0004 |
    | `laden` | Einstellungsdatei defekt; Ordner mit ungültigem Channelnamen | WARNING | `datei`, `grund` | ✓ ADR-0022 Regel 3, ADR-0020 Regel 6 |
-   | `verbindung` | Verbindung abgewiesen (Platzgrenze je Herkunft oder gesamt) | WARNING, Episode je Herkunft | `herkunft`, `grenze` | neu (heute still) |
+   | `verbindung` | Verbindung abgewiesen (Platzgrenze je Herkunft oder gesamt) | WARNING, Episode je Herkunft | `herkunft`, `grenze` *(überholt: Beginn/Ende in Ergänzung „Karte #70“)* | neu (heute still) |
    | `verbindung` | Abrisspflege nicht setzbar (erster Fehler je Lauf) | WARNING | `option`, `grund` | ✓ ADR-0017 Regel 4 |
    | `verbindung` | angenommen, beendet | DEBUG | `herkunft`, `dauer_ms` | neu |
-   | `grenzschutz` | fremder Host oder Origin (403) | WARNING, Episode je Herkunft | `herkunft`, `grund` (Host/Origin, escaped, gekürzt) | neu, ADR-0014 |
+   | `grenzschutz` | fremder Host oder Origin (403) | WARNING, Episode je Herkunft | `herkunft`, `grund` (Host/Origin, escaped, gekürzt) *(überholt: Beginn/Ende in Ergänzung „Karte #70“)* | neu, ADR-0014 |
    | `sitzung` | beigetreten, verlassen, weg (Name frei) | INFORMATION | `kennung` | neu, ADR-0012, ADR-0016, ADR-0018 |
    | `sitzung` | online/offline-Wechsel | DEBUG | `kennung` | neu |
-   | `sitzung` | Sitzungsgrenze erreicht (429) | WARNING, Episode je Herkunft | `herkunft`, `grenze` | neu |
+   | `sitzung` | Sitzungsgrenze erreicht (429) | WARNING, Episode je Herkunft | `herkunft`, `grenze` *(überholt: Beginn/Ende in Ergänzung „Karte #70“)* | neu |
    | `channels` | angelegt | INFORMATION | `channel`, `kennung` | neu, ADR-0021 |
-   | `channels` | Channel-Grenze erreicht (429) | WARNING, Episode je Herkunft | `herkunft`, `grenze` | neu, ADR-0021 |
+   | `channels` | Channel-Grenze erreicht (429) | WARNING, Episode je Herkunft | `herkunft`, `grenze` *(überholt: Beginn/Ende in Ergänzung „Karte #70“)* | neu, ADR-0021 |
    | `channels` | Ordner/Einstellungen nicht anlegbar (500), Rückbau | ERROR | `channel`, `datei`, `grund` | ✓ ADR-0021, `channels.rs:135` |
    | `verlauf` | Block gelesen | DEBUG | `channel`, `anzahl`, `dauer_ms` | neu |
-   | `senden` | Nachricht nicht gesendet (Schreibfehler, 500) | ERROR, Episode je `datei`+`grund` | `channel`, `kennung`, `datei`, `grund` | → I0009, ADR-0011 |
+   | `senden` | Nachricht nicht gesendet (Schreibfehler, 500) | ERROR, Episode je `datei`+`grund` | `channel`, `kennung`, `datei`, `grund` *(überholt: Beginn/Ende in Ergänzung „Karte #70“)* | → I0009, ADR-0011 |
    | `senden` | Rückbau gescheitert | ERROR | `datei`, `grund`, `anzahl` (Länge) | ✓ ADR-0011, `logablage.rs:153` |
-   | `schreibkonto` | gebremst (429) | WARNING, Episode je Kennung | `kennung`, `grenze` | → I0009, ADR-0036 Regel 7 |
-   | `zeit` | Nachrichtenzeit läuft der Uhr voraus (> 60 s) | WARNING, Episode | `dauer_ms` | → I0009, ADR-0035 Regel 4 |
+   | `schreibkonto` | gebremst (429) | WARNING, Episode je Kennung | `kennung`, `grenze` *(überholt: Beginn/Ende in Ergänzung „Karte #70“)* | → I0009, ADR-0036 Regel 7 |
+   | `zeit` | Nachrichtenzeit läuft der Uhr voraus (> 60 s) | WARNING, Episode | `dauer_ms` *(überholt: Beginn/Ende in Ergänzung „Karte #70“)* | → I0009, ADR-0035 Regel 4 |
    | `frist` | Frist gesetzt; Tage entfallen | INFORMATION | `channel`, `kennung`, `anzahl`, `grund` (Anlass) | → I0018, ADR-0030 Regel 6, ADR-0031 Regel 5 |
    | `frist` | Tag nicht entfallen | ERROR | `datei`, `grund` | → I0018, ADR-0032 Regel 6 |
    | `protokoll` | Bereinigung; Rückfall auf stderr; Budget erreicht | INFORMATION / WARNING / WARNING | ADR-0041 Regel 7, ADR-0040 Regel 8, Regel 6 hier | neu |
@@ -239,7 +239,7 @@ Regeln:
      | Bereich | Ereignis | Stufe | Kontext | Quelle |
      |---|---|---|---|---|
      | `schreibkonto` | Senden gebremst (429) — Text „Senden gebremst: zu viele Nachrichten“ | WARNING, Episode je Kennung | Beginn: `kennung`, `grenze` (des ersten Auftretens); Ende: `kennung` und die Zählung je Grenze | → R00020 F0070, ADR-0036 Regel 7 |
-     | `schreibkonto` | **neu**: Frist gebremst (429) — Text „Frist gebremst: zu viele Änderungen“ | WARNING, Episode je Kennung (eigener Schlüssel über den Text) | wie oben | → [ADR-0036](0036-schreibkonto-token-eimer-je-kennung-und-je-herkunft.md), Ergänzung Karte #31 (b) |
+     | `schreibkonto` | **neu**: Frist gebremst (429) — Text „Frist gebremst: zu viele Änderungen“ | WARNING, Episode je Kennung (eigener Schlüssel über den Text) | wie oben *(überholt: Beginn/Ende in Ergänzung „Karte #70“)* | → [ADR-0036](0036-schreibkonto-token-eimer-je-kennung-und-je-herkunft.md), Ergänzung Karte #31 (b) |
 
      **Ende-Zeile je Grenze**: jedes Auftreten trägt `art` = Grenze (`kennung` | `herkunft`); die Ende-Zeile lautet `… — Episode endet: <n> in <d> s (herkunft <h>; kennung <k>)` mit `h + k = n`; ein Teil mit 0 entfällt; Reihenfolge alphabetisch (Mechanik `je_art`, `src/protokoll/episoden.rs:185–202`, wie die Körperfehler). Die Beginn-Zeile bleibt mit `grenze=` des ersten Auftretens.
      - Option A: **Zählung je Grenze in der einen Episode der Kennung** (gewählt). Stärke: eine Flut ergibt weiter zwei Zeilen je Kennung; die Aufteilung ist genau die Messung, nach der das Konto je Herkunft ausgelegt wird (Entscheidung des Directors 2026-10-28, R00016) — je Agent sichtbar. Schwäche: die Ende-Zeile wird länger; wann innerhalb der Episode die Grenze wechselte, sieht nur Debug.
@@ -289,7 +289,7 @@ Regeln:
   | `quote` | Gespräche belegen 90 % der Quote (Wechsel nach oben beim Senden; beim Start, wenn schon darüber) | WARNING, einmal je Wechsel — keine zeitliche Episode | `belegt`, `hoechstens` | → Karte #34, ADR-0044 Regel 7 |
   | `quote` | Gespräche wieder unter 90 % der Quote (Wechsel nach unten beim Entfallen) | INFORMATION, einmal je Wechsel | `belegt`, `hoechstens`, `grund` (Anlass `start` \| `tageswechsel` \| `frist_gesetzt`) | → Karte #34, ADR-0044 Regel 7 |
   | `quote` | Gespräche belegen mehr als die Quote — Senden wird abgewiesen (nur beim Start) | WARNING | `belegt`, `hoechstens` | → Karte #34, ADR-0044 Regel 7 |
-  | `quote` | Senden abgewiesen: Quote erreicht (507) | WARNING, Episode je Kennung | `kennung`, `channel`, `belegt`, `hoechstens` | → Karte #34, ADR-0044 Regel 8 |
+  | `quote` | Senden abgewiesen: Quote erreicht (507) | WARNING, Episode je Kennung | `kennung`, `channel`, `belegt`, `hoechstens` *(überholt: Beginn/Ende in Ergänzung „Karte #70“)* | → Karte #34, ADR-0044 Regel 8 |
   | `start` | Instanz bereit — zusätzlich | INFORMATION | `plattenquote` (Bytes oder `aus`), `belegt`, `option` (`--plattenquote` \| `LOCALCHATA_PLATTENQUOTE` \| `standard`) | → Karte #34, ADR-0044 Regel 7 |
 
   Grund für den Zustandswechsel statt Episode: der Zustand „über 90 %“ hält Tage; eine Episode endete nach 60 s ohne Senden und begänne mit der nächsten Nachricht neu — Rauschen ohne neue Information. Über 90 % kommt man nur durch Senden, darunter nur durch Entfallen; ein Flattern ist ausgeschlossen. Erster Test: ADR-0044, „Folgeentscheidungen“, Integrationstest.
@@ -348,10 +348,10 @@ Regeln:
   | `anhang` | Anhänge verdrängt | **WARNING, Episode je Herkunft der Hochladung, die verdrängt** — Beginn mit der ersten Verdrängung, Ende-Zeile zählt `anhaenge` und `bytes` | `kennung`, `herkunft`, `anhaenge`, `bytes`, `aeltester_tag` (Tag des ältesten Opfers) |
   | `anhang` | Anhang verdrängt (je Opfer) | DEBUG | `gespraech`, `tag`, `datei` (Präfix), `bytes` |
   | `anhang` | Verdrängen gescheitert (Kürzen nicht möglich) | ERROR | `gespraech`, `tag`, `datei` (Präfix), `grund` |
-  | `anhang` | Hochladen abgewiesen: laufende Hochladungen belegen den Platz (507 `quote`, `grund: "hochladungen"`) | WARNING, Episode je Kennung | `kennung`, `reserviert`, `hoechstens` |
+  | `anhang` | Hochladen abgewiesen: laufende Hochladungen belegen den Platz (507 `quote`, `grund: "hochladungen"`) | WARNING, Episode je Kennung | `kennung`, `reserviert`, `hoechstens` *(überholt: Beginn/Ende in Ergänzung „Karte #70“)* |
   | `anhang` | Datei größer als die Anhangquote (422 `zu_gross`) | DEBUG wie jede 4xx | `kennung`, `bytes`, `hoechstens` |
   | `anhang` | Metadaten getilgt | DEBUG | `art`, `bloecke`, `ort` (`ja`/`nein`) |
-  | `anhang` | Hochladen abgewiesen: Metadaten nicht tilgbar (422 `metadaten`) | WARNING, Episode je Herkunft | `herkunft`, `art`, `grund` |
+  | `anhang` | Hochladen abgewiesen: Metadaten nicht tilgbar (422 `metadaten`) | WARNING, Episode je Herkunft | `herkunft`, `art`, `grund` *(überholt: Beginn/Ende in Ergänzung „Karte #70“)* |
   | `start` | Platte trägt die Quoten nicht · Anhänge belegen mehr als die Anhangquote | WARNING | `frei`, `plattenquote`, `anhangquote`, `anhang_belegt` |
   | `start` | Instanz bereit — zusätzlich | INFORMATION | `anhangquote`, `anhang_belegt`, `anhang_option` |
 
@@ -360,7 +360,7 @@ Regeln:
 
   | Bereich | Ereignis | Stufe | Kontext |
   |---|---|---|---|
-  | `anhang` | Hochladen abgewiesen: Platz für Anhänge voll (507 `quote`, `grund: "voll"`) | WARNING, Episode je Kennung | `kennung`, `bytes`, `belegt`, `hoechstens` |
+  | `anhang` | Hochladen abgewiesen: Platz für Anhänge voll (507 `quote`, `grund: "voll"`) | WARNING, Episode je Kennung | `kennung`, `bytes`, `belegt`, `hoechstens` *(überholt: Beginn/Ende in Ergänzung „Karte #70“)* |
   | `anhang` | Anhänge gelöscht (je bestätigter Anfrage) | **INFORMATION** | `kennung`, `herkunft`, `anhaenge`, `bytes`, `gespraeche`, `fremde`, `fehler` |
   | `anhang` | Anhang gelöscht (je Datei) | DEBUG | `gespraech`, `tag`, `datei` (Präfix), `bytes` |
   | `anhang` | Löschen gescheitert (Kürzen nicht möglich) | ERROR | `gespraech`, `tag`, `datei` (Präfix), `grund` |
@@ -391,7 +391,7 @@ Regeln:
 
   | Bereich | Ereignis | Stufe | Kontext |
   |---|---|---|---|
-  | `anhang` | Großer Anspruch (angenommene Anmeldung mit `z(bytes) ≥ Q/4`, nur bei gesetzter Anhangquote) | **INFORMATION, Episode je Kennung** — Beginn mit der ersten solchen Anmeldung, Ende-Zeile nach der Ruhe (Regel 5, Ergänzung 5) mit der Zahl | `kennung`, `herkunft`, `bytes`, `hochladen_bis` (RFC 3339, Lebensende) |
+  | `anhang` | Großer Anspruch (angenommene Anmeldung mit `z(bytes) ≥ Q/4`, nur bei gesetzter Anhangquote) | **INFORMATION, Episode je Kennung** — Beginn mit der ersten solchen Anmeldung, Ende-Zeile nach der Ruhe (Regel 5, Ergänzung 5) mit der Zahl | `kennung`, `herkunft`, `bytes`, `hochladen_bis` (RFC 3339, Lebensende) *(überholt: Beginn/Ende in Ergänzung „Karte #70“)* |
 
   Warum INFORMATION: eine große Datei ist erlaubt (B2) und meist gewollt; der Betreiber soll sie ohne Debug sehen, weil ein solcher Anspruch das Hochladen aller bis zu 11,4 h sperren kann und der Ausweg (Neustart) eine Entscheidung des Betreibers ist. Warum Episode: ein Agent, der im Takt anmeldet und verwirft, ergibt eine Zeile, nicht hundert. Erster Test: das Kriterium F0103 des Gates (Bedingung 2) wörtlich.
 
@@ -439,4 +439,37 @@ Regeln:
   - **Bereich `pflege` — korrigiert zu `frist`.** Die Zeile ist ein Teil des Entfallens (ERROR „Tag nicht entfallen“ steht in `frist`); ADR-0046 hatte `pflege` vorgesehen, gebaut ist es so und mit dem Kontext der Form `frist` (Anlass in `grund`, Fremdtext in `ursache`, [ADR-0040](0040-betriebsprotokoll-datei-je-lokalem-tag-unter-logs-eine-zeile-je-eintrag.md) Ergänzung R00019 Regel „im ganzen Bereich `frist`“). Option A: **neuer Bereich `pflege`** (gebaut, `Bereich::Pflege`, einzige Zeile). Stärke: unterscheidet das Nach-Entfallen vom Entfallen. Schwäche: ein fünfzehntes Wort für eine Zeile; `grep ' frist '` findet nicht mehr alle Spuren des Entfallens (das Argument gegen Option C in der Ergänzung „Bereich der Debug-Zeilen“); die gebaute Zeile trägt die Form von `frist`, sie bräche im eigenen Bereich. Option B: **Bereich `frist`** (gewählt). Stärke: ein Suchwort für alles, was das Entfallen tut, eine Zeilenform. Schwäche: der Bereich `frist` umfasst nun auch eine Folgepflege; der Text („erneuter Versuch bei der nächsten Pflege“) sagt es.
   - **Schlüssel der WARNING `laden`: gebaut bestätigt.** ADR-0046 nennt `gespraech` und `dateien`; beide sind keine Schlüssel der festen Liste ([ADR-0040](0040-betriebsprotokoll-datei-je-lokalem-tag-unter-logs-eine-zeile-je-eintrag.md) Regel 3 und 4), `ordner` und `anzahl` sind es und tragen dieselbe Aussage; die übrigen Anhang-Zeilen (Ausliefern, Löschen) nennen das Gespräch ebenfalls als `ordner`. Direkte Gespräche haben keinen `channel`, deshalb nicht `channel`.
   - **Folge für den Bau:** `Bereich::Pflege` entfällt (`src/protokoll/zeile.rs:89` und der Aufzählungswert), `fristeintrag.rs:67` nimmt `Bereich::Frist`, der Test auf die Zeile wird mitgezogen; sonst keine Änderung (Schlüssel und Text stimmen). Vorschlag an den `planer`: ein Bubble im Rest der Karte #66, Kriteriumstext: „Verkürzen der Frist bei schreibgeschütztem `anhaenge/<tag>` → genau eine Zeile `ERROR frist Anhänge eines Tags nicht entfernt — erneuter Versuch bei der nächsten Pflege | channel=… tag=… grund=… ursache=…`; `grep ' pflege '` im Protokoll leer; Mutante ‚Bereich pflege‘ rot.“
+- **2026-10-30 (Karte #70, Baustein 6 der Ergänzung „Karte #66“; observability-reviewer #66, code-reviewer #66) — Episodenkatalog mit getrenntem Beginn und Ende:** Entscheider: Claude (autonom, architekt, Auftrag des Directors). Status: Akzeptiert. Führt Regel (3) der Ergänzung „Karte #66“ für **jede** Episode aus: eine Tabelle, die je Episode Quelle, Beginn und Ende nennt. Sie ist ab hier die maßgebliche Stelle für den Kontext von Episodenzeilen; die Kontextspalten der älteren Katalogzeilen (Regel 2 Z. 89, 92, 95, 97, 100, 102, 103; Ergänzung Karte #31 Z. 242; Ergänzung Karte #34 Z. 292; Ergänzungen Karte #9 Z. 351, 354, 363, 394; [ADR-0048](0048-eigene-nachrichten-bearbeiten-und-loeschen-aenderungssatz-im-tageslog-der-aenderung-fassung-je-nachricht-im-index.md) Regel 13) sind als überholt gekennzeichnet, nicht umgeschrieben; Stufe, Text und Schlüssel der Episode gelten dort weiter. Die Zeile „Anhänge verdrängt“ (Z. 348) ist schon durch die Ergänzung „Karte #9 Betreiber F1′“ entfallen und bleibt unberührt. Klassen und Regel zur Einordnung: [ADR-0050](0050-episodenauftreten-als-eigener-typ-quelle-pflicht-einzelwerte-nur-im-beginn.md).
+
+  Lesart: **Quelle** = Schlüssel, aus denen die Episode gebildet ist (und was aus ihnen folgt, z. B. `channel` aus `datei`, `herkunft` aus `kennung`, oder Einstellungen des Laufs wie `hoechstens`); sie stehen in **jeder** Zeile der Episode. **Beginn** nennt zusätzlich die Werte des ersten Auftretens. **Ende** ist die Ende-Zeile „… — Episode endet: n in d s (…)“ und die Zwischenzeile „… — läuft weiter — n seit Beginn“ (gleicher Kontext, Ergänzung „Karte #66“ Regel (2)); sie nennt zusätzlich nur Zusammengefasstes. „—“ heißt: nichts außer der Quelle. Die Sammelepisode „weitere Quellen“ trägt keinen Kontext (Regel 5).
+
+  | Bereich | Episode (Text) | Stufe | Quelle | Beginn: zusätzlich | Ende und Zwischenzeile: zusätzlich |
+  |---|---|---|---|---|---|
+  | `verbindung` | Verbindung an der Platzgrenze abgewiesen | WARNING | `herkunft` | `grenze`, `hoechstens` | Zählung je Grenze `(gesamt <g>; herkunft <h>)` |
+  | `verbindung` | Verbindung an der Abrissgrenze geschlossen | WARNING | `herkunft`, `hoechstens` (Abrissgrenze in ms, fest je Lauf) | — | — |
+  | `verbindung` | Verbindung nicht angenommen | ERROR | `grund` (Text mit Fehlernummer; die Fehlernummer bildet die Episode, Ergänzung #24 Punkt 2) | — | — |
+  | `grenzschutz` | Anfrage mit fremdem Host abgewiesen · Anfrage mit fremdem Ursprung abgewiesen | WARNING | `herkunft` | `grund` (Kopf, escaped, gekürzt) | — |
+  | `grenzschutz` | Namensauflösung zu langsam | WARNING | — (eine Episode der Instanz, [ADR-0045](0045-host-namen-des-eigenen-netzes-automatisch-oeffentliche-nur-ausdruecklich.md) Regel 8) | `art`, `schluessel` (der Abfrage) | — |
+  | `sitzung` | Beitritt an der Sitzungsgrenze abgewiesen | WARNING | `herkunft` | `grenze`, `hoechstens` | Zählung je Grenze |
+  | `channels` | Anlegen an der Channel-Grenze abgewiesen | WARNING | `herkunft` | `grenze`, `hoechstens` | Zählung je Grenze |
+  | `körper` | Körper abgewiesen | WARNING | `herkunft`, `route` | `kennung` (Routen mit Sitzung) | Zählung je Art und je Verwerfen; `bytes` = größte gelesene Bytezahl |
+  | `senden` | Nachricht nicht gespeichert | ERROR | `channel`, `datei`, `grund` | `kennung` | — |
+  | `senden` | Wiederholschlüssel vor Ablauf verdrängt — eine Wiederholung kann doppelt ankommen | WARNING | `kennung` (der verdrängten) | `grenze`, `hoechstens`, `alter_ms` | Zählung je Grenze `(gesamt <g>; kennung <k>)` |
+  | `schreibkonto` | Senden gebremst · Frist gebremst · Anhänge gebremst · Löschen gebremst | WARNING | `kennung` | `grenze` | Zählung je Grenze `(herkunft <h>; kennung <k>)` |
+  | `zeit` | Nachrichtenzeit läuft der Systemuhr voraus | WARNING | — (Instanz) | `dauer_ms` des ersten Auftretens | `dauer_ms` des **letzten** Auftretens (fortlaufend) |
+  | `live` | Ereignisstrom überholt, neuer Stand gesendet | WARNING | `kennung` | `anzahl` (verpasste Ereignisse) | — (n = Zahl der Überholungen) |
+  | `quote` | Senden abgewiesen: Quote erreicht | WARNING | `kennung`, `hoechstens` | `channel`, `belegt`; beim Bearbeiten `route=bearbeiten` | — |
+  | `anhang` | Hochladen abgewiesen: Platz für Anhänge voll | WARNING | `kennung`, `hoechstens` | `bytes`, `belegt` | — |
+  | `anhang` | Hochladen abgewiesen: laufende Hochladungen belegen den Platz | WARNING | `kennung`, `hoechstens` | `reserviert` | — |
+  | `anhang` | Hochladen abgewiesen: Platte fast voll | WARNING | `herkunft` | `bytes`, `frei` | — |
+  | `anhang` | Hochladen abgewiesen: Metadaten nicht tilgbar | WARNING | `herkunft` | `grund`; `art` (Z. 354) ist nicht gebaut (`src/http/anhaenge/hochladen.rs:609–620`) — kommt sie, ist sie Einzelwert | — |
+  | `anhang` | Hochladen zu langsam abgebrochen | WARNING | `herkunft` | — | — |
+  | `anhang` | Reservierung verfallen ohne Hochladen | WARNING | `herkunft` | `kennung`, `bytes` | — |
+  | `anhang` | Großer Anspruch | INFORMATION | `kennung`, `herkunft` | `bytes`, `hochladen_bis` | — |
+  | `aendern` | Ändern fremder Nachricht abgewiesen | WARNING | `kennung` | `channel` | — |
+  | `aendern` | Änderung nicht geschrieben | ERROR | `channel`, `datei`, `grund` | `kennung` | — |
+
+  - **Gebaut gegen Tabelle** (gelesen in `src/` auf `main` 6d2aa3f, nicht gemessen): jede Zeile stimmt mit der Einordnung im Code überein (`mit` = Quelle, `mit_nur_beginn` = Beginn, `mit_fortlaufend` = fortlaufend); 20 Stellen in 14 Dateien bauen ein `Auftreten` (`grep -rn 'Auftreten {' src`, ohne Tests und ohne die Typdefinition; die Karte nennt 19 nach dem Stand von #66, seitdem kam `src/http/bearbeiten.rs` hinzu); `grenzauftreten` deckt drei Bereiche, `gebremst_auftreten` vier Texte, `abweisung_auftreten` (Anmelden) drei Episoden. Kein neuer Fund.
+  - **Regel für neue Episoden** (ersetzt nichts, schärft Regel (3) der Ergänzung „Karte #66“): eine neue Episode bekommt ihre Zeile **in dieser Tabelle** (Ergänzung mit Datum), mit allen sechs Spalten; eine Katalogzeile anderswo, die einen Episodenkontext ohne „Beginn“ und „Ende“ nennt, ist ein Befund des `observability-reviewer`. Die Tabelle ist zugleich die Erwartung des ausführbaren Katalogs aus ADR-0050 (eine Testzeile je Tabellenzeile).
+  - **Optionen**: A (gewählt) **eine Tabelle neu, alte Zellen als überholt markiert** — Stärke: eine Stelle zum Nachschlagen, die alten Zeilen bleiben als Beleg dessen, was man vorher schrieb; Schwäche: Stufe und Text stehen jetzt doppelt (alt und neu), weichen sie ab, gilt für den Kontext die neue, für Stufe und Text die jeweils jüngere Entscheidung. B **je alte Zeile eine Nachtragszeile direkt darunter** — Stärke: man liest Alt und Neu nebeneinander; Schwäche: 17 verstreute Nachträge in 300 Zeilen, keine Gesamtsicht, und die Testtabelle hätte keine eine Vorlage. C **alte Zellen umschreiben** — Stärke: kürzeste Lesart; Schwäche: verstößt gegen „akzeptierte ADR nie umschreiben“, der Lernbeleg der acht Funde ginge verloren. Verworfen B und C.
 - **2026-10-30 (Karte #70; code-reviewer #66 Anmerkung 3) — Option D der Ergänzung „Karte #66“ entschieden:** Die Wiedervorlage ist erfüllt (acht Episoden mit derselben Fehlerklasse). Entschieden in [ADR-0050](0050-episodenauftreten-als-eigener-typ-quelle-pflicht-einzelwerte-nur-im-beginn.md): `Auftreten` als eigener Typ mit Pflicht-`Quelle` (bildet den Schlüssel der Episode), Einzelwerten nur im Beginn und Fortlaufendem; `Kontext` verliert die Markierungen; ein ausführbarer Katalog prüft alle Bauweisen. Regel 5 und Ergänzung „Karte #66“ gelten weiter, ADR-0050 legt nur fest, wie der Code sie erzwingt. Der Satz „In Kauf genommen: das Muster ‚vergessen einzuordnen‘ bleibt möglich, bis D kommt“ ist damit erledigt, sobald ADR-0050 gebaut ist.

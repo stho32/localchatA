@@ -145,12 +145,12 @@ Regeln:
     |---|---|---|---|
     | `aendern` | Nachricht bearbeitet (200; `grund=wiederholung` \| `unveraendert` ohne Satz) | DEBUG | `channel`, `kennung`, `anzahl` (Bytes des neuen Texts), `dauer_ms` |
     | `aendern` | Nachricht gelöscht (200; `grund=schon_geloescht`) | DEBUG | `channel`, `kennung`, `anhaenge`, `dauer_ms` |
-    | `aendern` | Ändern fremder Nachricht abgewiesen (403 `fremd`) | WARNING, **Episode je Kennung** | Beginn `kennung`, `channel`; Ende zählt |
-    | `aendern` | Änderung nicht geschrieben (500) | ERROR, Episode je `datei`+`grund` | `channel`, `kennung`, `datei`, `grund` |
+    | `aendern` | Ändern fremder Nachricht abgewiesen (403 `fremd`) | WARNING, **Episode je Kennung** | Beginn `kennung`, `channel`; Ende zählt *(überholt: Beginn/Ende in Ergänzung „Karte #70“ unten)* |
+    | `aendern` | Änderung nicht geschrieben (500) | ERROR, Episode je `datei`+`grund` | `channel`, `kennung`, `datei`, `grund` *(überholt: Beginn/Ende in Ergänzung „Karte #70“ unten)* |
     | `anhang` | Anhänge gelöscht (bestehende Zeile, F1′ K-b) — nur wenn `geloescht + fehler > 0` | INFORMATION | wie bisher, dazu `grund=nachricht`, `fremde=0` |
     | `laden` | defekter Änderungssatz (Regel 1) | WARNING (bestehende Regeln: ≤ 10 je Datei, dann Sammelzeile) | `datei`, `zeile` |
     | `laden` | Änderungen ohne Nachricht | DEBUG, eine Zeile je Start | `anzahl` |
-    | `quote` | 507 beim Bearbeiten/Löschen | wie ADR-0044 Regel 8 (Episode je Kennung) | dazu `route=bearbeiten\|loeschen` |
+    | `quote` | 507 beim Bearbeiten/Löschen | wie ADR-0044 Regel 8 (Episode je Kennung) | dazu `route=bearbeiten\|loeschen` *(überholt: Beginn/Ende in Ergänzung „Karte #70“ unten)* |
 
     **Health**: keine neuen Felder — `nachrichten` zählt weiter nur Nachrichten (gelöschte eingeschlossen, sie stehen im Log), `log_bytes`/`belegt` enthalten die Änderungssätze, `quote_abgewiesen` und `anhaenge_geloescht` zählen die neuen Wege mit. Das Monitoring entscheidet nichts Neues (Regel ADR-0043, Ergänzung Karte #31); wer Missbrauch sucht, liest die Episode `fremd`.
 
@@ -231,3 +231,16 @@ F6 und F7 aus ADR-0046 F1′ (Rückgängig, wer gelöscht hat) gelten für mitge
 - [A00006 Gespräche](../Architektur/A00006-gespraeche.md), [A00007 Logformat](../Architektur/A00007-logformat.md), [A00009 Verlaufsindex](../Architektur/A00009-verlaufsindex.md), [A00004 HTTP-Schnittstelle](../Architektur/A00004-http-schnittstelle.md), [A00011 Live-Kanal](../Architektur/A00011-live-kanal.md), [A00005 Weboberfläche](../Architektur/A00005-weboberflaeche.md), [A00016 Anhangverzeichnis](../Architektur/A00016-anhangverzeichnis.md); Aspekte [X00002](../Architektur/Aspekte/X00002-benutzerrechte.md), [X00008](../Architektur/Aspekte/X00008-transaktionen-und-nebenlaeufigkeit.md)
 - ADR-0004, 0005, 0006, 0011, 0012, 0014, 0023, 0025, 0026, 0028, 0030, 0032, 0034, 0035, 0036, 0039, 0042, 0043, 0044, 0046, 0047
 - Vision R00000 (c256cbb) Zielbild „Eigene Nachrichten bearbeiten und löschen“, Leitplanken Plattenquote und Anhang-Quote; WBS I0032, I0033, I0026 (Fragen an den architekt 1–3), I0011; Karte #48 (Betreiber-Antworten 2026-10-29)
+
+## Ergänzungen
+
+- **2026-10-30 (Karte #70, Baustein 6 der Ergänzung „Karte #66“ in [ADR-0042](0042-stufen-ereigniskatalog-episoden-und-tagesgrenze-des-betriebsprotokolls.md)) — Episoden des Bereichs `aendern` und die Quote beim Bearbeiten mit getrenntem Beginn und Ende:** Entscheider: Claude (autonom, architekt, Auftrag des Directors). Status: Akzeptiert. Die Kontextzellen der drei Episodenzeilen in Regel 13 sind als überholt gekennzeichnet; Stufe, Text und Schlüssel der Episode gelten weiter. Maßgeblich ist die Tabelle der Ergänzung „Karte #70“ in ADR-0042; für diese ADR heißt das:
+
+  | Bereich | Episode | Quelle | Beginn: zusätzlich | Ende und Zwischenzeile: zusätzlich |
+  |---|---|---|---|---|
+  | `aendern` | Ändern fremder Nachricht abgewiesen | `kennung` | `channel` | — (die Ende-Zeile trägt `kennung`, nicht nur die Zählung) |
+  | `aendern` | Änderung nicht geschrieben | `channel`, `datei`, `grund` | `kennung` | — |
+  | `quote` | Senden abgewiesen: Quote erreicht (507 beim Bearbeiten) | `kennung`, `hoechstens` | `channel`, `belegt`, `route=bearbeiten` | — |
+
+  - Die alte Zelle „Ende zählt“ (Z. 148) ließ offen, ob die Ende-Zeile `kennung` trägt; gebaut trägt sie sie (`src/http/bearbeiten.rs:201–215`, `kennung` mit `mit`), und so ist es richtig: `kennung` ist die Quelle (ADR-0042, Ergänzung Karte #31 Punkt 4 (a)).
+  - `route` ist Einzelwert: die Quote-Episode der Kennung ist **eine** über Senden und Bearbeiten (gleicher Text, gleiche Quelle), `route=bearbeiten` steht nur, wenn das erste Auftreten ein Bearbeiten war. `route=loeschen` (Z. 153) ist noch nicht gebaut (I0033); kommt es, ist es ebenso Einzelwert.
