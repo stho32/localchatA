@@ -14,7 +14,7 @@ Zahlt ein auf: [Vision](R00000-vision.md) — „Nachrichten kopieren und mit Zi
 
 Herkunft: Karte #78 — Auftraggeber 2026-10-30: „Ok, sag ihm bitte auch, dass ich gerne eine einfache Kopieren-Button-Funktion an den Nachrichten hätte. Es gibt in üblichen Chat-Anwendungen die Mit KI chatten übliche Funktionen: Kopieren, Darauf antworten / mit Zitat antworten. Es wäre schön wenn sowas ermöglicht werden könnte. In Microsoft Teams geht sowas.“; entschieden vom product-owner in `AI-Team/po-entscheidungen.md` Zeilen 142, 144, 145.
 
-Umfang (WBS `Dokumentation/Planung/localchata.md`): **I0042** Nachricht kopieren (D0003 Channels). Features und Bubbles gibt es noch nicht (Rolling Wave); sie kommen nach der ADR des `architekt`, danach geht die Klammer auf die Slices über. Das Gegenstück „Antworten“ steht in [R00047](R00047-mit-zitat-antworten-api-und-browser.md).
+Umfang (WBS `Dokumentation/Planung/localchata.md`): **I0042** Nachricht kopieren (D0003 Channels). Stand nach ADR-0052: I0042 ist Blatt der Steuerungsebene (kein Feature) mit den Bubbles B0699–B0703. Das Gegenstück „Antworten“ steht in [R00047](R00047-mit-zitat-antworten-api-und-browser.md).
 
 ### Domänenbezug
 
@@ -26,14 +26,14 @@ Wirkungskette: Ein Agent antwortet im Channel mit einem Befehl oder einem Codebl
 
 ## Funktionale Anforderungen
 
-Route und Mechanik entscheidet die ADR; die Kriterien nennen die Wirkung. Es gibt keinen Server-Teil.
+Mechanik laut ADR-0052: der Text kommt aus dem Fenster (nicht aus dem DOM), kopiert wird synchron in der Geste über ein verstecktes Textfeld und `document.execCommand('copy')`, die Clipboard-API ist nur der zweite Weg. Es gibt keinen Server-Teil. [B0699–B0703]
 
 ### I0042 Nachricht kopieren
 
 - **Wo die Aktion steht**: an jeder bestätigten, nicht gelöschten Nachricht mit Text — eigene, fremde, von Agenten. Nicht angeboten wird sie an einer gelöschten Nachricht, an einer Nachricht nur aus Anhängen (Text leer), an einer Nachricht „wird gesendet …“ und an einer fehlgeschlagenen.
 - **Erreichen**: Maus — „Kopieren“ in der Aktionsleiste bei Hover und Fokus (Ort wie R00041); Tastatur — `Tab` von der fokussierten Nachricht zu ihren Aktionen, `Enter` oder Leertaste löst aus; Abkürzung `C` ohne Strg, Alt, Meta und Umschalt auf der fokussierten Nachricht, **nie** im Eingabefeld, nie im Bearbeiten-Feld, nie bei markiertem Text (dann gilt das gewohnte Kopieren des Browsers), `Strg+C` bleibt unberührt; Touch — Schalter „⋯“ (Name „Aktionen“, ≥ 44 × 44 px) mit Menüeintrag „Kopieren“ (≥ 44 × 44 px). Die Taste ist nie der einzige Weg.
 - **Was kopiert wird**: genau der Quelltext der Nachricht — ein- und mehrzeilig, mit Markdown-Zeichen, Codeblöcken, Emoji-Kurznamen so, wie gespeichert —, ohne Absender, Zeit, Marken („bearbeitet“) und Anhänge. Eine Nachricht mit Text und Anhang kopiert den Text. Nichts wird ergänzt oder abgeschnitten, auch nicht am Ende (kein angehängter Zeilenumbruch).
-- **Auch im LAN**: die Seite läuft dort über `http` ohne sicheren Kontext, in dem `navigator.clipboard` fehlt; „Kopieren“ gelingt trotzdem (Rückfall über Auswahl und `document.execCommand('copy')`). Technik: ADR; die Kriterien prüfen die Wirkung unter `localhost` **und** unter `http://<LAN-IP>`.
+- **Auch im LAN**: die Seite läuft dort über `http` ohne sicheren Kontext, in dem `navigator.clipboard` fehlt; „Kopieren“ gelingt trotzdem, weil `execCommand` der Hauptweg ist (ADR-0052: im LAN der getestete Normalfall, nicht ein Rückfall). Die Kriterien prüfen die Wirkung unter `localhost` **und** unter `http://<LAN-IP>`; auf einem echten Telefon (iOS Safari, WebKit) und in Firefox ist der Weg im Gate **nicht** belegt (Playwright nur Chromium) — dafür gilt der Entwicklertest (siehe Akzeptanzkriterien).
 - **Rückmeldung**: gelingt es, steht am Knopf kurz „Kopiert.“ und die vorhandene Ansage-Region sagt genau einmal „Kopiert.“; gelingt es nicht, steht am Knopf und in der Region „Kopieren nicht möglich“. Das Kopieren ändert weder Fokus noch Lesestelle.
 - **Bestehendes bleibt**: „Bearbeiten“ und „Löschen“ stehen weiter nur an eigenen Nachrichten, `E` und `Entf` wirken nur auf der fokussierten eigenen (R00041); die Leiste und der Schalter erscheinen jetzt an jeder bestätigten, nicht gelöschten Nachricht, weil dort „Kopieren“ gilt.
 
@@ -59,7 +59,9 @@ Gemeinsam: Start mit `localchatA <ordner> --port 0 --host 0.0.0.0 --kein-browser
 - [ ] **Bearbeiten und Löschen unverändert** (E2E): an Nachrichten von `anna` und `claude` gibt es bei `shoff` kein Element, dessen zugänglicher Name „Bearbeiten“ oder „lösch“ enthält; `E` und `Entf` auf ihnen tun nichts; an eigenen Nachrichten bleiben beide wie in R00041.
 - [ ] **Nichts geht zum Server** (E2E, Netzbeobachtung): beim Kopieren entsteht kein Netzaufruf; `sha256sum` über alle Dateien unter `channels/` ist davor und danach gleich.
 - [ ] **Kein Rückschritt für Fokus und Lesestelle** (E2E): nach dem Kopieren steht der Fokus unverändert (auf der Nachricht bzw. auf dem Knopf, von dem aus ausgelöst wurde) und der Verlauf hat nicht gescrollt (Position der Nachricht, Toleranz 0 px).
-- [ ] **Playwright-Test** mit Zwischenablage-Prüfung ist Teil der E2E-Suite und grün; UX-Vorprüfung und Entwicklertest bestanden.
+- [ ] **Playwright-Test** mit Zwischenablage-Prüfung ist Teil der E2E-Suite und grün. Die Zwischenablage gehört dem Browser-Prozess, nicht dem Kontext: die Kopieren-Tests laufen **seriell** (eigene Playwright-Datei mit `test.describe.configure({ mode: 'serial' })` oder eigenem Worker) und schreiben vor jeder Prüfung einen Wächtertext (z. B. `WAECHTER-78`) in die Ablage, damit ein Rest aus einem früheren Test nicht als Erfolg zählt; die Prüfungen „Quelltext genau“ und „Über http im LAN“ lesen die Ablage per `Strg+V` in ein Prüffeld.
+- [ ] **Entwicklertest auf einem echten Telefon** (iOS Safari, Phase `entwicklertest`): die Seite wird über `http://<LAN-IP>:<port>` geöffnet, „Kopieren“ am Schalter „⋯“ und der Text im Notizen-Programm eingefügt — zeichengleich, „Kopiert.“ erscheint, der Bildschirm zoomt beim Kopieren nicht. Das ist die Lücke der Gate-Tests (WebKit und Firefox ungeprüft); ein Fehlschlag ist ein Befund an I0042 (ein Weg im LAN gäbe es dann nur über HTTPS, eine eigene Entscheidung).
+- [ ] **UX-Vorprüfung und Entwicklertest bestanden.**
 
 ## Betroffene Verzeichnisstruktur
 
@@ -67,7 +69,7 @@ Folgt der ADR (`architekt`): Oberfläche in `web/` (`web/verlauf.js`, `web/nachr
 
 ## Technische Überlegungen
 
-### Ablauf (Vorplanung — Bubbles entstehen nach der ADR)
+### Ablauf (Stand nach ADR-0052)
 
 1. Welche Aktionen für eine Nachricht gelten, wird je Aktion bestimmt (R00041 Nachtrag): „Kopieren“ gilt für bestätigte, nicht gelöschte Nachrichten mit Text.
 2. Der Quelltext kommt aus der Nachricht, die der Verlauf hält; nichts wird neu geladen.
@@ -76,7 +78,7 @@ Folgt der ADR (`architekt`): Oberfläche in `web/` (`web/verlauf.js`, `web/nachr
 
 ### Grobentwurf
 
-Entfällt bis zur ADR (Rolling Wave).
+Siehe ADR-0052 und die Bubbles B0699–B0703 der WBS: `kopierbar` mit Text im Fenster (B0699), `kopieren` (B0700), Aktion in Leiste, Schalter und Tab-Weg (B0701), Taste `C` (B0702), Rückmeldung (B0703).
 
 ## Abhängigkeiten
 
@@ -86,13 +88,13 @@ Entfällt bis zur ADR (Rolling Wave).
 
 ## Offene Fragen
 
-Aus den Entscheidungen des product-owner nicht beantwortet, vom planer mit Empfehlung gesetzt (der `architekt` bzw. `ux-reviewer` bestätigt oder ändert):
+Stand nach ADR-0052: Fragen 1, 2, 4 und 5 sind vom `architekt` **bestätigt bzw. entschieden**; Frage 3 liegt beim `ux-reviewer`.
 
-1. **Archivierte Channels** (nur lesbar): „Kopieren“ ist Lesen und schreibt nichts → angeboten, Antworten dort nicht (R00047). Annahme des planer; gilt, sobald I0038 grün.
-2. **Direktgespräche** (I0012): gelten wie Channels, nur für die Beteiligten sichtbar. Annahme des planer.
-3. **Ort der Rückmeldung am Knopf** (Beschriftung wechselt kurz auf „Kopiert.“ oder Häkchen): `ux-reviewer`.
-4. **Nachricht mit Emoji-Kurznamen** (`:smile:`): Quelltext, also der Kurzname, nicht das Zeichen — Annahme des planer („so, wie geschrieben“, PO Zeile 144).
-5. **Rückfall unter http**: Auswahl und `execCommand` gelten als veraltet, funktionieren aber in allen Zielbrowsern; ob ein Fallback ohne `execCommand` nötig ist, belegt der `architekt` im Browser-Test.
+1. **Archivierte Channels** (nur lesbar): bestätigt — „Kopieren“ ist Lesen und schreibt nichts, angeboten sobald I0038 gebaut ist; Antworten dort nicht (R00047).
+2. **Direktgespräche** (I0012): bestätigt — wie Channels, nur für die Beteiligten sichtbar, angeboten sobald I0012 gebaut ist.
+3. **Ort der Rückmeldung am Knopf** (Beschriftung wechselt kurz auf „Kopiert.“ oder Häkchen; Dauer, Ort, Form): `ux-reviewer`, **offen**.
+4. **Nachricht mit Emoji-Kurznamen** (`:smile:`): bestätigt — kopiert wird, was in `text` steht, also der Kurzname.
+5. **Rückfall unter http** — entschieden: `execCommand('copy')` ist der Hauptweg (in Chromium über die LAN-IP geprobt: `isSecureContext` falsch, `navigator.clipboard` undefiniert, Textfeld und `execCommand` liefern den Text zeichengleich), `navigator.clipboard.writeText` nur der zweite Weg im sicheren Kontext; ein dritter Weg ist nicht nötig. Offen bleibt WebKit/Firefox: Entwicklertest am Telefon. Fällt `execCommand` in einem Browser weg, gibt es im LAN über `http` keinen Weg mehr — dann wäre HTTPS im LAN eine eigene Entscheidung (heute nicht verlangt).
 
 ## Warum löst diese Anforderung das Problem?
 
