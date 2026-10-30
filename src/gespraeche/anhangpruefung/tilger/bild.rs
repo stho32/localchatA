@@ -7,8 +7,21 @@ use super::port::{Abbruch, Ergebnis, Kette, Port, STUECK};
 use crate::gespraeche::anhangpruefung::exif::orientierung;
 
 const EXIF: &[u8] = b"Exif\0\0";
-const XMP: &[u8] = b"http://ns.adobe.com/xap/1.0/\0";
-const XMP_EXTENDED: &[u8] = b"http://ns.adobe.com/xmp/extension/\0";
+const MPF: &[u8] = b"MPF\0";
+
+/// Erlaubnisliste JPEG (ADR-0047 Ergänzung „Karte #9 Security-Review B2“ Regel 1): je `APPn` die Kennungen, die
+/// bleiben — Farbe (ICC, Adobe), HDR (MPF, ISO 21496-1), JFIF. `APP1` Exif wird minimal; jedes andere `APPn` und
+/// jeder `COM` wird mit Kennung und Inhalt genullt.
+const JPEG_ERLAUBT: &[(u8, &[u8])] = &[
+    (0xE0, b"JFIF\0"),
+    (0xE2, b"ICC_PROFILE\0"),
+    (0xE2, MPF),
+    (0xE2, b"urn:iso:std:iso:ts:21496:-1\0"),
+    (0xEE, b"Adobe"),
+];
+
+/// So viele Bytes eines Segments reichen, um seine Kennung zu erkennen.
+const KENNUNG_HOECHSTENS: u64 = 32;
 const PNG_SIGNATUR: &[u8] = b"\x89PNG\r\n\x1a\n";
 
 fn metadaten<T>(grund: &'static str) -> Ergebnis<T> {
@@ -34,6 +47,12 @@ fn exif_ersetzen(
     kette.schreiben(pos, &neu)
 }
 
+fn jpeg_erlaubt(marker: u8, kopf: &[u8]) -> bool {
+    JPEG_ERLAUBT
+        .iter()
+        .any(|(erlaubt, kennung)| *erlaubt == marker && kopf.starts_with(kennung))
+}
+
 /// Wo im JPEG die Segmente enden und ob das erste Bild ein `APP2` `MPF` trägt (Inhalt ohne `MPF\0`).
 pub struct JpegBild {
     pub sos: u64,
@@ -41,7 +60,7 @@ pub struct JpegBild {
 }
 
 /// Ein JPEG-Bild in `[start, ende)` (`FF D8 FF`), gelesen nur in diesem Bereich: Segmente bis `SOS` über die Längenkette — `APP1` Exif → minimales EXIF,
-/// `APP1` XMP (auch Extended), `APP13` und `COM` genullt; `APP0`, `APP2`, `APP14` und alles ab `SOS` unverändert.
+/// `APPn` nach der Erlaubnisliste, jedes andere `APPn` und `COM` genullt; Nicht-`APPn` und alles ab `SOS` unverändert.
 pub fn jpeg(port: &Port<'_>, start: u64, ende: u64, zaehler: &mut Zaehler) -> Ergebnis<JpegBild> {
     let mut kette = port.kette_bis(ende);
     if kette.bytes(start, 3)? != [0xFF, 0xD8, 0xFF] {
@@ -76,15 +95,13 @@ pub fn jpeg(port: &Port<'_>, start: u64, ende: u64, zaehler: &mut Zaehler) -> Er
         let inhalt = pos + 2;
         let n = laenge - 2;
         let kopf = kette
-            .bytes(inhalt, n.min(XMP_EXTENDED.len() as u64) as usize)?
+            .bytes(inhalt, n.min(KENNUNG_HOECHSTENS) as usize)?
             .to_vec();
         match marker {
             0xE1 if kopf.starts_with(EXIF) => exif_ersetzen(&mut kette, inhalt, n, EXIF, zaehler)?,
-            0xE1 if kopf.starts_with(XMP) || kopf.starts_with(XMP_EXTENDED) => {
-                kette.nullen(inhalt, n)?
-            }
-            0xED | 0xFE => kette.nullen(inhalt, n)?,
-            0xE2 if kopf.starts_with(b"MPF\0") && mpf.is_none() => mpf = Some((inhalt + 4, n - 4)),
+            0xE2 if kopf.starts_with(MPF) && mpf.is_none() => mpf = Some((inhalt + 4, n - 4)),
+            0xE0..=0xEF if jpeg_erlaubt(marker, &kopf) => {}
+            0xE0..=0xEF | 0xFE => kette.nullen(inhalt, n)?,
             _ => {}
         }
         pos = inhalt + n;
@@ -303,7 +320,7 @@ mod tests {
         bytes.extend(segment(
             0xE1,
             &[
-                XMP,
+                &b"http://ns.adobe.com/xap/1.0/\0"[..],
                 b"<x:xmpmeta><exif:GPSLatitude>52,31N</exif:GPSLatitude>",
             ]
             .concat(),
@@ -402,6 +419,122 @@ mod tests {
             jpeg(&port, 0, port.laenge(), &mut Zaehler::default()),
             Err(Abbruch::Metadaten(_))
         ));
+    }
+
+    /// GPSLatitude 52° 31′ 12″ als drei RATIONAL (Motorola) — der binäre Wert von 52.52.
+    const ORT_BINAER: [u8; 24] = [
+        0, 0, 0, 52, 0, 0, 0, 1, 0, 0, 0, 31, 0, 0, 0, 1, 0, 0, 0, 12, 0, 0, 0, 1,
+    ];
+
+    /// Ortsangabe als Text und binär (ADR-0047 B2 P1–P6: `GPSLatitude` 52.52, `GPSLongitude` 13.405).
+    fn ort() -> Vec<u8> {
+        [
+            &b"GPSLatitude 52.52 +52.5200+013.4050/ GPSLongitude 13.405 "[..],
+            &ORT_BINAER[..],
+        ]
+        .concat()
+    }
+
+    /// Kein Ort in `bytes`: weder `GPS`, noch „52.52“, „+52.5200“, noch der binäre Wert.
+    fn ohne_ort(bytes: &[u8]) -> bool {
+        !enthaelt(bytes, b"GPS")
+            && !enthaelt(bytes, b"52.52")
+            && !enthaelt(bytes, b"+52.5200")
+            && !enthaelt(bytes, &ORT_BINAER)
+    }
+
+    fn jpeg_aus(segmente: &[Vec<u8>]) -> Vec<u8> {
+        [
+            vec![0xFF, 0xD8],
+            segmente.concat(),
+            segment(0xC0, b"\x08\0\x10\0\x20\x01\x01\x11\0"),
+            segment(0xDA, b"\x01\x01\0\0?\0"),
+            b"Bilddaten \xFF\0 mehr\xFF\xD9".to_vec(),
+        ]
+        .concat()
+    }
+
+    /// JUMBF mit C2PA-Manifest und Zusicherung `stds.exif`, darin der Ort.
+    fn jumbf_c2pa() -> Vec<u8> {
+        [
+            &b"JP\0\x01\0\0\0\x01"[..],
+            b"\0\0\0\x80jumb\0\0\0\x1Ejumdc2pa\0\x11\0\x10\x80\0\xAA\08\x9Bq\x03c2pa\0",
+            b"\0\0\0\x40jumb\0\0\0\x1Djumdjson\0\x11\0\x10\x80\0\xAA\0stds.exif\0",
+            &ort(),
+        ]
+        .concat()
+    }
+
+    /// Vorschau-JPEG mit Exif-GPS (für `APP0` `JFXX`).
+    fn vorschau_mit_gps() -> Vec<u8> {
+        let mut jfxx = b"JFXX\0\x10".to_vec();
+        jfxx.extend(jpeg_aus(&[segment(0xE1, &[EXIF, &ort()[..]].concat())]));
+        jfxx
+    }
+
+    /// ADR-0047 B2 P1, P2, P7 (JPEG-Teil): `APP11` JUMBF/C2PA, `APP3`, `APP0` `JFXX` mit Vorschau, `APP2` FlashPix,
+    /// `APP15` → Kennung und Inhalt genullt, Marker und Längen bleiben, ab `SOS` byte-gleich.
+    #[test]
+    fn jedes_nicht_erlaubte_app_segment_verliert_kennung_und_inhalt() {
+        let segmente = vec![
+            segment(0xE0, b"JFIF\0\x01\x01\0\0\x01\0\x01\0\0"),
+            segment(0xEB, &jumbf_c2pa()),
+            segment(0xE3, &[&b"META\0\0"[..], &ort()[..]].concat()),
+            segment(0xE0, &vorschau_mit_gps()),
+            segment(0xE2, &[&b"FPXR\0"[..], &ort()[..]].concat()),
+            segment(0xEF, &[&b"Hersteller\0"[..], &ort()[..]].concat()),
+        ];
+        let original = jpeg_aus(&segmente);
+
+        let (getilgt, zaehler, _) = tilgen(original.clone(), jpeg_erstes);
+
+        assert_eq!(getilgt.len(), original.len());
+        assert!(ohne_ort(&getilgt), "Ort bleibt");
+        let mut pos = 2 + segmente[0].len();
+        for segment in &segmente[1..] {
+            assert_eq!(getilgt[pos..pos + 4], segment[..4], "Marker und Länge");
+            assert!(
+                getilgt[pos + 4..pos + segment.len()]
+                    .iter()
+                    .all(|b| *b == 0),
+                "Kennung und Inhalt genullt bei FF {:02X}",
+                segment[1]
+            );
+            pos += segment.len();
+        }
+        assert_eq!(
+            getilgt[..2 + segmente[0].len()],
+            original[..2 + segmente[0].len()]
+        );
+        let sos = original.len() - 26;
+        assert_eq!(getilgt[sos..], original[sos..]);
+        assert_eq!(zaehler.bloecke, 7);
+    }
+
+    /// ADR-0047 B2 P8 (JPEG-Teil): ICC über drei `APP2`, `APP14` Adobe, Orientierung 6, ISO-21496-1-`APP2` und
+    /// `APP2` `MPF` bleiben byte-gleich, `SOF` und alles ab `SOS` auch.
+    #[test]
+    fn farbe_hdr_und_orientierung_bleiben_byte_gleich() {
+        let bleiben = vec![
+            segment(0xE0, b"JFIF\0\x01\x01\0\0\x01\0\x01\0\0"),
+            segment(0xE2, b"ICC_PROFILE\0\x01\x03Teil eins"),
+            segment(0xE2, b"ICC_PROFILE\0\x02\x03Teil zwei"),
+            segment(0xE2, b"ICC_PROFILE\0\x03\x03Teil drei"),
+            segment(0xEE, b"Adobe\0\x64\0\0\0\0\x02"),
+            segment(0xE2, b"urn:iso:std:iso:ts:21496:-1\0\0\0\0\0"),
+            segment(0xE2, b"MPF\0MM\0*\0\0\0\x08\0\0"),
+        ];
+        let exif = segment(0xE1, &[EXIF, &handy_tiff()[..]].concat());
+        let original = jpeg_aus(&[bleiben.clone(), vec![exif]].concat());
+
+        let (getilgt, _, _) = tilgen(original.clone(), jpeg_erstes);
+
+        let erlaubt = 2 + bleiben.concat().len();
+        assert_eq!(getilgt[..erlaubt], original[..erlaubt]);
+        let exif_ab = getilgt.windows(6).position(|f| f == EXIF).expect("Exif");
+        assert_eq!(orientierung(&getilgt[exif_ab + 6..]), Some(6));
+        let sof = original.len() - 26 - 13;
+        assert_eq!(getilgt[sof..], original[sof..]);
     }
 
     fn chunk(typ: &[u8], daten: &[u8]) -> Vec<u8> {
