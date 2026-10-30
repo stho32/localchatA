@@ -240,15 +240,15 @@ async fn p5_nur_die_eigene_kennung_setzt_und_loescht_den_eigenen_zustand() {
     assert!(danach.is_none(), "anna bleibt: {danach:?}");
 }
 
-/// P8 ohne `gueltig_s` (Stufe I0040): falscher Wortlaut 422 `zustand`, `denkt_nach` und `gueltig_s` erst mit I0041
-/// (422 `zustand` bzw. `feld`), fremder `Origin` 403, unbekannter Channel 404, ohne Sitzung 401 — jeweils ohne
-/// Wirkung; `DELETE` ohne aktiven Zustand 204 ohne Ereignis.
+/// P8 (B0695 schaltet `denkt_nach` und `gueltig_s` frei): falscher Wortlaut 422 `zustand`, `gueltig_s` 0, −1, 1.5,
+/// `"30"`, „bald“, `null`, 121 → 422 `gueltigkeit`, ein weiteres Feld 422 `feld`, fremder `Origin` 403, unbekannter
+/// Channel 404, ohne Sitzung 401 — jeweils ohne Wirkung; `DELETE` ohne aktiven Zustand 204 ohne Ereignis.
 #[tokio::test]
 async fn p8_abweisungen_ohne_wirkung() {
     let mut r = runde().await;
     let mut antworten = Vec::new();
 
-    for zustand in ["schreibt", "denkt nach", "Tippt", "denkt_nach"] {
+    for zustand in ["schreibt", "denkt nach", "Tippt"] {
         let antwort = setzen(
             &r.absender,
             &r.instanz,
@@ -278,18 +278,42 @@ async fn p8_abweisungen_ohne_wirkung() {
             antwort.json["regel"].clone(),
         ));
     }
-    let mit_gueltigkeit = setzen(
+    for gueltig_s in [
+        json!(0),
+        json!(-1),
+        json!(1.5),
+        json!("30"),
+        json!("bald"),
+        Value::Null,
+        json!(121),
+        json!(500),
+    ] {
+        let antwort = setzen(
+            &r.absender,
+            &r.instanz,
+            Some(&r.anna),
+            "allgemein",
+            json!({"zustand": "denkt_nach", "gueltig_s": gueltig_s}),
+        )
+        .await;
+        antworten.push((
+            format!("gueltig_s {gueltig_s}"),
+            antwort.status,
+            antwort.json["regel"].clone(),
+        ));
+    }
+    let weiteres_feld = setzen(
         &r.absender,
         &r.instanz,
         Some(&r.anna),
         "allgemein",
-        json!({"zustand": "tippt", "gueltig_s": 30}),
+        json!({"zustand": "tippt", "gueltig_s": 30, "text": "x"}),
     )
     .await;
     antworten.push((
-        "gueltig_s".into(),
-        mit_gueltigkeit.status,
-        mit_gueltigkeit.json["regel"].clone(),
+        "weiteres Feld".into(),
+        weiteres_feld.status,
+        weiteres_feld.json["regel"].clone(),
     ));
     for methode in [reqwest::Method::PUT, reqwest::Method::DELETE] {
         let antwort = aufrufen(
@@ -343,11 +367,18 @@ async fn p8_abweisungen_ohne_wirkung() {
             ("schreibt".to_string(), 422, regel("zustand")),
             ("denkt nach".to_string(), 422, regel("zustand")),
             ("Tippt".to_string(), 422, regel("zustand")),
-            ("denkt_nach".to_string(), 422, regel("zustand")),
             ("{}".to_string(), 422, regel("zustand")),
             (r#"{"zustand":1}"#.to_string(), 422, regel("zustand")),
             (r#"["tippt"]"#.to_string(), 422, regel("zustand")),
-            ("gueltig_s".to_string(), 422, regel("feld")),
+            ("gueltig_s 0".to_string(), 422, regel("gueltigkeit")),
+            ("gueltig_s -1".to_string(), 422, regel("gueltigkeit")),
+            ("gueltig_s 1.5".to_string(), 422, regel("gueltigkeit")),
+            ("gueltig_s \"30\"".to_string(), 422, regel("gueltigkeit")),
+            ("gueltig_s \"bald\"".to_string(), 422, regel("gueltigkeit")),
+            ("gueltig_s null".to_string(), 422, regel("gueltigkeit")),
+            ("gueltig_s 121".to_string(), 422, regel("gueltigkeit")),
+            ("gueltig_s 500".to_string(), 422, regel("gueltigkeit")),
+            ("weiteres Feld".to_string(), 422, regel("feld")),
             ("Origin PUT".to_string(), 403, Value::Null),
             ("Origin DELETE".to_string(), 403, Value::Null),
             (
@@ -852,4 +883,147 @@ async fn sperrfolge_offline_weg_und_setzen_gleichzeitig_ohne_verklemmung() {
     assert!(alle.iter().all(|s| [200, 401, 429].contains(s)), "{alle:?}");
     assert!(alle.contains(&401), "Gnadenfrist abgelaufen: {alle:?}");
     assert_eq!(gesund, 200);
+}
+
+/// Die Dauer zwischen `jetzt` und `bis` einer Antwort auf das Setzen.
+fn gueltig(antwort: &ApiAntwort) -> chrono::TimeDelta {
+    let zeit = |wert: &Value| {
+        chrono::DateTime::parse_from_rfc3339(wert.as_str().expect("Zeit")).expect("RFC 3339")
+    };
+    zeit(&antwort.json["bis"]) - zeit(&antwort.json["jetzt"])
+}
+
+/// B0695 (ADR-0051 Regeln 2, 3; R00045 I0041 „Setzen und Anzeige“, „Ablauf“; Mutante M5): `denkt_nach` ohne Angabe
+/// gilt 30 s, `tippt` ohne Angabe 6 s, `gueltig_s` 10 → 10 s, 120 → 120 s; 121 wird nicht begrenzt, sondern ohne Wirkung
+/// abgewiesen; das Ereignis bei `ben` nennt `denkt_nach` mit demselben `bis`.
+#[tokio::test]
+async fn i0041_denkt_nach_und_gueltigkeit_an_der_route() {
+    let mut r = runde().await;
+    let setzen_mit =
+        |koerper: Value| setzen(&r.absender, &r.instanz, Some(&r.anna), "allgemein", koerper);
+
+    let denkt_nach = setzen_mit(json!({"zustand": "denkt_nach"})).await;
+    let bei_ben = r
+        .strom_ben
+        .bis(Duration::from_secs(5), aktivitaet_von("anna@127.0.0.1"))
+        .await
+        .expect("bei ben");
+    let tippt = setzen_mit(json!({"zustand": "tippt"})).await;
+    let zehn = setzen_mit(json!({"zustand": "denkt_nach", "gueltig_s": 10})).await;
+    let hundertzwanzig = setzen_mit(json!({"zustand": "denkt_nach", "gueltig_s": 120})).await;
+    while r.strom_ben.bis(STILLE, ist_aktivitaet).await.is_some() {}
+    let zu_lang = setzen_mit(json!({"zustand": "tippt", "gueltig_s": 121})).await;
+    let nach_zu_lang = r.strom_ben.bis(STILLE, ist_aktivitaet).await;
+
+    assert_eq!(denkt_nach.status, 200, "{}", denkt_nach.json);
+    assert_eq!(denkt_nach.json["zustand"], "denkt_nach");
+    assert_eq!(gueltig(&denkt_nach), chrono::TimeDelta::seconds(30));
+    assert_eq!(
+        (&bei_ben.data["zustand"], &bei_ben.data["bis"]),
+        (&json!("denkt_nach"), &denkt_nach.json["bis"])
+    );
+    assert_eq!(gueltig(&tippt), chrono::TimeDelta::seconds(6));
+    assert_eq!(gueltig(&zehn), chrono::TimeDelta::seconds(10));
+    assert_eq!(gueltig(&hundertzwanzig), chrono::TimeDelta::seconds(120));
+    assert_eq!(
+        (zu_lang.status, &zu_lang.json["regel"]),
+        (422, &json!("gueltigkeit")),
+        "nicht begrenzt: {}",
+        zu_lang.json
+    );
+    assert!(nach_zu_lang.is_none(), "ohne Wirkung: {nach_zu_lang:?}");
+}
+
+/// B0695, P7 Agent (ADR-0051 Regel 7 e, F5; R00045 I0041 US-9; Mutante M6): `claude` tritt als Agent bei, hat keinen
+/// Strom und setzt `denkt_nach` → `ben` liest `offline` von `claude`, aber kein Ende — auch nach 5 s nicht; `claude`
+/// verlässt → `weg`, dann `zustand: null` binnen 1 s.
+#[tokio::test]
+async fn p7_ein_agent_ohne_strom_denkt_weiter_nach_bis_er_verlaesst() {
+    let mut r = runde().await;
+    let claude = beitreten(&r.absender, &r.instanz.adresse, "claude", Some("agent")).await;
+    let gesetzt = setzen(
+        &r.absender,
+        &r.instanz,
+        Some(&claude),
+        "allgemein",
+        json!({"zustand": "denkt_nach"}),
+    )
+    .await;
+    r.strom_ben
+        .bis(Duration::from_secs(5), aktivitaet_von("claude@127.0.0.1"))
+        .await
+        .expect("gesetzt bei ben");
+    let gesetzt_um = Instant::now();
+
+    let offline = r
+        .strom_ben
+        .bis(
+            Duration::from_secs(5),
+            ist_wechsel("claude@127.0.0.1", "offline"),
+        )
+        .await;
+    tokio::time::sleep_until(gesetzt_um + Duration::from_secs(5)).await;
+    r.strom_ben.mitlesen(Duration::from_millis(100)).await;
+    let ende_vor_dem_verlassen: Vec<_> = r
+        .strom_ben
+        .ereignisse
+        .iter()
+        .filter(|e| aktivitaet_von("claude@127.0.0.1")(e) && e.data["zustand"].is_null())
+        .cloned()
+        .collect();
+    let verlassen = api_antwort(
+        r.absender
+            .anfrage(
+                reqwest::Method::POST,
+                format!("{}api/verlassen", r.instanz.adresse),
+            )
+            .header("X-LocalchatA-Sitzung", &claude),
+    )
+    .await;
+    let verlassen_um = Instant::now();
+    let (weg, nach_weg) =
+        ende_nach_wechsel(&mut r.strom_ben, "claude@127.0.0.1", "weg", verlassen_um).await;
+
+    assert_eq!(gesetzt.status, 200, "{}", gesetzt.json);
+    assert!(offline.is_some(), "claude ohne Strom ist offline");
+    assert!(
+        ende_vor_dem_verlassen.is_empty(),
+        "{ende_vor_dem_verlassen:?}"
+    );
+    assert!(
+        (200..300).contains(&verlassen.status),
+        "{}",
+        verlassen.status
+    );
+    assert!(weg.is_some(), "weg bei ben");
+    let nach_weg = nach_weg.expect("Ende nach dem Verlassen");
+    assert!(nach_weg <= Duration::from_secs(1), "{nach_weg:?}");
+}
+
+/// B0695 (ADR-0051 Regel 2): höchstens 16 Zustände je Kennung — das 17. Gespräch ist 422 `aktivitaeten` ohne Wirkung.
+#[tokio::test]
+async fn ein_siebzehntes_gespraech_ist_422_aktivitaeten() {
+    let wurzel = ordner();
+    let gespraeche: Vec<String> = (0..17).map(|n| format!("g{n}")).collect();
+    for name in &gespraeche {
+        std::fs::create_dir_all(wurzel.path().join("channels").join(name)).expect("Channel");
+    }
+    let instanz = starten(wurzel.path(), &[]);
+    let absender = Absender::von("127.0.0.1");
+    let claude = beitreten(&absender, &instanz.adresse, "claude", None).await;
+    let mut status = Vec::new();
+    for gespraech in &gespraeche {
+        let antwort = setzen(
+            &absender,
+            &instanz,
+            Some(&claude),
+            gespraech,
+            json!({"zustand": "denkt_nach", "gueltig_s": 60}),
+        )
+        .await;
+        status.push((antwort.status, antwort.json["regel"].clone()));
+    }
+
+    assert!(status[..16].iter().all(|(s, _)| *s == 200), "{status:?}");
+    assert_eq!(status[16], (422, json!("aktivitaeten")));
 }
