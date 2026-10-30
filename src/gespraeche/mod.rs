@@ -195,6 +195,8 @@ pub struct Gespraeche {
     ladezeit: Duration,
     veroeffentlichen: ChannelVeroeffentlichen,
     nachricht_veroeffentlichen: NachrichtVeroeffentlichen,
+    /// Veröffentlicht eine geänderte Nachricht in ihrer neuen Fassung (ADR-0048 Regel 11), unter der Schreibsperre.
+    aenderung_veroeffentlichen: NachrichtVeroeffentlichen,
     /// Plattenquote in Bytes, `None` heißt aus (ADR-0044 Regel 11); ohne `mit_quote` der Standard.
     hoechstens: Option<u64>,
     /// Σ Bytes aller Tage im Index — Invariante `belegt = Σ Verlauf::bytes()` (ADR-0044 Regel 2).
@@ -401,6 +403,7 @@ impl Gespraeche {
             ladezeit: beginn.elapsed(),
             veroeffentlichen: Arc::new(|_: &ChannelWechsel| {}),
             nachricht_veroeffentlichen: Arc::new(|_: &Gespraech, _: &Nachricht| {}),
+            aenderung_veroeffentlichen: Arc::new(|_: &Gespraech, _: &Nachricht| {}),
             hoechstens: Some(quote::STANDARD_BYTES),
             belegung: quote::Belegung::neu(geladen.belegt),
             quote_melden: Arc::new(|_: &quote::Quotemeldung| {}),
@@ -737,6 +740,7 @@ impl Gespraeche {
             }),
             ..nachricht
         };
+        (self.aenderung_veroeffentlichen)(gespraech, &neu);
         Ok((Bearbeitet::Neu(neu), verdraengt))
     }
 
@@ -926,6 +930,17 @@ impl Gespraeche {
     ) -> Gespraeche {
         Gespraeche {
             nachricht_veroeffentlichen,
+            ..self
+        }
+    }
+
+    /// Hängt die Veröffentlichung der Änderungen an (im Start: der Bus, Thema `aenderung`).
+    pub fn mit_aenderung_veroeffentlichen(
+        self,
+        aenderung_veroeffentlichen: NachrichtVeroeffentlichen,
+    ) -> Gespraeche {
+        Gespraeche {
+            aenderung_veroeffentlichen,
             ..self
         }
     }
@@ -2000,6 +2015,68 @@ mod tests {
         );
         let inhalt = ablage.inhalt(&allgemein, tag("2026-10-27")).expect("Tag");
         assert_eq!(inhalt.matches("+ bearbeitet: ").count(), 2, "{inhalt}");
+    }
+
+    /// R00039 B0603 „Unter der Sperre“ (ADR-0048 Regel 11, ADR-0035): jede neue Bearbeitung ruft den Rückruf genau
+    /// einmal mit der neuen Fassung, wenn der Satz schon in der Ablage steht und die Schreibsperre noch gehalten ist;
+    /// Wiederholung, unverändert, fremd und Schreibfehler rufen nie (Mutante „Veröffentlichen vor dem Anhängen“ rot).
+    #[test]
+    fn bearbeiten_veroeffentlicht_unter_der_sperre_nur_neue_fassungen() {
+        use std::sync::{OnceLock, Weak};
+        let (gespraeche, ablage, uhr) = im_speicher("2026-10-27T14:00:00.000+01:00");
+        let allgemein = Gespraech::channel("allgemein");
+        let selbst: Arc<OnceLock<Weak<Gespraeche>>> = Arc::default();
+        let rueckrufe: Arc<Mutex<Vec<(String, Option<Geaendert>, bool, bool)>>> = Arc::default();
+        let gespraeche = Arc::new(gespraeche.mit_aenderung_veroeffentlichen({
+            let (selbst, rueckrufe, ablage) = (
+                Arc::clone(&selbst),
+                Arc::clone(&rueckrufe),
+                Arc::clone(&ablage),
+            );
+            Arc::new(move |gespraech: &Gespraech, nachricht: &Nachricht| {
+                let gespraeche = selbst.get().and_then(Weak::upgrade).expect("Gespräche");
+                let im_log = ablage
+                    .inhalt(gespraech, tag("2026-10-27"))
+                    .unwrap_or_default()
+                    .contains(&format!("  {}\n", nachricht.text));
+                sperren(&rueckrufe).push((
+                    nachricht.text.clone(),
+                    nachricht.geaendert,
+                    im_log,
+                    gespraeche.schreibsperre_frei(),
+                ));
+            })
+        }));
+        selbst.set(Arc::downgrade(&gespraeche)).expect("einmal");
+        let beta = kennung("beta@127.0.0.1");
+        let t1 = gespraeche
+            .senden(&allgemein, &beta, Art::Agent, "Hallo")
+            .expect("t1")
+            .zeit;
+
+        let eins = gespraeche.bearbeiten_mit(&allgemein, &beta, t1, "Eins", Some("k1"));
+        uhr.stellen(zeit("2026-10-27T14:00:01.000+01:00"));
+        let zwei = gespraeche.bearbeiten(&allgemein, &beta, t1, "Zwei");
+        let _ = gespraeche.bearbeiten_mit(&allgemein, &beta, t1, "Eins", Some("k1"));
+        let _ = gespraeche.bearbeiten(&allgemein, &beta, t1, "Zwei");
+        let _ = gespraeche.bearbeiten(&allgemein, &claude(), t1, "fremd");
+        ablage.fehler_nach(20);
+        let gescheitert = gespraeche.bearbeiten(&allgemein, &beta, t1, "Drei");
+
+        assert!(
+            matches!(gescheitert, Err(Bearbeitfehler::Ablage { .. })),
+            "{gescheitert:?}"
+        );
+        let (Ok(Bearbeitet::Neu(eins)), Ok(Bearbeitet::Neu(zwei))) = (eins, zwei) else {
+            panic!("nicht neu")
+        };
+        assert_eq!(
+            *sperren(&rueckrufe),
+            vec![
+                ("Eins".to_string(), eins.geaendert, true, false),
+                ("Zwei".to_string(), zwei.geaendert, true, false),
+            ]
+        );
     }
 
     #[test]

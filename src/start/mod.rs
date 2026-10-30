@@ -420,7 +420,8 @@ async fn nach_der_sperre(
             .mit_anhangschwelle_melden(anhangschwelle_melden(&protokoll))
             .mit_verdraengt_melden(verdraengt_melden(&protokoll))
             .mit_veroeffentlichen(bus::channels_veroeffentlichen(&bus))
-            .mit_nachricht_veroeffentlichen(bus::nachrichten_veroeffentlichen(&bus)),
+            .mit_nachricht_veroeffentlichen(bus::nachrichten_veroeffentlichen(&bus))
+            .mit_aenderung_veroeffentlichen(bus::aenderungen_veroeffentlichen(&bus)),
     );
     for befund in gespraeche.anhangbefunde() {
         let mut kontext = Kontext::neu()
