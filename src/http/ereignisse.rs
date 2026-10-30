@@ -10,10 +10,12 @@ use super::channels::{channel_als_json, stand_als_json as channels_als_json};
 use super::nachrichten::NachrichtAntwort;
 use super::teilnehmer::{gemeldetes_token, nicht_erkannt};
 use super::teilnehmerliste::{stand_als_json, zeile_als_json, zeit_als_text};
+use crate::aktivitaet::{Aenderung, Gesetzt};
 use crate::anwesenheit::status::Status;
 use crate::anwesenheit::{Anwesenheit, Halter, Stand, Wechsel};
+use crate::gespraeche::Gespraech;
 use crate::gespraeche::{ChannelStand, ChannelWechsel, Nachricht};
-use crate::live::bus::{Abonnement, Empfang, Ereignis};
+use crate::live::bus::{Abonnement, Empfang, Ereignis, Signal, Signalabonnement, Signalempfang};
 use crate::protokoll::episoden::{Auftreten, Quelle};
 use crate::protokoll::{Bereich, Protokoll, Schluessel, Stufe, episodentexte};
 use crate::start::ende::Ende;
@@ -59,6 +61,7 @@ fn channels_ort(kennung: &str) -> Grenzort<'_> {
 /// Der Strom eines erkannten Halters; scheitert der Stand der Channels davor, 500 mit Eintrag.
 async fn strom_beantworten(zustand: &Zustand, halter: Halter, quelle: Channelquelle) -> Response {
     let (stand, abonnement) = zustand.anwesenheit.stand_mit(|| zustand.bus.abonnieren());
+    let signale = zustand.signalbus.abonnieren();
     let kennung = halter.kennung().als_text().to_string();
     let channels = match channels_holen(&quelle).await {
         Ok(channels) => channels,
@@ -78,6 +81,7 @@ async fn strom_beantworten(zustand: &Zustand, halter: Halter, quelle: Channelque
         protokoll: Arc::clone(&zustand.protokoll),
         kennung,
         abonnement,
+        signale: Some(signale),
         ende: zustand.ende.clone(),
         herzschlag: tokio::time::interval_at(tokio::time::Instant::now() + herzschlag, herzschlag),
         zuletzt: stand.stand,
@@ -106,6 +110,8 @@ struct Strom {
     /// Kennung des Halters — für die Spur, wenn der Strom am Stand der Channels endet.
     kennung: String,
     abonnement: Abonnement,
+    /// Flüchtige Signale (ADR-0051 Regel 6); `None`, sobald der Signalbus fort ist — der Strom läuft weiter.
+    signale: Option<Signalabonnement>,
     ende: Ende,
     herzschlag: Interval,
     /// Nummer des zuletzt gesendeten Stands oder Wechsels der Teilnehmer; ältere oder gleiche gehen schon im
@@ -139,6 +145,12 @@ enum Ausgabe {
         channel: String,
         nachricht: Nachricht,
     },
+    Aktivitaet {
+        channel: String,
+        kennung: crate::gespraeche::Kennung,
+        aktiv: Option<Gesetzt>,
+    },
+    AktivitaetLuecke,
     Herzschlag,
 }
 
@@ -157,22 +169,30 @@ impl Strom {
             Ausgabe::Aenderung { channel, nachricht } => {
                 Event::default().data(aenderung_als_json(&channel, &nachricht).to_string())
             }
+            Ausgabe::Aktivitaet {
+                channel,
+                kennung,
+                aktiv,
+            } => Event::default().data(aktivitaet_als_json(&channel, &kennung, aktiv).to_string()),
+            Ausgabe::AktivitaetLuecke => {
+                Event::default().data(json!({ "art": "aktivitaet_luecke" }).to_string())
+            }
             Ausgabe::Herzschlag => herzschlag_ereignis(&self.anwesenheit),
         };
         Some((Ok(ereignis), self))
     }
 
     /// Zuerst die ausstehenden Stände, danach je Thema Wechsel mit größerem `stand` als dem zuletzt gesendeten
-    /// (kleinere oder gleiche stecken schon im Stand — nach `Lagged` bringt der Bus sie noch), Herzschläge;
-    /// `None` am Ende.
+    /// (kleinere oder gleiche stecken schon im Stand — nach `Lagged` bringt der Bus sie noch), Signale, Herzschläge;
+    /// `None` am Ende. Vorrang in dieser Folge (ADR-0051 Regel 6): Ende → Ereignisbus → Signalbus → Herzschlag.
     async fn naechste_ausgabe(&mut self) -> Option<Ausgabe> {
         if let Some(ausstehend) = self.ausstehend.pop_front() {
             return Some(ausstehend);
         }
         loop {
             return Some(tokio::select! {
+                biased;
                 () = self.ende.abwarten() => return None,
-                _ = self.herzschlag.tick() => Ausgabe::Herzschlag,
                 empfang = self.abonnement.naechstes() => match empfang? {
                     Empfang::Ereignis(Ereignis::Anwesenheit(wechsel)) => {
                         if wechsel.stand <= self.zuletzt {
@@ -219,8 +239,32 @@ impl Strom {
                         Ausgabe::Stand(stand)
                     }
                 },
+                signal = signal_empfangen(&mut self.signale), if self.signale.is_some() => {
+                    match signal {
+                        None => {
+                            self.signale = None;
+                            continue;
+                        }
+                        Some(Signalempfang::Luecke) => Ausgabe::AktivitaetLuecke,
+                        Some(Signalempfang::Signal(Signal::Aktivitaet(aenderung))) => {
+                            match self.fuer_diesen_strom(aenderung) {
+                                Some(ausgabe) => ausgabe,
+                                None => continue,
+                            }
+                        }
+                    }
+                }
+                _ = self.herzschlag.tick() => Ausgabe::Herzschlag,
             });
         }
+    }
+}
+
+/// Das nächste Signal; nur gerufen, solange es ein Abonnement gibt (Vorbedingung im `select!`).
+async fn signal_empfangen(signale: &mut Option<Signalabonnement>) -> Option<Signalempfang> {
+    match signale {
+        Some(signale) => signale.naechstes().await,
+        None => std::future::pending().await,
     }
 }
 
@@ -248,6 +292,22 @@ impl Strom {
     fn ueberholt_melden(&self, verpasst: u64) {
         self.protokoll
             .episode(ueberholt_auftreten(&self.kennung, verpasst));
+    }
+
+    /// Filter je Strom (ADR-0051 Regel 6): die eigene Kennung nie (man sieht sich nie selbst); nur Channels —
+    /// Direktgespräche bekommen ihren Weg und ihre Sichtbarkeit mit I0012, bis dahin sendet der Strom sie nicht.
+    fn fuer_diesen_strom(&self, aenderung: Aenderung) -> Option<Ausgabe> {
+        if &aenderung.kennung == self.halter.kennung() {
+            return None;
+        }
+        let Gespraech::Channel(channel) = aenderung.gespraech else {
+            return None;
+        };
+        Some(Ausgabe::Aktivitaet {
+            channel,
+            kennung: aenderung.kennung,
+            aktiv: aenderung.aktiv,
+        })
     }
 
     fn ist_eigenes_weg(&self, wechsel: &Wechsel) -> bool {
@@ -308,6 +368,31 @@ fn anhaenge_ereignis(channel: &str, geloescht: &[(String, crate::uhr::Zeit)]) ->
             .collect::<Vec<_>>(),
     });
     Event::default().data(ereignis.to_string())
+}
+
+/// Gesetzt oder erneuert `{"art":"aktivitaet","channel","kennung","zustand","bis","jetzt"}`, beendet mit
+/// `"zustand":null` (ADR-0051 Regel 5).
+fn aktivitaet_als_json(
+    channel: &str,
+    kennung: &crate::gespraeche::Kennung,
+    aktiv: Option<Gesetzt>,
+) -> serde_json::Value {
+    match aktiv {
+        Some(gesetzt) => json!({
+            "art": "aktivitaet",
+            "channel": channel,
+            "kennung": kennung.als_text(),
+            "zustand": gesetzt.zustand.als_text(),
+            "bis": zeit_als_text(&gesetzt.bis),
+            "jetzt": zeit_als_text(&gesetzt.jetzt),
+        }),
+        None => json!({
+            "art": "aktivitaet",
+            "channel": channel,
+            "kennung": kennung.als_text(),
+            "zustand": null,
+        }),
+    }
 }
 
 fn wechsel_ereignis(wechsel: &Wechsel) -> Event {
@@ -379,6 +464,18 @@ mod tests {
         abonnement: Abonnement,
         halter: Halter,
     ) -> Strom {
+        strom_mit_signalen(anwesenheit, gespraeche, stand, abonnement, None, halter)
+    }
+
+    /// Wie `strom_fuer`, mit einem Abonnement des Signalbusses.
+    fn strom_mit_signalen(
+        anwesenheit: &Arc<Anwesenheit>,
+        gespraeche: &Arc<Gespraeche>,
+        stand: Stand,
+        abonnement: Abonnement,
+        signale: Option<Signalabonnement>,
+        halter: Halter,
+    ) -> Strom {
         let channels = gespraeche.channels();
         let quelle = Arc::clone(gespraeche);
         Strom {
@@ -387,6 +484,7 @@ mod tests {
             protokoll: Arc::new(crate::protokoll::Protokoll::ohne_ablage()),
             kennung: halter.kennung().als_text().to_string(),
             abonnement,
+            signale,
             ende: Ende::nie(),
             herzschlag: tokio::time::interval_at(
                 tokio::time::Instant::now() + Duration::from_secs(3600),
@@ -461,6 +559,8 @@ mod tests {
                 | Ausgabe::Nachricht { .. }
                 | Ausgabe::Anhaenge { .. }
                 | Ausgabe::Aenderung { .. }
+                | Ausgabe::Aktivitaet { .. }
+                | Ausgabe::AktivitaetLuecke
                 | Ausgabe::Herzschlag => {}
             }
             if neuer_stand.is_some() {
@@ -767,5 +867,232 @@ mod tests {
             .filter(|a| matches!(a, Ausgabe::Stand(_)))
             .count();
         assert_eq!(staende, 3, "Anfangsstand und je Überholung ein neuer Stand");
+    }
+
+    /// B0685: Anwesenheit, Ereignisbus und Signalbus wie im Programm; `anna` und `ben` (beide 127.0.0.1) mit je einem
+    /// Strom, der beide Busse liest.
+    struct Zwei {
+        bus: Arc<Bus>,
+        signalbus: Arc<crate::live::bus::Signalbus>,
+        anna: Strom,
+        ben: Strom,
+    }
+
+    fn zwei_stroeme(ereignisse: usize, signale: usize) -> Zwei {
+        let bus = Arc::new(Bus::neu(ereignisse));
+        let signalbus = Arc::new(crate::live::bus::Signalbus::neu(signale));
+        let anwesenheit = Arc::new(
+            Anwesenheit::neu(
+                Arc::new(Systemuhr),
+                Arc::new(Betriebssystemzufall),
+                Duration::from_secs(60),
+            )
+            .mit_veroeffentlichen(anwesenheit_veroeffentlichen(&bus)),
+        );
+        let herkunft: std::net::IpAddr = "127.0.0.1".parse().expect("IP");
+        let gespraeche = gespraeche_am(&bus);
+        let mut stroeme = ["anna", "ben"].map(|name| {
+            let token = beitreten_von(&anwesenheit, name, herkunft);
+            let (halter, _) = anwesenheit.verbunden(&token, herkunft).expect("Halter");
+            let (stand, abonnement) = anwesenheit.stand_mit(|| bus.abonnieren());
+            Some(strom_mit_signalen(
+                &anwesenheit,
+                &gespraeche,
+                stand,
+                abonnement,
+                Some(signalbus.abonnieren()),
+                halter,
+            ))
+        });
+        Zwei {
+            bus,
+            signalbus,
+            anna: stroeme[0].take().expect("anna"),
+            ben: stroeme[1].take().expect("ben"),
+        }
+    }
+
+    fn anna_tippt() -> Aenderung {
+        let jetzt =
+            crate::uhr::Zeit::parse_from_rfc3339("2026-10-30T09:00:00.000+01:00").expect("Zeit");
+        Aenderung {
+            gespraech: Gespraech::channel("allgemein"),
+            kennung: Kennung::bilden("anna@127.0.0.1").expect("Kennung"),
+            aktiv: Some(Gesetzt {
+                zustand: crate::aktivitaet::Zustand::Tippt,
+                bis: jetzt + chrono::TimeDelta::seconds(6),
+                jetzt,
+            }),
+        }
+    }
+
+    /// Liest, bis binnen `still` nichts mehr kommt; die Ausgaben als Text (Art und Wesentliches).
+    async fn alles_lesen(strom: &mut Strom, still: Duration) -> Vec<String> {
+        let mut gelesen = Vec::new();
+        while let Ok(Some(ausgabe)) = tokio::time::timeout(still, strom.naechste_ausgabe()).await {
+            gelesen.push(match ausgabe {
+                Ausgabe::Stand(_) => "teilnehmer".to_string(),
+                Ausgabe::Channels(_) => "channels".to_string(),
+                Ausgabe::Nachricht { .. } => "nachricht".to_string(),
+                Ausgabe::Aktivitaet {
+                    channel,
+                    kennung,
+                    aktiv,
+                } => aktivitaet_als_json(&channel, &kennung, aktiv).to_string(),
+                Ausgabe::AktivitaetLuecke => "aktivitaet_luecke".to_string(),
+                andere => format!("{andere:?}"),
+            });
+        }
+        gelesen
+    }
+
+    /// B0685, ADR-0051 P4 (Strom-Teil, Mutante M1): ein Signal von `anna` liest `ben` als `aktivitaet` mit `zustand`,
+    /// `bis`, `jetzt`; der Strom von `anna` liest binnen 500 ms keines.
+    #[tokio::test]
+    async fn ein_signal_von_anna_liest_ben_aber_nie_anna_selbst() {
+        let mut zwei = zwei_stroeme(16, 16);
+        let gesetzt = anna_tippt();
+
+        zwei.signalbus.veroeffentlichen(Signal::Aktivitaet(gesetzt));
+        let ben = alles_lesen(&mut zwei.ben, Duration::from_millis(500)).await;
+        let anna = alles_lesen(&mut zwei.anna, Duration::from_millis(500)).await;
+
+        assert_eq!(
+            ben,
+            [
+                "teilnehmer".to_string(),
+                "channels".to_string(),
+                json!({
+                    "art": "aktivitaet", "channel": "allgemein", "kennung": "anna@127.0.0.1",
+                    "zustand": "tippt", "bis": "2026-10-30T09:00:06.000+01:00",
+                    "jetzt": "2026-10-30T09:00:00.000+01:00"
+                })
+                .to_string()
+            ]
+        );
+        assert!(
+            anna.iter().all(|zeile| !zeile.contains("aktivitaet")),
+            "{anna:#?}"
+        );
+    }
+
+    /// B0685 (Mutante M3): liegen eine Nachricht und ein Signal zugleich an, liest `ben` zuerst die Nachricht — auch
+    /// wenn das Signal früher veröffentlicht wurde. 50 Runden, damit eine zufällige Wahl (ohne `biased`) auffällt.
+    #[tokio::test]
+    async fn liegen_nachricht_und_signal_zugleich_an_geht_die_nachricht_zuerst() {
+        let mut zwei = zwei_stroeme(64, 64);
+        alles_lesen(&mut zwei.ben, Duration::from_millis(100)).await;
+        let ende = json!({"art": "aktivitaet", "channel": "allgemein", "kennung": "anna@127.0.0.1", "zustand": null})
+            .to_string();
+
+        for runde in 0..50 {
+            zwei.signalbus
+                .veroeffentlichen(Signal::Aktivitaet(Aenderung {
+                    aktiv: None,
+                    ..anna_tippt()
+                }));
+            zwei.bus.veroeffentlichen(Ereignis::Nachricht {
+                channel: "allgemein".into(),
+                nachricht: Nachricht {
+                    zeit: crate::uhr::Zeit::parse_from_rfc3339("2026-10-30T09:00:01.000+01:00")
+                        .expect("Zeit"),
+                    von: Kennung::bilden("anna@127.0.0.1").expect("Kennung"),
+                    art: None,
+                    text: "fertig".into(),
+                    anhaenge: Vec::new(),
+                    geaendert: None,
+                },
+            });
+            let ben = alles_lesen(&mut zwei.ben, Duration::from_millis(50)).await;
+
+            assert_eq!(
+                ben,
+                ["nachricht".to_string(), ende.clone()],
+                "Runde {runde}"
+            );
+        }
+    }
+
+    /// B0685, ADR-0051 Regel 6: ein überholter Signalstrom sendet genau eine `aktivitaet_luecke` — kein neuer Stand,
+    /// keine Episode — und liest danach weiter.
+    #[tokio::test]
+    async fn ein_ueberholter_signalstrom_meldet_genau_eine_luecke_ohne_neuen_stand_und_ohne_episode()
+     {
+        use crate::protokoll::Stufe;
+        use crate::protokoll::testhilfe::im_speicher;
+        let (protokoll, speicher, _, _) = im_speicher("2026-10-30T09:00:00+01:00", Stufe::Debug);
+        let mut zwei = zwei_stroeme(16, 2);
+        zwei.ben.protokoll = protokoll;
+        alles_lesen(&mut zwei.ben, Duration::from_millis(100)).await;
+
+        for _ in 0..5 {
+            zwei.signalbus
+                .veroeffentlichen(Signal::Aktivitaet(anna_tippt()));
+        }
+        let ben = alles_lesen(&mut zwei.ben, Duration::from_millis(500)).await;
+
+        assert_eq!(
+            ben.first().map(String::as_str),
+            Some("aktivitaet_luecke"),
+            "{ben:#?}"
+        );
+        assert_eq!(ben.len(), 3, "Lücke, dann die zwei jüngsten: {ben:#?}");
+        assert!(
+            ben[1..]
+                .iter()
+                .all(|zeile| zeile.contains("\"art\":\"aktivitaet\"")),
+            "{ben:#?}"
+        );
+        assert!(speicher.zeilen().is_empty(), "{:#?}", speicher.zeilen());
+    }
+
+    /// B0685, ADR-0051 Regel 5: beim Öffnen eines Stroms und im Nachholen nach einem neuen Stand steht nie ein
+    /// `aktivitaet` — auch nicht das, was vor dem Öffnen gesetzt wurde.
+    #[tokio::test]
+    async fn beim_oeffnen_und_im_nachholen_nie_eine_aktivitaet() {
+        let bus = Arc::new(Bus::neu(2));
+        let signalbus = Arc::new(crate::live::bus::Signalbus::neu(16));
+        let anwesenheit = Arc::new(
+            Anwesenheit::neu(
+                Arc::new(Systemuhr),
+                Arc::new(Betriebssystemzufall),
+                Duration::from_secs(60),
+            )
+            .mit_veroeffentlichen(anwesenheit_veroeffentlichen(&bus)),
+        );
+        let herkunft: std::net::IpAddr = "127.0.0.1".parse().expect("IP");
+        let mut vorher = signalbus.abonnieren();
+        signalbus.veroeffentlichen(Signal::Aktivitaet(anna_tippt()));
+        assert!(vorher.naechstes().await.is_some(), "das Signal ging hinaus");
+        let token = beitreten_von(&anwesenheit, "cora", herkunft);
+        let (halter, _) = anwesenheit.verbunden(&token, herkunft).expect("Halter");
+        let (stand, abonnement) = anwesenheit.stand_mit(|| bus.abonnieren());
+        let mut cora = strom_mit_signalen(
+            &anwesenheit,
+            &gespraeche_am(&bus),
+            stand,
+            abonnement,
+            Some(signalbus.abonnieren()),
+            halter,
+        );
+
+        let beim_oeffnen = alles_lesen(&mut cora, Duration::from_millis(200)).await;
+        for nummer in 0..5 {
+            beitreten_von(&anwesenheit, &format!("w{nummer}"), herkunft);
+        }
+        let im_nachholen = alles_lesen(&mut cora, Duration::from_millis(300)).await;
+
+        assert_eq!(beim_oeffnen, ["teilnehmer", "channels"]);
+        assert_eq!(
+            im_nachholen.first().map(String::as_str),
+            Some("teilnehmer"),
+            "neuer Stand: {im_nachholen:#?}"
+        );
+        assert!(
+            im_nachholen
+                .iter()
+                .all(|zeile| !zeile.contains("aktivitaet")),
+            "{im_nachholen:#?}"
+        );
     }
 }

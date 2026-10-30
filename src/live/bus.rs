@@ -130,6 +130,74 @@ pub fn aenderungen_veroeffentlichen(
     })
 }
 
+/// Ein flüchtiges Signal (ADR-0051 Regel 5): ohne Stand, ohne Ordnungszahl, nie im Stand beim Öffnen eines Stroms,
+/// nie im Nachholen.
+// Bis die Route (B0686) die Aktivität verdrahtet, nutzt nur der Test die Veröffentlichung.
+#[cfg_attr(not(test), allow(dead_code))]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Signal {
+    Aktivitaet(crate::aktivitaet::Aenderung),
+}
+
+/// Was ein Abonnent des Signalbusses als Nächstes bekommt.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Signalempfang {
+    Signal(Signal),
+    /// Signale sind verloren gegangen — der Leser verwirft alle Anzeigen; nichts wird nachgeladen (Regel 6).
+    Luecke,
+}
+
+/// Der Signalbus neben dem Ereignisbus (ADR-0051 Regel 6): Signale verdrängen keine Ereignisse und lösen nie einen
+/// neuen Stand aus; `warten` abonniert ihn nie.
+pub struct Signalbus {
+    sender: broadcast::Sender<Signal>,
+}
+
+pub struct Signalabonnement {
+    empfaenger: broadcast::Receiver<Signal>,
+}
+
+impl Signalbus {
+    pub fn neu(kapazitaet: usize) -> Signalbus {
+        let (sender, _) = broadcast::channel(kapazitaet);
+        Signalbus { sender }
+    }
+
+    /// Ohne Abonnenten geht das Signal an niemanden — das ist kein Fehler.
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub fn veroeffentlichen(&self, signal: Signal) {
+        let _ohne_abonnenten = self.sender.send(signal);
+    }
+
+    pub fn abonnieren(&self) -> Signalabonnement {
+        Signalabonnement {
+            empfaenger: self.sender.subscribe(),
+        }
+    }
+}
+
+impl Signalabonnement {
+    /// Das nächste Signal oder `Luecke`; `None`, wenn der Bus fort ist.
+    pub async fn naechstes(&mut self) -> Option<Signalempfang> {
+        match self.empfaenger.recv().await {
+            Ok(signal) => Some(Signalempfang::Signal(signal)),
+            Err(broadcast::error::RecvError::Lagged(_)) => Some(Signalempfang::Luecke),
+            Err(broadcast::error::RecvError::Closed) => None,
+        }
+    }
+}
+
+/// Die Veröffentlichung für die Aktivität: jede Änderung als Signal auf den Signalbus.
+#[cfg_attr(not(test), allow(dead_code))]
+pub fn aktivitaet_veroeffentlichen(
+    signalbus: &std::sync::Arc<Signalbus>,
+) -> crate::aktivitaet::Veroeffentlichen {
+    let signalbus = std::sync::Arc::clone(signalbus);
+    std::sync::Arc::new(move |aenderung: &crate::aktivitaet::Aenderung| {
+        signalbus.veroeffentlichen(Signal::Aktivitaet(aenderung.clone()));
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -294,6 +362,62 @@ mod tests {
                 .ok()
                 .flatten(),
             Some(Empfang::Ereignis(Ereignis::Channel(wechsel)))
+        );
+    }
+
+    fn signal(name: &str) -> Signal {
+        Signal::Aktivitaet(crate::aktivitaet::Aenderung {
+            gespraech: Gespraech::channel("allgemein"),
+            kennung: Kennung::bilden(&format!("{name}@127.0.0.1")).expect("Kennung"),
+            aktiv: None,
+        })
+    }
+
+    /// B0685 (ADR-0051 Regel 6): jedes Signal erreicht alle Abonnenten des Signalbusses; ein überholter Leser bekommt
+    /// genau eine Lücke und liest danach das Jüngste weiter; ist der Bus fort, endet das Abonnement.
+    #[tokio::test]
+    async fn signalbus_liefert_an_alle_und_meldet_eine_luecke_statt_eines_neuen_stands() {
+        let signalbus = Signalbus::neu(2);
+        let mut zuegig = signalbus.abonnieren();
+        let mut langsam = signalbus.abonnieren();
+
+        signalbus.veroeffentlichen(signal("a"));
+        assert_eq!(
+            zuegig.naechstes().await,
+            Some(Signalempfang::Signal(signal("a")))
+        );
+        for name in ["b", "c", "d", "e"] {
+            signalbus.veroeffentlichen(signal(name));
+        }
+
+        assert_eq!(langsam.naechstes().await, Some(Signalempfang::Luecke));
+        assert_eq!(
+            langsam.naechstes().await,
+            Some(Signalempfang::Signal(signal("d")))
+        );
+        assert_eq!(
+            langsam.naechstes().await,
+            Some(Signalempfang::Signal(signal("e")))
+        );
+        drop(signalbus);
+        assert_eq!(langsam.naechstes().await, None);
+    }
+
+    /// Die Aktivität veröffentlicht auf den Signalbus, nie auf den Ereignisbus (Mutante M3, erster Teil).
+    #[tokio::test]
+    async fn eine_aktivitaet_geht_als_signal_auf_den_signalbus() {
+        let signalbus = std::sync::Arc::new(Signalbus::neu(4));
+        let mut abonnement = signalbus.abonnieren();
+        let crate::live::bus::Signal::Aktivitaet(aenderung) = signal("anna");
+
+        aktivitaet_veroeffentlichen(&signalbus)(&aenderung);
+
+        assert_eq!(
+            tokio::time::timeout(std::time::Duration::from_secs(1), abonnement.naechstes())
+                .await
+                .ok()
+                .flatten(),
+            Some(Signalempfang::Signal(Signal::Aktivitaet(aenderung)))
         );
     }
 }

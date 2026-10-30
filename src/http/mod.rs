@@ -67,6 +67,8 @@ pub struct Zustand {
     pub gespraeche: Arc<Gespraeche>,
     pub anwesenheit: Arc<Anwesenheit>,
     pub bus: Arc<Bus>,
+    /// Flüchtige Signale neben dem Ereignisbus (ADR-0051 Regel 6).
+    pub signalbus: Arc<crate::live::bus::Signalbus>,
     /// Abstand der Herzschläge im Ereignisstrom.
     pub herzschlag: Duration,
     /// Ende des Programms — jeder Strom hört es und endet selbst.
@@ -184,6 +186,9 @@ pub(crate) mod testserver {
             gespraeche: Arc::new(gespraeche),
             anwesenheit: Arc::new(anwesenheit),
             bus,
+            signalbus: Arc::new(crate::live::bus::Signalbus::neu(
+                crate::live::SIGNAL_KAPAZITAET,
+            )),
             herzschlag: Duration::from_secs(5),
             ende: Ende::nie(),
             grenzschutz: Grenzschutz::neu(None, Vec::new()),

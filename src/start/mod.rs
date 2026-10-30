@@ -554,6 +554,7 @@ async fn nach_der_sperre(
         gespraeche,
         anwesenheit,
         bus,
+        signalbus: Arc::new(bus::Signalbus::neu(live::SIGNAL_KAPAZITAET)),
         herzschlag,
         ende: ende.clone(),
         grenzschutz: Grenzschutz::neu(rechnername::lesen(), auftrag.erreichbar_als)
