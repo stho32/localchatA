@@ -15,7 +15,7 @@ import { rueckfrageOeffnen, loeschenAuswerten } from './loeschen.js';
 import { zeigerart } from './eingabe.js';
 import {
   einordnen, zusammenfuehren, fassungUebernehmen, buendlerAnlegen, folgenOderZaehlen, pillenText, auslaufNach, nichtGeladenText, hinweisTextNachziehen,
-  sprungZiel as sprungZielBerechnen, scrollTopNachHoehe, fensterNeuLesen,
+  sprungZiel as sprungZielBerechnen, scrollTopNachHoehe, fensterNeuLesen, zeitDanach,
 } from './live-verlauf.js';
 
 // abrufen: async (name, cursor, signal) → { art: 'block' | 'fehler' | 'abgebrochen', … } (api.js verlaufAbrufen);
@@ -293,6 +293,7 @@ export function verlaufAnlegen({
       }
     },
     inSicht: inSichtBringen,
+    feldHolen: zumFeldOeffnen,
     speichern: bearbeitenSpeichern,
     uebernehmen: (nachricht) => fassungenErsetzen([nachricht]),
     alsGeloeschtZeigen: geloeschtSetzen,
@@ -350,9 +351,9 @@ export function verlaufAnlegen({
   }
 
   // Nach dem Öffnen des Channels: steht die Nachricht des Felds im Fenster, ist es wieder offen mit Fokus; ist sie
-  // gelöscht oder fehlt sie im Zeitraum des Fensters, schließt es mit Hinweis (PO 124). Liegt sie vor dem Fenster, wartet
-  // das Feld, bis sie wieder geladen ist.
-  function feldNachOeffnen() {
+  // gelöscht oder fehlt sie im Zeitraum des Fensters, schließt es mit Hinweis (PO 124). Liegt sie vor dem Fenster, holt
+  // die Rückkehr in den Channel das Fenster bis zu ihr (F0142); sonst wartet das Feld, bis sie wieder geladen ist.
+  function feldNachOeffnen(rueckkehr) {
     const zeit = bearbeiten.offeneZeitIn(offenerName);
     if (zeit === null) {
       return;
@@ -365,7 +366,16 @@ export function verlaufAnlegen({
     const vorDemFenster = fenster !== null && Date.parse(zeit) < Date.parse(fenster.bloecke[0][0].zeit) && fenster.aelter;
     if (!vorDemFenster) {
       bearbeiten.weilWegSchliessen();
+      return;
     }
+    if (rueckkehr) {
+      zumFeldOeffnen();
+    }
+  }
+
+  // Öffnet den Channel mit dem Block, der mit der Nachricht des Felds endet; das Nachladen holt das Neuere dazu.
+  function zumFeldOeffnen() {
+    oeffnen(offenerName, undefined, { vor: zeitDanach(bearbeiten.offeneZeitIn(offenerName)) });
   }
 
   function blockMitFeld(block) {
@@ -576,11 +586,12 @@ export function verlaufAnlegen({
     }
   }
 
-  // Öffnet den Channel mit den neuesten 100 (ADR-0037 Ergänzung „Karte #61“, 7h): → { art: 'geladen' | 'fehler' |
-  // 'abgebrochen' }. Bricht der Aufrufer über `signal` ab (Zeitgrenze, Ende des Laufs), gilt das als Fehlschlag;
-  // übernimmt ein anderes Öffnen oder schließt der Verlauf, ist es abgebrochen. Ein erneutes Öffnen nach „Verlauf nicht
-  // geladen“ lässt den Hinweis bis zum Ergebnis stehen (7k).
-  async function oeffnen(name, signal = new AbortController().signal) {
+  // Öffnet den Channel mit den neuesten 100 (ADR-0037 Ergänzung „Karte #61“, 7h), mit `cursor` `vor` mit dem Block
+  // davor (Rückkehr zum offenen Feld): → { art: 'geladen' | 'fehler' | 'abgebrochen' }. Bricht der Aufrufer über `signal`
+  // ab (Zeitgrenze, Ende des Laufs), gilt das als Fehlschlag; übernimmt ein anderes Öffnen oder schließt der Verlauf, ist
+  // es abgebrochen. Ein erneutes Öffnen nach „Verlauf nicht geladen“ lässt den Hinweis bis zum Ergebnis stehen (7k).
+  async function oeffnen(name, signal = new AbortController().signal, cursor = {}) {
+    const rueckkehr = name !== offenerName;
     laufend.abort();
     laufend = new AbortController();
     const dieser = laufend;
@@ -607,7 +618,7 @@ export function verlaufAnlegen({
       inhalt.replaceChildren();
     }
     lageMerken();
-    const ergebnis = await abrufen(name, {}, dieser.signal);
+    const ergebnis = await abrufen(name, cursor, dieser.signal);
     const vomAufruferAbgebrochen = ergebnis.art === 'abgebrochen' && signal.aborted;
     if (dieser !== laufend || (ergebnis.art === 'abgebrochen' && !vomAufruferAbgebrochen)) {
       return { art: 'abgebrochen' };
@@ -620,12 +631,12 @@ export function verlaufAnlegen({
     if (ergebnis.block.nachrichten.length === 0) {
       inhalt.replaceChildren(...leerHinweis(name));
       gepuffertesAnnehmen();
-      feldNachOeffnen();
+      feldNachOeffnen(rueckkehr);
       return { art: 'geladen' };
     }
     angenommenMerken(ergebnis.block.nachrichten);
     eingeordnetMerken(ergebnis.block.nachrichten);
-    fenster = { bloecke: [ergebnis.block.nachrichten], aelter: ergebnis.block.aelter, neuer: false };
+    fenster = { bloecke: [ergebnis.block.nachrichten], aelter: ergebnis.block.aelter, neuer: ergebnis.block.neuer };
     juengste = ergebnis.block.nachrichten[ergebnis.block.nachrichten.length - 1].zeit;
     const knoten = gegliedertZeichnen(ergebnis.block.nachrichten, null, { heute, kennung: eigeneKennung });
     bloeckeKnoten = [knoten];
@@ -633,7 +644,7 @@ export function verlaufAnlegen({
     langeEinklappen(nurNachrichten(knoten));
     ansEnde();
     lageMerken();
-    feldNachOeffnen();
+    feldNachOeffnen(rueckkehr);
     gepuffertesAnnehmen();
     pruefen();
     return { art: 'geladen' };

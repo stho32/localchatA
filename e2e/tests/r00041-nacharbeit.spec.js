@@ -4,7 +4,8 @@
 // hängen an ihrem Signal, Löschen sendet höchstens einen Aufruf zugleich, eigenes Löschen sagt nicht „inzwischen“.
 const { test, expect } = require('./rahmen');
 const { netzAus, netzAn, leiste } = require('./r00012-hilfen');
-const { sendenStarten, imBrowserBeitreten } = require('./senden-hilfen');
+const { sendenStarten, imBrowserBeitreten, beitreten, senden } = require('./senden-hilfen');
+const { channelAnlegen } = require('./hilfen');
 const {
   betaVerlauf, betaSendet, bearbeitenPerApi, loeschenPerApi, browserOeffnen, imBrowserSenden, nachrichtMitZeit,
 } = require('./r00041-hilfen');
@@ -19,6 +20,58 @@ test.afterEach(async () => {
 
 const feld = (page) => page.getByRole('log').getByRole('textbox', { name: 'Nachricht bearbeiten' });
 const ohneNetzfehler = (fehler) => fehler.filter((zeile) => !/ERR_INTERNET_DISCONNECTED/.test(zeile));
+
+const auswahl = (page) => feld(page).evaluate((textfeld) => [textfeld.selectionStart, textfeld.selectionEnd]);
+
+async function channelWaehlen(page, name) {
+  await page.getByRole('navigation', { name: 'Channels' }).getByRole('link', { name, exact: true }).click();
+  await expect(page.getByRole('log')).toHaveAttribute('aria-label', `Verlauf # ${name}`);
+}
+
+function bearbeitungenZaehlen(page) {
+  const liste = [];
+  page.on('request', (anfrage) => {
+    if (anfrage.method() === 'POST' && anfrage.url().endsWith('/nachrichten/bearbeiten')) {
+      liste.push(anfrage.postDataJSON());
+    }
+  });
+  return liste;
+}
+
+/// `allgemein` mit `anzahl` Nachrichten von `shoff@127.0.0.1` (eine je Sekunde ab 14:00) — A tritt im Browser als
+/// `shoff` von 127.0.0.1 bei und kann sie bearbeiten; → { zeiten, vorbereiten }.
+function eigenerVerlauf(anzahl) {
+  const zeiten = Array.from({ length: anzahl }, (_, nummer) => {
+    const minute = String(Math.floor(nummer / 60)).padStart(2, '0');
+    const sekunde = String(nummer % 60).padStart(2, '0');
+    return `2026-10-28T14:${minute}:${sekunde}.000+01:00`;
+  });
+  return {
+    zeiten,
+    vorbereiten: (ordner) => channelAnlegen(ordner, 'allgemein', {
+      '2026-10-28': zeiten.map((zeit, nummer) => [zeit, 'shoff@127.0.0.1', `Nachricht ${nummer + 1}`]),
+    }),
+  };
+}
+
+/// Vier Agenten von 127.0.0.2 senden je `jeAgent` Nachrichten nach `allgemein` (unter dem Vorrat des Schreibkontos).
+async function agentenSenden(adresse, jeAgent) {
+  for (const name of ['agent-a', 'agent-b', 'agent-c', 'agent-d']) {
+    const token = await beitreten(adresse, name, { herkunft: '127.0.0.2' });
+    for (let nummer = 0; nummer < jeAgent; nummer += 1) {
+      expect((await senden(adresse, token, 'allgemein', `${name} ${nummer}`, '127.0.0.2')).status).toBe(201);
+    }
+  }
+}
+
+/// Das Feld ist sichtbar im Verlauf, fokussiert, mit Text und Schreibmarke.
+async function feldStehtWieder(page, { text, marke }) {
+  await expect(feld(page)).toHaveCount(1);
+  await expect(feld(page)).toBeFocused();
+  await expect(feld(page)).toBeInViewport();
+  await expect(feld(page)).toHaveValue(text);
+  expect(await auswahl(page)).toEqual(marke);
+}
 
 async function feldOeffnen(page, zeit) {
   await nachrichtMitZeit(page, zeit).hover();
@@ -69,4 +122,123 @@ test('B1 Nachholen frischt das ganze Fenster auf: acht Blöcke, älteste bearbei
   await expect(feld(a.page)).toHaveValue('Meine getippt');
   expect(await a.page.evaluate(() => window.nichtNeuGeladen)).toBe(true);
   expect(ohneNetzfehler(a.fehler)).toEqual([]);
+});
+
+// B2 (F0142, PO 124) — Rückkehr in den Channel: (a) die Nachricht des Felds liegt in einem älteren Block.
+test('B2 (a) Rückkehr, Feld in einem älteren Block: sichtbar und fokussiert mit Text und Schreibmarke, kein POST', async ({ browser }) => {
+  test.setTimeout(60000);
+  const verlauf = eigenerVerlauf(300);
+  instanz = await sendenStarten({ vorbereiten: verlauf.vorbereiten });
+  const a = await browserOeffnen(browser, { streng: true });
+  const bearbeitungen = bearbeitungenZaehlen(a.page);
+  await imBrowserBeitreten(a.page, instanz.adresse, 'shoff');
+  const alt = verlauf.zeiten[50];
+  await nachObenBis(a.page, alt);
+  await feldOeffnen(a.page, alt);
+  await a.page.keyboard.type(' getippt');
+  await feld(a.page).evaluate((textfeld) => textfeld.setSelectionRange(3, 3));
+
+  await channelWaehlen(a.page, 'technik');
+  await channelWaehlen(a.page, 'allgemein');
+
+  await feldStehtWieder(a.page, { text: 'Nachricht 51 getippt', marke: [3, 3] });
+  await expect(nachrichtMitZeit(a.page, alt).getByRole('textbox')).toHaveCount(1);
+  expect(bearbeitungen).toEqual([]);
+  expect(a.fehler).toEqual([]);
+});
+
+// B2 (b): während A in # technik ist, kommen mehr als 100 neue Nachrichten — die eigene fällt aus dem neuesten Block.
+test('B2 (b) Rückkehr nach 108 neuen Nachrichten: Feld sichtbar und fokussiert mit Text und Schreibmarke, kein POST', async ({ browser }) => {
+  test.setTimeout(60000);
+  instanz = await sendenStarten();
+  const a = await browserOeffnen(browser, { streng: true });
+  const bearbeitungen = bearbeitungenZaehlen(a.page);
+  await imBrowserBeitreten(a.page, instanz.adresse, 'shoff');
+  const meine = await imBrowserSenden(a.page, 'Meine');
+  await feldOeffnen(a.page, meine);
+  await a.page.keyboard.type(' getippt');
+  await feld(a.page).evaluate((textfeld) => textfeld.setSelectionRange(2, 4));
+  await channelWaehlen(a.page, 'technik');
+  await agentenSenden(instanz.adresse, 27);
+
+  await channelWaehlen(a.page, 'allgemein');
+
+  await feldStehtWieder(a.page, { text: 'Meine getippt', marke: [2, 4] });
+  expect(bearbeitungen).toEqual([]);
+  expect(a.fehler).toEqual([]);
+});
+
+// B2 (c): nach der Rückkehr fokussiert ein zweites Bearbeiten das offene Feld, es entsteht kein zweites.
+test('B2 (c) zweites Bearbeiten nach der Rückkehr: kein zweites Feld, Fokus ins offene', async ({ browser }) => {
+  test.setTimeout(60000);
+  const verlauf = eigenerVerlauf(300);
+  instanz = await sendenStarten({ vorbereiten: verlauf.vorbereiten });
+  const a = await browserOeffnen(browser, { streng: true });
+  await imBrowserBeitreten(a.page, instanz.adresse, 'shoff');
+  const alt = verlauf.zeiten[50];
+  await nachObenBis(a.page, alt);
+  await feldOeffnen(a.page, alt);
+  await a.page.keyboard.type(' getippt');
+  await channelWaehlen(a.page, 'technik');
+  await channelWaehlen(a.page, 'allgemein');
+  await expect(feld(a.page)).toBeFocused();
+
+  await nachrichtMitZeit(a.page, verlauf.zeiten[52]).focus();
+  await a.page.keyboard.press('e');
+
+  await expect(feld(a.page)).toHaveCount(1);
+  await expect(nachrichtMitZeit(a.page, alt).getByRole('textbox')).toBeFocused();
+  await expect(feld(a.page)).toHaveValue('Nachricht 51 getippt');
+  expect(a.fehler).toEqual([]);
+});
+
+// B2 (d): dieselbe Klasse ohne Channelwechsel — „Ende“ holt den neuesten Block, das Feld (Nachricht 51) steht nicht mehr
+// im Verlauf; ein zweites Bearbeiten an der neuesten eigenen holt es zurück und fokussiert es.
+test('B2 (d) zweites Bearbeiten, während das Feld nicht im Verlauf steht: das Feld kommt zurück und hat den Fokus', async ({ browser }) => {
+  test.setTimeout(60000);
+  const verlauf = eigenerVerlauf(300);
+  instanz = await sendenStarten({ vorbereiten: verlauf.vorbereiten });
+  const a = await browserOeffnen(browser, { streng: true });
+  const bearbeitungen = bearbeitungenZaehlen(a.page);
+  await imBrowserBeitreten(a.page, instanz.adresse, 'shoff');
+  const alt = verlauf.zeiten[50];
+  await nachObenBis(a.page, alt);
+  await feldOeffnen(a.page, alt);
+  await a.page.keyboard.type(' getippt');
+  await a.page.getByRole('log').locator('.lc-msg').first().focus();
+  await a.page.keyboard.press('End');
+  await expect(nachrichtMitZeit(a.page, alt)).toHaveCount(0);
+
+  await nachrichtMitZeit(a.page, verlauf.zeiten[299]).focus();
+  await a.page.keyboard.press('e');
+
+  await feldStehtWieder(a.page, { text: 'Nachricht 51 getippt', marke: [20, 20] });
+  await expect(nachrichtMitZeit(a.page, alt).getByRole('textbox')).toHaveCount(1);
+  expect(bearbeitungen).toEqual([]);
+  expect(a.fehler).toEqual([]);
+});
+
+// Gegenprobe zu B2: die alte Nachricht wird gelöscht, während A in # technik ist → bei der Rückkehr schließt das Feld mit
+// Hinweis (PO 124), nichts bleibt hängen.
+test('B2 Gegenprobe: alte Nachricht gelöscht, während A weg ist → Feld zu, „Nachricht gelöscht“, Hinweiszeile', async ({ browser }) => {
+  test.setTimeout(60000);
+  const verlauf = eigenerVerlauf(300);
+  instanz = await sendenStarten({ vorbereiten: verlauf.vorbereiten });
+  const a = await browserOeffnen(browser, { streng: true });
+  await imBrowserBeitreten(a.page, instanz.adresse, 'shoff');
+  const alt = verlauf.zeiten[50];
+  await nachObenBis(a.page, alt);
+  await feldOeffnen(a.page, alt);
+  await a.page.keyboard.type(' getippt');
+  await channelWaehlen(a.page, 'technik');
+  const token = await a.page.evaluate(() => localStorage.getItem('localchatA.sitzung'));
+  expect((await loeschenPerApi(instanz.adresse, token, alt, '127.0.0.1')).status).toBe(200);
+
+  await channelWaehlen(a.page, 'allgemein');
+
+  await expect(a.page.locator('.lc-statuszeile')).toHaveText('Die Nachricht wurde inzwischen gelöscht.');
+  await expect(feld(a.page)).toHaveCount(0);
+  await nachObenBis(a.page, alt);
+  await expect(nachrichtMitZeit(a.page, alt).locator('.lc-body')).toHaveText('Nachricht gelöscht');
+  expect(a.fehler).toEqual([]);
 });

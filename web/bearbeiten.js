@@ -76,13 +76,14 @@ function fehlerText({ status, daten }) {
 // gespeicherte Fassung in den Verlauf · alsGeloeschtZeigen(zeit) · hinweisen(text): die Hinweiszeile der Seite ·
 // ansagen(text): genau eine Ansage über die Region der Seite (UX S2); beim Öffnen keine (S3) · inSicht(element): das
 // Element ganz in den sichtbaren Teil des Verlaufs (UX M7, auch bei offener Bildschirmtastatur) · geschlossen(zeit): das
-// Feld ist zu, die Nachricht soll ihre bekannte Fassung zeigen.
+// Feld ist zu, die Nachricht soll ihre bekannte Fassung zeigen · feldHolen(): der Verlauf holt die Nachricht des offenen
+// Felds wieder in den Blick und setzt es mit Fokus ein.
 // beginnen(channel, artikel, nachricht) öffnet das Feld in `artikel`; offeneZeitIn(channel) sagt, an welcher Nachricht
 // des Channels es steht.
 // Das Feld gehört dem Tab, nicht dem Knoten (F0142, PO 124): zeichnet der Verlauf die Nachricht neu oder wechselt der
 // Channel, bleibt es samt Text und Schreibmarke im Speicher; einsetzen(artikel, mitFokus) hängt es wieder ein.
 export function bearbeitenAnlegen({
-  zeiger, fokusAufNachricht, inSicht, speichern, uebernehmen, alsGeloeschtZeigen, hinweisen, ansagen, geschlossen,
+  zeiger, fokusAufNachricht, inSicht, feldHolen, speichern, uebernehmen, alsGeloeschtZeigen, hinweisen, ansagen, geschlossen,
 }) {
   let offen = null;
 
@@ -112,12 +113,17 @@ export function bearbeitenAnlegen({
   }
 
   // Höchstens ein Feld je Tab (PO 124): ein zweites „Bearbeiten“ öffnet keines; im selben Channel geht der Fokus ins
-  // offene, in einem anderen bleibt der Channel.
+  // offene — steht es nicht im Verlauf, holt der Verlauf es zurück —, in einem anderen bleibt der Channel.
   function zweitesBeginnen(channel) {
     ansagen('Erst speichern oder abbrechen.');
-    if (offen.channel === channel && offen.rahmen.isConnected) {
-      fokusInsFeld();
+    if (offen.channel !== channel) {
+      return;
     }
+    if (offen.rahmen.isConnected) {
+      fokusInsFeld();
+      return;
+    }
+    feldHolen();
   }
 
   function auswahlMerken() {
