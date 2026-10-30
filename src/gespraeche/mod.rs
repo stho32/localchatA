@@ -144,6 +144,33 @@ impl fmt::Display for Sendefehler {
     }
 }
 
+/// Was `bearbeiten` getan hat (ADR-0048 Regeln 7, 8): einen Änderungssatz angehängt, oder nichts, weil der Text
+/// gleich der aktuellen Fassung ist — beides mit der Nachricht in ihrer jetzigen Fassung.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Bearbeitet {
+    Neu(Nachricht),
+    Unveraendert(Nachricht),
+}
+
+/// Warum `bearbeiten` nichts angehängt hat (ADR-0048 Regel 5, Antworten unter der Sperre).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Bearbeitfehler {
+    /// Das Gespräch ist weder geladen noch angelegt.
+    Unbekannt,
+    /// Keine Nachricht mit dieser Zeit in diesem Gespräch (nie da, entfallen, anderer Channel).
+    Nachricht,
+    /// Die Kennung ist nicht der Absender.
+    Fremd { absender: Kennung },
+    /// Die Nachricht ist gelöscht.
+    Geloescht,
+    /// Nur Leerraum, und die Nachricht hat keinen vorhandenen Anhang.
+    Leer,
+    /// Der Änderungssatz brächte die Gespräche über die Plattenquote; nichts angehängt (ADR-0048 Regel 10).
+    Quote { belegt: u64, hoechstens: u64 },
+    /// Die Tagesdatei nahm den Satz nicht an; nichts steht im Log oder Index.
+    Ablage { datei: String, grund: String },
+}
+
 /// Den Channel gibt es nicht — unbekannt oder kein gültiger Name.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Unbekannt;
@@ -580,6 +607,76 @@ impl Gespraeche {
         });
         (self.nachricht_veroeffentlichen)(gespraech, &nachricht);
         Ok((Gesendet::Neu(nachricht), verdraengt))
+    }
+
+    /// Bearbeitet den Text der Nachricht `ziel` (ADR-0048 Regel 8) unter Gesprächs- und Schreibsperre: nachschlagen
+    /// (`Nachricht`, `Fremd`, `Geloescht`, `Leer`) → unverändert? → Quote → Zeit vergeben → Bearbeitungssatz in die
+    /// Tagesdatei der Änderung anhängen (scheitert es, nichts geändert, die Zeit verfällt) → Index und Fassung →
+    /// `belegt`. Die Anhänge bleiben, wie sie sind.
+    pub fn bearbeiten(
+        &self,
+        gespraech: &Gespraech,
+        von: &Kennung,
+        ziel: Zeit,
+        text: &str,
+    ) -> Result<Bearbeitet, Bearbeitfehler> {
+        let verlauf = lesend(&self.verzeichnis)
+            .verlaeufe
+            .get(gespraech)
+            .cloned()
+            .ok_or(Bearbeitfehler::Unbekannt)?;
+        let mut verlauf = sperren(&verlauf);
+        let mut stand = sperren(&self.schreiben);
+        let nachricht = verlauf
+            .nachricht(&ziel)
+            .as_ref()
+            .and_then(nachricht_in_fassung)
+            .map(|nachricht| self.zustand_eintragen(nachricht))
+            .ok_or(Bearbeitfehler::Nachricht)?;
+        let text = neuer_text(&nachricht, von, text)?;
+        if text == nachricht.text {
+            return Ok(Bearbeitet::Unveraendert(nachricht));
+        }
+        let zeit = crate::uhr::naechste_zeit(self.uhr.jetzt(), stand.letzte);
+        let satz = logformat::bearbeitungssatz(zeit, von, nachricht.zeit, &text);
+        let satzbytes = satz.len() as u64;
+        if let Some(hoechstens) = self.hoechstens
+            && let Err(ueber) = self.belegung.pruefen(satzbytes, hoechstens)
+        {
+            return Err(Bearbeitfehler::Quote {
+                belegt: ueber.belegt,
+                hoechstens: ueber.hoechstens,
+            });
+        }
+        stand.letzte = Some(zeit);
+        self.letzte_ms
+            .store(zeit.timestamp_millis(), Ordering::Relaxed);
+        let tag = zeit.date_naive();
+        let angehaengt = self
+            .ablage
+            .anhaengen(gespraech, tag, &satz)
+            .map_err(|fehler| Bearbeitfehler::Ablage {
+                datei: gespraech.tagesdatei(tag),
+                grund: fehler.to_string(),
+            })?;
+        verlauf.bearbeitung_anhaengen(
+            tag,
+            &satz,
+            angehaengt.zeilenende_ergaenzt,
+            nachricht.zeit,
+            zeit,
+        );
+        let dazu = satzbytes + u64::from(angehaengt.zeilenende_ergaenzt);
+        let vorher = self.belegung.dazu(dazu);
+        self.ueber_90_melden(vorher, vorher.saturating_add(dazu));
+        Ok(Bearbeitet::Neu(Nachricht {
+            text,
+            geaendert: Some(Geaendert {
+                zeit,
+                zustand: Aenderungszustand::Bearbeitet,
+            }),
+            ..nachricht
+        }))
     }
 
     /// Rückbau eines gescheiterten Bindens (ADR-0046 Regel 6): jede schon gebundene Datei zurück in den Eingang
@@ -1026,6 +1123,30 @@ fn nachricht_in_fassung(kopie: &verlaufsindex::Kopie) -> Option<Nachricht> {
         });
     }
     Some(nachricht)
+}
+
+/// Der neue Text, wie er im Log stehen wird — nach den Prüfungen unter der Sperre (ADR-0048 Regeln 6, 7): Absender,
+/// nicht gelöscht, nur Leerraum nur mit einem vorhandenen Anhang (dann `""`).
+fn neuer_text(nachricht: &Nachricht, von: &Kennung, text: &str) -> Result<String, Bearbeitfehler> {
+    if &nachricht.von != von {
+        return Err(Bearbeitfehler::Fremd {
+            absender: nachricht.von.clone(),
+        });
+    }
+    if nachricht
+        .geaendert
+        .is_some_and(|geaendert| geaendert.zustand == Aenderungszustand::Geloescht)
+    {
+        return Err(Bearbeitfehler::Geloescht);
+    }
+    if !text.chars().all(char::is_whitespace) {
+        return Ok(logformat::text_wie_im_log(text));
+    }
+    if nachricht.anhaenge.iter().any(|anhang| !anhang.geloescht) {
+        Ok(String::new())
+    } else {
+        Err(Bearbeitfehler::Leer)
+    }
 }
 
 /// Lesend: wie `sperren` — das Verzeichnis wird erst nach erfolgreichem Schreiben verändert.
@@ -1578,6 +1699,202 @@ mod tests {
                 }),
             }]
         );
+    }
+
+    fn kennung(text: &str) -> Kennung {
+        Kennung::bilden(text).expect("Kennung")
+    }
+
+    fn neueste(gespraeche: &Gespraeche) -> Vec<Nachricht> {
+        gespraeche
+            .verlauf(
+                "allgemein",
+                &abfrage(abfrage::Abschnitt::Neueste, 100),
+                usize::MAX,
+            )
+            .expect("bekannt")
+            .nachrichten
+    }
+
+    fn fassung_von(gespraeche: &Gespraeche, zeit: &Zeit) -> Option<verlaufsindex::Fassung> {
+        let verlauf = lesend(&gespraeche.verzeichnis)
+            .verlaeufe
+            .get(&Gespraech::channel("allgemein"))
+            .cloned()
+            .expect("allgemein");
+        sperren(&verlauf).fassung(zeit)
+    }
+
+    /// R00039 B0598 „Gespräche“ (ADR-0048 erster Unit-Test ohne Löschen): `alice` sendet t1 und t2 am Tag 1; Tag 2:
+    /// `alice` bearbeitet t1 zweimal, `bob` → `Fremd` und die Ablage bleibt; der Block zeigt t1 mit dem zweiten Text,
+    /// `Bearbeitet` und der Zeit der zweiten Änderung, t2 ungeändert; `belegt` = Σ Bytes aller Sätze; Neuladen →
+    /// derselbe Block; Entfallen von Tag 1 nimmt die Fassung mit; Neuladen ohne Tag 1 → keine Warnung, zwei Waisen;
+    /// gleicher Text → kein Satz. Mutanten „Kennung nicht geprüft“ und „Änderungssatz im Block als Nachricht“ rot.
+    #[test]
+    fn bearbeiten_ueber_zwei_tage_mit_neuladen_und_entfallen() {
+        let (gespraeche, ablage, uhr) = im_speicher("2026-10-27T14:00:00.000+01:00");
+        let allgemein = Gespraech::channel("allgemein");
+        let (alice, bob) = (kennung("alice@127.0.0.2"), kennung("bob@127.0.0.3"));
+        let t1 = gespraeche
+            .senden(&allgemein, &alice, Art::Agent, "eins")
+            .expect("t1")
+            .zeit;
+        let t2 = gespraeche
+            .senden(&allgemein, &alice, Art::Agent, "zwei")
+            .expect("t2")
+            .zeit;
+        uhr.stellen(zeit("2026-10-28T09:00:00.000+01:00"));
+
+        let erste = gespraeche.bearbeiten(&allgemein, &alice, t1, "eins, korrigiert");
+        uhr.stellen(zeit("2026-10-28T09:00:05.000+01:00"));
+        let zweite = gespraeche.bearbeiten(&allgemein, &alice, t1, "eins, noch einmal\r\n");
+        let inhalt = |tag_text| ablage.inhalt(&allgemein, tag(tag_text)).unwrap_or_default();
+        let vorher = (inhalt("2026-10-27"), inhalt("2026-10-28"));
+        let fremd = gespraeche.bearbeiten(&allgemein, &bob, t1, "von bob");
+        let gleich = gespraeche.bearbeiten(&allgemein, &alice, t1, "eins, noch einmal");
+
+        assert!(matches!(erste, Ok(Bearbeitet::Neu(_))), "{erste:?}");
+        let Ok(Bearbeitet::Neu(neu)) = zweite else {
+            panic!("zweite: {zweite:?}")
+        };
+        let geaendert = Geaendert {
+            zeit: zeit("2026-10-28T09:00:05.000+01:00"),
+            zustand: Aenderungszustand::Bearbeitet,
+        };
+        assert_eq!(neu.text, "eins, noch einmal");
+        assert_eq!(neu.geaendert, Some(geaendert));
+        assert_eq!(
+            (neu.zeit, &neu.von, neu.art),
+            (t1, &alice, Some(Art::Agent))
+        );
+        assert_eq!(
+            fremd,
+            Err(Bearbeitfehler::Fremd {
+                absender: alice.clone()
+            })
+        );
+        assert_eq!(gleich, Ok(Bearbeitet::Unveraendert(neu.clone())));
+        assert_eq!((inhalt("2026-10-27"), inhalt("2026-10-28")), vorher);
+        assert!(
+            inhalt("2026-10-28")
+                .contains("+ bearbeitet: 2026-10-27T14:00:00.000+01:00\n  eins, noch einmal\n")
+        );
+        let block = neueste(&gespraeche);
+        assert_eq!(block.len(), 2);
+        assert_eq!(block[0], neu);
+        assert_eq!((block[1].zeit, block[1].geaendert), (t2, None));
+        assert_eq!(
+            gespraeche.belegt(),
+            (vorher.0.len() + vorher.1.len()) as u64
+        );
+        assert_eq!(gespraeche.kennzahlen().nachrichten, 2);
+
+        let neu_geladen = Gespraeche::laden(ablage.clone(), uhr.clone()).expect("geladen");
+        assert_eq!(neueste(&neu_geladen), block);
+        assert_eq!(neu_geladen.belegt(), gespraeche.belegt());
+
+        gespraeche.pflegen(tag("2026-11-03"), Pflegeanlass::Tageswechsel);
+        assert!(neueste(&gespraeche).is_empty());
+        assert_eq!(fassung_von(&gespraeche, &t1), None);
+        let ohne_tag_1 = Gespraeche::laden(ablage.clone(), uhr.clone()).expect("geladen");
+        assert!(
+            ohne_tag_1.defekte().is_empty(),
+            "{:?}",
+            ohne_tag_1.defekte()
+        );
+        assert_eq!(ohne_tag_1.aenderungswaisen(), 2);
+        assert_eq!(ohne_tag_1.kennzahlen().nachrichten, 0);
+    }
+
+    /// B0598 Abweisungen unter der Sperre: Zeit ohne Nachricht, dieselbe Zeit in einem anderen Channel und ein
+    /// unbekanntes Gespräch → `Nachricht`/`Unbekannt`; gelöschte Nachricht → `Geloescht`; nur Leerraum ohne Anhang →
+    /// `Leer`; jedes Mal nichts geschrieben.
+    #[test]
+    fn bearbeiten_weist_ab_ohne_zu_schreiben() {
+        let wurzel = tempfile::tempdir().expect("Wegwerf-Ordner");
+        let t1 = "2026-10-28T10:00:00.000+01:00";
+        let t2 = "2026-10-28T10:00:01.000+01:00";
+        let tag_28 = format!(
+            "@ {t1} beta@127.0.0.1\n  Hallo\n\n@ {t2} beta@127.0.0.1\n  weg\n\n\
+             @ 2026-10-28T10:00:02.000+01:00 beta@127.0.0.1\n+ geloescht: {t2}\n\n"
+        );
+        datei(
+            wurzel.path(),
+            "channels/allgemein/2026-10-28.log",
+            tag_28.as_bytes(),
+        );
+        fs::create_dir_all(wurzel.path().join("channels/technik")).expect("technik");
+        let gespraeche = laden_um(wurzel.path(), "2026-10-28T12:00:00+01:00");
+        let (allgemein, technik) = (
+            Gespraech::channel("allgemein"),
+            Gespraech::channel("technik"),
+        );
+        let beta = kennung("beta@127.0.0.1");
+        let bearbeiten = |gespraech: &Gespraech, ziel: &str, text: &str| {
+            gespraeche.bearbeiten(gespraech, &beta, zeit(ziel), text)
+        };
+
+        assert_eq!(
+            bearbeiten(&allgemein, "2026-10-28T10:00:00.001+01:00", "x"),
+            Err(Bearbeitfehler::Nachricht)
+        );
+        assert_eq!(
+            bearbeiten(&technik, t1, "x"),
+            Err(Bearbeitfehler::Nachricht)
+        );
+        assert_eq!(
+            bearbeiten(&Gespraech::channel("gibtsnicht"), t1, "x"),
+            Err(Bearbeitfehler::Unbekannt)
+        );
+        assert_eq!(
+            bearbeiten(&allgemein, t2, "x"),
+            Err(Bearbeitfehler::Geloescht)
+        );
+        assert_eq!(
+            bearbeiten(&allgemein, t1, " \n\t"),
+            Err(Bearbeitfehler::Leer)
+        );
+        assert_eq!(
+            fs::read(wurzel.path().join("channels/allgemein/2026-10-28.log")).expect("Datei"),
+            tag_28.as_bytes()
+        );
+        assert!(
+            !wurzel
+                .path()
+                .join("channels/technik/2026-10-28.log")
+                .exists()
+        );
+        let ok = bearbeiten(&allgemein, "2026-10-28T09:00:00.000Z", "Hallo zusammen");
+        assert!(
+            matches!(ok, Ok(Bearbeitet::Neu(_))),
+            "dieselbe Zeit in UTC: {ok:?}"
+        );
+    }
+
+    /// B0598 Schreibfehler (R00039 „Schreibfehler“): Anhängen scheitert → `Ablage`, die Ablage byte-gleich, Index und
+    /// Fassung unverändert, `belegt` unverändert.
+    #[test]
+    fn ein_schreibfehler_beim_bearbeiten_aendert_nichts() {
+        let (gespraeche, ablage, _) = im_speicher("2026-10-27T14:00:00.000+01:00");
+        let allgemein = Gespraech::channel("allgemein");
+        let t1 = gespraeche
+            .senden(&allgemein, &claude(), Art::Agent, "Hallo")
+            .expect("t1")
+            .zeit;
+        let vorher = ablage.inhalt(&allgemein, tag("2026-10-27"));
+        let belegt = gespraeche.belegt();
+        ablage.fehler_nach(20);
+
+        let gescheitert = gespraeche.bearbeiten(&allgemein, &claude(), t1, "Hallo zusammen");
+
+        assert!(
+            matches!(gescheitert, Err(Bearbeitfehler::Ablage { ref datei, .. }) if datei == "channels/allgemein/2026-10-27.log"),
+            "{gescheitert:?}"
+        );
+        assert_eq!(ablage.inhalt(&allgemein, tag("2026-10-27")), vorher);
+        assert_eq!(gespraeche.belegt(), belegt);
+        assert_eq!(fassung_von(&gespraeche, &t1), None);
+        assert_eq!(neueste(&gespraeche)[0].text, "Hallo");
     }
 
     #[test]

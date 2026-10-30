@@ -127,6 +127,13 @@ pub fn bearbeitungssatz(zeit: Zeit, von: &Kennung, ziel: Zeit, text: &str) -> St
     satz
 }
 
+/// Der Text so, wie ihn ein Satz nach dem Zurücklesen liefert (`\r\n` als `\n`, ohne abschließende Leerzeilen).
+pub fn text_wie_im_log(text: &str) -> String {
+    let mut satz = String::from("@ x\n");
+    text_einruecken(&mut satz, text, true);
+    self::text(&satz)
+}
+
 /// Eine Zeit, wie sie im Log steht: Millisekunden und Versatz (ADR-0004).
 fn zeit_im_log(zeit: &Zeit) -> chrono::format::DelayedFormat<chrono::format::StrftimeItems<'_>> {
     zeit.format("%Y-%m-%dT%H:%M:%S%.3f%:z")

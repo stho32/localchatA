@@ -109,6 +109,20 @@ impl Verlauf {
         bericht
     }
 
+    /// Die Nachricht mit genau dieser Zeit (als Zeitpunkt) samt Fassung, wenn sie im Index steht.
+    pub fn nachricht(&self, zeit: &Zeit) -> Option<Kopie> {
+        let satz = nachricht_finden(&self.tage, zeit)?;
+        let eigene = logformat::kopfzeit(satz)?;
+        let aenderung = self.fassung(&eigene).map(|fassung| Kopierte {
+            geaendert: fassung.geaendert,
+            satz: self.aenderungssatz(&fassung),
+        });
+        Some(Kopie {
+            satz: satz.to_vec(),
+            aenderung,
+        })
+    }
+
     /// Die Fassung der Nachricht mit dieser Zeit, wenn sie geändert ist.
     pub fn fassung(&self, zeit: &Zeit) -> Option<Fassung> {
         self.fassungen.get(zeit).copied()
