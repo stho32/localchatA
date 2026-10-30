@@ -473,6 +473,59 @@ async fn p4_senden_beendet_den_zustand_nach_der_nachricht_nur_im_gespraech() {
     );
 }
 
+/// Sendet mit `Idempotency-Key` (R00012 F0046): 201 beim ersten Mal, 200 bei der Wiederholung.
+async fn senden_mit_schluessel(
+    r: &Runde,
+    channel: &str,
+    text: &str,
+    schluessel: &str,
+) -> ApiAntwort {
+    api_antwort(
+        r.absender
+            .anfrage(
+                reqwest::Method::POST,
+                format!("{}api/channels/{channel}/nachrichten", r.instanz.adresse),
+            )
+            .header("X-LocalchatA-Sitzung", &r.anna)
+            .header("Idempotency-Key", schluessel)
+            .json(&json!({ "text": text })),
+    )
+    .await
+}
+
+/// Karte #83 S1 (Mutante: `beenden` auch im Zweig `Gesendet::Wiederholt` von `src/http/senden.rs`): `anna` tippt,
+/// sendet mit Schlüssel `k1` (201) → die Anzeige endet; sie tippt wieder und wiederholt `k1` (200) → es gibt keine
+/// neue Nachricht, also kein Ende: `ben` liest binnen 500 ms kein `aktivitaet`, und `anna` steht weiter im Lesen.
+#[tokio::test]
+async fn p4_eine_wiederholung_200_beendet_die_anzeige_nicht() {
+    let mut r = runde().await;
+    anna_tippt_bei_ben(&mut r, "allgemein").await;
+    let erste = senden_mit_schluessel(&r, "allgemein", "einmal", "k1").await;
+    r.strom_ben
+        .bis(Duration::from_secs(5), |e| {
+            ist_aktivitaet(e) && e.data["zustand"].is_null()
+        })
+        .await
+        .expect("Ende nach der ersten Sendung");
+    anna_tippt_bei_ben(&mut r, "allgemein").await;
+    let ab = r.strom_ben.ereignisse.len();
+
+    let zweite = senden_mit_schluessel(&r, "allgemein", "einmal", "k1").await;
+    let nach_wiederholung = r.strom_ben.bis(STILLE, ist_aktivitaet).await;
+    let liest_ben = lesen(&r.absender, &r.instanz, Some(&r.ben), "allgemein").await;
+
+    assert_eq!((erste.status, zweite.status), (201, 200), "{}", zweite.json);
+    assert!(
+        nach_wiederholung.is_none(),
+        "{nach_wiederholung:?} nach {:?}",
+        gelesen_ab(&r.strom_ben, ab)
+    );
+    assert_eq!(
+        gelesen(&liest_ben),
+        [("anna@127.0.0.1".to_string(), "tippt".to_string())]
+    );
+}
+
 /// Alle Dateien unter `channels/` mit Inhalt — gleich heißt: dieselben Dateien mit denselben Bytes (wie `sha256sum`).
 fn channels_abbild(ordner: &std::path::Path) -> Vec<(std::path::PathBuf, Vec<u8>)> {
     let mut offen = vec![ordner.join("channels")];
@@ -1159,7 +1212,7 @@ async fn das_beispiel_des_textbausteins_laeuft_gegen_eine_instanz() {
     let text = std::fs::read_to_string(TEXTBAUSTEIN).expect("Textbaustein vorhanden");
     let beispiel = text
         .lines()
-        .find(|zeile| zeile.trim_start().starts_with("curl -X PUT "))
+        .find(|zeile| zeile.trim_start().starts_with("curl -X ") && zeile.contains("/aktivitaet"))
         .expect("curl-Beispiel");
     let zwischen = |anfang: &str, ende: &str| -> String {
         let rest = &beispiel[beispiel.find(anfang).expect(anfang) + anfang.len()..];
@@ -1167,20 +1220,32 @@ async fn das_beispiel_des_textbausteins_laeuft_gegen_eine_instanz() {
     };
     let pfad = zwischen("http://<adresse>/", " ");
     let koerper = zwischen("-d '", "'");
+    let methode = zwischen("curl -X ", " ");
+    let kopfzeilen: Vec<(String, String)> = beispiel
+        .split("-H '")
+        .skip(1)
+        .map(|rest| {
+            let zeile = &rest[..rest.find('\'').expect("Ende der Kopfzeile")];
+            let (name, wert) = zeile.split_once(": ").expect("Name: Wert");
+            (name.to_string(), wert.to_string())
+        })
+        .collect();
     let r = runde().await;
     let claude = beitreten(&r.absender, &r.instanz.adresse, "claude", Some("agent")).await;
 
-    let antwort = api_antwort(
-        r.absender
-            .anfrage(reqwest::Method::PUT, format!("{}{pfad}", r.instanz.adresse))
-            .header("X-LocalchatA-Sitzung", &claude)
-            .header("Content-Type", "application/json")
-            .body(koerper.clone()),
-    )
-    .await;
+    // Methode, Kopfzeilen und Körper stammen allein aus dem Beispiel; nur die Platzhalter werden ersetzt.
+    let mut anfrage = r.absender.anfrage(
+        reqwest::Method::from_bytes(methode.as_bytes()).expect("Methode des Beispiels"),
+        format!("{}{pfad}", r.instanz.adresse),
+    );
+    for (name, wert) in &kopfzeilen {
+        anfrage = anfrage.header(name, wert.replace("<token>", &claude));
+    }
+    let antwort = api_antwort(anfrage.body(koerper.clone())).await;
 
+    assert_eq!(methode, "PUT");
     assert!(
-        beispiel.contains("-H 'X-LocalchatA-Sitzung: <token>'"),
+        kopfzeilen.contains(&("X-LocalchatA-Sitzung".to_string(), "<token>".to_string())),
         "{beispiel}"
     );
     assert_eq!(pfad, "api/channels/allgemein/aktivitaet");
