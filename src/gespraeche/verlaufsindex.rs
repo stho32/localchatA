@@ -404,15 +404,16 @@ impl Verlauf {
     }
 
     /// Wie viele Bytes die Nachricht `index` im Budget zählt (ADR-0048 Regel 3): bearbeitet der Änderungssatz,
-    /// sonst die Nachricht.
+    /// gelöscht nur die Kopfzeile (Text und Anhänge werden nicht geliefert), sonst die Nachricht.
     fn lieferlaenge(&self, tag: &Tag, index: usize) -> usize {
-        match self
-            .fassung_im_tag(tag, index)
-            .and_then(|fassung| self.aenderungsspanne(&fassung))
-        {
-            Some((_, spanne)) => spanne.len(),
-            None => tag.satzlaenge(index),
+        let Some(fassung) = self.fassung_im_tag(tag, index) else {
+            return tag.satzlaenge(index);
+        };
+        if fassung.zustand == Fassungszustand::Geloescht {
+            return tag.kopflaenge(index);
         }
+        self.aenderungsspanne(&fassung)
+            .map_or_else(|| tag.satzlaenge(index), |(_, spanne)| spanne.len())
     }
 
     /// Kopie der Nachricht `index` mit ihrer Fassung.
@@ -484,6 +485,15 @@ impl Tag {
     /// Länge der Nachricht `index` in Bytes, ohne sie zu kopieren.
     fn satzlaenge(&self, index: usize) -> usize {
         self.spanne(index).len()
+    }
+
+    /// Länge der Kopfzeile der Nachricht `index` samt Zeilenende.
+    fn kopflaenge(&self, index: usize) -> usize {
+        let spanne = self.spanne(index);
+        self.rohtext[spanne.clone()]
+            .iter()
+            .position(|byte| *byte == b'\n')
+            .map_or(spanne.len(), |ende| ende + 1)
     }
 
     fn spanne(&self, index: usize) -> std::ops::Range<usize> {
@@ -1286,5 +1296,36 @@ mod tests {
             vec!["2026-10-28T10:00:01.000+01:00".to_string()]
         );
         assert!(knapp.aelter);
+    }
+
+    /// Code-Review #48 A4 (R00040, ADR-0048 Regel 3 „das Budget zählt die gelieferten Bytes“): eine gelöschte
+    /// Nachricht liefert weder Text noch Anhänge — im Budget zählt nur ihre Kopfzeile, nicht ihr langer Text.
+    #[test]
+    fn eine_geloeschte_nachricht_zaehlt_im_budget_nur_ihre_kopfzeile() {
+        let mut verlauf = Verlauf::default();
+        let kopf = "@ 2026-10-28T10:00:00.000+01:00 a@127.0.0.2\n";
+        let lang = format!("{kopf}  {}\n\n", "x".repeat(2_000));
+        let zweite = "@ 2026-10-28T10:00:01.000+01:00 a@127.0.0.2\n  y\n\n";
+        let loeschung = "@ 2026-10-28T10:00:02.000+01:00 a@127.0.0.2\n+ geloescht: 2026-10-28T10:00:00.000+01:00\n\n";
+        verlauf.anhaengen(tag("2026-10-28"), &lang, false);
+        verlauf.anhaengen(tag("2026-10-28"), zweite, false);
+        verlauf.loeschung_anhaengen(
+            tag("2026-10-28"),
+            loeschung,
+            false,
+            zeit("2026-10-28T10:00:00.000+01:00"),
+            zeit("2026-10-28T10:00:02.000+01:00"),
+        );
+
+        let knapp = verlauf.block(&abfrage(Abschnitt::Neueste, 100), kopf.len() + zweite.len());
+
+        assert_eq!(
+            zeiten_im(&knapp),
+            vec![
+                "2026-10-28T10:00:00.000+01:00".to_string(),
+                "2026-10-28T10:00:01.000+01:00".to_string()
+            ]
+        );
+        assert!(!knapp.aelter);
     }
 }
