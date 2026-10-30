@@ -111,7 +111,7 @@ async fn das_lokale_datum_folgt_tz_auch_wenn_die_startzeit_in_utc_steht() {
 }
 
 #[tokio::test]
-async fn ein_direktgespraech_wird_mitgezaehlt() {
+async fn ein_direktgespraech_zaehlt_im_health_check_nicht_mit() {
     let wurzel = tempfile::tempdir().expect("Wegwerf-Ordner");
     ordner_a(wurzel.path());
     datei(
@@ -122,7 +122,9 @@ async fn ein_direktgespraech_wird_mitgezaehlt() {
 
     let (inhalt, _, _) = kennzahlen_und_ausgaben(wurzel.path(), "2026-10-27T12:00:00+01:00").await;
 
-    assert_eq!(inhalt["nachrichten"], 5);
+    // ADR-0055 Regel 9 (Orakel O2): der Health-Check ist ohne Sitzung lesbar, `nachrichten` zählt nur Channels.
+    assert_eq!(inhalt["nachrichten"], 4);
+    assert_eq!(inhalt["direkt_mib"], 0);
 }
 
 #[tokio::test]
