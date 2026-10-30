@@ -21,6 +21,7 @@ pub fn nachschlagen(name: &str) -> Option<EingebetteteDatei> {
         "kopfzeile.js" => (include_bytes!("../../web/kopfzeile.js"), JS),
         "teilnehmerliste.js" => (include_bytes!("../../web/teilnehmerliste.js"), JS),
         "hauptansicht.js" => (include_bytes!("../../web/hauptansicht.js"), JS),
+        "auswahl-folgen.js" => (include_bytes!("../../web/auswahl-folgen.js"), JS),
         "live.js" => (include_bytes!("../../web/live.js"), JS),
         "sse.js" => (include_bytes!("../../web/sse.js"), JS),
         "verbindung.js" => (include_bytes!("../../web/verbindung.js"), JS),
