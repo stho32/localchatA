@@ -1,6 +1,6 @@
 // Oberfläche verdrahten (A00005): beim Laden die Sitzung prüfen, dann Beitreten-Bildschirm oder Hauptansicht
 // mit Teilnehmerliste und Live-Strom.
-import { rufen, verlaufAbrufen, verlaufNachholen, fristSetzen, nachrichtSenden } from './api.js';
+import { rufen, verlaufAbrufen, verlaufNachholen, fristSetzen, nachrichtSenden, nachrichtBearbeiten } from './api.js';
 import * as sitzung from './sitzung.js';
 import * as beitretenBildschirm from './beitreten.js';
 import * as hauptansicht from './hauptansicht.js';
@@ -113,6 +113,9 @@ function hauptansichtZeigen(teilnehmer, token, nachEingabe) {
       const token = speicher.getItem(sitzung.SITZUNG);
       return { ...await nachrichtSenden(channel, text, schluessel, { token }), token };
     },
+    nachrichtBearbeiten: (channel, zeit, text, schluessel) => nachrichtBearbeiten(channel, zeit, text, schluessel, {
+      token: speicher.getItem(sitzung.SITZUNG),
+    }),
     wiederBeitreten,
     zustellung,
   });

@@ -16,7 +16,7 @@ import { dialogEinrichten } from './channel-anlegen.js';
 import { einstellungenEinrichten } from './channel-einstellungen.js';
 import { onlineBenennen } from './teilnehmerliste.js';
 import { eingabeAnlegen } from './eingabe.js';
-import { sendenEinrichten } from './senden.js';
+import { sendenEinrichten, neuerSchluessel } from './senden.js';
 import { entwurfAnlegen } from './entwurf.js';
 import { fokusTaste } from './fokus.js';
 import { VERBINDUNG_ANFANG, verbindung } from './wiederverbinden.js';
@@ -73,6 +73,8 @@ export function zeichnen(wurzel, teilnehmer, optionen) {
   channels.channelsZeigen([]);
   const verlauf = verlaufAnlegen({
     abrufen: optionen.verlaufAbrufen,
+    bearbeitenSpeichern: (channel, zeit, text) => optionen.nachrichtBearbeiten(channel, zeit, text, neuerSchluessel()),
+    hinweisen: statusMelden,
     fokusRueckgaengig: (schluessel) => senden.rueckgaengigFokussiert(schluessel),
     fokusVerloren: () => eingabe.fokussieren(),
     schalter: (aktion, schluessel) => {

@@ -124,7 +124,7 @@ export function sendenEinrichten({
 
 // Ein Wiederholschlüssel je Auftrag; crypto.randomUUID gibt es nur in sicheren Kontexten — über eine LAN-Adresse
 // entsteht er aus getRandomValues.
-function neuerSchluessel() {
+export function neuerSchluessel() {
   if (typeof globalThis.crypto.randomUUID === 'function') {
     return globalThis.crypto.randomUUID();
   }

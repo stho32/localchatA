@@ -44,9 +44,38 @@ export function speicherHinweis(text, anhangZahl) {
   return hinweis(ergebnis).text;
 }
 
-// Das eine Feld des Tabs. zeiger: () → 'fein' | 'grob' · fokusAufNachricht(zeit): Fokus auf die Nachricht im Verlauf.
+// Was die Antwort des Speicherns bedeutet (R00041 F0135, UX S5, PO 122), rein. bekanntGeaendert: `geaendert` der
+// Fassung, die das Feld geöffnet hat. → { art: 'gespeichert' | 'unveraendert', nachricht } | { art: 'geloescht' }
+// | { art: 'abgewiesen', text, pruefFehler }
+export function speichernAuswerten(antwort, bekanntGeaendert) {
+  if (antwort.art !== 'antwort') {
+    return { art: 'abgewiesen', text: '⚠ Nicht gespeichert: keine Antwort vom Server.', pruefFehler: false };
+  }
+  if (antwort.status === 200 && antwort.daten.nachricht.geaendert === bekanntGeaendert) {
+    return { art: 'unveraendert', nachricht: antwort.daten.nachricht };
+  }
+  if (antwort.status === 200) {
+    return { art: 'gespeichert', nachricht: antwort.daten.nachricht };
+  }
+  if (antwort.status === 409) {
+    return { art: 'geloescht' };
+  }
+  return { art: 'abgewiesen', text: `⚠ ${fehlerText(antwort)}`, pruefFehler: antwort.status === 422 };
+}
+
+function fehlerText({ status, daten }) {
+  const mitText = daten !== null && typeof daten === 'object' && typeof daten.fehler === 'string';
+  if (mitText) {
+    return daten.fehler;
+  }
+  return `Nicht gespeichert (Status ${status}).`;
+}
+
+// Das eine Feld des Tabs. zeiger: () → 'fein' | 'grob' · fokusAufNachricht(zeit): Fokus auf die Nachricht im Verlauf ·
+// speichern: async (channel, zeit, text) → Antwort wie api.js nachrichtBearbeiten · uebernehmen(nachricht): die
+// gespeicherte Fassung in den Verlauf · alsGeloeschtZeigen(zeit) · hinweisen(text): die Hinweiszeile der Seite.
 // beginnen(channel, artikel, nachricht) öffnet das Feld in `artikel`; istOffen(zeit) sagt, ob es an dieser Nachricht steht.
-export function bearbeitenAnlegen({ zeiger, fokusAufNachricht }) {
+export function bearbeitenAnlegen({ zeiger, fokusAufNachricht, speichern, uebernehmen, alsGeloeschtZeigen, hinweisen }) {
   let offen = null;
 
   function beginnen(channel, artikel, nachricht) {
@@ -56,9 +85,12 @@ export function bearbeitenAnlegen({ zeiger, fokusAufNachricht }) {
     offen = feldZeichnen(nachricht, zeiger());
     offen.channel = channel;
     offen.zeit = nachricht.zeit;
+    offen.geaendert = nachricht.geaendert;
+    offen.laeuft = false;
     offen.feld.addEventListener('input', bereitZeigen);
     offen.feld.addEventListener('keydown', tasteImFeld);
     offen.abbrechenKnopf.addEventListener('click', abbrechen);
+    offen.speichernKnopf.addEventListener('click', speichernVersuchen);
     artikel.classList.add('lc-im-bearbeiten');
     artikel.querySelector('.lc-msg-inhalt').append(offen.rahmen);
     hoeheAnpassen(offen.feld);
@@ -72,6 +104,8 @@ export function bearbeitenAnlegen({ zeiger, fokusAufNachricht }) {
     hoeheAnpassen(offen.feld);
     const grund = speicherHinweis(offen.feld.value, offen.anhangZahl);
     offen.hinweis.textContent = '';
+    offen.hinweis.classList.remove('lc-fehler');
+    offen.feld.removeAttribute('aria-invalid');
     offen.speichernKnopf.removeAttribute('aria-disabled');
     if (grund !== null) {
       offen.hinweis.textContent = grund;
@@ -87,6 +121,48 @@ export function bearbeitenAnlegen({ zeiger, fokusAufNachricht }) {
     }
     if (wirkung === 'speichern') {
       ereignis.preventDefault();
+      speichernVersuchen();
+    }
+  }
+
+  // Höchstens ein Aufruf zugleich (UX S7): ein Doppelklick sendet genau einen; jeder Versuch hat seinen Schlüssel.
+  async function speichernVersuchen() {
+    if (offen.laeuft || speicherHinweis(offen.feld.value, offen.anhangZahl) !== null) {
+      return;
+    }
+    const versuch = offen;
+    versuch.laeuft = true;
+    const antwort = await speichern(versuch.channel, versuch.zeit, versuch.feld.value);
+    versuch.laeuft = false;
+    if (offen !== versuch) {
+      return;
+    }
+    beantwortet(speichernAuswerten(antwort, versuch.geaendert));
+  }
+
+  function beantwortet(ergebnis) {
+    const zeit = offen.zeit;
+    if (ergebnis.art === 'abgewiesen') {
+      fehlerZeigen(ergebnis);
+      return;
+    }
+    schliessen();
+    if (ergebnis.art === 'geloescht') {
+      alsGeloeschtZeigen(zeit);
+      hinweisen('Die Nachricht wurde inzwischen gelöscht.');
+      return;
+    }
+    uebernehmen(ergebnis.nachricht);
+    fokusAufNachricht(zeit);
+  }
+
+  // Die Abweisung steht am Feld und beschreibt es (UX S5); aria-invalid nur bei Prüffehlern; das Getippte bleibt.
+  function fehlerZeigen({ text, pruefFehler }) {
+    offen.hinweis.textContent = text;
+    offen.hinweis.classList.add('lc-fehler');
+    offen.feld.removeAttribute('aria-invalid');
+    if (pruefFehler) {
+      offen.feld.setAttribute('aria-invalid', 'true');
     }
   }
 

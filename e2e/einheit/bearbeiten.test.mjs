@@ -49,3 +49,35 @@ test('Taste auf der fokussierten Nachricht: E bearbeitet, Entf löscht — nur o
   }
   assert.equal(nachrichtTaste(taste('r')), null);
 });
+
+// R00041 F0135 B0611: was die Antwort des Speicherns bedeutet.
+import { speichernAuswerten } from '../../web/bearbeiten.js';
+
+const VORHER = '2026-10-30T14:05:00.000+01:00';
+const NACHHER = '2026-10-30T14:09:00.000+01:00';
+const antwort = (status, daten) => ({ art: 'antwort', status, daten });
+
+test('200 mit neuem geaendert → gespeichert mit der neuen Fassung; mit gleichem → unverändert', () => {
+  const nachricht = { zeit: 'z', text: 'Neu', zustand: 'bearbeitet', geaendert: NACHHER };
+  assert.deepEqual(speichernAuswerten(antwort(200, { channel: 'a', nachricht }), VORHER), { art: 'gespeichert', nachricht });
+  const gleich = { zeit: 'z', text: 'Alt', zustand: 'bearbeitet', geaendert: VORHER };
+  assert.deepEqual(speichernAuswerten(antwort(200, { channel: 'a', nachricht: gleich }), VORHER), { art: 'unveraendert', nachricht: gleich });
+  const nieGeaendert = { zeit: 'z', text: 'Alt', zustand: null, geaendert: null };
+  assert.deepEqual(speichernAuswerten(antwort(200, { channel: 'a', nachricht: nieGeaendert }), null), { art: 'unveraendert', nachricht: nieGeaendert });
+});
+
+test('409 → inzwischen gelöscht', () => {
+  assert.deepEqual(speichernAuswerten(antwort(409, { fehler: 'Die Nachricht ist gelöscht.', regel: 'geloescht' }), null), { art: 'geloescht' });
+});
+
+test('Prüffehler 422 → Text der Instanz mit ⚠ und aria-invalid; 507 und andere ohne', () => {
+  assert.deepEqual(speichernAuswerten(antwort(422, { fehler: 'Zu lang.' }), null), { art: 'abgewiesen', text: '⚠ Zu lang.', pruefFehler: true });
+  assert.deepEqual(speichernAuswerten(antwort(507, { fehler: 'Platte voll.' }), null), { art: 'abgewiesen', text: '⚠ Platte voll.', pruefFehler: false });
+  assert.deepEqual(speichernAuswerten(antwort(500, null), null), { art: 'abgewiesen', text: '⚠ Nicht gespeichert (Status 500).', pruefFehler: false });
+});
+
+test('keine Antwort (Netzfehler, Zeitgrenze) → „⚠ Nicht gespeichert: keine Antwort vom Server.“', () => {
+  for (const art of ['netzfehler', 'zeitueberschreitung']) {
+    assert.deepEqual(speichernAuswerten({ art }, null), { art: 'abgewiesen', text: '⚠ Nicht gespeichert: keine Antwort vom Server.', pruefFehler: false });
+  }
+});

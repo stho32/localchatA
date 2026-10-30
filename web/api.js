@@ -109,6 +109,43 @@ export async function nachrichtSenden(channel, text, schluessel, { token, zeitge
   }
 }
 
+// Eine eigene Nachricht bearbeiten (R00041 F0135, ADR-0048 Regel 5): POST {zeit, text} mit Sitzung und einem
+// Wiederholschlüssel je Speichern-Versuch; ohne Antwort Abbruch nach 10 s.
+// → { art: 'antwort', status, daten } | { art: 'zeitueberschreitung' } | { art: 'netzfehler' }
+export function nachrichtBearbeiten(channel, zeit, text, schluessel, { token, zeitgeber = ECHTE_ZEITGEBER }, holen = holenImBrowser) {
+  const pfad = `/api/channels/${encodeURIComponent(channel)}/nachrichten/bearbeiten`;
+  return aendernSchicken(pfad, { zeit, text }, { token, schluessel, zeitgeber }, holen);
+}
+
+// Eine eigene Nachricht löschen (R00041 F0139, ADR-0048 Regeln 5, 12): POST {zeit} in einem Schritt, ohne
+// Wiederholschlüssel (Löschen ist von sich aus wiederholbar). → wie nachrichtBearbeiten
+export function nachrichtLoeschen(channel, zeit, { token, zeitgeber = ECHTE_ZEITGEBER }, holen = holenImBrowser) {
+  const pfad = `/api/channels/${encodeURIComponent(channel)}/nachrichten/loeschen`;
+  return aendernSchicken(pfad, { zeit }, { token, schluessel: null, zeitgeber }, holen);
+}
+
+async function aendernSchicken(pfad, koerper, { token, schluessel, zeitgeber }, holen) {
+  const ZEITGRENZE_MS = 10000;
+  const headers = { [SITZUNGS_HEADER]: token, 'Content-Type': 'application/json' };
+  if (schluessel !== null) {
+    headers['Idempotency-Key'] = schluessel;
+  }
+  const abbruch = new AbortController();
+  const zeitgrenze = zeitgeber.stellen(ZEITGRENZE_MS, () => abbruch.abort());
+  try {
+    const antwort = await holen(pfad, { method: 'POST', headers, body: JSON.stringify(koerper), signal: abbruch.signal });
+    const inhalt = await antwort.text();
+    return { art: 'antwort', status: antwort.status, daten: alsJson(inhalt) };
+  } catch (ausnahme) {
+    if (abbruch.signal.aborted) {
+      return { art: 'zeitueberschreitung' };
+    }
+    return { art: 'netzfehler' };
+  } finally {
+    zeitgeber.loeschen(zeitgrenze);
+  }
+}
+
 const ECHTE_ZEITGEBER = {
   stellen: (ms, rueckruf) => setTimeout(rueckruf, ms),
   loeschen: (id) => clearTimeout(id),

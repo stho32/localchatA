@@ -21,7 +21,12 @@ import { einordnen, zusammenfuehren, fassungUebernehmen, buendlerAnlegen, folgen
 // Nachricht im Fenster durch ihre geänderte Fassung (ADR-0048 Regel 11); vorlaeufigeZeigen(liste) zeichnet eigene
 // Nachrichten unterwegs oder fehlgeschlagen unter allen bestätigten; an fehlgeschlagenen rufen „Erneut senden“ und
 // „Verwerfen“ schalter('erneut' | 'verwerfen', schluessel) (ADR-0038 Regel 5).
-export function verlaufAnlegen({ abrufen, schalter = () => {}, fokusRueckgaengig = () => {}, fokusVerloren = () => {} }) {
+// bearbeitenSpeichern: async (channel, zeit, text) → Antwort (api.js nachrichtBearbeiten); hinweisen(text): die Hinweiszeile
+// der Seite (R00041 F0135).
+export function verlaufAnlegen({
+  abrufen, schalter = () => {}, fokusRueckgaengig = () => {}, fokusVerloren = () => {}, bearbeitenSpeichern = async () => ({ art: 'netzfehler' }),
+  hinweisen = () => {},
+}) {
   const inhalt = element('div', { className: 'lc-log-inhalt' });
   const ausstehend = element('div', { className: 'lc-ausstehend' });
   const auslauf = element('div', { className: 'lc-auslauf' });
@@ -272,6 +277,10 @@ export function verlaufAnlegen({ abrufen, schalter = () => {}, fokusRueckgaengig
         nachrichtFokussieren(knoten);
       }
     },
+    speichern: bearbeitenSpeichern,
+    uebernehmen: (nachricht) => fassungenErsetzen([nachricht]),
+    alsGeloeschtZeigen: geloeschtSetzen,
+    hinweisen,
   });
 
   function tasteAufNachricht(ereignis) {
@@ -706,12 +715,23 @@ export function verlaufAnlegen({ abrufen, schalter = () => {}, fokusRueckgaengig
     if (bekannt === null) {
       return;
     }
-    const { blockStelle, stelle } = bekannt;
-    const zeitpunkt = Date.parse(fassung.zeit);
     const uebernommen = fassungUebernehmen(bekannt.nachricht, fassung);
-    if (uebernommen === null) {
-      return;
+    if (uebernommen !== null) {
+      knotenErsetzen(bekannt, uebernommen);
     }
+  }
+
+  // Antwortet das Speichern mit 409 (PO 122), ist die Nachricht gelöscht, auch wenn ihr Ereignis noch nicht da ist —
+  // gelöscht ist endgültig, ein späteres Ereignis ändert nichts mehr.
+  function geloeschtSetzen(zeit) {
+    const bekannt = bekannteNachricht(zeit);
+    if (bekannt !== null) {
+      knotenErsetzen(bekannt, { ...bekannt.nachricht, text: '', anhaenge: [], zustand: 'geloescht' });
+    }
+  }
+
+  function knotenErsetzen({ blockStelle, stelle }, uebernommen) {
+    const zeitpunkt = Date.parse(uebernommen.zeit);
     fenster.bloecke[blockStelle][stelle] = uebernommen;
     const knoten = bloeckeKnoten[blockStelle];
     const knotenStelle = knoten.findIndex((einzeln) => einzeln.classList.contains('lc-msg') && Date.parse(einzeln.dataset.zeit) === zeitpunkt);
