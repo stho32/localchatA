@@ -376,9 +376,8 @@ fn ziele(
         return metadaten("Exif-Item nicht als Bytebereich der Datei");
     };
     let orte = ausdehnungen(port, *iloc)?;
-    ueberschneidungsfrei(&orte.bereiche, &ziele)?;
     let mut schritte = Vec::with_capacity(ziele.len());
-    for (id, item) in ziele {
+    for (&id, &item) in &ziele {
         let Some(&(pos, laenge)) = orte.einzeln.get(&id) else {
             return metadaten("Exif-Item nicht als Bytebereich der Datei");
         };
@@ -387,6 +386,10 @@ fn ziele(
         }
         schritte.push((pos, laenge, item));
     }
+    if ziele.keys().any(|id| orte.offen.contains(id)) {
+        return metadaten("Ziel ohne Länge");
+    }
+    ueberschneidungsfrei(&orte.bereiche, &ziele)?;
     Ok(schritte)
 }
 
@@ -478,10 +481,12 @@ fn items(port: &Port<'_>, iinf: Kiste, zaehler: &mut Zaehler) -> Ergebnis<HashMa
 }
 
 /// Was `iloc` nennt: je Item mit genau einer Ausdehnung, `construction_method` 0 und `data_reference_index` 0 →
-/// (Anfang, Länge); dazu jede nicht leere Ausdehnung mit `construction_method` 0 als (Anfang, Ende, ID).
+/// (Anfang, Länge); dazu jede Ausdehnung mit `construction_method` 0 als (Anfang, Ende, ID) — Länge 0 heißt „bis
+/// Dateiende“ (B3 Regel 5l) — und die Items mit einer solchen offenen Ausdehnung.
 struct Orte {
     einzeln: HashMap<u32, (u64, u64)>,
     bereiche: Vec<(u64, u64, u32)>,
+    offen: HashSet<u32>,
 }
 
 /// `iloc` lesen; eine `item_ID` zweimal → „Verweise doppelt“.
@@ -508,6 +513,7 @@ fn ausdehnungen(port: &Port<'_>, iloc: Kiste) -> Ergebnis<Orte> {
     let mut orte = Orte {
         einzeln: HashMap::new(),
         bereiche: Vec::new(),
+        offen: HashSet::new(),
     };
     let mut gesehen = HashSet::new();
     for _ in 0..anzahl {
@@ -528,12 +534,20 @@ fn ausdehnungen(port: &Port<'_>, iloc: Kiste) -> Ergebnis<Orte> {
         stelle += basis;
         let ausdehnungen = lies_zahl(&bytes, stelle, 2)?;
         stelle += 2;
-        // Ausdehnungen ohne Bytes für Versatz und Länge sind leer: sie werden übersprungen, nicht gezählt — die
-        // Arbeit hängt an den Bytes, nicht an `extent_count` (Befund #51 B1).
+        // Ausdehnungen ohne Bytes für Versatz und Länge werden nicht einzeln gezählt — die Arbeit hängt an den Bytes,
+        // nicht an `extent_count` (Befund #51 B1); sie reichen ab der Basis bis zum Dateiende (B3 Regel 5l) und
+        // zählen so einmal in der Überschneidungsprüfung. Ein Ziel darunter ist kein Bytebereich der Datei.
         if versatz + laenge == 0 {
             stelle += (ausdehnungen as usize) * index;
             if stelle > bytes.len() {
                 return metadaten("Längen widersprechen sich");
+            }
+            if ausdehnungen > 0 {
+                orte.offen.insert(id);
+                if methode == 0 {
+                    orte.bereiche
+                        .push((basis_versatz, port.laenge().max(basis_versatz), id));
+                }
             }
             continue;
         }
@@ -544,16 +558,22 @@ fn ausdehnungen(port: &Port<'_>, iloc: Kiste) -> Ergebnis<Orte> {
             stelle += versatz;
             let lang = lies_zahl(&bytes, stelle, laenge)?;
             stelle += laenge;
-            let anfang = basis_versatz.checked_add(ab);
-            if nummer == 0 {
-                erste = anfang.map(|anfang| (anfang, lang));
-            }
-            if let (0, Some(anfang)) = (methode, anfang)
-                && lang > 0
-            {
-                let ende = anfang
+            let anfang = basis_versatz
+                .checked_add(ab)
+                .ok_or(Abbruch::Metadaten("Längen widersprechen sich"))?;
+            let ende = match lang {
+                0 => {
+                    orte.offen.insert(id);
+                    port.laenge().max(anfang)
+                }
+                _ => anfang
                     .checked_add(lang)
-                    .ok_or(Abbruch::Metadaten("Längen widersprechen sich"))?;
+                    .ok_or(Abbruch::Metadaten("Längen widersprechen sich"))?,
+            };
+            if nummer == 0 {
+                erste = Some((anfang, lang));
+            }
+            if methode == 0 {
                 orte.bereiche.push((anfang, ende, id));
             }
         }
@@ -2029,6 +2049,97 @@ mod tests {
         let (ergebnis, datei) = tilgen(heic_mit_zusatz(&platzhalter));
         assert!(ergebnis.expect("getilgt").ort);
         assert!(!enthaelt(&datei.inhalt(), b"GPS"));
+    }
+
+    /// Ein `iloc`-Eintrag (Version 1, Feldbreiten 8/8, Basis 8): ID, `construction_method`, `base_offset`,
+    /// Ausdehnungen (Versatz, Länge).
+    type Eintrag<'a> = (u16, u16, u64, &'a [(u64, u64)]);
+
+    /// `iloc` Version 1 mit 8-Byte-Feldern für Versatz, Länge und Basis.
+    fn iloc_breit(eintraege: &[Eintrag]) -> Vec<u8> {
+        let mut inhalt = vec![1u8, 0, 0, 0, 0x88, 0x80];
+        inhalt.extend_from_slice(&(eintraege.len() as u16).to_be_bytes());
+        for (id, methode, basis, ausdehnungen) in eintraege {
+            inhalt.extend_from_slice(&id.to_be_bytes());
+            inhalt.extend_from_slice(&methode.to_be_bytes());
+            inhalt.extend_from_slice(&[0, 0]);
+            inhalt.extend_from_slice(&basis.to_be_bytes());
+            inhalt.extend_from_slice(&(ausdehnungen.len() as u16).to_be_bytes());
+            for (ab, lang) in *ausdehnungen {
+                inhalt.extend_from_slice(&ab.to_be_bytes());
+                inhalt.extend_from_slice(&lang.to_be_bytes());
+            }
+        }
+        kiste(b"iloc", &inhalt)
+    }
+
+    /// ADR-0047 B3 Regel 5l, P11 (n) (B0652): `iloc`-Länge 0 bei einem Exif-Item und bei einem XMP-Item (Ziele) →
+    /// „Ziel ohne Länge“; ein Bild-Item mit Länge 0 vor einem Exif-Item → „Verweise überschneiden sich“ (bis
+    /// Dateiende gerechnet); `base_offset` + `extent_offset` mit Überlauf → `metadaten`; je nichts geschrieben.
+    #[test]
+    fn iloc_mit_laenge_0_und_ueberlauf() {
+        let exif = exif_mit_ort();
+        let lang = exif.len() as u64;
+        let kachel = vec![0x5A; 50];
+        let daten = [kachel.clone(), exif.clone()].concat();
+        let exif_und_kachel = [item_infe(1, b"hvc1"), item_infe(2, b"Exif")];
+
+        let ohne_laenge = heic_aus(
+            &[item_infe(2, b"Exif")],
+            |ab| iloc_breit(&[(2, 0, 0, &[(ab + 50, 0)])]),
+            &daten,
+        );
+        assert_eq!(verweise(ohne_laenge), (Some("Ziel ohne Länge"), true));
+
+        let xmp_ohne_laenge = heic_aus(
+            &[mime_infe(3, b"application/rdf+xml")],
+            |ab| iloc_breit(&[(3, 0, 0, &[(ab, 0)])]),
+            &daten,
+        );
+        assert_eq!(verweise(xmp_ohne_laenge), (Some("Ziel ohne Länge"), true));
+
+        let kachel_bis_ende = heic_aus(
+            &exif_und_kachel,
+            |ab| iloc_breit(&[(1, 0, 0, &[(ab, 0)]), (2, 0, 0, &[(ab + 50, lang)])]),
+            &daten,
+        );
+        assert_eq!(
+            verweise(kachel_bis_ende),
+            (Some("Verweise überschneiden sich"), true)
+        );
+
+        for (bild, ziel) in [(u64::MAX, 0), (0, u64::MAX)] {
+            let ueberlauf = heic_aus(
+                &exif_und_kachel,
+                |ab| iloc_breit(&[(1, 0, bild, &[(ab, 50)]), (2, 0, ziel, &[(ab + 50, lang)])]),
+                &daten,
+            );
+            assert_eq!(
+                verweise(ueberlauf),
+                (Some("Längen widersprechen sich"), true),
+                "{bild} {ziel}"
+            );
+        }
+    }
+
+    /// Kontrolle zu Regel 5l (B0652): ein Bild-Item mit Länge 0 als letztes Item der Datei, kein Ziel dahinter →
+    /// getilgt, die Bilddaten byte-gleich.
+    #[test]
+    fn ein_bild_item_mit_laenge_0_am_ende_wird_getilgt() {
+        let exif = exif_mit_ort();
+        let lang = exif.len() as u64;
+        let kachel = vec![0x5A; 50];
+        let daten = heic_aus(
+            &[item_infe(1, b"hvc1"), item_infe(2, b"Exif")],
+            |ab| iloc_breit(&[(2, 0, 0, &[(ab, lang)]), (1, 0, 0, &[(ab + lang, 0)])]),
+            &[exif, kachel.clone()].concat(),
+        );
+
+        let (ergebnis, datei) = tilgen(daten);
+
+        assert!(ergebnis.expect("getilgt").ort);
+        let getilgt = datei.inhalt();
+        assert!(getilgt.ends_with(&kachel) && !enthaelt(&getilgt, b"GPS"));
     }
 
     /// Regel 5g: eine Zeit-Box mit unbekannter Version oder zu kurz → `metadaten`.

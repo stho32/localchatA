@@ -1175,3 +1175,83 @@ async fn heif_kinder_hoechstens_einmal() {
         ("image/avif".to_string(), json!(4032), json!(3024))
     );
 }
+
+/// Ein `iloc`-Eintrag: ID, `construction_method`, `base_offset`, Ausdehnungen (Versatz, Länge).
+type IlocEintrag = (u16, u16, u64, Vec<(u64, u64)>);
+
+/// `iloc` Version 1 mit 8-Byte-Feldern für Versatz, Länge und Basis.
+fn iloc_breit(eintraege: &[IlocEintrag]) -> Vec<u8> {
+    let mut inhalt = vec![1u8, 0, 0, 0, 0x88, 0x80];
+    inhalt.extend((eintraege.len() as u16).to_be_bytes());
+    for (id, methode, basis, ausdehnungen) in eintraege {
+        inhalt.extend(id.to_be_bytes());
+        inhalt.extend(methode.to_be_bytes());
+        inhalt.extend([0, 0]);
+        inhalt.extend(basis.to_be_bytes());
+        inhalt.extend((ausdehnungen.len() as u16).to_be_bytes());
+        for (ab, lang) in ausdehnungen {
+            inhalt.extend(ab.to_be_bytes());
+            inhalt.extend(lang.to_be_bytes());
+        }
+    }
+    kiste(b"iloc", &inhalt)
+}
+
+/// Exif-Item mit Ort (`exif_tiff_header_offset` 0, TIFF mit GPS-IFD).
+fn exif_item_mit_ort() -> Vec<u8> {
+    let mut exif = 0u32.to_be_bytes().to_vec();
+    exif.extend(b"MM\0*\0\0\0\x08\0\x01\x01\x12\0\x03\0\0\0\x01\0\x06\0\0\0\0\0\0");
+    exif.extend(ort());
+    exif
+}
+
+/// ADR-0047 B3 Regel 5l, P11 (n) (B0652): `iloc`-Länge 0 bei einem Exif-Item → 422 „Ziel ohne Länge“; ein Bild-Item
+/// (Nicht-Ziel) mit Länge 0 und ein Exif-Item dahinter → 422 „Verweise überschneiden sich“; `base_offset` +
+/// `extent_offset` mit Überlauf → 422. Kontrolle: ein Bild-Item mit Länge 0 als letztes Item ohne Ziel dahinter →
+/// getilgt, Bilddaten byte-gleich.
+#[tokio::test]
+async fn iloc_mit_laenge_0_und_ueberlauf() {
+    let lauf = Lauf::neu().await;
+    let kachel = vec![0x5a; 64];
+    let exif = exif_item_mit_ort();
+    let lang = exif.len() as u64;
+    let kachel_vorn = [
+        (b"hvc1", &b""[..], kachel.clone()),
+        (b"Exif", b"", exif.clone()),
+    ];
+    let ohne_laenge = heic_mit_iloc(&kachel_vorn, &[], &[], |ab| {
+        iloc_breit(&[(1, 0, 0, vec![(ab[0], 64)]), (2, 0, 0, vec![(ab[1], 0)])])
+    });
+    assert_eq!(
+        lauf.abgewiesen("exif-0.heic", &ohne_laenge).await,
+        "Ziel ohne Länge"
+    );
+    let bis_ende = heic_mit_iloc(&kachel_vorn, &[], &[], |ab| {
+        iloc_breit(&[(1, 0, 0, vec![(ab[0], 0)]), (2, 0, 0, vec![(ab[1], lang)])])
+    });
+    assert_eq!(
+        lauf.abgewiesen("bild-0.heic", &bis_ende).await,
+        "Verweise überschneiden sich"
+    );
+    let ueberlauf = heic_mit_iloc(&kachel_vorn, &[], &[], |ab| {
+        iloc_breit(&[
+            (1, 0, u64::MAX, vec![(ab[0], 64)]),
+            (2, 0, 0, vec![(ab[1], lang)]),
+        ])
+    });
+    assert_eq!(
+        lauf.abgewiesen("ueberlauf.heic", &ueberlauf).await,
+        "Längen widersprechen sich"
+    );
+
+    let kachel_hinten = [
+        (b"Exif", &b""[..], exif.clone()),
+        (b"hvc1", b"", kachel.clone()),
+    ];
+    let am_ende = heic_mit_iloc(&kachel_hinten, &[], &[], |ab| {
+        iloc_breit(&[(1, 0, 0, vec![(ab[0], lang)]), (2, 0, 0, vec![(ab[1], 0)])])
+    });
+    let geliefert = lauf.ausliefern("bild-0-am-ende.heic", &am_ende).await;
+    ohne_ort("bild-0-am-ende.heic", &geliefert.bytes);
+    assert!(geliefert.bytes.ends_with(&kachel));
+}
