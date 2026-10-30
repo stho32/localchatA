@@ -1584,6 +1584,56 @@ mod tests {
         (gespraeche, speicher, ids, nachricht.zeit)
     }
 
+    /// R00043 B0669 (ADR-0048 K5): `anhangzahl` nennt die Zahl der Anhänge der Nachricht in ihrer Fassung — 2 beim
+    /// Absender, 0 für Nachrichten ohne Anhang, für einen fremden Anfrager, für eine unbekannte Zeit, ein unbekanntes
+    /// Gespräch und für die gelöschte Nachricht; das Bearbeiten ändert sie nicht.
+    #[test]
+    fn die_anhangzahl_nennt_die_anhaenge_der_nachricht_in_ihrer_fassung() {
+        let (gespraeche, _, _) = mit_ablage();
+        let ids: Vec<Anhangid> = (0..2)
+            .map(|nummer| {
+                fertig(
+                    &gespraeche,
+                    "beta@127.0.0.1",
+                    &format!("a{nummer}.bin"),
+                    &[1; 10],
+                )
+            })
+            .collect();
+        let allgemein = Gespraech::channel("allgemein");
+        let beta = kennung("beta@127.0.0.1");
+        let Ok(crate::gespraeche::Gesendet::Neu(mit)) =
+            gespraeche.senden_mit_anhaengen(&allgemein, &beta, Art::Agent, "mit", &ids, None)
+        else {
+            panic!("gesendet")
+        };
+        let ohne = gespraeche
+            .senden(&allgemein, &beta, Art::Agent, "ohne")
+            .expect("gesendet")
+            .zeit;
+
+        assert_eq!(gespraeche.anhangzahl(&allgemein, &beta, mit.zeit), 2);
+        assert_eq!(gespraeche.anhangzahl(&allgemein, &beta, ohne), 0);
+        assert_eq!(
+            gespraeche.anhangzahl(&allgemein, &kennung("gamma@127.0.0.1"), mit.zeit),
+            0,
+            "fremd"
+        );
+        let unbekannte_zeit = mit.zeit + chrono::Duration::seconds(1);
+        assert_eq!(gespraeche.anhangzahl(&allgemein, &beta, unbekannte_zeit), 0);
+        assert_eq!(
+            gespraeche.anhangzahl(&Gespraech::channel("gibtsnicht"), &beta, mit.zeit),
+            0
+        );
+        let bearbeitet = gespraeche.bearbeiten(&allgemein, &beta, mit.zeit, "anders");
+        assert!(bearbeitet.is_ok(), "{bearbeitet:?}");
+        assert_eq!(gespraeche.anhangzahl(&allgemein, &beta, mit.zeit), 2);
+        gespraeche
+            .nachricht_loeschen(&allgemein, &beta, mit.zeit)
+            .expect("gelöscht");
+        assert_eq!(gespraeche.anhangzahl(&allgemein, &beta, mit.zeit), 0);
+    }
+
     /// R00040 B0617 (ADR-0048 Regel 9 a): mit dem Löschsatz sind im selben Sperrabschnitt alle Anhänge der Nachricht
     /// `geloescht` — ab der Antwort liefert der Abruf 410; der vorher im Laufwerk gelöschte bleibt, wie er ist; ein
     /// gleich benannter Anhang einer anderen Nachricht bleibt `vorhanden` (Mutante „Anhänge nicht markiert“ rot).

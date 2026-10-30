@@ -90,12 +90,26 @@ pub async fn loeschen(
         kennung: Some(&wer),
         channel: Some(&name),
     };
-    let erlaubnis = match bank_erwerben(&zustand.hochladebank).await {
-        Ok(erlaubnis) => erlaubnis,
-        Err(abbruch) => {
-            return abbruch_beantworten(&zustand.protokoll, &abbruch, &ort, NICHT_GELOESCHT);
-        }
-    };
+    let erlaubnis =
+        if zustand
+            .gespraeche
+            .anhangzahl(&Gespraech::channel(&name), &teilnehmer.kennung, ziel)
+            > 0
+        {
+            match bank_erwerben(&zustand.hochladebank).await {
+                Ok(erlaubnis) => Some(erlaubnis),
+                Err(abbruch) => {
+                    return abbruch_beantworten(
+                        &zustand.protokoll,
+                        &abbruch,
+                        &ort,
+                        NICHT_GELOESCHT,
+                    );
+                }
+            }
+        } else {
+            None
+        };
     let testpanik = zustand.testpanik.clone();
     let auftrag = Loeschauftrag {
         gespraeche: Arc::clone(&zustand.gespraeche),
@@ -307,7 +321,9 @@ mod tests {
     use crate::http::loeschaufbau::{aufbau, aufbau_mit, naechstes_anhaenge_ereignis};
     use crate::protokoll::testpanik::Testpanik;
     use crate::zufall::FesteFolge;
+    use serde_json::json;
     use std::ffi::OsStr;
+    use std::time::Duration;
 
     /// R00043 B0666 (ADR-0048 K2): bricht der Client nach dem Start des Löschens ab, stehen trotzdem genau eine Zeile
     /// `DEBUG aendern Nachricht gelöscht`, eine `INFORMATION anhang Anhänge gelöscht … grund=nachricht` und ein
@@ -441,6 +457,90 @@ mod tests {
 
     fn teilnehmer_kennung(text: &str) -> crate::gespraeche::Kennung {
         crate::gespraeche::Kennung::bilden(text).expect("Kennung")
+    }
+
+    /// R00043 B0669 (ADR-0048 K5): über den echten Einstieg (Router, HTTP, Health) — acht Erlaubnisse der Hochladebank
+    /// sind belegt (`hochladebank_belegt` 8); das Löschen einer Nachricht **ohne** Anhang antwortet 200 in unter 500 ms,
+    /// das einer Nachricht **mit** Anhang wartet und gelingt, sobald eine Erlaubnis frei wird. Mutant „Erlaubnis
+    /// immer“ rot. Die Bank lässt sich im laufenden Programm nicht von außen halten (die Erlaubnis lebt nur während
+    /// eines Stücks im Blocking-Thread), darum hält der Test sie am Zustand der Instanz.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn loeschen_ohne_anhang_wartet_nicht_auf_die_hochladebank_mit_anhang_schon() {
+        use crate::http::HOCHLADEBANK;
+        let aufbau = aufbau();
+        let (mit_anhang, _) = aufbau.nachricht_mit_anhang("beta@127.0.0.1");
+        let ohne_anhang = aufbau
+            .zustand
+            .gespraeche
+            .senden(
+                &Gespraech::channel("allgemein"),
+                &teilnehmer_kennung("beta@127.0.0.1"),
+                crate::anwesenheit::Art::Agent,
+                "ohne Anhang",
+            )
+            .expect("gesendet")
+            .zeit;
+        let basis =
+            crate::http::testserver::app_starten(crate::http::router((*aufbau.zustand).clone()))
+                .await;
+        let client = reqwest::Client::new();
+        let beitritt: Value = client
+            .post(format!("{basis}api/beitreten"))
+            .json(&json!({"name": "beta"}))
+            .send()
+            .await
+            .expect("Antwort")
+            .json()
+            .await
+            .expect("JSON");
+        let token = beitritt["token"].as_str().expect("Token").to_string();
+        let loeschen =
+            |zeit: Zeit| {
+                client
+                .post(format!("{basis}api/channels/allgemein/nachrichten/loeschen"))
+                .header("X-LocalchatA-Sitzung", &token)
+                .json(&json!({"zeit": zeit.to_rfc3339_opts(chrono::SecondsFormat::Millis, false)}))
+                .send()
+            };
+        let belegt = || async {
+            let gesundheit: Value = client
+                .get(format!("{basis}api/gesundheit"))
+                .send()
+                .await
+                .expect("Antwort")
+                .json()
+                .await
+                .expect("JSON");
+            gesundheit["hochladebank_belegt"].as_u64().expect("belegt")
+        };
+        let erlaubnisse = Arc::clone(&aufbau.zustand.hochladebank)
+            .acquire_many_owned(HOCHLADEBANK as u32)
+            .await
+            .expect("acht Erlaubnisse");
+        assert_eq!(belegt().await, HOCHLADEBANK as u64);
+
+        let beginn = Instant::now();
+        let ohne = tokio::time::timeout(Duration::from_secs(5), loeschen(ohne_anhang))
+            .await
+            .expect("ohne Anhang wartet nicht auf die Bank")
+            .expect("Antwort");
+        let dauer = beginn.elapsed();
+        let mit = tokio::spawn(loeschen(mit_anhang));
+        tokio::time::sleep(Duration::from_millis(300)).await;
+        let wartet = !mit.is_finished();
+        drop(erlaubnisse);
+        let mit = tokio::time::timeout(Duration::from_secs(5), mit)
+            .await
+            .expect("nach dem Ende einer Hochladung")
+            .expect("Aufgabe")
+            .expect("Antwort");
+
+        assert_eq!(ohne.status(), 200);
+        assert!(dauer < Duration::from_millis(500), "{dauer:?}");
+        assert!(wartet, "mit Anhang wartet auf die Hochladebank");
+        assert_eq!(mit.status(), 200);
+        let antwort: Value = mit.json().await.expect("JSON");
+        assert_eq!(antwort["anhaenge"]["geloescht"], 1, "{antwort}");
     }
 
     /// Ein weiteres Feld wird genannt, auch `bestaetigt` (ADR-0048 Regel 12); nur `zeit` ist erlaubt.

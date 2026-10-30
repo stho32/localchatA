@@ -63,6 +63,24 @@ impl Gespraeche {
         })
     }
 
+    /// Zahl der Anhänge der Nachricht `ziel` in ihrer Fassung, wie sie `von` löschen würde (ADR-0048 K5): wer nichts
+    /// zu kürzen hat, braucht keine Erlaubnis der Hochladebank. Lesend unter der Verlaufssperre, nie über ein
+    /// `await` gehalten. Gelöscht, entfallen, unbekannt und fremd (der Anfrager ist nicht der Absender) zählen 0 —
+    /// sie enden ohne Plattenarbeit. Die Anhänge einer Nachricht ändern sich nie (Bearbeiten ändert nur den Text),
+    /// die Zahl kann daher nur zu viel verlangen, nie zu wenig.
+    pub fn anhangzahl(&self, gespraech: &Gespraech, von: &Kennung, ziel: Zeit) -> usize {
+        let Some(verlauf) = lesend(&self.verzeichnis).verlaeufe.get(gespraech).cloned() else {
+            return 0;
+        };
+        let verlauf = sperren(&verlauf);
+        verlauf
+            .nachricht(&ziel)
+            .as_ref()
+            .and_then(nachricht_in_fassung)
+            .filter(|nachricht| &nachricht.von == von)
+            .map_or(0, |nachricht| nachricht.anhaenge.len())
+    }
+
     fn loeschen_unter_sperre(
         &self,
         gespraech: &Gespraech,
