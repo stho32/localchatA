@@ -4,10 +4,16 @@
 //! Reihenfolge der Signale je Kennung und Gespräch die der Änderungen ist. Den Bus kennt der Baustein nicht, die
 //! Anwesenheit ruft er nie (Sperrfolge Anwesenheit → Aktivität).
 
+mod bremse;
+
+pub use bremse::Gebremst;
+
 use crate::gespraeche::{Gespraech, Kennung};
 use crate::uhr::{Uhr, Zeit};
+use bremse::Bremse;
 use chrono::TimeDelta;
 use std::collections::HashMap;
+use std::net::IpAddr;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 /// Der Zustand mit festem Wortlaut (Regel 2); auf der Leitung `"tippt"` bzw. `"denkt_nach"`.
@@ -65,6 +71,8 @@ pub enum Abweisung {
     Gueltigkeit,
     /// Ein 17. Gespräch derselben Kennung (422 `aktivitaeten`).
     ZuViele,
+    /// Zu viele Meldungen (429, Regel 9); nur nach allen anderen Prüfungen.
+    Gebremst(Gebremst),
 }
 
 /// Ein gültiger Eintrag, wie das Lesen ihn nennt.
@@ -110,10 +118,17 @@ impl Eintrag {
 
 type Tabelle = HashMap<(Kennung, Gespraech), Eintrag>;
 
-/// Einziger Halter der Aktivitäten (A00019).
+/// Tabelle und Bremse unter einer Sperre (Regel 1).
+#[derive(Default)]
+struct Inneres {
+    tabelle: Tabelle,
+    bremse: Bremse,
+}
+
+/// Einziger Halter der Aktivitäten und ihrer Bremse (A00019).
 pub struct Aktivitaet {
     uhr: Arc<dyn Uhr>,
-    tabelle: Mutex<Tabelle>,
+    inneres: Mutex<Inneres>,
     veroeffentlichen: Veroeffentlichen,
 }
 
@@ -121,7 +136,7 @@ impl Aktivitaet {
     pub fn neu(uhr: Arc<dyn Uhr>) -> Aktivitaet {
         Aktivitaet {
             uhr,
-            tabelle: Mutex::default(),
+            inneres: Mutex::default(),
             veroeffentlichen: Arc::new(|_: &Aenderung| {}),
         }
     }
@@ -134,24 +149,30 @@ impl Aktivitaet {
     }
 
     /// Setzt oder erneuert den Zustand der Kennung im Gespräch: ersetzt den bisherigen, gilt ab Eingang
-    /// (`bis = jetzt + gueltig`, nie addiert); ohne Angabe der Standard des Zustands. Abgewiesen ohne Wirkung.
+    /// (`bis = jetzt + gueltig`, nie addiert); ohne Angabe der Standard des Zustands. Abgewiesen ohne Wirkung; die
+    /// Bremse bucht erst, wenn sonst nichts dagegen spricht (Regel 9).
     pub fn setzen(
         &self,
         kennung: &Kennung,
+        herkunft: IpAddr,
         gespraech: &Gespraech,
         zustand: Zustand,
         gueltig_s: Option<u32>,
     ) -> Result<Gesetzt, Abweisung> {
         let gueltig = gueltigkeit(zustand, gueltig_s)?;
-        let mut tabelle = self.sperre();
+        let mut inneres = self.sperre();
         let jetzt = self.uhr.jetzt();
-        aufraeumen(&mut tabelle, kennung, jetzt);
+        let Inneres { tabelle, bremse } = &mut *inneres;
+        aufraeumen(tabelle, kennung, jetzt);
         let schluessel = (kennung.clone(), gespraech.clone());
         let neues_gespraech = !tabelle.contains_key(&schluessel);
         let schon = tabelle.keys().filter(|(k, _)| k == kennung).count();
         if neues_gespraech && schon >= JE_KENNUNG_HOECHSTENS {
             return Err(Abweisung::ZuViele);
         }
+        bremse
+            .buchen(kennung, gespraech, herkunft, jetzt)
+            .map_err(Abweisung::Gebremst)?;
         let bis = jetzt + gueltig;
         tabelle.insert(
             schluessel,
@@ -167,7 +188,7 @@ impl Aktivitaet {
             jetzt,
         };
         self.melden(
-            &tabelle,
+            &inneres,
             &Aenderung {
                 gespraech: gespraech.clone(),
                 kennung: kennung.clone(),
@@ -179,11 +200,13 @@ impl Aktivitaet {
 
     /// Beendet den Zustand der Kennung im Gespräch; ein Ende-Signal nur, wenn er noch galt.
     pub fn beenden(&self, kennung: &Kennung, gespraech: &Gespraech) {
-        let mut tabelle = self.sperre();
+        let mut inneres = self.sperre();
         let jetzt = self.uhr.jetzt();
-        let entfernt = tabelle.remove(&(kennung.clone(), gespraech.clone()));
+        let entfernt = inneres
+            .tabelle
+            .remove(&(kennung.clone(), gespraech.clone()));
         if entfernt.is_some_and(|eintrag| eintrag.gilt(jetzt)) {
-            self.melden(&tabelle, &beendet(kennung, gespraech));
+            self.melden(&inneres, &beendet(kennung, gespraech));
         }
     }
 
@@ -193,10 +216,10 @@ impl Aktivitaet {
         expect(dead_code, reason = "Verlassen und offline rufen es ab B0694")
     )]
     pub fn beenden_alle(&self, kennung: &Kennung) {
-        let mut tabelle = self.sperre();
+        let mut inneres = self.sperre();
         let jetzt = self.uhr.jetzt();
         let mut galten: Vec<Gespraech> = Vec::new();
-        tabelle.retain(|(k, gespraech), eintrag| {
+        inneres.tabelle.retain(|(k, gespraech), eintrag| {
             let von_ihr = k == kennung;
             if von_ihr && eintrag.gilt(jetzt) {
                 galten.push(gespraech.clone());
@@ -205,16 +228,17 @@ impl Aktivitaet {
         });
         galten.sort();
         for gespraech in &galten {
-            self.melden(&tabelle, &beendet(kennung, gespraech));
+            self.melden(&inneres, &beendet(kennung, gespraech));
         }
     }
 
     /// Die gültigen Zustände des Gesprächs ohne den des Lesenden, nach Kennung sortiert.
     #[cfg_attr(not(test), expect(dead_code, reason = "gelesen erst über GET (B0696)"))]
     pub fn lesen(&self, gespraech: &Gespraech, ohne: &Kennung) -> Gelesen {
-        let tabelle = self.sperre();
+        let inneres = self.sperre();
         let jetzt = self.uhr.jetzt();
-        let mut aktivitaeten: Vec<Aktiv> = tabelle
+        let mut aktivitaeten: Vec<Aktiv> = inneres
+            .tabelle
             .iter()
             .filter(|((kennung, g), eintrag)| {
                 g == gespraech && kennung != ohne && eintrag.gilt(jetzt)
@@ -233,12 +257,12 @@ impl Aktivitaet {
         }
     }
 
-    fn sperre(&self) -> MutexGuard<'_, Tabelle> {
-        self.tabelle.lock().unwrap_or_else(PoisonError::into_inner)
+    fn sperre(&self) -> MutexGuard<'_, Inneres> {
+        self.inneres.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
     /// Unter der Sperre: veröffentlichen, solange niemand eine weitere Änderung machen kann.
-    fn melden(&self, _sperre: &Tabelle, aenderung: &Aenderung) {
+    fn melden(&self, _sperre: &Inneres, aenderung: &Aenderung) {
         (self.veroeffentlichen)(aenderung);
     }
 }

@@ -53,11 +53,15 @@ pub async fn setzen(
             return mit_regel(wertfehler.beantworten(), wertfehler.regel(), Some(wer));
         }
     };
-    match zustand
-        .aktivitaet
-        .setzen(&teilnehmer.kennung, &gespraech, gewuenscht, None)
-    {
+    match zustand.aktivitaet.setzen(
+        &teilnehmer.kennung,
+        teilnehmer.herkunft,
+        &gespraech,
+        gewuenscht,
+        None,
+    ) {
         Ok(gesetzt) => gesetzt_beantworten(gesetzt),
+        Err(Abweisung::Gebremst(_)) => StatusCode::TOO_MANY_REQUESTS.into_response(),
         Err(abweisung) => {
             let wertfehler = Wertfehler::Abgewiesen(abweisung);
             mit_regel(wertfehler.beantworten(), wertfehler.regel(), Some(wer))
@@ -111,6 +115,7 @@ impl Wertfehler {
             Wertfehler::Zustand => "zustand",
             Wertfehler::Abgewiesen(Abweisung::Gueltigkeit) => "gueltigkeit",
             Wertfehler::Abgewiesen(Abweisung::ZuViele) => "aktivitaeten",
+            Wertfehler::Abgewiesen(Abweisung::Gebremst(_)) => "gebremst",
         }
     }
 
@@ -124,6 +129,9 @@ impl Wertfehler {
             }
             Wertfehler::Abgewiesen(Abweisung::Gueltigkeit) => {
                 "gueltig_s ist eine ganze Zahl von 1 bis 120.".to_string()
+            }
+            Wertfehler::Abgewiesen(Abweisung::Gebremst(_)) => {
+                "Zu viele Aktivitätsmeldungen.".to_string()
             }
             Wertfehler::Abgewiesen(Abweisung::ZuViele) => format!(
                 "Höchstens {} Gespräche gleichzeitig — erst einen Zustand löschen.",

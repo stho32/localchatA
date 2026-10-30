@@ -1,6 +1,7 @@
 //! B0684 (R00045 F0161, ADR-0051 P1, P2): Tabelle, Gültigkeit, Ablauf — mit gestellter Uhr und aufzeichnender
 //! Veröffentlichung.
 
+use super::bremse::Grenze;
 use super::*;
 use crate::uhr::GestellteUhr;
 
@@ -26,6 +27,11 @@ fn claude() -> Kennung {
     kennung("claude@10.0.0.5")
 }
 
+/// Alle Kennungen der Tests kommen von einer Adresse — der Eimer je Herkunft ist einer.
+fn herkunft() -> IpAddr {
+    "10.0.0.1".parse().expect("IP")
+}
+
 fn allgemein() -> Gespraech {
     Gespraech::channel("allgemein")
 }
@@ -49,7 +55,7 @@ impl Aufbau {
                     let unter_sperre = selbst_im_aufruf
                         .get()
                         .and_then(std::sync::Weak::upgrade)
-                        .is_some_and(|aktivitaet| aktivitaet.tabelle.try_lock().is_err());
+                        .is_some_and(|aktivitaet| aktivitaet.inneres.try_lock().is_err());
                     gemeldet_im_aufruf
                         .lock()
                         .expect("Liste")
@@ -79,7 +85,7 @@ impl Aufbau {
         gueltig_s: Option<u32>,
     ) -> Result<Gesetzt, Abweisung> {
         self.aktivitaet
-            .setzen(wer, &allgemein(), zustand, gueltig_s)
+            .setzen(wer, herkunft(), &allgemein(), zustand, gueltig_s)
             .inspect(|gesetzt| {
                 assert_eq!(gesetzt.jetzt, self.uhr.jetzt(), "jetzt ist der Eingang");
             })
@@ -265,20 +271,23 @@ fn p2_sechzehn_gespraeche_je_kennung_das_siebzehnte_abgewiesen() {
     for n in 0..JE_KENNUNG_HOECHSTENS {
         aufbau
             .aktivitaet
-            .setzen(&anna(), &gespraech(n), Zustand::Tippt, None)
+            .setzen(&anna(), herkunft(), &gespraech(n), Zustand::Tippt, None)
             .unwrap_or_else(|abweisung| panic!("{n}: {abweisung:?}"));
     }
     let vorher = aufbau.gemeldet().len();
 
-    let siebzehntes = aufbau
-        .aktivitaet
-        .setzen(&anna(), &gespraech(16), Zustand::Tippt, None);
-    let erneuert = aufbau
-        .aktivitaet
-        .setzen(&anna(), &gespraech(3), Zustand::Tippt, None);
-    let andere_kennung = aufbau
-        .aktivitaet
-        .setzen(&ben(), &gespraech(16), Zustand::Tippt, None);
+    let siebzehntes =
+        aufbau
+            .aktivitaet
+            .setzen(&anna(), herkunft(), &gespraech(16), Zustand::Tippt, None);
+    let erneuert =
+        aufbau
+            .aktivitaet
+            .setzen(&anna(), herkunft(), &gespraech(3), Zustand::Tippt, None);
+    let andere_kennung =
+        aufbau
+            .aktivitaet
+            .setzen(&ben(), herkunft(), &gespraech(16), Zustand::Tippt, None);
 
     assert_eq!(siebzehntes, Err(Abweisung::ZuViele));
     assert!(erneuert.is_ok() && andere_kennung.is_ok());
@@ -294,7 +303,7 @@ fn p2_sechzehn_gespraeche_je_kennung_das_siebzehnte_abgewiesen() {
     assert!(
         aufbau
             .aktivitaet
-            .setzen(&anna(), &gespraech(16), Zustand::Tippt, None)
+            .setzen(&anna(), herkunft(), &gespraech(16), Zustand::Tippt, None)
             .is_ok(),
         "abgelaufene zählen nicht"
     );
@@ -309,7 +318,7 @@ fn beenden_meldet_nur_ein_ende_wenn_etwas_galt() {
     aufbau.setzen(&anna(), Zustand::Tippt, None).expect("anna");
     aufbau
         .aktivitaet
-        .setzen(&anna(), &technik, Zustand::Tippt, None)
+        .setzen(&anna(), herkunft(), &technik, Zustand::Tippt, None)
         .expect("anna technik");
     aufbau
         .setzen(&claude(), Zustand::DenktNach, None)
@@ -372,6 +381,7 @@ fn lesen_sortiert_ohne_den_lesenden() {
         .aktivitaet
         .setzen(
             &kennung("dora@10.0.0.9"),
+            herkunft(),
             &Gespraech::channel("technik"),
             Zustand::Tippt,
             None,
@@ -431,4 +441,93 @@ fn sichtbar_channel_fuer_jeden_direkt_nur_fuer_beteiligte_archiviert_nie() {
     assert!(!fall(&direkt, "nna@10.0.0.7", false), "kein Teilstück");
     assert!(!fall(&allgemein(), "anna@10.0.0.7", true));
     assert!(!fall(&direkt, "anna@10.0.0.7", true));
+}
+
+/// B0692 P3 Bremse (gestellte Uhr, Mutante M9): 10 × Setzen `(anna, allgemein)` bei t0 gehen, das 11. ist
+/// `Gebremst{gespraech, 1.000 ms}` ohne Wirkung; bei t0 + 999 ms noch gebremst, bei t0 + 1.000 ms wieder frei; 10 ×
+/// in `# technik` danach gehen (eigener Eimer je Gespräch). `beenden` und `lesen` sind nie gebremst.
+#[test]
+fn p3_bremse_je_kennung_und_gespraech_zehn_dann_eine_je_sekunde() {
+    let aufbau = Aufbau::neu();
+    let technik = Gespraech::channel("technik");
+    for n in 0..10 {
+        aufbau
+            .setzen(&anna(), Zustand::Tippt, None)
+            .unwrap_or_else(|abweisung| panic!("{n}: {abweisung:?}"));
+    }
+    let vorher = aufbau.gemeldet().len();
+
+    let elftes = aufbau.setzen(&anna(), Zustand::DenktNach, None);
+    let nach_999 = aufbau.um(999).setzen(&anna(), Zustand::DenktNach, None);
+    let gemeldet_gebremst = aufbau.gemeldet().len();
+    let gelesen_gebremst = aufbau.liest_ben();
+    aufbau.aktivitaet.beenden(&anna(), &allgemein());
+    let beendet = aufbau.gemeldet().len();
+    let nach_1000 = aufbau.um(1_000).setzen(&anna(), Zustand::Tippt, None);
+    let in_technik: Vec<_> = (0..10)
+        .map(|_| {
+            aufbau
+                .aktivitaet
+                .setzen(&anna(), herkunft(), &technik, Zustand::Tippt, None)
+        })
+        .collect();
+
+    let gebremst = |ms| {
+        Err(Abweisung::Gebremst(Gebremst {
+            grenze: Grenze::Gespraech,
+            wieder_in: std::time::Duration::from_millis(ms),
+        }))
+    };
+    assert_eq!(elftes, gebremst(1_000));
+    assert_eq!(nach_999, gebremst(1));
+    assert_eq!(gemeldet_gebremst, vorher, "gebremst meldet nichts");
+    assert_eq!(gelesen_gebremst, ["anna@10.0.0.7"], "Lesen nie gebremst");
+    assert_eq!(beendet, vorher + 1, "Beenden nie gebremst");
+    assert_eq!(nach_1000.map(|g| g.bis), Ok(t(7_000)));
+    assert!(in_technik.iter().all(Result::is_ok), "{in_technik:?}");
+}
+
+/// B0692 P3 Herkunft (Mutante M9 „Eimer je Herkunft aus“): 120 Setzen über 12 Kennungen × 10 Gespräche einer
+/// Adresse gehen, das 121. — eine 13. Kennung in einem frischen Gespräch — ist `Gebremst{herkunft}`; ein Setzen von
+/// einer anderen Adresse geht. Volle Eimer werden nicht gehalten.
+#[test]
+fn p3_bremse_je_herkunft_hundertzwanzig_dann_zwoelf_je_sekunde() {
+    let aufbau = Aufbau::neu();
+    let wer = |n: usize| kennung(&format!("k{n}@10.0.0.1"));
+    let gespraech = |n: usize| Gespraech::channel(&format!("c{n}"));
+    for k in 0..12 {
+        for g in 0..10 {
+            aufbau
+                .aktivitaet
+                .setzen(&wer(k), herkunft(), &gespraech(g), Zustand::Tippt, None)
+                .unwrap_or_else(|abweisung| panic!("{k}/{g}: {abweisung:?}"));
+        }
+    }
+
+    let einhunderteinundzwanzigstes =
+        aufbau
+            .aktivitaet
+            .setzen(&wer(12), herkunft(), &gespraech(0), Zustand::Tippt, None);
+    let andere_adresse = aufbau.aktivitaet.setzen(
+        &kennung("zoe@10.0.0.2"),
+        "10.0.0.2".parse().expect("IP"),
+        &gespraech(0),
+        Zustand::Tippt,
+        None,
+    );
+    let nach_84 =
+        aufbau
+            .um(84)
+            .aktivitaet
+            .setzen(&wer(12), herkunft(), &gespraech(0), Zustand::Tippt, None);
+
+    assert_eq!(
+        einhunderteinundzwanzigstes,
+        Err(Abweisung::Gebremst(Gebremst {
+            grenze: Grenze::Herkunft,
+            wieder_in: std::time::Duration::from_millis(84),
+        }))
+    );
+    assert!(andere_adresse.is_ok(), "{andere_adresse:?}");
+    assert!(nach_84.is_ok(), "1 / 12 s ≈ 84 ms: {nach_84:?}");
 }
