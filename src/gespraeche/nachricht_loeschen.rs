@@ -3,11 +3,13 @@
 //! vergeben → Löschsatz in die Tagesdatei der Änderung anhängen (scheitert es, nichts geändert) → Index und Fassung
 //! `Geloescht` → `belegt` → veröffentlichen. Der Text bleibt im Log, `belegt` sinkt nicht.
 
+use super::anhangverzeichnis::{Eintrag, Zustand};
 use super::{
     Aenderungszustand, Geaendert, Gespraech, Gespraeche, Kennung, Nachricht, lesend, logformat,
     nachricht_in_fassung, sperren,
 };
 use crate::uhr::Zeit;
+use std::sync::Arc;
 use std::sync::atomic::Ordering;
 
 /// Was `nachricht_loeschen` getan hat — beides mit der Nachricht in ihrer Fassung `geloescht`.
@@ -98,6 +100,7 @@ impl Gespraeche {
         let dazu = satzbytes + u64::from(angehaengt.zeilenende_ergaenzt);
         let vorher = self.belegung.dazu(dazu);
         self.ueber_90_melden(vorher, vorher.saturating_add(dazu));
+        let _gewonnen = self.anhaenge_markieren(gespraech, &nachricht);
         let geloescht = Nachricht {
             text: String::new(),
             anhaenge: Vec::new(),
@@ -109,6 +112,25 @@ impl Gespraeche {
         };
         (self.aenderung_veroeffentlichen)(gespraech, &geloescht);
         Ok(NachrichtGeloescht::Neu(geloescht))
+    }
+}
+
+impl Gespraeche {
+    /// Je Anhang der Nachricht `vorhanden → geloescht` per Vergleichen-und-Tauschen, unter der Schreibsperre nach dem
+    /// Löschsatz (ADR-0048 Regel 9 a): ab hier antwortet der Abruf 410. Ein schon im Laufwerk gelöschter Anhang wird
+    /// übersprungen — je Anhang genau ein Abzug. Liefert die gewonnenen Einträge für Kürzen und Abzug.
+    fn anhaenge_markieren(
+        &self,
+        gespraech: &Gespraech,
+        nachricht: &Nachricht,
+    ) -> Vec<Arc<Eintrag>> {
+        nachricht
+            .anhaenge
+            .iter()
+            .filter_map(|zeile| self.anhangverzeichnis.finden(&zeile.id))
+            .filter(|eintrag| eintrag.gespraech == *gespraech && eintrag.satzzeit == nachricht.zeit)
+            .filter(|eintrag| eintrag.tauschen(Zustand::Vorhanden, Zustand::Geloescht))
+            .collect()
     }
 }
 

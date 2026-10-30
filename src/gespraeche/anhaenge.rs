@@ -1513,4 +1513,70 @@ mod tests {
             Some(21_474_836_480)
         );
     }
+
+    /// Vier Anhänge zu 1 MiB an einer Nachricht `Bericht` von `beta` in `allgemein`; der vierte schon vorher von
+    /// `gamma` im Laufwerk gelöscht. Liefert Gespräche, Speicher, IDs und die Zeit der Nachricht.
+    fn bericht_mit_vier_anhaengen() -> (
+        Arc<Gespraeche>,
+        Arc<crate::gespraeche::anhangspeicher::Anhangspeicher>,
+        Vec<Anhangid>,
+        crate::uhr::Zeit,
+    ) {
+        let (gespraeche, _, speicher) = mit_ablage();
+        let ids: Vec<Anhangid> = (0..4)
+            .map(|nummer| {
+                fertig(
+                    &gespraeche,
+                    "beta@127.0.0.1",
+                    &format!("a{nummer}.bin"),
+                    &vec![nummer as u8; MIB as usize],
+                )
+            })
+            .collect();
+        let Ok(crate::gespraeche::Gesendet::Neu(nachricht)) = gespraeche.senden_mit_anhaengen(
+            &Gespraech::channel("allgemein"),
+            &kennung("beta@127.0.0.1"),
+            Art::Agent,
+            "Bericht",
+            &ids,
+            None,
+        ) else {
+            panic!("gesendet")
+        };
+        gespraeche.anhaenge_loeschen(&kennung("gamma@127.0.0.1"), &ids[3..], true, |_| true);
+        assert_eq!(gespraeche.anhangkennzahlen().gebunden, 3 * MIB);
+        (gespraeche, speicher, ids, nachricht.zeit)
+    }
+
+    /// R00040 B0617 (ADR-0048 Regel 9 a): mit dem Löschsatz sind im selben Sperrabschnitt alle Anhänge der Nachricht
+    /// `geloescht` — ab der Antwort liefert der Abruf 410; der vorher im Laufwerk gelöschte bleibt, wie er ist; ein
+    /// gleich benannter Anhang einer anderen Nachricht bleibt `vorhanden` (Mutante „Anhänge nicht markiert“ rot).
+    #[test]
+    fn das_loeschen_der_nachricht_markiert_ihre_anhaenge_als_geloescht() {
+        use crate::gespraeche::anhangverzeichnis::Zustand;
+        let (gespraeche, _, ids, zeit) = bericht_mit_vier_anhaengen();
+        let andere = fertig(&gespraeche, "beta@127.0.0.1", "a0.bin", &[9; 10]);
+        gespraeche
+            .senden_mit_anhaengen(
+                &Gespraech::channel("allgemein"),
+                &kennung("beta@127.0.0.1"),
+                Art::Agent,
+                "anders",
+                std::slice::from_ref(&andere),
+                None,
+            )
+            .expect("gesendet");
+
+        let geloescht = gespraeche.nachricht_loeschen(
+            &Gespraech::channel("allgemein"),
+            &kennung("beta@127.0.0.1"),
+            zeit,
+        );
+
+        assert!(geloescht.is_ok(), "{geloescht:?}");
+        for id in &ids {
+            assert_eq!(zustand(&gespraeche, id), Zustand::Geloescht, "{id:?}");
+        }
+        assert_eq!(zustand(&gespraeche, &andere), Zustand::Vorhanden);
+    }
 }
