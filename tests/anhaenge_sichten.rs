@@ -214,8 +214,8 @@ async fn ereignis_anhaenge_je_channel() {
     assert_eq!(
         ereignisse,
         vec![
-            json!({"art": "anhaenge", "channel": "allgemein", "geloescht": [{"id": a, "zeit": zeit_a}]}),
-            json!({"art": "anhaenge", "channel": "technik", "geloescht": [{"id": b, "zeit": zeit_b}]}),
+            json!({"art": "anhaenge", "channel": "allgemein", "direkt": null, "geloescht": [{"id": a, "zeit": zeit_a}]}),
+            json!({"art": "anhaenge", "channel": "technik", "direkt": null, "geloescht": [{"id": b, "zeit": zeit_b}]}),
         ]
     );
 

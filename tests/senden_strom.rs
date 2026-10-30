@@ -37,7 +37,7 @@ async fn us7_die_nachricht_kommt_im_strom_an() {
     assert_eq!(antwort.status, 201);
     assert_eq!(
         ereignis.data,
-        json!({"art": "nachricht", "channel": "allgemein", "nachricht": {
+        json!({"art": "nachricht", "channel": "allgemein", "direkt": null, "nachricht": {
             "zeit": antwort.json["nachricht"]["zeit"], "von": "beta@127.0.0.1", "art": "agent", "text": "Hallo", "anhaenge": [], "zustand": null, "geaendert": null, "antwort_auf": null}})
     );
     let dauer = ereignis.ankunft.saturating_duration_since(erhalten);

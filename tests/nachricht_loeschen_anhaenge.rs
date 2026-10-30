@@ -182,7 +182,7 @@ async fn die_anhaenge_verschwinden_mit_der_nachricht() {
     let anhaenge = anhaenge.expect("anhaenge");
     assert_eq!(
         anhaenge.data,
-        json!({"art": "anhaenge", "channel": "allgemein", "geloescht": [
+        json!({"art": "anhaenge", "channel": "allgemein", "direkt": null, "geloescht": [
             {"id": gegeben.foto, "zeit": gegeben.t3}, {"id": gegeben.bericht, "zeit": gegeben.t3}]})
     );
     for ereignis in [&aenderung, &anhaenge] {

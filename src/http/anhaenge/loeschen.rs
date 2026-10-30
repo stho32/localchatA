@@ -11,7 +11,6 @@ use super::super::senden::groesse_in_worten;
 use super::super::teilnehmer::Teilnehmer;
 use super::super::werkbank::bank_erwerben;
 use super::loeschkoerper::{self, auftrag_pruefen};
-use crate::gespraeche::Gespraech;
 use crate::gespraeche::loeschen::{Einzelergebnis, Geloescht, Loeschen, Umfang};
 use crate::live::bus::{Bus, Ereignis};
 use crate::protokoll::{Bereich, Kontext, Protokoll, Schluessel, Stufe};
@@ -255,15 +254,13 @@ pub(in crate::http) fn protokollieren(
     }
 }
 
-/// Je betroffenem Channel ein Ereignis `anhaenge` mit (ID, Satzzeit) — nach Schritt (c), nie für die Vorschau oder
-/// `schon_geloescht` (B0514, ADR-0047 Ergänzung „F1′“ Regel 3). Direktgespräche erst mit I0012.
+/// Je betroffenem Gespräch ein Ereignis `anhaenge` mit (ID, Satzzeit) — nach Schritt (c), nie für die Vorschau oder
+/// `schon_geloescht` (B0514, ADR-0047 Ergänzung „F1′“ Regel 3); ein Direktgespräch wie ein Channel, wer es sieht,
+/// entscheidet der Strom (ADR-0055 Regel 6).
 pub(in crate::http) fn veroeffentlichen(bus: &Bus, bericht: &Geloescht) {
     for (gespraech, geloescht) in &bericht.je_gespraech {
-        let Gespraech::Channel(channel) = gespraech else {
-            continue;
-        };
         bus.veroeffentlichen(Ereignis::Anhaenge {
-            channel: channel.clone(),
+            gespraech: Box::new(gespraech.clone()),
             geloescht: geloescht
                 .iter()
                 .map(|(id, zeit)| (id.als_text().to_string(), *zeit))

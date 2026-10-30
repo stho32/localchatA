@@ -100,7 +100,7 @@ async fn die_aenderung_kommt_live_an() {
     let ereignis = ereignis.expect("aenderung");
     assert_eq!(
         ereignis.data,
-        json!({"art": "aenderung", "channel": "allgemein", "nachricht": {
+        json!({"art": "aenderung", "channel": "allgemein", "direkt": null, "nachricht": {
             "zeit": t1, "von": "beta@127.0.0.1", "art": "agent", "text": "Hallo zusammen",
             "zustand": "bearbeitet", "geaendert": antwort.json["nachricht"]["geaendert"], "anhaenge": [], "antwort_auf": null},
             "zitat": {"zeit": t1, "von": "beta@127.0.0.1", "zustand": "bearbeitet", "textanfang": "Hallo zusammen",

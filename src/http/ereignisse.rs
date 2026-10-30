@@ -13,9 +13,10 @@ use super::teilnehmerliste::{stand_als_json, zeile_als_json, zeit_als_text};
 use crate::aktivitaet::{Aenderung, Gesetzt};
 use crate::anwesenheit::status::Status;
 use crate::anwesenheit::{Anwesenheit, Halter, Stand, Wechsel};
-use crate::gespraeche::Gespraech;
 use crate::gespraeche::zitat::zitat_der_nachricht;
-use crate::gespraeche::{ChannelStand, ChannelWechsel, Nachricht};
+use crate::gespraeche::{
+    ChannelStand, ChannelWechsel, Gespraech, Kennung, Nachricht, sichtbar_fuer,
+};
 use crate::live::bus::{Abonnement, Empfang, Ereignis, Signal, Signalabonnement, Signalempfang};
 use crate::protokoll::episoden::{Auftreten, Quelle};
 use crate::protokoll::{Bereich, Protokoll, Schluessel, Stufe, episodentexte};
@@ -135,24 +136,63 @@ enum Ausgabe {
     Channels(ChannelStand),
     Channel(ChannelWechsel),
     Nachricht {
-        channel: String,
+        ort: Ort,
         nachricht: Nachricht,
     },
     Anhaenge {
-        channel: String,
+        ort: Ort,
         geloescht: Vec<(String, crate::uhr::Zeit)>,
     },
     Aenderung {
-        channel: String,
+        ort: Ort,
         nachricht: Nachricht,
     },
     Aktivitaet {
-        channel: String,
-        kennung: crate::gespraeche::Kennung,
+        ort: Ort,
+        kennung: Kennung,
         aktiv: Option<Gesetzt>,
     },
     AktivitaetLuecke,
     Herzschlag,
+}
+
+/// Wohin ein Ereignis aus Sicht des Halters gehört (ADR-0055 Regel 6): in einen Channel oder in das Gespräch mit
+/// einem Gegenüber. Auf der Leitung `channel` und `direkt`, immer beide, eines davon `null`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum Ort {
+    Channel(String),
+    /// Die Kennung des Gegenübers des Halters. Leer nur, wenn das Urteil „sichtbar“ einen Unbeteiligten durchließ:
+    /// das Ereignis bleibt dann sichtbar leer, statt still zu verschwinden — ein Fehler der Sichtbarkeit fiele im
+    /// Strom auf.
+    Direkt(Option<Kennung>),
+}
+
+impl Ort {
+    /// Der Ort eines Gesprächs für den Halter; keiner, wenn der Halter es nicht sehen darf (`sichtbar_fuer`, die
+    /// eine Stelle dieser Entscheidung, ADR-0055 Regel 5; kein `_ =>`, damit eine neue Gesprächsart nicht still
+    /// durchgeht).
+    fn fuer(gespraech: &Gespraech, halter: &Kennung) -> Option<Ort> {
+        if !sichtbar_fuer(gespraech, halter, false) {
+            return None;
+        }
+        Some(match gespraech {
+            Gespraech::Channel(name) => Ort::Channel(name.clone()),
+            Gespraech::Direkt(paar) => Ort::Direkt(paar.gegenueber(halter).cloned()),
+        })
+    }
+
+    /// `(channel, direkt)` der Leitung.
+    fn felder(&self) -> (serde_json::Value, serde_json::Value) {
+        match self {
+            Ort::Channel(name) => (json!(name), serde_json::Value::Null),
+            Ort::Direkt(gegenueber) => (
+                serde_json::Value::Null,
+                gegenueber
+                    .as_ref()
+                    .map_or(serde_json::Value::Null, |kennung| json!(kennung.als_text())),
+            ),
+        }
+    }
 }
 
 impl Strom {
@@ -165,16 +205,16 @@ impl Strom {
             Ausgabe::Wechsel(wechsel) => wechsel_ereignis(&wechsel),
             Ausgabe::Channels(stand) => channels_ereignis(&stand),
             Ausgabe::Channel(wechsel) => channel_ereignis(&wechsel),
-            Ausgabe::Nachricht { channel, nachricht } => nachricht_ereignis(&channel, &nachricht),
-            Ausgabe::Anhaenge { channel, geloescht } => anhaenge_ereignis(&channel, &geloescht),
-            Ausgabe::Aenderung { channel, nachricht } => {
-                Event::default().data(aenderung_als_json(&channel, &nachricht).to_string())
+            Ausgabe::Nachricht { ort, nachricht } => nachricht_ereignis(&ort, &nachricht),
+            Ausgabe::Anhaenge { ort, geloescht } => anhaenge_ereignis(&ort, &geloescht),
+            Ausgabe::Aenderung { ort, nachricht } => {
+                Event::default().data(aenderung_als_json(&ort, &nachricht).to_string())
             }
             Ausgabe::Aktivitaet {
-                channel,
+                ort,
                 kennung,
                 aktiv,
-            } => Event::default().data(aktivitaet_als_json(&channel, &kennung, aktiv).to_string()),
+            } => Event::default().data(aktivitaet_als_json(&ort, &kennung, aktiv).to_string()),
             Ausgabe::AktivitaetLuecke => {
                 Event::default().data(json!({ "art": "aktivitaet_luecke" }).to_string())
             }
@@ -210,14 +250,23 @@ impl Strom {
                         self.zuletzt_channels = wechsel.stand;
                         Ausgabe::Channel(wechsel)
                     }
-                    Empfang::Ereignis(Ereignis::Nachricht { channel, nachricht }) => {
-                        Ausgabe::Nachricht { channel, nachricht }
+                    Empfang::Ereignis(Ereignis::Nachricht { gespraech, nachricht }) => {
+                        let Some(ort) = self.ort(&gespraech) else {
+                            continue;
+                        };
+                        Ausgabe::Nachricht { ort, nachricht }
                     }
-                    Empfang::Ereignis(Ereignis::Anhaenge { channel, geloescht }) => {
-                        Ausgabe::Anhaenge { channel, geloescht }
+                    Empfang::Ereignis(Ereignis::Anhaenge { gespraech, geloescht }) => {
+                        let Some(ort) = self.ort(&gespraech) else {
+                            continue;
+                        };
+                        Ausgabe::Anhaenge { ort, geloescht }
                     }
-                    Empfang::Ereignis(Ereignis::Aenderung { channel, nachricht }) => {
-                        Ausgabe::Aenderung { channel, nachricht }
+                    Empfang::Ereignis(Ereignis::Aenderung { gespraech, nachricht }) => {
+                        let Some(ort) = self.ort(&gespraech) else {
+                            continue;
+                        };
+                        Ausgabe::Aenderung { ort, nachricht }
                     }
                     Empfang::NeuerStand { verpasst } => {
                         self.ueberholt_melden(verpasst);
@@ -295,17 +344,21 @@ impl Strom {
             .episode(ueberholt_auftreten(&self.kennung, verpasst));
     }
 
-    /// Filter je Strom (ADR-0051 Regel 6): die eigene Kennung nie (man sieht sich nie selbst); nur Channels —
-    /// Direktgespräche bekommen ihren Weg und ihre Sichtbarkeit mit I0012, bis dahin sendet der Strom sie nicht.
+    /// Der Ort des Gesprächs für diesen Strom; keiner, wenn der Halter es nicht sehen darf — dann geht das Ereignis
+    /// nicht hinaus (ADR-0055 Regel 6, Matrix S1).
+    fn ort(&self, gespraech: &Gespraech) -> Option<Ort> {
+        Ort::fuer(gespraech, self.halter.kennung())
+    }
+
+    /// Filter je Strom (ADR-0051 Regel 6, ADR-0055 Regel 6): die eigene Kennung nie (man sieht sich nie selbst), ein
+    /// Gespräch nur, wenn der Halter es sehen darf — ein Direktgespräch also nur das Gegenüber.
     fn fuer_diesen_strom(&self, aenderung: Aenderung) -> Option<Ausgabe> {
         if &aenderung.kennung == self.halter.kennung() {
             return None;
         }
-        let Gespraech::Channel(channel) = aenderung.gespraech else {
-            return None;
-        };
+        let ort = self.ort(&aenderung.gespraech)?;
         Some(Ausgabe::Aktivitaet {
-            channel,
+            ort,
             kennung: aenderung.kennung,
             aktiv: aenderung.aktiv,
         })
@@ -338,34 +391,41 @@ fn channel_ereignis(wechsel: &ChannelWechsel) -> Event {
     Event::default().data(ereignis.to_string())
 }
 
-/// `{"art":"nachricht","channel":…,"nachricht":{zeit, von, art, text}}` — dieselbe Form wie Verlauf und 201.
-fn nachricht_ereignis(channel: &str, nachricht: &Nachricht) -> Event {
+/// `{"art":"nachricht","channel":…,"direkt":…,"nachricht":{zeit, von, art, text}}` — dieselbe Form wie Verlauf und
+/// 201; `channel` der Name oder `null`, `direkt` das Gegenüber des Halters oder `null` (ADR-0055 Regel 6).
+fn nachricht_ereignis(ort: &Ort, nachricht: &Nachricht) -> Event {
+    let (channel, direkt) = ort.felder();
     let ereignis = json!({
         "art": "nachricht",
         "channel": channel,
+        "direkt": direkt,
         "nachricht": NachrichtAntwort::aus(nachricht),
     });
     Event::default().data(ereignis.to_string())
 }
 
-/// `{"art":"aenderung","channel":…,"nachricht":{zeit, von, art, text, zustand, geaendert, anhaenge, antwort_auf},
-/// "zitat":{…}}` — die Nachricht in der Form der Antwort (ADR-0048 Regel 11) und das Zitat, wie es in jeder Antwort
-/// auf sie stünde (ADR-0053 Regel 4).
-fn aenderung_als_json(channel: &str, nachricht: &Nachricht) -> serde_json::Value {
+/// `{"art":"aenderung","channel":…,"direkt":…,"nachricht":{zeit, von, art, text, zustand, geaendert, anhaenge,
+/// antwort_auf}, "zitat":{…}}` — die Nachricht in der Form der Antwort (ADR-0048 Regel 11) und das Zitat, wie es in
+/// jeder Antwort auf sie stünde (ADR-0053 Regel 4).
+fn aenderung_als_json(ort: &Ort, nachricht: &Nachricht) -> serde_json::Value {
     let zitat = zitat_der_nachricht(nachricht);
+    let (channel, direkt) = ort.felder();
     json!({
         "art": "aenderung",
         "channel": channel,
+        "direkt": direkt,
         "nachricht": NachrichtAntwort::aus(nachricht),
         "zitat": ZitatAntwort::aus(&zitat),
     })
 }
 
-/// `{"art":"anhaenge","channel":…,"geloescht":[{"id":…,"zeit":<Satzzeit>}]}` (B0514).
-fn anhaenge_ereignis(channel: &str, geloescht: &[(String, crate::uhr::Zeit)]) -> Event {
+/// `{"art":"anhaenge","channel":…,"direkt":…,"geloescht":[{"id":…,"zeit":<Satzzeit>}]}` (B0514).
+fn anhaenge_ereignis(ort: &Ort, geloescht: &[(String, crate::uhr::Zeit)]) -> Event {
+    let (channel, direkt) = ort.felder();
     let ereignis = json!({
         "art": "anhaenge",
         "channel": channel,
+        "direkt": direkt,
         "geloescht": geloescht
             .iter()
             .map(|(id, zeit)| json!({"id": id, "zeit": zeit_als_text(zeit)}))
@@ -374,17 +434,15 @@ fn anhaenge_ereignis(channel: &str, geloescht: &[(String, crate::uhr::Zeit)]) ->
     Event::default().data(ereignis.to_string())
 }
 
-/// Gesetzt oder erneuert `{"art":"aktivitaet","channel","kennung","zustand","bis","jetzt"}`, beendet mit
-/// `"zustand":null` (ADR-0051 Regel 5).
-fn aktivitaet_als_json(
-    channel: &str,
-    kennung: &crate::gespraeche::Kennung,
-    aktiv: Option<Gesetzt>,
-) -> serde_json::Value {
+/// Gesetzt oder erneuert `{"art":"aktivitaet","channel","direkt","kennung","zustand","bis","jetzt"}`, beendet mit
+/// `"zustand":null` (ADR-0051 Regel 5, ADR-0055 Regel 6).
+fn aktivitaet_als_json(ort: &Ort, kennung: &Kennung, aktiv: Option<Gesetzt>) -> serde_json::Value {
+    let (channel, direkt) = ort.felder();
     match aktiv {
         Some(gesetzt) => json!({
             "art": "aktivitaet",
             "channel": channel,
+            "direkt": direkt,
             "kennung": kennung.als_text(),
             "zustand": gesetzt.zustand.als_text(),
             "bis": zeit_als_text(&gesetzt.bis),
@@ -393,6 +451,7 @@ fn aktivitaet_als_json(
         None => json!({
             "art": "aktivitaet",
             "channel": channel,
+            "direkt": direkt,
             "kennung": kennung.als_text(),
             "zustand": null,
         }),
@@ -441,10 +500,11 @@ mod tests {
         };
 
         assert_eq!(
-            aenderung_als_json("allgemein", &nachricht),
+            aenderung_als_json(&Ort::Channel("allgemein".into()), &nachricht),
             json!({
                 "art": "aenderung",
                 "channel": "allgemein",
+                "direkt": null,
                 "nachricht": {
                     "zeit": "2026-10-28T12:00:00.001+01:00", "von": "beta@127.0.0.1", "art": "agent",
                     "text": "Hallo zusammen", "zustand": "bearbeitet",
@@ -945,10 +1005,10 @@ mod tests {
                 Ausgabe::Channels(_) => "channels".to_string(),
                 Ausgabe::Nachricht { .. } => "nachricht".to_string(),
                 Ausgabe::Aktivitaet {
-                    channel,
+                    ort,
                     kennung,
                     aktiv,
-                } => aktivitaet_als_json(&channel, &kennung, aktiv).to_string(),
+                } => aktivitaet_als_json(&ort, &kennung, aktiv).to_string(),
                 Ausgabe::AktivitaetLuecke => "aktivitaet_luecke".to_string(),
                 andere => format!("{andere:?}"),
             });
@@ -973,8 +1033,8 @@ mod tests {
                 "teilnehmer".to_string(),
                 "channels".to_string(),
                 json!({
-                    "art": "aktivitaet", "channel": "allgemein", "kennung": "anna@127.0.0.1",
-                    "zustand": "tippt", "bis": "2026-10-30T09:00:06.000+01:00",
+                    "art": "aktivitaet", "channel": "allgemein", "direkt": null,
+                    "kennung": "anna@127.0.0.1", "zustand": "tippt", "bis": "2026-10-30T09:00:06.000+01:00",
                     "jetzt": "2026-10-30T09:00:00.000+01:00"
                 })
                 .to_string()
@@ -992,7 +1052,7 @@ mod tests {
     async fn liegen_nachricht_und_signal_zugleich_an_geht_die_nachricht_zuerst() {
         let mut zwei = zwei_stroeme(64, 64);
         alles_lesen(&mut zwei.ben, Duration::from_millis(100)).await;
-        let ende = json!({"art": "aktivitaet", "channel": "allgemein", "kennung": "anna@127.0.0.1", "zustand": null})
+        let ende = json!({"art": "aktivitaet", "channel": "allgemein", "direkt": null, "kennung": "anna@127.0.0.1", "zustand": null})
             .to_string();
 
         for runde in 0..50 {
@@ -1002,7 +1062,7 @@ mod tests {
                     ..anna_tippt()
                 }));
             zwei.bus.veroeffentlichen(Ereignis::Nachricht {
-                channel: "allgemein".into(),
+                gespraech: Box::new(Gespraech::channel("allgemein")),
                 nachricht: Nachricht {
                     zeit: crate::uhr::Zeit::parse_from_rfc3339("2026-10-30T09:00:01.000+01:00")
                         .expect("Zeit"),
@@ -1105,6 +1165,104 @@ mod tests {
                 .iter()
                 .all(|zeile| !zeile.contains("aktivitaet")),
             "{im_nachholen:#?}"
+        );
+    }
+
+    fn direkt_nachricht(text: &str) -> Nachricht {
+        Nachricht {
+            zeit: crate::uhr::Zeit::parse_from_rfc3339("2026-10-30T09:00:01.000+01:00")
+                .expect("Zeit"),
+            von: Kennung::bilden("ben@127.0.0.1").expect("Kennung"),
+            art: None,
+            text: text.into(),
+            anhaenge: Vec::new(),
+            geaendert: None,
+            bezug: None,
+            antwort_auf: None,
+        }
+    }
+
+    /// Nachrichten mit ihrem Ort (`channel`, `direkt`) — was ein Leser des Stroms sieht.
+    async fn nachrichten_lesen(strom: &mut Strom, still: Duration) -> Vec<(String, String)> {
+        let mut gelesen = Vec::new();
+        while let Ok(Some(ausgabe)) = tokio::time::timeout(still, strom.naechste_ausgabe()).await {
+            if let Ausgabe::Nachricht { ort, nachricht } = ausgabe {
+                let (channel, direkt) = ort.felder();
+                gelesen.push((format!("{channel}/{direkt}"), nachricht.text));
+            }
+        }
+        gelesen
+    }
+
+    /// B0772 (Matrix S1, erzwungenes `Lagged`; Mutanten: Filter weg, `direkt` aus dem Absender): anna ist unbeteiligt
+    /// am Gespräch zwischen ben und dora. Bus mit Platz für zwei, vier Direktnachrichten — anna wird überholt,
+    /// bekommt den neuen Stand (Teilnehmer und Channels, keine Direktdaten) und danach von den zwei noch gepufferten
+    /// nichts; ben bekommt dieselben als Gespräch mit dora.
+    #[tokio::test]
+    async fn nach_verlorenen_ereignissen_bekommt_ein_dritter_nichts_aus_dem_direktgespraech() {
+        let mut zwei = zwei_stroeme(2, 16);
+        let direkt = Gespraech::Direkt(crate::gespraeche::Direktpaar::fuer_test(
+            "ben@127.0.0.1",
+            "dora@127.0.0.1",
+        ));
+        for nummer in 0..4 {
+            zwei.bus.veroeffentlichen(Ereignis::Nachricht {
+                gespraech: Box::new(direkt.clone()),
+                nachricht: direkt_nachricht(&format!("n{nummer}")),
+            });
+        }
+
+        let anna = alles_lesen(&mut zwei.anna, Duration::from_millis(200)).await;
+        let ben = nachrichten_lesen(&mut zwei.ben, Duration::from_millis(200)).await;
+
+        assert_eq!(
+            anna,
+            ["teilnehmer", "channels", "teilnehmer", "channels"],
+            "Stand, Lagged, neuer Stand — ohne Direktes"
+        );
+        assert_eq!(
+            ben,
+            [
+                ("null/\"dora@127.0.0.1\"".to_string(), "n2".to_string()),
+                ("null/\"dora@127.0.0.1\"".to_string(), "n3".to_string()),
+            ],
+            "ben: das Gegenüber, nicht der Absender"
+        );
+    }
+
+    /// B0772 (Mutante: Filter weg): Aktivität im Direktgespräch von ben liest dora, nie anna als Dritte.
+    #[tokio::test]
+    async fn die_aktivitaet_im_direktgespraech_liest_nur_das_gegenueber() {
+        let mut zwei = zwei_stroeme(16, 16);
+        alles_lesen(&mut zwei.anna, Duration::from_millis(100)).await;
+        let direkt = Gespraech::Direkt(crate::gespraeche::Direktpaar::fuer_test(
+            "ben@127.0.0.1",
+            "anna@127.0.0.1",
+        ));
+        let dritter = Gespraech::Direkt(crate::gespraeche::Direktpaar::fuer_test(
+            "ben@127.0.0.1",
+            "dora@127.0.0.1",
+        ));
+        let von_ben = |gespraech| {
+            Signal::Aktivitaet(Aenderung {
+                gespraech,
+                kennung: Kennung::bilden("ben@127.0.0.1").expect("Kennung"),
+                ..anna_tippt()
+            })
+        };
+
+        zwei.signalbus.veroeffentlichen(von_ben(dritter));
+        zwei.signalbus.veroeffentlichen(von_ben(direkt));
+        let anna = alles_lesen(&mut zwei.anna, Duration::from_millis(300)).await;
+
+        assert_eq!(
+            anna,
+            [json!({
+                "art": "aktivitaet", "channel": null, "direkt": "ben@127.0.0.1",
+                "kennung": "ben@127.0.0.1", "zustand": "tippt",
+                "bis": "2026-10-30T09:00:06.000+01:00", "jetzt": "2026-10-30T09:00:00.000+01:00"
+            })
+            .to_string()]
         );
     }
 }

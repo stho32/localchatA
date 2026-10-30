@@ -173,8 +173,8 @@ async fn p4_anna_tippt_ben_sieht_es_binnen_einer_sekunde_anna_selbst_nie() {
     assert_eq!(
         bei_ben.data,
         json!({
-            "art": "aktivitaet", "channel": "allgemein", "kennung": "anna@127.0.0.1",
-            "zustand": "tippt", "bis": gesetzt.json["bis"], "jetzt": gesetzt.json["jetzt"]
+            "art": "aktivitaet", "channel": "allgemein", "direkt": null,
+            "kennung": "anna@127.0.0.1", "zustand": "tippt", "bis": gesetzt.json["bis"], "jetzt": gesetzt.json["jetzt"]
         })
     );
     assert!(bei_anna.is_none(), "{bei_anna:?}");
@@ -242,7 +242,7 @@ async fn p5_nur_die_eigene_kennung_setzt_und_loescht_den_eigenen_zustand() {
     assert_eq!(geloescht.status, 204);
     assert_eq!(
         ende_bei_ben.data,
-        json!({"art": "aktivitaet", "channel": "allgemein", "kennung": "cora@127.0.0.1", "zustand": null})
+        json!({"art": "aktivitaet", "channel": "allgemein", "direkt": null, "kennung": "cora@127.0.0.1", "zustand": null})
     );
     assert!(danach.is_none(), "anna bleibt: {danach:?}");
 }

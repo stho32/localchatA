@@ -5,25 +5,28 @@ use crate::anwesenheit::Wechsel;
 use crate::gespraeche::{ChannelWechsel, Gespraech, Nachricht};
 use tokio::sync::broadcast;
 
+/// Das Gespräch der drei Gesprächs-Ereignisse liegt im Kasten: ein Direktpaar trägt zwei volle Kennungen und machte
+/// sonst jedes Ereignis des Busses groß.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Ereignis {
     Anwesenheit(Wechsel),
     Channel(ChannelWechsel),
-    /// Eine angehängte Nachricht eines Channels (ADR-0028, ab I0009); ohne Stand, ohne Zähler.
+    /// Eine angehängte Nachricht eines Gesprächs (ADR-0028, ab I0009; Direktgespräche ab ADR-0055 Regel 6); ohne
+    /// Stand, ohne Zähler. Wer sie bekommt, entscheidet jeder Verteiler mit `sichtbar_fuer` — der Bus gibt allen alles.
     Nachricht {
-        channel: String,
+        gespraech: Box<Gespraech>,
         nachricht: Nachricht,
     },
-    /// Eine geänderte Nachricht eines Channels in ihrer neuen Fassung (ADR-0048 Regel 11); ohne Stand, geordnet über
+    /// Eine geänderte Nachricht eines Gesprächs in ihrer neuen Fassung (ADR-0048 Regel 11); ohne Stand, geordnet über
     /// `geaendert`.
     Aenderung {
-        channel: String,
+        gespraech: Box<Gespraech>,
         nachricht: Nachricht,
     },
-    /// Gelöschte Anhänge eines Channels (ADR-0047 Ergänzung „F1′“ Regel 3): je (ID, Satzzeit); eigenes Thema,
+    /// Gelöschte Anhänge eines Gesprächs (ADR-0047 Ergänzung „F1′“ Regel 3): je (ID, Satzzeit); eigenes Thema,
     /// ohne Ordnungszahl, endgültig und idempotent.
     Anhaenge {
-        channel: String,
+        gespraech: Box<Gespraech>,
         geloescht: Vec<(String, crate::uhr::Zeit)>,
     },
 }
@@ -140,35 +143,32 @@ pub fn channels_veroeffentlichen(
     })
 }
 
-/// Die Veröffentlichung für Nachrichten: jede Nachricht eines Channels als Ereignis auf den Bus (B0214);
-/// Direktgespräche haben ihren eigenen Weg (I0012).
+/// Die Veröffentlichung für Nachrichten: jede Nachricht eines Gesprächs als Ereignis auf den Bus (B0214); die
+/// Direktgespräche gehen wie die Channels auf denselben Bus (ADR-0055 Regel 6, die Ordnung bleibt eine) — wer sie
+/// sehen darf, entscheidet der Verteiler.
 pub fn nachrichten_veroeffentlichen(
     bus: &std::sync::Arc<Bus>,
 ) -> crate::gespraeche::NachrichtVeroeffentlichen {
     let bus = std::sync::Arc::clone(bus);
     std::sync::Arc::new(move |gespraech: &Gespraech, nachricht: &Nachricht| {
-        if let Gespraech::Channel(channel) = gespraech {
-            bus.veroeffentlichen(Ereignis::Nachricht {
-                channel: channel.clone(),
-                nachricht: nachricht.clone(),
-            });
-        }
+        bus.veroeffentlichen(Ereignis::Nachricht {
+            gespraech: Box::new(gespraech.clone()),
+            nachricht: nachricht.clone(),
+        });
     })
 }
 
-/// Die Veröffentlichung für Änderungen: jede geänderte Nachricht eines Channels als Ereignis `aenderung` auf den Bus
-/// (ADR-0048 Regel 11); Direktgespräche haben ihren eigenen Weg (I0012).
+/// Die Veröffentlichung für Änderungen: jede geänderte Nachricht eines Gesprächs als Ereignis `aenderung` auf den
+/// Bus (ADR-0048 Regel 11, ADR-0055 Regel 6).
 pub fn aenderungen_veroeffentlichen(
     bus: &std::sync::Arc<Bus>,
 ) -> crate::gespraeche::NachrichtVeroeffentlichen {
     let bus = std::sync::Arc::clone(bus);
     std::sync::Arc::new(move |gespraech: &Gespraech, nachricht: &Nachricht| {
-        if let Gespraech::Channel(channel) = gespraech {
-            bus.veroeffentlichen(Ereignis::Aenderung {
-                channel: channel.clone(),
-                nachricht: nachricht.clone(),
-            });
-        }
+        bus.veroeffentlichen(Ereignis::Aenderung {
+            gespraech: Box::new(gespraech.clone()),
+            nachricht: nachricht.clone(),
+        });
     })
 }
 
@@ -375,7 +375,8 @@ mod tests {
         assert_eq!(abonnement.naechstes().await, None);
     }
 
-    /// R00039 B0602: eine Änderung eines Channels geht als `Aenderung` auf den Bus; die eines Direktgesprächs nicht.
+    /// R00039 B0602, ADR-0055 Regel 6 (B0772): eine Änderung eines Channels und die eines Direktgesprächs gehen je als
+    /// `Aenderung` mit ihrem Gespräch auf den Bus, in der Reihenfolge der Veröffentlichung.
     #[tokio::test]
     async fn eine_aenderung_geht_als_ereignis_auf_den_bus() {
         let bus = std::sync::Arc::new(Bus::neu(4));
@@ -392,24 +393,29 @@ mod tests {
         };
         let veroeffentlichen = aenderungen_veroeffentlichen(&bus);
 
-        veroeffentlichen(
-            &Gespraech::Direkt(crate::gespraeche::Direktpaar::fuer_test(
-                "beta@127.0.0.1",
-                "gamma@127.0.0.1",
-            )),
-            &nachricht,
-        );
+        let direkt = Gespraech::Direkt(crate::gespraeche::Direktpaar::fuer_test(
+            "beta@127.0.0.1",
+            "gamma@127.0.0.1",
+        ));
+        veroeffentlichen(&direkt, &nachricht);
         veroeffentlichen(&Gespraech::channel("allgemein"), &nachricht);
 
-        assert_eq!(
+        let erwartet = |gespraech| {
+            Some(Empfang::Ereignis(Ereignis::Aenderung {
+                gespraech: Box::new(gespraech),
+                nachricht: nachricht.clone(),
+            }))
+        };
+        let naechstes = async |abonnement: &mut Abonnement| {
             tokio::time::timeout(std::time::Duration::from_secs(1), abonnement.naechstes())
                 .await
                 .ok()
-                .flatten(),
-            Some(Empfang::Ereignis(Ereignis::Aenderung {
-                channel: "allgemein".into(),
-                nachricht
-            }))
+                .flatten()
+        };
+        assert_eq!(naechstes(&mut abonnement).await, erwartet(direkt));
+        assert_eq!(
+            naechstes(&mut abonnement).await,
+            erwartet(Gespraech::channel("allgemein"))
         );
     }
 

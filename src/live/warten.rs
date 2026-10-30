@@ -6,7 +6,7 @@
 use crate::anwesenheit::status::Status;
 use crate::gespraeche::nachholen::{NACHHOLBUDGET, Nachgeholt, Nachholbudget, lieferbytes};
 use crate::gespraeche::treffer::{Filter, Treffer, treffer};
-use crate::gespraeche::{Gespraech, Gespraeche, Kennung, Nachricht};
+use crate::gespraeche::{Gespraech, Gespraeche, Kennung, Nachricht, sichtbar_fuer};
 use crate::live::bus::{Abonnement, Bus, Empfang, Ereignis};
 use crate::protokoll::{Bereich, Kontext, Protokoll, Schluessel, Stufe};
 use crate::start::ende::Ende as Programmende;
@@ -139,8 +139,11 @@ pub async fn warten<P: Nachholplatz>(
         };
         ende = match empfang {
             None => Some(Ende::Frist),
-            Some(Empfang::Ereignis(Ereignis::Nachricht { channel, nachricht })) => sammlung
-                .pruefen(&Gespraech::Channel(channel), nachricht, &auftrag)
+            Some(Empfang::Ereignis(Ereignis::Nachricht {
+                gespraech,
+                nachricht,
+            })) => sammlung
+                .vom_bus(&gespraech, nachricht, &auftrag)
                 .or_else(|| (!sammlung.treffer.is_empty()).then_some(Ende::Treffer)),
             Some(Empfang::Ereignis(Ereignis::Anwesenheit(wechsel))) => {
                 let verlassen = wechsel.teilnehmer.status == Status::Weg
@@ -235,6 +238,21 @@ impl Sammlung {
         }
     }
 
+    /// Eine Nachricht vom Bus, soweit der Wartende das Gespräch sehen darf — sonst nichts: ein Ereignis eines
+    /// fremden Gesprächs rückt den verarbeiteten Stand nie vor und ist für den Wartenden nicht geschehen
+    /// (ADR-0055 Regel 8).
+    fn vom_bus(
+        &mut self,
+        gespraech: &Gespraech,
+        nachricht: Nachricht,
+        auftrag: &Warteauftrag,
+    ) -> Option<Ende> {
+        if !sichtbar_fuer(gespraech, &auftrag.wartender, false) {
+            return None;
+        }
+        self.pruefen(gespraech, nachricht, auftrag)
+    }
+
     /// Prüft eine Nachricht vom Bus: nur über dem Stand zählt sie (Dublettenregel), und sie rückt ihn vor. Passt ein
     /// Treffer nicht mehr ins Budget, bleibt der Stand davor und der Aufruf endet mit `Weitere`.
     fn pruefen(
@@ -280,10 +298,11 @@ impl Sammlung {
                     }
                     return Ende::Weitere;
                 }
-                Some(Empfang::Ereignis(Ereignis::Nachricht { channel, nachricht })) => {
-                    if let Some(ende) =
-                        self.pruefen(&Gespraech::Channel(channel), nachricht, auftrag)
-                    {
+                Some(Empfang::Ereignis(Ereignis::Nachricht {
+                    gespraech,
+                    nachricht,
+                })) => {
+                    if let Some(ende) = self.vom_bus(&gespraech, nachricht, auftrag) {
                         return ende;
                     }
                 }
@@ -613,6 +632,43 @@ mod tests {
         let ergebnis = aufruf.await.expect("Aufruf").expect("gewartet");
 
         assert_eq!(ergebnis.ende, Ende::Frist);
+    }
+
+    /// B0772 (ADR-0055 Regel 8, Mutante „unsichtbares Bus-Ereignis rückt den Stand vor“): ein Direktgespräch zweier
+    /// anderer, das nach dem Nachholen nur über den Bus kommt, ist für den Wartenden nicht geschehen — kein Treffer,
+    /// `seit` bleibt `t0`. Ein Channel danach rückt ihn vor.
+    #[tokio::test]
+    async fn ein_fremdes_direktgespraech_ueber_den_bus_rueckt_den_stand_nicht_vor() {
+        let bus = Arc::new(Bus::neu(crate::live::KAPAZITAET));
+        let ablage = speicher();
+        let fremd = Gespraech::Direkt(crate::gespraeche::Direktpaar::fuer_test(
+            "ben@127.0.0.1",
+            "dora@127.0.0.1",
+        ));
+        ablage.gespraech_anlegen(&fremd);
+        let gespraeche = gespraeche_mit(ablage, &bus);
+        let t0 = senden(&gespraeche, "a", "vorher");
+        let beobachter = {
+            let gespraeche = Arc::clone(&gespraeche);
+            bei(Schritt::Nachgeholt, move || {
+                gespraeche
+                    .senden(&fremd, &kennung("ben@127.0.0.1"), Art::Mensch, "geheim")
+                    .expect("gesendet");
+            })
+        };
+
+        let ergebnis = warten(
+            Arc::clone(&gespraeche),
+            &bus,
+            &Blockierend,
+            auftrag(Some(t0), Duration::from_millis(400)),
+            beobachter,
+        )
+        .await
+        .expect("gewartet");
+
+        assert!(ergebnis.treffer.is_empty(), "{:?}", ergebnis.treffer);
+        assert_eq!((ergebnis.seit, ergebnis.ende), (Some(t0), Ende::Frist));
     }
 
     /// Wartet in Schleife mit dem jeweils gelieferten `seit`, bis `anzahl` Treffer da sind oder eine Frist ohne
