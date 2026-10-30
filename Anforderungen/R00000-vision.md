@@ -58,6 +58,16 @@ helfen können.
   Anhänge werden mitgelöscht wie beim Löschen im Laufwerk, und ihr Platz in der
   Anhang-Quote wird frei.
 
+- **Nachrichten kopieren und mit Zitat beantworten.** An jeder Nachricht lässt sich
+  ihr Text mit einem Griff kopieren, so wie er geschrieben wurde. Und man kann auf
+  eine bestimmte frühere Nachricht antworten: die Antwort ist eine gewöhnliche neue
+  Nachricht am Ende des Verlaufs und zeigt über ihrem Text, worauf sie sich bezieht;
+  ein Klick auf das Zitat springt zum Original. Das Zitat lebt mit dem Original
+  (bearbeitet, gelöscht oder entfallen ist ihm anzusehen). Mensch im Browser und
+  Agent über die API können beides, beide gleich; eine Antwort auf die Nachricht
+  eines wartenden Agenten kann ihn wecken. Ausdrücklich keine Threads und keine
+  Unterverläufe: der Verlauf eines Channels bleibt ein einziger Strom in Zeitfolge.
+
 - **Mensch und KI sind gleichberechtigt.** Der Mensch schreibt im Browser, der
   Agent über die API; die Dateien kann jeder lesen, schreiben tut nur localchatA
   selbst. Wer schreiben will, gibt sich selbst einen Namen; die IP-Adresse, von der
@@ -214,3 +224,4 @@ Derzeit keine.
 | 2026-10-29 | Richtungsfragen „Laufwerk — Wer gelöscht hat“ und „Laufwerk — Dateien ohne Nachricht“ entschieden und ausgetragen: Teilnehmer sehen nur „gelöscht“, wer gelöscht hat, steht in der `INFORMATION`-Zeile des Betriebsprotokolls (entschieden vom PO, Zeile 79); Dateien ohne Nachricht entfallen mit der Aufbewahrungsfrist ihres Channels, gerechnet ab dem Ablegen (entschieden vom PO, Zeile 80) |
 | 2026-10-29 | Richtungsfragen „Laufwerk — Rückgängig“ (kein Rückgängig, kein Papierkorb; Zeile 99), „Unterordner“ (ja, nur für Dateien ohne Nachricht; Zeile 101), „Umbenennen“ (nur Dateien ohne Nachricht; Zeile 102), „Verschieben“ (nur innerhalb des Channels, kein Kopieren; Zeile 103), „Ersetzen und Versionen“ (neue Fassung ist neue Datei; Zeile 104), „Ordner hochladen“ (ja, mit Struktur; Zeile 104), „Archiv herunterladen“ (Auswahl oder Verzeichnis als ZIP; Zeile 105) entschieden und ausgetragen; „Offene Richtungsfragen“: „Derzeit keine.“ — Betreiber 2026-10-29: „Bitte durch PO entscheiden lassen alles“; entschieden vom PO, AI-Team/po-entscheidungen.md Zeile 99–105 |
 | 2026-10-30 | Zielbild: „Wer tippt oder nachdenkt, ist sichtbar“ (Anzeige „tippt“ für Menschen im Browser, „denkt nach“ für Agenten über die API; flüchtig) — Betreiber 2026-10-30 (Karte #77): „Wenn ein Benutzer gerade tippt, dann sollte dieser Status üblich angezeigt werden. Bei AI Agents soll es auf ähnliche Weise möglich sein, dass sie einblenden können, dass sie "gerade nachdenken".“; Leitplanken und Nicht-Ziele unverändert (PO-Entscheidung Zeile 134) |
+| 2026-10-30 | Zielbild: „Nachrichten kopieren und mit Zitat beantworten“ (Kopieren des Nachrichtentextes an jeder Nachricht; Antworten als gewöhnliche neue Nachricht mit Zitat des Originals und Sprung dorthin, lebendes Zitat, für Mensch und Agent gleich, Antwort kann den beantworteten Agenten wecken; ausdrücklich keine Threads, ein Strom je Channel) — Betreiber 2026-10-30 (Karten #78, #79): „Ok, sag ihm bitte auch, dass ich gerne eine einfache Kopieren-Button-Funktion an den Nachrichten hätte. Es gibt in üblichen Chat-Anwendungen die Mit KI chatten übliche Funktionen: Kopieren, Darauf antworten / mit Zitat antworten. Es wäre schön wenn sowas ermöglicht werden könnte. In Microsoft Teams geht sowas.“; Leitplanken und Nicht-Ziele unverändert (PO-Entscheidungen Zeilen 142–143) |
