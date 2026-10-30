@@ -92,6 +92,17 @@ async fn g2_gibt_es_nur_fremdes_direktes_verraet_seit_nichts() {
     assert_eq!(cora.json["nachrichten"], json!([]));
 }
 
+/// Wartet, bis Health genau einen wartenden Aufruf zeigt (höchstens 5 s) — erst dann liegt der Aufruf im Warten.
+async fn wartend_abwarten(basis: &str) {
+    for _ in 0..100 {
+        if gemeinsam::gesundheit(basis).await.1["wartend"] == 1 {
+            return;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    panic!("der Aufruf wartet nach 5 s nicht (Health wartend != 1)");
+}
+
 /// G1 (wörtlich): `cora` ruft `warten?bis=0` → `s0`; `anna` schreibt `ben`; `cora` ruft erneut mit `seit=s0` — ohne
 /// Filter, mit `direkt`, mit `erwaehnung` bei `@cora` im fremden Text — und bekommt keinen Treffer, `seit` bleibt
 /// `s0`, solange die Channels ruhen; nach einer Channel-Nachricht ist es deren Zeit. Mitten im Warten (Bus) ändert die
@@ -114,7 +125,7 @@ async fn g1_seit_bleibt_s0_solange_die_channels_ruhen_und_folgt_dann_dem_channel
         let anfrage = format!("seit={}&bis=2", s0.replace('+', "%2B"));
         async move { warten(&cora, &basis, &anfrage).await }
     });
-    tokio::time::sleep(Duration::from_millis(300)).await;
+    wartend_abwarten(&basis).await;
     let direkt = r
         .anna
         .senden(&basis, BEN, &json!({"text": "geheim für @cora"}))
