@@ -522,7 +522,10 @@ mod tests {
         for tag_text in ["2026-10-20", "2026-10-21", "2026-10-22", "2026-10-28"] {
             ablage.tag_setzen(&gespraech, tag(tag_text), &satz(tag_text));
         }
-        let direkt = Gespraech::Direkt("a@x+b@y".into());
+        let direkt = Gespraech::Direkt(crate::gespraeche::Direktpaar::fuer_test(
+            "a@10.0.0.1",
+            "b@10.0.0.2",
+        ));
         ablage.tag_setzen(&direkt, tag("2026-01-01"), &satz("2026-01-01"));
         let gespraeche = geladen(&ablage);
         assert_eq!(gespraeche.kennzahlen().nachrichten, 2);

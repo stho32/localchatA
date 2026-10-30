@@ -2,6 +2,7 @@
 //!
 //! Kennt das Logformat nicht — liest und schreibt Sätze als fertigen Text.
 
+use super::Direktpaar;
 use crate::protokoll::{Bereich, Kontext, Protokoll, Schluessel, Stufe};
 use chrono::NaiveDate;
 use std::fmt;
@@ -10,11 +11,11 @@ use std::io::{self, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-/// Ein Gespräch ist ein Ordner unter `channels/<slug>` oder `direkt/<name>`.
+/// Ein Gespräch ist ein Ordner unter `channels/<slug>` oder `direkt/<paar>` (ADR-0055 Regel 1).
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum Gespraech {
     Channel(String),
-    Direkt(String),
+    Direkt(Direktpaar),
 }
 
 impl Gespraech {
@@ -26,7 +27,7 @@ impl Gespraech {
     pub fn pfad(&self) -> String {
         match self {
             Gespraech::Channel(slug) => format!("channels/{slug}"),
-            Gespraech::Direkt(name) => format!("direkt/{name}"),
+            Gespraech::Direkt(paar) => format!("direkt/{}", paar.ordnername()),
         }
     }
 
@@ -114,7 +115,9 @@ impl Logablage for Dateiablage {
             gespraeche.push(Gespraech::Channel(name));
         }
         for name in unterordner(&self.ordner.join("direkt"))? {
-            gespraeche.push(Gespraech::Direkt(name));
+            if let Some(paar) = Direktpaar::aus_ordnername(&name) {
+                gespraeche.push(Gespraech::Direkt(paar));
+            }
         }
         gespraeche.sort();
         Ok(gespraeche)
@@ -329,7 +332,7 @@ mod tests {
             vec![
                 Gespraech::channel("allgemein"),
                 Gespraech::channel("leer"),
-                Gespraech::Direkt("claude@10.0.0.5+shoff@127.0.0.1".into()),
+                Gespraech::Direkt(Direktpaar::fuer_test("claude@10.0.0.5", "shoff@127.0.0.1")),
             ]
         );
         assert_eq!(
@@ -543,8 +546,9 @@ mod tests {
             "channels/allgemein/2026-10-27.log"
         );
         assert_eq!(
-            Gespraech::Direkt("a@b+c@d".into()).tagesdatei(tag("2026-01-02")),
-            "direkt/a@b+c@d/2026-01-02.log"
+            Gespraech::Direkt(Direktpaar::fuer_test("a@10.0.0.1", "c@10.0.0.2"))
+                .tagesdatei(tag("2026-01-02")),
+            "direkt/a@10.0.0.1+c@10.0.0.2/2026-01-02.log"
         );
     }
 

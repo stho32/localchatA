@@ -97,6 +97,7 @@ fn anlaesse(nachricht: &Nachricht, wartender: &Kennung) -> Vec<Anlass> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::gespraeche::Direktpaar;
     use crate::uhr::Zeit;
 
     fn kennung(text: &str) -> Kennung {
@@ -143,7 +144,7 @@ mod tests {
         let a = Gespraech::channel("a");
         let b = Gespraech::channel("b");
         let c = Gespraech::channel("c");
-        let direkt = Gespraech::Direkt("anna".to_string());
+        let direkt = Gespraech::Direkt(Direktpaar::fuer_test("anna@10.0.0.7", "ben@10.0.0.8"));
         let ohne = Filter::default();
         let nur_a = channels(&["a"]);
         let a_und_b = channels(&["a", "b"]);
@@ -349,7 +350,7 @@ mod tests {
             ),
             (
                 "erwaehnung, Direktgespräch",
-                &Gespraech::Direkt("anna".to_string()),
+                &Gespraech::Direkt(Direktpaar::fuer_test("anna@10.0.0.7", "ben@10.0.0.8")),
                 mit_text(ANNA, "@claude"),
                 &nur_erwaehnung,
                 kein.clone(),

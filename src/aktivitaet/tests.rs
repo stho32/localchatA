@@ -423,25 +423,6 @@ fn beenden_nach_ablauf_meldet_kein_ende() {
     assert_eq!(aufbau.gemeldet().len(), vorher);
 }
 
-/// B0686 Sichtbarkeitsregel (Mutante M11), bis I0012 und I0022 gebaut sind: Channel für jeden, Direktgespräch nur für
-/// die Beteiligten (genaue Kennung, kein Teilstück), archiviert für niemanden.
-#[test]
-fn sichtbar_channel_fuer_jeden_direkt_nur_fuer_beteiligte_archiviert_nie() {
-    let direkt = Gespraech::Direkt("anna@10.0.0.7+ben@10.0.0.8".into());
-    let fall = |gespraech: &Gespraech, wer: &str, archiviert: bool| {
-        sichtbar(gespraech, &kennung(wer), archiviert)
-    };
-
-    assert!(fall(&allgemein(), "cora@10.0.0.9", false));
-    assert!(fall(&direkt, "anna@10.0.0.7", false));
-    assert!(fall(&direkt, "ben@10.0.0.8", false));
-    assert!(!fall(&direkt, "cora@10.0.0.9", false));
-    assert!(!fall(&direkt, "anna@10.0.0.70", false), "kein Teilstück");
-    assert!(!fall(&direkt, "nna@10.0.0.7", false), "kein Teilstück");
-    assert!(!fall(&allgemein(), "anna@10.0.0.7", true));
-    assert!(!fall(&direkt, "anna@10.0.0.7", true));
-}
-
 /// B0692 P3 Bremse (gestellte Uhr, Mutante M9): 10 × Setzen `(anna, allgemein)` bei t0 gehen, das 11. ist
 /// `Gebremst{gespraech, 1.000 ms}` ohne Wirkung; bei t0 + 999 ms noch gebremst, bei t0 + 1.000 ms wieder frei; 10 ×
 /// in `# technik` danach gehen (eigener Eimer je Gespräch). `beenden` und `lesen` sind nie gebremst.

@@ -12,7 +12,7 @@ use super::senden::unbekannt;
 use super::teilnehmer::Teilnehmer;
 use super::teilnehmerliste::zeit_als_text;
 use crate::aktivitaet::{self, Abweisung, Gebremst, Gesetzt, Grenze};
-use crate::gespraeche::Gespraech;
+use crate::gespraeche::{Gespraech, sichtbar_fuer};
 use crate::protokoll::episoden::{Auftreten, Quelle};
 use crate::protokoll::{Bereich, Protokoll, Schluessel, Stufe, episodentexte};
 use axum::Json;
@@ -126,7 +126,7 @@ fn sichtbares_gespraech(
 ) -> Option<Gespraech> {
     let gespraech = Gespraech::channel(name);
     let sichtbar = zustand.gespraeche.channel_bekannt(name)
-        && aktivitaet::sichtbar(&gespraech, &teilnehmer.kennung, false);
+        && sichtbar_fuer(&gespraech, &teilnehmer.kennung, false);
     sichtbar.then_some(gespraech)
 }
 

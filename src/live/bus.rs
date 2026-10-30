@@ -393,7 +393,10 @@ mod tests {
         let veroeffentlichen = aenderungen_veroeffentlichen(&bus);
 
         veroeffentlichen(
-            &Gespraech::Direkt("beta@127.0.0.1+gamma@127.0.0.1".into()),
+            &Gespraech::Direkt(crate::gespraeche::Direktpaar::fuer_test(
+                "beta@127.0.0.1",
+                "gamma@127.0.0.1",
+            )),
             &nachricht,
         );
         veroeffentlichen(&Gespraech::channel("allgemein"), &nachricht);

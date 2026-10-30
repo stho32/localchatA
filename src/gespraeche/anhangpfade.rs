@@ -44,10 +44,10 @@ fn ordner_anlegen(oben: &OwnedFd, name: &str) -> io::Result<OwnedFd> {
     ordner(oben, name)
 }
 
-fn gespraechsteile(gespraech: &Gespraech) -> (&'static str, &str) {
+fn gespraechsteile(gespraech: &Gespraech) -> (&'static str, String) {
     match gespraech {
-        Gespraech::Channel(name) => ("channels", name.as_str()),
-        Gespraech::Direkt(name) => ("direkt", name.as_str()),
+        Gespraech::Channel(name) => ("channels", name.clone()),
+        Gespraech::Direkt(paar) => ("direkt", paar.ordnername()),
     }
 }
 
@@ -59,7 +59,7 @@ fn tagname(tag: NaiveDate) -> String {
 pub fn anhaenge(instanz: &OwnedFd, gespraech: &Gespraech) -> io::Result<OwnedFd> {
     let (art, name) = gespraechsteile(gespraech);
     let art = ordner(instanz, art)?;
-    let gespraech = ordner(&art, name)?;
+    let gespraech = ordner(&art, &name)?;
     ordner(&gespraech, ANHAENGE)
 }
 
@@ -76,7 +76,7 @@ pub fn tag_anlegen(
 ) -> io::Result<OwnedFd> {
     let (art, name) = gespraechsteile(gespraech);
     let art = ordner(instanz, art)?;
-    let gespraech = ordner(&art, name)?;
+    let gespraech = ordner(&art, &name)?;
     let anhaenge = ordner_anlegen(&gespraech, ANHAENGE)?;
     ordner_anlegen(&anhaenge, &tagname(tag))
 }

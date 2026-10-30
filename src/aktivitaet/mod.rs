@@ -277,21 +277,6 @@ fn aufraeumen(tabelle: &mut Tabelle, kennung: &Kennung, jetzt: Zeit) {
     tabelle.retain(|(k, _), eintrag| (!ganz && k != kennung) || eintrag.gilt(jetzt));
 }
 
-/// Sichtbarkeitsregel (ADR-0051 Regel 10): ein Channel für jeden mit Sitzung, ein Direktgespräch
-/// (`<kennung-a>+<kennung-b>`, ADR-0003) nur für die Beteiligten, ein archiviertes Gespräch für niemanden. Setzen,
-/// Löschen und Lesen gehen nur für Sichtbares; sonst antwortet die Route wie für ein unbekanntes.
-pub fn sichtbar(gespraech: &Gespraech, fuer: &Kennung, archiviert: bool) -> bool {
-    if archiviert {
-        return false;
-    }
-    match gespraech {
-        Gespraech::Channel(_) => true,
-        Gespraech::Direkt(beteiligte) => beteiligte
-            .split('+')
-            .any(|beteiligt| beteiligt == fuer.als_text()),
-    }
-}
-
 fn beendet(kennung: &Kennung, gespraech: &Gespraech) -> Aenderung {
     Aenderung {
         gespraech: gespraech.clone(),

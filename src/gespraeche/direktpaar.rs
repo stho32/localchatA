@@ -85,6 +85,15 @@ fn dekodiert(teil: &str) -> Option<Kennung> {
     Kennung::kanonisch(&teil.replace("%3A", ":")).ok()
 }
 
+impl Direktpaar {
+    /// Das Paar aus zwei Kennungstexten für Tests anderer Module.
+    #[cfg(test)]
+    pub(crate) fn fuer_test(a: &str, b: &str) -> Direktpaar {
+        let kennung = |text: &str| Kennung::bilden(text).expect(text);
+        Direktpaar::bilden(&kennung(a), &kennung(b)).expect("zwei verschiedene Kennungen")
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

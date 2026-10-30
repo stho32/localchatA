@@ -28,6 +28,7 @@ pub mod platte;
 pub mod quote;
 #[cfg(test)]
 mod schranke;
+pub mod sichtbarkeit;
 mod speicherablage;
 pub mod textanfang;
 pub mod textregel;
@@ -46,6 +47,7 @@ pub use frist::{FRIST_MAX, FRIST_MIN, Frist, STANDARD_FRIST_TAGE, frist_in_spann
 pub use kennung::Kennung;
 pub use logablage::{Angehaengt, Dateiablage, Gespraech, Logablage};
 pub use pflege::{Entfaellt, FristGesetzt, Fristfehler, Pflegeanlass, Pflegebericht};
+pub use sichtbarkeit::sichtbar_fuer;
 pub use speicherablage::Speicherablage;
 pub use verzeichnis::{
     Anlegefehler, Channel, ChannelStand, ChannelVeroeffentlichen, ChannelWechsel, GESAMT, Grenzart,
