@@ -116,6 +116,15 @@ fn route_kopf_pruefen(antwort: &reqwest::Response, was: &str) {
     );
     assert_eq!(kopf(antwort, "referrer-policy"), "no-referrer", "{was}");
     assert_eq!(kopf(antwort, "x-frame-options"), "DENY", "{was}");
+    let freigaben: Vec<&str> = antwort
+        .headers()
+        .keys()
+        .map(|name| name.as_str())
+        .filter(|name| {
+            name.starts_with("access-control-") || *name == "cross-origin-embedder-policy"
+        })
+        .collect();
+    assert_eq!(freigaben, Vec::<&str>::new(), "{was}");
 }
 
 const HTML: &[u8] = b"<html><script>localStorage.t</script></html>";
@@ -172,8 +181,8 @@ async fn download_unter_dem_anzeigenamen() {
 
 /// Kopfzeilen überall (M14): 200, 206, 304, 404 aus dem Handler und dem Router, 416, `HEAD`, 403, 405 → CSP
 /// `sandbox` und `nosniff`; `/%61nhaenge/x` → `sandbox`; `/anhaengex`, `/api/anhaenge`, `/` → App-CSP. Mit einer PDF,
-/// nicht mehr mit einem WebM: das Kriterium nimmt seit Karte #71 die sechs Medienarten aus (Medien-CSP und CORP
-/// `cross-origin`, geprüft in `tests/anhaenge_medien_csp.rs`).
+/// nicht mit einem WebM: das Kriterium nimmt die fünf Medienarten aus (Medien-CSP, geprüft je Art und Status in
+/// `tests/anhaenge_medien_csp.rs`); CORP `same-origin`, kein `Access-Control-*`, kein COEP gelten überall.
 #[tokio::test]
 async fn kopfzeilen_ueberall() {
     let (bereit, ids) = mit_anhaengen(&[("dok.pdf", pdf())]).await;
