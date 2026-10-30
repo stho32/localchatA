@@ -191,4 +191,4 @@ Regeln:
 
 ## Ergänzungen
 
-- **2026-10-30 (Karte #13, I0012) — Verweis:** Regel 10 „Direktgespräche (I0012)“ eingelöst in [ADR-0055](0055-direktgespraeche-paar-aus-zwei-kennungen-gegenueber-im-pfad-anlegen-beim-ersten-senden-eine-sichtbarkeitsregel-sichtbare-marke.md) Regeln 3, 5 und 6: Route `/api/direkt/{kennung}/aktivitaet`, `sichtbar_fuer` ersetzt `aktivitaet::sichtbar`, Ausgabe im Strom nur an das Gegenüber — Vorgeschlagen.
+- **2026-10-30 (Karte #13, I0012) — Verweis:** Regel 10 „Direktgespräche (I0012)“ eingelöst in [ADR-0055](0055-direktgespraeche-paar-aus-zwei-kennungen-gegenueber-im-pfad-anlegen-beim-ersten-senden-eine-sichtbarkeitsregel-sichtbare-marke.md) Regeln 3, 5 und 6: Route `/api/direkt/{kennung}/aktivitaet`, `sichtbar_fuer` ersetzt `aktivitaet::sichtbar`, Ausgabe im Strom nur an das Gegenüber — Akzeptiert.
