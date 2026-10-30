@@ -79,7 +79,10 @@ impl Nachholplatz for Platz {
                     let wert = nachgeholt.as_ref().map_or(0, wert);
                     u64::try_from(wert).unwrap_or(u64::MAX)
                 };
-                konto.geprueft(zahl(|nachgeholt| nachgeholt.saetze));
+                konto.geprueft(
+                    zahl(|nachgeholt| nachgeholt.saetze),
+                    zahl(|nachgeholt| nachgeholt.kosten),
+                );
                 if let Some(reservierung) = reservierung {
                     reservierung.abrechnen(zahl(|nachgeholt| nachgeholt.kosten));
                 }
@@ -183,13 +186,17 @@ mod tests {
     }
 
     fn geprueft(saetze: usize) -> Option<Nachgeholt> {
-        Some(Nachgeholt {
+        Some(nachgeholt(saetze, saetze))
+    }
+
+    fn nachgeholt(saetze: usize, kosten: usize) -> Nachgeholt {
+        Nachgeholt {
             treffer: Vec::new(),
             stand: Zeit::parse_from_rfc3339("2026-10-30T12:00:00+01:00").expect("Zeit"),
             weitere: false,
-            kosten: saetze,
+            kosten,
             saetze,
-        })
+        }
     }
 
     /// So viele Reservierungen gelingen `claude` noch.
@@ -228,6 +235,24 @@ mod tests {
 
         assert_eq!(rest(&konto), 49);
         assert_eq!(konto.saetze(), 500);
+    }
+
+    /// K3 (B0762): 117 Sätze zu 16 KiB kosten 1.989 von 2.000 reservierten Kosten → genau 11 gehen zurück (nicht
+    /// 2.000 − 117 = 1.883, wie nach Sätzen); `saetze` zählt 117, `kosten` 1.989.
+    #[tokio::test]
+    async fn lange_saetze_zahlen_ihre_kosten_und_erstatten_den_rest() {
+        let konto = konto();
+        konto.reservieren(&claude(), h(), 98_000).expect("Vorrat");
+        let platz = Platz::reservieren(&Werkbank::mit(1), &konto, &claude(), h()).expect("Platz");
+
+        platz
+            .ausfuehren(|| Some(nachgeholt(117, 1_989)))
+            .await
+            .expect("gelaufen");
+
+        assert!(konto.reservieren(&claude(), h(), 11).is_ok());
+        assert!(konto.reservieren(&claude(), h(), 1).is_err());
+        assert_eq!((konto.saetze(), konto.kosten()), (117, 1_989));
     }
 
     /// `Lagged` bucht nicht (Regel 6): bei leerem Konto läuft das zweite Nachholen desselben Platzes trotzdem und

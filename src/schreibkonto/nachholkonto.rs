@@ -34,6 +34,7 @@ pub struct Nachholkonto {
     tabellen: Mutex<Tabellen>,
     gebremst: AtomicU64,
     saetze: AtomicU64,
+    kosten: AtomicU64,
 }
 
 impl Nachholkonto {
@@ -43,16 +44,17 @@ impl Nachholkonto {
             tabellen: Mutex::default(),
             gebremst: AtomicU64::new(0),
             saetze: AtomicU64::new(0),
+            kosten: AtomicU64::new(0),
         }
     }
 
-    /// Reserviert `saetze` in beiden Eimern oder in keinem; reicht einer nicht, der Eimer, der länger braucht, und
+    /// Reserviert `kosten` in beiden Eimern oder in keinem; reicht einer nicht, der Eimer, der länger braucht, und
     /// die Zeit, bis beide die Reservierung tragen.
     pub fn reservieren(
         &self,
         kennung: &Kennung,
         herkunft: IpAddr,
-        saetze: u64,
+        kosten: u64,
     ) -> Result<(), Gebremst> {
         let jetzt = self.uhr.jetzt();
         let gebucht = self.tabellen().buchen(
@@ -60,8 +62,8 @@ impl Nachholkonto {
             kennung,
             herkunft,
             Buchung {
-                einheiten: saetze,
-                volle_kosten: saetze,
+                einheiten: kosten,
+                volle_kosten: kosten,
             },
             jetzt,
         );
@@ -71,21 +73,27 @@ impl Nachholkonto {
         gebucht
     }
 
-    /// Gibt `saetze` an beide Eimer zurück, höchstens bis zum Vorrat.
-    pub fn erstatten(&self, kennung: &Kennung, herkunft: IpAddr, saetze: u64) {
+    /// Gibt `kosten` an beide Eimer zurück, höchstens bis zum Vorrat.
+    pub fn erstatten(&self, kennung: &Kennung, herkunft: IpAddr, kosten: u64) {
         let jetzt = self.uhr.jetzt();
         self.tabellen()
-            .gutschreiben(NACHHOLEN, kennung, herkunft, saetze, jetzt);
+            .gutschreiben(NACHHOLEN, kennung, herkunft, kosten, jetzt);
     }
 
-    /// Zählt tatsächlich geprüfte Sätze — jedes Nachholen, auch das nach `Lagged`, das nicht bucht.
-    pub fn geprueft(&self, saetze: u64) {
+    /// Zählt tatsächlich geprüfte Sätze und deren Kosten — jedes Nachholen, auch das nach `Lagged`, das nicht bucht.
+    pub fn geprueft(&self, saetze: u64, kosten: u64) {
         self.saetze.fetch_add(saetze, Ordering::Relaxed);
+        self.kosten.fetch_add(kosten, Ordering::Relaxed);
     }
 
     /// Seit dem Start geprüfte Sätze (`/api/gesundheit` `nachholen.saetze`).
     pub fn saetze(&self) -> u64 {
         self.saetze.load(Ordering::Relaxed)
+    }
+
+    /// Seit dem Start geprüfte Kosten (`/api/gesundheit` `nachholen.kosten`), mindestens `saetze()`.
+    pub fn kosten(&self) -> u64 {
+        self.kosten.load(Ordering::Relaxed)
     }
 
     fn tabellen(&self) -> MutexGuard<'_, Tabellen> {
@@ -263,6 +271,17 @@ mod tests {
             .count();
 
         assert_eq!(gelungen, 197);
+    }
+
+    /// K3 (B0762): Sätze und Kosten zählen getrennt — 117 Sätze zu 16 KiB sind 117 Sätze und 1.989 Kosten.
+    #[test]
+    fn geprueft_zaehlt_saetze_und_kosten_getrennt() {
+        let (konto, _) = konto();
+
+        konto.geprueft(117, 1_989);
+        konto.geprueft(3, 3);
+
+        assert_eq!((konto.saetze(), konto.kosten()), (120, 1_992));
     }
 
     /// N1 `erstatten` ist bis zum Vorrat gedeckelt — an beiden Eimern.

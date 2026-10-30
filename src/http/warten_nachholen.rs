@@ -196,6 +196,11 @@ async fn der_einundfuenfzigste_schwere_aufruf_einer_kennung_ist_429_nachholen() 
     assert_eq!(danach, antworten[0]);
     assert_eq!(gesundheit["nachholen"]["gebremst"], 1);
     assert_eq!(gesundheit["nachholen"]["saetze"], 51 * 2_000);
+    assert_eq!(
+        gesundheit["nachholen"]["kosten"],
+        51 * 2_000,
+        "kurze Sätze: Kosten gleich Sätze"
+    );
     assert_eq!(gesundheit["nachholen"]["bank_belegt"], 0);
     assert!(gesundheit["nachholen"]["bank_plaetze"].as_u64() >= Some(1));
 }

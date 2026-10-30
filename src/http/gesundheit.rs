@@ -9,11 +9,13 @@ use axum::extract::State;
 use serde::Serialize;
 use std::sync::Arc;
 
-/// `nachholen {saetze, gebremst, bank_plaetze, bank_belegt}`: seit dem Start geprüfte Sätze, Zahl der 429
+/// `nachholen {saetze, kosten, gebremst, bank_plaetze, bank_belegt}`: seit dem Start geprüfte Sätze und deren
+/// Kosten (ADR-0054 Ergänzung „Kosten-Einheit des Nachholens“ Regel 4; `kosten` ≥ `saetze`), Zahl der 429
 /// `nachholen`, Plätze der Nachholbank (fest) und belegte (Momentwert).
 #[derive(Debug, Serialize)]
 pub struct Nachholen {
     saetze: u64,
+    kosten: u64,
     gebremst: u64,
     bank_plaetze: usize,
     bank_belegt: usize,
@@ -112,6 +114,7 @@ pub async fn beantworten(State(zustand): State<Arc<Zustand>>) -> Json<Gesundheit
         wartend: zustand.wartende.anzahl(),
         nachholen: Nachholen {
             saetze: zustand.nachholkonto.saetze(),
+            kosten: zustand.nachholkonto.kosten(),
             gebremst: zustand.nachholkonto.gebremst(),
             bank_plaetze: zustand.nachholbank.plaetze(),
             bank_belegt: zustand.nachholbank.belegt(),
@@ -203,6 +206,7 @@ mod tests {
             nachholen,
             Some(json!({
                 "saetze": 0,
+                "kosten": 0,
                 "gebremst": 0,
                 "bank_plaetze": Werkbank::nachholbank().plaetze(),
                 "bank_belegt": 0,

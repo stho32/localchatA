@@ -1,6 +1,7 @@
 //! F0170 Nachholen bleibt begrenzt über das echte Programm (R00049, ADR-0054 Ergänzung „Nachholen von `warten` …“
-//! Regel 1 und 8, B0758): `/api/gesundheit` nennt `nachholen {saetze, gebremst, bank_plaetze, bank_belegt}`, die
-//! Nachholbank hat die Hälfte der Kerne (mindestens 1) neben der Werkbank, und ein Nachholen zählt seine Sätze.
+//! Regel 1 und 8, B0758): `/api/gesundheit` nennt `nachholen {saetze, kosten, gebremst, bank_plaetze, bank_belegt}`,
+//! die Nachholbank hat die Hälfte der Kerne (mindestens 1) neben der Werkbank, und ein Nachholen zählt seine Sätze
+//! und seit F0171 (B0762) deren Kosten.
 #![cfg(target_os = "linux")]
 
 mod gemeinsam;
@@ -47,6 +48,10 @@ async fn die_gesundheit_nennt_das_nachholen_und_eine_eigene_bank() {
     assert_eq!(gewartet.status, 200, "{}", gewartet.json);
     assert_eq!(vorher["nachholen"]["saetze"], 0, "{vorher}");
     assert_eq!(nachher["nachholen"]["saetze"], 3, "{nachher}");
+    assert_eq!(
+        nachher["nachholen"]["kosten"], 3,
+        "kurze Sätze: Kosten gleich Sätze: {nachher}"
+    );
     assert_eq!(nachher["nachholen"]["gebremst"], 0);
     assert_eq!(nachher["nachholen"]["bank_belegt"], 0);
     let werkbank = nachher["werkbank_plaetze"]
@@ -57,4 +62,36 @@ async fn die_gesundheit_nennt_das_nachholen_und_eine_eigene_bank() {
         Some((werkbank / 2).max(1)),
         "{nachher}"
     );
+}
+
+/// K3 (B0762, K6): ein Satz zu 16 KiB (Text 16.384 Byte ohne Zeilenumbruch) kostet 17 — `nachholen.saetze` zählt
+/// den einen Satz, `nachholen.kosten` die 17, und `kosten` ≥ `saetze`.
+#[tokio::test]
+async fn die_gesundheit_zaehlt_die_kosten_eines_langen_satzes_getrennt_von_den_saetzen() {
+    let wurzel = ordner();
+    let instanz = starten(wurzel.path(), &[]);
+    let absender = Absender::von("127.0.0.1");
+    let anna = beitreten(&absender, &instanz.adresse, "anna", None).await;
+    let claude = beitreten(&absender, &instanz.adresse, "claude", None).await;
+    let lang = "x".repeat(16_384);
+    let antwort = senden(&absender, &instanz.adresse, &anna, "allgemein", &lang).await;
+    assert_eq!(antwort.status, 201, "{}", antwort.json);
+
+    let gewartet = api_antwort(
+        absender
+            .anfrage(
+                reqwest::Method::GET,
+                format!(
+                    "{}api/warten?bis=0&seit=2000-01-01T00:00:00.000Z",
+                    instanz.adresse
+                ),
+            )
+            .header("X-LocalchatA-Sitzung", claude),
+    )
+    .await;
+    let nachher = gesundheit(&instanz.adresse).await.1;
+
+    assert_eq!(gewartet.status, 200, "{}", gewartet.json);
+    assert_eq!(nachher["nachholen"]["saetze"], 1, "{nachher}");
+    assert_eq!(nachher["nachholen"]["kosten"], 17, "{nachher}");
 }
