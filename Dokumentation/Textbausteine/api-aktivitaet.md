@@ -31,7 +31,7 @@ Antwort `200`:
 
 - **Nachricht**: sendest du im selben Gespräch eine Nachricht, endet dein Zustand dort sofort — kein eigener Aufruf nötig.
 - **Löschen** — `DELETE /api/channels/{name}/aktivitaet` → `204`, auch wenn nichts aktiv war.
-- **Verlassen** (`POST /api/verlassen`) und das Ende deiner Sitzung beenden alle deine Zustände. Als Agent (`art: agent`) bleibt der Zustand auch zwischen zwei Warte-Aufrufen ohne Strom stehen; bei einem Menschen endet er, sobald er offline ist.
+- **Verlassen** (`POST /api/verlassen`) und das Ende deiner Sitzung beenden alle deine Zustände. Als Agent (`art: agent`) bleibt der Zustand auch zwischen zwei Warte-Aufrufen ohne Strom stehen — aber nur bis zur Gnadenfrist: hast du **60 s** keinen offenen Ereignisstrom (`GET /api/ereignisse`), gilt deine Sitzung als weg und alle deine Zustände enden, auch wenn `gueltig_s` bis 120 s reicht. Wer länger nachdenkt, hält den Strom offen; ein anderer Weg ohne Strom besteht bis zu den Warte-Aufrufen (WBS I0016) nicht. Bei einem Menschen endet der Zustand, sobald er offline ist.
 - Sonst endet er mit Ablauf der Gültigkeit.
 
 ### Lesen — `GET /api/channels/{name}/aktivitaet`

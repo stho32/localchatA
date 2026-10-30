@@ -102,8 +102,15 @@ struct Runde {
 }
 
 async fn runde() -> Runde {
+    runde_mit(&[]).await
+}
+
+/// Wie `runde` mit weiteren Umgebungsvariablen (etwa `LOCALCHATA_GNADENFRIST_MS`).
+async fn runde_mit(umgebung: &[(&str, &str)]) -> Runde {
     let wurzel = ordner();
-    let instanz = starten(wurzel.path(), &[("LOCALCHATA_PROTOKOLL_STUFE", "debug")]);
+    let mut alle = vec![("LOCALCHATA_PROTOKOLL_STUFE", "debug")];
+    alle.extend_from_slice(umgebung);
+    let instanz = starten(wurzel.path(), &alle);
     let absender = Absender::von("127.0.0.1");
     let anna = beitreten(&absender, &instanz.adresse, "anna", None).await;
     let ben = beitreten(&absender, &instanz.adresse, "ben", None).await;
@@ -1053,6 +1060,58 @@ async fn p7_ein_agent_ohne_strom_denkt_weiter_nach_bis_er_verlaesst() {
     assert!(nach_weg <= Duration::from_secs(1), "{nach_weg:?}");
 }
 
+/// Karte #83 (Entwicklertest #77 A1; der Textbaustein nennt es): ein Agent ohne offenen Strom verliert seinen
+/// Zustand mit der Gnadenfrist — auch bei `gueltig_s` 120. Mit `LOCALCHATA_GNADENFRIST_MS` 1.500 endet `denkt_nach`
+/// 120 s binnen 10 s nach dem Setzen, nach `offline` und `weg` (im Betrieb: 60 s Standard der Gnadenfrist).
+#[tokio::test]
+async fn p7_ein_agent_ohne_strom_verliert_den_zustand_mit_der_gnadenfrist_auch_bei_120_s() {
+    let mut r = runde_mit(&[("LOCALCHATA_GNADENFRIST_MS", "1500")]).await;
+    let claude = beitreten(&r.absender, &r.instanz.adresse, "claude", Some("agent")).await;
+    let gesetzt = setzen(
+        &r.absender,
+        &r.instanz,
+        Some(&claude),
+        "allgemein",
+        json!({"zustand": "denkt_nach", "gueltig_s": 120}),
+    )
+    .await;
+    let gesetzt_um = Instant::now();
+
+    let (weg, nach_weg) =
+        ende_nach_wechsel(&mut r.strom_ben, "claude@127.0.0.1", "weg", gesetzt_um).await;
+
+    assert_eq!(gueltig(&gesetzt), chrono::TimeDelta::seconds(120));
+    assert!(weg.is_some(), "claude ohne Strom wird weg");
+    let nach_weg = nach_weg.expect("Ende mit dem Wechsel nach weg");
+    assert!(nach_weg < Duration::from_secs(10), "{nach_weg:?}");
+}
+
+/// Gegenprobe zum vorigen (Textbaustein: „wer länger nachdenkt, hält den Strom offen“): mit offenem Strom überlebt
+/// `denkt_nach` 120 s die Gnadenfrist von 1.500 ms — nach 4 s liest `ben` den Agenten noch.
+#[tokio::test]
+async fn p7_ein_agent_mit_offenem_strom_behaelt_den_zustand_ueber_die_gnadenfrist_hinaus() {
+    let r = runde_mit(&[("LOCALCHATA_GNADENFRIST_MS", "1500")]).await;
+    let claude = beitreten(&r.absender, &r.instanz.adresse, "claude", Some("agent")).await;
+    let _strom_claude = Strom::oeffnen(&r.absender, &r.instanz.adresse, &claude).await;
+    let gesetzt = setzen(
+        &r.absender,
+        &r.instanz,
+        Some(&claude),
+        "allgemein",
+        json!({"zustand": "denkt_nach", "gueltig_s": 120}),
+    )
+    .await;
+
+    tokio::time::sleep(Duration::from_secs(4)).await;
+    let liest_ben = lesen(&r.absender, &r.instanz, Some(&r.ben), "allgemein").await;
+
+    assert_eq!(gesetzt.status, 200, "{}", gesetzt.json);
+    assert_eq!(
+        gelesen(&liest_ben),
+        [("claude@127.0.0.1".to_string(), "denkt_nach".to_string())]
+    );
+}
+
 /// B0695 (ADR-0051 Regel 2): höchstens 16 Zustände je Kennung — das 17. Gespräch ist 422 `aktivitaeten` ohne Wirkung.
 #[tokio::test]
 async fn ein_siebzehntes_gespraech_ist_422_aktivitaeten() {
@@ -1264,6 +1323,8 @@ async fn das_beispiel_des_textbausteins_laeuft_gegen_eine_instanz() {
         "DELETE /api/channels/{name}/aktivitaet",
         "GET /api/channels/{name}/aktivitaet",
         "eigene Kennung",
+        "Gnadenfrist",
+        "60 s",
     ] {
         assert!(text.contains(muss), "Textbaustein nennt {muss}");
     }
