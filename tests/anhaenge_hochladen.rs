@@ -345,3 +345,71 @@ async fn jede_antwort_des_put_schliesst_die_verbindung() {
         "401",
     );
 }
+
+/// Schickt `anfrage` (Kopf samt Körper) roh von 127.0.0.1 in einem `write` und liest bis EOF; `None`, wenn die
+/// Instanz die Verbindung nach 5 s nicht beendet hat.
+async fn roh_bis_eof(port: u16, anfrage: &[u8]) -> Option<String> {
+    use tokio::io::AsyncReadExt;
+    let mut verbindung = gemeinsam::herkunft::verbinden(port, "127.0.0.1").await;
+    verbindung.write_all(anfrage).await.expect("geschrieben");
+    let mut gelesen = Vec::new();
+    let ende = tokio::time::timeout(Duration::from_secs(5), async {
+        let mut puffer = [0u8; 4_096];
+        loop {
+            match verbindung.read(&mut puffer).await {
+                Ok(0) | Err(_) => break,
+                Ok(n) => gelesen.extend_from_slice(&puffer[..n]),
+            }
+        }
+    })
+    .await;
+    ende.ok()
+        .map(|()| String::from_utf8_lossy(&gelesen).into_owned())
+}
+
+/// ADR-0014 Ergänzung 2026-10-30 „jede Abweisung des Grenzschutzes schließt die Verbindung“, Probe (1)–(4) wörtlich
+/// (B0648): (1) `PUT` mit fremdem `Host` samt 10 Bytes und angehängtem `GET /api/gesundheit` → genau eine Antwort
+/// 403 `close`, EOF; (2) `POST /api/nachrichten` mit fremdem `Origin` → dasselbe; (3) fremder `Host` mit
+/// `Content-Length: 2147483648`, nur der Kopf → 403 sofort, EOF ohne Körper; (4) zwei gute `GET` auf einer
+/// Verbindung → zwei 200 (Keep-Alive bleibt).
+#[tokio::test]
+async fn jede_abweisung_des_grenzschutzes_schliesst_die_verbindung() {
+    let wurzel = ordner();
+    let instanz = starten(wurzel.path(), &[], &[]);
+    let basis = instanz.adresse.as_str();
+    let beta = Absender::von("127.0.0.1");
+    let token = beitreten(&beta, basis, "beta", Some("agent")).await;
+    let id = id(&anmelden(&beta, basis, &token, "zehn.bin", 10).await);
+
+    let fremder_host = format!(
+        "PUT /api/anhaenge/{id} HTTP/1.1\r\nHost: fremd.example\r\nX-LocalchatA-Sitzung: {token}\r\nContent-Type: application/octet-stream\r\nContent-Length: 10"
+    );
+    let gelesen = put_mit_angehaengter_anfrage(instanz.port(), &fremder_host, &[7u8; 10]).await;
+    genau_eine_antwort(gelesen, "403");
+
+    let koerper = r#"{"text":"hallo"}"#;
+    let mut fremder_ursprung = format!(
+        "POST /api/nachrichten HTTP/1.1\r\nHost: 127.0.0.1\r\nOrigin: http://fremd.example\r\nX-LocalchatA-Sitzung: {token}\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{koerper}",
+        koerper.len()
+    )
+    .into_bytes();
+    fremder_ursprung.extend_from_slice(b"GET /api/gesundheit HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n");
+    genau_eine_antwort(roh_bis_eof(instanz.port(), &fremder_ursprung).await, "403");
+
+    let riesig = format!(
+        "PUT /api/anhaenge/{id} HTTP/1.1\r\nHost: fremd.example\r\nX-LocalchatA-Sitzung: {token}\r\nContent-Type: application/octet-stream\r\nContent-Length: 2147483648\r\n\r\n"
+    );
+    let begonnen = Instant::now();
+    genau_eine_antwort(roh_bis_eof(instanz.port(), riesig.as_bytes()).await, "403");
+    assert!(
+        begonnen.elapsed() < Duration::from_secs(2),
+        "{:?}",
+        begonnen.elapsed()
+    );
+
+    let gut = b"GET /api/gesundheit HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\nGET /api/gesundheit HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n";
+    let beide = roh_bis_eof(instanz.port(), gut)
+        .await
+        .expect("EOF nach der zweiten");
+    assert_eq!(beide.matches("HTTP/1.1 200").count(), 2, "{beide}");
+}

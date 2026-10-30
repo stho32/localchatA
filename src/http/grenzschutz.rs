@@ -13,8 +13,8 @@ use crate::start::ausliefern::LokaleAdresse;
 use axum::Json;
 use axum::extract::{ConnectInfo, Request, State};
 use axum::http::header::{
-    ACCEPT, CACHE_CONTROL, CONTENT_SECURITY_POLICY, CONTENT_TYPE, HOST, HeaderName, HeaderValue,
-    ORIGIN, REFERRER_POLICY, X_CONTENT_TYPE_OPTIONS, X_FRAME_OPTIONS,
+    ACCEPT, CACHE_CONTROL, CONNECTION, CONTENT_SECURITY_POLICY, CONTENT_TYPE, HOST, HeaderName,
+    HeaderValue, ORIGIN, REFERRER_POLICY, X_CONTENT_TYPE_OPTIONS, X_FRAME_OPTIONS,
 };
 use axum::http::{HeaderMap, Method, StatusCode};
 use axum::middleware::Next;
@@ -39,14 +39,23 @@ pub async fn schicht(
         .get::<LokaleAdresse>()
         .map(|LokaleAdresse(lokal)| *lokal);
     let mut antwort = match abweisung(&schutz, anfrage.method(), anfrage.headers(), lokal).await {
-        Some((abweisung, ereignis, kopf)) => {
+        Some((mut abweisung, ereignis, kopf)) => {
             abweisung_eintragen(&protokoll, &anfrage, ereignis, &kopf);
+            schliessen(&mut abweisung);
             abweisung
         }
         None => weiter.run(anfrage).await,
     };
     sicherheitsheader_setzen(antwort.headers_mut(), &pfad, host.as_deref());
     antwort
+}
+
+/// Jede Abweisung des Grenzschutzes schließt die Verbindung (ADR-0014 Ergänzung 2026-10-30): kein Körper der
+/// abgewiesenen Anfrage wird gelesen, keine angehängte Anfrage beantwortet.
+fn schliessen(abweisung: &mut Response) {
+    abweisung
+        .headers_mut()
+        .insert(CONNECTION, HeaderValue::from_static("close"));
 }
 
 /// Episode `grenzschutz` je Herkunft (ADR-0042 Regel 2): `grund` ist der abgewiesene Kopf mit seinem Wert, so
