@@ -436,6 +436,7 @@ function auswahlEinrichten({ seitenleiste, kopf, mitte, verlauf, eingabe, beiAus
     const namen = liste.map((channel) => channel.name);
     const nachbar = nachbarChannel(namen, offen, richtung);
     if (nachbar !== null) {
+      fokusRettenInEingabe(verlauf, eingabe);
       window.location.hash = `#/c/${nachbar}`;
     }
   }, { signal });
@@ -445,6 +446,17 @@ function auswahlEinrichten({ seitenleiste, kopf, mitte, verlauf, eingabe, beiAus
     seitenleiste.channelsZeigen(neueListe);
     folgen();
   };
+}
+
+// Der Channelwechsel ersetzt die Nachrichten des Verlaufs: liegt der Fokus auf einer von ihnen (oder auf body), geht er
+// vorher in die Eingabe, damit er nicht ins Nichts fällt (Karte #82). Auf dem Verlauf selbst, in der Eingabe und
+// außerhalb bleibt er, wo er ist (ADR-0027 Regel 4).
+function fokusRettenInEingabe(verlauf, eingabe) {
+  const aktiv = document.activeElement;
+  const aufNachricht = aktiv !== null && aktiv.closest('.lc-msg') !== null && verlauf.element.contains(aktiv);
+  if ((aufNachricht || aktiv === document.body) && eingabe.element.isConnected) {
+    eingabe.fokussieren();
+  }
 }
 
 // Liegt der Fokus im Verlauf oder in der Eingabe, die jetzt gehen, kommt er auf den Schalter „Channel anlegen“ —
