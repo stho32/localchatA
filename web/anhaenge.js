@@ -10,11 +10,14 @@ import { nurLeerraum } from './textregel.js';
 const ZU_VIELE_ANFRAGEN = 429;
 const KEINE_ANTWORT = 'Keine Antwort vom Server.';
 const KEIN_PLATZ = 507;
+const SEKUNDE_MS = 1000;
 
 // Wie eine Anmeldung ausging (B0450), rein: angenommen (201 mit ID), warten (429 oder 507 `hochladungen` mit
-// Retry-After), abgewiesen (jede andere Antwort, mit dem Text der Instanz) oder ohne Antwort.
+// Retry-After; beim 507 mit dem Stand des Platzes), abgewiesen (jede andere Antwort, mit dem Text der Instanz) oder
+// ohne Antwort.
 // antwort: { art: 'antwort', status, daten, wartenS } | { art: 'netzfehler' }
-// → { art: 'angemeldet', id } | { art: 'warten', sekunden } | { art: 'abgewiesen', grund } | { art: 'ohneAntwort' }
+// → { art: 'angemeldet', id } | { art: 'warten', sekunden, platz: { hoechstens, gebunden, braucht } | null }
+//   | { art: 'abgewiesen', grund } | { art: 'ohneAntwort' }
 export function anmeldungBewerten(antwort) {
   if (antwort.art !== 'antwort') {
     return { art: 'ohneAntwort' };
@@ -23,14 +26,42 @@ export function anmeldungBewerten(antwort) {
   if (status === 201 && daten !== null && daten.anhang !== undefined) {
     return { art: 'angemeldet', id: daten.anhang.id };
   }
-  const voruebergehend = status === ZU_VIELE_ANFRAGEN || (status === KEIN_PLATZ && daten !== null && daten.grund === 'hochladungen');
-  if (voruebergehend) {
-    return { art: 'warten', sekunden: antwort.wartenS };
+  if (status === ZU_VIELE_ANFRAGEN) {
+    return { art: 'warten', sekunden: antwort.wartenS, platz: null };
+  }
+  const platzBelegt = status === KEIN_PLATZ && daten !== null && daten.grund === 'hochladungen';
+  if (platzBelegt) {
+    const { hoechstens, gebunden, braucht } = daten;
+    return { art: 'warten', sekunden: antwort.wartenS, platz: { hoechstens, gebunden, braucht } };
   }
   if (daten !== null && typeof daten.fehler === 'string') {
     return { art: 'abgewiesen', grund: daten.fehler };
   }
   return { art: 'abgewiesen', grund: `Nicht hochgeladen (Status ${status}).` };
+}
+
+// Der Wartezustand (UX-Review #43 F0101 S2), rein: zählt die Sekunden bis zum nächsten Versuch; belegen laufende
+// Hochladungen den Platz (507 `hochladungen`), sagt er es.
+export function wartetText(sekunden, platzBelegt) {
+  const text = `wartet · neuer Versuch in ${sekunden} s`;
+  if (platzBelegt) {
+    return `${text} · Platz für Anhänge belegt`;
+  }
+  return text;
+}
+
+// Hilft Warten nicht? (S2), rein: die Datei passt nie, solange die eigenen Anmeldungen des Tabs gehalten werden —
+// braucht > höchstens − gebunden − eigene. Dann wird abgewiesen statt endlos gewartet.
+export function selbstBlockiert(platz, eigeneBytes) {
+  return platz.braucht > daneben(platz, eigeneBytes);
+}
+
+export function selbstBlockiertGrund(platz, eigeneBytes) {
+  return `Nicht hochgeladen: die übrigen Dateien dieser Nachricht belegen den Platz für Anhänge — daneben bleiben ${groesseInWorten(daneben(platz, eigeneBytes))}, die Datei braucht ${groesseInWorten(platz.braucht)}. „Entfernen“ sendet die übrigen; diese Datei danach einzeln senden.`;
+}
+
+function daneben(platz, eigeneBytes) {
+  return Math.max(0, platz.hoechstens - platz.gebunden - eigeneBytes);
 }
 
 // Der Fortschritt in ganzen Prozent (B0451), rein: abgerundet, 0 ohne bekannte Länge, höchstens 100.
@@ -134,7 +165,7 @@ export function hochladungenAnlegen({
 
   function dateiAnlegen(eintrag, datei) {
     const eintragDatei = {
-      datei, name: datei.name, bytes: datei.size, zustand: 'anmelden', id: null, grund: '', sekunden: 0, zeitgeber: null,
+      datei, name: datei.name, bytes: datei.size, zustand: 'anmelden', id: null, grund: '', sekunden: 0, platzBelegt: false, zeitgeber: null,
       prozent: 0, laufend: null, neuAngemeldet: false, schalterArt: null, knoten: null, zustandText: null, grundText: null,
       schalter: null, balken: null, freigebenNachAbbruch: true,
     };
@@ -173,9 +204,15 @@ export function hochladungenAnlegen({
       return;
     }
     if (ergebnis.art === 'warten') {
+      const eigeneBytes = eigeneAngemeldeteBytes();
+      if (ergebnis.platz !== null && selbstBlockiert(ergebnis.platz, eigeneBytes)) {
+        dateiScheitert(eintrag, datei, 'abgewiesen', selbstBlockiertGrund(ergebnis.platz, eigeneBytes));
+        return;
+      }
       datei.zustand = 'wartet';
       datei.sekunden = ergebnis.sekunden;
-      datei.zeitgeber = zeitgeber.stellen(ergebnis.sekunden * 1000, () => dateiAnmelden(eintrag, datei));
+      datei.platzBelegt = ergebnis.platz !== null;
+      datei.zeitgeber = zeitgeber.stellen(SEKUNDE_MS, () => wartenZaehlen(eintrag, datei));
     } else if (ergebnis.art === 'abgewiesen') {
       dateiScheitert(eintrag, datei, 'abgewiesen', ergebnis.grund);
       return;
@@ -184,6 +221,22 @@ export function hochladungenAnlegen({
       return;
     }
     dateiZeigen(eintrag, datei);
+  }
+
+  // Der Wartezustand zählt im Sekundentakt herunter (UX-Review #43 F0101 S2); bei 0 meldet die Datei neu an.
+  function wartenZaehlen(eintrag, datei) {
+    datei.sekunden -= 1;
+    if (datei.sekunden <= 0) {
+      dateiAnmelden(eintrag, datei);
+      return;
+    }
+    dateiZeigen(eintrag, datei);
+    datei.zeitgeber = zeitgeber.stellen(SEKUNDE_MS, () => wartenZaehlen(eintrag, datei));
+  }
+
+  // Was die Anmeldungen des Tabs am Platz halten — sie geben ihn erst frei, wenn ihre Nachricht gesendet ist.
+  function eigeneAngemeldeteBytes() {
+    return eintraege.flatMap((eintrag) => eintrag.dateien).filter((datei) => datei.id !== null).reduce((summe, datei) => summe + datei.bytes, 0);
   }
 
   // Kommt die Anmeldung erst nach „Abbrechen“ oder „Verwerfen“ an, wird sie sofort wieder freigegeben — außer die
@@ -412,7 +465,7 @@ export function hochladungenAnlegen({
 
 function zustandBeschriftung(datei) {
   if (datei.zustand === 'wartet') {
-    return `wartet · neuer Versuch in ${datei.sekunden} s`;
+    return wartetText(datei.sekunden, datei.platzBelegt);
   }
   if (datei.zustand === 'wartetAufPlatz') {
     return 'wartet';

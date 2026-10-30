@@ -2,7 +2,9 @@
 // Abweisung angesagt wird.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { anmeldungBewerten, abweisungAnsage, prozentAus, hochladenBewerten } from '../../web/anhaenge.js';
+import {
+  anmeldungBewerten, abweisungAnsage, prozentAus, hochladenBewerten, wartetText, selbstBlockiert, selbstBlockiertGrund,
+} from '../../web/anhaenge.js';
 
 const antwort = (status, daten, wartenS = null) => ({ art: 'antwort', status, daten, wartenS });
 
@@ -10,9 +12,13 @@ test('201 mit Anhang → angemeldet mit ID', () => {
   assert.deepEqual(anmeldungBewerten(antwort(201, { anhang: { id: 'abc' } })), { art: 'angemeldet', id: 'abc' });
 });
 
-test('429 und 507 `hochladungen` → warten nach Retry-After', () => {
-  assert.deepEqual(anmeldungBewerten(antwort(429, { fehler: 'x', grenze: 'offen_kennung' }, 5)), { art: 'warten', sekunden: 5 });
-  assert.deepEqual(anmeldungBewerten(antwort(507, { fehler: 'x', regel: 'quote', grund: 'hochladungen' }, 30)), { art: 'warten', sekunden: 30 });
+test('429 und 507 `hochladungen` → warten nach Retry-After; 507 trägt den Stand des Platzes (UX-Review #43 F0101 S2)', () => {
+  assert.deepEqual(anmeldungBewerten(antwort(429, { fehler: 'x', grenze: 'offen_kennung' }, 5)), { art: 'warten', sekunden: 5, platz: null });
+  const stand = { hoechstens: 10485760, gebunden: 3670016, braucht: 3040870 };
+  assert.deepEqual(
+    anmeldungBewerten(antwort(507, { fehler: 'x', regel: 'quote', grund: 'hochladungen', reserviert: 6081740, frei: 733744, ...stand }, 30)),
+    { art: 'warten', sekunden: 30, platz: stand },
+  );
 });
 
 test('507 `voll`, 507 `platte`, 422 `zu_gross` und `name` → abgewiesen mit dem Text der Instanz', () => {
@@ -63,4 +69,30 @@ test('Hochladen: 404 `abgelaufen` und `unbekannt` → neu anmelden, ein anderes 
   assert.deepEqual(hochladenBewerten(antwort(404, abgelaufen)), { art: 'neuAnmelden', grund: abgelaufen.fehler });
   assert.deepEqual(hochladenBewerten(antwort(404, { fehler: 'weg', grund: 'unbekannt' })), { art: 'neuAnmelden', grund: 'weg' });
   assert.deepEqual(hochladenBewerten(antwort(404, { fehler: 'anders' })), { art: 'fehlgeschlagen', grund: 'anders' });
+});
+
+// UX-Review #43 F0101 S2: der Wartezustand zählt herunter und nennt beim 507 `hochladungen` den Platz.
+test('Wartetext: „wartet · neuer Versuch in <s> s“, beim belegten Platz mit „· Platz für Anhänge belegt“', () => {
+  assert.equal(wartetText(30, false), 'wartet · neuer Versuch in 30 s');
+  assert.equal(wartetText(17, true), 'wartet · neuer Versuch in 17 s · Platz für Anhänge belegt');
+});
+
+// S2: belegen die eigenen Anmeldungen (Dateien dieser oder einer anderen offenen Nachricht des Tabs) den Platz so, dass
+// die Datei nie passt, solange sie gehalten werden, hilft Warten nicht.
+test('selbst blockiert: braucht > höchstens − gebunden − eigene Anmeldungen', () => {
+  const MIB = 1024 * 1024;
+  const platz = { hoechstens: 10 * MIB, gebunden: 3.5 * MIB, braucht: 2.9 * MIB };
+  assert.equal(selbstBlockiert(platz, 5.8 * MIB), true);
+  assert.equal(selbstBlockiert(platz, 2.9 * MIB), false);
+  assert.equal(selbstBlockiert(platz, 0), false);
+  assert.equal(selbstBlockiert({ ...platz, braucht: 0.7 * MIB }, 5.8 * MIB), false);
+});
+
+test('Grund „selbst blockiert“ nennt den Platz, was frei bleibt, was die Datei braucht, und „Entfernen“', () => {
+  const MIB = 1024 * 1024;
+  assert.equal(
+    selbstBlockiertGrund({ hoechstens: 10 * MIB, gebunden: 3.5 * MIB, braucht: 2.9 * MIB }, 5.8 * MIB),
+    'Nicht hochgeladen: die übrigen Dateien dieser Nachricht belegen den Platz für Anhänge — daneben bleiben 717 KiB, die Datei braucht 2,9 MiB. „Entfernen“ sendet die übrigen; diese Datei danach einzeln senden.',
+  );
+  assert.match(selbstBlockiertGrund({ hoechstens: MIB, gebunden: MIB, braucht: 2 * MIB }, MIB), /daneben bleiben 0 Byte,/);
 });
