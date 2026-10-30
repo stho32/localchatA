@@ -853,14 +853,40 @@ async fn wiederholtes_senden_liefert_die_aktuelle_fassung() {
     assert_eq!(log.matches("beta@127.0.0.1\n+ art:").count(), 1, "{log}");
 }
 
-/// R00039 B1 (d), vorgemerkt für #67 (Löschen, R00040): nach dem Löschen liefert die Wiederholung `text ""`,
-/// `anhaenge []`, `zustand geloescht`. Die Löschroute gibt es erst mit #67.
+/// R00039 B1 (d), mit #67 scharf (R00040): Senden „Hallo“ mit `k1` → Löschen → Senden „Hallo“ mit `k1` → 200 mit der
+/// gelöschten Fassung: `text ""`, `anhaenge []`, `zustand geloescht`, `geaendert` wie in der Lösch-Antwort; kein
+/// zweiter Satz im Log.
 #[tokio::test]
-#[ignore = "braucht die Löschroute aus #67 (R00040)"]
 async fn wiederholtes_senden_nach_dem_loeschen_liefert_geloescht() {
-    unimplemented!(
-        "#67: Senden k1 → Löschen → Senden k1: text \"\", anhaenge [], zustand geloescht"
-    );
+    let wurzel = ordner();
+    let instanz = starten(wurzel.path());
+    let basis = instanz.adresse.as_str();
+    let beta = Absender::von("127.0.0.1");
+    let token = beitreten(&beta, basis, "beta", Some("agent")).await;
+    let erste = senden_mit_schluessel(&beta, basis, &token, "Hallo", "k1").await;
+    assert_eq!(erste.status, 201, "{}", erste.json);
+    let t1 = erste.json["nachricht"]["zeit"].as_str().expect("zeit");
+    let geloescht = api_antwort(
+        beta.anfrage(
+            reqwest::Method::POST,
+            format!("{basis}api/channels/allgemein/nachrichten/loeschen"),
+        )
+        .header("X-LocalchatA-Sitzung", &token)
+        .json(&json!({ "zeit": t1 })),
+    )
+    .await;
+    assert_eq!(geloescht.status, 200, "{}", geloescht.json);
+
+    let wiederholt = senden_mit_schluessel(&beta, basis, &token, "Hallo", "k1").await;
+
+    assert_eq!(wiederholt.status, 200, "{}", wiederholt.json);
+    let nachricht = &wiederholt.json["nachricht"];
+    assert_eq!(*nachricht, geloescht.json["nachricht"]);
+    assert_eq!(nachricht["text"], "");
+    assert_eq!(nachricht["anhaenge"], json!([]));
+    assert_eq!(nachricht["zustand"], "geloescht");
+    let log = tagesdatei(wurzel.path(), HEUTE);
+    assert_eq!(log.matches("beta@127.0.0.1\n+ art:").count(), 1, "{log}");
 }
 
 /// R00039 A2 (security-reviewer #48): `+ anhang:` gilt nur in Nachrichtensätzen. Ein von Hand geschriebener
