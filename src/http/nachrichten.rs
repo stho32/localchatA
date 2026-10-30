@@ -8,6 +8,7 @@ use super::anfrageprotokoll::mit_regel;
 use super::teilnehmer::Teilnehmer;
 use super::teilnehmerliste::zeit_als_text;
 use crate::gespraeche::abfrage::{Abfrage, Abschnitt, Blockgroesse};
+use crate::gespraeche::zitat::Zitat;
 use crate::gespraeche::{Aenderungszustand, Art, Nachricht, Nachrichtenblock, Unbekannt};
 use crate::name::Channelname;
 use crate::protokoll::{Bereich, Kontext, Schluessel, Stufe};
@@ -141,6 +142,33 @@ pub struct NachrichtAntwort<'a> {
     zustand: Option<&'static str>,
     /// Zeit des letzten Änderungssatzes oder `null`.
     geaendert: Option<String>,
+    /// Das Zitat einer Antwort oder `null` (ADR-0053 Regel 3).
+    antwort_auf: Option<ZitatAntwort<'a>>,
+}
+
+/// `{zeit, von, zustand, textanfang, anhang, geaendert}` — der Bezug einer Antwort, aufgelöst (ADR-0053 F2).
+#[derive(Serialize)]
+pub struct ZitatAntwort<'a> {
+    zeit: String,
+    von: &'a str,
+    /// `da` | `bearbeitet` | `geloescht` | `entfallen`.
+    zustand: &'static str,
+    textanfang: &'a str,
+    anhang: Option<&'a str>,
+    geaendert: Option<String>,
+}
+
+impl<'a> ZitatAntwort<'a> {
+    pub fn aus(zitat: &'a Zitat) -> ZitatAntwort<'a> {
+        ZitatAntwort {
+            zeit: zeit_als_text(&zitat.zeit),
+            von: zitat.von.als_text(),
+            zustand: zitat.zustand.als_text(),
+            textanfang: &zitat.textanfang,
+            anhang: zitat.anhang.as_deref(),
+            geaendert: zitat.geaendert.as_ref().map(zeit_als_text),
+        }
+    }
 }
 
 /// `{id, name, bytes, art, breite, hoehe, url, zustand}` — Maße nur bei Bildern, sonst `null`; `url` relativ.
@@ -191,6 +219,7 @@ impl<'a> NachrichtAntwort<'a> {
             geaendert: nachricht
                 .geaendert
                 .map(|geaendert| zeit_als_text(&geaendert.zeit)),
+            antwort_auf: nachricht.antwort_auf.as_deref().map(ZitatAntwort::aus),
         }
     }
 }
@@ -452,6 +481,7 @@ mod tests {
             anhaenge: Vec::new(),
             geaendert: None,
             bezug: None,
+            antwort_auf: None,
         };
 
         let agent = serde_json::to_value(NachrichtAntwort::aus(&nachricht)).expect("JSON");
@@ -460,7 +490,7 @@ mod tests {
 
         assert_eq!(
             agent,
-            json!({"zeit": "2026-10-28T12:00:00.001+01:00", "von": "beta@127.0.0.1", "art": "agent", "text": "Hallo\nWelt", "anhaenge": [], "zustand": null, "geaendert": null})
+            json!({"zeit": "2026-10-28T12:00:00.001+01:00", "von": "beta@127.0.0.1", "art": "agent", "text": "Hallo\nWelt", "anhaenge": [], "zustand": null, "geaendert": null, "antwort_auf": null})
         );
         assert_eq!(ohne["art"], serde_json::Value::Null);
     }
@@ -482,6 +512,7 @@ mod tests {
                 zustand: Aenderungszustand::Bearbeitet,
             }),
             bezug: None,
+            antwort_auf: None,
         };
 
         let bearbeitet = serde_json::to_value(NachrichtAntwort::aus(&nachricht)).expect("JSON");
@@ -493,7 +524,7 @@ mod tests {
 
         assert_eq!(
             bearbeitet,
-            json!({"zeit": "2026-10-28T12:00:00.001+01:00", "von": "beta@127.0.0.1", "art": "agent", "text": "Hallo zusammen", "anhaenge": [], "zustand": "bearbeitet", "geaendert": "2026-10-28T12:05:00.000+01:00"})
+            json!({"zeit": "2026-10-28T12:00:00.001+01:00", "von": "beta@127.0.0.1", "art": "agent", "text": "Hallo zusammen", "anhaenge": [], "zustand": "bearbeitet", "geaendert": "2026-10-28T12:05:00.000+01:00", "antwort_auf": null})
         );
         assert_eq!(geloescht["zustand"], "geloescht");
         assert_eq!(geloescht["geaendert"], "2026-10-28T12:06:00.000+01:00");

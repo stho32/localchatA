@@ -375,6 +375,7 @@ mod tests {
             anhaenge: Vec::new(),
             geaendert: None,
             bezug: None,
+            antwort_auf: None,
         };
         let veroeffentlichen = aenderungen_veroeffentlichen(&bus);
 

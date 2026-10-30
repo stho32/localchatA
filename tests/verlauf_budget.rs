@@ -233,6 +233,7 @@ async fn k2_unter_dem_budget_gilt_n_und_die_antwort_behaelt_ihre_form() {
             felder,
             [
                 "anhaenge",
+                "antwort_auf",
                 "art",
                 "geaendert",
                 "text",
@@ -240,7 +241,7 @@ async fn k2_unter_dem_budget_gilt_n_und_die_antwort_behaelt_ihre_form() {
                 "zeit",
                 "zustand"
             ],
-            "R00011 ergänzt art, R00029 anhaenge, R00039 zustand und geaendert"
+            "R00011 ergänzt art, R00029 anhaenge, R00039 zustand und geaendert, R00047 antwort_auf"
         );
         assert_eq!(
             nachricht["art"],

@@ -318,6 +318,7 @@ mod tests {
             anhaenge: Vec::new(),
             geaendert: None,
             bezug: None,
+            antwort_auf: None,
         });
         let kurz = logformat::satz(&Nachricht {
             zeit: t(T1),
@@ -327,6 +328,7 @@ mod tests {
             anhaenge: Vec::new(),
             geaendert: None,
             bezug: None,
+            antwort_auf: None,
         });
 
         for satz in [satz, kurz] {

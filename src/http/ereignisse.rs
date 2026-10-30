@@ -433,6 +433,7 @@ mod tests {
                 zustand: Aenderungszustand::Bearbeitet,
             }),
             bezug: None,
+            antwort_auf: None,
         };
 
         assert_eq!(
@@ -443,7 +444,7 @@ mod tests {
                 "nachricht": {
                     "zeit": "2026-10-28T12:00:00.001+01:00", "von": "beta@127.0.0.1", "art": "agent",
                     "text": "Hallo zusammen", "zustand": "bearbeitet",
-                    "geaendert": "2026-10-28T12:05:00.000+01:00", "anhaenge": []
+                    "geaendert": "2026-10-28T12:05:00.000+01:00", "anhaenge": [], "antwort_auf": null
                 }
             })
         );
@@ -1003,6 +1004,7 @@ mod tests {
                     anhaenge: Vec::new(),
                     geaendert: None,
                     bezug: None,
+                    antwort_auf: None,
                 },
             });
             let ben = alles_lesen(&mut zwei.ben, Duration::from_millis(50)).await;

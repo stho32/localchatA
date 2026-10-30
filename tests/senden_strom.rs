@@ -38,7 +38,7 @@ async fn us7_die_nachricht_kommt_im_strom_an() {
     assert_eq!(
         ereignis.data,
         json!({"art": "nachricht", "channel": "allgemein", "nachricht": {
-            "zeit": antwort.json["nachricht"]["zeit"], "von": "beta@127.0.0.1", "art": "agent", "text": "Hallo", "anhaenge": [], "zustand": null, "geaendert": null}})
+            "zeit": antwort.json["nachricht"]["zeit"], "von": "beta@127.0.0.1", "art": "agent", "text": "Hallo", "anhaenge": [], "zustand": null, "geaendert": null, "antwort_auf": null}})
     );
     let dauer = ereignis.ankunft.saturating_duration_since(erhalten);
     println!("Z10 gemessen: {dauer:?} (Grenze {Z10:?})");

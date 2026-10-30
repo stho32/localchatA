@@ -107,6 +107,7 @@ fn nachricht(nummer: usize, zeit: Zeit) -> io::Result<Nachricht> {
         anhaenge: Vec::new(),
         geaendert: None,
         bezug: None,
+        antwort_auf: None,
     })
 }
 
@@ -179,6 +180,7 @@ fn satz_mit_bytes(zeit: Zeit, bytes: u64) -> io::Result<String> {
         anhaenge: Vec::new(),
         geaendert: None,
         bezug: None,
+        antwort_auf: None,
     });
     let laenge = usize::try_from(bytes).unwrap_or(usize::MAX) - (leer.len() - 1);
     let text: String = "Fuellung fuer die Quote "
@@ -194,5 +196,6 @@ fn satz_mit_bytes(zeit: Zeit, bytes: u64) -> io::Result<String> {
         anhaenge: Vec::new(),
         geaendert: None,
         bezug: None,
+        antwort_auf: None,
     }))
 }

@@ -48,7 +48,7 @@ async fn us1_senden_und_dieselbe_nachricht_wieder_lesen_auch_nach_dem_neustart()
         .to_string();
     assert_eq!(
         antwort.json,
-        json!({"channel": "allgemein", "nachricht": {"zeit": zeit, "von": "beta@127.0.0.1", "art": "agent", "text": "Hallo\nWelt", "anhaenge": [], "zustand": null, "geaendert": null}})
+        json!({"channel": "allgemein", "nachricht": {"zeit": zeit, "von": "beta@127.0.0.1", "art": "agent", "text": "Hallo\nWelt", "anhaenge": [], "zustand": null, "geaendert": null, "antwort_auf": null}})
     );
     let datei = String::from_utf8(tagesinhalt(wurzel.path(), "allgemein")).expect("UTF-8");
     assert!(
@@ -275,7 +275,7 @@ async fn us3_abgewiesen_wird_mit_regel_und_text_nichts_wird_umgeformt() {
     );
     assert_eq!(
         feld.json,
-        json!({"fehler": "Unbekanntes Feld antwort — erlaubt sind text und anhaenge.", "regel": "feld", "feld": "antwort"})
+        json!({"fehler": "Unbekanntes Feld antwort — erlaubt sind text, anhaenge und antwort_auf.", "regel": "feld", "feld": "antwort"})
     );
     assert_eq!(
         kein_text.json,

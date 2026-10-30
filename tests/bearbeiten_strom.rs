@@ -102,7 +102,7 @@ async fn die_aenderung_kommt_live_an() {
         ereignis.data,
         json!({"art": "aenderung", "channel": "allgemein", "nachricht": {
             "zeit": t1, "von": "beta@127.0.0.1", "art": "agent", "text": "Hallo zusammen",
-            "zustand": "bearbeitet", "geaendert": antwort.json["nachricht"]["geaendert"], "anhaenge": []}})
+            "zustand": "bearbeitet", "geaendert": antwort.json["nachricht"]["geaendert"], "anhaenge": [], "antwort_auf": null}})
     );
     let dauer = ereignis.ankunft.saturating_duration_since(erhalten);
     println!("Ereignis nach der 200: {dauer:?} (Grenze {GRENZE:?})");

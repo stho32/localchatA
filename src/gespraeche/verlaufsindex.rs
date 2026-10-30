@@ -5,6 +5,7 @@
 
 use super::abfrage::{Abfrage, Abschnitt};
 use super::logformat;
+use super::zitat::{Fund, Fundaenderung};
 use crate::uhr::Zeit;
 use chrono::NaiveDate;
 use std::collections::BTreeMap;
@@ -121,6 +122,20 @@ impl Verlauf {
             satz: satz.to_vec(),
             aenderung,
         })
+    }
+
+    /// Das Original mit genau dieser Zeit (als Zeitpunkt), geliehen statt kopiert, samt Fassung (ADR-0053 Regel 3):
+    /// das Zitat liest daraus nur, bis sein Textanfang feststeht.
+    pub fn fund(&self, zeit: &Zeit) -> Option<Fund<'_>> {
+        let satz = nachricht_finden(&self.tage, zeit)?;
+        let eigene = logformat::kopfzeit(satz)?;
+        let aenderung = self.fassung(&eigene).map(|fassung| Fundaenderung {
+            geaendert: fassung.geaendert,
+            satz: self
+                .aenderungsspanne(&fassung)
+                .map(|(tag, spanne)| &tag.rohtext[spanne]),
+        });
+        Some(Fund { satz, aenderung })
     }
 
     /// Die Zeiten der gelöschten Nachrichten, aufsteigend.
@@ -876,6 +891,43 @@ mod tests {
                 b"@ 2026-10-28T10:00:01.000+01:00 a@b\n  zwei\n\n".to_vec()
             ]
         );
+    }
+
+    /// R00047 B0706: `fund` liefert das Original geliehen, mit dem Änderungssatz der Fassung; eine unbekannte Zeit,
+    /// die Zeit eines Änderungssatzes und eine andere Millisekunde finden nichts.
+    #[test]
+    fn der_fund_leiht_das_original_und_seinen_aenderungssatz() {
+        let original = b"@ 2026-10-28T10:00:00.000+01:00 a@b\n  eins\n\n".to_vec();
+        let mut verlauf = Verlauf::default();
+        verlauf.tag_aufnehmen(tag("2026-10-28"), original.clone(), vec![0]);
+        let bearbeitung = "@ 2026-10-28T10:00:05.000+01:00 a@b\n+ bearbeitet: 2026-10-28T10:00:00.000+01:00\n  zwei\n\n";
+        verlauf.bearbeitung_anhaengen(
+            tag("2026-10-28"),
+            bearbeitung,
+            false,
+            zeit("2026-10-28T10:00:00+01:00"),
+            zeit("2026-10-28T10:00:05+01:00"),
+        );
+
+        let fund = verlauf
+            .fund(&zeit("2026-10-28T09:00:00Z"))
+            .expect("als Zeitpunkt gefunden");
+
+        assert_eq!(fund.satz, original.as_slice());
+        assert_eq!(
+            fund.aenderung,
+            Some(Fundaenderung {
+                geaendert: zeit("2026-10-28T10:00:05+01:00"),
+                satz: Some(bearbeitung.as_bytes()),
+            })
+        );
+        for nichts in [
+            "2026-10-28T10:00:00.001+01:00",
+            "2026-10-28T10:00:05.000+01:00",
+            "2026-10-27T10:00:00.000+01:00",
+        ] {
+            assert_eq!(verlauf.fund(&zeit(nichts)), None, "{nichts}");
+        }
     }
 
     #[test]

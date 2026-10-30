@@ -286,6 +286,7 @@ pub fn satz_als_nachricht(satz: &[u8]) -> Option<Nachricht> {
             .collect(),
         geaendert: None,
         bezug: antwortbezug(&satz[..bereich.ende]).ok().flatten(),
+        antwort_auf: None,
     })
 }
 
@@ -1054,6 +1055,7 @@ mod tests {
             anhaenge: Vec::new(),
             geaendert: None,
             bezug: None,
+            antwort_auf: None,
         }
     }
 
@@ -1248,6 +1250,7 @@ mod tests {
                 anhaenge: Vec::new(),
                 geaendert: None,
                 bezug: None,
+                antwort_auf: None,
             })
         );
     }

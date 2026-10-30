@@ -73,6 +73,27 @@ pub struct Nachricht {
     pub geaendert: Option<Geaendert>,
     /// Bezug einer Antwort aus der Metazeile `+ antwort_auf:` (ADR-0053 Regel 1); ohne Bezug oder defekt keiner.
     pub bezug: Option<logformat::Antwortbezug>,
+    /// Der Bezug aufgelöst über das Original (ADR-0053 Regel 3) — gesetzt, wo eine Nachricht geliefert wird.
+    pub antwort_auf: Option<Box<zitat::Zitat>>,
+}
+
+/// Was gesendet wird (ADR-0034, ADR-0046, ADR-0053 Regel 2): Text, Anhänge, Wiederholschlüssel und die Zeit der
+/// Nachricht, auf die geantwortet wird.
+#[derive(Debug, Clone, Copy)]
+pub struct Sendung<'a> {
+    pub text: &'a str,
+    pub anhaenge: &'a [anhangid::Anhangid],
+    pub schluessel: Option<&'a str>,
+    pub antwort_auf: Option<Zeit>,
+}
+
+/// Warum ein Bezug beim Senden nicht gilt (422 `antwort_auf`, ADR-0053 Regel 2).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Antwortfehler {
+    /// Keine Nachricht mit dieser Zeit im Gespräch des Pfads (nie da, entfallen, anderes Gespräch, Änderungssatz).
+    Unbekannt,
+    /// Die Nachricht ist gelöscht.
+    Geloescht,
 }
 
 /// Die letzte Änderung einer Nachricht: Zeit des Änderungssatzes und Zustand.
@@ -113,6 +134,8 @@ pub enum Sendefehler {
         id: anhangid::Anhangid,
         grund: anhangeingang::Nehmgrund,
     },
+    /// Der Bezug gilt nicht (ADR-0053 Regel 2); geprüft vor dem Nehmen der Anhänge, nichts genommen, kein Satz.
+    Antwort(Antwortfehler),
     /// Binden scheiterte (auch: Ziel vorhanden, Symlink im Pfad); zurückgebaut, kein Satz (ADR-0046 Regel 6).
     /// `datei` nur als Präfix; `waisen`: Präfixe der Dateien, deren Zurücklegen scheiterte — sie bleiben als Waise
     /// im Tag.
@@ -144,6 +167,8 @@ impl fmt::Display for Sendefehler {
                 write!(f, "Quote erreicht: {belegt} von {hoechstens} Bytes belegt")
             }
             Sendefehler::Anhang { grund, .. } => write!(f, "Anhang {}", grund.als_text()),
+            Sendefehler::Antwort(Antwortfehler::Unbekannt) => write!(f, "Bezug unbekannt"),
+            Sendefehler::Antwort(Antwortfehler::Geloescht) => write!(f, "Bezug gelöscht"),
             Sendefehler::Binden { datei, grund, .. } => {
                 write!(f, "Anhang {datei} nicht gebunden: {grund}")
             }
@@ -463,7 +488,13 @@ impl Gespraeche {
         art: Art,
         text: &str,
     ) -> Result<Nachricht, Sendefehler> {
-        match self.senden_mit(gespraech, von, art, text, &[], None)?.0 {
+        let sendung = Sendung {
+            text,
+            anhaenge: &[],
+            schluessel: None,
+            antwort_auf: None,
+        };
+        match self.senden_mit(gespraech, von, art, sendung)?.0 {
             Gesendet::Neu(nachricht) | Gesendet::Wiederholt(nachricht) => Ok(nachricht),
         }
     }
@@ -495,8 +526,31 @@ impl Gespraeche {
         anhaenge: &[anhangid::Anhangid],
         schluessel: Option<&str>,
     ) -> Result<Gesendet, Sendefehler> {
-        let (gesendet, verdraengt) =
-            self.senden_mit(gespraech, von, art, text, anhaenge, schluessel)?;
+        self.senden_sendung(
+            gespraech,
+            von,
+            art,
+            Sendung {
+                text,
+                anhaenge,
+                schluessel,
+                antwort_auf: None,
+            },
+        )
+    }
+
+    /// Wie `senden_mit_anhaengen`, auch als Antwort (ADR-0053 Regel 2): der Bezug wird unter Gesprächs- und
+    /// Schreibsperre nach dem Wiederholschlüssel und vor dem Nehmen der Anhänge im Gespräch des Pfads nachgeschlagen —
+    /// unbekannt oder gelöscht → `Antwort`, nichts genommen, kein Satz; sonst trägt der Satz Zeit und Kennung des
+    /// Originals aus dessen Kopfzeile.
+    pub fn senden_sendung(
+        &self,
+        gespraech: &Gespraech,
+        von: &Kennung,
+        art: Art,
+        sendung: Sendung<'_>,
+    ) -> Result<Gesendet, Sendefehler> {
+        let (gesendet, verdraengt) = self.senden_mit(gespraech, von, art, sendung)?;
         if let Some(verdraengt) = verdraengt {
             self.schluessel_verdraengt.fetch_add(1, Ordering::SeqCst);
             (self.verdraengt_melden)(&verdraengt);
@@ -509,10 +563,14 @@ impl Gespraeche {
         gespraech: &Gespraech,
         von: &Kennung,
         art: Art,
-        text: &str,
-        ids: &[anhangid::Anhangid],
-        schluessel: Option<&str>,
+        sendung: Sendung<'_>,
     ) -> Result<(Gesendet, Option<Verdraengt>), Sendefehler> {
+        let Sendung {
+            text,
+            anhaenge: ids,
+            schluessel,
+            antwort_auf,
+        } = sendung;
         let verlauf = lesend(&self.verzeichnis)
             .verlaeufe
             .get(gespraech)
@@ -540,12 +598,15 @@ impl Gespraeche {
                     .map(|nachricht| self.zustand_eintragen(nachricht));
                 let nachricht = geaendert.unwrap_or_else(|| {
                     let zeilen = self.anhangzeilen_der_ids(ids);
-                    nachricht_bilden(zeit, von, art, text, zeilen).0
+                    nachricht_bilden(zeit, von, art, text, zeilen, None).0
                 });
                 return Ok((Gesendet::Wiederholt(nachricht), None));
             }
             Some(Pruefung::Neu) | None => {}
         }
+        let antwort = antwort_auf
+            .map(|zeit| bezug_pruefen(&verlauf, &zeit))
+            .transpose()?;
         let genommen = if ids.is_empty() {
             Vec::new()
         } else {
@@ -562,7 +623,7 @@ impl Gespraeche {
         self.letzte_ms
             .store(zeit.timestamp_millis(), Ordering::Relaxed);
         let zeilen = anhangzeilen_bilden(zeit, &genommen);
-        let (nachricht, satz) = nachricht_bilden(zeit, von, art, text, zeilen.clone());
+        let (nachricht, satz) = nachricht_bilden(zeit, von, art, text, zeilen.clone(), antwort);
         let satzbytes = satz.len() as u64;
         if let Some(hoechstens) = self.hoechstens
             && let Err(ueber) = self.belegung.pruefen(satzbytes, hoechstens)
@@ -1310,6 +1371,27 @@ fn lesend<T>(sperre: &RwLock<T>) -> std::sync::RwLockReadGuard<'_, T> {
         .unwrap_or_else(|vergiftet| vergiftet.into_inner())
 }
 
+/// Der Bezug einer Antwort, geprüft im Index des Gesprächs (ADR-0053 Regel 2): keine Nachricht mit dieser Zeit →
+/// `Unbekannt`, gelöscht → `Geloescht`; sonst Zeit und Kennung aus der Kopfzeile des Originals (nie die Schreibweise
+/// des Clients) und das Zitat in der aktuellen Fassung.
+fn bezug_pruefen(
+    verlauf: &Verlauf,
+    zeit: &Zeit,
+) -> Result<(logformat::Antwortbezug, zitat::Zitat), Sendefehler> {
+    let unbekannt = Sendefehler::Antwort(Antwortfehler::Unbekannt);
+    let fund = verlauf.fund(zeit).ok_or(unbekannt.clone())?;
+    if fund
+        .aenderung
+        .is_some_and(|aenderung| aenderung.satz.is_none())
+    {
+        return Err(Sendefehler::Antwort(Antwortfehler::Geloescht));
+    }
+    let (zeit, von) = logformat::kopf(fund.satz).ok_or(unbekannt)?;
+    let bezug = logformat::Antwortbezug { zeit, von };
+    let zitat = zitat::zitat(&bezug, Some(fund));
+    Ok((bezug, zitat))
+}
+
 /// Die Nachricht mit ihrem Satz; der Text so, wie die Verlauf-API ihn später liefert (ADR-0034 Regel 4).
 fn nachricht_bilden(
     zeit: Zeit,
@@ -1317,7 +1399,10 @@ fn nachricht_bilden(
     art: Art,
     text: &str,
     anhaenge: Vec<logformat::Anhangzeile>,
+    antwort: Option<(logformat::Antwortbezug, zitat::Zitat)>,
 ) -> (Nachricht, String) {
+    let (bezug, antwort_auf) = antwort.unzip();
+    let antwort_auf = antwort_auf.map(Box::new);
     let mut nachricht = Nachricht {
         zeit,
         von: von.clone(),
@@ -1325,7 +1410,8 @@ fn nachricht_bilden(
         text: text.to_string(),
         anhaenge,
         geaendert: None,
-        bezug: None,
+        bezug,
+        antwort_auf,
     };
     let satz = logformat::satz(&nachricht);
     nachricht.text = logformat::text(&satz);
@@ -1889,6 +1975,7 @@ mod tests {
                     zustand: Aenderungszustand::Bearbeitet,
                 }),
                 bezug: None,
+                antwort_auf: None,
             }]
         );
     }

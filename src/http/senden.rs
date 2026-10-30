@@ -16,7 +16,7 @@ use super::nachrichten::NachrichtAntwort;
 use super::teilnehmer::Teilnehmer;
 use crate::gespraeche::anhangid::Anhangid;
 use crate::gespraeche::textregel::{TEXT_HOECHSTENS_BYTES, Textfehler, text_pruefen};
-use crate::gespraeche::{Gesendet, Gespraech, Nachricht, Sendefehler};
+use crate::gespraeche::{Antwortfehler, Gesendet, Gespraech, Nachricht, Sendefehler, Sendung};
 use crate::protokoll::episoden::{Auftreten, Quelle};
 use crate::protokoll::vorlauf;
 use crate::protokoll::{Bereich, Kontext, Schluessel, Stufe};
@@ -85,8 +85,19 @@ pub async fn senden(
                 Sendekoerperfehler::Feld { .. } => "feld_unbekannt",
                 Sendekoerperfehler::Anhaenge => "anhaenge",
                 Sendekoerperfehler::Anhang { .. } => "anhang",
+                Sendekoerperfehler::AntwortAuf => "antwort_auf_format",
             };
             return mit_regel(sendekoerper_abgewiesen(fehler), regel, Some(&wer));
+        }
+    };
+    let antwort_auf = match antwort_auf_lesen(&wert) {
+        Ok(antwort_auf) => antwort_auf,
+        Err(fehler) => {
+            return mit_regel(
+                sendekoerper_abgewiesen(fehler),
+                "antwort_auf_format",
+                Some(&wer),
+            );
         }
     };
     let text = match text_mit_anhaengen(&text, anhaenge.len()) {
@@ -126,13 +137,16 @@ pub async fn senden(
     let von = teilnehmer.kennung.clone();
     let art = teilnehmer.art;
     let ergebnis = tokio::task::spawn_blocking(move || {
-        gespraeche.senden_mit_anhaengen(
+        gespraeche.senden_sendung(
             &gespraech,
             &von,
             art,
-            &text,
-            &anhaenge,
-            schluessel.as_deref(),
+            Sendung {
+                text: &text,
+                anhaenge: &anhaenge,
+                schluessel: schluessel.as_deref(),
+                antwort_auf,
+            },
         )
     })
     .await;
@@ -180,6 +194,13 @@ pub async fn senden(
             "anhang",
             Some(&wer),
         ),
+        Ok(Err(Sendefehler::Antwort(fehler))) => {
+            let regel = match fehler {
+                Antwortfehler::Unbekannt => "antwort_auf_unbekannt",
+                Antwortfehler::Geloescht => "antwort_auf_geloescht",
+            };
+            mit_regel(antwort_abgewiesen(fehler), regel, Some(&wer))
+        }
         Ok(Err(Sendefehler::Binden {
             tag,
             datei,
@@ -437,7 +458,7 @@ fn sendekoerper_abgewiesen(fehler: Sendekoerperfehler) -> Response {
             "regel": "text",
         }),
         Sendekoerperfehler::Feld { feld } => json!({
-            "fehler": format!("Unbekanntes Feld {feld} — erlaubt sind text und anhaenge."),
+            "fehler": format!("Unbekanntes Feld {feld} — erlaubt sind text, anhaenge und antwort_auf."),
             "regel": "feld",
             "feld": feld,
         }),
@@ -452,8 +473,33 @@ fn sendekoerper_abgewiesen(fehler: Sendekoerperfehler) -> Response {
             "id": id,
             "grund": grund,
         }),
+        Sendekoerperfehler::AntwortAuf => json!({
+            "fehler": ANTWORT_AUF_FORMAT,
+            "regel": "antwort_auf",
+            "grund": "format",
+        }),
     };
     (StatusCode::UNPROCESSABLE_ENTITY, Json(antwort)).into_response()
+}
+
+/// Texte der Abweisung eines Bezugs (ADR-0053 Regel 2), wörtlich.
+const ANTWORT_AUF_FORMAT: &str = "antwort_auf muss die Zeit einer Nachricht sein, wie sie im Verlauf steht (RFC 3339, z. B. 2026-10-30T09:10:03.004+01:00).";
+const ANTWORT_AUF_UNBEKANNT: &str =
+    "Die Nachricht, auf die du antwortest, gibt es in diesem Gespräch nicht (mehr).";
+const ANTWORT_AUF_GELOESCHT: &str = "Die Nachricht, auf die du antwortest, ist gelöscht.";
+
+/// 422 `{fehler, regel: "antwort_auf", grund}` für einen Bezug, der unter der Sperre nicht gilt; eine Zeit aus einem
+/// anderen Gespräch antwortet wie eine nie dagewesene (ADR-0053 Regel 10).
+fn antwort_abgewiesen(fehler: Antwortfehler) -> Response {
+    let (text, grund) = match fehler {
+        Antwortfehler::Unbekannt => (ANTWORT_AUF_UNBEKANNT, "unbekannt"),
+        Antwortfehler::Geloescht => (ANTWORT_AUF_GELOESCHT, "geloescht"),
+    };
+    (
+        StatusCode::UNPROCESSABLE_ENTITY,
+        Json(json!({ "fehler": text, "regel": "antwort_auf", "grund": grund })),
+    )
+        .into_response()
 }
 
 /// Der Satz zu einem Anhang, der nicht gesendet werden kann.
@@ -518,6 +564,8 @@ pub enum Sendekoerperfehler {
     Anhaenge,
     /// Ein Eintrag ist keine ID (`unbekannt`) oder steht zweimal (`doppelt`).
     Anhang { id: String, grund: &'static str },
+    /// `antwort_auf` ist weder `null` noch eine Zeit nach RFC 3339 (ADR-0053 Regel 2).
+    AntwortAuf,
 }
 
 /// Text und Anhänge aus dem Körper `{"text": "…", "anhaenge"?: ["<id>", …]}` (B0439, ADR-0034 Regel 3.3 mit
@@ -526,7 +574,7 @@ pub fn sendekoerper_lesen(wert: &Value) -> Result<(&str, Vec<Anhangid>), Sendeko
     let objekt = wert.as_object().ok_or(Sendekoerperfehler::Text)?;
     if let Some(feld) = objekt
         .keys()
-        .find(|feld| *feld != "text" && *feld != "anhaenge")
+        .find(|feld| !["text", "anhaenge", "antwort_auf"].contains(&feld.as_str()))
     {
         return Err(Sendekoerperfehler::Feld { feld: feld.clone() });
     }
@@ -559,6 +607,19 @@ pub fn sendekoerper_lesen(wert: &Value) -> Result<(&str, Vec<Anhangid>), Sendeko
         ids.push(id);
     }
     Ok((text, ids))
+}
+
+/// Der Bezug aus dem Körper (ADR-0053 Regel 2, vor der Sperre): fehlt `antwort_auf` oder ist es `null`, keiner; eine
+/// Zeichenkette in RFC 3339 ist die Zeit der Nachricht, auf die geantwortet wird (verglichen als Zeitpunkt); alles
+/// andere ist `AntwortAuf`.
+pub fn antwort_auf_lesen(wert: &Value) -> Result<Option<crate::uhr::Zeit>, Sendekoerperfehler> {
+    match wert.get("antwort_auf") {
+        None | Some(Value::Null) => Ok(None),
+        Some(Value::String(zeit)) => crate::uhr::Zeit::parse_from_rfc3339(zeit)
+            .map(Some)
+            .map_err(|_| Sendekoerperfehler::AntwortAuf),
+        Some(_) => Err(Sendekoerperfehler::AntwortAuf),
+    }
 }
 
 /// Mit mindestens einem Anhang ist ein Text nur aus Leerraum erlaubt und wird als `""` gespeichert (Betreiber B5);
