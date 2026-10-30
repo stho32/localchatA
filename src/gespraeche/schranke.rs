@@ -16,6 +16,9 @@ pub(super) enum Vorgang {
     Pflegen,
     /// Das Bereitstellen eines Direktgesprächs, vor der Sperre des Verzeichnisses (ADR-0055 Regel 4, W5).
     DirektAnlegen,
+    /// Das Zurückbauen eines Direktgesprächs nach gescheitertem ersten Senden, vor der Sperre des Verzeichnisses
+    /// (ADR-0055 Regel 10).
+    DirektZurueckbauen,
 }
 
 #[derive(Default)]
@@ -24,6 +27,7 @@ pub(super) struct Schranken {
     loeschen: Mutex<Option<Arc<Barrier>>>,
     pflegen: Mutex<Option<Arc<Barrier>>>,
     direkt_anlegen: Mutex<Option<Arc<Barrier>>>,
+    direkt_zurueckbauen: Mutex<Option<Arc<Barrier>>>,
     /// Wie oft noch ein Direktgespräch nach dem Bereitstellen aus dem Verzeichnis verschwindet.
     verschwinden: AtomicUsize,
 }
@@ -35,6 +39,7 @@ impl Schranken {
             Vorgang::Loeschen => &self.loeschen,
             Vorgang::Pflegen => &self.pflegen,
             Vorgang::DirektAnlegen => &self.direkt_anlegen,
+            Vorgang::DirektZurueckbauen => &self.direkt_zurueckbauen,
         }
     }
 

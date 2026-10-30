@@ -114,7 +114,7 @@ impl Gespraeche {
         let gespraech = Gespraech::Direkt(paar.clone());
         let mut versuche = 0;
         loop {
-            let neu = self.direkt_bereitstellen(&gespraech, von)?;
+            let (neu, halter) = self.direkt_bereitstellen(&gespraech, von)?;
             #[cfg(test)]
             if self.schranken.verschwindet() {
                 schreibend(&self.verzeichnis).verlaeufe.remove(&gespraech);
@@ -122,6 +122,8 @@ impl Gespraeche {
             let ergebnis = self.senden_sendung(&gespraech, von, art, sendung);
             // Was keinen Satz schrieb (Fehler, aber auch `Wiederholt` für ein Paar, das die Pflege inzwischen entfernt
             // hat), lässt keinen leeren Ordner zurück.
+            // Der Halter fällt vorher: nur wer sonst noch das Paar hält, hält das Zurückbauen auf.
+            drop(halter);
             if neu && !matches!(ergebnis, Ok(Gesendet::Neu(_))) {
                 self.direkt_zurueckbauen(&gespraech);
             }
@@ -154,18 +156,20 @@ impl Gespraeche {
 
     /// Stellt das Paar bereit: unter der Sperre des Verzeichnisses nachschlagen, fehlt es, Ordner anlegen und den
     /// leeren Verlauf eintragen, der den Anleger schon vermerkt — die Grenze je Herkunft zählt ihn vom Bereitstellen an,
-    /// nicht erst mit seiner ersten Nachricht (sonst zählten gleichzeitig beginnende Paare nicht mit). `true`, wenn dieser Aufruf es angelegt hat. Gleichzeitiges erstes Senden beider
+    /// nicht erst mit seiner ersten Nachricht (sonst zählten gleichzeitig beginnende Paare nicht mit). Gibt außerdem
+    /// den Verlauf zurück, den der Aufrufer bis zum Ende seines Sendens hält: wer das Paar hält, dessen Ordner nimmt
+    /// weder die Pflege noch ein anderer Sender zurück, auch nicht zwischen Bereitstellen und Senden. `true`, wenn dieser Aufruf es angelegt hat. Gleichzeitiges erstes Senden beider
     /// Seiten ergibt einen Ordner, weil das Nachschlagen und das Anlegen unter derselben Sperre liegen.
     fn direkt_bereitstellen(
         &self,
         gespraech: &Gespraech,
         von: &Kennung,
-    ) -> Result<bool, Sendefehler> {
+    ) -> Result<(bool, Arc<Mutex<Verlauf>>), Sendefehler> {
         #[cfg(test)]
         self.schranken.passieren(Vorgang::DirektAnlegen);
         let mut verzeichnis = schreibend(&self.verzeichnis);
-        if verzeichnis.verlaeufe.contains_key(gespraech) {
-            return Ok(false);
+        if let Some(verlauf) = verzeichnis.verlaeufe.get(gespraech) {
+            return Ok((false, Arc::clone(verlauf)));
         }
         self.direkt_grenze_pruefen(&verzeichnis, von)
             .map_err(Sendefehler::DirektGrenze)?;
@@ -180,15 +184,15 @@ impl Gespraeche {
                 });
             }
         };
-        verzeichnis.verlaeufe.insert(
-            gespraech.clone(),
-            Arc::new(Mutex::new(if angelegt {
-                Verlauf::angelegt_von(von.clone())
-            } else {
-                Verlauf::default()
-            })),
-        );
-        Ok(angelegt)
+        let verlauf = Arc::new(Mutex::new(if angelegt {
+            Verlauf::angelegt_von(von.clone())
+        } else {
+            Verlauf::default()
+        }));
+        verzeichnis
+            .verlaeufe
+            .insert(gespraech.clone(), Arc::clone(&verlauf));
+        Ok((angelegt, verlauf))
     }
 
     /// Die Grenzen neuer Paare (ADR-0055 Regel 4, E16–E18), unter der Schreibsperre des Verzeichnisses, nur für ein
@@ -234,11 +238,17 @@ impl Gespraeche {
         Ok(())
     }
 
-    /// Nimmt ein Paar zurück, dessen erstes Senden scheiterte: nur wenn es noch keine Nachricht hat, nur ein leerer
-    /// Ordner (`rmdir`); scheitert das, bleibt es stehen und die Pflege räumt es auf (ADR-0055 Regel 10).
+    /// Nimmt ein Paar zurück, dessen erstes Senden scheiterte: nur wenn es noch keine Nachricht hat und niemand sonst
+    /// den Verlauf hält (wie die Pflege: ein zweiter Sender, der das Paar vorfand, behält es), nur ein leerer Ordner
+    /// (`rmdir`); scheitert das, bleibt es stehen und die Pflege räumt es auf (ADR-0055 Regel 10).
     fn direkt_zurueckbauen(&self, gespraech: &Gespraech) {
+        #[cfg(test)]
+        self.schranken.passieren(Vorgang::DirektZurueckbauen);
         let mut verzeichnis = schreibend(&self.verzeichnis);
         let leer = verzeichnis.verlaeufe.get(gespraech).is_some_and(|verlauf| {
+            if Arc::strong_count(verlauf) > 1 {
+                return false;
+            }
             let verlauf = sperren(verlauf);
             verlauf.nachrichten() == 0 && verlauf.bytes() == 0
         });
@@ -676,6 +686,53 @@ mod tests {
         gespraeche.direkt_zurueckbauen(&Gespraech::Direkt(paar()));
 
         assert!(gespraeche.direkt_besteht(&paar()), "Nachricht im Verlauf");
+    }
+
+    /// Code-Review #13 F0175 Sollte 3: ein zweiter Sender hält das Paar schon (er hat es unter der Sperre des
+    /// Verzeichnisses vorgefunden), da scheitert das erste Senden des Anlegers und will zurückbauen. Es darf nicht — wie
+    /// die Pflege nimmt es kein Paar, das ein anderer hält (`strong_count`); sonst findet der zweite Sender sein Paar
+    /// nicht mehr (Mutante „Halter-Prüfung weg“: `Unbekannt`, der Ordner fehlt).
+    #[test]
+    fn das_zurueckbauen_nimmt_kein_paar_das_ein_zweiter_sender_schon_haelt() {
+        let wurzel = tempfile::tempdir().expect("Wegwerf-Ordner");
+        let gespraeche = Arc::new(laden(wurzel.path()));
+        let schranke = gespraeche.vor_den_sperren_anhalten(Vorgang::DirektZurueckbauen);
+        let bezug =
+            chrono::DateTime::parse_from_rfc3339("2026-10-28T11:00:00.000+01:00").expect("Zeit");
+        let anleger = {
+            let gespraeche = Arc::clone(&gespraeche);
+            std::thread::spawn(move || {
+                gespraeche.direkt_senden(
+                    &paar(),
+                    &anna(),
+                    Art::Agent,
+                    Sendung {
+                        antwort_auf: Some(bezug),
+                        ..sendung("scheitert")
+                    },
+                )
+            })
+        };
+        schranke.wait(); // der Anleger steht vor dem Zurückbauen
+        let gespraech = Gespraech::Direkt(paar());
+        let halter = gespraeche
+            .direkt_bereitstellen(&gespraech, &ben())
+            .expect("vorgefunden");
+        schranke.wait(); // der Anleger baut jetzt zurück
+        let anleger = anleger.join().expect("Thread");
+
+        let zweiter =
+            gespraeche.senden_sendung(&gespraech, &ben(), Art::Agent, sendung("kommt an"));
+
+        assert_eq!(
+            anleger,
+            Err(Sendefehler::Antwort(
+                crate::gespraeche::Antwortfehler::Unbekannt
+            ))
+        );
+        assert!(matches!(zweiter, Ok(Gesendet::Neu(_))), "{zweiter:?}");
+        assert_eq!(eintraege(&wurzel.path().join("direkt")), [PAARORDNER]);
+        drop(halter);
     }
 
     // ---- B0779: Grenzen neuer Paare (ADR-0055 Regel 4, E16–E18, Baustein D13) -------------------------------------
