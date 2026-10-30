@@ -5,6 +5,7 @@
 //! Nachricht; mit Filter genügt **ein** passender Teil (Vereinigung). Direktgespräche treffen erst, wenn ihre
 //! Beteiligten bekannt sind (I0012, B0747), bis dahin nie.
 
+use super::erwaehnung::erwaehnte_namen;
 use super::{Aenderungszustand, Gespraech, Kennung, Nachricht};
 use std::collections::BTreeSet;
 
@@ -67,9 +68,23 @@ pub fn treffer(
     if &nachricht.von == wartender || geloescht {
         return None;
     }
-    let anlass = Vec::new();
+    let anlass = anlaesse(nachricht, wartender);
     let im_channel = filter.channels.contains(channel);
-    (filter.ohne_angabe() || im_channel).then_some(anlass)
+    let erwaehnt = filter.erwaehnung && anlass.contains(&Anlass::Erwaehnung);
+    (filter.ohne_angabe() || im_channel || erwaehnt).then_some(anlass)
+}
+
+/// Die Fakten einer fremden Nachricht für den Wartenden, aufsteigend (Regel 2): ob sie seinen Namen erwähnt.
+fn anlaesse(nachricht: &Nachricht, wartender: &Kennung) -> Vec<Anlass> {
+    let mut anlass = Vec::new();
+    let name = wartender.name();
+    if erwaehnte_namen(&nachricht.text)
+        .iter()
+        .any(|erwaehnt| erwaehnt == name)
+    {
+        anlass.push(Anlass::Erwaehnung);
+    }
+    anlass
 }
 
 #[cfg(test)]
@@ -206,6 +221,174 @@ mod tests {
                 treffer(gespraech, &nachricht, &kennung(CLAUDE), filter),
                 erwartet,
                 "{fall}"
+            );
+        }
+    }
+
+    fn mit_text(von: &str, text: &str) -> Nachricht {
+        Nachricht {
+            text: text.to_string(),
+            ..nachricht(von)
+        }
+    }
+
+    fn erwaehnung(namen: &[&str]) -> Filter {
+        Filter {
+            erwaehnung: true,
+            ..channels(namen)
+        }
+    }
+
+    /// W2b (B0742): Trefferregel Erwähnung — `erwaehnung` gesetzt, Vereinigung mit `channel`, eigene Nachricht,
+    /// Sammel-Erwähnungen (A1); `anlass` nennt die Erwähnung als Fakt, auch ohne Schalter (Regel 2).
+    #[test]
+    fn die_trefferregel_der_erwaehnung_als_tabelle() {
+        let a = Gespraech::channel("a");
+        let b = Gespraech::channel("b");
+        let nur_erwaehnung = erwaehnung(&[]);
+        let a_oder_erwaehnung = erwaehnung(&["a"]);
+        let ohne = Filter::default();
+        let nur_a = channels(&["a"]);
+        let kein: Option<Vec<Anlass>> = None;
+        let leer = Some(Vec::new());
+        let erwaehnt = Some(vec![Anlass::Erwaehnung]);
+        let faelle = [
+            (
+                "erwaehnung, @claude in b",
+                &b,
+                mit_text(ANNA, "@claude bitte prüfen"),
+                &nur_erwaehnung,
+                erwaehnt.clone(),
+            ),
+            (
+                "erwaehnung, ohne Erwähnung in b",
+                &b,
+                mit_text(ANNA, "bitte prüfen"),
+                &nur_erwaehnung,
+                kein.clone(),
+            ),
+            (
+                "erwaehnung, @claudex in b",
+                &b,
+                mit_text(ANNA, "@claudex hi"),
+                &nur_erwaehnung,
+                kein.clone(),
+            ),
+            (
+                "channel=a&erwaehnung, @claude in b",
+                &b,
+                mit_text(ANNA, "hi @Claude."),
+                &a_oder_erwaehnung,
+                erwaehnt.clone(),
+            ),
+            (
+                "channel=a&erwaehnung, ohne Erwähnung in b",
+                &b,
+                mit_text(ANNA, "Hallo"),
+                &a_oder_erwaehnung,
+                kein.clone(),
+            ),
+            (
+                "channel=a&erwaehnung, ohne Erwähnung in a",
+                &a,
+                mit_text(ANNA, "Hallo"),
+                &a_oder_erwaehnung,
+                leer.clone(),
+            ),
+            (
+                "channel=a&erwaehnung, @claude in a",
+                &a,
+                mit_text(ANNA, "@claude"),
+                &a_oder_erwaehnung,
+                erwaehnt.clone(),
+            ),
+            (
+                "erwaehnung, eigene mit eigenem Namen",
+                &b,
+                mit_text(CLAUDE, "@claude merkt sich das"),
+                &nur_erwaehnung,
+                kein.clone(),
+            ),
+            (
+                "channel=a&erwaehnung, eigene mit eigenem Namen in a",
+                &a,
+                mit_text(CLAUDE, "@claude"),
+                &a_oder_erwaehnung,
+                kein.clone(),
+            ),
+            (
+                "erwaehnung, @alle (A1)",
+                &b,
+                mit_text(ANNA, "@alle bitte lesen"),
+                &nur_erwaehnung,
+                kein.clone(),
+            ),
+            (
+                "erwaehnung, @hier (A1)",
+                &b,
+                mit_text(ANNA, "@hier kurz melden"),
+                &nur_erwaehnung,
+                kein.clone(),
+            ),
+            (
+                "erwaehnung, gelöscht",
+                &b,
+                Nachricht {
+                    text: "@claude".to_string(),
+                    ..geloescht(ANNA)
+                },
+                &nur_erwaehnung,
+                kein.clone(),
+            ),
+            (
+                "erwaehnung, Direktgespräch",
+                &Gespraech::Direkt("anna".to_string()),
+                mit_text(ANNA, "@claude"),
+                &nur_erwaehnung,
+                kein.clone(),
+            ),
+            (
+                "ohne Filter, @claude in b: Anlass als Fakt",
+                &b,
+                mit_text(ANNA, "@claude"),
+                &ohne,
+                erwaehnt.clone(),
+            ),
+            (
+                "channel=a, @claude in a: Anlass als Fakt",
+                &a,
+                mit_text(ANNA, "@claude"),
+                &nur_a,
+                erwaehnt.clone(),
+            ),
+            (
+                "channel=a, @claude in b: ohne Schalter kein Treffer",
+                &b,
+                mit_text(ANNA, "@claude"),
+                &nur_a,
+                kein.clone(),
+            ),
+        ];
+        for (fall, gespraech, nachricht, filter, erwartet) in faelle {
+            assert_eq!(
+                treffer(gespraech, &nachricht, &kennung(CLAUDE), filter),
+                erwartet,
+                "{fall}"
+            );
+        }
+    }
+
+    /// Die Erwähnung trifft den Namen, nicht die Herkunft (ADR-0054 Regel 6, ADR-0013): ein gleichnamiger
+    /// Wartender anderer Herkunft wird von `@claude` geweckt — auch `@claude@127.0.0.1` nennt nur den Namen.
+    #[test]
+    fn die_erwaehnung_trifft_den_namen_jeder_herkunft() {
+        let b = Gespraech::channel("b");
+        let anderswo = kennung("claude@10.0.0.5");
+        for text in ["@claude", "@claude@127.0.0.1"] {
+            assert_eq!(
+                treffer(&b, &mit_text(ANNA, text), &anderswo, &erwaehnung(&[])),
+                Some(vec![Anlass::Erwaehnung]),
+                "{text}"
             );
         }
     }

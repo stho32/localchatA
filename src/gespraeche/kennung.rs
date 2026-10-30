@@ -35,6 +35,13 @@ impl Kennung {
         &self.0
     }
 
+    /// Der Name, der Teil vor dem `@` — ihn trifft eine Erwähnung (ADR-0054 Regel 6).
+    pub fn name(&self) -> &str {
+        self.0
+            .split_once('@')
+            .map_or(self.0.as_str(), |(name, _)| name)
+    }
+
     /// Die Herkunft als Adresse, IPv4-gemappte Formen als IPv4 (wie an der Grenze, ADR-0012); eine Herkunft,
     /// die keine Adresse ist (von Hand geschrieben, etwa `x`), hat keine.
     pub fn herkunft(&self) -> Option<IpAddr> {
@@ -57,6 +64,17 @@ impl fmt::Display for Kennung {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn der_name_ist_der_teil_vor_dem_at() {
+        for (text, name) in [
+            ("claude@10.0.0.5", "claude"),
+            ("claude-entwickler@fe80::1", "claude-entwickler"),
+            ("a@1", "a"),
+        ] {
+            assert_eq!(Kennung::bilden(text).expect(text).name(), name);
+        }
+    }
 
     #[test]
     fn name_at_herkunft_ist_eine_kennung_auch_mit_ipv6() {
