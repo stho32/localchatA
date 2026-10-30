@@ -44,7 +44,9 @@ for (const geraet of ['telefon', 'tablet']) {
     await expect(imMenue(a.page, zeit, 'Löschen')).toBeVisible();
     await imMenue(a.page, zeit, 'Bearbeiten').tap();
     await expect(feld(a.page)).toBeFocused();
-    await expect(schalter(a.page, zeit)).toHaveAttribute('aria-expanded', 'false');
+    // Am Feld ist der Schalter „⋯“ ausgeblendet (#78 UX S2) und damit nicht mehr per Rolle zu finden.
+    await expect(nachrichtMitZeit(a.page, zeit).locator('.lc-aktionen-schalter')).toHaveAttribute('aria-expanded', 'false');
+    await expect(schalter(a.page, zeit)).toBeHidden();
     await a.page.keyboard.press('Enter');
     await a.page.keyboard.type('Welt');
     await expect(feld(a.page)).toHaveValue('Hallo\nWelt');
