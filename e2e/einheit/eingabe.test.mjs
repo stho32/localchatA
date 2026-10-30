@@ -90,3 +90,21 @@ test('feiner Zeiger: alle Fälle aus R00011 „Tasten“ unverändert', () => {
     assert.equal(taste(ereignis, text, 'fein'), erwartet, JSON.stringify({ ...ereignis, text }));
   }
 });
+
+// R00030 F0101 „Bereit-Regel“ (B0449, wörtlich): sendbar("", 1 Datei) → wahr; sendbar("   ", 1 Datei) → wahr (Text wird
+// ""); sendbar("", 0) → falsch; sendbar(16.385 × "a", 1 Datei) → falsch (Textregel); sendbar("a", 0) → wahr wie R00027.
+// Die Mutante „Dateien ignoriert“ wird rot.
+test('sendbar mit Dateien: leerer Text oder Leerraum reicht, die Textregel gilt weiter', () => {
+  assert.equal(sendbar('', 1), true);
+  assert.equal(sendbar('   ', 1), true);
+  assert.equal(sendbar('', 0), false);
+  assert.equal(sendbar('a'.repeat(16385), 1), false);
+  assert.equal(sendbar('a', 0), true);
+  assert.equal(sendbar('rot \u001b[31m', 3), false);
+  assert.equal(sendbar(' \n\t', 10), true);
+});
+
+test('sendbar ohne Angabe der Dateien bleibt die Regel aus R00027', () => {
+  assert.equal(sendbar(''), false);
+  assert.equal(sendbar('a'), true);
+});

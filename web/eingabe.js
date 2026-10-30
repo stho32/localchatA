@@ -4,13 +4,16 @@ import { hinweis, hinweisAnsagen } from './hinweis.js';
 import { zuEigenerLetzten } from './fokus.js';
 import { bezugAusNachricht, zitatText, bezugNachfuehren } from './zitat.js';
 import { uhrzeit } from './gliederung.js';
+import { dateilisteAnlegen } from './dateiliste.js';
 
 const IME_TASTENCODE = 229;
 
 // Die eine Bedingung, unter der Taste und Knopf senden (ADR-0038 Ergänzung Karte #41 K2): nicht nur Leerraum,
-// höchstens 16.384 Byte, kein verbotenes Zeichen.
-export function sendbar(text) {
-  return textPruefen(text).art === 'ok';
+// höchstens 16.384 Byte, kein verbotenes Zeichen. Mit mindestens einer gewählten Datei reicht auch Leerraum, die
+// Textregel gilt weiter (R00030 B0449, B5).
+export function sendbar(text, dateien = 0) {
+  const art = textPruefen(text).art;
+  return art === 'ok' || (art === 'leer' && dateien > 0);
 }
 
 // Was eine Taste im Feld bewirkt (Regel 2, Ergänzung Karte #41 K5): 'senden' | 'zeile' | null. Während einer
@@ -59,7 +62,17 @@ export function eingabeAnlegen({ senden, entwurf, ansagen, tippen, tippzeile, ei
   const bereinigenGruppe = element('div', { className: 'lc-send-schalter lc-comp-bereinigen', hidden: true }, [bereinigen]);
   const hinweisReihe = element('div', { className: 'lc-comp-hinweisreihe' }, [zeile, tippzeile, bereinigenGruppe]);
   const antwort = antwortzeileAnlegen(feld, ansagen);
-  const rahmen = element('div', { className: 'lc-comp' }, [antwort.zeile, kasten, hinweisReihe]);
+  let dateiHinweis = '';
+  const dateien = dateilisteAnlegen({
+    feld,
+    ansagen,
+    geaendert: ({ hinweis: neuerHinweis }) => {
+      dateiHinweis = neuerHinweis;
+      textBewerten();
+    },
+  });
+  anhang.auswahl.addEventListener('change', () => dateien.hinzufuegen([...anhang.auswahl.files]));
+  const rahmen = element('div', { className: 'lc-comp' }, [antwort.zeile, dateien.element, kasten, hinweisReihe]);
   let channel = null;
   let gezeigt = hinweis(textPruefen(''));
   const MELDUNG_STEHT_MS = 6000;
@@ -76,6 +89,9 @@ export function eingabeAnlegen({ senden, entwurf, ansagen, tippen, tippzeile, ei
     const neu = hinweis(ergebnis);
     bereinigenGruppe.hidden = ergebnis.art !== 'zeichen';
     zeile.textContent = neu.text;
+    if (neu.stufe === 'leer') {
+      zeile.textContent = dateiHinweis;
+    }
     zeile.classList.toggle('lc-fehler', neu.stufe === 'fehler');
     if (neu.stufe === 'fehler') {
       feld.setAttribute('aria-invalid', 'true');
@@ -100,7 +116,7 @@ export function eingabeAnlegen({ senden, entwurf, ansagen, tippen, tippzeile, ei
 
   // Nicht verfügbar heißt aria-disabled, nie disabled: der Knopf bleibt fokussierbar und wird vorgelesen (K2, K3).
   function bereitZeigen() {
-    if (sendbar(feld.value)) {
+    if (sendbar(feld.value, dateien.anzahl())) {
       knopf.removeAttribute('aria-disabled');
     } else {
       knopf.setAttribute('aria-disabled', 'true');
@@ -223,6 +239,7 @@ export function eingabeAnlegen({ senden, entwurf, ansagen, tippen, tippzeile, ei
       }
       const verworfen = antwort.verwerfen();
       channel = name;
+      dateien.channelSetzen(name);
       const beschriftung = `Nachricht an # ${name}`;
       feld.setAttribute('aria-label', beschriftung);
       feld.placeholder = beschriftung;

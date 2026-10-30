@@ -168,6 +168,20 @@ body { background: var(--kd-bg); color: var(--kd-ink); font-family: var(--font-s
   .lc-antwortzeile { flex-wrap: nowrap; }
   .lc-antwort-an { flex: 0 1 auto; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 }
+/* Gewählte Dateien über dem Feld (R00030 B0449, Baustein Anhang): Zeile 28 px mit Maus, 44 px auf Touch mit 8 px
+   Abstand zwischen den Schaltern; die Liste ist höchstens 3½ Zeilen hoch und scrollt in sich */
+.lc-dateien { --lc-dateizeile: 28px; --lc-dateiabstand: 0px; display: grid; row-gap: var(--lc-dateiabstand); margin: 0 0 var(--kd-space-4); padding: 0 var(--kd-space-2); list-style: none; max-height: calc(3.5 * var(--lc-dateizeile) + 3 * var(--lc-dateiabstand)); overflow-y: auto; overscroll-behavior: contain; }
+.lc-dateien[hidden] { display: none; }
+.lc-datei { display: flex; align-items: center; column-gap: var(--kd-space-8); min-height: var(--lc-dateizeile); font-size: 12px; line-height: 20px; }
+.lc-datei-kuerzel { flex: none; min-width: 4em; font-family: var(--font-mono); font-size: 11px; font-weight: 600; color: var(--kd-ink-muted); }
+.lc-datei-name { flex: 1 1 auto; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--kd-ink); }
+.lc-datei-groesse { flex: none; color: var(--kd-ink-muted); font-variant-numeric: tabular-nums; }
+.lc-datei-entfernen { flex: none; min-width: 24px; min-height: 24px; padding: 0 var(--kd-space-8); border: 1px solid var(--kd-line-strong); background: var(--kd-surface); color: var(--kd-ink); font: inherit; font-weight: 600; cursor: pointer; touch-action: manipulation; }
+.lc .lc-datei-entfernen:focus-visible { outline: 2px solid var(--kd-focus); outline-offset: 0; }
+@media (pointer: coarse) {
+  .lc-dateien { --lc-dateizeile: 44px; --lc-dateiabstand: 8px; }
+  .lc-datei-entfernen { min-width: 44px; min-height: 44px; }
+}
 .lc-comp-aktionen { display: flex; flex: none; column-gap: var(--kd-space-8); }
 /* Schalter „Anhang“ vor „Senden“ (R00030 B0448): unter 480 px das Symbol ⎘ (benannte Ausnahme im Designsystem), sonst
    der Text; Zielfläche ≥ 24 px mit Maus, ≥ 44 px auf Touch; eigener Ring außen auf kd-surface (UX M3) */
