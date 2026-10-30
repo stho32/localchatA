@@ -6,8 +6,9 @@
 import { kuerzel } from './kopfzeile.js';
 import { uhrzeit, zeitTitel, datumBenennen, datumUhrzeit } from './gliederung.js';
 import { zitatText, zitatName, antwortAufText } from './zitat.js';
+import { anhaengeZeichnen } from './anhang-anzeige.js';
 
-// nachricht: { zeit, von, art, text, zustand? } aus der API; ohne Zeit (eigene, noch unterwegs) ohne Uhrzeit im Kopf
+// nachricht: { zeit, von, art, text, zustand?, anhaenge? } aus der API; ohne Zeit (eigene, noch unterwegs) ohne Uhrzeit im Kopf
 // und ohne zugänglichen Namen (sie ist keine Station des Rollfokus, F0141). Gilt für die Nachricht mindestens eine
 // Aktion (aktionenFuer mit der eigenen Kennung), trägt sie die Leiste der Aktionen.
 export function nachrichtZeichnen(nachricht, eigeneKennung = '') {
@@ -30,6 +31,10 @@ export function nachrichtZeichnen(nachricht, eigeneKennung = '') {
   }
   if (darstellung.marke === 'bearbeitet') {
     inhalt.append(markeBearbeitetZeichnen(nachricht.zeit, darstellung.zuletztBearbeitet));
+  }
+  const { anhaenge = [] } = nachricht;
+  if (darstellung.marke !== 'geloescht' && anhaenge.length > 0) {
+    inhalt.append(anhaengeZeichnen(anhaenge));
   }
   artikel.append(element('div', { className: 'g' }), inhalt);
   const aktionen = aktionenFuer(nachricht, eigeneKennung);

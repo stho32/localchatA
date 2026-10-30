@@ -410,3 +410,21 @@ button.lc-marke { min-width: 24px; min-height: 24px; padding: 0 var(--kd-space-4
 .lc-rueckfrage p { margin: 0 0 var(--kd-space-8); overflow-wrap: anywhere; }
 .lc-rueckfrage-auszug { color: var(--kd-ink-muted); }
 .lc-btn.lc-gefahr { color: var(--kd-danger); border-color: var(--kd-danger); }
+/* Anhänge an der Nachricht (R00030 F0102, Designsystem Anhang): unter dem Text in Sendefolge, gestapelt mit kd-space-4;
+   jeder Rahmen höchstens 360 px und höchstens so breit wie der Inhalt neben Gutter und Reserve (UX V1) */
+.lc-anhaenge { display: flex; flex-direction: column; align-items: flex-start; gap: var(--kd-space-4); margin-top: var(--kd-space-4); }
+.lc-anhang { display: flex; flex-direction: column; width: min(360px, 100%); }
+/* Datei-Zeile: Kopf (Kürzel, Name, Größe) und Links in einer Zeile; bekäme der Name weniger als 96 px, rücken die Links
+   linksbündig in eine zweite Zeile — der Kopf ist so breit wie seine Mindestbreite, der Name hat mindestens 96 px */
+.lc-datei { display: flex; flex-wrap: wrap; align-items: center; column-gap: var(--kd-space-8); min-height: var(--kd-row); font-size: 12px; line-height: 20px; }
+.lc-datei-kopf { flex: 1 1 0; display: grid; grid-template-columns: auto minmax(96px, 1fr) auto; align-items: center; column-gap: var(--kd-space-4); }
+.lc-datei-kuerzel { padding: 0 var(--kd-space-4); background: var(--kd-surface-2); font-family: var(--font-mono); font-size: 11px; font-weight: 600; color: var(--kd-ink-muted); }
+.lc-datei-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--kd-ink); }
+.lc-datei-groesse { white-space: nowrap; color: var(--kd-ink-muted); }
+.lc-datei-links { flex: 0 0 auto; display: flex; column-gap: var(--kd-space-8); }
+.lc-datei-links a { display: inline-flex; align-items: center; justify-content: center; min-width: 24px; min-height: 24px; padding: 0 var(--kd-space-2); color: var(--kd-accent); font-weight: 600; text-decoration: none; touch-action: manipulation; }
+.lc-datei-links a:hover { text-decoration: underline; }
+.lc .lc-datei-links a:focus-visible { outline: 2px solid var(--kd-focus); outline-offset: 0; }
+@media (pointer: coarse) {
+  .lc-datei-links a { min-width: 44px; min-height: 44px; }
+}

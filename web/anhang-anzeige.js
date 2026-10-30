@@ -1,4 +1,5 @@
 // Anhänge im Verlauf zeigen (R00030 F0102, ADR-0047 Regeln 5–7, Designsystem components/Anhang).
+import { groesseInWorten } from './loeschen.js';
 
 const RAHMEN_HOECHSTENS = 360;
 
@@ -60,4 +61,60 @@ function oeffnenBar(art, bytes) {
 
 function gestalt(form, oeffnen) {
   return { form, breite: null, hoehe: null, oeffnen };
+}
+
+// Die Anhänge einer Nachricht in Sendefolge, gestapelt unter dem Text.
+export function anhaengeZeichnen(anhaenge) {
+  return element('div', { className: 'lc-anhaenge' }, anhaenge.map(anhangZeichnen));
+}
+
+function anhangZeichnen(anhang) {
+  const darstellung = darstellungWaehlen(anhang);
+  return element('div', { className: 'lc-anhang' }, [dateiZeileZeichnen(anhang, darstellung)]);
+}
+
+// Datei-Zeile (B0457, Designsystem Anhang): Kürzel (nur für die Augen), Name mit Ellipse, Größe in Worten, „Öffnen“ in
+// einem neuen Tab, wo der Browser die Art darstellt, und „Laden“ unter dem Anzeigenamen; alles nur als Text. Reicht der
+// Platz dem Namen nicht für 96 px, brechen die Links in eine zweite Zeile um (CSS, UX V1). Ein gelöschter Anhang hat
+// keine Links (Wortlaut und Ansage bringt F0118).
+function dateiZeileZeichnen(anhang, { form, oeffnen }) {
+  const kuerzel = element('span', { className: 'lc-datei-kuerzel', textContent: typKuerzel(anhang.name) });
+  kuerzel.setAttribute('aria-hidden', 'true');
+  const kopf = element('span', { className: 'lc-datei-kopf' }, [
+    kuerzel,
+    element('span', { className: 'lc-datei-name', textContent: anhang.name, title: anhang.name }),
+    element('span', { className: 'lc-datei-groesse', textContent: groesseInWorten(anhang.bytes) }),
+  ]);
+  if (form === 'geloescht') {
+    return element('div', { className: 'lc-datei' }, [kopf]);
+  }
+  const links = [];
+  if (oeffnen) {
+    links.push(verweisZeichnen(anhang, 'Öffnen', 'öffnen', { target: '_blank', rel: 'noopener' }));
+  }
+  links.push(verweisZeichnen(anhang, 'Laden', 'laden', { download: anhang.name }));
+  return element('div', { className: 'lc-datei' }, [kopf, element('span', { className: 'lc-datei-links' }, links)]);
+}
+
+function verweisZeichnen(anhang, beschriftung, tun, eigenschaften) {
+  const verweis = element('a', { href: anhang.url, textContent: beschriftung, ...eigenschaften });
+  verweis.setAttribute('aria-label', `${anhang.name} ${tun}`);
+  return verweis;
+}
+
+// Typkürzel aus der letzten Endung des Namens, nur zur Anzeige (UX S3, S7): groß, höchstens 5 Zeichen; ohne Endung „DATEI“.
+export function typKuerzel(name) {
+  const KUERZEL_ZEICHEN = 5;
+  const punkt = name.lastIndexOf('.');
+  const endung = name.slice(punkt + 1);
+  if (punkt <= 0 || endung === '') {
+    return 'DATEI';
+  }
+  return Array.from(endung.toUpperCase()).slice(0, KUERZEL_ZEICHEN).join('');
+}
+
+function element(tag, eigenschaften = {}, kinder = []) {
+  const neu = Object.assign(document.createElement(tag), eigenschaften);
+  neu.append(...kinder);
+  return neu;
 }
