@@ -500,3 +500,34 @@ test('Ansagen (B0612, S2, S3): beim Öffnen keine; Speichern genau einmal „Än
   expect(await angesagt()).toHaveLength(3);
   expect(a.fehler).toEqual([]);
 });
+
+test('Tasten im Feld (B0627, UX M2): Ende, Pos1, ↑, ↓, Leertaste, E und Entf wirken nur auf den Text — Feld und Fokus bleiben, der Verlauf scrollt nicht, kein Dialog', async ({ browser }) => {
+  instanz = await sendenStarten({ anzahl: 60 });
+  const a = await browserOeffnen(browser, { streng: true });
+  await imBrowserBeitreten(a.page, instanz.adresse, 'shoff');
+  await expect(nachrichten(a.page)).toHaveCount(60);
+  const zeit = await imBrowserSenden(a.page, 'Eins');
+  await feldOeffnen(a.page, zeit);
+  await a.page.keyboard.press('Shift+Enter');
+  await a.page.keyboard.type('Zwei');
+  await a.page.getByRole('log').evaluate((log) => { log.scrollTop -= 40; });
+  await a.page.waitForTimeout(200);
+  const scrollVorher = await a.page.getByRole('log').evaluate((log) => log.scrollTop);
+
+  for (const taste of ['End', 'Home', 'ArrowUp', 'ArrowDown', 'Space']) {
+    await a.page.keyboard.press(taste);
+    await expect(feld(a.page)).toBeFocused();
+  }
+  await a.page.keyboard.press('End');
+  await a.page.keyboard.type('E');
+  await a.page.keyboard.press('Home');
+  await a.page.keyboard.press('Delete');
+  await expect(feld(a.page)).toBeFocused();
+  await expect(feld(a.page)).toHaveCount(1);
+  await expect(a.page.locator('dialog[open]')).toHaveCount(0);
+  expect(await a.page.getByRole('log').evaluate((log) => log.scrollTop)).toBe(scrollVorher);
+  const text = await feld(a.page).inputValue();
+  expect(text).toContain('E');
+  expect(text.length).toBe('Eins\nZwei'.length + ' '.length + 'E'.length - 1);
+  expect(a.fehler).toEqual([]);
+});

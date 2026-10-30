@@ -255,7 +255,11 @@ export function verlaufAnlegen({
       schalter(geklickt.dataset.aktion, geklickt.closest('[data-schluessel]').dataset.schluessel);
     }
   });
+  // Tasten in einem Textfeld des Verlaufs (dem Bearbeiten-Feld) gehören dem Text, nie dem Verlauf (R00041 UX M2).
   log.addEventListener('keydown', (ereignis) => {
+    if (ereignis.target.closest('textarea, input') !== null) {
+      return;
+    }
     const nurEnde = ereignis.key === 'End' && !ereignis.altKey && !ereignis.ctrlKey && !ereignis.metaKey && !ereignis.shiftKey;
     if (nurEnde && offenerName !== null) {
       ereignis.preventDefault();
