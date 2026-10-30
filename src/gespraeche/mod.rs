@@ -119,7 +119,7 @@ pub enum Aenderungszustand {
 }
 
 /// Ein Block des Verlaufs als Nachrichten, älteste zuerst (ADR-0025 Regel 3).
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct Nachrichtenblock {
     pub nachrichten: Vec<Nachricht>,
     pub aelter: bool,
@@ -1167,9 +1167,20 @@ impl Gespraeche {
         budget: usize,
     ) -> Result<Nachrichtenblock, Unbekannt> {
         let name = Channelname::bilden(name).map_err(|_| Unbekannt)?;
+        self.verlauf_von(&Gespraech::channel(name.als_text()), abfrage, budget)
+    }
+
+    /// Wie `verlauf`, für ein Gespräch jeder Art (ein Direktgespräch: ADR-0055 Regel 3); ein Gespräch, das nicht im
+    /// Verzeichnis steht, ist `Unbekannt`.
+    pub fn verlauf_von(
+        &self,
+        gespraech: &Gespraech,
+        abfrage: &abfrage::Abfrage,
+        budget: usize,
+    ) -> Result<Nachrichtenblock, Unbekannt> {
         let verlauf = lesend(&self.verzeichnis)
             .verlaeufe
-            .get(&Gespraech::channel(name.als_text()))
+            .get(gespraech)
             .cloned()
             .ok_or(Unbekannt)?;
         let block = sperren(&verlauf).block(abfrage, budget);

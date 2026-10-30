@@ -101,7 +101,7 @@ fn eintrag_schreiben(
         kontext = kontext.mit(Schluessel::Kennung, kennung);
     }
     if let Some(channel) = ort.channel {
-        kontext = kontext.mit(Schluessel::Channel, channel);
+        kontext = kontext.mit(super::ziel::bezug(channel), channel);
     }
     protokoll.eintragen(
         stufe,

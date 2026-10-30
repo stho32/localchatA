@@ -7,6 +7,7 @@ use super::abbruch::{Grenzort, abbruch_beantworten, interner_fehler};
 use super::anfrageprotokoll::mit_regel;
 use super::teilnehmer::Teilnehmer;
 use super::teilnehmerliste::zeit_als_text;
+use super::ziel::{Segment, Ziel, bezug, ziel_aus_pfad};
 use crate::gespraeche::abfrage::{Abfrage, Abschnitt, Blockgroesse};
 use crate::gespraeche::zitat::Zitat;
 use crate::gespraeche::{Aenderungszustand, Art, Nachricht, Nachrichtenblock, Unbekannt};
@@ -31,12 +32,37 @@ use std::sync::Arc;
 ///   ≤ 80 MiB (Rechnung Q8 in ADR-0039, Ergänzung R00015).
 pub const VERLAUF_BUDGET: usize = 262_144;
 
+/// `GET /api/channels/{name}/nachrichten`.
 pub async fn beantworten(
     teilnehmer: Teilnehmer,
     State(zustand): State<Arc<Zustand>>,
     Path(name): Path<String>,
     RawQuery(query): RawQuery,
 ) -> Response {
+    verlauf_in(teilnehmer, zustand, Ziel::Channel(name), query).await
+}
+
+/// `GET /api/direkt/{kennung}/nachrichten` (ADR-0055 Regel 3): die Sitzung vor dem Pfad; ohne Gespräch 200 leer —
+/// gelesen wird nie angelegt (Matrix R3).
+pub(super) async fn beantworten_direkt(
+    teilnehmer: Teilnehmer,
+    State(zustand): State<Arc<Zustand>>,
+    segment: Segment,
+    RawQuery(query): RawQuery,
+) -> Response {
+    match ziel_aus_pfad(&teilnehmer, &segment) {
+        Ok(ziel) => verlauf_in(teilnehmer, zustand, ziel, query).await,
+        Err(fehler) => fehler.antwort(&teilnehmer.kennung),
+    }
+}
+
+async fn verlauf_in(
+    teilnehmer: Teilnehmer,
+    zustand: Arc<Zustand>,
+    ziel: Ziel,
+    query: Option<String>,
+) -> Response {
+    let name = ziel.name();
     let abfrage = match abfrage_lesen(query.as_deref()) {
         Ok(abfrage) => abfrage,
         Err(fehler) => {
@@ -48,16 +74,21 @@ pub async fn beantworten(
         }
     };
     let gespraeche = Arc::clone(&zustand.gespraeche);
-    let gefragt = name.clone();
+    let gefragt = ziel.clone();
     let testpanik = zustand.testpanik.clone();
     let beginn = std::time::Instant::now();
     let ergebnis = zustand
         .werkbank
         .ausfuehren(move || {
             testpanik.verlauf();
-            gespraeche
-                .verlauf(&gefragt, &abfrage, VERLAUF_BUDGET)
-                .map(|block| (block.nachrichten.len(), block_als_bytes(&gefragt, &block)))
+            let block = match &gefragt {
+                Ziel::Channel(name) => gespraeche.verlauf(name, &abfrage, VERLAUF_BUDGET),
+                // Ohne Gespräch ein leerer Verlauf, kein Fehler und kein Ordner (ADR-0055 E5).
+                Ziel::Direkt { .. } => Ok(gespraeche
+                    .verlauf_von(&gefragt.gespraech(), &abfrage, VERLAUF_BUDGET)
+                    .unwrap_or_default()),
+            };
+            block.map(|block| (block.nachrichten.len(), block_als_bytes(&gefragt, &block)))
         })
         .await;
     match ergebnis {
@@ -67,7 +98,7 @@ pub async fn beantworten(
                 Bereich::Verlauf,
                 "Verlaufsblock gelesen",
                 Kontext::neu()
-                    .mit(Schluessel::Channel, &name)
+                    .mit(bezug(&name), &name)
                     .mit(Schluessel::Anzahl, anzahl)
                     .mit(Schluessel::DauerMs, beginn.elapsed().as_millis()),
             );
@@ -111,7 +142,7 @@ fn nicht_gelesen(zustand: &Zustand, kennung: &str, channel: &str, ursache: &str)
             .mit(Schluessel::Route, ROUTE)
             .mit(Schluessel::Operation, "verlauf")
             .mit(Schluessel::Status, 500)
-            .mit(Schluessel::Channel, channel)
+            .mit(bezug(channel), channel)
             .mit(Schluessel::Kennung, kennung)
             .mit(Schluessel::Grund, "serialisierung")
             .mit(Schluessel::Ursache, ursache),
@@ -119,10 +150,13 @@ fn nicht_gelesen(zustand: &Zustand, kennung: &str, channel: &str, ursache: &str)
     interner_fehler(NICHT_GELESEN)
 }
 
-/// `{channel, nachrichten, aelter, neuer}`, Nachrichten älteste zuerst (ADR-0025 Regel 3).
+/// `{channel, nachrichten, aelter, neuer}`, Nachrichten älteste zuerst (ADR-0025 Regel 3); ein Direktgespräch trägt
+/// `channel: null` und `direkt` (die Kennung des Gegenübers), ein Channel kein `direkt`.
 #[derive(Serialize)]
 struct BlockAntwort<'a> {
-    channel: &'a str,
+    channel: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    direkt: Option<&'a str>,
     nachrichten: Vec<NachrichtAntwort<'a>>,
     aelter: bool,
     neuer: bool,
@@ -225,9 +259,14 @@ impl<'a> NachrichtAntwort<'a> {
 }
 
 /// Die fertigen JSON-Bytes eines Blocks — im Blocking-Teil, ohne `Value`-Baum (ADR-0039 Regel 4).
-fn block_als_bytes(channel: &str, block: &Nachrichtenblock) -> serde_json::Result<Vec<u8>> {
+fn block_als_bytes(ziel: &Ziel, block: &Nachrichtenblock) -> serde_json::Result<Vec<u8>> {
+    let (channel, direkt) = match ziel {
+        Ziel::Channel(name) => (Some(name.as_str()), None),
+        Ziel::Direkt { gegenueber, .. } => (None, Some(gegenueber.als_text())),
+    };
     serde_json::to_vec(&BlockAntwort {
         channel,
+        direkt,
         nachrichten: block
             .nachrichten
             .iter()

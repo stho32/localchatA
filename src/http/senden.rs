@@ -14,6 +14,7 @@ use super::koerper::{
 };
 use super::nachrichten::NachrichtAntwort;
 use super::teilnehmer::Teilnehmer;
+use super::ziel::{Segment, Ziel, bezug, in_teilnehmerliste, ziel_aus_pfad};
 use crate::gespraeche::anhangid::Anhangid;
 use crate::gespraeche::textregel::{TEXT_HOECHSTENS_BYTES, Textfehler, text_pruefen};
 use crate::gespraeche::{Antwortfehler, Gesendet, Gespraech, Nachricht, Sendefehler, Sendung};
@@ -40,6 +41,7 @@ pub const SENDEN_GRENZE: usize = 131_072;
 /// R00011 und ADR-0036 Regel 3 unverändert (R00021 „Senden unverändert“).
 const VORAB_SENDEN: u32 = 1;
 
+/// `POST /api/channels/{name}/nachrichten`.
 pub async fn senden(
     teilnehmer: Teilnehmer,
     State(zustand): State<Arc<Zustand>>,
@@ -47,6 +49,32 @@ pub async fn senden(
     kopf: HeaderMap,
     koerper: Body,
 ) -> Response {
+    senden_in(teilnehmer, zustand, Ziel::Channel(name), kopf, koerper).await
+}
+
+/// `POST /api/direkt/{kennung}/nachrichten` (ADR-0055 Regel 3): die Sitzung vor dem Pfad (`Teilnehmer` zuerst), das
+/// Segment roh, dann Kanonprüfung und `selbst`; ab da dieselbe Folge wie im Channel.
+pub(super) async fn senden_direkt(
+    teilnehmer: Teilnehmer,
+    State(zustand): State<Arc<Zustand>>,
+    segment: Segment,
+    kopf: HeaderMap,
+    koerper: Body,
+) -> Response {
+    match ziel_aus_pfad(&teilnehmer, &segment) {
+        Ok(ziel) => senden_in(teilnehmer, zustand, ziel, kopf, koerper).await,
+        Err(fehler) => fehler.antwort(&teilnehmer.kennung),
+    }
+}
+
+async fn senden_in(
+    teilnehmer: Teilnehmer,
+    zustand: Arc<Zustand>,
+    ziel: Ziel,
+    kopf: HeaderMap,
+    koerper: Body,
+) -> Response {
+    let name = ziel.name();
     let eintritt = Instant::now();
     if let Err(gebremst) =
         zustand
@@ -74,7 +102,9 @@ pub async fn senden(
         Ok(Err(fehler)) => return koerper_abgewiesen(fehler),
         Err(abbruch) => return abgebrochen(&zustand, &abbruch, &wer, &name),
     };
-    if !zustand.gespraeche.channel_bekannt(&name) {
+    if let Ziel::Channel(_) = ziel
+        && !zustand.gespraeche.channel_bekannt(&name)
+    {
         return mit_regel(unbekannt(&name), "channel_unbekannt", Some(&wer));
     }
     let (text, anhaenge) = match sendekoerper_lesen(&wert) {
@@ -118,6 +148,12 @@ pub async fn senden(
             Some(&wer),
         );
     };
+    if let Ziel::Direkt { paar, gegenueber } = &ziel
+        && !zustand.gespraeche.direkt_besteht(paar)
+        && !in_teilnehmerliste(&zustand, gegenueber)
+    {
+        return mit_regel(empfaenger_unbekannt(), "empfaenger_unbekannt", Some(&wer));
+    }
     let text_bytes = text.len();
     let kosten = kosten_senden(text.len());
     if let Err(gebremst) =
@@ -133,21 +169,22 @@ pub async fn senden(
         );
     }
     let gespraeche = Arc::clone(&zustand.gespraeche);
-    let gespraech = Gespraech::channel(&name);
+    let senden_an = ziel.clone();
     let von = teilnehmer.kennung.clone();
     let art = teilnehmer.art;
     let ergebnis = tokio::task::spawn_blocking(move || {
-        gespraeche.senden_sendung(
-            &gespraech,
-            &von,
-            art,
-            Sendung {
-                text: &text,
-                anhaenge: &anhaenge,
-                schluessel: schluessel.as_deref(),
-                antwort_auf,
-            },
-        )
+        let sendung = Sendung {
+            text: &text,
+            anhaenge: &anhaenge,
+            schluessel: schluessel.as_deref(),
+            antwort_auf,
+        };
+        match &senden_an {
+            Ziel::Channel(name) => {
+                gespraeche.senden_sendung(&Gespraech::channel(name), &von, art, sendung)
+            }
+            Ziel::Direkt { paar, .. } => gespraeche.direkt_senden(paar, &von, art, sendung),
+        }
     })
     .await;
     match ergebnis {
@@ -155,10 +192,10 @@ pub async fn senden(
             // Nach dem Veröffentlichen der Nachricht, außerhalb der Schreibsperre (ADR-0051 Regel 7 b).
             zustand
                 .aktivitaet
-                .beenden(&teilnehmer.kennung, &Gespraech::channel(&name));
+                .beenden(&teilnehmer.kennung, &ziel.gespraech());
             vorlauf::eintragen(&zustand.protokoll, zustand.gespraeche.zeit_vorlauf_ms());
             gesendet_melden(&zustand, &name, &wer, text_bytes, eintritt, None);
-            gesendet(StatusCode::CREATED, &name, &nachricht)
+            gesendet(StatusCode::CREATED, &ziel, &nachricht)
         }
         Ok(Ok(Gesendet::Wiederholt(nachricht))) => {
             gesendet_melden(
@@ -169,7 +206,7 @@ pub async fn senden(
                 eintritt,
                 Some("wiederholung"),
             );
-            gesendet(StatusCode::OK, &name, &nachricht)
+            gesendet(StatusCode::OK, &ziel, &nachricht)
         }
         Ok(Err(Sendefehler::SchluesselAnders)) => mit_regel(
             schluessel_abgewiesen(SCHLUESSEL_ANDERS),
@@ -232,7 +269,7 @@ fn gesendet_melden(
     grund: Option<&str>,
 ) {
     let kontext = Kontext::neu()
-        .mit(Schluessel::Channel, channel)
+        .mit(bezug(channel), channel)
         .mit(Schluessel::Kennung, wer)
         .mit(Schluessel::Anzahl, text_bytes)
         .mit(Schluessel::DauerMs, eintritt.elapsed().as_millis());
@@ -245,9 +282,22 @@ fn gesendet_melden(
         .eintragen(Stufe::Debug, Bereich::Senden, "Nachricht gesendet", kontext);
 }
 
-fn gesendet(status: StatusCode, channel: &str, nachricht: &Nachricht) -> Response {
-    let antwort = json!({ "channel": channel, "nachricht": NachrichtAntwort::aus(nachricht) });
+fn gesendet(status: StatusCode, ziel: &Ziel, nachricht: &Nachricht) -> Response {
+    let antwort = ziel.antwort_mit(json!(NachrichtAntwort::aus(nachricht)));
     (status, Json(antwort)).into_response()
+}
+
+/// 404 `empfaenger` (ADR-0055 Regel 3, PO 170): ein neues Gespräch beginnt nur mit jemandem aus der Teilnehmerliste;
+/// dieselbe Antwort für einen, den es nie gab, und einen, der gegangen ist — und kein Ordner.
+fn empfaenger_unbekannt() -> Response {
+    (
+        StatusCode::NOT_FOUND,
+        Json(json!({
+            "fehler": "Diesen Teilnehmer gibt es gerade nicht — ein neues Gespräch beginnt nur mit jemandem aus der Teilnehmerliste.",
+            "regel": "empfaenger",
+        })),
+    )
+        .into_response()
 }
 
 pub(super) const SCHLUESSEL_FORMAT: &str =
@@ -312,7 +362,7 @@ pub(crate) fn schreibfehler_auftreten(
         Bereich::Senden,
         crate::protokoll::episodentexte::NICHT_GESPEICHERT,
         Quelle::neu()
-            .mit(Schluessel::Channel, channel)
+            .mit(bezug(channel), channel)
             .mit(Schluessel::Datei, datei)
             .mit(Schluessel::Grund, grund),
     )
@@ -335,7 +385,7 @@ fn nicht_gebunden(
         Bereich::Senden,
         "Anhang nicht gebunden — die Nachricht ist nicht gesendet, die Anhänge liegen wieder im Eingang",
         Kontext::neu()
-            .mit(Schluessel::Channel, channel)
+            .mit(bezug(channel), channel)
             .mit(Schluessel::Kennung, wer)
             .mit(Schluessel::Tag, tag.format("%Y-%m-%d"))
             .mit(Schluessel::Datei, datei)
@@ -347,7 +397,7 @@ fn nicht_gebunden(
             Bereich::Senden,
             "Zurücklegen gescheitert — die Datei bleibt als Waise im Tag und zählt an der Anhang-Quote",
             Kontext::neu()
-                .mit(Schluessel::Channel, channel)
+                .mit(bezug(channel), channel)
                 .mit(Schluessel::Tag, tag.format("%Y-%m-%d"))
                 .mit(Schluessel::Datei, waise.as_str()),
         );
@@ -381,7 +431,7 @@ pub(crate) fn quote_auftreten(channel: &str, wer: &str, belegt: u64, hoechstens:
             .mit(Schluessel::Kennung, wer)
             .mit(Schluessel::Hoechstens, hoechstens),
     )
-    .einzeln(Schluessel::Channel, channel)
+    .einzeln(bezug(channel), channel)
     .einzeln(Schluessel::Belegt, belegt)
 }
 

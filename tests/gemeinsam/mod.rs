@@ -3,6 +3,7 @@
 
 pub mod anhaenge;
 pub mod dateien;
+pub mod direkt;
 pub mod frist;
 #[cfg(target_os = "linux")]
 pub mod herkunft;

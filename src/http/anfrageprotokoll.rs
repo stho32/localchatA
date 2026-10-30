@@ -136,7 +136,11 @@ fn bereich(methode: &str, muster: &str) -> Bereich {
         ("PUT", "/api/channels/{name}/frist") => Bereich::Frist,
         ("POST", "/api/channels/{name}/nachrichten") => Bereich::Senden,
         ("GET", "/api/channels/{name}/nachrichten") => Bereich::Verlauf,
-        (_, muster) if muster.starts_with("/api/channels") => Bereich::Channels,
+        ("POST", "/api/direkt/{kennung}/nachrichten") => Bereich::Senden,
+        ("GET", "/api/direkt/{kennung}/nachrichten") => Bereich::Verlauf,
+        (_, muster) if muster.starts_with("/api/channels") || muster.starts_with("/api/direkt") => {
+            Bereich::Channels
+        }
         (_, muster) if muster.starts_with("/api/anhaenge") || muster.starts_with("/anhaenge") => {
             Bereich::Anhang
         }
@@ -253,6 +257,18 @@ mod tests {
         assert_eq!(
             bereich("GET", "/api/channels/{name}/nachrichten"),
             Bereich::Verlauf
+        );
+        assert_eq!(
+            bereich("POST", "/api/direkt/{kennung}/nachrichten"),
+            Bereich::Senden
+        );
+        assert_eq!(
+            bereich("GET", "/api/direkt/{kennung}/nachrichten"),
+            Bereich::Verlauf
+        );
+        assert_eq!(
+            bereich("POST", "/api/direkt/{kennung}/nachrichten/bearbeiten"),
+            Bereich::Channels
         );
         assert_eq!(bereich("POST", "/api/channels"), Bereich::Channels);
         assert_eq!(bereich("GET", "/api/channels/x/y"), Bereich::Channels);

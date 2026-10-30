@@ -42,6 +42,7 @@ pub(crate) mod warten;
 #[cfg(test)]
 mod warten_nachholen;
 mod werkbank;
+mod ziel;
 
 pub use anhaenge::hochladen::HOCHLADEBANK;
 pub use auskunft::Auskunft;
@@ -148,6 +149,10 @@ pub fn router(zustand: Zustand) -> Router {
             put(aktivitaet::setzen)
                 .delete(aktivitaet::loeschen)
                 .get(aktivitaet::lesen),
+        )
+        .route(
+            "/api/direkt/{kennung}/nachrichten",
+            get(nachrichten::beantworten_direkt).post(senden::senden_direkt),
         )
         .route("/api/ich", get(ich::beantworten))
         .route("/api/teilnehmer", get(teilnehmerliste::beantworten))

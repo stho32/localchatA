@@ -52,6 +52,16 @@ impl Gespraeche {
         }
     }
 
+    /// Ob das Paar ein bestehendes Gespräch hat: einen Verlauf mit mindestens einer Nachricht (ADR-0055 Regel 4).
+    /// Ein noch nicht entfernter leerer Ordner zählt nicht — er wird beim Senden wiederverwendet, belegt aber nichts
+    /// Neues.
+    pub fn direkt_besteht(&self, paar: &Direktpaar) -> bool {
+        lesend(&self.verzeichnis)
+            .verlaeufe
+            .get(&Gespraech::Direkt(paar.clone()))
+            .is_some_and(|verlauf| sperren(verlauf).nachrichten() > 0)
+    }
+
     /// Ob das Paar im Verzeichnis steht (auch ohne Nachricht).
     pub fn direkt_bekannt(&self, paar: &Direktpaar) -> bool {
         lesend(&self.verzeichnis)
