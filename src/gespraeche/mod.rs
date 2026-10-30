@@ -12,6 +12,7 @@ pub mod anhangquote;
 pub mod anhangspeicher;
 pub mod anhangverzeichnis;
 pub mod einstellungen;
+pub mod erwaehnung;
 mod frist;
 pub mod fristeintrag;
 pub mod hochladefristen;
