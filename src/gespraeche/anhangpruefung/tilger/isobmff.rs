@@ -417,9 +417,14 @@ fn ueberschneidungsfrei(bereiche: &[(u64, u64, u32)], ziele: &HashMap<u32, Item>
     Ok(())
 }
 
-/// `iprp/ipco`: Eigenschaften beschreiben das Bild und bleiben — außer `udes` (Nutzerbeschreibung) → unkenntlich.
+/// `iprp/ipco`: Eigenschaften beschreiben das Bild und bleiben — außer `udes` (Nutzerbeschreibung) → unkenntlich;
+/// `free`/`skip`/`wide` direkt in `iprp` und in `ipco` werden genullt (Regel 5h).
 fn eigenschaften(port: &Port<'_>, iprp: Kiste, zaehler: &mut Zaehler) -> Ergebnis<()> {
     for ipco in kinder(port, iprp.inhalt, iprp.ende, zaehler)? {
+        if PLATZHALTER.contains(&&ipco.typ) {
+            platzhalter(port, ipco)?;
+            continue;
+        }
         if &ipco.typ != b"ipco" {
             continue;
         }
@@ -1834,6 +1839,57 @@ mod tests {
         for (alt, was) in [(&im_meta, "meta"), (&skip, "skip"), (&in_ipco, "ipco")] {
             platzhalter_genullt(&original, &getilgt, alt, was);
         }
+    }
+
+    /// ADR-0047 B3 Regel 5h, Nacharbeit Teil E (B1): `free`, `skip` und `wide` als direkte Kinder von `iprp` (neben
+    /// `ipco` und `ipma`) → Kopf gleich, Inhalt Nullen; `ipco` und `ipma` byte-gleich.
+    #[test]
+    fn platzhalter_direkt_in_iprp_werden_genullt_ipco_und_ipma_bleiben() {
+        let exif = exif_mit_ort();
+        let lang = exif.len() as u64;
+        let ipco = kiste(b"ipco", &kiste(b"colr", b"nclx\0\x01\0\x01\0\x01"));
+        let ipma = kiste(b"ipma", &[0u8, 0, 0, 0, 0, 0, 0, 0]);
+        let direkte = [
+            platzhalter(b"free", "iprp free "),
+            platzhalter(b"skip", "iprp skip "),
+            platzhalter(b"wide", "iprp wide "),
+        ];
+        let iprp = kiste(
+            b"iprp",
+            &[&direkte[0][..], &ipco, &direkte[1], &ipma, &direkte[2]].concat(),
+        );
+        let iinf = kiste(
+            b"iinf",
+            &[&[0u8, 0, 0, 0, 0, 1][..], &item_infe(1, b"Exif")].concat(),
+        );
+        let bauen = |mdat_anfang: u64| {
+            let meta = kiste(
+                b"meta",
+                &[
+                    &[0u8, 0, 0, 0][..],
+                    &hdlr_pict(),
+                    &iinf,
+                    &iloc_aus(&[(1, mdat_anfang, lang)]),
+                    &iprp,
+                ]
+                .concat(),
+            );
+            [kiste(b"ftyp", b"heic\0\0\0\0mif1heic"), meta].concat()
+        };
+        let mdat_anfang = bauen(0).len() as u64 + 8;
+        let original = [bauen(mdat_anfang), kiste(b"mdat", &exif)].concat();
+
+        let (ergebnis, datei) = tilgen(original.clone());
+
+        ergebnis.expect("getilgt");
+        let getilgt = datei.inhalt();
+        assert_eq!(getilgt.len(), original.len());
+        assert!(!enthaelt(&getilgt, b"5231.2000") && !enthaelt(&getilgt, b"GPS"));
+        assert!(!enthaelt(&getilgt, b"iprp "));
+        for (alt, was) in direkte.iter().zip(["free", "skip", "wide"]) {
+            platzhalter_genullt(&original, &getilgt, alt, was);
+        }
+        assert!(enthaelt(&getilgt, &ipco) && enthaelt(&getilgt, &ipma));
     }
 
     /// ADR-0047 B3 Regel 5h (B0649): `free` mit `size` = 1 → 16 Bytes Kopf bleiben, Rest Nullen; `free` mit `size` 0
