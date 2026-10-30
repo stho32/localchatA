@@ -2,11 +2,11 @@
 //! Rein — Nachholen und Bus benutzen sie beide.
 //!
 //! Nie trifft die eigene Nachricht des Wartenden und nie eine gelöschte. Ohne Filter trifft jede sichtbare
-//! Nachricht; mit Filter genügt **ein** passender Teil (Vereinigung). Direktgespräche treffen erst, wenn ihre
-//! Beteiligten bekannt sind (I0012, B0747), bis dahin nie.
+//! Nachricht; mit Filter genügt **ein** passender Teil (Vereinigung). Ein Gespräch, das der Wartende nicht sehen
+//! darf (fremdes Direktgespräch), trifft nie — die Sichtbarkeit geht jedem Anlass voraus.
 
 use super::erwaehnung::erwaehnt_name;
-use super::{Aenderungszustand, Gespraech, Kennung, Nachricht};
+use super::{Aenderungszustand, Gespraech, Kennung, Nachricht, sichtbar_fuer};
 use std::collections::BTreeSet;
 
 /// Warum eine Nachricht trifft — ein Fakt der Nachricht, unabhängig vom Filter (Regel 2). Die Zweige setzen
@@ -53,33 +53,42 @@ pub struct Treffer {
 }
 
 /// Der Anlass, wenn die Nachricht des Gesprächs den Wartenden unter dem Filter weckt; sonst keiner.
+///
+/// Sichtbarkeit zuerst (ADR-0055 Regel 7, E13): was der Wartende nicht sehen darf, weckt ihn nie — auch nicht
+/// durch eine Erwähnung oder eine Antwort darin.
 pub fn treffer(
     gespraech: &Gespraech,
     nachricht: &Nachricht,
     wartender: &Kennung,
     filter: &Filter,
 ) -> Option<Vec<Anlass>> {
-    let Gespraech::Channel(channel) = gespraech else {
+    if !sichtbar_fuer(gespraech, wartender, false) {
         return None;
-    };
+    }
     let geloescht = nachricht
         .geaendert
         .is_some_and(|geaendert| geaendert.zustand == Aenderungszustand::Geloescht);
     if &nachricht.von == wartender || geloescht {
         return None;
     }
-    let anlass = anlaesse(nachricht, wartender);
-    let im_channel = filter.channels.contains(channel);
+    let anlass = anlaesse(gespraech, nachricht, wartender);
+    let genannt = match gespraech {
+        Gespraech::Channel(channel) => filter.channels.contains(channel),
+        Gespraech::Direkt(_) => filter.direkt,
+    };
     let erwaehnt = filter.erwaehnung
         && (anlass.contains(&Anlass::Erwaehnung) || anlass.contains(&Anlass::Antwort));
-    (filter.ohne_angabe() || im_channel || erwaehnt).then_some(anlass)
+    (filter.ohne_angabe() || genannt || erwaehnt).then_some(anlass)
 }
 
-/// Die Fakten einer fremden Nachricht für den Wartenden, aufsteigend (Regel 2): ob sie seinen Namen erwähnt und ob
-/// sie einer Nachricht von ihm antwortet — über die Kennung im Bezug der Metazeile, ohne das Original nachzuschlagen
+/// Die Fakten einer fremden Nachricht für den Wartenden, aufsteigend (Regel 2): ob sie in seinem Direktgespräch
+/// steht, seinen Namen erwähnt und ob sie einer Nachricht von ihm antwortet — über die Kennung im Bezug der Metazeile, ohne das Original nachzuschlagen
 /// (ADR-0053 Regel 9).
-fn anlaesse(nachricht: &Nachricht, wartender: &Kennung) -> Vec<Anlass> {
+fn anlaesse(gespraech: &Gespraech, nachricht: &Nachricht, wartender: &Kennung) -> Vec<Anlass> {
     let mut anlass = Vec::new();
+    if matches!(gespraech, Gespraech::Direkt(_)) {
+        anlass.push(Anlass::Direkt);
+    }
     let name = wartender.name();
     if erwaehnt_name(&nachricht.text, name) {
         anlass.push(Anlass::Erwaehnung);
@@ -524,6 +533,193 @@ mod tests {
 
         assert!(dicht_us <= 20.0, "erwähnungsdicht Median {dicht_us:.1} µs");
         assert!(ohne_us <= 5.0, "ohne @ Median {ohne_us:.1} µs");
+    }
+
+    fn direkt_filter(channels_: &[&str]) -> Filter {
+        Filter {
+            direkt: true,
+            ..channels(channels_)
+        }
+    }
+
+    /// W2c (B0747, ADR-0054 Regel 2 und 4, ADR-0055 Regel 7): Trefferregel Direkt für `mia` im Gespräch
+    /// `claude` ↔ `mia`. Sichtbarkeit zuerst (E13): ein Dritter wird nie getroffen, auch nicht ohne Filter und nicht
+    /// von einer Erwähnung; die eigene Nachricht nie; `direkt` und `channel` bilden eine Vereinigung.
+    #[test]
+    fn die_trefferregel_des_direktgespraechs_als_tabelle() {
+        const MIA: &str = "mia@127.0.0.1";
+        const SHOFF: &str = "shoff@127.0.0.1";
+        let gespraech = Gespraech::Direkt(Direktpaar::fuer_test(CLAUDE, MIA));
+        let channel_a = Gespraech::channel("a");
+        let ohne = Filter::default();
+        let nur_direkt = direkt_filter(&[]);
+        let nur_a = channels(&["a"]);
+        let a_oder_direkt = direkt_filter(&["a"]);
+        let nur_erwaehnung = erwaehnung(&[]);
+        let kein: Option<Vec<Anlass>> = None;
+        let direkt = Some(vec![Anlass::Direkt]);
+        let leer = Some(Vec::new());
+        let faelle = [
+            (
+                "direkt, claude → mia, für mia",
+                &gespraech,
+                mit_text(CLAUDE, "Hallo"),
+                MIA,
+                &nur_direkt,
+                direkt.clone(),
+            ),
+            (
+                "direkt, claude → mia, für shoff (Dritter)",
+                &gespraech,
+                mit_text(CLAUDE, "Hallo"),
+                SHOFF,
+                &nur_direkt,
+                kein.clone(),
+            ),
+            (
+                "ohne Filter, claude → mia, für shoff (Dritter)",
+                &gespraech,
+                mit_text(CLAUDE, "Hallo"),
+                SHOFF,
+                &ohne,
+                kein.clone(),
+            ),
+            (
+                "direkt, claude → mia, für claude (eigene)",
+                &gespraech,
+                mit_text(CLAUDE, "Hallo"),
+                CLAUDE,
+                &nur_direkt,
+                kein.clone(),
+            ),
+            (
+                "ohne Filter, claude → mia, für claude (eigene)",
+                &gespraech,
+                mit_text(CLAUDE, "Hallo"),
+                CLAUDE,
+                &ohne,
+                kein.clone(),
+            ),
+            (
+                "ohne Filter, claude → mia, für mia",
+                &gespraech,
+                mit_text(CLAUDE, "Hallo"),
+                MIA,
+                &ohne,
+                direkt.clone(),
+            ),
+            (
+                "ohne Filter, Channel-Nachricht, für mia",
+                &channel_a,
+                mit_text(CLAUDE, "Hallo"),
+                MIA,
+                &ohne,
+                leer.clone(),
+            ),
+            (
+                "direkt, Channel-Nachricht, für mia",
+                &channel_a,
+                mit_text(CLAUDE, "Hallo"),
+                MIA,
+                &nur_direkt,
+                kein.clone(),
+            ),
+            (
+                "channel=a, Direktnachricht, für mia",
+                &gespraech,
+                mit_text(CLAUDE, "Hallo"),
+                MIA,
+                &nur_a,
+                kein.clone(),
+            ),
+            (
+                "channel=a&direkt, Direktnachricht, für mia (Vereinigung)",
+                &gespraech,
+                mit_text(CLAUDE, "Hallo"),
+                MIA,
+                &a_oder_direkt,
+                direkt.clone(),
+            ),
+            (
+                "channel=a&direkt, Channel a, für mia (Vereinigung)",
+                &channel_a,
+                mit_text(CLAUDE, "Hallo"),
+                MIA,
+                &a_oder_direkt,
+                leer.clone(),
+            ),
+            (
+                "direkt, gelöscht, für mia",
+                &gespraech,
+                geloescht(CLAUDE),
+                MIA,
+                &nur_direkt,
+                kein.clone(),
+            ),
+            (
+                "erwaehnung, ohne Erwähnung, Direktnachricht: Anlass als Fakt, kein Schalter",
+                &gespraech,
+                mit_text(CLAUDE, "Hallo"),
+                MIA,
+                &nur_erwaehnung,
+                kein.clone(),
+            ),
+            (
+                "erwaehnung, @mia im eigenen Gespräch: beides",
+                &gespraech,
+                mit_text(CLAUDE, "@mia schau mal"),
+                MIA,
+                &nur_erwaehnung,
+                Some(vec![Anlass::Direkt, Anlass::Erwaehnung]),
+            ),
+            (
+                "ohne Filter, @mia im eigenen Gespräch: beides",
+                &gespraech,
+                mit_text(CLAUDE, "@mia schau mal"),
+                MIA,
+                &ohne,
+                Some(vec![Anlass::Direkt, Anlass::Erwaehnung]),
+            ),
+            (
+                "E13: @shoff im fremden Gespräch weckt nie, auch nicht unter erwaehnung",
+                &gespraech,
+                mit_text(CLAUDE, "@shoff komm"),
+                SHOFF,
+                &nur_erwaehnung,
+                kein.clone(),
+            ),
+            (
+                "E13: @shoff im fremden Gespräch weckt nie, auch nicht ohne Filter",
+                &gespraech,
+                mit_text(CLAUDE, "@shoff komm"),
+                SHOFF,
+                &ohne,
+                kein.clone(),
+            ),
+            (
+                "E13: Antwort auf shoff im fremden Gespräch weckt nie",
+                &gespraech,
+                antwort(CLAUDE, SHOFF, "Erledigt"),
+                SHOFF,
+                &nur_erwaehnung,
+                kein.clone(),
+            ),
+            (
+                "erwaehnung, Antwort auf mia im eigenen Gespräch: direkt und antwort",
+                &gespraech,
+                antwort(CLAUDE, MIA, "Erledigt"),
+                MIA,
+                &nur_erwaehnung,
+                Some(vec![Anlass::Direkt, Anlass::Antwort]),
+            ),
+        ];
+        for (fall, gespraech, nachricht, wartender, filter, erwartet) in faelle {
+            assert_eq!(
+                treffer(gespraech, &nachricht, &kennung(wartender), filter),
+                erwartet,
+                "{fall}"
+            );
+        }
     }
 
     #[test]
