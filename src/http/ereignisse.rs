@@ -19,7 +19,7 @@ use crate::gespraeche::{
 };
 use crate::live::bus::{Abonnement, Empfang, Ereignis, Signal, Signalabonnement, Signalempfang};
 use crate::protokoll::episoden::{Auftreten, Quelle};
-use crate::protokoll::{Bereich, Protokoll, Schluessel, Stufe, episodentexte};
+use crate::protokoll::{Bereich, Kontext, Protokoll, Schluessel, Stufe, episodentexte};
 use crate::start::ende::Ende;
 use axum::extract::{ConnectInfo, State};
 use axum::http::HeaderMap;
@@ -161,36 +161,45 @@ enum Ausgabe {
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum Ort {
     Channel(String),
-    /// Die Kennung des Gegenübers des Halters. Leer nur, wenn das Urteil „sichtbar“ einen Unbeteiligten durchließ:
-    /// das Ereignis bleibt dann sichtbar leer, statt still zu verschwinden — ein Fehler der Sichtbarkeit fiele im
-    /// Strom auf.
-    Direkt(Option<Kennung>),
+    /// Die Kennung des Gegenübers des Halters.
+    Direkt(Kennung),
+}
+
+/// Was die Sichtbarkeit für den Halter ergibt.
+enum Zuordnung {
+    Ort(Ort),
+    /// Der Halter darf das Gespräch nicht sehen — das Ereignis geht nicht hinaus.
+    Unsichtbar,
+    /// Das Urteil sagte „sichtbar“, der Halter ist aber nicht Teil des Paars: ein Fehler der Sichtbarkeit. Es geht
+    /// nichts hinaus (fail-closed); der Strom schreibt eine ERROR-Zeile.
+    Widerspruch,
 }
 
 impl Ort {
-    /// Der Ort eines Gesprächs für den Halter; keiner, wenn der Halter es nicht sehen darf (`sichtbar_fuer`, die
-    /// eine Stelle dieser Entscheidung, ADR-0055 Regel 5; kein `_ =>`, damit eine neue Gesprächsart nicht still
-    /// durchgeht).
-    fn fuer(gespraech: &Gespraech, halter: &Kennung) -> Option<Ort> {
-        if !sichtbar_fuer(gespraech, halter, false) {
-            return None;
+    /// Der Ort eines Gesprächs für den Halter (`urteil` ist im Programm `sichtbar_fuer`, die eine Stelle dieser
+    /// Entscheidung, ADR-0055 Regel 5; kein `_ =>`, damit eine neue Gesprächsart nicht still durchgeht).
+    fn fuer(
+        gespraech: &Gespraech,
+        halter: &Kennung,
+        urteil: impl Fn(&Gespraech, &Kennung, bool) -> bool,
+    ) -> Zuordnung {
+        if !urteil(gespraech, halter, false) {
+            return Zuordnung::Unsichtbar;
         }
-        Some(match gespraech {
-            Gespraech::Channel(name) => Ort::Channel(name.clone()),
-            Gespraech::Direkt(paar) => Ort::Direkt(paar.gegenueber(halter).cloned()),
-        })
+        match gespraech {
+            Gespraech::Channel(name) => Zuordnung::Ort(Ort::Channel(name.clone())),
+            Gespraech::Direkt(paar) => match paar.gegenueber(halter) {
+                Some(gegenueber) => Zuordnung::Ort(Ort::Direkt(gegenueber.clone())),
+                None => Zuordnung::Widerspruch,
+            },
+        }
     }
 
     /// `(channel, direkt)` der Leitung.
     fn felder(&self) -> (serde_json::Value, serde_json::Value) {
         match self {
             Ort::Channel(name) => (json!(name), serde_json::Value::Null),
-            Ort::Direkt(gegenueber) => (
-                serde_json::Value::Null,
-                gegenueber
-                    .as_ref()
-                    .map_or(serde_json::Value::Null, |kennung| json!(kennung.als_text())),
-            ),
+            Ort::Direkt(gegenueber) => (serde_json::Value::Null, json!(gegenueber.als_text())),
         }
     }
 }
@@ -347,7 +356,28 @@ impl Strom {
     /// Der Ort des Gesprächs für diesen Strom; keiner, wenn der Halter es nicht sehen darf — dann geht das Ereignis
     /// nicht hinaus (ADR-0055 Regel 6, Matrix S1).
     fn ort(&self, gespraech: &Gespraech) -> Option<Ort> {
-        Ort::fuer(gespraech, self.halter.kennung())
+        self.ort_nach(gespraech, sichtbar_fuer)
+    }
+
+    /// `ort` mit dem Urteil als Parameter: die Naht, an der ein Test die Sichtbarkeit fälschlich „ja“ sagen lässt.
+    fn ort_nach(
+        &self,
+        gespraech: &Gespraech,
+        urteil: impl Fn(&Gespraech, &Kennung, bool) -> bool,
+    ) -> Option<Ort> {
+        match Ort::fuer(gespraech, self.halter.kennung(), urteil) {
+            Zuordnung::Ort(ort) => Some(ort),
+            Zuordnung::Unsichtbar => None,
+            Zuordnung::Widerspruch => {
+                self.protokoll.eintragen(
+                    Stufe::Error,
+                    Bereich::Live,
+                    "Ereignis nicht gesendet — die Sichtbarkeit nannte einen Unbeteiligten als Leser eines Direktgesprächs",
+                    Kontext::neu().mit(Schluessel::Kennung, &self.kennung),
+                );
+                None
+            }
+        }
     }
 
     /// Filter je Strom (ADR-0051 Regel 6, ADR-0055 Regel 6): die eigene Kennung nie (man sieht sich nie selbst), ein
@@ -1228,6 +1258,35 @@ mod tests {
             ],
             "ben: das Gegenüber, nicht der Absender"
         );
+        assert_eq!(
+            zwei.anna.protokoll.zaehlerstand().errors,
+            0,
+            "kein Widerspruch der Sichtbarkeit (Mutante sichtbar_fuer → true)"
+        );
+    }
+
+    /// Sollte 1 Welle 2 (Mutante `sichtbar_fuer → true`): sagt das Urteil fälschlich „sichtbar“ für einen
+    /// Unbeteiligten, geht nichts an ihn hinaus (fail-closed) und das Protokoll zählt einen ERROR.
+    #[tokio::test]
+    async fn ein_falsches_urteil_laesst_nichts_an_den_unbeteiligten_und_meldet_einen_error() {
+        let zwei = zwei_stroeme(16, 16);
+        let fremd = Gespraech::Direkt(crate::gespraeche::Direktpaar::fuer_test(
+            "ben@127.0.0.1",
+            "dora@127.0.0.1",
+        ));
+        let vorher = zwei.anna.protokoll.zaehlerstand().errors;
+
+        let ort = zwei.anna.ort_nach(&fremd, |_, _, _| true);
+
+        assert_eq!(ort, None, "nichts an den Unbeteiligten");
+        assert_eq!(zwei.anna.protokoll.zaehlerstand().errors, vorher + 1);
+        let nein = zwei.anna.ort_nach(&fremd, |_, _, _| false);
+        assert_eq!(nein, None);
+        assert_eq!(
+            zwei.anna.protokoll.zaehlerstand().errors,
+            vorher + 1,
+            "ein ehrliches „nein“ ist kein Fehler"
+        );
     }
 
     /// B0772 (Mutante: Filter weg): Aktivität im Direktgespräch von ben liest dora, nie anna als Dritte.
@@ -1263,6 +1322,11 @@ mod tests {
                 "bis": "2026-10-30T09:00:06.000+01:00", "jetzt": "2026-10-30T09:00:00.000+01:00"
             })
             .to_string()]
+        );
+        assert_eq!(
+            zwei.anna.protokoll.zaehlerstand().errors,
+            0,
+            "kein Widerspruch der Sichtbarkeit (Mutante sichtbar_fuer → true)"
         );
     }
 }
