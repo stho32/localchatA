@@ -39,7 +39,11 @@ const DIREKT_ERLAUBT: &[(&str, &str)] = &[
     ),
     (
         "src/gespraeche/nachholen.rs",
-        "Nachholen und sichtbare Marke: Direkt ist vom Nachholen ausgenommen, die Marke fragt sichtbar_fuer",
+        "Nachholen und sichtbare Marke: Stränge nur für Gespräche, die sichtbar_fuer freigibt; Direktsätze getrennt gezählt (Regel 9)",
+    ),
+    (
+        "src/gespraeche/treffer.rs",
+        "Trefferregel: fragt zuerst sichtbar_fuer; Direkt nur für den Anlass direkt und den Filter direkt",
     ),
     (
         "src/gespraeche/sichtbarkeit.rs",
@@ -710,7 +714,10 @@ fn ein_wildcard_im_strom_filter_ist_rot() {
 #[test]
 fn ein_wildcard_in_warten_und_anhangpfaden_ist_rot() {
     let nachholen = mit_geaendert(&echt(), "src/gespraeche/nachholen.rs", |text| {
-        text.replace("Gespraech::Direkt(_) => false,", "_ => false,")
+        text.replace(
+            "Gespraech::Direkt(_) => alle || filter.direkt,",
+            "_ => false,",
+        )
     });
     assert!(befunde_mit(
         &pruefen(&nachholen),
