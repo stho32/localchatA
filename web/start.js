@@ -2,6 +2,7 @@
 // mit Teilnehmerliste und Live-Strom.
 import {
   rufen, verlaufAbrufen, verlaufNachholen, fristSetzen, nachrichtSenden, nachrichtBearbeiten, nachrichtLoeschen, aktivitaetMelden,
+  anhangAnmelden, anhangVerwerfen,
 } from './api.js';
 import * as sitzung from './sitzung.js';
 import * as beitretenBildschirm from './beitreten.js';
@@ -120,6 +121,8 @@ function hauptansichtZeigen(teilnehmer, token, nachEingabe) {
     }),
     nachrichtLoeschen: (channel, zeit) => nachrichtLoeschen(channel, zeit, { token: speicher.getItem(sitzung.SITZUNG) }),
     aktivitaetMelden: (aufruf) => aktivitaetMelden(aufruf, { token: speicher.getItem(sitzung.SITZUNG) }),
+    anhangAnmelden: (name, bytes) => anhangAnmelden(name, bytes, { token: speicher.getItem(sitzung.SITZUNG) }),
+    anhangVerwerfen: (id) => anhangVerwerfen(id, { token: speicher.getItem(sitzung.SITZUNG) }),
     wiederBeitreten,
     zustellung,
   });

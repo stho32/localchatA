@@ -36,9 +36,13 @@ import {
 export function verlaufAnlegen({
   abrufen, schalter = () => {}, fokusRueckgaengig = () => {}, fokusVerloren = () => {}, bearbeitenSpeichern = async () => ({ art: 'netzfehler' }),
   loeschen = async () => ({ art: 'netzfehler' }), hinweisen = () => {}, ansagen = () => {}, antworten = () => {}, signal = new AbortController().signal,
+  hochladungen = element('div'),
 }) {
   const inhalt = element('div', { className: 'lc-log-inhalt' });
-  const ausstehend = element('div', { className: 'lc-ausstehend' });
+  // Unter den vorläufigen die Einträge „wird hochgeladen …“ (R00030 B0450): sie gehören anhaenge.js und werden beim
+  // Neuzeichnen der vorläufigen nicht angefasst — ein Fokus auf ihren Schaltern bleibt.
+  const vorlaeufigeKnoten = element('div', { className: 'lc-vorlaeufige' });
+  const ausstehend = element('div', { className: 'lc-ausstehend' }, [vorlaeufigeKnoten, hochladungen]);
   const auslauf = element('div', { className: 'lc-auslauf' });
   const log = element('div', { className: 'lc-log', tabIndex: 0 }, [inhalt, ausstehend, auslauf]);
   log.setAttribute('role', 'log');
@@ -1313,7 +1317,7 @@ export function verlaufAnlegen({
   function ausstehendZeichnen() {
     const fokussiert = fokussierterSchalter();
     const eigene = vorlaeufige.filter((vorlaeufig) => vorlaeufig.channel === offenerName);
-    ausstehend.replaceChildren(...eigene.map((vorlaeufig) => vorlaeufigZeichnen(vorlaeufig, eigeneKennung)));
+    vorlaeufigeKnoten.replaceChildren(...eigene.map((vorlaeufig) => vorlaeufigZeichnen(vorlaeufig, eigeneKennung)));
     if (fokussiert !== null) {
       fokusZurueck(fokussiert);
     }

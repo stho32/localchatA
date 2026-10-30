@@ -104,6 +104,12 @@ export function dateilisteAnlegen({ feld, ansagen, geaendert }) {
     element: liste,
     hinzufuegen,
     anzahl: () => dateien().length,
+    // Beim Absenden: die gewählten Dateien des Channels, die Liste ist danach leer.
+    nehmen: () => {
+      const genommen = dateien();
+      zeigen([], '');
+      return genommen;
+    },
     // Beim Wechsel bleibt die Liste des alten Channels im Speicher des Tabs; die des neuen erscheint.
     channelSetzen: (name) => {
       channel = name;

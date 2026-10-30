@@ -57,6 +57,40 @@ export async function aktivitaetMelden({ art, channel }, { token }, holen = hole
   return { art: 'antwort', status: antwort.status, wartenS };
 }
 
+// Einen Anhang anmelden (R00029 F0097, ADR-0046 Regel 1): POST {name, bytes} mit Sitzung. Der Körper der Antwort wird
+// gelesen; Retry-After zählt bei 429 und 507 (`hochladungen`).
+// → { art: 'antwort', status, daten, wartenS } | { art: 'netzfehler' }
+export async function anhangAnmelden(name, bytes, { token }, holen = holenImBrowser) {
+  const ZU_VIELE_ANFRAGEN = 429;
+  const KEIN_PLATZ = 507;
+  const headers = { [SITZUNGS_HEADER]: token, 'Content-Type': 'application/json' };
+  let antwort;
+  let inhalt;
+  try {
+    antwort = await holen('/api/anhaenge', { method: 'POST', headers, body: JSON.stringify({ name, bytes }) });
+    inhalt = await antwort.text();
+  } catch (ausnahme) {
+    return { art: 'netzfehler' };
+  }
+  let wartenS = null;
+  if (antwort.status === ZU_VIELE_ANFRAGEN || antwort.status === KEIN_PLATZ) {
+    wartenS = sekundenAusRetryAfter(antwort.headers.get('Retry-After'));
+  }
+  return { art: 'antwort', status: antwort.status, daten: alsJson(inhalt), wartenS };
+}
+
+// Eine Anmeldung verwerfen (ADR-0046): DELETE mit Sitzung; die Antwort zählt nicht — die Anmeldung verfällt sonst am
+// Server von selbst. → { art: 'antwort', status } | { art: 'netzfehler' }
+export async function anhangVerwerfen(id, { token }, holen = holenImBrowser) {
+  try {
+    const antwort = await holen(`/api/anhaenge/${encodeURIComponent(id)}`, { method: 'DELETE', headers: { [SITZUNGS_HEADER]: token } });
+    await antwort.text();
+    return { art: 'antwort', status: antwort.status };
+  } catch (ausnahme) {
+    return { art: 'netzfehler' };
+  }
+}
+
 function sekundenAusRetryAfter(kopf) {
   const sekunden = Number(kopf);
   if (kopf === null || !Number.isInteger(sekunden) || sekunden < 1) {

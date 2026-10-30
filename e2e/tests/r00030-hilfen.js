@@ -3,7 +3,108 @@
 // der Eingabe, „Wählen“ wie in den Akzeptanzkriterien (Schalter auslösen, `filechooser` abwarten, `setFiles`) und die
 // Testdateien, die im Test entstehen.
 const crypto = require('crypto');
+const http = require('http');
 const zlib = require('zlib');
+const { instanzStarten, channelAnlegen } = require('./hilfen');
+const { JETZT } = require('./senden-hilfen');
+
+/// Instanz mit `allgemein` und `technik`, Quoten wie R00029 (Platz für Anhänge 10.485.760 Bytes).
+function anhangStarten({ argumente = ['--plattenquote', '10MiB', '--anhangquote', '10MiB'] } = {}) {
+  return instanzStarten({
+    argumente,
+    umgebung: { LOCALCHATA_JETZT: JETZT },
+    vorbereiten: (ordner) => {
+      channelAnlegen(ordner, 'allgemein');
+      channelAnlegen(ordner, 'technik');
+    },
+  });
+}
+
+/// Eine Anfrage je Verbindung (`agent: false`) von `herkunft`; → { status, daten, kopf }.
+function perApi(adresse, { methode, pfad, token, json, roh, herkunft = '127.0.0.2' }) {
+  const ziel = new URL(pfad, adresse);
+  const kopf = {};
+  let koerper = Buffer.alloc(0);
+  if (token) {
+    kopf['X-LocalchatA-Sitzung'] = token;
+  }
+  if (json !== undefined) {
+    kopf['Content-Type'] = 'application/json';
+    koerper = Buffer.from(JSON.stringify(json));
+  }
+  if (roh !== undefined) {
+    kopf['Content-Type'] = 'application/octet-stream';
+    koerper = roh;
+  }
+  kopf['Content-Length'] = koerper.length;
+  return new Promise((fertig, gescheitert) => {
+    const anfrage = http.request({
+      host: ziel.hostname, port: ziel.port, path: ziel.pathname, method: methode, agent: false, localAddress: herkunft, headers: kopf,
+    }, (antwort) => {
+      const teile = [];
+      antwort.on('data', (teil) => teile.push(teil));
+      antwort.on('end', () => {
+        const text = Buffer.concat(teile).toString('utf8');
+        fertig({ status: antwort.statusCode, daten: text.startsWith('{') ? JSON.parse(text) : text, kopf: antwort.headers });
+      });
+    });
+    anfrage.once('error', (fehler) => gescheitert(new Error(`${methode} ${pfad}: ${fehler.message}`)));
+    anfrage.end(koerper);
+  });
+}
+
+/// `beta` (von 127.0.0.2) tritt bei; → Token.
+async function betaBeitreten(adresse) {
+  const antwort = await perApi(adresse, { methode: 'POST', pfad: 'api/beitreten', json: { name: 'beta' } });
+  if (antwort.status !== 201) {
+    throw new Error(`Beitritt beta: ${antwort.status}`);
+  }
+  return antwort.daten.token;
+}
+
+/// Meldet einen Anhang an; → ID (wirft bei einer anderen Antwort als 201).
+async function perApiAnmelden(adresse, token, name, bytes) {
+  const antwort = await perApi(adresse, { methode: 'POST', pfad: 'api/anhaenge', token, json: { name, bytes } });
+  if (antwort.status !== 201) {
+    throw new Error(`Anmelden ${name}: ${antwort.status} ${JSON.stringify(antwort.daten)}`);
+  }
+  return antwort.daten.anhang.id;
+}
+
+/// Meldet je Größe einen Anhang an, lädt Zufallsbytes hoch und sendet alle in einer Nachricht nach `allgemein`.
+async function perApiAblegen(adresse, token, groessen) {
+  const ids = [];
+  for (const [stelle, bytes] of groessen.entries()) {
+    const id = await perApiAnmelden(adresse, token, `teil-${stelle + 1}.bin`, bytes);
+    const hochgeladen = await perApi(adresse, { methode: 'PUT', pfad: `api/anhaenge/${id}`, token, roh: crypto.randomBytes(bytes) });
+    if (hochgeladen.status !== 200) {
+      throw new Error(`Hochladen: ${hochgeladen.status} ${JSON.stringify(hochgeladen.daten)}`);
+    }
+    ids.push(id);
+  }
+  const gesendet = await perApi(adresse, { methode: 'POST', pfad: 'api/channels/allgemein/nachrichten', token, json: { text: '', anhaenge: ids } });
+  if (gesendet.status !== 201) {
+    throw new Error(`Senden: ${gesendet.status} ${JSON.stringify(gesendet.daten)}`);
+  }
+  return ids;
+}
+
+/// Schreibt die Anfragen der Seite an Anhänge und Nachrichten mit: [{ methode, pfad, koerper }].
+function anfragenMitschreiben(page) {
+  const anfragen = [];
+  page.on('request', (anfrage) => {
+    const pfad = new URL(anfrage.url()).pathname;
+    const zaehlt = pfad.startsWith('/api/anhaenge') || (pfad.endsWith('/nachrichten') && anfrage.method() === 'POST');
+    if (zaehlt) {
+      let koerper = null;
+      if (anfrage.method() === 'POST') {
+        koerper = anfrage.postDataJSON();
+      }
+      anfragen.push({ methode: anfrage.method(), pfad, koerper });
+    }
+  });
+  return anfragen;
+}
 
 const schalter = (page) => page.locator('.lc-comp').getByRole('button', { name: 'Anhang', exact: true });
 const dateiliste = (page) => page.getByRole('list', { name: 'Angehängte Dateien' });
@@ -108,4 +209,5 @@ const liveRegionen = (page) => page.evaluate(() => document.querySelectorAll(
   '[aria-live="polite"], [aria-live="assertive"], [role="status"], [role="alert"]',
 ).length);
 
-module.exports = { ansagenMitschreiben, liveRegionen, ringGegenFlaeche, schalter, dateiliste, dateizeilen, waehlen, fotoPng, berichtPdf, textDatei, archivZip };
+module.exports = {
+  anhangStarten, perApi, betaBeitreten, perApiAnmelden, perApiAblegen, anfragenMitschreiben, ansagenMitschreiben, liveRegionen, ringGegenFlaeche, schalter, dateiliste, dateizeilen, waehlen, fotoPng, berichtPdf, textDatei, archivZip };

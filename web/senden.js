@@ -82,9 +82,10 @@ export function sendenEinrichten({
   anwenden(zustellen(zustellung.zustand, { art: 'verbunden' }));
 
   return {
-    // bezug: der Bezug einer Antwort (zitat.js) oder null.
-    senden: (text, bezug = null) => {
-      anwenden(zustellen(zustellung.zustand, { art: 'senden', channel: offenerChannel, text, bezug, schluessel: neuerSchluessel() }));
+    // bezug: der Bezug einer Antwort (zitat.js) oder null; channel: sonst der offene (eine Nachricht nach dem Hochladen
+    // geht in ihren Channel, R00030 B0450).
+    senden: (text, bezug = null, { channel = offenerChannel } = {}) => {
+      anwenden(zustellen(zustellung.zustand, { art: 'senden', channel, text, bezug, schluessel: neuerSchluessel() }));
       verlauf.zumEndeFuerSenden();
     },
     empfangen: ({ channel, nachricht }) => {

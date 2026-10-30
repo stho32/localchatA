@@ -203,7 +203,7 @@ export function eingabeAnlegen({
   // Der eine Absendeweg für Taste und Knopf (K1). Ein offener Wortvorschlag wird vor dem Leeren beendet — gesendet
   // wird der Text, den das Feld zeigt, und keine Tastatur schreibt das Wort danach ins leere Feld zurück (K4).
   function absenden() {
-    if (!sendbar(feld.value)) {
+    if (!sendbar(feld.value, dateien.anzahl())) {
       return;
     }
     if (kompositionLaeuft) {
@@ -216,7 +216,7 @@ export function eingabeAnlegen({
     textBewerten();
     entwurf.gesendet(channel);
     tippen.gesendet(channel);
-    senden(text, antwort.verwerfen());
+    senden(text, antwort.verwerfen(), dateien.nehmen());
     feld.focus();
   }
 

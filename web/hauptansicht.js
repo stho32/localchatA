@@ -17,6 +17,7 @@ import { einstellungenEinrichten } from './channel-einstellungen.js';
 import { onlineBenennen } from './teilnehmerliste.js';
 import { eingabeAnlegen } from './eingabe.js';
 import { sendenEinrichten, neuerSchluessel } from './senden.js';
+import { hochladungenAnlegen } from './anhaenge.js';
 import { entwurfAnlegen } from './entwurf.js';
 import { tippenAnlegen } from './tippen.js';
 import { aktivitaetsanzeigeAnlegen } from './aktivitaetsanzeige.js';
@@ -73,7 +74,15 @@ export function zeichnen(wurzel, teilnehmer, optionen) {
   einAusblendenBedienen({ schalter, region, haupt }, vorigeAnsichtAbmelden.signal);
   let letzterZustand = 'verbunden';
   channels.channelsZeigen([]);
+  const hochladen = hochladungenAnlegen({
+    kennung: teilnehmer.kennung,
+    anmelden: optionen.anhangAnmelden,
+    senden: (text, bezug, weiteres) => senden.senden(text, bezug, weiteres),
+    ansagen: ansagen.melden,
+    fokusVerloren: () => eingabe.fokussieren(),
+  });
   const verlauf = verlaufAnlegen({
+    hochladungen: hochladen.element,
     abrufen: optionen.verlaufAbrufen,
     bearbeitenSpeichern: (channel, zeit, text) => optionen.nachrichtBearbeiten(channel, zeit, text, neuerSchluessel()),
     loeschen: optionen.nachrichtLoeschen,
@@ -111,7 +120,15 @@ export function zeichnen(wurzel, teilnehmer, optionen) {
   wurzel.append(tippanzeige.region);
   const tippen = tippenAnlegen({ melden: optionen.aktivitaetMelden });
   const eingabe = eingabeAnlegen({
-    senden: senden.senden,
+    // Mit Dateien wartet die Nachricht als Eintrag „wird hochgeladen …“ (R00030 B0450), ohne geht sie gleich in die Schlange.
+    senden: (text, bezug, dateien) => {
+      if (dateien.length === 0) {
+        senden.senden(text, bezug);
+        return;
+      }
+      hochladen.beginnen({ text, bezug, dateien });
+      verlauf.zumEndeFuerSenden();
+    },
     entwurf: entwurfAnlegen({ speicher: window.sessionStorage }),
     ansagen: ansagen.melden,
     tippen,
@@ -134,6 +151,7 @@ export function zeichnen(wurzel, teilnehmer, optionen) {
     eingabe.channelSetzen(name);
     tippanzeige.oeffnen(name);
     senden.channelGeoeffnet(name);
+    hochladen.channelGeoeffnet(name);
     ansagen.melden({ art: 'gewechselt' });
   };
   const auswahlFolgen = auswahlEinrichten({
