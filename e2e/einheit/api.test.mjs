@@ -100,6 +100,15 @@ test('Nachricht senden schickt text, Sitzung und Schlüssel und liefert Status u
   assert.deepEqual(JSON.parse(aufrufe[0].optionen.body), { text: 'Hallo\nWelt' });
 });
 
+test('Nachricht senden mit Bezug (R00047 B0715): der Körper trägt antwort_auf mit der Zeit des Originals; ohne Bezug nur text', async () => {
+  const mit = antwortenMit(201, '{}');
+  await nachrichtSenden('a', 'Ja', 'u-1', { token: 't', antwortAuf: '2026-10-30T14:03:00.000+01:00' }, mit.holen);
+  assert.deepEqual(JSON.parse(mit.aufrufe[0].optionen.body), { text: 'Ja', antwort_auf: '2026-10-30T14:03:00.000+01:00' });
+  const ohne = antwortenMit(201, '{}');
+  await nachrichtSenden('a', 'Ja', 'u-2', { token: 't', antwortAuf: null }, ohne.holen);
+  assert.deepEqual(JSON.parse(ohne.aufrufe[0].optionen.body), { text: 'Ja' });
+});
+
 test('Nachricht senden: eine Fehlerantwort ist eine Antwort, ein unerreichbarer Server ein Netzfehler', async () => {
   const abgewiesen = await nachrichtSenden('a', 'x', 'u', { token: 't' }, antwortenMit(422, '{"fehler":"leer"}').holen);
   const weg = await nachrichtSenden('a', 'x', 'u', { token: 't' }, async () => { throw new TypeError('Failed to fetch'); });

@@ -167,8 +167,25 @@ export function eingabeAnlegen({ senden, entwurf, ansagen, tippen, tippzeile, hi
     textBewerten();
     entwurf.gesendet(channel);
     tippen.gesendet(channel);
-    senden(text);
+    senden(text, antwort.verwerfen());
     feld.focus();
+  }
+
+  // Die Instanz hat den Bezug abgewiesen (R00047 B0715, ADR-0053 Regel 7): der Text kommt zurück — ins Feld, wenn er zum
+  // offenen Channel gehört, sonst in den Entwurf seines Channels —, der Text der Instanz steht am Feld; nichts Getipptes
+  // geht verloren: was inzwischen im Feld steht, bleibt hinter dem zurückgegebenen Text.
+  function bezugAbgewiesen({ channel: ihrChannel, text, grund }) {
+    if (ihrChannel !== channel) {
+      entwurf.weggehen(ihrChannel, zusammen(text, entwurf.oeffnen(ihrChannel)));
+      return;
+    }
+    feld.value = zusammen(text, feld.value);
+    hoeheAnpassen(feld);
+    textBewerten();
+    entwurf.eingabe(channel, feld.value);
+    zeile.textContent = `⚠ ${grund}`;
+    zeile.classList.add('lc-fehler');
+    ansagen({ art: 'sofort', text: grund });
   }
   function entwurfSichern() {
     if (channel !== null) {
@@ -197,6 +214,7 @@ export function eingabeAnlegen({ senden, entwurf, ansagen, tippen, tippzeile, hi
       textBewerten();
     },
     fokussieren: () => feld.focus(),
+    bezugAbgewiesen,
     // „Antworten“ an einer Nachricht des Fensters (R00047 B0714): die Zeile über dem Feld, der Fokus im Feld — synchron in
     // der Geste, damit auf Touch die Bildschirmtastatur aufgeht.
     antwortBeginnen: (nachricht) => {
@@ -256,6 +274,13 @@ function antwortzeileAnlegen(feld) {
     }
   });
   return { zeile, zeigen, verwerfen, steht: () => bezug !== null };
+}
+
+function zusammen(zurueck, inzwischen) {
+  if (inzwischen === '') {
+    return zurueck;
+  }
+  return `${zurueck}\n${inzwischen}`;
 }
 
 function entferntText(anzahl) {

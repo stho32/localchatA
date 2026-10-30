@@ -1361,12 +1361,12 @@ function leerHinweis(name) {
 }
 
 // Eine eigene Nachricht unterwegs („wird gesendet …“ mit ◌) oder fehlgeschlagen (⚠ und Grund in kd-danger), mit dem
-// Kopf der eigenen Kennung, ohne Zeit (Baustein Nachricht).
+// Kopf der eigenen Kennung, ohne Zeit (Baustein Nachricht); eine Antwort mit dem Zitat ihres Bezugs (R00047 B0715).
 function vorlaeufigZeichnen(vorlaeufig, kennung) {
   if (vorlaeufig.zustand === 'verworfen') {
     return verworfenZeichnen(vorlaeufig);
   }
-  const artikel = nachrichtZeichnen({ von: kennung, art: 'mensch', text: vorlaeufig.text });
+  const artikel = nachrichtZeichnen({ von: kennung, art: 'mensch', text: vorlaeufig.text, antwort_auf: vorlaeufig.bezug });
   artikel.classList.add('lc-vorlaeufig');
   const zeile = element('div', { className: 'lc-send' });
   const inhalt = artikel.querySelector('.lc-msg-inhalt');

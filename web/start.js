@@ -111,9 +111,9 @@ function hauptansichtZeigen(teilnehmer, token, nachEingabe) {
     verlaufAbrufen: (name, cursor, signal) => verlaufAbrufen(name, cursor, { token: speicher.getItem(sitzung.SITZUNG), signal }),
     verlaufNachholen: (name, cursor, signal, n) => verlaufNachholen(name, cursor, { token: speicher.getItem(sitzung.SITZUNG), signal, n }),
     fristSetzen: (name, tage, bestaetigt) => fristSetzen(name, tage, bestaetigt, { token: speicher.getItem(sitzung.SITZUNG) }),
-    nachrichtSenden: async (channel, text, schluessel) => {
+    nachrichtSenden: async (channel, text, schluessel, antwortAuf) => {
       const token = speicher.getItem(sitzung.SITZUNG);
-      return { ...await nachrichtSenden(channel, text, schluessel, { token }), token };
+      return { ...await nachrichtSenden(channel, text, schluessel, { token, antwortAuf }), token };
     },
     nachrichtBearbeiten: (channel, zeit, text, schluessel) => nachrichtBearbeiten(channel, zeit, text, schluessel, {
       token: speicher.getItem(sitzung.SITZUNG),

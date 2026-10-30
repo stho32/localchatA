@@ -3,15 +3,17 @@
 // Strom ruht die Warteschlange; was dann scheitert, bleibt „wird gesendet“ und geht nach dem Wiederverbinden mit
 // demselben Schlüssel hinaus.
 //
-// zustand: { vorlaeufige: [{ schluessel, channel, text, zustand: 'wird gesendet' | 'fehlgeschlagen', grund?,
+// zustand: { vorlaeufige: [{ schluessel, channel, text, bezug, zustand: 'wird gesendet' | 'fehlgeschlagen', grund?,
 //            wiederbeigetreten? }], laufend: schluessel | null, bestaetigt: [zeit…], getrennt }
-// ereignis: { art: 'senden', channel, text, schluessel } · { art: 'antwort', schluessel, status, daten }
+//            (bezug: der Bezug einer Antwort, zitat.js, oder null — R00047 B0715)
+// ereignis: { art: 'senden', channel, text, schluessel, bezug? } · { art: 'antwort', schluessel, status, daten }
 //         · { art: 'netzfehler' | 'zeitueberschreitung', schluessel } · { art: 'ereignis', kennung, channel, nachricht }
 //         · { art: 'getrennt' | 'verbunden' } · { art: 'erneut', schluessel } · { art: 'beitrittGescheitert' }
 //         · { art: 'verwerfen' | 'rueckgaengig' | 'fokusRueckgaengig', schluessel, jetzt } · { art: 'verfallen', jetzt }
 //         (Verworfen auf Zeit, R00025 F0085: eine verworfene steht 5 s mit `seit`, dann ist sie entfernt)
-// → { zustand, auftrag: { schluessel, channel, text } | null, bestaetigt: { channel, nachricht } | null,
-//     fremd: { channel, nachricht } | null, wiederbeitreten, fehlschlag: { grund } | null }
+// → { zustand, auftrag: { schluessel, channel, text, antwortAuf: Zeit | null } | null, bestaetigt: { channel, nachricht } | null,
+//     fremd: { channel, nachricht } | null, wiederbeitreten, fehlschlag: { grund } | null,
+//     bezugAbgewiesen: { channel, text, grund } | null }
 export const LEER = { vorlaeufige: [], laufend: null, bestaetigt: [], getrennt: false };
 
 const NICHT_GESPEICHERT = 'Nicht gespeichert — der Server konnte nicht schreiben.';
@@ -51,14 +53,17 @@ export function zustellen(zustand, ereignis) {
   }
 }
 
-function gesendet(zustand, { channel, text, schluessel }) {
-  const vorlaeufige = [...zustand.vorlaeufige, { schluessel, channel, text, zustand: 'wird gesendet' }];
+function gesendet(zustand, { channel, text, schluessel, bezug = null }) {
+  const vorlaeufige = [...zustand.vorlaeufige, { schluessel, channel, text, bezug, zustand: 'wird gesendet' }];
   return auftragWennFrei({ ...zustand, vorlaeufige });
 }
 
 function beantwortet(zustand, { schluessel, status, daten }) {
   if (status === NICHT_ANGEMELDET) {
     return nichtAngemeldet(zustand, schluessel, daten);
+  }
+  if (bezugAbgelehnt(status, daten)) {
+    return bezugAbweisen(zustand, schluessel, daten.fehler);
   }
   const erfolgreich = status === 200 || status === 201;
   if (!erfolgreich) {
@@ -68,6 +73,23 @@ function beantwortet(zustand, { schluessel, status, daten }) {
   const bestaetigung = bestaetigen({ ...zustand, vorlaeufige }, daten.channel, daten.nachricht);
   const weiter = naechsterAuftrag(bestaetigung.zustand);
   return { ...weiter, bestaetigt: bestaetigung.bestaetigt };
+}
+
+// Weist die Instanz den Bezug einer Antwort ab (422 `antwort_auf`, ADR-0053 Regel 7), ist nichts gespeichert: die
+// vorläufige geht weg, ihr Text geht zurück an die Eingabe — anders als die übrigen Fehlschläge, die als fehlgeschlagen
+// mit „Erneut senden“ stehen bleiben; ein Erneut-Senden mit demselben Bezug schlüge wieder fehl.
+function bezugAbgelehnt(status, daten) {
+  const UNVERARBEITBAR = 422;
+  return status === UNVERARBEITBAR && daten !== null && typeof daten === 'object' && daten.regel === 'antwort_auf';
+}
+
+function bezugAbweisen(zustand, schluessel, grund) {
+  const betroffene = zustand.vorlaeufige.find((vorlaeufig) => vorlaeufig.schluessel === schluessel);
+  const weiter = naechsterAuftrag({ ...zustand, vorlaeufige: ohne(zustand.vorlaeufige, schluessel) });
+  if (betroffene === undefined) {
+    return weiter;
+  }
+  return { ...weiter, bezugAbgewiesen: { channel: betroffene.channel, text: betroffene.text, grund } };
 }
 
 // Verworfen auf Zeit (ADR-0037 Ergänzung „Verworfen auf Zeit“): 5 s lässt sich „Verwerfen“ zurücknehmen; Fokus auf
@@ -156,8 +178,7 @@ function nichtAngemeldet(zustand, schluessel, daten) {
     }
     return { ...vorlaeufig, wiederbeigetreten: true };
   });
-  const auftrag = { schluessel, channel: betroffene.channel, text: betroffene.text };
-  return ergebnis({ ...zustand, vorlaeufige }, { auftrag, wiederbeitreten: true });
+  return ergebnis({ ...zustand, vorlaeufige }, { auftrag: auftragFuer(betroffene), wiederbeitreten: true });
 }
 
 function grundAus(status, daten) {
@@ -200,7 +221,7 @@ function erneutSenden(zustand, schluessel) {
   if (fehlgeschlagene === undefined) {
     return ergebnis(zustand);
   }
-  const wieder = { schluessel, channel: fehlgeschlagene.channel, text: fehlgeschlagene.text, zustand: 'wird gesendet' };
+  const wieder = { schluessel, channel: fehlgeschlagene.channel, text: fehlgeschlagene.text, bezug: fehlgeschlagene.bezug, zustand: 'wird gesendet' };
   return auftragWennFrei({ ...zustand, vorlaeufige: [...ohne(zustand.vorlaeufige, schluessel), wieder] });
 }
 
@@ -218,8 +239,16 @@ function naechsterAuftrag(zustand) {
   if (naechste === undefined || zustand.getrennt) {
     return ergebnis({ ...zustand, laufend: null });
   }
-  const auftrag = { schluessel: naechste.schluessel, channel: naechste.channel, text: naechste.text };
-  return ergebnis({ ...zustand, laufend: naechste.schluessel }, { auftrag });
+  return ergebnis({ ...zustand, laufend: naechste.schluessel }, { auftrag: auftragFuer(naechste) });
+}
+
+// Was hinausgeht: Schlüssel, Channel, Text und bei einer Antwort die Zeit des Originals.
+function auftragFuer({ schluessel, channel, text, bezug = null }) {
+  let antwortAuf = null;
+  if (bezug !== null) {
+    antwortAuf = bezug.zeit;
+  }
+  return { schluessel, channel, text, antwortAuf };
 }
 
 // Ein Ereignis des Stroms: passt es zur gerade gesendeten vorläufigen, bestätigt es sie; eine schon bestätigte
@@ -262,7 +291,7 @@ function wieVomServer(text) {
 }
 
 function ergebnis(zustand, { auftrag = null, bestaetigt = null, fremd = null, wiederbeitreten = false, fehlschlag = null } = {}) {
-  return { zustand, auftrag, bestaetigt, fremd, wiederbeitreten, fehlschlag };
+  return { zustand, auftrag, bestaetigt, fremd, wiederbeitreten, fehlschlag, bezugAbgewiesen: null };
 }
 
 // Wie viele Nachrichten nach dem nächsten Beitritt mit „Erneut senden“ dastehen: die fehlgeschlagenen.

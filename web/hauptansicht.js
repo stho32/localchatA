@@ -105,6 +105,7 @@ export function zeichnen(wurzel, teilnehmer, optionen) {
     zustellung: optionen.zustellung,
     netzAus: () => navigator.onLine === false,
     ansagen: ansagen.melden,
+    bezugAbgewiesen: (abgewiesen) => eingabe.bezugAbgewiesen(abgewiesen),
   });
   const tippanzeige = aktivitaetsanzeigeAnlegen({ kennung: teilnehmer.kennung });
   wurzel.append(tippanzeige.region);

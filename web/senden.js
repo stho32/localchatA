@@ -7,12 +7,13 @@
 // Fehlschläge und fremde Nachrichten gehen an die Ansage.
 import { LEER, zustellen, naechsterVerfall } from './zustellung.js';
 
-// abschicken: async (channel, text, schluessel) → { art: 'antwort', status, daten, token } | { art: 'zeitueberschreitung'
-// | 'netzfehler' } · wiederBeitreten: async (abgelehntesToken) → zustand der Sitzung · netzAus: () → bool · ansagen:
+// abschicken: async (channel, text, schluessel, antwortAuf) → { art: 'antwort', status, daten, token } | { art: 'zeitueberschreitung'
+// | 'netzfehler' } · bezugAbgewiesen({ channel, text, grund }): die Instanz hat den Bezug einer Antwort abgewiesen, ihr Text
+// geht an die Eingabe zurück (R00047 B0715) · wiederBeitreten: async (abgelehntesToken) → zustand der Sitzung · netzAus: () → bool · ansagen:
 // (ereignis der Ansage) · zustellung: { zustand, verfall } des Tabs · jetzt: () → ms seit der Epoche · zeitgeber:
 // { stellen(ms, rueckruf) → id, loeschen(id) }
 export function sendenEinrichten({
-  verlauf, kennung, abschicken, wiederBeitreten, netzAus, ansagen, zustellung = { zustand: LEER }, jetzt = () => Date.now(),
+  verlauf, kennung, abschicken, wiederBeitreten, netzAus, ansagen, bezugAbgewiesen = () => {}, zustellung = { zustand: LEER }, jetzt = () => Date.now(),
   zeitgeber = ECHTE_ZEITGEBER,
 }) {
   let offenerChannel = null;
@@ -32,6 +33,9 @@ export function sendenEinrichten({
     }
     if (ergebnis.fehlschlag !== null) {
       ansagen({ art: 'fehlschlag', grund: ergebnis.fehlschlag.grund });
+    }
+    if (ergebnis.bezugAbgewiesen !== null) {
+      bezugAbgewiesen(ergebnis.bezugAbgewiesen);
     }
     verlauf.vorlaeufigeZeigen(zustellung.zustand.vorlaeufige);
     verfallStellen();
@@ -54,14 +58,14 @@ export function sendenEinrichten({
     });
   }
 
-  async function auftragAusfuehren({ schluessel, channel, text }, nachAblehnung) {
+  async function auftragAusfuehren({ schluessel, channel, text, antwortAuf }, nachAblehnung) {
     if (nachAblehnung) {
       const sitzung = await wiederBeitreten(zuletztGesendetMitToken);
       if (sitzung.art !== 'kopfzeile') {
         return;
       }
     }
-    const antwort = await abschicken(channel, text, schluessel);
+    const antwort = await abschicken(channel, text, schluessel, antwortAuf);
     zuletztGesendetMitToken = antwort.token;
     if (antwort.art === 'antwort') {
       anwenden(zustellen(zustellung.zustand, { art: 'antwort', schluessel, status: antwort.status, daten: antwort.daten }));
@@ -78,8 +82,9 @@ export function sendenEinrichten({
   anwenden(zustellen(zustellung.zustand, { art: 'verbunden' }));
 
   return {
-    senden: (text) => {
-      anwenden(zustellen(zustellung.zustand, { art: 'senden', channel: offenerChannel, text, schluessel: neuerSchluessel() }));
+    // bezug: der Bezug einer Antwort (zitat.js) oder null.
+    senden: (text, bezug = null) => {
+      anwenden(zustellen(zustellung.zustand, { art: 'senden', channel: offenerChannel, text, bezug, schluessel: neuerSchluessel() }));
       verlauf.zumEndeFuerSenden();
     },
     empfangen: ({ channel, nachricht }) => {
