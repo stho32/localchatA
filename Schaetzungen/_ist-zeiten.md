@@ -609,3 +609,4 @@ Nie vom User erfragen.
 | 2026-10-30 | R00039 Eigene Nachricht über die API bearbeiten | Nacharbeit B1, B2, A2 (Wanduhr gesamt) | Nacharbeit | — | 0,75h | 0,75h | autonom (entw2) |
 | 2026-10-30 | R00029 Anhänge über die API | Nacharbeit Teil D B0649–B0654 (6 Bubbles, Wanduhr gesamt) | Nacharbeit | 10,4–20,4h | 0,85h | 0,85h | autonom (entw2) |
 | 2026-10-30 | R00040 Eigene Nachricht über die API löschen | B0613–B0619, B0625 (8 Bubbles, Wanduhr gesamt) + A1, A4 aus #48 | Entwicklung | — | 0,75h | 0,75h | autonom (entw2) |
+| 2026-10-30 | R00040 Eigene Nachricht über die API löschen | Nacharbeit B1, B2 (Wanduhr gesamt) | Nacharbeit | — | 0,6h | 0,6h | autonom (entw2) |
