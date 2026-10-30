@@ -822,6 +822,45 @@ mod tests {
         );
     }
 
+    /// Ein Channel `a`: die erste Nachricht ist 16.384 Bytes lang, danach `kurze` Nachrichten „x“. Liefert die
+    /// Gespräche, `t0` (vor der ersten) und die Marke (die letzte).
+    fn lange_erste_dann_kurze(kurze: usize) -> (Gespraeche, Zeit, Zeit) {
+        let ablage = Arc::new(Speicherablage::neu());
+        ablage.gespraech_anlegen(&Gespraech::channel("a"));
+        let beginn = zeit("2026-10-30T12:00:00.000+01:00");
+        let gespraeche =
+            Gespraeche::laden(ablage, Arc::new(GestellteUhr::neu(beginn))).expect("geladen");
+        let senden = |text: &str| {
+            gespraeche
+                .senden(&Gespraech::channel("a"), &anna(), Art::Mensch, text)
+                .expect("gesendet")
+                .zeit
+        };
+        let mut marke = senden(&"x".repeat(16_384));
+        for _ in 0..kurze {
+            marke = senden("x");
+        }
+        (gespraeche, beginn - chrono::Duration::seconds(1), marke)
+    }
+
+    /// Befund 5 (security-reviewer #17) und S1 (code-reviewer #17): auch die Kopfzeile des ältesten bzw. jüngsten
+    /// Satzes (`aelteste_kopfzeit`, `juengste_kopfzeit` je `block`-Aufruf) wird am einzigen Kopierort gezählt —
+    /// und kopiert nicht mehr den ganzen Satz. 16-KiB-Erstnachricht + 1.999 Nachrichten zu 1 Byte: kopiert ≤
+    /// 1.024 × Kosten + 49.152 (heute 32,8 MB gegen 2,1 MB).
+    #[test]
+    fn die_kopfzeile_des_aeltesten_satzes_wird_nicht_je_schritt_kopiert() {
+        let (gespraeche, t0, marke) = lange_erste_dann_kurze(1_999);
+
+        let (nachgeholt, kopiert) = nachholen_und_kopiertes(&gespraeche, t0, marke);
+
+        assert_eq!(nachgeholt.saetze, 1_984);
+        assert!(
+            kopiert <= BYTE_JE_KOSTENEINHEIT * nachgeholt.kosten + 49_152,
+            "kopiert {kopiert} B für {} Kosten",
+            nachgeholt.kosten
+        );
+    }
+
     /// Eigene Variante V5 zu Teil 1: sind Satz und Änderungssatz beide 16 KiB lang, bucht das Nachholen das Größere,
     /// der Verlauf kopiert beide — die Arbeit bleibt bei höchstens dem Doppelten der Buchung.
     #[test]

@@ -166,7 +166,7 @@ impl Verlauf {
     /// Der Änderungssatz einer bearbeiteten Fassung (Kopie); für Geloescht keiner.
     pub fn aenderungssatz(&self, fassung: &Fassung) -> Option<Vec<u8>> {
         self.aenderungsspanne(fassung)
-            .map(|(tag, spanne)| tag.rohtext[spanne].to_vec())
+            .map(|(tag, spanne)| tag.kopieren(spanne))
     }
 
     /// Hängt einen Bearbeitungssatz an und setzt die Fassung der Nachricht `ziel` (nach erfolgreichem Schreiben).
@@ -415,8 +415,8 @@ pub struct Block {
     pub neuer: bool,
 }
 
-// Zähler der Probe „Arbeit ≤ k × Buchung“ (R00049, Karte #17): die Bytes, die `Verlauf::kopie` auf diesem Thread
-// kopiert hat — am einzigen Kopierort, unabhängig davon, was das Nachholen bucht.
+// Zähler der Probe „Arbeit ≤ k × Buchung“ (R00049, Karte #17): die Bytes, die `Tag::satz` auf diesem Thread
+// kopiert hat — am einzigen Kopierort der Sätze (auch der Änderungssätze), unabhängig davon, was das Nachholen bucht.
 #[cfg(test)]
 thread_local! {
     pub(super) static KOPIERT: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
@@ -526,14 +526,11 @@ impl Verlauf {
             geaendert: fassung.geaendert,
             satz: self.aenderungssatz(&fassung),
         });
-        let kopie = Kopie {
+        Kopie {
             satz: tag.satz(index),
             aenderung,
             zitat,
-        };
-        #[cfg(test)]
-        KOPIERT.with(|kopiert| kopiert.set(kopiert.get() + kopie.kopierte_bytes()));
-        kopie
+        }
     }
 
     /// Zeit und Lesebytes der ersten Nachricht echt nach `ab` — ohne Kopie: was die Trefferregel für sie liest, das
@@ -582,12 +579,12 @@ impl Verlauf {
             .values()
             .rev()
             .find(|tag| !tag.nachrichten.is_empty())?;
-        logformat::kopfzeit(&tag.satz(tag.nachrichten.len() - 1))
+        logformat::kopfzeit(&tag.rohtext[*tag.nachrichten.last()?..])
     }
 
     fn aelteste_kopfzeit(&self) -> Option<Zeit> {
         let tag = self.tage.values().find(|tag| !tag.nachrichten.is_empty())?;
-        logformat::kopfzeit(&tag.satz(0))
+        logformat::kopfzeit(&tag.rohtext[*tag.nachrichten.first()?..])
     }
 }
 
@@ -598,19 +595,6 @@ pub struct Kopie {
     pub aenderung: Option<Kopierte>,
     /// Das Zitat einer Antwort, aufgelöst unter der Sperre des Gesprächs (ADR-0053 Regel 3).
     pub zitat: Option<Box<Zitat>>,
-}
-
-impl Kopie {
-    /// Wie viele Bytes diese Kopie aus dem Verlauf gekopiert hat: Satz und Änderungssatz.
-    #[cfg(test)]
-    fn kopierte_bytes(&self) -> usize {
-        let aenderungssatz = self
-            .aenderung
-            .as_ref()
-            .and_then(|aenderung| aenderung.satz.as_ref())
-            .map_or(0, Vec::len);
-        self.satz.len() + aenderungssatz
-    }
 }
 
 /// Die Fassung einer kopierten Nachricht: Zeit der Änderung und der kopierte Bearbeitungssatz, gelöscht keiner.
@@ -624,7 +608,15 @@ impl Tag {
     /// Kopie der Nachricht `index`: von ihrem Anfang bis vor den nächsten Satz gleich welcher Art bzw. bis zum Ende
     /// des Tages.
     fn satz(&self, index: usize) -> Vec<u8> {
-        self.rohtext[self.spanne(index)].to_vec()
+        self.kopieren(self.spanne(index))
+    }
+
+    /// Der einzige Ort, an dem Bytes des Tages kopiert werden (Sätze und Änderungssätze); im Test gezählt.
+    fn kopieren(&self, spanne: std::ops::Range<usize>) -> Vec<u8> {
+        let bytes = self.rohtext[spanne].to_vec();
+        #[cfg(test)]
+        KOPIERT.with(|kopiert| kopiert.set(kopiert.get() + bytes.len()));
+        bytes
     }
 
     /// Länge der Nachricht `index` in Bytes, ohne sie zu kopieren.
