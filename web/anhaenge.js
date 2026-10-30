@@ -407,10 +407,11 @@ function balkenAnlegen(name) {
 // LAN-Adresse per http) gilt die Grenze je Tab.
 function plaetzeImBrowser() {
   const PLAETZE = ['localchata-hochladen-1', 'localchata-hochladen-2'];
-  const sperren = globalThis.navigator === undefined ? undefined : globalThis.navigator.locks;
-  if (sperren === undefined) {
+  const ohneSperren = globalThis.navigator === undefined || globalThis.navigator.locks === undefined;
+  if (ohneSperren) {
     return plaetzeImTab(PLAETZE.length);
   }
+  const sperren = globalThis.navigator.locks;
   return (arbeit) => new Promise((fertig) => {
     const zurueckziehen = new AbortController();
     let begonnen = false;
