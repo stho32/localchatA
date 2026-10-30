@@ -328,6 +328,45 @@ export function verlaufAnlegen({
     }
   });
 
+  // Das offene Feld gehört dem Tab (F0142): steht seine Nachricht wieder im Verlauf (neu gezeichnet, Rückkehr in den
+  // Channel), hängt es sich ein — den Fokus bekommt es bei der Rückkehr und wenn er mit dem alten Knoten verloren ging.
+  function feldEinsetzen(mitFokus) {
+    const zeit = bearbeiten.offeneZeitIn(offenerName);
+    if (zeit === null || bearbeiten.eingesetzt()) {
+      return;
+    }
+    const knoten = nachrichtKnoten(zeit);
+    if (knoten === null || knoten.dataset.zustand === 'geloescht') {
+      return;
+    }
+    const fokusVerloren = document.activeElement === null || document.activeElement === document.body;
+    bearbeiten.einsetzen(knoten, mitFokus || fokusVerloren);
+  }
+
+  // Nach dem Öffnen des Channels: steht die Nachricht des Felds im Fenster, ist es wieder offen mit Fokus; ist sie
+  // gelöscht oder fehlt sie im Zeitraum des Fensters, schließt es mit Hinweis (PO 124). Liegt sie vor dem Fenster, wartet
+  // das Feld, bis sie wieder geladen ist.
+  function feldNachOeffnen() {
+    const zeit = bearbeiten.offeneZeitIn(offenerName);
+    if (zeit === null) {
+      return;
+    }
+    const bekannt = bekannteNachricht(zeit);
+    if (bekannt !== null && bekannt.nachricht.zustand !== 'geloescht') {
+      feldEinsetzen(true);
+      return;
+    }
+    const vorDemFenster = fenster !== null && Date.parse(zeit) < Date.parse(fenster.bloecke[0][0].zeit) && fenster.aelter;
+    if (!vorDemFenster) {
+      bearbeiten.weilWegSchliessen();
+    }
+  }
+
+  function blockMitFeld(block) {
+    const zeit = bearbeiten.offeneZeitIn(offenerName);
+    return zeit !== null && block !== undefined && block.some((nachricht) => Date.parse(nachricht.zeit) === Date.parse(zeit));
+  }
+
   function tasteAufNachricht(ereignis) {
     const aktion = nachrichtTaste(ereignis);
     if (aktion === null || ereignis.target.querySelector(`.lc-aktion[data-aktion="${aktion}"]`) === null) {
@@ -409,6 +448,7 @@ export function verlaufAnlegen({
   }
   new MutationObserver(() => {
     rollfokusPflegen();
+    feldEinsetzen(false);
     fokusZurueckAufNachricht();
   }).observe(inhalt, { childList: true, subtree: true });
   log.addEventListener('focusin', (ereignis) => {
@@ -538,6 +578,7 @@ export function verlaufAnlegen({
     if (ergebnis.block.nachrichten.length === 0) {
       inhalt.replaceChildren(...leerHinweis(name));
       gepuffertesAnnehmen();
+      feldNachOeffnen();
       return { art: 'geladen' };
     }
     angenommenMerken(ergebnis.block.nachrichten);
@@ -550,6 +591,7 @@ export function verlaufAnlegen({
     langeEinklappen(nurNachrichten(knoten));
     ansEnde();
     lageMerken();
+    feldNachOeffnen();
     gepuffertesAnnehmen();
     pruefen();
     return { art: 'geladen' };
@@ -936,7 +978,8 @@ export function verlaufAnlegen({
     pruefen();
   }
 
-  // Abstand des Blicks zu den Rändern und Höhe des obersten und untersten Blocks (fenster.js, Abwurfschutz).
+  // Abstand des Blicks zu den Rändern und Höhe des obersten und untersten Blocks (fenster.js, Abwurfschutz); ein Ende
+  // mit dem offenen Bearbeiten-Feld ist geschützt (F0142).
   function masse() {
     return {
       abstandOben: log.scrollTop,
@@ -944,6 +987,8 @@ export function verlaufAnlegen({
       hoeheOben: blockHoehe(bloeckeKnoten[0]),
       hoeheUnten: blockHoehe(bloeckeKnoten[bloeckeKnoten.length - 1]),
       sicht: log.clientHeight,
+      obenGeschuetzt: blockMitFeld(fenster.bloecke[0]),
+      untenGeschuetzt: blockMitFeld(fenster.bloecke[fenster.bloecke.length - 1]),
     };
   }
 

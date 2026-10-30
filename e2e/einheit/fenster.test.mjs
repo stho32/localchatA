@@ -156,3 +156,24 @@ test('L3b Simulation: Sicht 2.160 px, Blöcke zu 1.680 px — 6 Abrufe, danach k
   assert.equal(abrufe, 6);
   assert.equal(fenster.bloecke.length, 7);
 });
+
+// R00041 F0142 B0635: der Block mit dem offenen Bearbeiten-Feld wird nicht abgeworfen — das Fenster wächst bis 8 und
+// lädt dann an dieser Seite nicht weiter nach.
+test('B0635: ist das untere Ende geschützt, fällt oben einfügend nichts weg; das obere geschützt, unten einfügend auch nicht', () => {
+  const oben = einfuegen(fensterAus(5), block('neu'), 'aelter', { ...WEIT, untenGeschuetzt: true });
+  assert.equal(oben.abgeworfen, null);
+  assert.equal(oben.fenster.bloecke.length, 6);
+  const unten = einfuegen({ ...fensterAus(5), neuer: true }, block('neu'), 'neuer', { ...WEIT, obenGeschuetzt: true });
+  assert.equal(unten.abgeworfen, null);
+  assert.equal(unten.fenster.bloecke.length, 6);
+});
+
+test('B0635: ein geschütztes Ende hält nur seine Seite — das andere Ende fällt weiter weg', () => {
+  const ergebnis = einfuegen(fensterAus(5), block('neu'), 'aelter', { ...WEIT, obenGeschuetzt: true });
+  assert.deepEqual(ergebnis.abgeworfen, [{ zeit: 'b4' }]);
+});
+
+test('B0635: bei 8 Blöcken und geschütztem anderem Ende lädt das Fenster nicht nach', () => {
+  assert.equal(nachladen(lage({ bloecke: 8, aelter: true, abstandOben: 0, abstandUnten: 99999, hoeheUnten: 100, untenGeschuetzt: true })), null);
+  assert.equal(nachladen(lage({ bloecke: 8, aelter: true, abstandOben: 0, abstandUnten: 99999, hoeheUnten: 100 })), 'aelter');
+});

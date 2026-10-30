@@ -77,11 +77,14 @@ function fehlerText({ status, daten }) {
 // ansagen(text): genau eine Ansage über die Region der Seite (UX S2); beim Öffnen keine (S3) · inSicht(element): das
 // Element ganz in den sichtbaren Teil des Verlaufs (UX M7, auch bei offener Bildschirmtastatur).
 // beginnen(channel, artikel, nachricht) öffnet das Feld in `artikel`; istOffen(zeit) sagt, ob es an dieser Nachricht steht.
+// Das Feld gehört dem Tab, nicht dem Knoten (F0142, PO 124): zeichnet der Verlauf die Nachricht neu oder wechselt der
+// Channel, bleibt es samt Text und Schreibmarke im Speicher; einsetzen(artikel, mitFokus) hängt es wieder ein.
 export function bearbeitenAnlegen({ zeiger, fokusAufNachricht, inSicht, speichern, uebernehmen, alsGeloeschtZeigen, hinweisen, ansagen }) {
   let offen = null;
 
   function beginnen(channel, artikel, nachricht) {
     if (offen !== null) {
+      zweitesBeginnen(channel);
       return;
     }
     offen = feldZeichnen(nachricht, zeiger());
@@ -89,6 +92,10 @@ export function bearbeitenAnlegen({ zeiger, fokusAufNachricht, inSicht, speicher
     offen.zeit = nachricht.zeit;
     offen.geaendert = nachricht.geaendert;
     offen.laeuft = false;
+    offen.auswahl = [nachricht.text.length, nachricht.text.length];
+    for (const art of ['select', 'keyup', 'mouseup', 'input', 'blur']) {
+      offen.feld.addEventListener(art, auswahlMerken);
+    }
     offen.feld.addEventListener('input', bereitZeigen);
     offen.feld.addEventListener('keydown', tasteImFeld);
     offen.abbrechenKnopf.addEventListener('click', abbrechen);
@@ -98,6 +105,39 @@ export function bearbeitenAnlegen({ zeiger, fokusAufNachricht, inSicht, speicher
     offen.feld.focus();
     offen.feld.setSelectionRange(offen.feld.value.length, offen.feld.value.length);
     bereitZeigen();
+  }
+
+  // Höchstens ein Feld je Tab (PO 124): ein zweites „Bearbeiten“ öffnet keines; im selben Channel geht der Fokus ins
+  // offene, in einem anderen bleibt der Channel.
+  function zweitesBeginnen(channel) {
+    ansagen('Erst speichern oder abbrechen.');
+    if (offen.channel === channel && offen.rahmen.isConnected) {
+      fokusInsFeld();
+    }
+  }
+
+  function auswahlMerken() {
+    offen.auswahl = [offen.feld.selectionStart, offen.feld.selectionEnd];
+  }
+
+  function fokusInsFeld() {
+    offen.feld.focus({ preventScroll: true });
+    offen.feld.setSelectionRange(offen.auswahl[0], offen.auswahl[1]);
+    imBlickHalten();
+  }
+
+  function einsetzen(artikel, mitFokus) {
+    artikel.classList.add('lc-im-bearbeiten');
+    artikel.querySelector('.lc-msg-inhalt').append(offen.rahmen);
+    if (mitFokus) {
+      fokusInsFeld();
+    }
+  }
+
+  // Die Nachricht ist weg (gelöscht, entfallen): das Feld schließt mit einem Hinweis, der Text geht verloren (PO 122).
+  function weilWegSchliessen() {
+    schliessen();
+    hinweisen('Die Nachricht wurde inzwischen gelöscht.');
   }
 
   // Wächst das Feld oder schrumpft das Fenster (Bildschirmtastatur), bleiben Feld und Knöpfe im Blick.
@@ -202,7 +242,16 @@ export function bearbeitenAnlegen({ zeiger, fokusAufNachricht, inSicht, speicher
 
   return {
     beginnen,
-    istOffen: (zeit) => offen !== null && offen.zeit === zeit,
+    einsetzen,
+    weilWegSchliessen,
+    // Die Zeit der Nachricht mit dem offenen Feld, wenn es zu `channel` gehört, sonst null.
+    offeneZeitIn: (channel) => {
+      if (offen === null || offen.channel !== channel) {
+        return null;
+      }
+      return offen.zeit;
+    },
+    eingesetzt: () => offen !== null && offen.rahmen.isConnected,
   };
 }
 
