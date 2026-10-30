@@ -223,6 +223,8 @@ const ROUTE: &str = "GET /api/warten";
 
 /// Höchstens so viele gleichzeitige Warte-Aufrufe je Kennung (ADR-0054 Regel 8).
 pub const AUFRUFE_JE_KENNUNG: usize = 4;
+/// Nach so vielen Sekunden lohnt ein neuer Versuch über der Grenze je Kennung (`Retry-After`, ADR-0054 Regel 8).
+pub const AUFRUFE_WIEDER_IN_S: u64 = 5;
 
 /// Laufende Warte-Aufrufe je Kennung (ADR-0054 Regel 8 und 10, `wartend` im Health-Check); gezählt über einen
 /// Platz, der beim Ende des Aufrufs fällt — auch, wenn der Client abbricht.
@@ -271,13 +273,13 @@ impl Drop for Wartend {
     }
 }
 
-/// Das 429 am fünften Aufruf: `{fehler, grenze: "warten", hoechstens}` mit `Retry-After: 5`.
+/// Das 429 am fünften Aufruf: `{fehler, grenze: "warten", hoechstens}` mit `Retry-After: 5` (`AUFRUFE_WIEDER_IN_S`).
 fn zu_viele_aufrufe() -> Response {
     (
         StatusCode::TOO_MANY_REQUESTS,
-        [(RETRY_AFTER, "5")],
+        [(RETRY_AFTER, AUFRUFE_WIEDER_IN_S.to_string())],
         Json(json!({
-            "fehler": format!("Zu viele gleichzeitige Warte-Aufrufe: höchstens {AUFRUFE_JE_KENNUNG} je Kennung — einen beenden oder in 5 s noch einmal versuchen."),
+            "fehler": format!("Zu viele gleichzeitige Warte-Aufrufe: höchstens {AUFRUFE_JE_KENNUNG} je Kennung — einen beenden oder in {AUFRUFE_WIEDER_IN_S} s noch einmal versuchen."),
             "grenze": "warten",
             "hoechstens": AUFRUFE_JE_KENNUNG,
         })),
