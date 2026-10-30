@@ -3,7 +3,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  anmeldungBewerten, abweisungAnsage, prozentAus, hochladenBewerten, wartetText, selbstBlockiert, selbstBlockiertGrund, eintragZustandText,
+  anmeldungBewerten, abweisungAnsage, prozentAus, hochladenBewerten, wartetText, selbstBlockiert, selbstBlockiertGrund, eintragZustandText, zaehlmass,
 } from '../../web/anhaenge.js';
 
 const antwort = (status, daten, wartenS = null) => ({ art: 'antwort', status, daten, wartenS });
@@ -102,4 +102,36 @@ test('Zustand des Eintrags: „wird hochgeladen …“, mit abgewiesenen Dateien
   assert.equal(eintragZustandText(0), ' wird hochgeladen …');
   assert.equal(eintragZustandText(1), ' angehalten — nach „Entfernen“ der abgewiesenen Datei wird gesendet');
   assert.equal(eintragZustandText(2), ' angehalten — nach „Entfernen“ der abgewiesenen Dateien wird gesendet');
+});
+
+// Code-Review #43 F0119 B1: ein 409 auf den PUT nach dem Wiederverbinden ist kein Fehlschlag.
+test('hochladenBewerten: 409 „fertig“ ist geschafft, 409 „laeuft“ heißt später noch einmal, anderes 409 ein Fehlschlag', () => {
+  const antwort409 = (regel) => ({ art: 'antwort', status: 409, daten: { fehler: 'Text der Instanz', regel } });
+  assert.deepEqual(hochladenBewerten(antwort409('fertig')), { art: 'fertig' });
+  assert.deepEqual(hochladenBewerten(antwort409('laeuft')), { art: 'nochEinmal' });
+  assert.deepEqual(hochladenBewerten(antwort409('sonst')), { art: 'fehlgeschlagen', grund: 'Text der Instanz' });
+});
+
+// Code-Review #43 F0119 B2: die eigenen Anmeldungen zählen im Zählmaß der Instanz (mindestens 64 KiB, auf 4 KiB aufgerundet).
+test('zaehlmass: mindestens 64 KiB, sonst auf 4 KiB aufgerundet', () => {
+  assert.equal(zaehlmass(1), 65536);
+  assert.equal(zaehlmass(1024), 65536);
+  assert.equal(zaehlmass(65536), 65536);
+  assert.equal(zaehlmass(65537), 69632);
+  assert.equal(zaehlmass(100 * 1024), 102400);
+});
+
+test('selbstBlockiert im Zählmaß: drei 1-KiB-Dateien belegen 196.608 Bytes und blockieren die vierte bei 200 KiB frei', () => {
+  const platz = { hoechstens: 10485760, gebunden: 10280960, braucht: 65536 };
+  const eigene = [1024, 1024, 1024].map(zaehlmass).reduce((summe, wert) => summe + wert, 0);
+  assert.equal(eigene, 196608);
+  assert.equal(selbstBlockiert(platz, eigene), true);
+});
+
+test('selbstBlockiert: Gegenproben — drei kleine Dateien bei 10.000.000 gebunden blockieren nicht; ein 100-KiB-Fall rechnet mit 102.400 je Datei', () => {
+  const eigene = [1024, 1024, 1024].map(zaehlmass).reduce((summe, wert) => summe + wert, 0);
+  assert.equal(selbstBlockiert({ hoechstens: 10485760, gebunden: 10000000, braucht: 65536 }, eigene), false);
+  assert.equal(selbstBlockiert({ hoechstens: 10485760, gebunden: 10280960, braucht: 65536 }, zaehlmass(100 * 1024)), false);
+  assert.equal(selbstBlockiert({ hoechstens: 10485760, gebunden: 10280960, braucht: 65536 }, 2 * zaehlmass(100 * 1024)), true);
+  assert.equal(selbstBlockiert({ hoechstens: 10485760, gebunden: 10280960, braucht: 65536 }, 0), false);
 });
