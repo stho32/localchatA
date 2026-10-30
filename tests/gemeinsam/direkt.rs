@@ -30,6 +30,11 @@ pub struct Teilnehmer {
 pub async fn runde(umgebung: &[(&str, &str)]) -> Runde {
     let wurzel = ordner();
     let instanz = starten(wurzel.path(), umgebung);
+    runde_mit(wurzel, instanz).await
+}
+
+/// Die drei Teilnehmer treten einer schon gestarteten Instanz bei.
+pub async fn runde_mit(wurzel: tempfile::TempDir, instanz: Instanz) -> Runde {
     let beitritt = |name: &'static str, adresse: &'static str| {
         let absender = Absender::von(adresse);
         let basis = instanz.adresse.clone();
@@ -74,6 +79,35 @@ impl Teilnehmer {
                 .json(koerper),
         )
         .await
+    }
+
+    /// `POST /api/verlassen` — der Teilnehmer geht.
+    pub async fn verlassen(&self, basis: &str) -> ApiAntwort {
+        api_antwort(
+            self.absender
+                .anfrage(reqwest::Method::POST, format!("{basis}api/verlassen"))
+                .header("X-LocalchatA-Sitzung", &self.token),
+        )
+        .await
+    }
+
+    /// Die Kennungen der Teilnehmerliste.
+    pub async fn teilnehmerliste(&self, basis: &str) -> Vec<String> {
+        let antwort = api_antwort(
+            self.absender
+                .anfrage(reqwest::Method::GET, format!("{basis}api/teilnehmer"))
+                .header("X-LocalchatA-Sitzung", &self.token),
+        )
+        .await;
+        antwort.json["liste"]
+            .as_array()
+            .map(|liste| {
+                liste
+                    .iter()
+                    .filter_map(|zeile| zeile["kennung"].as_str().map(str::to_string))
+                    .collect()
+            })
+            .unwrap_or_default()
     }
 
     /// `GET /api/direkt/<segment>/nachrichten`.

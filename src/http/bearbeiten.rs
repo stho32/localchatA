@@ -19,8 +19,9 @@ use super::senden::{
     text_abgewiesen, unbekannt,
 };
 use super::teilnehmer::Teilnehmer;
+use super::ziel::{Segment, Ziel, bezug, ziel_aus_pfad};
 use crate::gespraeche::textregel::{Textfehler, laenge_und_zeichen_pruefen};
-use crate::gespraeche::{Bearbeitet, Bearbeitfehler, Gespraech, Kennung, Nachricht};
+use crate::gespraeche::{Bearbeitet, Bearbeitfehler, Kennung, Nachricht};
 use crate::protokoll::episoden::{Auftreten, Quelle};
 use crate::protokoll::vorlauf;
 use crate::protokoll::{Bereich, Kontext, Protokoll, Schluessel, Stufe};
@@ -44,6 +45,7 @@ pub const BEARBEITEN_GRENZE: usize = 131_072;
 /// Wie beim Senden: vorab die kleinste Buchung, der Rest nach allen 4xx-Prüfungen (ADR-0036 Regel 3).
 const VORAB_BEARBEITEN: u32 = 1;
 
+/// `POST /api/channels/{name}/nachrichten/bearbeiten`.
 pub async fn bearbeiten(
     teilnehmer: Teilnehmer,
     State(zustand): State<Arc<Zustand>>,
@@ -51,6 +53,32 @@ pub async fn bearbeiten(
     kopf: HeaderMap,
     koerper: Body,
 ) -> Response {
+    bearbeiten_in(teilnehmer, zustand, Ziel::Channel(name), kopf, koerper).await
+}
+
+/// `POST /api/direkt/{kennung}/nachrichten/bearbeiten` (ADR-0055 Regel 3): dieselbe Folge, das Paar aus Sitzung und
+/// Pfad; ohne Gespräch 404 `nachricht` wie für eine nie vergebene Zeit (ADR-0048 M3).
+pub(super) async fn bearbeiten_direkt(
+    teilnehmer: Teilnehmer,
+    State(zustand): State<Arc<Zustand>>,
+    segment: Segment,
+    kopf: HeaderMap,
+    koerper: Body,
+) -> Response {
+    match ziel_aus_pfad(&teilnehmer, &segment) {
+        Ok(ziel) => bearbeiten_in(teilnehmer, zustand, ziel, kopf, koerper).await,
+        Err(fehler) => fehler.antwort(&teilnehmer.kennung),
+    }
+}
+
+async fn bearbeiten_in(
+    teilnehmer: Teilnehmer,
+    zustand: Arc<Zustand>,
+    ziel_gespraech: Ziel,
+    kopf: HeaderMap,
+    koerper: Body,
+) -> Response {
+    let name = ziel_gespraech.name();
     let eintritt = Instant::now();
     if let Err(gebremst) =
         zustand
@@ -82,8 +110,12 @@ pub async fn bearbeiten(
     if let Some(feld) = weiteres_feld(&wert) {
         return mit_regel(feld_abgewiesen(&feld), "feld_unbekannt", Some(&wer));
     }
-    if !zustand.gespraeche.channel_bekannt(&name) {
-        return mit_regel(unbekannt(&name), "channel_unbekannt", Some(&wer));
+    if !gespraech_bekannt(&zustand, &ziel_gespraech) {
+        return mit_regel(
+            unbekannt_wie(&ziel_gespraech),
+            unbekannt_regel(&ziel_gespraech),
+            Some(&wer),
+        );
     }
     let Some(ziel) = zeit_lesen(&wert) else {
         return mit_regel(zeit_abgewiesen(), "zeit", Some(&wer));
@@ -119,7 +151,7 @@ pub async fn bearbeiten(
     }
     let text_bytes = text.len();
     let gespraeche = Arc::clone(&zustand.gespraeche);
-    let gespraech = Gespraech::channel(&name);
+    let gespraech = ziel_gespraech.gespraech();
     let von = teilnehmer.kennung.clone();
     let text = text.to_string();
     let ergebnis = tokio::task::spawn_blocking(move || {
@@ -133,19 +165,19 @@ pub async fn bearbeiten(
         Ok(Ok(Bearbeitet::Neu(nachricht))) => {
             vorlauf::eintragen(&zustand.protokoll, zustand.gespraeche.zeit_vorlauf_ms());
             melden(None);
-            bearbeitet(&name, &nachricht)
+            bearbeitet(&ziel_gespraech, &nachricht)
         }
         Ok(Ok(Bearbeitet::Wiederholt(nachricht))) => {
             melden(Some("wiederholung"));
-            bearbeitet(&name, &nachricht)
+            bearbeitet(&ziel_gespraech, &nachricht)
         }
         Ok(Ok(Bearbeitet::Unveraendert(nachricht))) => {
             melden(Some("unveraendert"));
-            bearbeitet(&name, &nachricht)
+            bearbeitet(&ziel_gespraech, &nachricht)
         }
         Ok(Err(fehler)) => {
             abweisung_melden(&zustand.protokoll, &fehler, &name, &wer);
-            abgewiesen(fehler, &name, &wer)
+            abgewiesen(fehler, &ziel_gespraech, &wer)
         }
         Err(abbruch) => abgebrochen(&zustand, &Abgebrochen::from(abbruch), &wer, &name),
     }
@@ -162,7 +194,7 @@ fn bearbeitet_melden(
     grund: Option<&str>,
 ) {
     let kontext = Kontext::neu()
-        .mit(Schluessel::Channel, channel)
+        .mit(bezug(channel), channel)
         .mit(Schluessel::Kennung, wer)
         .mit(Schluessel::Anzahl, text_bytes)
         .mit(Schluessel::DauerMs, eintritt.elapsed().as_millis());
@@ -204,7 +236,7 @@ pub(crate) fn fremd_auftreten(channel: &str, wer: &str) -> Auftreten {
         crate::protokoll::episodentexte::FREMD_ABGEWIESEN,
         Quelle::neu().mit(Schluessel::Kennung, wer),
     )
-    .einzeln(Schluessel::Channel, channel)
+    .einzeln(bezug(channel), channel)
 }
 
 /// Quelle des Schreibfehlers sind Datei und Grund; die Kennung gehört dem einzelnen Auftreten.
@@ -219,7 +251,7 @@ pub(crate) fn schreibfehler_auftreten(
         Bereich::Aendern,
         crate::protokoll::episodentexte::AENDERUNG_NICHT_GESCHRIEBEN,
         Quelle::neu()
-            .mit(Schluessel::Channel, channel)
+            .mit(bezug(channel), channel)
             .mit(Schluessel::Datei, datei)
             .mit(Schluessel::Grund, grund),
     )
@@ -227,9 +259,11 @@ pub(crate) fn schreibfehler_auftreten(
 }
 
 /// Die Antworten der Prüfungen unter der Sperre.
-fn abgewiesen(fehler: Bearbeitfehler, channel: &str, wer: &str) -> Response {
+fn abgewiesen(fehler: Bearbeitfehler, ziel: &Ziel, wer: &str) -> Response {
     match fehler {
-        Bearbeitfehler::Unbekannt => mit_regel(unbekannt(channel), "channel_unbekannt", Some(wer)),
+        Bearbeitfehler::Unbekannt => {
+            mit_regel(unbekannt_wie(ziel), unbekannt_regel(ziel), Some(wer))
+        }
         Bearbeitfehler::Nachricht => mit_regel(nachricht_fehlt(), "nachricht", Some(wer)),
         Bearbeitfehler::Fremd { absender } => {
             mit_regel(fremd_abgewiesen(&absender), "fremd", Some(wer))
@@ -278,9 +312,34 @@ pub(super) fn fremd_abgewiesen(absender: &Kennung) -> Response {
     )
 }
 
-fn bearbeitet(channel: &str, nachricht: &Nachricht) -> Response {
-    let antwort = json!({ "channel": channel, "nachricht": NachrichtAntwort::aus(nachricht) });
+fn bearbeitet(ziel: &Ziel, nachricht: &Nachricht) -> Response {
+    let antwort = ziel.antwort_mit(json!(NachrichtAntwort::aus(nachricht)));
     (StatusCode::OK, Json(antwort)).into_response()
+}
+
+/// Ob das Gespräch der Route besteht: ein Channel im Verzeichnis, ein Direktgespräch im Verzeichnis (auch ohne
+/// Nachricht — dann findet die Suche unter der Sperre keine Zeit).
+pub(super) fn gespraech_bekannt(zustand: &Zustand, ziel: &Ziel) -> bool {
+    match ziel {
+        Ziel::Channel(name) => zustand.gespraeche.channel_bekannt(name),
+        Ziel::Direkt { paar, .. } => zustand.gespraeche.direkt_bekannt(paar),
+    }
+}
+
+/// 404 für ein unbekanntes Gespräch: „# name gibt es nicht.“ im Channel, im Direktgespräch dieselbe Antwort wie für
+/// eine nie vergebene Zeit (ADR-0048 M3, Matrix E3) — kein Orakel, ob es das Gespräch gibt.
+pub(super) fn unbekannt_wie(ziel: &Ziel) -> Response {
+    match ziel {
+        Ziel::Channel(name) => unbekannt(name),
+        Ziel::Direkt { .. } => nachricht_fehlt(),
+    }
+}
+
+pub(super) fn unbekannt_regel(ziel: &Ziel) -> &'static str {
+    match ziel {
+        Ziel::Channel(_) => "channel_unbekannt",
+        Ziel::Direkt { .. } => "nachricht",
+    }
 }
 
 pub(super) fn regel_antwort(status: StatusCode, fehler: &str, regel: &str) -> Response {

@@ -11,18 +11,19 @@ use super::abbruch::{Abgebrochen, Grenzort, abbruch_beantworten};
 use super::anfrageprotokoll::mit_regel;
 use super::anhaenge::loeschen::{Anlass, protokollieren, veroeffentlichen};
 use super::bearbeiten::{
-    fremd_abgewiesen, fremd_auftreten, nachricht_fehlt, quote_erreicht, schreibfehler_auftreten,
-    zeit_abgewiesen, zeit_lesen,
+    fremd_abgewiesen, fremd_auftreten, gespraech_bekannt, nachricht_fehlt, quote_erreicht,
+    schreibfehler_auftreten, unbekannt_regel, unbekannt_wie, zeit_abgewiesen, zeit_lesen,
 };
 use super::bremse::{Gegenstand, gebremst_melden};
 use super::koerper::{Koerperfehler, Koerperort, json_lesen, koerperfehler_beantworten};
 use super::nachrichten::NachrichtAntwort;
-use super::senden::{nicht_gespeichert_antwort, quote_auftreten, unbekannt};
+use super::senden::{nicht_gespeichert_antwort, quote_auftreten};
 use super::teilnehmer::Teilnehmer;
 use super::werkbank::bank_erwerben;
+use super::ziel::{Segment, Ziel, bezug, ziel_aus_pfad};
 use crate::gespraeche::loeschen::Geloescht;
 use crate::gespraeche::nachricht_loeschen::{Loeschfehler, NachrichtGeloescht};
-use crate::gespraeche::{Gespraech, Gespraeche, Nachricht};
+use crate::gespraeche::{Gespraeche, Nachricht};
 use crate::live::bus::Bus;
 use crate::protokoll::vorlauf;
 use crate::protokoll::{Bereich, Kontext, Protokoll, Schluessel, Stufe};
@@ -44,6 +45,7 @@ pub const LOESCHEN_GRENZE: usize = 1_024;
 /// Kosten am Schreibkonto: eine Einheit, nur vorab (ADR-0048 Regel 5).
 const VORAB_LOESCHEN: u32 = 1;
 
+/// `POST /api/channels/{name}/nachrichten/loeschen`.
 pub async fn loeschen(
     teilnehmer: Teilnehmer,
     State(zustand): State<Arc<Zustand>>,
@@ -51,6 +53,32 @@ pub async fn loeschen(
     kopf: HeaderMap,
     koerper: Body,
 ) -> Response {
+    loeschen_in(teilnehmer, zustand, Ziel::Channel(name), kopf, koerper).await
+}
+
+/// `POST /api/direkt/{kennung}/nachrichten/loeschen` (ADR-0055 Regel 3): dieselbe Folge, das Paar aus Sitzung und
+/// Pfad; ohne Gespräch 404 `nachricht` wie für eine nie vergebene Zeit (ADR-0048 M3).
+pub(super) async fn loeschen_direkt(
+    teilnehmer: Teilnehmer,
+    State(zustand): State<Arc<Zustand>>,
+    segment: Segment,
+    kopf: HeaderMap,
+    koerper: Body,
+) -> Response {
+    match ziel_aus_pfad(&teilnehmer, &segment) {
+        Ok(ziel) => loeschen_in(teilnehmer, zustand, ziel, kopf, koerper).await,
+        Err(fehler) => fehler.antwort(&teilnehmer.kennung),
+    }
+}
+
+async fn loeschen_in(
+    teilnehmer: Teilnehmer,
+    zustand: Arc<Zustand>,
+    gespraech_ziel: Ziel,
+    kopf: HeaderMap,
+    koerper: Body,
+) -> Response {
+    let name = gespraech_ziel.name();
     let eintritt = Instant::now();
     if let Err(gebremst) =
         zustand
@@ -78,8 +106,12 @@ pub async fn loeschen(
     if let Some(feld) = weiteres_feld(&wert) {
         return mit_regel(feld_abgewiesen(&feld), "feld_unbekannt", Some(&wer));
     }
-    if !zustand.gespraeche.channel_bekannt(&name) {
-        return mit_regel(unbekannt(&name), "channel_unbekannt", Some(&wer));
+    if !gespraech_bekannt(&zustand, &gespraech_ziel) {
+        return mit_regel(
+            unbekannt_wie(&gespraech_ziel),
+            unbekannt_regel(&gespraech_ziel),
+            Some(&wer),
+        );
     }
     let Some(ziel) = zeit_lesen(&wert) else {
         return mit_regel(zeit_abgewiesen(), "zeit", Some(&wer));
@@ -93,7 +125,7 @@ pub async fn loeschen(
     let erlaubnis =
         if zustand
             .gespraeche
-            .anhangzahl(&Gespraech::channel(&name), &teilnehmer.kennung, ziel)
+            .anhangzahl(&gespraech_ziel.gespraech(), &teilnehmer.kennung, ziel)
             > 0
         {
             match bank_erwerben(&zustand.hochladebank).await {
@@ -116,7 +148,7 @@ pub async fn loeschen(
         protokoll: Arc::clone(&zustand.protokoll),
         bus: Arc::clone(&zustand.bus),
         teilnehmer: teilnehmer.clone(),
-        channel: name.clone(),
+        gespraech: gespraech_ziel,
         ziel,
         eintritt,
     };
@@ -147,7 +179,7 @@ struct Loeschauftrag {
     protokoll: Arc<Protokoll>,
     bus: Arc<Bus>,
     teilnehmer: Teilnehmer,
-    channel: String,
+    gespraech: Ziel,
     ziel: Zeit,
     eintritt: Instant,
 }
@@ -155,8 +187,9 @@ struct Loeschauftrag {
 impl Loeschauftrag {
     fn ausfuehren(&self) -> Response {
         let wer = self.teilnehmer.kennung.als_text();
+        let channel = self.gespraech.name();
         let ergebnis = self.gespraeche.nachricht_loeschen(
-            &Gespraech::channel(&self.channel),
+            &self.gespraech.gespraech(),
             &self.teilnehmer.kennung,
             self.ziel,
         );
@@ -174,15 +207,15 @@ impl Loeschauftrag {
                     Anlass::Nachricht,
                 );
                 veroeffentlichen(&self.bus, &anhaenge);
-                geloescht(&self.channel, &nachricht, "geloescht", Some(&anhaenge))
+                geloescht(&self.gespraech, &nachricht, "geloescht", Some(&anhaenge))
             }
             Ok(NachrichtGeloescht::Schon(nachricht)) => {
                 self.melden(0, Some("schon_geloescht"));
-                geloescht(&self.channel, &nachricht, "schon_geloescht", None)
+                geloescht(&self.gespraech, &nachricht, "schon_geloescht", None)
             }
             Err(fehler) => {
-                abweisung_melden(&self.protokoll, &fehler, &self.channel, wer);
-                abgewiesen(fehler, &self.channel, wer)
+                abweisung_melden(&self.protokoll, &fehler, &channel, wer);
+                abgewiesen(fehler, &self.gespraech, wer)
             }
         }
     }
@@ -190,7 +223,7 @@ impl Loeschauftrag {
     fn melden(&self, anhaenge: u64, grund: Option<&str>) {
         geloescht_melden(
             &self.protokoll,
-            &self.channel,
+            &self.gespraech.name(),
             self.teilnehmer.kennung.als_text(),
             anhaenge,
             self.eintritt,
@@ -210,7 +243,7 @@ fn geloescht_melden(
     grund: Option<&str>,
 ) {
     let kontext = Kontext::neu()
-        .mit(Schluessel::Channel, channel)
+        .mit(bezug(channel), channel)
         .mit(Schluessel::Kennung, wer)
         .mit(Schluessel::Anhaenge, anhaenge)
         .mit(Schluessel::DauerMs, eintritt.elapsed().as_millis());
@@ -245,9 +278,9 @@ fn abweisung_melden(protokoll: &Protokoll, fehler: &Loeschfehler, channel: &str,
 }
 
 /// Die Antworten der Prüfungen unter der Sperre.
-fn abgewiesen(fehler: Loeschfehler, channel: &str, wer: &str) -> Response {
+fn abgewiesen(fehler: Loeschfehler, ziel: &Ziel, wer: &str) -> Response {
     match fehler {
-        Loeschfehler::Unbekannt => mit_regel(unbekannt(channel), "channel_unbekannt", Some(wer)),
+        Loeschfehler::Unbekannt => mit_regel(unbekannt_wie(ziel), unbekannt_regel(ziel), Some(wer)),
         Loeschfehler::Nachricht => mit_regel(nachricht_fehlt(), "nachricht", Some(wer)),
         Loeschfehler::Fremd { absender } => {
             mit_regel(fremd_abgewiesen(&absender), "fremd", Some(wer))
@@ -264,7 +297,7 @@ fn abgewiesen(fehler: Loeschfehler, channel: &str, wer: &str) -> Response {
 /// 200 mit der gelöschten Fassung und der Bilanz der mitgelöschten Anhänge `{geloescht, bytes, fehler}` — schon
 /// gelöscht: nichts mitgelöscht.
 fn geloescht(
-    channel: &str,
+    ziel: &Ziel,
     nachricht: &Nachricht,
     ergebnis: &str,
     anhaenge: Option<&Geloescht>,
@@ -276,12 +309,9 @@ fn geloescht(
             anhaenge.fehler,
         )
     });
-    let antwort = json!({
-        "channel": channel,
-        "nachricht": NachrichtAntwort::aus(nachricht),
-        "ergebnis": ergebnis,
-        "anhaenge": {"geloescht": zahl, "bytes": bytes, "fehler": fehler},
-    });
+    let mut antwort = ziel.antwort_mit(json!(NachrichtAntwort::aus(nachricht)));
+    antwort["ergebnis"] = json!(ergebnis);
+    antwort["anhaenge"] = json!({"geloescht": zahl, "bytes": bytes, "fehler": fehler});
     (StatusCode::OK, Json(antwort)).into_response()
 }
 
@@ -318,6 +348,7 @@ fn koerper_abgewiesen(fehler: Koerperfehler) -> Response {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::gespraeche::Gespraech;
     use crate::http::loeschaufbau::{aufbau, aufbau_mit, naechstes_anhaenge_ereignis};
     use crate::protokoll::testpanik::Testpanik;
     use crate::zufall::FesteFolge;

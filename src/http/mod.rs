@@ -154,6 +154,14 @@ pub fn router(zustand: Zustand) -> Router {
             "/api/direkt/{kennung}/nachrichten",
             get(nachrichten::beantworten_direkt).post(senden::senden_direkt),
         )
+        .route(
+            "/api/direkt/{kennung}/nachrichten/bearbeiten",
+            post(bearbeiten::bearbeiten_direkt),
+        )
+        .route(
+            "/api/direkt/{kennung}/nachrichten/loeschen",
+            post(nachricht_loeschen::loeschen_direkt),
+        )
         .route("/api/ich", get(ich::beantworten))
         .route("/api/teilnehmer", get(teilnehmerliste::beantworten))
         .route("/api/ereignisse", get(ereignisse::beantworten))
