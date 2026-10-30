@@ -136,7 +136,7 @@ export function hochladungenAnlegen({
     const eintragDatei = {
       datei, name: datei.name, bytes: datei.size, zustand: 'anmelden', id: null, grund: '', sekunden: 0, zeitgeber: null,
       prozent: 0, laufend: null, neuAngemeldet: false, schalterArt: null, knoten: null, zustandText: null, grundText: null,
-      schalter: null, balken: null,
+      schalter: null, balken: null, freigebenNachAbbruch: true,
     };
     const kuerzel = element('span', { className: 'lc-datei-kuerzel', textContent: typkuerzel(datei.name) });
     kuerzel.setAttribute('aria-hidden', 'true');
@@ -164,6 +164,7 @@ export function hochladungenAnlegen({
     dateiZeigen(eintrag, datei);
     const ergebnis = anmeldungBewerten(await anmelden(datei.name, datei.bytes));
     if (!eintrag.dateien.includes(datei)) {
+      anmeldungNachAbbruchFreigeben(datei, ergebnis);
       return;
     }
     if (ergebnis.art === 'angemeldet') {
@@ -183,6 +184,14 @@ export function hochladungenAnlegen({
       return;
     }
     dateiZeigen(eintrag, datei);
+  }
+
+  // Kommt die Anmeldung erst nach „Abbrechen“ oder „Verwerfen“ an, wird sie sofort wieder freigegeben — außer die
+  // Hauptansicht ist dem Beitreten-Bildschirm gewichen (das alte Token gilt nicht mehr, sie verfällt am Server).
+  function anmeldungNachAbbruchFreigeben(datei, ergebnis) {
+    if (ergebnis.art === 'angemeldet' && datei.freigebenNachAbbruch) {
+      verwerfen(ergebnis.id);
+    }
   }
 
   // Unter einem Platz (höchstens 2 je Browser) der PUT mit Balken; bis zum Platz „wartet“.
@@ -360,6 +369,7 @@ export function hochladungenAnlegen({
       const dateien = eintrag.dateien;
       eintrag.dateien = [];
       for (const datei of dateien) {
+        datei.freigebenNachAbbruch = false;
         zeitgeber.loeschen(datei.zeitgeber);
         if (datei.laufend !== null) {
           datei.laufend.abbrechen();
