@@ -1074,13 +1074,6 @@ impl Gespraeche {
         self.schranken.aufstellen(vorgang)
     }
 
-    /// Lässt ein Direktgespräch nach dem Bereitstellen die nächsten `anzahl` Male aus dem Verzeichnis verschwinden
-    /// (nur Testbau): das Senden findet es nicht und endet mit `Sendefehler::Unbekannt`.
-    #[cfg(test)]
-    pub(crate) fn direkt_verschwinden_lassen(&self, anzahl: usize) {
-        self.schranken.verschwinden_lassen(anzahl);
-    }
-
     /// Ob die Schreibsperre gerade frei ist — nur für die Probe „nach der Sperre“.
     #[cfg(test)]
     fn schreibsperre_frei(&self) -> bool {

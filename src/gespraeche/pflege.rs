@@ -178,8 +178,8 @@ impl Gespraeche {
     /// Ein Paarordner ohne Tag und ohne Nachricht verschwindet (ADR-0055 Regel 10, E17): unter der Schreibsperre des
     /// Verzeichnisses, nur wenn niemand sonst den Verlauf hält — ein Sender, der das Paar eben angelegt hat und noch
     /// nicht schreibt, hat ihn schon (Arc geklont unter der Lesesperre) und behält seinen Ordner —, nur `rmdir`; liegt
-    /// etwas Fremdes darin, bleibt der Ordner und zählt weiter für die Grenzen. Ein Sender, der das Nachsehen hat
-    /// (das Paar verschwand zwischen Bereitstellen und Senden), wiederholt in `direkt_senden` das Anlegen einmal.
+    /// etwas Fremdes darin, bleibt der Ordner und zählt weiter für die Grenzen. Ein Paar, das ein Sender zwischen
+    /// Bereitstellen und Senden hält, nimmt sie nie zurück: der Halter macht das Verschwinden unerreichbar.
     fn direkt_aufraeumen(&self, paar: &Direktpaar, anlass: &Pflegeanlass) -> Option<Pflegebericht> {
         let gespraech = Gespraech::Direkt(paar.clone());
         let mut verzeichnis = schreibend(&self.verzeichnis);

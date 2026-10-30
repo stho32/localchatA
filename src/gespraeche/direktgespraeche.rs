@@ -102,8 +102,8 @@ impl Gespraeche {
 
     /// Sendet im Direktgespräch des Paars; das erste Senden legt es an (ADR-0055 Regel 4). Scheitert dieses erste
     /// Senden (Quote, Bezug, Anhang, Platte) oder wird es nur wiederholt, wird ein dabei entstandener leerer Ordner
-    /// wieder entfernt — ein Paar ohne Nachricht belegt nichts. Die Grenzen neuer Paare prüft das Bereitstellen unter der
-    /// Sperre; die Prüfung davor (Teilnehmerliste) macht der Aufrufer.
+    /// wieder entfernt — ein Paar ohne Nachricht belegt nichts. Die Grenzen neuer Paare prüft das Bereitstellen unter
+    /// der Sperre; die Prüfung davor (Teilnehmerliste) macht der Aufrufer.
     pub fn direkt_senden(
         &self,
         paar: &Direktpaar,
@@ -112,29 +112,16 @@ impl Gespraeche {
         sendung: Sendung<'_>,
     ) -> Result<Gesendet, Sendefehler> {
         let gespraech = Gespraech::Direkt(paar.clone());
-        let mut versuche = 0;
-        loop {
-            let (neu, halter) = self.direkt_bereitstellen(&gespraech, von)?;
-            #[cfg(test)]
-            if self.schranken.verschwindet() {
-                schreibend(&self.verzeichnis).verlaeufe.remove(&gespraech);
-            }
-            let ergebnis = self.senden_sendung(&gespraech, von, art, sendung);
-            // Was keinen Satz schrieb (Fehler, aber auch `Wiederholt` für ein Paar, das die Pflege inzwischen entfernt
-            // hat), lässt keinen leeren Ordner zurück.
-            // Der Halter fällt vorher: nur wer sonst noch das Paar hält, hält das Zurückbauen auf.
-            drop(halter);
-            if neu && !matches!(ergebnis, Ok(Gesendet::Neu(_))) {
-                self.direkt_zurueckbauen(&gespraech);
-            }
-            // Ein anderer Sender hat das eben angelegte Paar wegen seines gescheiterten ersten Sendens
-            // zurückgebaut, bevor dieser Aufruf es nutzte: einmal neu anlegen.
-            if ergebnis == Err(Sendefehler::Unbekannt) && versuche == 0 {
-                versuche += 1;
-                continue;
-            }
-            return ergebnis;
+        let (neu, halter) = self.direkt_bereitstellen(&gespraech, von)?;
+        let ergebnis = self.senden_sendung(&gespraech, von, art, sendung);
+        // Was keinen Satz schrieb (Fehler, aber auch `Wiederholt` für ein Paar, das die Pflege inzwischen entfernt
+        // hat), lässt keinen leeren Ordner zurück.
+        // Der Halter fällt vorher: nur wer sonst noch das Paar hält, hält das Zurückbauen auf.
+        drop(halter);
+        if neu && !matches!(ergebnis, Ok(Gesendet::Neu(_))) {
+            self.direkt_zurueckbauen(&gespraech);
         }
+        ergebnis
     }
 
     /// Ob das Paar ein bestehendes Gespräch hat: einen Verlauf mit mindestens einer Nachricht (ADR-0055 Regel 4).
@@ -155,11 +142,13 @@ impl Gespraeche {
     }
 
     /// Stellt das Paar bereit: unter der Sperre des Verzeichnisses nachschlagen, fehlt es, Ordner anlegen und den
-    /// leeren Verlauf eintragen, der den Anleger schon vermerkt — die Grenze je Herkunft zählt ihn vom Bereitstellen an,
-    /// nicht erst mit seiner ersten Nachricht (sonst zählten gleichzeitig beginnende Paare nicht mit). Gibt außerdem
-    /// den Verlauf zurück, den der Aufrufer bis zum Ende seines Sendens hält: wer das Paar hält, dessen Ordner nimmt
-    /// weder die Pflege noch ein anderer Sender zurück, auch nicht zwischen Bereitstellen und Senden. `true`, wenn dieser Aufruf es angelegt hat. Gleichzeitiges erstes Senden beider
-    /// Seiten ergibt einen Ordner, weil das Nachschlagen und das Anlegen unter derselben Sperre liegen.
+    /// leeren Verlauf eintragen, der den Anleger schon vermerkt — die Grenze je Herkunft zählt ihn vom Bereitstellen
+    /// an, nicht erst mit seiner ersten Nachricht (sonst zählten gleichzeitig beginnende Paare nicht mit). Gibt
+    /// außerdem den Verlauf zurück, den der Aufrufer bis zum Ende seines Sendens hält: wer das Paar hält, dessen
+    /// Ordner nimmt weder die Pflege noch ein anderer Sender zurück, auch nicht zwischen Bereitstellen und Senden —
+    /// das Paar kann dem Sender also nicht verschwinden. `true`, wenn dieser Aufruf es angelegt hat. Gleichzeitiges
+    /// erstes Senden beider Seiten ergibt einen Ordner, weil das Nachschlagen und das Anlegen unter derselben Sperre
+    /// liegen.
     fn direkt_bereitstellen(
         &self,
         gespraech: &Gespraech,
@@ -689,9 +678,9 @@ mod tests {
     }
 
     /// Code-Review #13 F0175 Sollte 3: ein zweiter Sender hält das Paar schon (er hat es unter der Sperre des
-    /// Verzeichnisses vorgefunden), da scheitert das erste Senden des Anlegers und will zurückbauen. Es darf nicht — wie
-    /// die Pflege nimmt es kein Paar, das ein anderer hält (`strong_count`); sonst findet der zweite Sender sein Paar
-    /// nicht mehr (Mutante „Halter-Prüfung weg“: `Unbekannt`, der Ordner fehlt).
+    /// Verzeichnisses vorgefunden), da scheitert das erste Senden des Anlegers und will zurückbauen. Es darf nicht —
+    /// wie die Pflege nimmt es kein Paar, das ein anderer hält (`strong_count`); sonst findet der zweite Sender sein
+    /// Paar nicht mehr (Mutante „Halter-Prüfung weg“: `Unbekannt`, der Ordner fehlt).
     #[test]
     fn das_zurueckbauen_nimmt_kein_paar_das_ein_zweiter_sender_schon_haelt() {
         let wurzel = tempfile::tempdir().expect("Wegwerf-Ordner");

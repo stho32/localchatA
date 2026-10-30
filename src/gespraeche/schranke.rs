@@ -4,7 +4,6 @@
 //! Schranke gilt für den nächsten Durchgang des Vorgangs und ist danach weg. Gibt es diese Datei nur im Testbau; im
 //! Betrieb steht kein Haken im Kern, und kein Knopf der Umgebung setzt einen.
 
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Barrier, Mutex};
 
 /// Die Vorgänge, vor deren Sperren eine Schranke stehen kann.
@@ -28,8 +27,6 @@ pub(super) struct Schranken {
     pflegen: Mutex<Option<Arc<Barrier>>>,
     direkt_anlegen: Mutex<Option<Arc<Barrier>>>,
     direkt_zurueckbauen: Mutex<Option<Arc<Barrier>>>,
-    /// Wie oft noch ein Direktgespräch nach dem Bereitstellen aus dem Verzeichnis verschwindet.
-    verschwinden: AtomicUsize,
 }
 
 impl Schranken {
@@ -48,21 +45,6 @@ impl Schranken {
         let schranke = Arc::new(Barrier::new(2));
         *super::sperren(self.platz(vorgang)) = Some(Arc::clone(&schranke));
         schranke
-    }
-
-    /// Lässt das Direktgespräch nach dem Bereitstellen die nächsten `anzahl` Male verschwinden — als hätte ein anderer
-    /// Sender es wegen seines gescheiterten ersten Sendens zurückgebaut.
-    pub(super) fn verschwinden_lassen(&self, anzahl: usize) {
-        self.verschwinden.store(anzahl, Ordering::SeqCst);
-    }
-
-    /// Ob das eben bereitgestellte Direktgespräch jetzt verschwindet (zählt herunter).
-    pub(super) fn verschwindet(&self) -> bool {
-        self.verschwinden
-            .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |rest| {
-                rest.checked_sub(1)
-            })
-            .is_ok()
     }
 
     /// Vom Vorgang vor seinen Sperren gerufen: steht eine Schranke, zweimal warten; sonst nichts.
