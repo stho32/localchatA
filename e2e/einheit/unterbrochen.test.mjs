@@ -142,3 +142,34 @@ test('ein Speicher, der beim Schreiben wirft (voll, gesperrt), lässt sichern ni
   }
   assert.equal(warnungen.length, 1);
 });
+
+// Code-Review #43 F0119 Sollte 1: viele lange Texte im selben Channel gehen nicht verloren, und zweimal sichern (pagehide
+// und Wechsel zum Beitreten-Bildschirm, bfcache) verdoppelt nichts.
+test('fünf Texte zu je 16 KiB im selben Channel: nehmen liefert alle fünf, nie null', () => {
+  const speicher = speicherAnlegen();
+  const unterbrochen = unterbrochenAnlegen({ speicher });
+  const texte = [1, 2, 3, 4, 5].map((nummer) => `T${nummer}${'x'.repeat(16 * 1024 - 2)}`);
+  unterbrochen.sichern(texte.map((text, nummer) => ({ channel: 'allgemein', text, namen: [`d${nummer}.pdf`] })));
+  const genommen = unterbrochen.nehmen('allgemein');
+  assert.notEqual(genommen, null);
+  assert.equal(genommen.text, texte.join('\n\n'));
+  assert.deepEqual(genommen.namen, ['d0.pdf', 'd1.pdf', 'd2.pdf', 'd3.pdf', 'd4.pdf']);
+  assert.equal(speicher.werte.size, 0);
+});
+
+test('zweimal sichern derselben offenen Einträge verdoppelt weder Text noch Namen', () => {
+  const unterbrochen = unterbrochenAnlegen({ speicher: speicherAnlegen() });
+  const offene = [{ channel: 'allgemein', text: 'eins', namen: ['a.pdf'] }, { channel: 'allgemein', text: 'zwei', namen: ['b.png'] }];
+  unterbrochen.sichern(offene);
+  unterbrochen.sichern(offene);
+  assert.deepEqual(unterbrochen.nehmen('allgemein'), { text: 'eins\n\nzwei', namen: ['a.pdf', 'b.png'] });
+});
+
+test('nach nehmen wird derselbe Eintrag wieder gesichert (neuer Lauf)', () => {
+  const unterbrochen = unterbrochenAnlegen({ speicher: speicherAnlegen() });
+  const offene = [{ channel: 'allgemein', text: 'eins', namen: ['a.pdf'] }];
+  unterbrochen.sichern(offene);
+  unterbrochen.nehmen('allgemein');
+  unterbrochen.sichern(offene);
+  assert.deepEqual(unterbrochen.nehmen('allgemein'), { text: 'eins', namen: ['a.pdf'] });
+});

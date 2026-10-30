@@ -44,26 +44,42 @@ export function feldNachNeuladen(gesichert, entwurf) {
 }
 
 // speicher: sessionStorage-förmig. sichern(offene) mit offene: [{ channel, text, namen }] — weitere Felder werden nie
-// geschrieben; ein noch ungelesener Eintrag desselben Channels geht im neuen auf. nehmen(channel) → { text, namen } | null.
+// geschrieben; ein noch ungelesener Eintrag desselben Channels bleibt erhalten, jeder offene Eintrag liegt in einem
+// eigenen Speicherplatz (so bleibt jeder unter der Lesegrenze, auch viele lange Texte), und derselbe Eintrag wird nie
+// zweimal gesichert (pagehide und Wechsel zum Beitreten-Bildschirm, bfcache). nehmen(channel) → { text, namen } | null.
 export function unterbrochenAnlegen({ speicher }) {
+  const gesichert = new Set();
+
   function sichern(offene) {
     for (const channel of new Set(offene.map((offen) => offen.channel))) {
-      const frueher = lesen(speicher, channel);
-      const jetzt = offene.filter((offen) => offen.channel === channel);
-      schreiben(speicher, channel, zusammenfassen([...frueher, ...jetzt]));
+      const neue = offene.filter((offen) => offen.channel === channel && !gesichert.has(merkmal(offen)));
+      if (neue.length === 0) {
+        continue;
+      }
+      const alle = [...lesenAlle(speicher, channel), ...neue.map(({ text, namen }) => ({ text, namen }))];
+      entfernenAlle(speicher, channel);
+      alle.forEach((eintrag, stelle) => schreiben(speicher, channel, stelle, eintrag));
+      neue.forEach((offen) => gesichert.add(merkmal(offen)));
     }
   }
 
   function nehmen(channel) {
-    const gelesen = lesen(speicher, channel);
-    speicher.removeItem(schluessel(channel));
+    const gelesen = lesenAlle(speicher, channel);
+    entfernenAlle(speicher, channel);
+    for (const gemerkt of [...gesichert].filter((eintrag) => eintrag.startsWith(`${JSON.stringify(channel)}|`))) {
+      gesichert.delete(gemerkt);
+    }
     if (gelesen.length === 0) {
       return null;
     }
-    return gelesen[0];
+    return zusammenfassen(gelesen);
   }
 
   return { sichern, nehmen };
+}
+
+function merkmal({ channel, text, namen }) {
+  return `${JSON.stringify(channel)}|${JSON.stringify([text, namen])}`;
 }
 
 function zusammenfassen(eintraege) {
@@ -73,20 +89,36 @@ function zusammenfassen(eintraege) {
   };
 }
 
-function schreiben(speicher, channel, { text, namen }) {
+function schreiben(speicher, channel, stelle, { text, namen }) {
   try {
-    speicher.setItem(schluessel(channel), JSON.stringify({ text, namen }));
+    speicher.setItem(schluessel(channel, stelle), JSON.stringify({ text, namen }));
   } catch (ausnahme) {
     console.warn(`localchatA: unterbrochenes Hochladen nicht gemerkt, Neuladen verliert den Text — ${ausnahme.message}`);
   }
 }
 
-// → [] oder [{ text, namen }]: fehlt der Eintrag, ist er größer als ein voller Text mit zehn langen Namen, kein JSON
-// oder anders geformt, gilt er als nicht da.
-function lesen(speicher, channel) {
+// Die Speicherplätze eines Channels, vom ersten an lückenlos: `localchatA.unterbrochen.<channel>`, dann `…#1`, `…#2`.
+function plaetze(speicher, channel) {
+  const gefunden = [];
+  for (let stelle = 0; speicher.getItem(schluessel(channel, stelle)) !== null; stelle += 1) {
+    gefunden.push(stelle);
+  }
+  return gefunden;
+}
+
+function entfernenAlle(speicher, channel) {
+  plaetze(speicher, channel).forEach((stelle) => speicher.removeItem(schluessel(channel, stelle)));
+}
+
+// → [{ text, namen }]: ein Platz, der fehlt, größer ist als ein voller Text mit zehn langen Namen, kein JSON oder anders
+// geformt ist, gilt als nicht da.
+function lesenAlle(speicher, channel) {
+  return plaetze(speicher, channel).flatMap((stelle) => lesen(speicher.getItem(schluessel(channel, stelle))));
+}
+
+function lesen(roh) {
   const HOECHSTENS_ZEICHEN = 64 * 1024;
-  const roh = speicher.getItem(schluessel(channel));
-  if (roh === null || roh.length > HOECHSTENS_ZEICHEN) {
+  if (roh.length > HOECHSTENS_ZEICHEN) {
     return [];
   }
   let eintrag = null;
@@ -109,6 +141,10 @@ function wohlgeformt(eintrag) {
   return eintrag.namen.every((name) => typeof name === 'string' && name !== '');
 }
 
-function schluessel(channel) {
-  return `localchatA.unterbrochen.${channel}`;
+function schluessel(channel, stelle) {
+  const grundschluessel = `localchatA.unterbrochen.${channel}`;
+  if (stelle === 0) {
+    return grundschluessel;
+  }
+  return `${grundschluessel}#${stelle}`;
 }
