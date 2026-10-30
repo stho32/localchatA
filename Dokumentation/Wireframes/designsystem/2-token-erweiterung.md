@@ -16,7 +16,7 @@ Neu für localchatA trägt jeder Name das Präfix `lc-`. Drei `kd-`-Namen sind e
 | `lc-unread`, `lc-on-unread` | #4f5d6b / #9aa7b4 | Neutraler Ungelesen-Zähler, bewusst schwächer als Erwähnungen. |
 | `lc-online` | #1d7a3c / #5fcf86 | Online-Punkt ●. |
 | `lc-offline` | #5f6b78 / #8d99a6 | Offline ○ und „gleich weg“ (gestrichelt). |
-| `lc-privat-bg` | #e9edf2 / #20262d | Kennzeichnung von Direktnachrichten. |
+| `lc-privat-bg` | #e9edf2 / #20262d | Kennzeichnung von Direktnachrichten: Grund der Mitte und des Hinweisstreifens, nie allein — das Wort „Direktnachricht“ trägt die Bedeutung (R00050 V1, V7). |
 | `lc-code-bg` | #f2f5f8 / #11151a | Codeblöcke und Inline-Code — kanbanD hat keinen Code. |
 | `lc-syn-keyword`, `-string`, `-number`, `-function`, `-comment` | siehe Tokens | Fünf ruhige Syntaxfarben, alle ≥ 4,9:1 auf `lc-code-bg`. |
 | `lc-gutter` | 40px | Spalte für Kachel bzw. Uhrzeit gruppierter Nachrichten. |
