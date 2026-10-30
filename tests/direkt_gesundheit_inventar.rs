@@ -233,10 +233,11 @@ async fn ein_direktanhang_bewegt_nur_die_anhangzaehler() {
     let mut bewegt = BTreeSet::new();
     for paar in staende.windows(2) {
         let diff = geaendert(&paar[0], &paar[1]);
-        // Löscht ein Schritt einen Anhang, schreibt er die Zeile `INFORMATION anhang Anhänge gelöscht` (ohne
-        // Gespräch, ohne Ordner) — `protokoll_bytes_heute` wächst dann zugleich mit `anhaenge_geloescht` und sagt
-        // nicht mehr als dieser Zähler. Ohne gelöschten Anhang darf es sich nicht bewegen. Die Inventarzeile der ADR
-        // nennt diese Zeile nicht (Befund im Bericht).
+        // Benannte Erlaubnis (ADR-0055 Ergänzung „Inventarlücke protokoll_bytes_heute“, Restorakel (f)): löscht ein
+        // Schritt einen Anhang, schreibt er die Zeile `INFORMATION anhang Anhänge gelöscht` — im Direktgespräch mit
+        // denselben Feldschlüsseln wie im Channel —, und `protokoll_bytes_heute` wächst zugleich mit
+        // `anhaenge_geloescht`; der Test darunter prüft Betrag und Schlüssel genau. Ohne gelöschten Anhang bewegt es
+        // sich nicht.
         let mut erlaubt = erlaubt.clone();
         if diff.contains("anhaenge_geloescht") {
             erlaubt.insert("protokoll_bytes_heute".to_string());
@@ -252,4 +253,121 @@ async fn ein_direktanhang_bewegt_nur_die_anhangzaehler() {
     let letzter = staende.last().expect("Stand");
     assert_eq!(letzter["direkt_mib"], 0, "{letzter}");
     assert_eq!(letzter["nachrichten"], 1, "{letzter}");
+}
+
+/// Die Zeilen `INFORMATION anhang Anhänge gelöscht` aus dem Protokoll des Tages.
+fn geloescht_zeilen(ordner: &std::path::Path) -> Vec<String> {
+    gemeinsam::protokoll::mit(
+        &gemeinsam::protokoll::alle_zeilen(ordner),
+        "INFORMATION",
+        "anhang",
+    )
+    .into_iter()
+    .filter(|zeile| zeile.contains("Anhänge gelöscht"))
+    .collect()
+}
+
+/// Die Schlüssel des Kontexts einer Protokollzeile (alles hinter ` | `, vor jedem `=`).
+fn schluessel_der_zeile(zeile: &str) -> BTreeSet<String> {
+    zeile
+        .split_once(" | ")
+        .map(|(_, kontext)| kontext)
+        .unwrap_or_default()
+        .split(' ')
+        .filter_map(|teil| teil.split_once('=').map(|(name, _)| name.to_string()))
+        .collect()
+}
+
+/// Ablegen, in `ziel` senden (Direkt: an ben; Channel: allgemein), den Anhang über das Laufwerk löschen — Health
+/// davor und danach; liefert beide Schnappschüsse und die Zeile „Anhänge gelöscht“.
+async fn loeschen_und_messen(r: &Runde, direkt: bool) -> (Value, Value, String) {
+    let basis = r.instanz.adresse.clone();
+    let id = ablegen(
+        &r.anna.absender,
+        &basis,
+        &r.anna.token,
+        "a.bin",
+        vec![1; 10],
+    )
+    .await;
+    let gesendet = if direkt {
+        r.anna
+            .senden(&basis, BEN, &json!({"text": "mit", "anhaenge": [id]}))
+            .await
+    } else {
+        gemeinsam::api_antwort(
+            r.anna
+                .absender
+                .anfrage(
+                    reqwest::Method::POST,
+                    format!("{basis}api/channels/allgemein/nachrichten"),
+                )
+                .header("X-LocalchatA-Sitzung", &r.anna.token)
+                .json(&json!({"text": "mit", "anhaenge": [id]})),
+        )
+        .await
+    };
+    assert_eq!(gesendet.status, 201, "{}", gesendet.json);
+    let vorher = health(&basis).await;
+    let weg = gemeinsam::api_antwort(
+        r.anna
+            .absender
+            .anfrage(
+                reqwest::Method::POST,
+                format!("{basis}api/anhaenge/loeschen"),
+            )
+            .header("X-LocalchatA-Sitzung", &r.anna.token)
+            .json(&json!({"ids": [id], "bestaetigt": true})),
+    )
+    .await;
+    assert_eq!(weg.status, 200, "{}", weg.json);
+    let nachher = health(&basis).await;
+    let zeilen = geloescht_zeilen(r.wurzel.path());
+    assert_eq!(zeilen.len(), 1, "genau eine Zeile: {zeilen:#?}");
+    (vorher, nachher, zeilen[0].clone())
+}
+
+/// Abnahme-Probe des architekt (ADR-0055 Ergänzung „Inventarlücke“, wörtlich): Stufe information, Anhang ablegen, an
+/// ben senden, löschen, Health vor/nach → `anhaenge_geloescht` +1 und `protokoll_bytes_heute` steigt genau um die Länge
+/// der Zeile „Anhänge gelöscht“ (aus `logs/`), alle anderen Felder gleich; dieselbe Abfolge im Channel ergibt dieselbe
+/// Menge Feldschlüssel in der Zeile. Mutante „Direkt-Löschung auf DEBUG“: die Länge fehlte im Zuwachs.
+#[tokio::test]
+async fn das_loeschen_eines_direktanhangs_ist_eine_information_zeile_mit_den_schluesseln_des_channels()
+ {
+    let direkt = runde_anhaenge().await;
+    let (vorher, nachher, zeile) = loeschen_und_messen(&direkt, true).await;
+
+    assert_eq!(
+        nachher["anhaenge_geloescht"].as_u64(),
+        vorher["anhaenge_geloescht"].as_u64().map(|zahl| zahl + 1)
+    );
+    let zeilenlaenge = zeile.len() as u64 + 1; // samt Zeilenende
+    assert_eq!(
+        nachher["protokoll_bytes_heute"].as_u64().expect("Zahl")
+            - vorher["protokoll_bytes_heute"].as_u64().expect("Zahl"),
+        zeilenlaenge,
+        "{zeile}"
+    );
+    let bewegt = geaendert(&vorher, &nachher);
+    let erwartet: BTreeSet<String> = ["anhaenge_geloescht", "protokoll_bytes_heute"]
+        .iter()
+        .map(|name| name.to_string())
+        .chain(
+            // der Zählmaß-Rest des Anhangzählers (Restorakel (f)) bewegt sich mit
+            bewegt
+                .iter()
+                .filter(|name| erlaubt_bei_anhang().contains(*name))
+                .cloned(),
+        )
+        .collect();
+    assert_eq!(bewegt, erwartet, "nur Restorakel (f) und die Zeile selbst");
+
+    let channel = runde_anhaenge().await;
+    let (_, _, channelzeile) = loeschen_und_messen(&channel, false).await;
+    assert_eq!(
+        schluessel_der_zeile(&zeile),
+        schluessel_der_zeile(&channelzeile),
+        "{zeile}\n{channelzeile}"
+    );
+    assert!(!zeile.contains("ordner="), "{zeile}");
 }
