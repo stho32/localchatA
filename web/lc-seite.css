@@ -432,7 +432,7 @@ button.lc-marke { min-width: 24px; min-height: 24px; padding: 0 var(--kd-space-4
    width/height des Bilds, bis zum Laden kd-surface-2 mit Name und Maßen (≥ 4,5 : 1), bei Fehler der Hinweis */
 .lc-vorschau { position: relative; display: block; width: max-content; max-width: 100%; margin: 0 0 var(--kd-space-2); padding: 0; border: 0; background: var(--kd-surface-2); font: inherit; cursor: zoom-in; touch-action: manipulation; }
 .lc .lc-vorschau:focus-visible { outline: 2px solid var(--kd-focus); outline-offset: 2px; }
-.lc-vorschau img { position: relative; display: block; max-width: 100%; height: auto; object-fit: contain; }
+.lc-vorschau img { position: relative; display: block; min-width: 1px; max-width: 100%; min-height: 1px; height: auto; object-fit: contain; }
 .lc-vorschau-platz { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; padding: var(--kd-space-4); overflow: hidden; font-size: 12px; line-height: 20px; color: var(--kd-ink-muted); text-align: center; overflow-wrap: anywhere; }
 .lc-vorschau[data-zustand="geladen"] .lc-vorschau-platz { visibility: hidden; }
 .lc-vorschau[data-zustand="fehler"] img { visibility: hidden; }

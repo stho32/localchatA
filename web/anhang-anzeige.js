@@ -49,7 +49,8 @@ function alsVorschau(art, { bytes, breite, hoehe }) {
 function vorschauIn({ breite, hoehe }, rahmenbreite) {
   const HOEHE_HOECHSTENS = 240;
   const faktor = Math.min(rahmenbreite / breite, HOEHE_HOECHSTENS / hoehe, 1);
-  return { form: 'vorschau', breite: Math.round(breite * faktor), hoehe: Math.round(hoehe * faktor), oeffnen: true };
+  const seite = (laenge) => Math.max(1, Math.round(laenge * faktor));
+  return { form: 'vorschau', breite: seite(breite), hoehe: seite(hoehe), oeffnen: true };
 }
 
 function oeffnenBar(art, bytes) {

@@ -79,3 +79,10 @@ test('die Vorschau folgt der Inhaltsbreite proportional: 1280 × 800 bei 232 →
 test('ein kleines Bild wird nicht vergrößert: 100 × 50 → 100 × 50', () => {
   assert.deepEqual(darstellungWaehlen(bild('image/png', 100, 50)), vorschau(100, 50));
 });
+
+// Nacharbeit F0102 (code-reviewer #43 S1): ein extrem schmales oder flaches Bild behält mindestens 1 px je Seite.
+test('sehr schmale und flache Bilder: jede Seite der Vorschau mindestens 1 px', () => {
+  assert.deepEqual(darstellungWaehlen({ art: 'image/png', bytes: 1000, breite: 1000, hoehe: 1, zustand: 'vorhanden' }), vorschau(360, 1));
+  assert.deepEqual(darstellungWaehlen({ art: 'image/png', bytes: 1000, breite: 1, hoehe: 1000, zustand: 'vorhanden' }), vorschau(1, 240));
+  assert.deepEqual(darstellungWaehlen({ art: 'image/png', bytes: 1000, breite: 16384, hoehe: 10, zustand: 'vorhanden' }), vorschau(360, 1));
+});

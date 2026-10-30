@@ -180,6 +180,18 @@ test('Bild (B0458): foto.png → <img width="360" height="225" loading="lazy" al
   expect(lauf.a.fehler).toEqual([]);
 });
 
+test('Streifen (Nacharbeit F0102, code-reviewer S1): streifen.png (1000 × 1) → Vorschau mindestens 1 px hoch, „streifen.png groß anzeigen“ öffnet den Dialog', async ({ browser }) => {
+  const lauf = await anzeigeStarten(browser, [{ namen: ['streifen.png'] }]);
+  instanz = lauf.instanz;
+  const { page } = lauf.a;
+  const vorschau = nachrichtMitZeit(page, lauf.zeiten[0]).getByRole('button', { name: 'streifen.png groß anzeigen', exact: true });
+  const hoehe = await vorschau.evaluate((element) => element.getBoundingClientRect().height);
+  expect(hoehe).toBeGreaterThanOrEqual(1);
+  await vorschau.click();
+  await expect(page.getByRole('dialog', { name: 'streifen.png', exact: true })).toBeVisible();
+  expect(lauf.a.fehler).toEqual([]);
+});
+
 test('Hochformatfoto (B0458, F4): hochkant.jpg (4000 × 3000, Orientation 6) → Platz 180 × 240 vor dem ersten Byte, gezeichnet 3 : 4 ± 1 % mit object-fit: contain, Höhe springt ≤ 1 px', async ({ browser }) => {
   const lauf = await mitVerzoegertenBildern(browser, [{ namen: ['hochkant.jpg'] }]);
   const { page } = lauf.a;

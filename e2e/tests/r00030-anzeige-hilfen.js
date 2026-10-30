@@ -31,6 +31,7 @@ function dateienErzeugen() {
   try {
     return {
       'foto.png': ffmpeg('foto.png', ['-f', 'lavfi', '-i', 'testsrc=s=1280x800', '-frames:v', '1']),
+      'streifen.png': ffmpeg('streifen.png', ['-f', 'lavfi', '-i', 'color=c=red:s=1000x1', '-frames:v', '1']),
       'bericht.pdf': pdfMitBytes(2457600),
       'log.txt': Buffer.from('Zeile im Protokoll\n'.repeat(Math.ceil(40960 / 19))).subarray(0, 40960),
       'film.webm': ffmpeg('film.webm', ['-f', 'lavfi', '-i', 'testsrc=d=6:s=64x48:r=10', '-f', 'lavfi', '-i', 'sine=d=6', '-c:v', 'libvpx', '-c:a', 'libopus']),
