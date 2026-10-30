@@ -631,3 +631,4 @@ Nie vom User erfragen.
 | 2026-10-30 | R00041/R00007/R00020 Härtung Verlauf-Tastatur (#82) | Fokus in Sicht, Alt-Pfeile, Pille, Rennen ↑, Designsystem (Wanduhr gesamt) | Härtung | — | 0,4h | 0,4h | autonom (entw) |
 | 2026-10-30 | R00049 Auf Nachrichten warten | F0170 (B0755–B0759) + Nacharbeit A1/A3/A5 (Wanduhr gesamt) | Entwicklung/Nacharbeit | — | 1,6h | 1,6h | autonom (entw2) |
 | 2026-10-30 | R00030 Anhänge im Browser hochladen | F0101 (B0448–B0454, B0753, Wanduhr gesamt) | Entwicklung | — | 2,0h | 2,0h | autonom (entw3) |
+| 2026-10-30 | R00047 Antworten mit Zitat Nacharbeit Browser (#79) | UX S1/S2, code-reviewer S1–S3 (Wanduhr gesamt) | Nacharbeit | — | 0,5h | 0,5h | autonom (entw) |
