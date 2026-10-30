@@ -7,8 +7,10 @@ use super::kopfzeilen::{self, Datei};
 use super::strom::bereich_strom;
 use crate::gespraeche::anhangablage::Anhangdatei;
 use crate::gespraeche::anhangid::Anhangid;
+use crate::gespraeche::anhangpruefung::medienart;
 use crate::gespraeche::anhangverzeichnis::{Eintrag, Zustand as Anhangzustand, praefix};
 use crate::http::Zustand;
+use crate::http::grenzschutz::AnhangMedium;
 use crate::protokoll::{Bereich as Protokollbereich, Kontext, Schluessel, Stufe};
 use axum::body::Body;
 use axum::extract::{ConnectInfo, Path, State};
@@ -38,7 +40,7 @@ pub async fn ausliefern(
     }
     let etag = kopfzeilen::etag(eintrag.id.als_text());
     if passt_schon(&kopf, &etag) {
-        return nicht_geaendert(&etag);
+        return medium_markieren(nicht_geaendert(&etag), eintrag.art);
     }
     let datei = match oeffnen(&zustand, &eintrag).await {
         Ok(datei) => datei,
@@ -70,7 +72,7 @@ pub async fn ausliefern(
         Bereich::Unerfuellbar => {
             let mut antwort = StatusCode::RANGE_NOT_SATISFIABLE.into_response();
             kopfzeilen::unerfuellbar(antwort.headers_mut(), eintrag.bytes);
-            return antwort;
+            return medium_markieren(antwort, eintrag.art);
         }
         Bereich::Ganz => (StatusCode::OK, 0, eintrag.bytes),
         Bereich::Teil(von, bis) => (StatusCode::PARTIAL_CONTENT, von, bis + 1),
@@ -96,6 +98,15 @@ pub async fn ausliefern(
     let mut antwort = (status, koerper).into_response();
     let teil = matches!(bereich, Bereich::Teil(..)).then(|| (von, bis - 1));
     kopfzeilen::datei(antwort.headers_mut(), &beschrieben, teil);
+    medium_markieren(antwort, eintrag.art)
+}
+
+/// Marker für die CSP-Weiche (ADR-0014 Ergänzung „Karte #71“ Regeln 2, 3): auf jeder Antwort mit der Datei einer
+/// Medienart — 200, 206, 304, 416 und `HEAD` gleich —, allein nach der Art, die der Server aus dem Inhalt bestimmt hat.
+fn medium_markieren(mut antwort: Response, art: &str) -> Response {
+    if medienart(art) {
+        antwort.extensions_mut().insert(AnhangMedium);
+    }
     antwort
 }
 

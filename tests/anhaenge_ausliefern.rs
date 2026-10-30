@@ -5,7 +5,7 @@
 mod gemeinsam;
 
 use gemeinsam::anhaenge::{ablegen, starten};
-use gemeinsam::dateien::{hochkant_jpg, mp4, webm};
+use gemeinsam::dateien::{hochkant_jpg, mp4, pdf, webm};
 use gemeinsam::protokoll::alle_zeilen;
 use gemeinsam::senden::{beitreten, ordner, roh_senden};
 use gemeinsam::{Absender, RohAntwort, roh_anfragen};
@@ -171,10 +171,12 @@ async fn download_unter_dem_anzeigenamen() {
 }
 
 /// Kopfzeilen überall (M14): 200, 206, 304, 404 aus dem Handler und dem Router, 416, `HEAD`, 403, 405 → CSP
-/// `sandbox` und `nosniff`; `/%61nhaenge/x` → `sandbox`; `/anhaengex`, `/api/anhaenge`, `/` → App-CSP.
+/// `sandbox` und `nosniff`; `/%61nhaenge/x` → `sandbox`; `/anhaengex`, `/api/anhaenge`, `/` → App-CSP. Mit einer PDF,
+/// nicht mehr mit einem WebM: das Kriterium nimmt seit Karte #71 die sechs Medienarten aus (Medien-CSP und CORP
+/// `cross-origin`, geprüft in `tests/anhaenge_medien_csp.rs`).
 #[tokio::test]
 async fn kopfzeilen_ueberall() {
-    let (bereit, ids) = mit_anhaengen(&[("film.webm", webm())]).await;
+    let (bereit, ids) = mit_anhaengen(&[("dok.pdf", pdf())]).await;
     let pfad = format!("/anhaenge/{}", ids[0]);
     let etag = format!("\"{}\"", ids[0]);
 

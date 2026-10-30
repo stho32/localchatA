@@ -11,5 +11,5 @@ mod name;
 pub mod text;
 pub mod tilger;
 
-pub use art::{Art, DATEI, inline};
+pub use art::{Art, DATEI, inline, medienart};
 pub use name::{Namensfehler, name_pruefen};
