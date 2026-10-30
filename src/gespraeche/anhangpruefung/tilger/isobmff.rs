@@ -11,12 +11,14 @@ use std::collections::{HashMap, HashSet};
 /// `moov` und `meta` sind höchstens so groß — nur als Längengrenze, nie als Puffer.
 pub const HOECHSTENS_MOOV: u64 = 64 * 1_048_576;
 
-/// Erlaubnisliste der obersten Ebene (ADR-0047 Ergänzung „Karte #9 Security-Review B2“ Regel 5a); jede andere Box,
-/// auch jede `uuid`, wird unkenntlich.
+/// Erlaubnisliste der obersten Ebene (ADR-0047 Ergänzung „Karte #9 Security-Review B2“ Regel 5a, ohne `meco`, `emsg`
+/// und `prft` nach „B3“ Regel 5i; Platzhalter nach 5h); jede andere Box, auch jede `uuid`, wird unkenntlich.
 const OBEN_ERLAUBT: &[&[u8; 4]] = &[
-    b"ftyp", b"styp", b"moov", b"mdat", b"moof", b"mfra", b"sidx", b"ssix", b"prft", b"emsg",
-    b"pdin", b"meco", b"meta", b"free", b"skip", b"wide",
+    b"ftyp", b"styp", b"moov", b"mdat", b"moof", b"mfra", b"sidx", b"ssix", b"pdin", b"meta",
 ];
+
+/// Erlaubnisliste in `moof` (B3 Regel 5i): Wiedergabestruktur; in `traf` steigt der Tilger nicht ab.
+const MOOF_ERLAUBT: &[&[u8; 4]] = &[b"mfhd", b"traf", b"pssh"];
 
 /// Erlaubnisliste in `moov` (Regel 5b); `cmov` ist nicht prüfbar.
 const MOOV_ERLAUBT: &[&[u8; 4]] = &[
@@ -110,6 +112,7 @@ pub fn isobmff(port: &Port<'_>, zaehler: &mut Zaehler) -> Ergebnis<()> {
         zaehler.block()?;
         match &kiste.typ {
             b"moov" => moov(port, kiste, zaehler)?,
+            b"moof" => moof(port, kiste, zaehler)?,
             typ if PLATZHALTER.contains(&typ) => platzhalter(port, kiste)?,
             b"meta" => match handler(port, kiste)? {
                 Some(handler) if &handler != b"pict" => nutzer_meta(port, kiste, zaehler)?,
@@ -157,6 +160,18 @@ fn moov(port: &Port<'_>, moov: Kiste, zaehler: &mut Zaehler) -> Ergebnis<()> {
             b"meta" => nutzer_meta(port, kind, zaehler)?,
             typ if PLATZHALTER.contains(&typ) => platzhalter(port, kind)?,
             typ if MOOV_ERLAUBT.contains(&typ) => {}
+            _ => unkenntlich(port, kind, zaehler)?,
+        }
+    }
+    Ok(())
+}
+
+/// `moof` (B3 Regel 5i): nur Boxköpfe gelesen; Erlaubnisliste, Platzhalter genullt, jede andere Box unkenntlich.
+fn moof(port: &Port<'_>, moof: Kiste, zaehler: &mut Zaehler) -> Ergebnis<()> {
+    for kind in kinder(port, moof.inhalt, moof.ende, zaehler)? {
+        match &kind.typ {
+            typ if PLATZHALTER.contains(&typ) => platzhalter(port, kind)?,
+            typ if MOOF_ERLAUBT.contains(&typ) => {}
             _ => unkenntlich(port, kind, zaehler)?,
         }
     }
@@ -1828,6 +1843,106 @@ mod tests {
             matches!(ergebnis, Err(Abbruch::Metadaten(_))),
             "{ergebnis:?}"
         );
+    }
+
+    /// NTP-Zeit 2026-10-29T12:34:56Z (Sekunden seit 1900, Bruchteil 0).
+    const NTP: [u8; 8] = [0xEE, 0x8D, 0xBB, 0xF0, 0, 0, 0, 0];
+
+    /// ADR-0047 B3 Regel 5i, P11 (h)–(k) (B0650): oben `meco` (mit `meta`/`ilst`/`©xyz`), `emsg` (Ort in
+    /// `message_data`), `prft` (`ntp_timestamp`) → je `free`, Inhalt genullt; `moof` wird betreten: `meta` und eine
+    /// unbekannte Box darin → `free` mit Nullen, `free` darin nach 5h, `mfhd`, `traf` (samt `uuid` darin), `pssh`
+    /// byte-gleich. Kontrolle: `sidx`, `ssix`, `mfra`, `pdin` oben byte-gleich.
+    #[test]
+    fn meco_emsg_prft_werden_unkenntlich_und_moof_wird_betreten() {
+        let ilst_meta = |marke: &[u8]| {
+            let hdlr = kiste(b"hdlr", &[&[0u8; 8][..], b"mdir", &[0; 13]].concat());
+            let ilst = kiste(
+                b"ilst",
+                &wert(&[0xA9, b'x', b'y', b'z'], &[marke, ORT].concat()),
+            );
+            kiste(b"meta", &[&[0u8; 4][..], &hdlr, &ilst].concat())
+        };
+        let meco = kiste(b"meco", &ilst_meta(b"meco "));
+        let emsg = kiste(
+            b"emsg",
+            &[&[0u8; 4][..], b"urn:ort\0\0", &[0; 16], ORT].concat(),
+        );
+        let prft = kiste(
+            b"prft",
+            &[&[0u8; 4][..], &[0, 0, 0, 1], &NTP, &[0; 4]].concat(),
+        );
+        let mfhd = kiste(b"mfhd", b"\0\0\0\0\0\0\0\x01");
+        let uuid = kiste(b"uuid", &[&[0x11u8; 16][..], b"PIFF"].concat());
+        let traf = kiste(
+            b"traf",
+            &[kiste(b"tfhd", b"\0\x02\0\0\0\0\0\x01"), uuid.clone()].concat(),
+        );
+        let pssh = kiste(b"pssh", &[0x22; 24]);
+        let im_moof = platzhalter(b"free", "in moof ");
+        let fremd = kiste(b"abcd", ORT);
+        let moof = kiste(
+            b"moof",
+            &[
+                mfhd.clone(),
+                ilst_meta(b"moof "),
+                traf.clone(),
+                pssh.clone(),
+                fremd,
+                im_moof.clone(),
+            ]
+            .concat(),
+        );
+        let bleiben = [
+            kiste(b"sidx", &[0x33; 32]),
+            kiste(b"ssix", &[0x44; 12]),
+            kiste(b"pdin", &[0x55; 12]),
+            kiste(b"mfra", &kiste(b"mfro", &[0, 0, 0, 0, 0, 0, 0, 16])),
+        ];
+        let original = [
+            ftyp(),
+            meco.clone(),
+            bleiben[0].clone(),
+            bleiben[1].clone(),
+            bleiben[2].clone(),
+            emsg.clone(),
+            prft.clone(),
+            moof,
+            kiste(b"mdat", b"Mediendaten"),
+            bleiben[3].clone(),
+        ]
+        .concat();
+
+        let (ergebnis, datei) = tilgen(original.clone());
+
+        ergebnis.expect("getilgt");
+        let getilgt = datei.inhalt();
+        assert_eq!(getilgt.len(), original.len());
+        assert!(!enthaelt(&getilgt, b"52.52") && !enthaelt(&getilgt, b"GPS"));
+        assert!(!enthaelt(&getilgt, &NTP) && !enthaelt(&getilgt, b"urn:ort"));
+        for (alt, was) in [(&meco, "meco"), (&emsg, "emsg"), (&prft, "prft")] {
+            assert!(frei_an(&getilgt, alt), "{was}");
+        }
+        for typ in [&b"meco"[..], b"emsg", b"prft", b"abcd"] {
+            assert!(!enthaelt(&getilgt, typ), "{}", String::from_utf8_lossy(typ));
+        }
+        platzhalter_genullt(&original, &getilgt, &im_moof, "free in moof");
+        for bleibt in [
+            &mfhd,
+            &traf,
+            &uuid,
+            &pssh,
+            &bleiben[0],
+            &bleiben[1],
+            &bleiben[2],
+            &bleiben[3],
+        ] {
+            assert!(
+                enthaelt(&getilgt, bleibt),
+                "{}",
+                String::from_utf8_lossy(&bleibt[4..8])
+            );
+        }
+        assert_eq!(getilgt.windows(4).filter(|f| f == b"moof").count(), 1);
     }
 
     /// Regel 5g: eine Zeit-Box mit unbekannter Version oder zu kurz → `metadaten`.

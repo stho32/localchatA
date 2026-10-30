@@ -993,3 +993,115 @@ async fn platzhalter_verlieren_ihre_ortsspur() {
     assert!(enthaelt(&geliefert.bytes, &kachel));
     assert_eq!(geliefert.anhang["art"], "image/heic");
 }
+
+/// Ein `meta` mit `ilst/©xyz` (Ort) und Hersteller.
+fn ilst_meta() -> Vec<u8> {
+    let wert = |typ: &[u8], text: &[u8]| {
+        kiste(
+            typ,
+            &kiste(b"data", &[&[0u8, 0, 0, 1, 0, 0, 0, 0][..], text].concat()),
+        )
+    };
+    let hdlr = kiste(b"hdlr", &[&[0u8; 8][..], b"mdir", &[0; 13]].concat());
+    let ilst = kiste(b"ilst", &wert(&[0xa9, b'x', b'y', b'z'], &ort()));
+    kiste(b"meta", &[&[0u8; 4][..], &hdlr, &ilst].concat())
+}
+
+/// Fügt `neu` oben vor `mfra` ein (ohne `mfra` ans Ende) — `mfra` findet ein Leser über `mfro` vom Ende her, die
+/// Versätze davor bleiben gültig.
+fn vor_mfra(bytes: &[u8], neu: &[u8]) -> Vec<u8> {
+    let stelle = boxen(bytes, 0, bytes.len())
+        .iter()
+        .find(|(typ, _, _)| typ == b"mfra")
+        .map_or(bytes.len(), |(_, inhalt, _)| inhalt - 8);
+    [&bytes[..stelle], neu, &bytes[stelle..]].concat()
+}
+
+/// Hängt `neu` ans Ende des letzten `moof` und verschiebt `data_offset` jedes `trun` darin um dessen Länge (Versatz
+/// ab dem `moof`, `default-base-is-moof`); `mfra` dahinter findet ein Leser über `mfro`.
+fn in_letztes_moof(bytes: &[u8], neu: &[u8]) -> Vec<u8> {
+    let liste = boxen(bytes, 0, bytes.len());
+    let &(_, inhalt, ende) = liste
+        .iter()
+        .rfind(|(typ, _, _)| typ == b"moof")
+        .expect("moof");
+    let mut moof = bytes[inhalt - 8..ende].to_vec();
+    for (typ, traf_inhalt, traf_ende) in boxen(bytes, inhalt, ende) {
+        if &typ != b"traf" {
+            continue;
+        }
+        for (typ, trun, _) in boxen(bytes, traf_inhalt, traf_ende) {
+            if &typ == b"trun" && bytes[trun + 3] & 1 == 1 {
+                let stelle = trun + 8 - (inhalt - 8);
+                let alt = i32::from_be_bytes(moof[stelle..stelle + 4].try_into().expect("i32"));
+                moof[stelle..stelle + 4].copy_from_slice(&(alt + neu.len() as i32).to_be_bytes());
+            }
+        }
+    }
+    moof.extend(neu);
+    let groesse = moof.len() as u32;
+    moof[..4].copy_from_slice(&groesse.to_be_bytes());
+    [&bytes[..inhalt - 8], &moof, &bytes[ende..]].concat()
+}
+
+/// NTP-Zeit 2026-10-29T12:34:56Z (Sekunden seit 1900, Bruchteil 0).
+const NTP: [u8; 8] = [0xee, 0x8d, 0xbb, 0xf0, 0, 0, 0, 0];
+
+/// ADR-0047 B3 Regel 5i, P11 (h)–(k) (B0650): ein fragmentiertes MP4 mit (h) `meco` oben samt `meta`/`ilst`/`©xyz`,
+/// (i) `meta`/`ilst`/`©xyz` im `moof`, (j) `emsg` mit Ort in `message_data`, (k) `prft` mit `ntp_timestamp`
+/// 2026-10-29T12:34:56Z → ausgeliefert ohne Ort, die Box ist `free` mit Nullen, die NTP-Bytefolge kommt nicht vor;
+/// `mfhd`, `traf`, `mfra`, `mdat` byte-gleich; `ffprobe`/`ffmpeg` fehlerfrei.
+#[tokio::test]
+async fn meco_moof_emsg_und_prft_verlieren_ihre_ortsspur() {
+    let lauf = Lauf::neu().await;
+    let ordner = ordner();
+    let grund = film(
+        ordner.path(),
+        "fragmentiert.mp4",
+        &["-movflags", "frag_keyframe+empty_moov+default_base_moof"],
+    );
+    let meco = kiste(b"meco", &ilst_meta());
+    let emsg = kiste(
+        b"emsg",
+        &[&[0u8; 4][..], b"urn:ort\0\0", &[0; 16], &ort()].concat(),
+    );
+    let prft = kiste(
+        b"prft",
+        &[&[0u8; 4][..], &[0, 0, 0, 1], &NTP, &[0; 4]].concat(),
+    );
+    let faelle = [
+        ("h.mp4", vor_mfra(&grund, &meco), meco),
+        ("i.mp4", in_letztes_moof(&grund, &ilst_meta()), ilst_meta()),
+        ("j.mp4", vor_mfra(&grund, &emsg), emsg),
+        ("k.mp4", vor_mfra(&grund, &prft), prft),
+    ];
+    for (name, original, kiste) in faelle {
+        spielt_fehlerfrei(&format!("vorher-{name}"), &original);
+
+        let geliefert = lauf.ausliefern(name, &original).await;
+
+        let bytes = &geliefert.bytes;
+        ohne_ort(name, bytes);
+        assert!(
+            !enthaelt(bytes, &NTP) && !enthaelt(bytes, b"urn:ort"),
+            "{name}"
+        );
+        let stelle = original
+            .windows(kiste.len())
+            .position(|fenster| fenster == kiste)
+            .expect("Box im Original");
+        assert_eq!(bytes[stelle..stelle + 4], kiste[..4], "{name}: Größe");
+        assert_eq!(&bytes[stelle + 4..stelle + 8], b"free", "{name}: Typ");
+        assert!(
+            bytes[stelle + 8..stelle + kiste.len()]
+                .iter()
+                .all(|b| *b == 0),
+            "{name}: Inhalt"
+        );
+        for typ in [b"mdat", b"mfhd", b"traf", b"mfra"] {
+            assert_eq!(finden(bytes, typ), finden(&original, typ), "{name}");
+        }
+        assert_eq!(bytes.len(), original.len(), "{name}");
+        spielt_fehlerfrei(name, bytes);
+    }
+}
