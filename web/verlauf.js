@@ -12,6 +12,8 @@ import { nachladen, einfuegen } from './fenster.js';
 import { pfeilRichtung, pfeilZiel, tabStopp, eigeneLetzte, nachrichtTaste } from './fokus.js';
 import { bearbeitenAnlegen } from './bearbeiten.js';
 import { rueckfrageOeffnen, loeschenAuswerten } from './loeschen.js';
+import { kopieren } from './kopieren.js';
+import { menueLage } from './menuelage.js';
 import { zeigerart } from './eingabe.js';
 import {
   einordnen, zusammenfuehren, fassungUebernehmen, buendlerAnlegen, folgenOderZaehlen, pillenText, auslaufNach, nichtGeladenText, hinweisTextNachziehen,
@@ -151,6 +153,11 @@ export function verlaufAnlegen({
       return;
     }
     const aktion = ereignis.target.closest('.lc-aktion');
+    if (aktion !== null && aktion.dataset.aktion === 'kopieren') {
+      aktionAusfuehren('kopieren', aktion.closest('.lc-msg'));
+      menueNachKopierenSchliessen();
+      return;
+    }
     if (aktion !== null) {
       menueSchliessen();
       aktionAusfuehren(aktion.dataset.aktion, aktion.closest('.lc-msg'));
@@ -313,8 +320,40 @@ export function verlaufAnlegen({
       return;
     }
     menueSchalter.setAttribute('aria-expanded', 'true');
-    const menue = document.getElementById(menueSchalter.getAttribute('aria-controls'));
-    menue.classList.toggle('lc-nach-oben', menue.getBoundingClientRect().bottom > log.getBoundingClientRect().bottom);
+    menueEinpassen(menueSchalter, document.getElementById(menueSchalter.getAttribute('aria-controls')));
+  }
+
+  // Das offene Menü steht fest im Fenster (position: fixed, der Verlauf schneidet es nicht ab) und liegt ganz im sichtbaren
+  // Teil — des Verlaufs, wenn es dort hineinpasst, sonst des Fensters (UX K1). Scrollt der Verlauf, schließt es.
+  function menueEinpassen(menueSchalter, menue) {
+    const menueRand = menue.getBoundingClientRect();
+    const sicht = window.visualViewport;
+    const fenster = { oben: sicht.offsetTop, unten: sicht.offsetTop + sicht.height, links: sicht.offsetLeft, rechts: sicht.offsetLeft + sicht.width };
+    const verlaufRand = log.getBoundingClientRect();
+    const verlaufSichtbar = {
+      oben: Math.max(verlaufRand.top, fenster.oben), unten: Math.min(verlaufRand.bottom, fenster.unten), links: fenster.links, rechts: fenster.rechts,
+    };
+    const lage = menueLage({
+      schalter: schalterRand(menueSchalter),
+      menue: { breite: menueRand.width, hoehe: menueRand.height },
+      bereiche: [verlaufSichtbar, fenster],
+    });
+    menue.style.top = `${lage.oben}px`;
+    menue.style.left = `${lage.links}px`;
+  }
+
+  function schalterRand(menueSchalter) {
+    const rand = menueSchalter.getBoundingClientRect();
+    return { oben: rand.top, unten: rand.bottom, links: rand.left, rechts: rand.right };
+  }
+
+  // Nach dem Kopieren aus dem Menü: es schließt, der Fokus geht auf „Aktionen“ zurück statt mit dem Eintrag zu verschwinden.
+  function menueNachKopierenSchliessen() {
+    const offenerSchalter = inhalt.querySelector('.lc-aktionen-schalter[aria-expanded="true"]');
+    menueSchliessen();
+    if (offenerSchalter !== null) {
+      offenerSchalter.focus({ preventScroll: true });
+    }
   }
 
   function menueSchliessen() {
@@ -327,6 +366,7 @@ export function verlaufAnlegen({
       menueSchliessen();
     }
   }, { signal });
+  log.addEventListener('scroll', menueSchliessen, { passive: true });
   log.addEventListener('keydown', (ereignis) => {
     const offenerSchalter = inhalt.querySelector('.lc-aktionen-schalter[aria-expanded="true"]');
     if (ereignis.key === 'Escape' && offenerSchalter !== null) {
@@ -398,12 +438,24 @@ export function verlaufAnlegen({
     if (bekannt === null) {
       return;
     }
+    if (aktion === 'kopieren') {
+      nachrichtKopieren(artikel, bekannt.nachricht.text);
+    }
     if (aktion === 'bearbeiten') {
       bearbeiten.beginnen(offenerName, artikel, bekannt.nachricht);
     }
     if (aktion === 'loeschen') {
       loeschenFragen(bekannt.nachricht);
     }
+  }
+
+  // Der Text kommt aus dem Fenster, nie aus dem DOM (ADR-0052 Regel 1); der Aufruf bleibt in der Geste. Das versteckte
+  // Feld nimmt für den Aufruf den Fokus und die Leiste (nur bei Hover oder Fokus sichtbar) verlöre ihn mit: sie bleibt
+  // stehen, bis der Fokus auf ihren Knopf zurückgelegt ist.
+  function nachrichtKopieren(artikel, text) {
+    artikel.classList.add('lc-kopiert-laeuft');
+    kopieren(text, document);
+    artikel.classList.remove('lc-kopiert-laeuft');
   }
 
   // Löschen nach genau einer Rückfrage (F0139), höchstens ein Aufruf zugleich: gelöscht → die Fassung der Antwort, Fokus

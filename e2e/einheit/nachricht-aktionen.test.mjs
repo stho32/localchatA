@@ -1,6 +1,6 @@
 // Unit-Tests „eigene Nachricht erkennen“ und der Aktionen einer Nachricht (R00041 F0135 B0608; node --test): bearbeiten
 // und löschen darf nur, wessen Kennung die Nachricht trägt — bestätigt, nicht gelöscht, auch aus einer früheren
-// Sitzung derselben Kennung; die Bindung gilt je Aktion (PO 145).
+// Sitzung derselben Kennung; die Bindung gilt je Aktion (PO 145): Kopieren (R00046) steht auch an fremden.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { bearbeitbar, aktionenFuer } from '../../web/nachricht.js';
@@ -30,9 +30,15 @@ test('ohne bekannte eigene Kennung → nicht bearbeitbar', () => {
   assert.equal(bearbeitbar(nachricht(), ''), false);
 });
 
-test('Aktionen: an der eigenen Bearbeiten und Löschen in dieser Reihenfolge, an fremden und gelöschten keine', () => {
-  assert.deepEqual(aktionenFuer(nachricht(), ICH), ['bearbeiten', 'loeschen']);
-  assert.deepEqual(aktionenFuer(nachricht({ von: 'beta@127.0.0.2' }), ICH), []);
+test('Aktionen: an der eigenen Kopieren, Bearbeiten und Löschen in dieser Reihenfolge, an fremden nur Kopieren, an gelöschten keine', () => {
+  assert.deepEqual(aktionenFuer(nachricht(), ICH), ['kopieren', 'bearbeiten', 'loeschen']);
+  assert.deepEqual(aktionenFuer(nachricht({ von: 'beta@127.0.0.2' }), ICH), ['kopieren']);
+  assert.deepEqual(aktionenFuer(nachricht({ von: 'claude@127.0.0.3', art: 'agent' }), ICH), ['kopieren']);
   assert.deepEqual(aktionenFuer(nachricht({ zustand: 'geloescht' }), ICH), []);
   assert.deepEqual(aktionenFuer({ von: ICH, text: 'Unterwegs' }, ICH), []);
+});
+
+test('Aktionen: eine Nachricht nur aus Anhängen trägt Bearbeiten und Löschen (eigene), aber kein Kopieren', () => {
+  assert.deepEqual(aktionenFuer(nachricht({ text: '', anhaenge: [{ id: 'x' }] }), ICH), ['bearbeiten', 'loeschen']);
+  assert.deepEqual(aktionenFuer(nachricht({ von: 'beta@127.0.0.2', text: '', anhaenge: [{ id: 'x' }] }), ICH), []);
 });

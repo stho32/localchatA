@@ -41,7 +41,7 @@ export function nachrichtZeichnen(nachricht, eigeneKennung = '') {
 // entscheidet das CSS nach der Zeigerart. Die Knöpfe tragen ihre Aktion in data-aktion, der Verlauf führt sie aus.
 // → [Schalter, Leiste]
 function aktionenZeichnen(aktionen, zeit) {
-  const BESCHRIFTUNG = { bearbeiten: 'Bearbeiten', loeschen: 'Löschen' };
+  const BESCHRIFTUNG = { kopieren: 'Kopieren', bearbeiten: 'Bearbeiten', loeschen: 'Löschen' };
   const knoepfe = aktionen.map((aktion) => {
     const knopf = element('button', { type: 'button', className: 'lc-aktion', textContent: BESCHRIFTUNG[aktion] });
     knopf.dataset.aktion = aktion;
@@ -108,10 +108,12 @@ export function kopierbar({ zeit, text = '', zustand }) {
 }
 
 // Die Aktionen einer Nachricht in der Reihenfolge der Leiste (Designsystem Nachricht: Antworten · Kopieren · Bearbeiten
-// · Löschen); jede Aktion trägt ihre eigene Bedingung (PO 145) — heute gelten nur Bearbeiten und Löschen, an der eigenen.
+// · Löschen); jede Aktion trägt ihre eigene Bedingung (PO 145): Kopieren gilt an jeder kopierbaren Nachricht, Bearbeiten
+// und Löschen nur an der eigenen.
 export function aktionenFuer(nachricht, eigeneKennung) {
   const eigen = bearbeitbar(nachricht, eigeneKennung);
-  return [['bearbeiten', eigen], ['loeschen', eigen]].filter(([, gilt]) => gilt).map(([aktion]) => aktion);
+  return [['kopieren', kopierbar(nachricht)], ['bearbeiten', eigen], ['loeschen', eigen]]
+    .filter(([, gilt]) => gilt).map(([aktion]) => aktion);
 }
 
 const NAME_TEXTANFANG_ZEICHEN = 120;
