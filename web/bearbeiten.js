@@ -74,9 +74,10 @@ function fehlerText({ status, daten }) {
 // Das eine Feld des Tabs. zeiger: () → 'fein' | 'grob' · fokusAufNachricht(zeit): Fokus auf die Nachricht im Verlauf ·
 // speichern: async (channel, zeit, text) → Antwort wie api.js nachrichtBearbeiten · uebernehmen(nachricht): die
 // gespeicherte Fassung in den Verlauf · alsGeloeschtZeigen(zeit) · hinweisen(text): die Hinweiszeile der Seite ·
-// ansagen(text): genau eine Ansage über die Region der Seite (UX S2); beim Öffnen keine (S3).
+// ansagen(text): genau eine Ansage über die Region der Seite (UX S2); beim Öffnen keine (S3) · inSicht(element): das
+// Element ganz in den sichtbaren Teil des Verlaufs (UX M7, auch bei offener Bildschirmtastatur).
 // beginnen(channel, artikel, nachricht) öffnet das Feld in `artikel`; istOffen(zeit) sagt, ob es an dieser Nachricht steht.
-export function bearbeitenAnlegen({ zeiger, fokusAufNachricht, speichern, uebernehmen, alsGeloeschtZeigen, hinweisen, ansagen }) {
+export function bearbeitenAnlegen({ zeiger, fokusAufNachricht, inSicht, speichern, uebernehmen, alsGeloeschtZeigen, hinweisen, ansagen }) {
   let offen = null;
 
   function beginnen(channel, artikel, nachricht) {
@@ -94,15 +95,26 @@ export function bearbeitenAnlegen({ zeiger, fokusAufNachricht, speichern, uebern
     offen.speichernKnopf.addEventListener('click', speichernVersuchen);
     artikel.classList.add('lc-im-bearbeiten');
     artikel.querySelector('.lc-msg-inhalt').append(offen.rahmen);
-    hoeheAnpassen(offen.feld);
     offen.feld.focus();
     offen.feld.setSelectionRange(offen.feld.value.length, offen.feld.value.length);
     bereitZeigen();
   }
 
+  // Wächst das Feld oder schrumpft das Fenster (Bildschirmtastatur), bleiben Feld und Knöpfe im Blick.
+  function imBlickHalten() {
+    if (offen !== null && offen.rahmen.isConnected) {
+      inSicht(offen.rahmen);
+    }
+  }
+  window.addEventListener('resize', imBlickHalten);
+
   // Nicht verfügbar heißt aria-disabled, nie disabled: der Knopf bleibt fokussierbar und wird vorgelesen.
   function bereitZeigen() {
+    const hoeheVorher = offen.feld.style.height;
     hoeheAnpassen(offen.feld);
+    if (offen.feld.style.height !== hoeheVorher) {
+      imBlickHalten();
+    }
     const grund = speicherHinweis(offen.feld.value, offen.anhangZahl);
     offen.hinweis.textContent = '';
     offen.hinweis.classList.remove('lc-fehler');
@@ -219,10 +231,12 @@ function vorhandeneAnhaenge({ anhaenge = [] }) {
   return anhaenge.filter((anhang) => anhang.zustand !== 'geloescht');
 }
 
-// Das Feld wächst mit dem Inhalt bis zur Höhe aus dem CSS (10 Zeilen) und scrollt dann in sich.
+// Das Feld wächst mit dem Inhalt bis zur Höhe aus dem CSS (10 Zeilen) und scrollt dann in sich; der Rand zählt zur
+// Höhe (border-box).
 function hoeheAnpassen(feld) {
   feld.style.height = '';
-  feld.style.height = `${feld.scrollHeight}px`;
+  const rand = feld.offsetHeight - feld.clientHeight;
+  feld.style.height = `${feld.scrollHeight + rand}px`;
 }
 
 function element(tag, eigenschaften = {}, kinder = []) {

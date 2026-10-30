@@ -287,6 +287,7 @@ export function verlaufAnlegen({
         nachrichtFokussieren(knoten);
       }
     },
+    inSicht: inSichtBringen,
     speichern: bearbeitenSpeichern,
     uebernehmen: (nachricht) => fassungenErsetzen([nachricht]),
     alsGeloeschtZeigen: geloeschtSetzen,
@@ -478,9 +479,14 @@ export function verlaufAnlegen({
   // Tagestrenner, nicht unter den unteren Rand. Das Scrollen löst das Nachladen aus wie jedes Scrollen.
   function nachrichtFokussieren(nachricht) {
     nachricht.focus({ preventScroll: true });
+    inSichtBringen(nachricht);
+  }
+
+  // Ein Element einer Nachricht (sie selbst, ihr Bearbeiten-Feld) ganz in den sichtbaren Teil des Verlaufs.
+  function inSichtBringen(element) {
     const rahmenLage = log.getBoundingClientRect();
-    const lage = nachricht.getBoundingClientRect();
-    const obereGrenze = rahmenLage.top + klebenderTrennerUnterkante(nachricht);
+    const lage = element.getBoundingClientRect();
+    const obereGrenze = rahmenLage.top + klebenderTrennerUnterkante(element.closest('.lc-msg'));
     if (lage.top < obereGrenze) {
       log.scrollTop -= obereGrenze - lage.top;
     } else if (lage.bottom > rahmenLage.bottom) {
