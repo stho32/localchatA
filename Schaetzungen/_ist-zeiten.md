@@ -623,3 +623,4 @@ Nie vom User erfragen.
 | 2026-10-30 | R00041 Eigene Nachrichten im Browser bearbeiten und löschen | F0134, F0135, F0138, F0139, F0142 (21 Bubbles, Wanduhr gesamt) | Entwicklung | — | 2,1h | 2,1h | autonom (entw) |
 | 2026-10-30 | R00045 Tippanzeige im Browser | F0161 Browser, F0162 (B0688–B0691, Wanduhr gesamt) | Entwicklung | — | 0,9h | 0,9h | autonom (entw2) |
 | 2026-10-30 | R00046 Nachricht kopieren im Browser | I0042 (B0699–B0703, Wanduhr gesamt inkl. Rebase) | Entwicklung | — | 1,3h | 1,3h | autonom (entw3) |
+| 2026-10-30 | R00029 Direktlink spielt in Chrome 154 (Nacharbeit Teil F) | F0100 B0725–B0731 (Wanduhr gesamt) | Nacharbeit | — | 1,6h | 1,6h | autonom (entw) |
