@@ -9,7 +9,7 @@
 import { nachrichtZeichnen, kopfSetzen, trennerZeichnen, langeEinklappen, langeUmschalten } from './nachricht.js';
 import { gliederung, folgeGliedern, datumBenennen } from './gliederung.js';
 import { nachladen, einfuegen } from './fenster.js';
-import { pfeilRichtung, pfeilZiel, tabStopp } from './fokus.js';
+import { pfeilRichtung, pfeilZiel, tabStopp, eigeneLetzte } from './fokus.js';
 import { einordnen, zusammenfuehren, buendlerAnlegen, folgenOderZaehlen, pillenText, auslaufNach, nichtGeladenText, hinweisTextNachziehen, sprungZiel as sprungZielBerechnen } from './live-verlauf.js';
 
 // abrufen: async (name, cursor, signal) → { art: 'block' | 'fehler' | 'abgebrochen', … } (api.js verlaufAbrufen);
@@ -268,6 +268,15 @@ export function verlaufAnlegen({ abrufen, schalter = () => {}, fokusRueckgaengig
       rollfokusPflegen();
     }
   });
+
+  // ↑ in der leeren Eingabe: die jüngste eigene, bestätigte, nicht gelöschte Nachricht des Fensters; keine → nichts.
+  function eigeneLetzteFokussieren() {
+    const liste = nachrichtenImVerlauf();
+    const stelle = eigeneLetzte(liste.map((einzeln) => einzeln.dataset), eigeneKennung);
+    if (stelle !== null) {
+      nachrichtFokussieren(liste[stelle]);
+    }
+  }
 
   function pfeilBedienen(ereignis) {
     const richtung = pfeilRichtung(ereignis);
@@ -785,6 +794,7 @@ export function verlaufAnlegen({ abrufen, schalter = () => {}, fokusRueckgaengig
     nachRueckgaengigFokussieren: (schluessel) => { fokusAufErneut = schluessel; },
     zumEndeFuerSenden,
     kennungSetzen: (kennung) => { eigeneKennung = kennung; },
+    eigeneLetzteFokussieren,
     // Woran das Nachholen ansetzt (ADR-0037 Regel 7, 7g): der offene Channel, ob sein Verlauf steht oder das Laden
     // gescheitert ist, die jüngste bekannte Zeit und ob der neueste Block im Fenster ist.
     stand: () => ({

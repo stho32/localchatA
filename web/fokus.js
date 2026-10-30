@@ -52,3 +52,22 @@ export function tabStopp(zeiten, gemerkt) {
   }
   return zeiten.length - 1;
 }
+
+// ↑ allein in der leeren Eingabe (kein Leerraum, keine Komposition) führt zur eigenen letzten Nachricht; mit Text
+// bewegt es die Schreibmarke (1-tastatur.md).
+export function zuEigenerLetzten(ereignis, text) {
+  const komponiert = ereignis.isComposing || ereignis.keyCode === 229;
+  return pfeilRichtung(ereignis) === 'zurueck' && text === '' && !komponiert;
+}
+
+// Die Stelle der jüngsten bestätigten, nicht gelöschten Nachricht von `kennung` in `nachrichten` ({ von, zustand },
+// älteste zuerst); null, wenn es keine gibt.
+export function eigeneLetzte(nachrichten, kennung) {
+  for (let stelle = nachrichten.length - 1; stelle >= 0; stelle -= 1) {
+    const nachricht = nachrichten[stelle];
+    if (nachricht.von === kennung && nachricht.zustand !== 'geloescht') {
+      return stelle;
+    }
+  }
+  return null;
+}

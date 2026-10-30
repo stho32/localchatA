@@ -1,6 +1,7 @@
 // Eingabe unter dem Verlauf (ADR-0038 Regeln 1–4, 7, Designsystem Eingabe).
 import { textPruefen, nurLeerraum, steuerzeichenEntfernen } from './textregel.js';
 import { hinweis, hinweisAnsagen } from './hinweis.js';
+import { zuEigenerLetzten } from './fokus.js';
 
 const IME_TASTENCODE = 229;
 
@@ -34,8 +35,10 @@ export function taste(ereignis, text, zeiger) {
 // Rechts vom Feld die Gruppe der Schalter mit dem Knopf „Senden“ als letztem (Ergänzung Karte #41 K3, K7).
 // Darunter die Hinweiszeile (Regel 4): Länge und Steuerzeichen mit derselben Regel wie der Server — bei einem Fehler
 // sendet Enter nicht; was die Zeile ansagt, geht ohne ⚠ an die eine Ansage-Region (`ansagen`, R00025 F0084). Der
-// Entwurf (entwurf.js) folgt dem Channel (Regel 7).
-export function eingabeAnlegen({ senden, entwurf, ansagen }) {
+// Entwurf (entwurf.js) folgt dem Channel (Regel 7). `eigeneLetzteFokussieren()` holt bei ↑ in der leeren Eingabe den
+// Fokus auf die eigene letzte Nachricht im Verlauf (R00041 F0141, 1-tastatur.md); im leeren Feld hat ↑ sonst keine
+// Wirkung, darum wird die Taste dort immer verbraucht.
+export function eingabeAnlegen({ senden, entwurf, ansagen, eigeneLetzteFokussieren = () => {} }) {
   const feld = document.createElement('textarea');
   feld.rows = 1;
   feld.className = 'lc-comp-feld';
@@ -92,6 +95,11 @@ export function eingabeAnlegen({ senden, entwurf, ansagen }) {
   // Die Zeigerart wird je Tastendruck gefragt: steckt jemand eine Maus ans Tablet, gilt sofort die neue Regel (K5).
   // Bei 'zeile' und während einer Komposition schreibt der Browser bzw. die Bildschirmtastatur die Zeile selbst.
   feld.addEventListener('keydown', (ereignis) => {
+    if (zuEigenerLetzten(ereignis, feld.value)) {
+      ereignis.preventDefault();
+      eigeneLetzteFokussieren();
+      return;
+    }
     const wirkung = taste(ereignis, feld.value, zeigerart());
     const enterOhneZeile = ereignis.key === 'Enter' && wirkung !== 'zeile' && !komponiert(ereignis);
     if (enterOhneZeile) {

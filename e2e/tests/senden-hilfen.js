@@ -96,5 +96,5 @@ const nachrichten = (page) => page.getByRole('log').locator('.lc-msg');
 const mitText = (page, muster) => nachrichten(page).filter({ has: page.locator('.lc-body', { hasText: muster }) });
 
 module.exports = {
-  JETZT, sendenStarten, beitreten, senden, verlaufLesen, kontextOeffnen, imBrowserBeitreten, eingabe, nachrichten, mitText,
+  JETZT, sendenStarten, beitreten, senden, anfragen, verlaufLesen, kontextOeffnen, imBrowserBeitreten, eingabe, nachrichten, mitText,
 };

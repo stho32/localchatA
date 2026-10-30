@@ -99,6 +99,7 @@ export function zeichnen(wurzel, teilnehmer, optionen) {
     senden: senden.senden,
     entwurf: entwurfAnlegen({ speicher: window.sessionStorage }),
     ansagen: ansagen.melden,
+    eigeneLetzteFokussieren: verlauf.eigeneLetzteFokussieren,
   });
   const wieder = wiederverbindenEinrichten({
     mitte, verlauf, senden, abrufen: optionen.verlaufNachholen, ansagen: ansagen.melden,

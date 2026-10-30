@@ -3,7 +3,7 @@
 // im Verlauf (B0631), Pfeil hoch in der leeren Eingabe (B0633), Fokus beim Ersetzen (B0634). Konsole streng.
 const { test, expect } = require('./rahmen');
 const {
-  sendenStarten, beitreten, senden, kontextOeffnen, imBrowserBeitreten, eingabe, nachrichten,
+  sendenStarten, beitreten, senden, anfragen, kontextOeffnen, imBrowserBeitreten, eingabe, nachrichten,
 } = require('./senden-hilfen');
 
 let instanz;
@@ -182,5 +182,99 @@ test('Rollfokus (B0631): über die Blockgrenze nach oben — der nächste Pfeil 
   const jetzt = await fokussierteZeit(a.page);
   expect(Date.parse(jetzt)).toBeLessThan(Date.parse(ersteZeit));
   expect(await fokusSichtbarImVerlauf(a.page)).toEqual({ nachricht: true, fokusSichtbar: true, ring: 'solid', ganz: true });
+  expect(a.fehler).toEqual([]);
+});
+
+/// Sendet im Browser `text` und wartet, bis er als bestätigte Nachricht im Verlauf steht.
+async function imBrowserSenden(page, text) {
+  await eingabe(page).fill(text);
+  await eingabe(page).press('Enter');
+  await expect(nachrichten(page).filter({ has: page.locator('.lc-body', { hasText: text }) })).toHaveCount(1);
+}
+
+const textDerFokussierten = (page) => page.evaluate(() => {
+  const aktiv = document.activeElement;
+  if (aktiv === null || !aktiv.matches('.lc-msg')) {
+    return null;
+  }
+  return aktiv.querySelector('.lc-body').textContent;
+});
+
+test('Pfeil hoch (B0633, US-13): ↑ in der leeren Eingabe trifft die eigene letzte, nicht die neueste; ↑/↓ gehen von dort weiter', async ({ browser }) => {
+  instanz = await sendenStarten();
+  const a = await kontextOeffnen(browser, { streng: true });
+  await imBrowserBeitreten(a.page, instanz.adresse, 'shoff');
+  await imBrowserSenden(a.page, 'Eins');
+  await imBrowserSenden(a.page, 'Zwei');
+  const betaToken = await beitreten(instanz.adresse, 'beta', { herkunft: BETA });
+  expect((await senden(instanz.adresse, betaToken, 'allgemein', 'Drei', BETA)).status).toBe(201);
+  await expect(nachrichten(a.page)).toHaveCount(3);
+
+  await eingabe(a.page).focus();
+  await a.page.keyboard.press('ArrowUp');
+  expect(await textDerFokussierten(a.page)).toBe('Zwei');
+  expect(await fokusSichtbarImVerlauf(a.page)).toEqual({ nachricht: true, fokusSichtbar: true, ring: 'solid', ganz: true });
+  await a.page.keyboard.press('ArrowUp');
+  expect(await textDerFokussierten(a.page)).toBe('Eins');
+  await a.page.keyboard.press('ArrowDown');
+  expect(await textDerFokussierten(a.page)).toBe('Zwei');
+  await a.page.keyboard.press('ArrowDown');
+  expect(await textDerFokussierten(a.page)).toBe('Drei');
+  expect(a.fehler).toEqual([]);
+});
+
+test('Pfeil hoch (B0633): mit Text in der Eingabe bewegt ↑ nur die Schreibmarke; mit Umschalter oder Alt geschieht nichts', async ({ browser }) => {
+  instanz = await sendenStarten();
+  const a = await kontextOeffnen(browser, { streng: true });
+  await imBrowserBeitreten(a.page, instanz.adresse, 'shoff');
+  await imBrowserSenden(a.page, 'Eins');
+
+  await eingabe(a.page).focus();
+  await a.page.keyboard.type('Entwurf');
+  await a.page.keyboard.press('ArrowUp');
+  await expect(eingabe(a.page)).toBeFocused();
+  expect(await eingabe(a.page).evaluate((feld) => feld.selectionStart)).toBe(0);
+
+  await eingabe(a.page).fill('');
+  await a.page.keyboard.press('Shift+ArrowUp');
+  await a.page.keyboard.press('Control+ArrowUp');
+  await a.page.keyboard.press('Alt+ArrowUp');
+  await expect(eingabe(a.page)).toBeFocused();
+  expect(a.fehler).toEqual([]);
+});
+
+test('Pfeil hoch (B0633): ohne eigene Nachricht bleibt der Fokus in der Eingabe', async ({ browser }) => {
+  instanz = await sendenStarten();
+  await betaSendet(['Hallo', 'Welt']);
+  const a = await kontextOeffnen(browser, { streng: true });
+  await imBrowserBeitreten(a.page, instanz.adresse, 'shoff');
+  await expect(nachrichten(a.page)).toHaveCount(2);
+
+  await eingabe(a.page).focus();
+  await a.page.keyboard.press('ArrowUp');
+  await a.page.waitForTimeout(200);
+  await expect(eingabe(a.page)).toBeFocused();
+  expect(await fokussierteZeit(a.page)).toBeNull();
+  expect(a.fehler).toEqual([]);
+});
+
+test('Pfeil hoch (B0633): eine gelöschte eigene letzte Nachricht wird übersprungen', async ({ browser }) => {
+  instanz = await sendenStarten();
+  const a = await kontextOeffnen(browser, { streng: true });
+  await imBrowserBeitreten(a.page, instanz.adresse, 'shoff');
+  await imBrowserSenden(a.page, 'Eins');
+  await imBrowserSenden(a.page, 'Zwei');
+  const zweiZeit = await nachrichten(a.page).last().getAttribute('data-zeit');
+  const token = await a.page.evaluate(() => localStorage.getItem('localchatA.sitzung'));
+  const geloescht = await anfragen(instanz.adresse, {
+    methode: 'POST', pfad: 'api/channels/allgemein/nachrichten/loeschen', koerper: { zeit: zweiZeit }, token,
+  });
+  expect(geloescht.status, JSON.stringify(geloescht.daten)).toBe(200);
+
+  await a.page.reload();
+  await expect(nachrichten(a.page)).toHaveCount(2);
+  await eingabe(a.page).focus();
+  await a.page.keyboard.press('ArrowUp');
+  expect(await textDerFokussierten(a.page)).toBe('Eins');
   expect(a.fehler).toEqual([]);
 });

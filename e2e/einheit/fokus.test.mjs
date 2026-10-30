@@ -27,7 +27,7 @@ test('mit Strg, Alt oder Meta und in einem offenen Dialog bleibt alles, wie es i
 });
 
 // Rollfokus im Verlauf (R00041 F0141, B0631): ↑/↓ ohne Umschalter wechseln die Nachricht, genau eine Nachricht ist Tab-Stopp.
-import { pfeilRichtung, pfeilZiel, tabStopp } from '../../web/fokus.js';
+import { pfeilRichtung, pfeilZiel, tabStopp, zuEigenerLetzten, eigeneLetzte } from '../../web/fokus.js';
 
 test('↑ und ↓ ohne Umschalter geben die Richtung, jede Taste mit Strg, Alt, Meta oder Umschalt keine', () => {
   assert.equal(pfeilRichtung(taste('ArrowUp', { shiftKey: false })), 'zurueck');
@@ -56,4 +56,39 @@ test('Tab-Stopp ist die gemerkte Nachricht, sonst die neueste, ohne Nachrichten 
   assert.equal(tabStopp(zeiten, 'weg'), 2);
   assert.equal(tabStopp([], 'b'), null);
   assert.equal(tabStopp([], null), null);
+});
+
+// ↑ in der leeren Eingabe (R00041 F0141, B0633)
+test('↑ allein in der leeren Eingabe führt zur eigenen letzten Nachricht, sonst nicht', () => {
+  assert.equal(zuEigenerLetzten(taste('ArrowUp'), ''), true);
+  assert.equal(zuEigenerLetzten(taste('ArrowUp'), 'a'), false, 'mit Text bewegt ↑ die Schreibmarke');
+  assert.equal(zuEigenerLetzten(taste('ArrowUp'), ' '), false, 'auch Leerraum ist Text');
+  assert.equal(zuEigenerLetzten(taste('ArrowDown'), ''), false);
+  assert.equal(zuEigenerLetzten(taste('ArrowUp', { shiftKey: true }), ''), false);
+  assert.equal(zuEigenerLetzten(taste('ArrowUp', { ctrlKey: true }), ''), false);
+  assert.equal(zuEigenerLetzten(taste('ArrowUp', { altKey: true }), ''), false, 'Alt ↑ wechselt den Channel');
+  assert.equal(zuEigenerLetzten(taste('ArrowUp', { metaKey: true }), ''), false);
+  assert.equal(zuEigenerLetzten(taste('ArrowUp', { isComposing: true }), ''), false, 'IME-Komposition');
+  assert.equal(zuEigenerLetzten(taste('ArrowUp', { keyCode: 229 }), ''), false);
+});
+
+const satz = (von, zustand) => ({ von, zustand });
+const ICH = 'shoff@127.0.0.1';
+const BETA = 'beta@127.0.0.2';
+
+test('die eigene letzte ist die jüngste mit meiner Kennung, nicht die jüngste überhaupt', () => {
+  const liste = [satz(ICH), satz(ICH), satz(BETA)];
+  assert.equal(eigeneLetzte(liste, ICH), 1);
+});
+
+test('eine gelöschte eigene wird übersprungen, eine bearbeitete zählt', () => {
+  assert.equal(eigeneLetzte([satz(ICH), satz(ICH, 'geloescht'), satz(BETA)], ICH), 0);
+  assert.equal(eigeneLetzte([satz(ICH), satz(ICH, 'bearbeitet'), satz(BETA)], ICH), 1);
+});
+
+test('ohne eigene Nachricht keine; eine ähnliche Kennung ist nicht meine', () => {
+  assert.equal(eigeneLetzte([satz(BETA), satz(BETA)], ICH), null);
+  assert.equal(eigeneLetzte([satz('shoff@127.0.0.2')], ICH), null);
+  assert.equal(eigeneLetzte([satz(ICH, 'geloescht')], ICH), null);
+  assert.equal(eigeneLetzte([], ICH), null);
 });
