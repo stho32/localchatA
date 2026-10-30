@@ -1,7 +1,7 @@
 //! Code-Review #24 B1, Abnahme-Proben 1 und 2: die Episoden an der Sitzungs- und an der Channel-Grenze, über
 //! den Router und dieselbe Annahmeschleife wie das Programm, mit einem Protokoll in der Speicher-Senke und
 //! gestellter Uhr (das Ende der Episode ohne Warten). Die Grenzen stehen als Zahl aus der Anforderung im Test
-//! (R00015, R00018 F0081).
+//! (R00015, R00018 F0081). Dazu die Grenzen neuer Direktgespräche (R00050 F0175): je Herkunft und gesamt.
 
 use super::testserver;
 use crate::gespraeche::Direktgrenzen;

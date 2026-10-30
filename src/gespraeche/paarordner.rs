@@ -4,6 +4,9 @@
 //! (`unlinkat(…, AT_REMOVEDIR)`) — nie eine Datei, nie `remove_dir_all`. Von innen nach außen: erst die leeren
 //! Unterordner (`anhaenge/`, `anhaenge/<tag>/`), zuletzt der Paarordner. Liegt irgendwo etwas anderes als ein Ordner
 //! (Fremddatei, Link, Anhangdatei), ist es ein Fehler und **nichts** wird entfernt.
+//!
+//! Der Deskriptor des Instanzordners wird je Aufruf aus dessen Pfad geöffnet (`Dateiablage::leeren_ordner_entfernen`),
+//! nicht über die Lebenszeit der Ablage gehalten; ab ihm arbeitet alles relativ zu gehaltenen Deskriptoren.
 
 use super::Direktpaar;
 use super::anhangpfade::ordner;
