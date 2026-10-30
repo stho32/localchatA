@@ -23,8 +23,8 @@ function tippenOhneGespraech(...kennungen) {
 
 /// Startet eine Instanz und öffnet `anna` im Browser in `# allgemein`; `ben` und `cora` treten als Menschen per API
 /// bei. → { instanz, anna: { kontext, page, fehler }, token: { ben, cora } }
-async function direktStarten(browser, { sammeln = { zusaetzlich: tippenOhneGespraech(BEN, CORA) }, geraet } = {}) {
-  const instanz = await sendenStarten();
+async function direktStarten(browser, { sammeln = { zusaetzlich: tippenOhneGespraech(BEN, CORA) }, geraet, vorbereiten } = {}) {
+  const instanz = await sendenStarten({ vorbereiten });
   const anna = await browserOeffnen(browser, { geraet, ...sammeln });
   await imBrowserBeitreten(anna.page, instanz.adresse, 'anna');
   const token = {
