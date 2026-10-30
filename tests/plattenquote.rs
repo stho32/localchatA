@@ -568,3 +568,30 @@ fn die_stufe_der_startzeile_folgt_der_herkunft_der_quoten() {
         "{zeilen:#?}"
     );
 }
+
+/// Welle 2 Optional 6 (Mutante M17): die Startzeile zählt `belegt` und `anzahl` über Channels **und**
+/// Direktgespräche — Summe der Bytes der Tageslogs beider, Summe der Nachrichten beider.
+#[test]
+fn die_startzeile_summiert_channels_und_direktgespraeche() {
+    let wurzel = tempfile::tempdir().expect("Wegwerf-Ordner");
+    let channel = "@ 2026-10-27T10:00:00.000+01:00 a@127.0.0.2\n  eins\n\n@ 2026-10-27T10:00:01.000+01:00 a@127.0.0.2\n  zwei\n\n";
+    let direkt = "@ 2026-10-27T11:00:00.000+01:00 claude@10.0.0.5\n  privat\n\n";
+    for (pfad, inhalt) in [
+        ("channels/allgemein/2026-10-27.log", channel),
+        (
+            "direkt/claude@10.0.0.5+shoff@127.0.0.1/2026-10-27.log",
+            direkt,
+        ),
+    ] {
+        let datei = wurzel.path().join(pfad);
+        std::fs::create_dir_all(datei.parent().expect("Ordner")).expect("anlegen");
+        std::fs::write(datei, inhalt).expect("schreiben");
+    }
+    let _instanz = starten_um(wurzel.path(), &[], &[]);
+
+    let start = start_eintrag(wurzel.path());
+
+    let bytes = channel.len() + direkt.len();
+    assert!(start.contains(&format!(" belegt={bytes} ")), "{start}");
+    assert!(start.contains(" anzahl=3 "), "{start}");
+}
