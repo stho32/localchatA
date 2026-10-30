@@ -79,9 +79,12 @@ pub async fn warten(
         treffer: Vec::new(),
         bytes: 0,
         stand: auftrag.seit,
+        ab_anfang: false,
     };
     let nachgeholt = nachholen(&gespraeche, werkbank, &auftrag, &sammlung, &beobachter).await?;
     beobachter(Schritt::Nachgeholt);
+    // Ohne `seit` auf leerer Ablage gibt es nichts „davor“: was später im Index steht, ist neu.
+    sammlung.ab_anfang = auftrag.seit.is_none() && nachgeholt.is_none();
     let mut ende = sammlung.aufnehmen(nachgeholt);
     let mut programmende = auftrag.programmende.clone();
     loop {
@@ -131,6 +134,7 @@ async fn nachholen(
     let gespraeche = Arc::clone(gespraeche);
     let beobachter = Arc::clone(beobachter);
     let stand = sammlung.stand;
+    let ab_anfang = sammlung.ab_anfang;
     let budget = sammlung.restbudget();
     let wartender = auftrag.wartender.clone();
     let filter = auftrag.filter.clone();
@@ -138,8 +142,12 @@ async fn nachholen(
         .ausfuehren(move || {
             let marke = gespraeche.letzte_zeit();
             beobachter(Schritt::MarkeGelesen);
-            let ab = stand.or(marke)?;
             let marke = marke?;
+            let ab = match stand {
+                Some(stand) => stand,
+                None if ab_anfang => anfang(),
+                None => marke,
+            };
             Some(gespraeche.nachholen(ab, marke, &wartender, &filter, budget))
         })
         .await
@@ -150,6 +158,13 @@ struct Sammlung {
     treffer: Vec<Treffer>,
     bytes: usize,
     stand: Option<Zeit>,
+    /// Der Aufruf begann ohne `seit` auf leerer Ablage: ohne Stand wird ab dem Anfang nachgeholt, nicht ab der Marke.
+    ab_anfang: bool,
+}
+
+/// Vor jeder Nachricht.
+fn anfang() -> Zeit {
+    chrono::DateTime::<chrono::Utc>::MIN_UTC.fixed_offset()
 }
 
 impl Sammlung {
@@ -165,7 +180,9 @@ impl Sammlung {
     /// Nimmt ein Nachholen auf; endet der Aufruf damit, der Grund. Ohne Marke (noch keine Nachricht) nichts.
     fn aufnehmen(&mut self, nachgeholt: Option<Nachgeholt>) -> Option<Ende> {
         let nachgeholt = nachgeholt?;
-        self.stand = Some(nachgeholt.stand);
+        if nachgeholt.stand != anfang() {
+            self.stand = Some(nachgeholt.stand);
+        }
         for treffer in nachgeholt.treffer {
             self.bytes += lieferbytes(&treffer.nachricht);
             self.treffer.push(treffer);
@@ -598,6 +615,71 @@ mod tests {
             (ergebnis.seit, ergebnis.ende),
             (gesendet.last().copied(), Ende::Treffer)
         );
+    }
+
+    /// B3 (code-reviewer #17), Probe 1: leere Ablage, Bus mit Kapazität 2, fünf Nachrichten nach dem Nachholen →
+    /// `Lagged` ohne Stand holt ab dem Anfang nach: genau `t1` bis `t5`, `seit` ist `t5`.
+    #[tokio::test]
+    async fn lagged_ohne_stand_auf_leerer_ablage_verliert_nichts() {
+        let bus = Arc::new(Bus::neu(2));
+        let gespraeche = gespraeche_mit(speicher(), &bus);
+
+        let (ergebnis, gesendet) = lagged_ohne_stand(&gespraeche, &bus, false).await;
+
+        assert_eq!(zeiten(&ergebnis), gesendet);
+        assert_eq!(
+            (ergebnis.seit, ergebnis.ende),
+            (gesendet.last().copied(), Ende::Treffer)
+        );
+    }
+
+    /// B3 Probe 2: das erste Ereignis ist keine Nachricht (ein Beitritt), danach fünf Nachrichten bei Kapazität 2 → alle fünf.
+    #[tokio::test]
+    async fn lagged_nach_einem_fremden_ereignis_ohne_stand_verliert_nichts() {
+        let bus = Arc::new(Bus::neu(2));
+        let gespraeche = gespraeche_mit(speicher(), &bus);
+
+        let (ergebnis, gesendet) = lagged_ohne_stand(&gespraeche, &bus, true).await;
+
+        assert_eq!(zeiten(&ergebnis), gesendet);
+    }
+
+    /// Wartet ab jetzt auf leerer Ablage; nach dem Nachholen kommt (optional ein Beitritt und) fünf Nachrichten.
+    async fn lagged_ohne_stand(
+        gespraeche: &Arc<Gespraeche>,
+        bus: &Arc<Bus>,
+        mit_beitritt: bool,
+    ) -> (Warteergebnis, Vec<Zeit>) {
+        let (nachgeholt_senden, nachgeholt) = tokio::sync::oneshot::channel::<()>();
+        let nachgeholt_senden = Mutex::new(Some(nachgeholt_senden));
+        let beobachter = bei(Schritt::Nachgeholt, move || {
+            if let Some(melden) = nachgeholt_senden.lock().expect("melden").take() {
+                let _ = melden.send(());
+            }
+        });
+        let wartend = {
+            let gespraeche = Arc::clone(gespraeche);
+            let bus = Arc::clone(bus);
+            tokio::spawn(async move {
+                warten(
+                    gespraeche,
+                    &bus,
+                    &Werkbank::aus_kernen(),
+                    auftrag(None, LANG),
+                    beobachter,
+                )
+                .await
+            })
+        };
+        nachgeholt.await.expect("nachgeholt");
+        if mit_beitritt {
+            bus.veroeffentlichen(weg_von("anna@127.0.0.1", "anna"));
+        }
+        let gesendet: Vec<Zeit> = (1..=5)
+            .map(|n| senden(gespraeche, ["a", "b"][n % 2], &format!("t{n}")))
+            .collect();
+        let ergebnis = wartend.await.expect("Aufgabe").expect("gewartet");
+        (ergebnis, gesendet)
     }
 
     /// Eigene Nachrichten und andere Themen wecken nicht, rücken aber den Stand vor; nach `bis` endet es mit `Frist`.
