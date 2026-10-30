@@ -46,7 +46,8 @@ pub async fn schicht(
         }
         None => weiter.run(anfrage).await,
     };
-    sicherheitsheader_setzen(antwort.headers_mut(), &pfad, host.as_deref());
+    let medium = antwort.extensions().get::<AnhangMedium>().copied();
+    sicherheitsheader_setzen(antwort.headers_mut(), &pfad, host.as_deref(), medium);
     antwort
 }
 
@@ -360,7 +361,12 @@ impl fmt::Display for UrsprungAbgewiesen {
 /// `Cross-Origin-Opener-Policy` nur unter einem vertrauenswürdigen Ursprung: sonst ignoriert der Browser
 /// den Header (HTML, „obtain an opener policy“, Schritt 2) und Chromium meldet das bei jedem Laden als
 /// Konsolenfehler — über die LAN-Adresse, auf die die Vision zielt, wäre er nur Lärm.
-pub fn sicherheitsheader_setzen(kopf: &mut HeaderMap, pfad: &str, host: Option<&str>) {
+pub fn sicherheitsheader_setzen(
+    kopf: &mut HeaderMap,
+    pfad: &str,
+    host: Option<&str>,
+    medium: Option<AnhangMedium>,
+) {
     let cors_freigaben: Vec<HeaderName> = kopf
         .keys()
         .filter(|name| name.as_str().starts_with("access-control-allow-"))
@@ -373,10 +379,9 @@ pub fn sicherheitsheader_setzen(kopf: &mut HeaderMap, pfad: &str, host: Option<&
         kopf.insert(name, HeaderValue::from_static(wert));
     }
     if anhangpfad(pfad) {
-        kopf.insert(
-            CONTENT_SECURITY_POLICY,
-            HeaderValue::from_static(ANHANG_CSP),
-        );
+        let (csp, corp) = anhang_csp_und_corp(medium);
+        kopf.insert(CONTENT_SECURITY_POLICY, HeaderValue::from_static(csp));
+        kopf.insert(CROSS_ORIGIN_RESOURCE_POLICY, HeaderValue::from_static(corp));
     }
     let opener = HeaderName::from_static("cross-origin-opener-policy");
     if ursprung_vertrauenswuerdig(host) {
@@ -402,6 +407,19 @@ pub const ANHANG_CSP_MEDIUM: &str = "sandbox; default-src 'none'; media-src 'sel
 /// nur zwischen den beiden Anhang-CSP (und CORP nach Regel 4).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct AnhangMedium;
+
+/// Weiche unter `/anhaenge` (ADR-0014 Ergänzung „Karte #71“ Regeln 3, 4): mit Marker die Medien-CSP und CORP
+/// `cross-origin` — das sandboxed Medien-Dokument hat einen undurchsichtigen Ursprung, `same-origin` sperrte es —,
+/// sonst `ANHANG_CSP` und `same-origin`. Nach dem Header-Satz gesetzt, damit nichts den Wert überschreibt (B1).
+fn anhang_csp_und_corp(medium: Option<AnhangMedium>) -> (&'static str, &'static str) {
+    match medium {
+        Some(AnhangMedium) => (ANHANG_CSP_MEDIUM, "cross-origin"),
+        None => (ANHANG_CSP, "same-origin"),
+    }
+}
+
+const CROSS_ORIGIN_RESOURCE_POLICY: HeaderName =
+    HeaderName::from_static("cross-origin-resource-policy");
 
 /// Ob der Pfad — roh oder prozent-dekodiert — `/anhaenge` ist oder darunter liegt (B0467).
 fn anhangpfad(pfad: &str) -> bool {
@@ -441,10 +459,7 @@ const HEADER_SATZ: [(HeaderName, &str); 5] = [
     ),
     (X_FRAME_OPTIONS, "DENY"),
     (REFERRER_POLICY, "no-referrer"),
-    (
-        HeaderName::from_static("cross-origin-resource-policy"),
-        "same-origin",
-    ),
+    (CROSS_ORIGIN_RESOURCE_POLICY, "same-origin"),
 ];
 
 /// Ein `http`-Ursprung ist nur auf Loopback vertrauenswürdig (Secure Contexts, „potentially trustworthy
@@ -843,8 +858,70 @@ mod tests {
         for (name, wert) in vorher {
             kopf.insert(*name, wert.parse().expect("Wert"));
         }
-        sicherheitsheader_setzen(&mut kopf, pfad, host);
+        sicherheitsheader_setzen(&mut kopf, pfad, host, None);
         kopf
+    }
+
+    fn kopf_mit_marker(pfad: &str, medium: Option<AnhangMedium>) -> HeaderMap {
+        let mut kopf = HeaderMap::new();
+        for (name, wert) in [
+            ("content-security-policy", "script-src *"),
+            ("cross-origin-resource-policy", "same-origin"),
+            ("access-control-allow-origin", "*"),
+            ("x-content-type-options", "nosniff"),
+            ("x-frame-options", "DENY"),
+        ] {
+            kopf.insert(name, HeaderValue::from_static(wert));
+        }
+        sicherheitsheader_setzen(&mut kopf, pfad, Some("127.0.0.1:7430"), medium);
+        kopf
+    }
+
+    /// B0662 (ADR-0014 Ergänzung „Karte #71“ Regeln 3, 4; Bedingungen B1–B5): unter `/anhaenge` wählt der Marker die
+    /// Medien-CSP und CORP `cross-origin` — gesetzt nach dem Header-Satz und nach dem `same-origin` der Route (B1) —,
+    /// ohne Marker bleiben `ANHANG_CSP` und `same-origin`; außerhalb von `/anhaenge` wirkt der Marker nicht. `nosniff`,
+    /// `X-Frame-Options`, `Referrer-Policy` unverändert (B4), keine CORS-Freigabe, kein COEP (B5). Mutanten „Weiche
+    /// ignoriert Marker“ und „Marker auf Nicht-Anhangpfad wirkt“ werden rot.
+    #[test]
+    fn die_csp_weiche_nach_dem_marker() {
+        for pfad in ["/anhaenge/x", "/anhaenge/x/y", "/%61nhaenge/x"] {
+            for (medium, csp, corp) in [
+                (Some(AnhangMedium), ANHANG_CSP_MEDIUM, "cross-origin"),
+                (None, ANHANG_CSP, "same-origin"),
+            ] {
+                let kopf = kopf_mit_marker(pfad, medium);
+                let fall = format!("{pfad} {medium:?}");
+                assert_eq!(wert(&kopf, "content-security-policy"), Some(csp), "{fall}");
+                assert_eq!(
+                    wert(&kopf, "cross-origin-resource-policy"),
+                    Some(corp),
+                    "{fall}"
+                );
+                assert_eq!(
+                    wert(&kopf, "x-content-type-options"),
+                    Some("nosniff"),
+                    "{fall}"
+                );
+                assert_eq!(wert(&kopf, "x-frame-options"), Some("DENY"), "{fall}");
+                assert_eq!(
+                    wert(&kopf, "referrer-policy"),
+                    Some("no-referrer"),
+                    "{fall}"
+                );
+                assert_eq!(wert(&kopf, "access-control-allow-origin"), None, "{fall}");
+                assert_eq!(wert(&kopf, "cross-origin-embedder-policy"), None, "{fall}");
+                assert_eq!(kopf.len(), 6, "{fall}");
+            }
+        }
+        for pfad in ["/anhaengex", "/api/anhaenge/x", "/", "/x/anhaenge/"] {
+            let kopf = kopf_mit_marker(pfad, Some(AnhangMedium));
+            assert_eq!(wert(&kopf, "content-security-policy"), Some(CSP), "{pfad}");
+            assert_eq!(
+                wert(&kopf, "cross-origin-resource-policy"),
+                Some("same-origin"),
+                "{pfad}"
+            );
+        }
     }
 
     /// B0661: die Medien-CSP ist die Anhang-CSP plus genau `media-src 'self'` — kein `*`, kein `data:`/`blob:`, kein
