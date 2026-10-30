@@ -190,7 +190,7 @@ pub async fn senden(
 }
 
 /// 404 „# name gibt es nicht.“ — auch für ungültige Namen (R00011 F0041); der Name steht nur im JSON-Text.
-fn unbekannt(name: &str) -> Response {
+pub(super) fn unbekannt(name: &str) -> Response {
     let fehler = format!("# {name} gibt es nicht.");
     (StatusCode::NOT_FOUND, Json(json!({ "fehler": fehler }))).into_response()
 }
@@ -225,11 +225,11 @@ fn gesendet(status: StatusCode, channel: &str, nachricht: &Nachricht) -> Respons
     (status, Json(antwort)).into_response()
 }
 
-const SCHLUESSEL_FORMAT: &str =
+pub(super) const SCHLUESSEL_FORMAT: &str =
     "Idempotency-Key: 1 bis 64 Zeichen aus A–Z, a–z, 0–9, _ und - — zum Beispiel 7f3a-k1.";
 const SCHLUESSEL_ANDERS: &str = "Dieser Schlüssel gehört zu einer anderen Nachricht.";
 
-fn schluessel_abgewiesen(fehler: &str) -> Response {
+pub(super) fn schluessel_abgewiesen(fehler: &str) -> Response {
     (
         StatusCode::UNPROCESSABLE_ENTITY,
         Json(json!({ "fehler": fehler, "regel": "schluessel" })),
@@ -239,7 +239,7 @@ fn schluessel_abgewiesen(fehler: &str) -> Response {
 
 /// Der Kopf `Idempotency-Key` (ADR-0034 Regel 3.7): fehlt er, kein Schlüssel; genau einmal mit 1–64 Zeichen aus
 /// `[A-Za-z0-9_-]` → der Schlüssel; sonst (auch mehrfach) abgewiesen, nie umgeformt.
-fn schluessel_lesen(kopf: &HeaderMap) -> Result<Option<String>, ()> {
+pub(super) fn schluessel_lesen(kopf: &HeaderMap) -> Result<Option<String>, ()> {
     let mut werte = kopf.get_all("idempotency-key").iter();
     let Some(wert) = werte.next() else {
         return Ok(None);
@@ -329,7 +329,7 @@ fn nicht_gebunden(
     }
 }
 
-fn nicht_gespeichert_antwort() -> Response {
+pub(super) fn nicht_gespeichert_antwort() -> Response {
     (
         StatusCode::INTERNAL_SERVER_ERROR,
         Json(json!({ "fehler": "Nicht gespeichert — der Server konnte nicht schreiben." })),
@@ -469,7 +469,7 @@ pub(super) fn anhangtext(id: &str, grund: &str) -> String {
 }
 
 /// Texte der Abweisung, die der Browser wörtlich zeigt (R00011 F0041); die Stelle für Menschen ab 1.
-fn text_abgewiesen(fehler: Textfehler) -> Response {
+pub(super) fn text_abgewiesen(fehler: Textfehler) -> Response {
     let antwort = match fehler {
         Textfehler::Leer => json!({ "fehler": "Die Nachricht ist leer.", "regel": "leer" }),
         Textfehler::Laenge { bytes } => json!({

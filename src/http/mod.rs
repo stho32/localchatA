@@ -5,6 +5,7 @@ mod abweisungsseite;
 mod anfrageprotokoll;
 mod anhaenge;
 mod auskunft;
+mod bearbeiten;
 mod beitreten;
 mod bremse;
 mod channels;
@@ -112,6 +113,10 @@ pub fn router(zustand: Zustand) -> Router {
         .route(
             "/api/channels/{name}/nachrichten",
             get(nachrichten::beantworten).post(senden::senden),
+        )
+        .route(
+            "/api/channels/{name}/nachrichten/bearbeiten",
+            post(bearbeiten::bearbeiten),
         )
         .route("/api/channels/{name}/frist", put(frist::setzen))
         .route("/api/ich", get(ich::beantworten))

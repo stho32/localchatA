@@ -18,6 +18,11 @@ pub fn text_pruefen(text: &str) -> Result<(), Textfehler> {
     if text.chars().all(char::is_whitespace) {
         return Err(Textfehler::Leer);
     }
+    laenge_und_zeichen_pruefen(text)
+}
+
+/// Die Textregel ohne `leer` — beim Bearbeiten entscheidet `leer` erst unter der Sperre (ADR-0048 Regel 7).
+pub fn laenge_und_zeichen_pruefen(text: &str) -> Result<(), Textfehler> {
     if text.len() > TEXT_HOECHSTENS_BYTES {
         return Err(Textfehler::Laenge { bytes: text.len() });
     }

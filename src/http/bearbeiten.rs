@@ -1,0 +1,294 @@
+//! Eigene Nachricht bearbeiten (F0132; ADR-0048 Regel 5): `POST /api/channels/{name}/nachrichten/bearbeiten
+//! {zeit, text}` mit Sitzung → 200 `{channel, nachricht}` in der neuen Fassung. Prüfreihenfolge (abgewiesen, nie
+//! umgeformt): Grenzschutz 403 · Sitzung 401 · Vorab-Buchung 429 · Körper zu groß 413 · kein JSON-Typ 415 · kein JSON
+//! 400 · doppeltes oder weiteres Feld 422 `feld` · Channel 404 · 422 `zeit` · 422 `text`/`laenge`/`zeichen` · 422
+//! `schluessel` · Restbuchung 429 · unter der Sperre 404 `nachricht` · 403 `fremd` · 409 `geloescht` · 422 `leer` ·
+//! unverändert 200 · 507 `quote` · 500. Der Körper wird auf der Werkbank geparst (Grenze über 16 KiB).
+
+use super::Zustand;
+use super::abbruch::{Abgebrochen, Grenzort, abbruch_beantworten};
+use super::anfrageprotokoll::mit_regel;
+use super::bremse::{Gegenstand, gebremst_melden};
+use super::koerper::{
+    Koerperfehler, Koerperort, json_lesen_auf_werkbank, koerperfehler_beantworten,
+};
+use super::nachrichten::NachrichtAntwort;
+use super::senden::{
+    SCHLUESSEL_FORMAT, groesse_in_worten, mit_tausenderpunkt, nicht_gespeichert_antwort,
+    schluessel_abgewiesen, schluessel_lesen, text_abgewiesen, unbekannt,
+};
+use super::teilnehmer::Teilnehmer;
+use crate::gespraeche::textregel::{Textfehler, laenge_und_zeichen_pruefen};
+use crate::gespraeche::{Bearbeitet, Bearbeitfehler, Gespraech, Nachricht};
+use crate::schreibkonto::eimer::kosten_senden;
+use crate::uhr::Zeit;
+use axum::Json;
+use axum::body::Body;
+use axum::extract::{Path, State};
+use axum::http::{HeaderMap, StatusCode};
+use axum::response::{IntoResponse, Response};
+use serde_json::{Value, json};
+use std::sync::Arc;
+
+const ROUTE: &str = "POST /api/channels/{name}/nachrichten/bearbeiten";
+
+/// Körpergrenze des Bearbeitens (ADR-0048 Regel 5): 98.315 Bytes für `text` in der längsten Schreibweise plus
+/// `"zeit":"…",` mit 29 Zeichen als `\u`-Folgen ≈ 190 Bytes — innerhalb der Reserve der 128 KiB des Sendens.
+pub const BEARBEITEN_GRENZE: usize = 131_072;
+
+/// Wie beim Senden: vorab die kleinste Buchung, der Rest nach allen 4xx-Prüfungen (ADR-0036 Regel 3).
+const VORAB_BEARBEITEN: u32 = 1;
+
+pub async fn bearbeiten(
+    teilnehmer: Teilnehmer,
+    State(zustand): State<Arc<Zustand>>,
+    Path(name): Path<String>,
+    kopf: HeaderMap,
+    koerper: Body,
+) -> Response {
+    if let Err(gebremst) =
+        zustand
+            .schreibkonto
+            .vorab(&teilnehmer.kennung, teilnehmer.herkunft, VORAB_BEARBEITEN)
+    {
+        return gebremst_melden(
+            &zustand.protokoll,
+            gebremst,
+            Gegenstand::Nachrichten,
+            &teilnehmer,
+        );
+    }
+    let wer = teilnehmer.kennung.als_text().to_string();
+    let ort = Koerperort {
+        protokoll: &zustand.protokoll,
+        route: ROUTE,
+        herkunft: teilnehmer.herkunft,
+        kennung: Some(&wer),
+    };
+    let wert =
+        match json_lesen_auf_werkbank(&kopf, koerper, BEARBEITEN_GRENZE, &ort, &zustand.werkbank)
+            .await
+        {
+            Ok(Ok(wert)) => wert,
+            Ok(Err(fehler)) => return koerper_abgewiesen(fehler),
+            Err(abbruch) => return abgebrochen(&zustand, &abbruch, &wer, &name),
+        };
+    if let Some(feld) = weiteres_feld(&wert) {
+        return mit_regel(feld_abgewiesen(&feld), "feld_unbekannt", Some(&wer));
+    }
+    if !zustand.gespraeche.channel_bekannt(&name) {
+        return mit_regel(unbekannt(&name), "channel_unbekannt", Some(&wer));
+    }
+    let Some(ziel) = zeit_lesen(&wert) else {
+        return mit_regel(zeit_abgewiesen(), "zeit", Some(&wer));
+    };
+    let Some(text) = wert.get("text").and_then(Value::as_str) else {
+        return mit_regel(text_fehlt(), "text_fehlt", Some(&wer));
+    };
+    if let Err(fehler) = laenge_und_zeichen_pruefen(text) {
+        let regel = match fehler {
+            Textfehler::Laenge { .. } => "text_zu_lang",
+            Textfehler::Zeichen { .. } | Textfehler::Leer => "text_zeichen",
+        };
+        return mit_regel(text_abgewiesen(fehler), regel, Some(&wer));
+    }
+    let Ok(_schluessel) = schluessel_lesen(&kopf) else {
+        return mit_regel(
+            schluessel_abgewiesen(SCHLUESSEL_FORMAT),
+            "schluessel_ungueltig",
+            Some(&wer),
+        );
+    };
+    if let Err(gebremst) = zustand.schreibkonto.rest(
+        &teilnehmer.kennung,
+        teilnehmer.herkunft,
+        kosten_senden(text.len()),
+    ) {
+        return gebremst_melden(
+            &zustand.protokoll,
+            gebremst,
+            Gegenstand::Nachrichten,
+            &teilnehmer,
+        );
+    }
+    let gespraeche = Arc::clone(&zustand.gespraeche);
+    let gespraech = Gespraech::channel(&name);
+    let von = teilnehmer.kennung.clone();
+    let text = text.to_string();
+    let ergebnis =
+        tokio::task::spawn_blocking(move || gespraeche.bearbeiten(&gespraech, &von, ziel, &text))
+            .await;
+    match ergebnis {
+        Ok(Ok(Bearbeitet::Neu(nachricht) | Bearbeitet::Unveraendert(nachricht))) => {
+            bearbeitet(&name, &nachricht)
+        }
+        Ok(Err(fehler)) => abgewiesen(fehler, &name, &wer),
+        Err(abbruch) => abgebrochen(&zustand, &Abgebrochen::from(abbruch), &wer, &name),
+    }
+}
+
+/// Die Antworten der Prüfungen unter der Sperre.
+fn abgewiesen(fehler: Bearbeitfehler, channel: &str, wer: &str) -> Response {
+    match fehler {
+        Bearbeitfehler::Unbekannt => mit_regel(unbekannt(channel), "channel_unbekannt", Some(wer)),
+        Bearbeitfehler::Nachricht => mit_regel(
+            regel_antwort(
+                StatusCode::NOT_FOUND,
+                "Diese Nachricht gibt es nicht (mehr).",
+                "nachricht",
+            ),
+            "nachricht",
+            Some(wer),
+        ),
+        Bearbeitfehler::Fremd { absender } => mit_regel(
+            regel_antwort(
+                StatusCode::FORBIDDEN,
+                &format!("Nur der Absender {absender} kann diese Nachricht ändern."),
+                "fremd",
+            ),
+            "fremd",
+            Some(wer),
+        ),
+        Bearbeitfehler::Geloescht => mit_regel(
+            regel_antwort(
+                StatusCode::CONFLICT,
+                "Diese Nachricht ist gelöscht.",
+                "geloescht",
+            ),
+            "geloescht",
+            Some(wer),
+        ),
+        Bearbeitfehler::Leer => {
+            mit_regel(text_abgewiesen(Textfehler::Leer), "text_leer", Some(wer))
+        }
+        Bearbeitfehler::Quote { belegt, hoechstens } => {
+            mit_regel(quote_erreicht(belegt, hoechstens), "quote", Some(wer))
+        }
+        Bearbeitfehler::Ablage { .. } => nicht_gespeichert_antwort(),
+    }
+}
+
+fn bearbeitet(channel: &str, nachricht: &Nachricht) -> Response {
+    let antwort = json!({ "channel": channel, "nachricht": NachrichtAntwort::aus(nachricht) });
+    (StatusCode::OK, Json(antwort)).into_response()
+}
+
+fn regel_antwort(status: StatusCode, fehler: &str, regel: &str) -> Response {
+    (status, Json(json!({ "fehler": fehler, "regel": regel }))).into_response()
+}
+
+/// Das erste Feld neben `zeit` und `text` (ADR-0048 Regel 5); ein Körper, der kein Objekt ist, hat keines.
+fn weiteres_feld(wert: &Value) -> Option<String> {
+    wert.as_object()?
+        .keys()
+        .find(|feld| *feld != "zeit" && *feld != "text")
+        .cloned()
+}
+
+/// `zeit` als Zeitpunkt nach RFC 3339 — verglichen wird später als Zeitpunkt, gleich in welcher Schreibweise.
+fn zeit_lesen(wert: &Value) -> Option<Zeit> {
+    let text = wert.get("zeit")?.as_str()?;
+    Zeit::parse_from_rfc3339(text).ok()
+}
+
+fn feld_abgewiesen(feld: &str) -> Response {
+    (
+        StatusCode::UNPROCESSABLE_ENTITY,
+        Json(json!({
+            "fehler": format!("Unbekanntes Feld {feld} — erlaubt sind zeit und text."),
+            "regel": "feld",
+            "feld": feld,
+        })),
+    )
+        .into_response()
+}
+
+fn zeit_abgewiesen() -> Response {
+    regel_antwort(
+        StatusCode::UNPROCESSABLE_ENTITY,
+        "Der Körper braucht zeit als Zeitpunkt nach RFC 3339 — die zeit der Nachricht, zum Beispiel \
+         2026-10-30T14:07:12.345+01:00.",
+        "zeit",
+    )
+}
+
+fn text_fehlt() -> Response {
+    regel_antwort(
+        StatusCode::UNPROCESSABLE_ENTITY,
+        "Der Körper braucht text als Zeichenkette.",
+        "text",
+    )
+}
+
+/// 507 an der Plattenquote (ADR-0048 Regel 13, Form nach ADR-0044 Regel 4), ohne `Retry-After`.
+fn quote_erreicht(belegt: u64, hoechstens: u64) -> Response {
+    let fehler = format!(
+        "Nicht bearbeitet: die Gespräche belegen {}, die Quote dieser Instanz ist {}. Platz entsteht, wenn alte \
+         Tage nach ihrer Aufbewahrungsfrist entfallen (beim nächsten Tageswechsel) oder eine Frist verkürzt wird; \
+         die Quote stellt der Betreiber beim Start mit --plattenquote ein.",
+        groesse_in_worten(belegt),
+        groesse_in_worten(hoechstens)
+    );
+    (
+        StatusCode::INSUFFICIENT_STORAGE,
+        Json(json!({
+            "fehler": fehler,
+            "regel": "quote",
+            "belegt": belegt,
+            "hoechstens": hoechstens,
+        })),
+    )
+        .into_response()
+}
+
+fn abgebrochen(zustand: &Zustand, abbruch: &Abgebrochen, wer: &str, channel: &str) -> Response {
+    abbruch_beantworten(
+        &zustand.protokoll,
+        abbruch,
+        &Grenzort {
+            route: ROUTE,
+            operation: "bearbeiten",
+            kennung: Some(wer),
+            channel: Some(channel),
+        },
+        "Nachricht nicht bearbeitet",
+    )
+}
+
+const BEISPIEL: &str = r#"{"zeit":"2026-10-30T14:07:12.345+01:00","text":"Hallo zusammen"}"#;
+
+fn koerper_abgewiesen(fehler: Koerperfehler) -> Response {
+    koerperfehler_beantworten(
+        fehler,
+        &format!(
+            "Der Körper ist zu groß — höchstens {} Byte; längere Texte teilen.",
+            mit_tausenderpunkt(BEARBEITEN_GRENZE)
+        ),
+        BEISPIEL,
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Feld und Zeit des Körpers: ein weiteres Feld wird genannt; `zeit` gilt nur als RFC 3339 in einer Zeichenkette.
+    #[test]
+    fn felder_und_zeit_des_koerpers() {
+        assert_eq!(
+            weiteres_feld(&json!({"zeit": "x", "text": "y", "anhaenge": []})),
+            Some("anhaenge".to_string())
+        );
+        assert_eq!(weiteres_feld(&json!({"zeit": "x", "text": "y"})), None);
+        assert_eq!(weiteres_feld(&json!([1])), None);
+        assert!(zeit_lesen(&json!({"zeit": "2026-10-30T13:07:12.345Z"})).is_some());
+        for falsch in [
+            json!({"zeit": "gestern"}),
+            json!({"zeit": 5}),
+            json!({}),
+            json!("x"),
+        ] {
+            assert_eq!(zeit_lesen(&falsch), None, "{falsch}");
+        }
+    }
+}
