@@ -91,6 +91,57 @@ async function zeilenSchreiben(page, zeilen) {
   }
 }
 
+/// Wartet, bis die Lesestelle (Abstand der Nachricht zur Unterkante) auf ± 1 px bei `soll` steht und die Nachricht
+/// ganz sichtbar ist.
+async function lesestelleHalten(page, index, soll) {
+  await expect.poll(async () => {
+    const lage = await lageMessen(page, index);
+    if (lage.unterkanteSichtbar && Math.abs(lage.abstand - soll.abstand) <= TOLERANZ_PX) {
+      return 'gehalten';
+    }
+    return `verschoben: ${JSON.stringify(lage)} statt Abstand ${soll.abstand}`;
+  }, { intervals: [25], timeout: 3000 }).toBe('gehalten');
+}
+
+for (const telefon of TELEFONE) {
+  for (const lesestelle of LESESTELLEN) {
+    test(`${telefon.name}: das Feld wächst auf 3 und 5 Zeilen und schrumpft, die Lesestelle ${lesestelle.name} hält`, async ({ browser }) => {
+      const { page, fehler } = await startenBei(browser, telefon, lesestelle);
+      const index = await letzteGanzSichtbare(page);
+      const vorher = await lageMessen(page, index);
+      expect(vorher.unterkanteSichtbar, 'Ausgangslage: die Nachricht ist ganz sichtbar').toBe(true);
+
+      for (const zeilen of ZEILEN) {
+        await zeilenSchreiben(page, zeilen);
+        await lesestelleHalten(page, index, vorher);
+        const nachher = await lageMessen(page, index);
+        expect(nachher.sichthoehe, `bei ${zeilen} Zeilen ist der Verlauf kürzer`).toBeLessThan(vorher.sichthoehe);
+        expect(nachher.pille, `bei ${zeilen} Zeilen zeigt die Pille dasselbe`).toBe(vorher.pille);
+      }
+
+      await eingabe(page).fill('');
+      await lesestelleHalten(page, index, vorher);
+      const zurueck = await lageMessen(page, index);
+      expect(Math.abs(zurueck.scrollTop - vorher.scrollTop), 'nach dem Schrumpfen steht scrollTop wie vorher').toBeLessThanOrEqual(TOLERANZ_PX);
+      expect(zurueck.pille).toBe(vorher.pille);
+      expect(fehler).toEqual([]);
+    });
+  }
+}
+
+test('Telefon 375 × 667: Senden aus fünf Zeilen — die neue eigene Nachricht steht ganz sichtbar am Ende', async ({ browser }) => {
+  const { page } = await startenBei(browser, TELEFONE[0], LESESTELLEN[0]);
+  await zeilenSchreiben(page, 5);
+
+  await page.getByRole('button', { name: /Senden/ }).click();
+
+  await expect(nachrichten(page)).toHaveCount(31);
+  await expect.poll(async () => {
+    const lage = await lageMessen(page, 30);
+    return lage.unterkanteSichtbar;
+  }, { intervals: [25], timeout: 3000 }).toBe(true);
+});
+
 // Ursache zu F0164: beim Messen setzt das Feld seine Höhe kurz zurück und liest `scrollHeight`; der Verlauf wird dabei
 // kurz höher, der Browser klemmt `scrollTop` und schiebt die Lesestelle — auch wenn die Höhe des Felds am Ende
 // dieselbe ist. Steht `anna` höchstens so weit vom Ende, wie das Feld über einer Zeile hoch ist, kippt sie so aus

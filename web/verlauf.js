@@ -10,7 +10,7 @@ import { nachrichtZeichnen, kopfSetzen, trennerZeichnen, langeEinklappen, langeU
 import { gliederung, folgeGliedern, datumBenennen } from './gliederung.js';
 import { nachladen, einfuegen } from './fenster.js';
 import { pfeilRichtung, pfeilZiel, tabStopp, eigeneLetzte } from './fokus.js';
-import { einordnen, zusammenfuehren, buendlerAnlegen, folgenOderZaehlen, pillenText, auslaufNach, nichtGeladenText, hinweisTextNachziehen, sprungZiel as sprungZielBerechnen } from './live-verlauf.js';
+import { einordnen, zusammenfuehren, buendlerAnlegen, folgenOderZaehlen, pillenText, auslaufNach, nichtGeladenText, hinweisTextNachziehen, sprungZiel as sprungZielBerechnen, scrollTopNachHoehe } from './live-verlauf.js';
 
 // abrufen: async (name, cursor, signal) → { art: 'block' | 'fehler' | 'abgebrochen', … } (api.js verlaufAbrufen);
 // das Ergebnis von `oeffnen` sagt, ob der Verlauf steht.
@@ -68,7 +68,19 @@ export function verlaufAnlegen({ abrufen, schalter = () => {}, fokusRueckgaengig
     amEnde = true;
   }
 
+  // Sichthöhe und Stand von scrollTop, wie sie bei ruhiger Größe waren (R00048 F0164): ändert sich die Sichthöhe,
+  // klemmt der Browser scrollTop noch vor dem Beobachter — die Nachführung rechnet darum vom gemerkten Stand aus.
+  let sichtVorher = log.clientHeight;
+  let scrollTopGemerkt = log.scrollTop;
+
+  function sichtGeaendert() {
+    return log.clientHeight !== sichtVorher;
+  }
+
   function lageMerken() {
+    if (!sichtGeaendert()) {
+      scrollTopGemerkt = log.scrollTop;
+    }
     auslaufAbbauen(auslaufSichtbar(), 0);
     amEnde = abstandUnten() <= 1 && fenster !== null && !fenster.neuer;
     if (amEnde) {
@@ -83,14 +95,29 @@ export function verlaufAnlegen({ abrufen, schalter = () => {}, fokusRueckgaengig
     }
   }
 
+  // Ein Scroll, den nur die geänderte Sichthöhe auslöste (Klemmen), ist keine Bewegung der Lesenden: der Beobachter
+  // unten führt nach und merkt dann die Lage.
   log.addEventListener('scroll', () => {
+    if (sichtGeaendert()) {
+      return;
+    }
     lageMerken();
     pruefen();
   }, { passive: true });
+  // Ändert sich die Sichthöhe (Feld wächst oder schrumpft, Tippanzeige, Antwortzeile, Tastatur), bleibt die Lesestelle
+  // im Verlauf: am Ende folgt der Blick dem Ende, sonst bleibt der Abstand zur Unterkante gleich.
   const hoehen = new ResizeObserver(() => {
     if (amEnde) {
       ansEnde();
+    } else if (sichtGeaendert() && sichtVorher > 0) {
+      log.scrollTop = scrollTopNachHoehe({
+        scrollTop: scrollTopGemerkt,
+        hoeheVorher: sichtVorher,
+        hoeheNachher: log.clientHeight,
+        inhaltsHoehe: log.scrollHeight,
+      });
     }
+    sichtVorher = log.clientHeight;
     lageMerken();
   });
   hoehen.observe(inhalt);
