@@ -21,6 +21,13 @@ const TAGE: usize = 7;
 const GRENZE_Q1: Duration = Duration::from_millis(50);
 /// Q6: Start unter 2 s.
 const GRENZE_Q6_MS: u64 = 2_000;
+/// Größe des Bestands im relativen Q6-Test (ADR-0048 Ergänzung „Karte #73“ K8): das Verhältnis der Änderungen zu den
+/// Nachrichten ist von der Größe unabhängig, ein Fünftel der Zeit genügt.
+const NACHRICHTEN_RELATIV: usize = 30_000;
+/// Erlaubtes Vielfaches der Ladezeit ohne Änderungen (ADR-0048 K8) und der Zuschlag gegen das Rauschen bei kleinen
+/// Zahlen.
+const FAKTOR_RELATIV: u64 = 3;
+const ZUSCHLAG_RELATIV_MS: u64 = 100;
 
 /// Nachricht `nummer` (über alle Tage): jede zehnte dreimal bearbeitet, jede zwanzigste ab der fünften gelöscht.
 fn bearbeitet(nummer: usize) -> bool {
@@ -31,19 +38,19 @@ fn geloescht(nummer: usize) -> bool {
     nummer % 20 == 5
 }
 
-/// Erzeugt `channels/gross/` mit 100.000 Nachrichten (3 s Abstand ab Mitternacht) und, wenn `mit_aenderungen`,
+/// Erzeugt `channels/gross/` mit `nachrichten` Nachrichten (3 s Abstand ab Mitternacht) und, wenn `mit_aenderungen`,
 /// hinter jeder betroffenen Nachricht ihre Änderungssätze (+1, +2, +3 ms). Liefert die Zahl der Änderungssätze.
-fn bestand_erzeugen(ordner: &Path, mit_aenderungen: bool) -> usize {
+fn bestand_erzeugen(ordner: &Path, nachrichten: usize, mit_aenderungen: bool) -> usize {
     let pfad = ordner.join("channels/gross");
     std::fs::create_dir_all(&pfad).expect("Channel");
-    let je_tag = NACHRICHTEN / TAGE + 1;
+    let je_tag = nachrichten / TAGE + 1;
     let mut nummer = 0;
     let mut aenderungen = 0;
     for tag in 0..TAGE {
         let datum = format!("2026-10-{:02}", 22 + tag);
         let mut rohtext = String::new();
         for im_tag in 0..je_tag {
-            if nummer == NACHRICHTEN {
+            if nummer == nachrichten {
                 break;
             }
             let sekunden = im_tag * 3;
@@ -119,7 +126,7 @@ struct Messung {
 
 async fn messen(mit_aenderungen: bool) -> (Messung, usize) {
     let wurzel = tempfile::tempdir().expect("Wegwerf-Ordner");
-    let aenderungen = bestand_erzeugen(wurzel.path(), mit_aenderungen);
+    let aenderungen = bestand_erzeugen(wurzel.path(), NACHRICHTEN, mit_aenderungen);
     let mut instanz = starten_mit(
         wurzel.path(),
         &["--port", "0", "--host", "127.0.0.1", "--kein-browser"],
@@ -223,5 +230,47 @@ async fn qe2_viele_aenderungen_bremsen_den_start_nicht() {
         mit.dauern[19] < GRENZE_Q1,
         "Q1: {:?} ≥ {GRENZE_Q1:?}",
         mit.dauern[19]
+    );
+}
+
+/// Ein Start mit `nachrichten` Nachrichten, nur die `ladezeit_ms` aus der Gesundheit (Health); danach Ende.
+async fn ladezeit_ms(nachrichten: usize, mit_aenderungen: bool) -> u64 {
+    let wurzel = tempfile::tempdir().expect("Wegwerf-Ordner");
+    bestand_erzeugen(wurzel.path(), nachrichten, mit_aenderungen);
+    let mut instanz = starten_mit(
+        wurzel.path(),
+        &["--port", "0", "--host", "127.0.0.1", "--kein-browser"],
+        &[("LOCALCHATA_JETZT", JETZT), ("TZ", "Europe/Berlin")],
+    );
+    let (_, gesundheit) = gesundheit(&instanz.adresse).await;
+    assert!(instanz.signal_und_warten("TERM").success());
+    assert_eq!(gesundheit["nachrichten"], nachrichten);
+    gesundheit["ladezeit_ms"].as_u64().expect("ladezeit_ms")
+}
+
+/// Der kleinere von zwei Starts zählt: ein einzelner Ausreißer des Rechners (Last, kalte Platte) macht die Messung
+/// nicht schlechter, als der Server sie kann.
+async fn beste_ladezeit_ms(nachrichten: usize, mit_aenderungen: bool) -> u64 {
+    let erste = ladezeit_ms(nachrichten, mit_aenderungen).await;
+    let zweite = ladezeit_ms(nachrichten, mit_aenderungen).await;
+    erste.min(zweite)
+}
+
+/// R00043 F0149 (ADR-0048 Ergänzung „Karte #73“ K8, Q6 relativ im Debug-Gate): derselbe Bestand mit 30.000
+/// Nachrichten ohne und mit Änderungssätzen (jede zehnte dreimal bearbeitet, jede zwanzigste gelöscht), je Seite
+/// zweimal gestartet, der kleinere `ladezeit_ms` zählt → mit Änderungen höchstens 3 × ohne + 100 ms. Der absolute
+/// Q6-Test (nur Release) bleibt; eine absolute Debug-Grenze wäre erfunden (Debug etwa neunmal langsamer). Mutant
+/// „lineare Suche der Nachricht je Änderungssatz beim Laden“ wird rot (quadratisch: 3.000 Änderungssätze × Suche
+/// über 30.000 Nachrichten).
+#[tokio::test]
+async fn q6_relativ_ladezeit_mit_aenderungen_hoechstens_dreifach_plus_100_ms() {
+    let ohne = beste_ladezeit_ms(NACHRICHTEN_RELATIV, false).await;
+    let mit = beste_ladezeit_ms(NACHRICHTEN_RELATIV, true).await;
+
+    let grenze = FAKTOR_RELATIV * ohne + ZUSCHLAG_RELATIV_MS;
+    println!("Q6 relativ: ohne {ohne} ms, mit {mit} ms, Grenze {grenze} ms");
+    assert!(
+        mit <= grenze,
+        "Q6 relativ: mit Änderungen {mit} ms > {FAKTOR_RELATIV} × ohne {ohne} ms + {ZUSCHLAG_RELATIV_MS} ms = {grenze} ms"
     );
 }
