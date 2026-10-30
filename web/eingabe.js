@@ -204,12 +204,21 @@ function komponiert(ereignis) {
 }
 
 // Höhe aus dem Inhalt; die Obergrenze setzt das CSS (max-height: lc-composer-max), darüber scrollt das Feld.
+// Das Messen setzt die Höhe kurz zurück und liest `scrollHeight` (erzwingt das Layout). Damit der Verlauf dabei nicht
+// kurz höher wird — der Browser klemmte sonst `scrollTop` und schöbe die Lesestelle, R00048 —, hält der Kasten um das
+// Feld währenddessen seine bisherige Höhe.
 function hoeheAnpassen(feld) {
-  feld.style.height = '';
-  if (feld.value === '') {
-    return;
+  const kasten = feld.parentElement;
+  if (kasten !== null) {
+    kasten.style.minHeight = `${kasten.offsetHeight}px`;
   }
-  feld.style.height = `${feld.scrollHeight}px`;
+  feld.style.height = '';
+  if (feld.value !== '') {
+    feld.style.height = `${feld.scrollHeight}px`;
+  }
+  if (kasten !== null) {
+    kasten.style.minHeight = '';
+  }
 }
 
 function element(tag, eigenschaften = {}, kinder = []) {
