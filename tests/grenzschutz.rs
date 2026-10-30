@@ -8,7 +8,7 @@ mod gemeinsam;
 use gemeinsam::{Instanz, RohAntwort, roh_anfragen, starten, wegwerf_starten};
 use std::net::SocketAddr;
 
-const CSP: &str = "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'";
+const CSP: &str = "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; media-src 'self'; font-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'";
 
 fn ziel(instanz: &Instanz) -> SocketAddr {
     SocketAddr::from(([127, 0, 0, 1], instanz.port()))

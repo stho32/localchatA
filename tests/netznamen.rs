@@ -410,7 +410,7 @@ fn c5_c7_c10_gemischt_erlaubt_unspezifiziert_multicast_broadcast_nie() {
 // F0079 Abweisung als verständliche Seite
 // ---------------------------------------------------------------------------------------------------------
 
-const CSP: &str = "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'";
+const CSP: &str = "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; media-src 'self'; font-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'";
 const UEBERSCHRIFT: &str = "Diese Adresse ist für localchatA nicht freigegeben";
 
 impl Lauf {

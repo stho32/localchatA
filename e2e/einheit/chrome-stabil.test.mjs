@@ -1,6 +1,6 @@
 // Wächter für das Projekt `chrome-stabil` (ADR-0014 Ergänzung „Karte #71 (Chrome 154)“, C6; R00029 „`chrome-stabil`
-// im Gate“; node --test): der Direktlink auf Medien läuft auch in Google Chrome stable, und keine Spec kann sich dem
-// still entziehen — ein übersprungener Test wäre im Gate grün.
+// im Gate“; node --test): der Direktlink auf Medien und der Player im Verlauf (R00030 F0165) laufen auch in Google Chrome
+// stable, und keine Spec kann sich dem still entziehen — ein übersprungener Test wäre im Gate grün.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -8,10 +8,11 @@ import path from 'node:path';
 import { createRequire } from 'node:module';
 
 const E2E = path.resolve(import.meta.dirname, '..');
-const DIREKTLINK_SPECS = [
+const MEDIEN_SPECS = [
   'r00029-direktlink-spielt.spec.js',
   'r00029-direktlink-kein-skript.spec.js',
   'r00029-direktlink-fremdseite.spec.js',
+  'r00030-player-spielt.spec.js',
 ];
 
 function projekte() {
@@ -19,13 +20,13 @@ function projekte() {
   return konfiguration.projects;
 }
 
-test('neben chromium läuft das Projekt chrome-stabil mit Google Chrome stable über die Direktlink-Specs', () => {
+test('neben chromium läuft das Projekt chrome-stabil mit Google Chrome stable über die Direktlink-Specs und den Player', () => {
   const namen = projekte().map((projekt) => projekt.name);
   const chromeStabil = projekte().find((projekt) => projekt.name === 'chrome-stabil');
 
   assert.deepEqual(namen, ['chromium', 'chrome-stabil']);
   assert.equal(chromeStabil.use.channel, 'chrome');
-  for (const spec of DIREKTLINK_SPECS) {
+  for (const spec of MEDIEN_SPECS) {
     assert.ok(chromeStabil.testMatch.includes(spec), spec);
     assert.ok(fs.existsSync(path.join(E2E, 'tests', spec)), `${spec} fehlt — umbenannt, ohne testMatch nachzuziehen?`);
   }
@@ -37,6 +38,6 @@ test('keine Spec überspringt, markiert oder verzweigt nach Projekt oder Browser
   const specs = fs.readdirSync(TESTS).filter((datei) => datei.endsWith('.spec.js'));
   const ausweichende = specs.filter((datei) => ausweichen.test(fs.readFileSync(path.join(TESTS, datei), 'utf8')));
 
-  assert.ok(specs.includes(DIREKTLINK_SPECS[0]));
+  assert.ok(specs.includes(MEDIEN_SPECS[0]));
   assert.deepEqual(ausweichende, []);
 });

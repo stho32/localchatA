@@ -1,6 +1,7 @@
 'use strict';
 // R00030 F0102 „Tastatur und Bildschirmleser“, „Tab-Folge“ (UX V2; B0732) und „Tasten gehören dem Element im Fokus“
-// (UX V2; B0752), Desktop 1280 × 800, Gegeben über die API. Vor F0165 steht Video als Datei-Zeile mit „Laden“.
+// (UX V2; B0752), Desktop 1280 × 800, Gegeben über die API. Ein Video ist ab F0165 ein Player: seine inneren
+// Bedienelemente melden das Element selbst als Fokus — sie zählen als ein Stopp „Player“.
 const { test, expect } = require('./rahmen');
 const { nachrichtMitZeit, bearbeitenPerApi, zeigtBearbeitet } = require('./r00041-hilfen');
 const { sichtbarNach } = require('./hilfen');
@@ -68,7 +69,7 @@ test('Tastatur und Bildschirmleser (B0732): fokussierte Nachricht mit foto.png u
   expect(lauf.a.fehler).toEqual([]);
 });
 
-test('Tab-Folge (B0732, V2): Zitat → „bearbeitet“ → Leiste → foto.png (groß anzeigen, öffnen, laden) → film.webm laden → film.ogv laden → Aktionen → Eingabe; Shift Tab rückwärts; 30 × Shift Tab nie in fremden Anhängen', async ({ browser }) => {
+test('Tab-Folge (B0732, V2): Zitat → „bearbeitet“ → Leiste → foto.png (groß anzeigen, öffnen, laden) → Player film.webm → film.webm laden → film.ogv laden → Aktionen → Eingabe; Shift Tab rückwärts; 30 × Shift Tab nie in fremden Anhängen', async ({ browser }) => {
   const lang = Array.from({ length: 41 }, (_, nummer) => `Zeile ${nummer + 1}`).join('\n');
   const lauf = await anzeigeStarten(browser, [
     { text: 'Frage?', namen: ['foto.png', 'bericht.pdf'] },
@@ -85,22 +86,14 @@ test('Tab-Folge (B0732, V2): Zitat → „bearbeitet“ → Leiste → foto.png 
   await knoten.focus();
   const erwartet = [
     'Zitat', 'bearbeitet', await knoten.locator('.lc-foldbar button').textContent(),
-    'foto.png groß anzeigen', 'foto.png öffnen', 'foto.png laden', 'film.webm laden', 'film.ogv laden', 'Antworten', 'Kopieren', 'Eingabe',
+    'foto.png groß anzeigen', 'foto.png öffnen', 'foto.png laden', 'film.webm', 'film.webm laden', 'film.ogv laden', 'Antworten', 'Kopieren', 'Eingabe',
   ];
-  const vorwaerts = [];
-  for (let schritt = 0; schritt < erwartet.length; schritt += 1) {
-    await page.keyboard.press('Tab');
-    vorwaerts.push(await imFokus(page));
-  }
+  const vorwaerts = await stoppsBis(page, 'Tab', erwartet.length);
   expect(vorwaerts).toEqual(erwartet);
   // Zurück aus der Eingabe liegt die Leiste der Aktionen nicht im Weg: sie steht nur, solange die Nachricht den Fokus
   // hat (R00041/R00046, r00041-fokussieren.spec.js) — rückwärts folgen die Anhänge direkt auf die Eingabe.
   const ohneAktionen = erwartet.filter((stopp) => !['Antworten', 'Kopieren'].includes(stopp));
-  const rueckwaerts = [];
-  for (let schritt = 0; schritt < ohneAktionen.length; schritt += 1) {
-    await page.keyboard.press('Shift+Tab');
-    rueckwaerts.push(await imFokus(page));
-  }
+  const rueckwaerts = await stoppsBis(page, 'Shift+Tab', ohneAktionen.length);
   expect(rueckwaerts).toEqual([...ohneAktionen.slice(0, -1).reverse(), `Nachricht ${zeit}`]);
 
   await eingabe(page).focus();
@@ -114,6 +107,20 @@ test('Tab-Folge (B0732, V2): Zitat → „bearbeitet“ → Leiste → foto.png 
   }
   expect(lauf.a.fehler).toEqual([]);
 });
+
+/// Drückt `taste`, bis `anzahl` verschiedene Stopps nacheinander erreicht sind (höchstens 40 Mal); aufeinander folgende
+/// gleiche Stopps (die Bedienelemente eines Players) zählen einmal. Wer im Player hängen bleibt, liefert zu wenige.
+async function stoppsBis(page, taste, anzahl) {
+  const stopps = [];
+  for (let druck = 0; druck < 40 && stopps.length < anzahl; druck += 1) {
+    await page.keyboard.press(taste);
+    const stopp = await imFokus(page);
+    if (stopps[stopps.length - 1] !== stopp) {
+      stopps.push(stopp);
+    }
+  }
+  return stopps;
+}
 
 /// Merkt sich je keydown, ob es nach dem Verlauf noch unverhindert war (Lauscher am Fenster, nach dem Verlauf).
 const verhinderteMitschreiben = (page) => page.evaluate(() => {

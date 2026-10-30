@@ -1,13 +1,13 @@
 'use strict';
 // Hilfen der Specs zu R00030 F0102 „Anhänge im Verlauf zeigen“: Testdateien aus R00030 („Testdateien entstehen im Test“),
 // einmal je Worker in einem eigenen Wegwerf-Ordner erzeugt, und Anhänge, die `beta` über die API sendet (Gegeben über
-// die API, R00029). Video und Ton sind 1 s lang statt 6 s — vor F0165 spielt nichts, gezeigt wird nur die Datei-Zeile.
+// die API, R00029). Video und Ton sind 6 s lang: lang genug, dass eine Probe während der Wiedergabe handeln kann (F0165).
 const fs = require('fs');
 const http = require('http');
 const os = require('os');
 const path = require('path');
 const { execFileSync } = require('child_process');
-const { betaSendet, mitAnhaengenSenden, browserOeffnen, nachrichtMitZeit } = require('./r00041-hilfen');
+const { betaSendet, browserOeffnen, nachrichtMitZeit } = require('./r00041-hilfen');
 const { sendenStarten, imBrowserBeitreten, anfragen } = require('./senden-hilfen');
 const { expect } = require('./rahmen');
 
@@ -33,8 +33,8 @@ function dateienErzeugen() {
       'foto.png': ffmpeg('foto.png', ['-f', 'lavfi', '-i', 'testsrc=s=1280x800', '-frames:v', '1']),
       'bericht.pdf': pdfMitBytes(2457600),
       'log.txt': Buffer.from('Zeile im Protokoll\n'.repeat(Math.ceil(40960 / 19))).subarray(0, 40960),
-      'film.webm': ffmpeg('film.webm', ['-f', 'lavfi', '-i', 'testsrc=d=1:s=64x48:r=10', '-f', 'lavfi', '-i', 'sine=d=1', '-c:v', 'libvpx', '-c:a', 'libopus']),
-      'ton.ogg': ffmpeg('ton.ogg', ['-f', 'lavfi', '-i', 'sine=d=1', '-c:a', 'libopus']),
+      'film.webm': ffmpeg('film.webm', ['-f', 'lavfi', '-i', 'testsrc=d=6:s=64x48:r=10', '-f', 'lavfi', '-i', 'sine=d=6', '-c:v', 'libvpx', '-c:a', 'libopus']),
+      'ton.ogg': ffmpeg('ton.ogg', ['-f', 'lavfi', '-i', 'sine=d=6', '-c:a', 'libopus']),
       'film.ogv': ffmpeg('film.ogv', ['-f', 'lavfi', '-i', 'testsrc=d=1:s=64x48:r=10', '-c:v', 'libtheora']),
       'archiv.zip': Buffer.from(Array.from({ length: 1048576 }, (_, stelle) => (stelle * 7919 + 13) % 251)),
       'hochkant.jpg': mitOrientierung6(ffmpeg('hochkant-roh.jpg', ['-f', 'lavfi', '-i', 'testsrc=s=4000x3000', '-frames:v', '1'])),
@@ -99,11 +99,11 @@ async function anzeigeHerstellen(browser, instanz, nachrichten, { geraet, vorSei
   for (const { text = '', namen, antwortAuf } of nachrichten) {
     const dateien = namen.map(dateiAus);
     const gesammelt = [];
-    if (antwortAuf === undefined) {
-      zeiten.push(await mitAnhaengenSenden(instanz.adresse, beta.token, text, dateien, undefined, gesammelt));
-    } else {
-      zeiten.push(await mitBezugSenden(instanz.adresse, beta.token, { text, dateien, antwortAuf: zeiten[antwortAuf] }, gesammelt));
+    let bezug = null;
+    if (antwortAuf !== undefined) {
+      bezug = zeiten[antwortAuf];
     }
+    zeiten.push(await nachrichtSenden(instanz.adresse, beta.token, { text, dateien, antwortAuf: bezug }, gesammelt));
     ids.push(gesammelt);
   }
   const optionen = {};
@@ -119,19 +119,34 @@ async function anzeigeHerstellen(browser, instanz, nachrichten, { geraet, vorSei
   return { instanz, a, beta, zeiten, ids };
 }
 
-/// Wie mitAnhaengenSenden (R00041), aber als Antwort (`antwort_auf`, R00047); → die Zeit der Nachricht.
-async function mitBezugSenden(adresse, token, { text, dateien, antwortAuf }, ids) {
+/// Wie mitAnhaengenSenden (R00041), auch als Antwort (`antwort_auf`, R00047; `antwortAuf` null: keine); bremst die
+/// Instanz (429), wartet es die genannte Zeit ab — so gehen auch 20 Nachrichten über die API. → die Zeit der Nachricht.
+async function nachrichtSenden(adresse, token, { text, dateien, antwortAuf }, ids) {
   const herkunft = '127.0.0.2';
   for (const { name, inhalt } of dateien) {
-    const angemeldet = await anfragen(adresse, { methode: 'POST', pfad: 'api/anhaenge', koerper: { name, bytes: inhalt.length }, token, herkunft });
+    const angemeldet = await geduldigAnfragen(adresse, { methode: 'POST', pfad: 'api/anhaenge', koerper: { name, bytes: inhalt.length }, token, herkunft });
     expect(angemeldet.status, JSON.stringify(angemeldet.daten)).toBe(201);
     ids.push(angemeldet.daten.anhang.id);
     expect(await hochladen(adresse, `api/anhaenge/${angemeldet.daten.anhang.id}`, token, inhalt, herkunft), `Hochladen ${name}`).toBe(200);
   }
-  const koerper = { text, anhaenge: ids, antwort_auf: antwortAuf };
-  const gesendet = await anfragen(adresse, { methode: 'POST', pfad: 'api/channels/allgemein/nachrichten', koerper, token, herkunft });
+  const koerper = { text, anhaenge: ids };
+  if (antwortAuf !== null) {
+    koerper.antwort_auf = antwortAuf;
+  }
+  const gesendet = await geduldigAnfragen(adresse, { methode: 'POST', pfad: 'api/channels/allgemein/nachrichten', koerper, token, herkunft });
   expect(gesendet.status, JSON.stringify(gesendet.daten)).toBe(201);
   return gesendet.daten.nachricht.zeit;
+}
+
+async function geduldigAnfragen(adresse, anfrage) {
+  for (let versuch = 0; versuch < 30; versuch += 1) {
+    const antwort = await anfragen(adresse, anfrage);
+    if (antwort.status !== 429) {
+      return antwort;
+    }
+    await new Promise((weiter) => setTimeout(weiter, antwort.daten.wieder_in_ms + 50));
+  }
+  throw new Error(`immer noch gebremst: ${anfrage.pfad}`);
 }
 
 function hochladen(adresse, pfad, token, inhalt, herkunft) {

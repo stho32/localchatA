@@ -1,6 +1,7 @@
 // Anhänge im Verlauf zeigen (R00030 F0102, ADR-0047 Regeln 5–7, Designsystem components/Anhang).
 import { groesseInWorten } from './loeschen.js';
 import { typkuerzel } from './dateiliste.js';
+import { playerZeichnen } from './player.js';
 
 const RAHMEN_HOECHSTENS = 360;
 
@@ -74,6 +75,9 @@ function anhangZeichnen(anhang) {
   const teile = [dateiZeileZeichnen(anhang, darstellung)];
   if (darstellung.form === 'vorschau') {
     teile.unshift(vorschauZeichnen(anhang, darstellung));
+  }
+  if (['video', 'audio'].includes(darstellung.form)) {
+    teile.unshift(playerZeichnen(anhang, darstellung.form, rahmenMasse(RAHMEN_HOECHSTENS)));
   }
   return element('div', { className: 'lc-anhang' }, teile);
 }

@@ -6,7 +6,7 @@ const { chromium } = require('@playwright/test');
 const { test, expect } = require('./rahmen');
 const { instanzStarten, lanAdresse, fehlerSammeln } = require('./hilfen');
 
-const CSP = "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'";
+const CSP = "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; media-src 'self'; font-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'";
 const HEADER_SATZ = {
   'x-content-type-options': 'nosniff',
   'content-security-policy': CSP,

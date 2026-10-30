@@ -79,19 +79,6 @@ test('Ogg-Video nur laden (B0457, PO 158; Sollte S3): film.ogv → „OGV“, Na
   expect(lauf.a.fehler).toEqual([]);
 });
 
-test('Video und Audio vor dem Player (B0457): film.webm und ton.ogg → je eine Datei-Zeile mit „Laden“, ohne <video>/<audio>, ohne „Öffnen“', async ({ browser }) => {
-  const lauf = await anzeigeStarten(browser, [{ namen: ['film.webm', 'ton.ogg'] }]);
-  instanz = lauf.instanz;
-  const knoten = nachrichtMitZeit(lauf.a.page, lauf.zeiten[0]);
-  for (const name of ['film.webm', 'ton.ogg']) {
-    const zeile = dateiZeile(knoten, name);
-    await expect(zeile.getByRole('link', { name: `${name} laden`, exact: true })).toHaveCount(1);
-    await expect(zeile.getByRole('link')).toHaveCount(1);
-  }
-  await expect(knoten.locator('video, audio')).toHaveCount(0);
-  expect(lauf.a.fehler).toEqual([]);
-});
-
 test('HEIC (B0457, „AVIF und HEIC“): foto.heic → nur Datei-Zeile mit „HEIC“ und „Laden“, ohne „Öffnen“, ohne <img> und <video>', async ({ browser }) => {
   const lauf = await anzeigeStarten(browser, [{ namen: ['foto.heic'] }]);
   instanz = lauf.instanz;

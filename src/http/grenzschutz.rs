@@ -459,7 +459,7 @@ const HEADER_SATZ: [(HeaderName, &str); 5] = [
     (X_CONTENT_TYPE_OPTIONS, "nosniff"),
     (
         CONTENT_SECURITY_POLICY,
-        "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'",
+        "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; media-src 'self'; font-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'",
     ),
     (X_FRAME_OPTIONS, "DENY"),
     (REFERRER_POLICY, "no-referrer"),
@@ -847,7 +847,7 @@ mod tests {
         );
     }
 
-    const CSP: &str = "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'";
+    const CSP: &str = "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; media-src 'self'; font-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'";
 
     fn kopf_nach(pfad: &str, vorher: &[(&'static str, &'static str)]) -> HeaderMap {
         kopf_unter(Some("127.0.0.1:7430"), pfad, vorher)
