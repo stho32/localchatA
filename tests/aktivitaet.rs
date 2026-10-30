@@ -1143,3 +1143,63 @@ async fn i0041_lesen_nennt_die_gueltigen_zustaende_ohne_die_eigene_kennung() {
     assert_eq!(ohne_sitzung.status, 401);
     assert!(signal_durch_lesen.is_none(), "{signal_durch_lesen:?}");
 }
+
+/// Der Textbaustein für API-Beschreibung und Anleitung (B0697; `/api/openapi.json` und die Anleitung aus I0019 gibt es
+/// noch nicht).
+const TEXTBAUSTEIN: &str = concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/Dokumentation/Textbausteine/api-aktivitaet.md"
+);
+
+/// B0697 (ADR-0051 Regel 4, R00045 I0041): das `curl`-Beispiel des Textbausteins, so wie es dort steht gegen eine
+/// Instanz ausgeführt (Platzhalter `<adresse>` und `<token>` ersetzt), antwortet 200 mit `zustand: "denkt_nach"` und
+/// einem `bis` 60 s nach `jetzt`; der Baustein nennt jede Regel der 422, die 429 mit `Retry-After`, Löschen und Lesen.
+#[tokio::test]
+async fn das_beispiel_des_textbausteins_laeuft_gegen_eine_instanz() {
+    let text = std::fs::read_to_string(TEXTBAUSTEIN).expect("Textbaustein vorhanden");
+    let beispiel = text
+        .lines()
+        .find(|zeile| zeile.trim_start().starts_with("curl -X PUT "))
+        .expect("curl-Beispiel");
+    let zwischen = |anfang: &str, ende: &str| -> String {
+        let rest = &beispiel[beispiel.find(anfang).expect(anfang) + anfang.len()..];
+        rest[..rest.find(ende).expect(ende)].to_string()
+    };
+    let pfad = zwischen("http://<adresse>/", " ");
+    let koerper = zwischen("-d '", "'");
+    let r = runde().await;
+    let claude = beitreten(&r.absender, &r.instanz.adresse, "claude", Some("agent")).await;
+
+    let antwort = api_antwort(
+        r.absender
+            .anfrage(reqwest::Method::PUT, format!("{}{pfad}", r.instanz.adresse))
+            .header("X-LocalchatA-Sitzung", &claude)
+            .header("Content-Type", "application/json")
+            .body(koerper.clone()),
+    )
+    .await;
+
+    assert!(
+        beispiel.contains("-H 'X-LocalchatA-Sitzung: <token>'"),
+        "{beispiel}"
+    );
+    assert_eq!(pfad, "api/channels/allgemein/aktivitaet");
+    assert_eq!(koerper, r#"{"zustand":"denkt_nach","gueltig_s":60}"#);
+    assert_eq!(antwort.status, 200, "{}", antwort.json);
+    assert_eq!(antwort.json["zustand"], "denkt_nach");
+    assert_eq!(gueltig(&antwort), chrono::TimeDelta::seconds(60));
+    for muss in [
+        "`zustand`",
+        "`gueltigkeit`",
+        "`feld`",
+        "`aktivitaeten`",
+        "429",
+        "Retry-After",
+        "`grenze`",
+        "DELETE /api/channels/{name}/aktivitaet",
+        "GET /api/channels/{name}/aktivitaet",
+        "eigene Kennung",
+    ] {
+        assert!(text.contains(muss), "Textbaustein nennt {muss}");
+    }
+}
