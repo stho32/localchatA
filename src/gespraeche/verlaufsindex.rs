@@ -528,15 +528,22 @@ impl Tag {
     }
 }
 
-/// Die Nachricht mit genau dieser Zeit (als Zeitpunkt), als Satz ab ihrem Kopf; gesucht in den Tagen um die Zeit.
+/// Die Nachricht mit genau dieser Zeit (als Zeitpunkt), als Satz ab ihrem Kopf; gesucht zuerst im Tag ihres eigenen
+/// Datums (dort steht sie, wenn der Versatz der des Servers ist), dann in den Tagen um die Zeit — so kostet das
+/// Nachschlagen beim Laden vieler Änderungssätze eine binäre Suche statt bis zu fünf (ADR-0048 QE2).
 fn nachricht_finden<'a>(tage: &'a BTreeMap<NaiveDate, Tag>, zeit: &Zeit) -> Option<&'a [u8]> {
-    tage.range(tag_mit_abstand(*zeit, -2)..=tag_mit_abstand(*zeit, 2))
-        .find_map(|(_, tag)| {
-            let index = grenze_im_tag(&tag.rohtext, &tag.nachrichten, zeit, Seite::Vor);
-            let anfang = *tag.nachrichten.get(index)?;
-            (logformat::kopfzeit(&tag.rohtext[anfang..]) == Some(*zeit))
-                .then(|| &tag.rohtext[tag.spanne(index)])
-        })
+    let im_tag = |tag: &'a Tag| {
+        let index = grenze_im_tag(&tag.rohtext, &tag.nachrichten, zeit, Seite::Vor);
+        let anfang = *tag.nachrichten.get(index)?;
+        (logformat::kopfzeit(&tag.rohtext[anfang..]) == Some(*zeit))
+            .then(|| &tag.rohtext[tag.spanne(index)])
+    };
+    let eigenes = zeit.date_naive();
+    tage.get(&eigenes).and_then(im_tag).or_else(|| {
+        tage.range(tag_mit_abstand(*zeit, -2)..=tag_mit_abstand(*zeit, 2))
+            .filter(|(datum, _)| **datum != eigenes)
+            .find_map(|(_, tag)| im_tag(tag))
+    })
 }
 
 /// Die Zeile (1-basiert), in der der Satz ab `anfang` beginnt.
@@ -602,15 +609,52 @@ enum Seite {
 /// binäre Suche über die Kopfzeiten, verglichen als Zeitpunkt (ADR-0025 Regel 4).
 /// Ein Kopf ohne lesbare Zeit kommt nicht vor (der Index nimmt nur gültige Sätze auf); er zählt als älter.
 fn grenze_im_tag(rohtext: &[u8], satzanfaenge: &[usize], zeit: &Zeit, seite: Seite) -> usize {
+    let vergleich = Kopfvergleich::neu(zeit);
     satzanfaenge.partition_point(|&anfang| {
-        let Some(kopfzeit) = rohtext.get(anfang..).and_then(logformat::kopfzeit) else {
+        let Some(ordnung) = rohtext
+            .get(anfang..)
+            .and_then(|satz| vergleich.kopf_gegen_zeit(satz))
+        else {
             return true;
         };
         match seite {
-            Seite::Vor => kopfzeit < *zeit,
-            Seite::Nach => kopfzeit <= *zeit,
+            Seite::Vor => ordnung == std::cmp::Ordering::Less,
+            Seite::Nach => ordnung != std::cmp::Ordering::Greater,
         }
     })
+}
+
+/// Vergleicht die Kopfzeit eines Satzes mit einer Zeit (ADR-0025 Regel 4: als Zeitpunkt). Steht die Kopfzeit in der
+/// Schreibweise des Logs (`JJJJ-MM-TTTHH:MM:SS.mmm±HH:MM`) mit demselben Versatz wie die Zeit, entscheidet der Text —
+/// gleich breit und gleich versetzt ist die Textfolge die Zeitfolge —, sonst der geparste Zeitpunkt. So kostet eine
+/// binäre Suche keine Zeitparser je Schritt (ADR-0048 QE2: Laden vieler Änderungssätze).
+struct Kopfvergleich {
+    zeit: Zeit,
+    text: String,
+}
+
+impl Kopfvergleich {
+    fn neu(zeit: &Zeit) -> Kopfvergleich {
+        Kopfvergleich {
+            zeit: *zeit,
+            text: zeit.format("%Y-%m-%dT%H:%M:%S%.3f%:z").to_string(),
+        }
+    }
+
+    fn kopf_gegen_zeit(&self, satz: &[u8]) -> Option<std::cmp::Ordering> {
+        let kopf = satz.strip_prefix(b"@ ")?;
+        let text = self.text.as_bytes();
+        let breite = text.len();
+        let gleich_geschrieben = kopf.len() > breite
+            && matches!(kopf[breite], b' ' | b'\n')
+            && kopf[10] == b'T'
+            && kopf[19] == b'.'
+            && kopf[breite - 6..breite] == text[breite - 6..];
+        if gleich_geschrieben {
+            return Some(kopf[..breite].cmp(text));
+        }
+        logformat::kopfzeit(satz).map(|kopfzeit| kopfzeit.cmp(&self.zeit))
+    }
 }
 
 #[cfg(test)]
@@ -822,6 +866,48 @@ mod tests {
             vor, 1,
             "02:45+02:00 (00:45 UTC) liegt vor 02:30+01:00 (01:30 UTC)"
         );
+    }
+
+    /// QE2: der Textvergleich der Kopfzeiten entscheidet wie der Zeitpunkt — für Kopfzeiten mit demselben und anderem
+    /// Versatz, ohne Millisekunden, in UTC und über die Sommerzeitgrenze, je Zeit eine Millisekunde davor, gleich und
+    /// danach in zwei Versätzen (Mutante „Versatz nicht verglichen“ rot).
+    #[test]
+    fn der_textvergleich_der_kopfzeiten_entscheidet_wie_der_zeitpunkt() {
+        let kopfzeiten = [
+            "2026-10-25T01:59:59.999+02:00",
+            "2026-10-25T02:00:00+02:00",
+            "2026-10-25T01:00:00.500Z",
+            "2026-10-25T02:30:00.000+01:00",
+            "2026-10-25T02:30:00.001+01:00",
+            "2026-10-25T03:00:00.000+01:00",
+        ];
+        let (rohtext, anfaenge) = tag_mit(&kopfzeiten);
+        let nach_zeitpunkt = |ziel: &Zeit, seite: Seite| {
+            anfaenge.partition_point(|&anfang| {
+                let kopfzeit = logformat::kopfzeit(&rohtext[anfang..]).expect("Kopf");
+                match seite {
+                    Seite::Vor => kopfzeit < *ziel,
+                    Seite::Nach => kopfzeit <= *ziel,
+                }
+            })
+        };
+        for kopfzeit in kopfzeiten {
+            let mitte = zeit(kopfzeit);
+            for versatz in [3600, 7200] {
+                let versetzt = chrono::FixedOffset::east_opt(versatz).expect("Versatz");
+                for abstand in [-1, 0, 1] {
+                    let ziel =
+                        (mitte + chrono::Duration::milliseconds(abstand)).with_timezone(&versetzt);
+                    for seite in [Seite::Vor, Seite::Nach] {
+                        assert_eq!(
+                            grenze_im_tag(&rohtext, &anfaenge, &ziel, seite),
+                            nach_zeitpunkt(&ziel, seite),
+                            "{ziel} {seite:?}"
+                        );
+                    }
+                }
+            }
+        }
     }
 
     fn tag(text: &str) -> NaiveDate {
