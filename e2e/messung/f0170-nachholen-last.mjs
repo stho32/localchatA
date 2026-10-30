@@ -7,7 +7,10 @@
 //   node e2e/messung/f0170-nachholen-last.mjs <localchatA> <verlauf-erzeugen> <arbeitsordner> [szenario …]
 //
 // Szenarien: kontrolle, verlauf200, probe, z1, z5 (2.000 Sätze zu 16 KiB), z5-32k (2.000 Sätze zu 32 KiB aus
-// Zeilen), z6 (64 Herkünfte), z6b (6 Herkünfte × 16 Sitzungen, Retry-After beachtet), k3, k4 (ohne Angabe alle).
+// Zeilen), z5-bearbeitet (2.000 kurze Sätze, jeder auf 16 KiB bearbeitet), z5-geloescht (2.000 Sätze zu 16 KiB, alle
+// bis auf den letzten gelöscht), z5-dicht (2.000 Sätze „@a “ × 5.461), z6 (64 Herkünfte), z6b (6 Herkünfte × 16
+// Sitzungen, Retry-After beachtet), k3, k4 (ohne Angabe alle). Die Z5-Reihen nennen dazu µs je gebuchter
+// Kosteneinheit (Nacharbeit security-reviewer #17 Befund 1, Probe 4: Median ≤ ≈ 8 µs).
 // Je Szenario eine frische Instanz auf einem freien Port mit 100.000 Nachrichten in 10 Channels. Die 64 Schleifen laufen in einem eigenen Worker, damit ihre
 // Last auf dem Client die Messung des Beobachters nicht verfälscht. Beobachter und Sender kommen von 127.0.0.3,
 // weil eine Gegenstelle höchstens 64 Verbindungen hält und die 64 Schleifen 127.0.0.1 ausschöpfen.
@@ -33,7 +36,9 @@ if (isMainThread) {
 }
 
 async function hauptprogramm([programm, erzeuger, arbeitsordner, ...gewaehlt]) {
-  const alle = { kontrolle, verlauf200, probe, z1, z5, 'z5-32k': z5Zeilen, z6, z6b, k3, k4 };
+  const alle = {
+    kontrolle, verlauf200, probe, z1, z5, 'z5-32k': z5Zeilen, 'z5-bearbeitet': z5Bearbeitet, 'z5-geloescht': z5Geloescht, 'z5-dicht': z5Dicht, z6, z6b, k3, k4,
+  };
   let namen = Object.keys(alle);
   if (gewaehlt.length > 0) {
     namen = gewaehlt;
@@ -129,6 +134,23 @@ async function z5Zeilen(umgebung) {
   return z5Reihe(umgebung, saetzeAusZeilenSchreiben);
 }
 
+// Nacharbeit security-reviewer #17 Befund 1: 2.000 kurze Sätze, jeder auf 16 KiB bearbeitet (die Bearbeitung des
+// letzten erwähnt claude) — kostet wie z5, je Einheit gleich schnell.
+async function z5Bearbeitet(umgebung) {
+  return z5Reihe(umgebung, bearbeiteteSaetzeSchreiben);
+}
+
+// Nacharbeit security-reviewer #17 Befund 1: 2.000 Sätze zu 16 KiB, alle bis auf den letzten gelöscht — gelöschte
+// kosten nach dem Original, das gelesen wird.
+async function z5Geloescht(umgebung) {
+  return z5Reihe(umgebung, geloeschteSaetzeSchreiben);
+}
+
+// Nacharbeit security-reviewer #17 Befund 1 und 2: 2.000 Sätze „@a “ × 5.461 (16 KiB erwähnungsdicht).
+async function z5Dicht(umgebung) {
+  return z5Reihe(umgebung, (ordner, erzeuger) => saetzeSchreiben(ordner, erzeuger, `  ${'@a '.repeat(5_461)}`));
+}
+
 async function z5Reihe(umgebung, vorbereiten) {
   return mitInstanz({ ...umgebung, vorbereiten }, async (instanz) => {
     const agent = await beitreten(instanz.adresse, 'claude', '127.0.0.1');
@@ -139,7 +161,10 @@ async function z5Reihe(umgebung, vorbereiten) {
     const stand = await gesundheit(instanz.adresse);
     const aufrufe = Math.max(...laeufe.map((eintrag) => eintrag.dauern.length));
     const medianeJeAufruf = Array.from({ length: aufrufe }, (_, index) => kennwerte(laeufe.map((eintrag) => eintrag.dauern[index])).median);
+    const jeEinheit = kennwerte(laeufe.flatMap((eintrag) => eintrag.usJeEinheit));
     return {
+      us_je_kosteneinheit: { median: jeEinheit.median, p90: jeEinheit.p90, max: jeEinheit.max },
+      kosten_je_lauf: [...new Set(laeufe.map((eintrag) => eintrag.kosten))],
       aufrufe_je_lauf: [...new Set(laeufe.map((eintrag) => eintrag.dauern.length))],
       median_je_aufruf_ms: medianeJeAufruf,
       groesster_median_ms: Math.max(...medianeJeAufruf),
@@ -154,15 +179,20 @@ async function z5Reihe(umgebung, vorbereiten) {
 }
 
 // Ein Lauf: Aufrufe mit dem jeweils zurückgegebenen seit, bis ein anderes Ende als `weitere` kommt (429: Retry-After
-// abwarten und denselben Aufruf wiederholen, nicht gemessen). Lückenlos: jedes seit liegt hinter dem vorigen.
+// abwarten und denselben Aufruf wiederholen, nicht gemessen). Lückenlos: jedes seit liegt hinter dem vorigen. Je
+// Aufruf die gebuchten Kosten aus der Gesundheit davor und danach und daraus µs je Kosteneinheit (ab 100 Kosten, damit
+// der feste Anteil eines Aufrufs das Maß nicht verzerrt).
 async function reiheBisTreffer(adresse, token) {
   let seit = ALTES_SEIT;
   const dauern = [];
+  const usJeEinheit = [];
+  let kosten = 0;
   let treffer = 0;
   let gebremst = 0;
   let lueckenlos = true;
   let letztesEnde;
   while (letztesEnde === undefined || letztesEnde === 'weitere') {
+    const kostenVorher = (await gesundheit(adresse)).nachholen.kosten;
     const antwort = await anfragen(adresse, { pfad: `api/warten?bis=0&erwaehnung&seit=${encodeURIComponent(seit)}`, token });
     if (antwort.status === 429) {
       gebremst += 1;
@@ -173,12 +203,17 @@ async function reiheBisTreffer(adresse, token) {
       throw new Error(`warten: ${antwort.status} ${JSON.stringify(antwort.daten)}`);
     }
     dauern.push(antwort.dauerInMs);
+    const gebucht = (await gesundheit(adresse)).nachholen.kosten - kostenVorher;
+    kosten += gebucht;
+    if (gebucht >= 100) {
+      usJeEinheit.push((antwort.dauerInMs * 1000) / gebucht);
+    }
     treffer += antwort.daten.nachrichten.length;
     lueckenlos = lueckenlos && Date.parse(antwort.daten.seit) > Date.parse(seit);
     seit = antwort.daten.seit;
     letztesEnde = antwort.daten.ende;
   }
-  return { dauern, treffer, gebremst, lueckenlos, letztesEnde };
+  return { dauern, usJeEinheit, kosten, treffer, gebremst, lueckenlos, letztesEnde };
 }
 
 // Last aus `herkuenfte` × `sitzungenJeHerkunft` Sitzungen mit je 4 Schleifen (Worker); daneben Beobachter (Verlauf),
@@ -375,22 +410,65 @@ function saetzeAusZeilenSchreiben(ordner, erzeuger) {
 // Schreibt 2.000 Sätze: die Kopfzeilen kommen vom Erzeuger, der Text (eingerückt) ist `rumpf`; im letzten Satz steht
 // `@claude ` vor dem ersten Wort.
 function saetzeSchreiben(ordner, erzeuger, rumpf) {
+  const { kopfzeilen, schreiben } = kopfzeilenErzeugen(ordner, erzeuger, 2_000);
+  schreiben(kopfzeilen.map((kopf, index) => `${kopf}\n${mitErwaehnungImLetzten(rumpf, index, kopfzeilen.length)}\n\n`));
+}
+
+// Nacharbeit #17 Befund 1: 2.000 Sätze „x“, danach je ein Bearbeitungssatz auf 16 KiB (später, gleicher Absender).
+function bearbeiteteSaetzeSchreiben(ordner, erzeuger) {
+  const rumpf = `  ${'Befund Scan laeuft '.repeat(1024).slice(0, 16 * 1024)}`;
+  const { kopfzeilen, schreiben } = kopfzeilenErzeugen(ordner, erzeuger, 4_000);
+  const originale = kopfzeilen.slice(0, 2_000);
+  const originalsaetze = originale.map((kopf) => `${kopf}\n  x\n\n`);
+  const bearbeitungen = originale.map((kopf, index) => {
+    const text = mitErwaehnungImLetzten(rumpf, index, originale.length);
+    return `${aenderungskopf(kopfzeilen[2_000 + index], kopf)}\n+ bearbeitet: ${kopfteile(kopf).zeit}\n${text}\n\n`;
+  });
+  schreiben([...originalsaetze, ...bearbeitungen]);
+}
+
+// Nacharbeit #17 Befund 1: 2.000 Sätze zu 16 KiB, danach je ein Löschsatz außer für den letzten (der erwähnt claude).
+function geloeschteSaetzeSchreiben(ordner, erzeuger) {
+  const rumpf = `  ${'Befund Scan laeuft '.repeat(1024).slice(0, 16 * 1024)}`;
+  const { kopfzeilen, schreiben } = kopfzeilenErzeugen(ordner, erzeuger, 4_000);
+  const originale = kopfzeilen.slice(0, 2_000);
+  const originalsaetze = originale.map((kopf, index) => `${kopf}\n${mitErwaehnungImLetzten(rumpf, index, originale.length)}\n\n`);
+  const loeschungen = originale.slice(0, -1)
+    .map((kopf, index) => `${aenderungskopf(kopfzeilen[2_000 + index], kopf)}\n+ geloescht: ${kopfteile(kopf).zeit}\n\n`);
+  schreiben([...originalsaetze, ...loeschungen]);
+}
+
+// `anzahl` Kopfzeilen vom Erzeuger (ein Tag, aufsteigend) und ein Schreiber für die Sätze in dieselbe Tagesdatei.
+function kopfzeilenErzeugen(ordner, erzeuger, anzahl) {
   const muster = path.join(ordner, 'muster');
-  execFileSync(erzeuger, [muster, 'allgemein', '2000', '1'], { stdio: 'ignore' });
+  execFileSync(erzeuger, [muster, 'allgemein', String(anzahl), '1'], { stdio: 'ignore' });
   const tagesdatei = fs.readdirSync(path.join(muster, 'channels', 'allgemein'))[0];
   const kopfzeilen = fs.readFileSync(path.join(muster, 'channels', 'allgemein', tagesdatei), 'utf8')
     .split('\n')
     .filter((zeile) => zeile.startsWith('@ '));
-  const saetze = kopfzeilen.map((kopf, index) => {
-    let text = rumpf;
-    if (index === kopfzeilen.length - 1) {
-      text = `  @claude ${rumpf.slice(2)}`;
-    }
-    return `${kopf}\n${text}\n\n`;
-  });
-  fs.mkdirSync(path.join(ordner, 'channels', 'allgemein'), { recursive: true });
-  fs.writeFileSync(path.join(ordner, 'channels', 'allgemein', tagesdatei), saetze.join(''));
   fs.rmSync(muster, { recursive: true, force: true });
+  const schreiben = (saetze) => {
+    fs.mkdirSync(path.join(ordner, 'channels', 'allgemein'), { recursive: true });
+    fs.writeFileSync(path.join(ordner, 'channels', 'allgemein', tagesdatei), saetze.join(''));
+  };
+  return { kopfzeilen, schreiben };
+}
+
+function mitErwaehnungImLetzten(rumpf, index, anzahl) {
+  if (index === anzahl - 1) {
+    return `  @claude ${rumpf.slice(2)}`;
+  }
+  return rumpf;
+}
+
+// Kopf eines Änderungssatzes: Zeit aus `spaeter`, Absender des Originals (nur der Absender darf ändern).
+function aenderungskopf(spaeter, original) {
+  return `@ ${kopfteile(spaeter).zeit} ${kopfteile(original).von}`;
+}
+
+function kopfteile(kopf) {
+  const [, zeit, von] = kopf.split(' ');
+  return { zeit, von };
 }
 
 // SIGTERM und warten, bis der Prozess weg ist — sonst schreibt er noch ins Protokoll, während der Ordner gelöscht wird.

@@ -7,7 +7,7 @@
 
 use super::abfrage::{Abfrage, Abschnitt, BLOCK_HOECHSTENS, Blockgroesse};
 use super::treffer::{Filter, Treffer, treffer};
-use super::verlaufsindex::Verlauf;
+use super::verlaufsindex::{Kopie, Verlauf};
 use super::{Gespraech, Gespraeche, Kennung, Nachricht, lesend, nachricht_in_fassung, sperren};
 use crate::uhr::Zeit;
 use std::collections::VecDeque;
@@ -43,7 +43,8 @@ pub const NACHHOLBUDGET: Nachholbudget = Nachholbudget {
 /// Satz kurz ist oder 16 KiB lang.
 const BYTE_JE_KOSTENEINHEIT: usize = 1_024;
 
-/// Die Kosten eines Satzes der Länge `satzbytes` (Länge in der Tagesdatei) — Sätze unter 1 KiB kosten 1.
+/// Die Kosten eines Satzes der Länge `satzbytes` (Länge in der Tagesdatei; bei einer bearbeiteten Nachricht das
+/// Größere aus Satz und Änderungssatz, `ausgewertete_satzbytes`) — Sätze unter 1 KiB kosten 1.
 pub fn kosten_eines_satzes(satzbytes: usize) -> usize {
     1 + satzbytes / BYTE_JE_KOSTENEINHEIT
 }
@@ -173,6 +174,18 @@ fn naechster_strang(straenge: &mut [Strang<'_>]) -> Option<usize> {
         .map(|(index, _)| index)
 }
 
+/// Wie viele Satzbytes das Nachholen für eine Kopie auswertet (Nacharbeit security-reviewer #17 Befund 1): den Satz
+/// selbst, der immer gelesen wird — auch gelöscht —, und bei einer bearbeiteten Nachricht den Änderungssatz, dessen
+/// Text die Trefferregel prüft; das Größere zählt.
+fn ausgewertete_satzbytes(kopie: &Kopie) -> usize {
+    let aenderungssatz = kopie
+        .aenderung
+        .as_ref()
+        .and_then(|aenderung| aenderung.satz.as_ref())
+        .map_or(0, Vec::len);
+    kopie.satz.len().max(aenderungssatz)
+}
+
 /// Eine gelesene Nachricht samt den Kosten ihres Satzes.
 struct Gelesen {
     nachricht: Nachricht,
@@ -208,7 +221,7 @@ impl Strang<'_> {
             .filter_map(|kopie| {
                 nachricht_in_fassung(kopie).map(|nachricht| Gelesen {
                     nachricht: self.gespraeche.zustand_eintragen(nachricht),
-                    kosten: kosten_eines_satzes(kopie.satz.len()),
+                    kosten: kosten_eines_satzes(ausgewertete_satzbytes(kopie)),
                 })
             })
             .collect();
@@ -601,6 +614,103 @@ mod tests {
                 aufruf.weitere
             )),
             [(1, t[1], true), (1, t[2], true), (1, t[3], false)]
+        );
+    }
+
+    /// Ein Channel `a` mit `anzahl` Nachrichten „x“ von `anna`, je 1 ms später; danach jede so bearbeitet, dass ihr
+    /// Änderungssatz genau `satzbytes` Bytes lang ist (Text aus `y` in einer Zeile). `t0…tn` wie in `reihe`.
+    fn bearbeitete_reihe(anzahl: usize, satzbytes: usize) -> (Gespraeche, Vec<Zeit>) {
+        let (gespraeche, zeiten) = lange_reihe(anzahl, 1);
+        let rahmen =
+            super::super::logformat::bearbeitungssatz(zeiten[1], &anna(), zeiten[1], "y").len() - 1;
+        for ziel in &zeiten[1..] {
+            gespraeche
+                .bearbeiten(
+                    &Gespraech::channel("a"),
+                    &anna(),
+                    *ziel,
+                    &"y".repeat(satzbytes - rahmen),
+                )
+                .expect("bearbeitet");
+        }
+        (gespraeche, zeiten)
+    }
+
+    /// Wie `lange_reihe`, danach jede Nachricht auf „y“ bearbeitet.
+    fn kurz_bearbeitete_reihe(anzahl: usize, laenge: usize) -> (Gespraeche, Vec<Zeit>) {
+        let (gespraeche, zeiten) = lange_reihe(anzahl, laenge);
+        for ziel in &zeiten[1..] {
+            gespraeche
+                .bearbeiten(&Gespraech::channel("a"), &anna(), *ziel, "y")
+                .expect("bearbeitet");
+        }
+        (gespraeche, zeiten)
+    }
+
+    /// Wie `lange_reihe`, danach jede Nachricht gelöscht.
+    fn geloeschte_reihe(anzahl: usize, laenge: usize) -> (Gespraeche, Vec<Zeit>) {
+        let (gespraeche, zeiten) = lange_reihe(anzahl, laenge);
+        for ziel in &zeiten[1..] {
+            gespraeche
+                .nachricht_loeschen(&Gespraech::channel("a"), &anna(), *ziel)
+                .expect("gelöscht");
+        }
+        (gespraeche, zeiten)
+    }
+
+    /// Kosten und Sätze eines Nachholens über `t0…tn` mit `erwaehnung` (kein Treffer).
+    fn kosten_und_saetze((gespraeche, t): (Gespraeche, Vec<Zeit>)) -> (usize, usize) {
+        let marke = *t.last().expect("Marke");
+        let nachgeholt = gespraeche.nachholen(t[0], marke, &claude(), &erwaehnung(), NACHHOLBUDGET);
+        (nachgeholt.kosten, nachgeholt.saetze)
+    }
+
+    /// Nacharbeit security-reviewer #17 Befund 1, Probe (1): eine bearbeitete Nachricht kostet nach dem Text, der
+    /// ausgewertet wird — dem Änderungssatz —, nicht nach dem kurzen Original. Sechs „x“, jede bearbeitet auf
+    /// 16.384 / 1.023 / 1.024 / 32.768 Satzbytes → 102 / 6 / 12 / 198; Kontrolle sechs unbearbeitete zu 16 KiB → 102.
+    /// Dazu als Schutz: ein langes Original, kurz bearbeitet, kostet weiter nach dem Original (das Größere zählt, das
+    /// Original wird auch gelesen); gelöschte kosten nach dem Original, das gelesen wird.
+    #[test]
+    fn bearbeitete_saetze_kosten_nach_dem_ausgewerteten_text() {
+        let faelle = [
+            ("bearbeitet auf 16.384", bearbeitete_reihe(6, 16_384), 102),
+            ("bearbeitet auf 1.023", bearbeitete_reihe(6, 1_023), 6),
+            ("bearbeitet auf 1.024", bearbeitete_reihe(6, 1_024), 12),
+            ("bearbeitet auf 32.768", bearbeitete_reihe(6, 32_768), 198),
+            ("Kontrolle unbearbeitet 16 KiB", lange_reihe(6, 16_384), 102),
+            (
+                "16 KiB, kurz bearbeitet",
+                kurz_bearbeitete_reihe(6, 16_384),
+                102,
+            ),
+            ("16 KiB gelöscht", geloeschte_reihe(6, 16_384), 102),
+            ("kurz gelöscht", geloeschte_reihe(6, 1), 6),
+        ];
+
+        for (fall, reihe, kosten) in faelle {
+            assert_eq!(kosten_und_saetze(reihe), (kosten, 6), "{fall}");
+        }
+    }
+
+    /// Nacharbeit security-reviewer #17 Befund 1, Probe (2): 300 kurze Nachrichten, jede auf 16 KiB bearbeitet, wie
+    /// 300 unbearbeitete zu 16 KiB → 117 / 117 / 66 Sätze bei 1.989 / 1.989 / 1.122 Kosten.
+    #[test]
+    fn dreihundert_auf_16_kib_bearbeitete_saetze_sind_117_117_und_66() {
+        let (gespraeche, t) = bearbeitete_reihe(300, 16_384);
+
+        let aufrufe = in_schleife(&gespraeche, &t, &erwaehnung());
+
+        let je_aufruf: Vec<(usize, usize, Zeit, bool)> = aufrufe
+            .iter()
+            .map(|aufruf| (aufruf.saetze, aufruf.kosten, aufruf.stand, aufruf.weitere))
+            .collect();
+        assert_eq!(
+            je_aufruf,
+            vec![
+                (117, 1_989, t[117], true),
+                (117, 1_989, t[234], true),
+                (66, 1_122, t[300], false),
+            ]
         );
     }
 

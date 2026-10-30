@@ -95,3 +95,65 @@ async fn die_gesundheit_zaehlt_die_kosten_eines_langen_satzes_getrennt_von_den_s
     assert_eq!(nachher["nachholen"]["saetze"], 1, "{nachher}");
     assert_eq!(nachher["nachholen"]["kosten"], 17, "{nachher}");
 }
+
+/// Nacharbeit security-reviewer #17 Befund 1, Probe (3): sechsmal kurz senden und auf 16.384 Byte bearbeiten, dann
+/// `warten?bis=0&seit=2000-01-01T00:00:00Z&channel=<c>` → `nachholen.kosten` steigt um 102 (6 × 17), nicht um 6 —
+/// gezählt wird der Änderungssatz, dessen Text ausgewertet wird.
+#[tokio::test]
+async fn bearbeitete_nachrichten_kosten_nach_ihrem_aenderungssatz() {
+    let wurzel = ordner();
+    let instanz = starten(wurzel.path(), &[]);
+    let absender = Absender::von("127.0.0.1");
+    let anna = beitreten(&absender, &instanz.adresse, "anna", None).await;
+    let claude = beitreten(&absender, &instanz.adresse, "claude", None).await;
+    let lang = "x".repeat(16_384);
+    for nummer in 1..=6 {
+        let gesendet = senden(
+            &absender,
+            &instanz.adresse,
+            &anna,
+            "allgemein",
+            &format!("k{nummer}"),
+        )
+        .await;
+        assert_eq!(gesendet.status, 201, "{}", gesendet.json);
+        let zeit = gesendet.json["nachricht"]["zeit"].as_str().expect("zeit");
+        let bearbeitet = api_antwort(
+            absender
+                .anfrage(
+                    reqwest::Method::POST,
+                    format!(
+                        "{}api/channels/allgemein/nachrichten/bearbeiten",
+                        instanz.adresse
+                    ),
+                )
+                .header("X-LocalchatA-Sitzung", &anna)
+                .json(&serde_json::json!({ "zeit": zeit, "text": lang })),
+        )
+        .await;
+        assert_eq!(bearbeitet.status, 200, "{}", bearbeitet.json);
+    }
+    let vorher = gesundheit(&instanz.adresse).await.1;
+
+    let gewartet = api_antwort(
+        absender
+            .anfrage(
+                reqwest::Method::GET,
+                format!(
+                    "{}api/warten?bis=0&seit=2000-01-01T00:00:00Z&channel=allgemein",
+                    instanz.adresse
+                ),
+            )
+            .header("X-LocalchatA-Sitzung", claude),
+    )
+    .await;
+    let nachher = gesundheit(&instanz.adresse).await.1;
+
+    assert_eq!(gewartet.status, 200, "{}", gewartet.json);
+    let gestiegen = |feld: &str| {
+        nachher["nachholen"][feld].as_u64().expect(feld)
+            - vorher["nachholen"][feld].as_u64().expect(feld)
+    };
+    assert_eq!(gestiegen("saetze"), 6, "{vorher} → {nachher}");
+    assert_eq!(gestiegen("kosten"), 102, "{vorher} → {nachher}");
+}
