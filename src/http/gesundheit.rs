@@ -25,6 +25,8 @@ pub struct Gesundheit {
     gebremst: u64,
     sitzungen: usize,
     halter: usize,
+    /// Laufende Warte-Aufrufe (ADR-0054 Regel 10), Momentwert.
+    wartend: usize,
     herzschlag_ms: u128,
     abrissgrenze_ms: u128,
     protokoll_stufe: &'static str,
@@ -95,6 +97,7 @@ pub async fn beantworten(State(zustand): State<Arc<Zustand>>) -> Json<Gesundheit
         gebremst: zustand.schreibkonto.gebremst(),
         sitzungen: betrieb.sitzungen,
         halter: betrieb.halter,
+        wartend: zustand.wartende.anzahl(),
         herzschlag_ms: zustand.herzschlag.as_millis(),
         abrissgrenze_ms: pflege_aus(zustand.herzschlag).user_timeout.as_millis(),
         protokoll_stufe: protokoll.stufe.als_wert(),
@@ -170,6 +173,11 @@ mod tests {
             u128::from(ladezeit_ms) <= gemessen.as_millis(),
             "{ladezeit_ms} ms"
         );
+        // `wartend` einzeln: ein weiteres Feld im großen `json!` überschreitet die Rekursionsgrenze des Makros.
+        let wartend = inhalt
+            .as_object_mut()
+            .and_then(|felder| felder.remove("wartend"));
+        assert_eq!(wartend, Some(json!(0)));
         assert_eq!(status, 200);
         assert_eq!(typ, "application/json");
         assert_eq!(

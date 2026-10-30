@@ -3,10 +3,6 @@
 pub mod bus;
 pub mod herzschlag;
 pub mod takt;
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "die Route verdrahtet B0739 (R00049)")
-)]
 pub mod warten;
 
 /// So viele Ereignisse darf ein Strom zurückliegen, bevor er einen neuen Stand bekommt.

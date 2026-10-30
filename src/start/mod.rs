@@ -575,6 +575,7 @@ async fn nach_der_sperre(
         protokoll: Arc::clone(&protokoll),
         testpanik,
         hochladebank: Arc::new(tokio::sync::Semaphore::new(http::HOCHLADEBANK)),
+        wartende: http::Wartende::default(),
     });
     ausliefern::ausliefern(
         listener,

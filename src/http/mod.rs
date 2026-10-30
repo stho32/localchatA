@@ -37,10 +37,6 @@ mod teilnehmerliste;
 #[cfg(test)]
 mod testauskunft;
 mod verlassen;
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "die Route verdrahtet B0739 (R00049)")
-)]
 mod warten;
 mod werkbank;
 
@@ -48,6 +44,7 @@ pub use anhaenge::hochladen::HOCHLADEBANK;
 pub use auskunft::Auskunft;
 pub use grenzschutz::Grenzschutz;
 pub use namensauskunft::{Echt, Namensauskunft, Tabelle};
+pub use warten::Wartende;
 pub use werkbank::Werkbank;
 
 use crate::anwesenheit::Anwesenheit;
@@ -92,6 +89,8 @@ pub struct Zustand {
     pub testpanik: Testpanik,
     /// Hochladebank: höchstens 8 Blocking-Threads schreiben Stücke von Anhängen (ADR-0046 Frage 7).
     pub hochladebank: Arc<tokio::sync::Semaphore>,
+    /// Laufende Warte-Aufrufe (ADR-0054 Regel 10).
+    pub wartende: Wartende,
 }
 
 /// Alle Routen unter der Schicht `grenzschutz` (ADR-0014) — sie ist die äußerste, auch für 404 und 405.
@@ -146,6 +145,7 @@ pub fn router(zustand: Zustand) -> Router {
         .route("/api/teilnehmer", get(teilnehmerliste::beantworten))
         .route("/api/ereignisse", get(ereignisse::beantworten))
         .route("/api/verlassen", post(verlassen::beantworten))
+        .route("/api/warten", get(warten::beantworten))
         .with_state(Arc::new(zustand))
         .layer(middleware::from_fn_with_state(
             protokoll,
@@ -221,6 +221,7 @@ pub(crate) mod testserver {
             hochladebank: Arc::new(tokio::sync::Semaphore::new(
                 super::anhaenge::hochladen::HOCHLADEBANK,
             )),
+            wartende: super::Wartende::default(),
         }
     }
 

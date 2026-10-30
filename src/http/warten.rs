@@ -1,9 +1,28 @@
 //! Warten (ADR-0054, R00049): `GET /api/warten?seit=<zeit>&bis=<s>[&channel=<name>]…[&direkt][&erwaehnung]`.
 //!
-//! Die Parameter werden vor jeder Arbeit geprüft, abgewiesen statt umgeformt (Regel 1, W3).
+//! Die Parameter werden vor jeder Arbeit geprüft, abgewiesen statt umgeformt (Regel 1, W3); der Aufruf ist ein Halter
+//! der Sitzung (Regel 7) und zählt in `wartend` (Regel 10).
 
-use super::nachrichten::dekodieren;
+use super::Zustand;
+use super::abbruch::{Grenzort, abbruch_beantworten};
+use super::anfrageprotokoll::mit_regel;
+use super::nachrichten::{NachrichtAntwort, dekodieren};
+use super::teilnehmer::{Teilnehmer, gemeldetes_token, nicht_erkannt};
+use super::teilnehmerliste::zeit_als_text;
+use crate::gespraeche::Gespraech;
+use crate::gespraeche::treffer::{Filter, Treffer};
+use crate::live::warten::{Ende, Warteauftrag, Warteergebnis, warten};
 use crate::uhr::Zeit;
+use axum::Json;
+use axum::extract::{ConnectInfo, RawQuery, State};
+use axum::http::header::CACHE_CONTROL;
+use axum::http::{HeaderMap, StatusCode};
+use axum::response::{IntoResponse, Response};
+use serde::Serialize;
+use serde_json::json;
+use std::net::SocketAddr;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 
 /// Ohne `bis` wartet ein Aufruf so lange (ADR-0054 E4).
@@ -102,6 +121,188 @@ fn bis_lesen(wert: &str) -> Result<Duration, Parameterfehler> {
         .filter(|sekunden| *sekunden <= BIS_HOECHSTENS)
         .map(Duration::from_secs)
         .ok_or(Parameterfehler::Bis)
+}
+
+/// `GET /api/warten`: Sitzung (401) → Parameter (422) → Channels (404) → Halter → warten → 200
+/// `{nachrichten, seit, ende}` mit `Cache-Control: no-store`. Bucht nichts am Schreibkonto (E9).
+pub async fn beantworten(
+    teilnehmer: Teilnehmer,
+    State(zustand): State<Arc<Zustand>>,
+    ConnectInfo(gegenstelle): ConnectInfo<SocketAddr>,
+    kopf: HeaderMap,
+    RawQuery(query): RawQuery,
+) -> Response {
+    let kennung = teilnehmer.kennung.als_text();
+    let parameter = match parameter_lesen(query.as_deref()) {
+        Ok(parameter) => parameter,
+        Err(fehler) => return mit_regel(abgewiesen(&fehler), "abfrage_ungueltig", Some(kennung)),
+    };
+    if let Some(unbekannt) = parameter
+        .channels
+        .iter()
+        .find(|channel| !zustand.gespraeche.channel_bekannt(channel))
+    {
+        return mit_regel(
+            channel_unbekannt(unbekannt),
+            "channel_unbekannt",
+            Some(kennung),
+        );
+    }
+    let verbunden = gemeldetes_token(&kopf)
+        .and_then(|token| zustand.anwesenheit.verbunden(&token, gegenstelle.ip()));
+    let Some((halter, _veroeffentlicht)) = verbunden else {
+        return nicht_erkannt(&kopf);
+    };
+    let wartend = zustand.wartende.zaehlen();
+    let auftrag = Warteauftrag {
+        seit: parameter.seit,
+        bis: parameter.bis,
+        wartender: teilnehmer.kennung.clone(),
+        filter: Filter {
+            channels: parameter.channels.into_iter().collect(),
+            direkt: parameter.direkt,
+            erwaehnung: parameter.erwaehnung,
+        },
+    };
+    let ergebnis = warten(
+        Arc::clone(&zustand.gespraeche),
+        &zustand.bus,
+        &zustand.werkbank,
+        auftrag,
+        Arc::new(|_| {}),
+    )
+    .await;
+    drop(wartend);
+    drop(halter);
+    match ergebnis {
+        Ok(ergebnis) => beantwortet(&ergebnis),
+        Err(abbruch) => abbruch_beantworten(
+            &zustand.protokoll,
+            &abbruch,
+            &Grenzort {
+                route: ROUTE,
+                operation: "warten",
+                kennung: Some(kennung),
+                channel: None,
+            },
+            "Warten abgebrochen",
+        ),
+    }
+}
+
+const ROUTE: &str = "GET /api/warten";
+
+/// Laufende Warte-Aufrufe (ADR-0054 Regel 10, `wartend` im Health-Check); gezählt über einen Platz, der beim Ende
+/// des Aufrufs fällt — auch, wenn der Client abbricht.
+#[derive(Debug, Clone, Default)]
+pub struct Wartende(Arc<AtomicUsize>);
+
+/// Ein belegter Platz unter den Wartenden; mit ihm fällt die Zählung.
+pub struct Wartend(Arc<AtomicUsize>);
+
+impl Wartende {
+    pub fn zaehlen(&self) -> Wartend {
+        self.0.fetch_add(1, Ordering::SeqCst);
+        Wartend(Arc::clone(&self.0))
+    }
+
+    pub fn anzahl(&self) -> usize {
+        self.0.load(Ordering::SeqCst)
+    }
+}
+
+impl Drop for Wartend {
+    fn drop(&mut self) {
+        self.0.fetch_sub(1, Ordering::SeqCst);
+    }
+}
+
+/// `{channel, direkt, anlass, nachricht}` — ein Treffer an der Grenze (ADR-0054 E6).
+#[derive(Serialize)]
+struct Eintrag<'a> {
+    channel: Option<&'a str>,
+    direkt: Option<&'a str>,
+    anlass: Vec<&'static str>,
+    nachricht: NachrichtAntwort<'a>,
+}
+
+/// `{nachrichten, seit, ende}` (ADR-0054 Regel 4).
+#[derive(Serialize)]
+struct Warteantwort<'a> {
+    nachrichten: Vec<Eintrag<'a>>,
+    seit: Option<String>,
+    ende: &'static str,
+}
+
+fn beantwortet(ergebnis: &Warteergebnis) -> Response {
+    let antwort = Warteantwort {
+        nachrichten: ergebnis.treffer.iter().map(eintrag).collect(),
+        seit: ergebnis.seit.as_ref().map(zeit_als_text),
+        ende: match ergebnis.ende {
+            Ende::Treffer => "treffer",
+            Ende::Frist => "frist",
+            Ende::Weitere => "weitere",
+        },
+    };
+    ([(CACHE_CONTROL, "no-store")], Json(antwort)).into_response()
+}
+
+fn eintrag(treffer: &Treffer) -> Eintrag<'_> {
+    let channel = match &treffer.gespraech {
+        Gespraech::Channel(name) => Some(name.as_str()),
+        Gespraech::Direkt(_) => None,
+    };
+    Eintrag {
+        channel,
+        direkt: None,
+        anlass: treffer
+            .anlass
+            .iter()
+            .map(|anlass| anlass.als_text())
+            .collect(),
+        nachricht: NachrichtAntwort::aus(&treffer.nachricht),
+    }
+}
+
+/// So viele Zeichen eines Namens aus der Anfrage nennt eine Abweisung höchstens.
+const GENANNT_HOECHSTENS: usize = 64;
+
+fn genannt(text: &str) -> String {
+    text.chars().take(GENANNT_HOECHSTENS).collect()
+}
+
+fn abgewiesen(fehler: &Parameterfehler) -> Response {
+    let koerper = match fehler {
+        Parameterfehler::Cursor => json!({
+            "fehler": "seit ist eine Zeit nach RFC 3339 mit Versatz, wie im Verlauf; + als %2B kodieren — zum Beispiel seit=2026-10-30T11:18:00.123%2B01:00.",
+            "regel": "cursor",
+        }),
+        Parameterfehler::Bis => json!({
+            "fehler": "bis ist eine ganze Zahl von 0 bis 3600 (Sekunden) — zum Beispiel bis=60.",
+            "regel": "bis",
+        }),
+        Parameterfehler::Filter => json!({
+            "fehler": "seit und bis je höchstens einmal, channel höchstens 64-mal; direkt und erwaehnung sind Schalter ohne Wert — zum Beispiel channel=technik&erwaehnung.",
+            "regel": "filter",
+        }),
+        Parameterfehler::Parameter(name) => json!({
+            "fehler": format!("Den Parameter {} gibt es nicht — erlaubt sind seit, bis, channel, direkt und erwaehnung.", genannt(name)),
+            "regel": "parameter",
+            "parameter": genannt(name),
+        }),
+    };
+    (StatusCode::UNPROCESSABLE_ENTITY, Json(koerper)).into_response()
+}
+
+fn channel_unbekannt(name: &str) -> Response {
+    (
+        StatusCode::NOT_FOUND,
+        Json(json!({
+            "fehler": format!("# {} gibt es nicht.", genannt(name)),
+            "channel": genannt(name),
+        })),
+    )
+        .into_response()
 }
 
 #[cfg(test)]
