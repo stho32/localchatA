@@ -172,6 +172,30 @@ test('Nicht geladen im Direktgespräch (O1): „Direktnachricht erneut wählen�
   expect(anna.fehler).toEqual([]);
 });
 
+// Code-Review #13 F0180 Optional 3: ist das Gespräch über eine unkodierte Adresse (`#/d/ben@127.0.0.3`) offen und sein
+// Verlauf nicht geladen, ist die Wahl im Menü „schon offen“ — ein neuer Versuch, kein stilles Nichts. Mutante: Vergleich
+// der Hash-Buchstaben → der Hinweis bleibt, rot.
+test('Schon offen über eine unkodierte Adresse (Optional 3): die Wahl über das Menü lädt den Verlauf erneut', async ({ browser }) => {
+  const { instanz: gestartet, anna, token } = await starten(browser, {
+    sammeln: { zusaetzlich: tippenOhneGespraech(BEN, CORA), serverWegErwartet: true },
+  });
+  expect((await direktSenden(gestartet.adresse, token.ben, ANNA, 'Erste von ben', '127.0.0.3')).status).toBe(201);
+  const abruf = `**/api/direkt/${encodeURIComponent(BEN)}/nachrichten?n=100`;
+  await anna.page.route(abruf, (route) => route.abort('connectionrefused'));
+  await anna.page.goto(`${gestartet.adresse}#/d/${BEN}`);
+  await expect(mitte(anna.page).locator('.lc-fehler'))
+    .toHaveText('⚠ Verlauf nicht geladen — Direktnachricht erneut wählen, um es noch einmal zu versuchen.');
+  expect(await anna.page.evaluate(() => window.location.hash)).toBe(`#/d/${BEN}`);
+
+  await anna.page.unroute(abruf);
+  await anna.page.getByRole('complementary', { name: 'Teilnehmer' }).locator('.lc-person')
+    .filter({ has: anna.page.locator('.lc-id', { hasText: BEN }) }).getByRole('button').click();
+  await anna.page.getByRole('menuitem', { name: 'Direktnachricht' }).click();
+
+  await expect(verlaufMit(anna.page, BEN).locator('.lc-msg .lc-body')).toHaveText(['Erste von ben']);
+  await expect(mitte(anna.page).locator('.lc-fehler')).toHaveCount(0);
+});
+
 // ux-reviewer #13 F0178 Optional 4: der Merker des Tabs kennt das offene Direktgespräch — ein Laden ohne Adresse öffnet
 // es wieder (vorher # allgemein); der Rückweg aus einer Adresse ohne Gespräch führt weiter zu einem Channel.
 test('Neuladen ohne Adresse (Optional 4): das zuletzt offene Direktgespräch öffnet wieder; Rückweg zu einem Channel', async ({ browser }) => {

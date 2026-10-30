@@ -10,6 +10,7 @@
 // neu ab — Seitenleiste, Kopfzeile und Mitte zeigen sie.
 import * as kopfzeile from './kopfzeile.js';
 import { direktHash, gegenueberIn } from './gespraech.js';
+import { direktAuswahl } from './auswahl.js';
 import { auswahlEinrichten } from './auswahl-folgen.js';
 import { verlaufAnlegen } from './verlauf.js';
 import * as seitenleiste from './seitenleiste.js';
@@ -174,7 +175,7 @@ export function zeichnen(wurzel, teilnehmer, optionen) {
   teilnehmermenueEinrichten({
     zeilen,
     direktnachricht: (kennung) => {
-      const schonOffen = window.location.hash === direktHash(kennung);
+      const schonOffen = direktOffenMit(kennung, teilnehmer.kennung);
       window.location.hash = direktHash(kennung);
       auswahlFolgen.folgen();
       if (schonOffen) {
@@ -406,6 +407,13 @@ function zeitpunktDesStroms({ zustand, naechsterVersuchUm }) {
     return naechsterVersuchUm;
   }
   return null;
+}
+
+// Offen ist das Gespräch auch über eine unkodierte Adresse (`#/d/ben@127.0.0.3`): verglichen wird das Gegenüber, nicht
+// die Schreibweise des Hashes.
+function direktOffenMit(kennung, eigeneKennung) {
+  const offen = direktAuswahl(window.location.hash, eigeneKennung);
+  return offen !== null && offen.gegenueber === kennung;
 }
 
 // Gebündelte Ansage (ADR-0038 Regel 10, ansage.js): eine Statusregion außerhalb des Verlaufs, visuell verborgen; ein
