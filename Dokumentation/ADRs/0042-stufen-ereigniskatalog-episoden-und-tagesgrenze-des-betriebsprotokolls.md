@@ -455,7 +455,7 @@ Regeln:
   | `körper` | Körper abgewiesen | WARNING | `herkunft`, `route` | `kennung` (Routen mit Sitzung) | Zählung je Art und je Verwerfen; `bytes` = größte gelesene Bytezahl |
   | `senden` | Nachricht nicht gespeichert | ERROR | `channel`, `datei`, `grund` | `kennung` | — |
   | `senden` | Wiederholschlüssel vor Ablauf verdrängt — eine Wiederholung kann doppelt ankommen | WARNING | `kennung` (der verdrängten) | `grenze`, `hoechstens`, `alter_ms` | Zählung je Grenze `(gesamt <g>; kennung <k>)` |
-  | `schreibkonto` | Senden gebremst · Frist gebremst · Anhänge gebremst · Löschen gebremst | WARNING | `kennung` | `grenze` | Zählung je Grenze `(herkunft <h>; kennung <k>)` |
+  | `schreibkonto` | Senden gebremst · Bearbeiten gebremst · Frist gebremst · Anhänge gebremst · Löschen gebremst | WARNING | `kennung` | `grenze` | Zählung je Grenze `(herkunft <h>; kennung <k>)` |
   | `zeit` | Nachrichtenzeit läuft der Systemuhr voraus | WARNING | — (Instanz) | `dauer_ms` des ersten Auftretens | `dauer_ms` des **letzten** Auftretens (fortlaufend) |
   | `live` | Ereignisstrom überholt, neuer Stand gesendet | WARNING | `kennung` | `anzahl` (verpasste Ereignisse) | — (n = Zahl der Überholungen) |
   | `quote` | Senden abgewiesen: Quote erreicht | WARNING | `kennung`, `hoechstens` | `channel`, `belegt`; Einzelwert `route=bearbeiten` oder `route=loeschen` (ADR-0048 Regel 13 nennt beide; der Katalogtest prüft beide) | — |
