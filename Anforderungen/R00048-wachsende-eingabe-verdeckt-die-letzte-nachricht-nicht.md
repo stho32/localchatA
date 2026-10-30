@@ -36,6 +36,8 @@ Kein Glossar im Projekt (`Dokumentation/Domaenenwissen/` fehlt). Begriffe wie in
 - Ausgeschlossen (nicht geprüft am Lauf): ein Fehler der Höhenberechnung des Felds; die Messung zeigt `scrollTop` unverändert bei kleinerer Sichthöhe.
 - Latent: dieselbe Lücke trifft jede andere Änderung der Sichthöhe des Verlaufs — Tippanzeige (F0162, eine Zeile mehr an der Eingabe), Antwortzeile (I0044), Hinweiszeile unter dem Feld, Bildschirmtastatur, Fensterhöhe. Die Behebung gehört deshalb in den Verlauf, nicht in das Feld.
 
+**Bestätigte Ursache** (entw3, Karte #80; Nachtrag 2026-10-30, die Hypothese oben bleibt als Herleitung stehen): `hoeheAnpassen` in `web/eingabe.js` setzt bei jedem Tastendruck die Feldhöhe zurück und liest `scrollHeight`; das erzwingt ein Layout, der Verlauf wird kurz höher, der Browser klemmt `scrollTop`, und `amEnde` kippt unbemerkt. Behoben durch Halten der Kastenhöhe beim Messen plus Nachführen aus dem gemerkten `scrollTop` (Option A).
+
 Vor dem Bau: Der Reproduktionstest (E2E) zeigt die Ursache; stimmt die Hypothese nicht, gilt der Ausführungspfad, den er zeigt.
 
 ### Betroffene Komponenten
