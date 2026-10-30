@@ -138,13 +138,13 @@ async function vierzigMalSenden(adresse, token) {
 
 // Z3: ein Agent von 127.0.0.2 wartet in Schleife mit laufendem seit; ein Sender von dort sendet 20 Nachrichten in 20 s.
 // Der Agent holt sich vor dem ersten Senden einen Stand, sonst verpasst „ab jetzt“ eine Nachricht, die vor seinem
-// ersten Aufruf ankommt. Gemessen von der 201 bis zur Ankunft (kommt die Nachricht vor der 201 an, zählt 0). Statt erwaehnung (B0742 noch
-// nicht gebaut) wartet der Agent auf `channel=z3` — derselbe Weg über Reservierung, Nachholbank und Bus.
+// ersten Aufruf ankommt. Gemessen von der 201 bis zur Ankunft (kommt die Nachricht vor der 201 an, zählt 0). Der Agent
+// wartet mit `erwaehnung` (B0742), jede Nachricht erwähnt ihn — so verlangt es Z3.
 async function zwanzigMalZustellen(adresse, agent, sender, ende) {
   const zeit201 = new Map();
   const ankunft = new Map();
   const aufrufe = {};
-  const anfang = await anfragen(adresse, { pfad: 'api/warten?bis=0&channel=z3', token: agent, herkunft: '127.0.0.2' });
+  const anfang = await anfragen(adresse, { pfad: 'api/warten?bis=0&erwaehnung', token: agent, herkunft: '127.0.0.2' });
   const empfangen = (async () => {
     let seit = anfang.daten.seit;
     while (ankunft.size < 20 && Date.now() < ende + 5_000) {
@@ -152,7 +152,7 @@ async function zwanzigMalZustellen(adresse, agent, sender, ende) {
       if (seit) {
         seitTeil = `&seit=${encodeURIComponent(seit)}`;
       }
-      const antwort = await anfragen(adresse, { pfad: `api/warten?bis=5&channel=z3${seitTeil}`, token: agent, herkunft: '127.0.0.2' });
+      const antwort = await anfragen(adresse, { pfad: `api/warten?bis=5&erwaehnung${seitTeil}`, token: agent, herkunft: '127.0.0.2' });
       const art = `${antwort.status} ${antwort.daten.ende || antwort.daten.grenze}`;
       aufrufe[art] = (aufrufe[art] || 0) + 1;
       if (antwort.status !== 200) {
@@ -166,7 +166,7 @@ async function zwanzigMalZustellen(adresse, agent, sender, ende) {
     }
   })();
   for (let nummer = 0; nummer < 20; nummer += 1) {
-    const text = `z3-${nummer}`;
+    const text = `@fernagent z3-${nummer}`;
     const antwort = await anfragen(adresse, {
       methode: 'POST', pfad: 'api/channels/z3/nachrichten', token: sender, herkunft: '127.0.0.2', koerper: { text },
     });
