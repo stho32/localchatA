@@ -530,3 +530,102 @@ fn p3_bremse_je_herkunft_hundertzwanzig_dann_zwoelf_je_sekunde() {
     assert!(andere_adresse.is_ok(), "{andere_adresse:?}");
     assert!(nach_84.is_ok(), "1 / 12 s ≈ 84 ms: {nach_84:?}");
 }
+
+/// Legt `n` Einträge fremder Kennungen in `# allgemein` direkt in die Tabelle, bei t0 gesetzt und `gueltig_s` lang
+/// gültig.
+fn fremde_eintraege(aufbau: &Aufbau, n: usize, gueltig_s: i64) {
+    let gueltig = TimeDelta::seconds(gueltig_s);
+    let mut inneres = aufbau.aktivitaet.sperre();
+    for nummer in 0..n {
+        inneres.tabelle.insert(
+            (kennung(&format!("k{nummer}@10.0.0.9")), allgemein()),
+            Eintrag {
+                zustand: Zustand::Tippt,
+                bis: t(0) + gueltig,
+                gueltig,
+            },
+        );
+    }
+}
+
+fn eintraege(aufbau: &Aufbau) -> usize {
+    aufbau.aktivitaet.sperre().tabelle.len()
+}
+
+/// Karte #83 S2 (Regel 3, Mutante: Durchgang über die ganze Tabelle entfällt): 1.025 abgelaufene Einträge fremder
+/// Kennungen, ein Setzen → nur der neue bleibt; die Grenze ist „mehr als 1.024“, und gültige fremde bleiben.
+#[test]
+fn aufraeumen_ab_1025_eintraegen_raeumt_auch_die_abgelaufenen_fremden() {
+    let aufbau = Aufbau::neu();
+    fremde_eintraege(&aufbau, DURCHGANG_AB + 1, 6);
+    aufbau.um(6_000);
+
+    aufbau
+        .setzen(&anna(), Zustand::Tippt, None)
+        .expect("gesetzt");
+
+    assert_eq!(eintraege(&aufbau), 1);
+}
+
+#[test]
+fn aufraeumen_haelt_bis_1024_eintraege_und_behaelt_gueltige_fremde() {
+    let bis_zur_grenze = Aufbau::neu();
+    fremde_eintraege(&bis_zur_grenze, DURCHGANG_AB, 6);
+    bis_zur_grenze.um(6_000);
+    bis_zur_grenze
+        .setzen(&anna(), Zustand::Tippt, None)
+        .expect("gesetzt");
+
+    let mit_gueltigen = Aufbau::neu();
+    fremde_eintraege(&mit_gueltigen, DURCHGANG_AB + 1, 60);
+    mit_gueltigen.um(6_000);
+    mit_gueltigen
+        .setzen(&anna(), Zustand::Tippt, None)
+        .expect("gesetzt");
+
+    assert_eq!(
+        eintraege(&bis_zur_grenze),
+        DURCHGANG_AB + 1,
+        "kein Durchgang bei 1.024"
+    );
+    assert_eq!(
+        eintraege(&mit_gueltigen),
+        DURCHGANG_AB + 2,
+        "gültige bleiben"
+    );
+}
+
+/// Karte #83 S3 (Regel 2 und 9, Mutante: Bremse bucht vor der Prüfung der 16): das 17. Gespräch ist 422 und kostet
+/// keinen Token — wird ein Platz frei, gehen im 17. Gespräch zehn Setzen hintereinander, das elfte ist gebremst.
+#[test]
+fn ein_abgewiesenes_siebzehntes_gespraech_kostet_keinen_bremstoken() {
+    let aufbau = Aufbau::neu();
+    let gespraech = |n: usize| Gespraech::channel(&format!("c{n}"));
+    for n in 0..JE_KENNUNG_HOECHSTENS {
+        aufbau
+            .aktivitaet
+            .setzen(&anna(), herkunft(), &gespraech(n), Zustand::Tippt, None)
+            .expect("eines der 16");
+    }
+    let abgewiesen =
+        aufbau
+            .aktivitaet
+            .setzen(&anna(), herkunft(), &gespraech(16), Zustand::Tippt, None);
+    aufbau.aktivitaet.beenden(&anna(), &gespraech(0));
+
+    let danach: Vec<_> = (0..11)
+        .map(|_| {
+            aufbau
+                .aktivitaet
+                .setzen(&anna(), herkunft(), &gespraech(16), Zustand::Tippt, None)
+        })
+        .collect();
+
+    assert_eq!(abgewiesen, Err(Abweisung::ZuViele));
+    assert!(danach[..10].iter().all(Result::is_ok), "{danach:?}");
+    assert!(
+        matches!(danach[10], Err(Abweisung::Gebremst(_))),
+        "der elfte ist gebremst: {:?}",
+        danach[10]
+    );
+}
