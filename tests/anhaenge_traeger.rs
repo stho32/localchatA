@@ -616,3 +616,224 @@ async fn heic_traeger_ohne_ort_bild_items_und_eigenschaften_bleiben() {
         ("image/avif".to_string(), json!(4032), json!(3024))
     );
 }
+
+/// 2026-10-29T12:34:56Z in Sekunden seit 1904-01-01.
+const ZEIT_1904: u32 = 3_876_122_096;
+
+/// Ein Film aus `ffmpeg` (Testbild und Ton, 1 s, `creation_time` 2026-10-29T12:34:56Z, Ort) mit weiteren Optionen.
+fn film(ordner: &std::path::Path, name: &str, optionen: &[&str]) -> Vec<u8> {
+    let pfad = ordner.join(name);
+    let ausgabe = std::process::Command::new("ffmpeg")
+        .args([
+            "-v",
+            "error",
+            "-y",
+            "-f",
+            "lavfi",
+            "-i",
+            "testsrc=d=1:s=64x48:r=10",
+        ])
+        .args(["-f", "lavfi", "-i", "sine=d=1", "-shortest"])
+        .args(["-metadata", "creation_time=2026-10-29T12:34:56Z"])
+        .args(["-metadata", "location=+52.5200+013.4050/"])
+        .args(["-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac"])
+        .args(optionen)
+        .arg(&pfad)
+        .output()
+        .expect("Vorbedingung fehlt: ffmpeg");
+    assert!(
+        ausgabe.status.success(),
+        "{}",
+        String::from_utf8_lossy(&ausgabe.stderr)
+    );
+    std::fs::read(&pfad).expect("Film")
+}
+
+/// Die Boxen einer Ebene: (Typ, Anfang des Inhalts, Ende).
+fn boxen(bytes: &[u8], anfang: usize, ende: usize) -> Vec<([u8; 4], usize, usize)> {
+    let mut liste = Vec::new();
+    let mut pos = anfang;
+    while pos + 8 <= ende {
+        let groesse = u32::from_be_bytes(bytes[pos..pos + 4].try_into().expect("Größe")) as usize;
+        let typ: [u8; 4] = bytes[pos + 4..pos + 8].try_into().expect("Typ");
+        let (inhalt, bis) = match groesse {
+            1 => (
+                pos + 16,
+                pos + u64::from_be_bytes(bytes[pos + 8..pos + 16].try_into().expect("lang"))
+                    as usize,
+            ),
+            0 => (pos + 8, ende),
+            _ => (pos + 8, pos + groesse),
+        };
+        liste.push((typ, inhalt, bis));
+        pos = bis;
+    }
+    liste
+}
+
+/// Alle Boxen `typ` unter den Behältern `moov`, `trak`, `mdia`, `moof`, `traf` (Inhalt).
+fn finden<'a>(bytes: &'a [u8], typ: &[u8; 4]) -> Vec<&'a [u8]> {
+    fn suchen<'a>(
+        bytes: &'a [u8],
+        anfang: usize,
+        ende: usize,
+        typ: &[u8; 4],
+        funde: &mut Vec<&'a [u8]>,
+    ) {
+        for (art, inhalt, bis) in boxen(bytes, anfang, ende) {
+            if &art == typ {
+                funde.push(&bytes[inhalt..bis]);
+            } else if [b"moov", b"trak", b"mdia", b"moof", b"traf"].contains(&&art) {
+                suchen(bytes, inhalt, bis, typ, funde);
+            }
+        }
+    }
+    let mut funde = Vec::new();
+    suchen(bytes, 0, bytes.len(), typ, &mut funde);
+    funde
+}
+
+/// Baut `mvhd`, `tkhd` und `mdhd` in `moov` auf Version 1 (64 Bit) um; `moov` muss hinter `mdat` stehen, damit die
+/// Versätze in `stco` gelten.
+fn version_1(bytes: &[u8]) -> Vec<u8> {
+    fn umbauen(bytes: &[u8], anfang: usize, ende: usize) -> Vec<u8> {
+        let mut neu = Vec::new();
+        for (typ, inhalt, bis) in boxen(bytes, anfang, ende) {
+            let teil = match &typ {
+                b"moov" | b"trak" | b"mdia" => umbauen(bytes, inhalt, bis),
+                b"mvhd" | b"tkhd" | b"mdhd" if bytes[inhalt] == 0 => {
+                    let alt = &bytes[inhalt..bis];
+                    let zahl = |stelle: usize| {
+                        u64::from(u32::from_be_bytes(
+                            alt[stelle..stelle + 4].try_into().expect("u32"),
+                        ))
+                    };
+                    let mut v1 = vec![1, alt[1], alt[2], alt[3]];
+                    v1.extend(zahl(4).to_be_bytes());
+                    v1.extend(zahl(8).to_be_bytes());
+                    v1.extend(&alt[12..16]);
+                    let dauer_ab = if &typ == b"tkhd" { 20 } else { 16 };
+                    v1.extend(&alt[16..dauer_ab]);
+                    v1.extend(zahl(dauer_ab).to_be_bytes());
+                    v1.extend(&alt[dauer_ab + 4..]);
+                    v1
+                }
+                _ => bytes[inhalt..bis].to_vec(),
+            };
+            neu.extend(((teil.len() + 8) as u32).to_be_bytes());
+            neu.extend(typ);
+            neu.extend(teil);
+        }
+        neu
+    }
+    let liste = boxen(bytes, 0, bytes.len());
+    let moov = liste
+        .iter()
+        .position(|(typ, _, _)| typ == b"moov")
+        .expect("moov");
+    let mdat = liste
+        .iter()
+        .position(|(typ, _, _)| typ == b"mdat")
+        .expect("mdat");
+    assert!(mdat < moov, "moov hinter mdat");
+    umbauen(bytes, 0, bytes.len())
+}
+
+fn ffprobe(pfad: &std::path::Path, eintraege: &str) -> Value {
+    let ausgabe = std::process::Command::new("ffprobe")
+        .args(["-v", "error", "-show_entries", eintraege, "-of", "json"])
+        .arg(pfad)
+        .output()
+        .expect("Vorbedingung fehlt: ffprobe");
+    assert!(
+        ausgabe.status.success(),
+        "{}",
+        String::from_utf8_lossy(&ausgabe.stderr)
+    );
+    serde_json::from_slice(&ausgabe.stdout).expect("JSON")
+}
+
+/// ADR-0047 B2 P10 (B0647): MP4 (Android-Art), MOV (iPhone-Art), fragmentiertes MP4 und eines mit Version-1-Köpfen,
+/// je mit `creation_time` 2026-10-29T12:34:56Z → ausgeliefert zeigt `ffprobe` nirgends `creation_time`, die Zeitfelder
+/// in `mvhd`, `tkhd`, `mdhd` sind Nullen, die Zeit kommt in keiner Box vor; Dauer, `time_base`, Spuren wie vorher,
+/// `ffmpeg` dekodiert ohne Fehler; Länge, `mdat`, `tfdt` byte-gleich; der Ort ist weg.
+#[tokio::test]
+async fn zeitfelder_der_struktur_sind_getilgt() {
+    let lauf = Lauf::neu().await;
+    let ordner = ordner();
+    let android = film(ordner.path(), "android.mp4", &[]);
+    let faelle = [
+        ("android.mp4", android.clone()),
+        ("iphone.mov", film(ordner.path(), "iphone.mov", &[])),
+        (
+            "fragmentiert.mp4",
+            film(
+                ordner.path(),
+                "fragmentiert.mp4",
+                &["-movflags", "frag_keyframe+empty_moov+default_base_moof"],
+            ),
+        ),
+        ("version1.mp4", version_1(&android)),
+    ];
+    let zeit = ZEIT_1904.to_be_bytes();
+    let dauer = "format=duration:stream=index,codec_type,time_base,duration";
+    let zeittags = "format_tags=creation_time:stream_tags=creation_time";
+    for (name, original) in faelle {
+        let vorher_pfad = ordner.path().join(format!("vorher-{name}"));
+        std::fs::write(&vorher_pfad, &original).expect("geschrieben");
+        assert!(
+            ffprobe(&vorher_pfad, zeittags)
+                .to_string()
+                .contains("2026-10-29T12:34:56"),
+            "{name}: Probe ohne Zeit"
+        );
+        assert!(enthaelt(&original, &zeit), "{name}");
+
+        let geliefert = lauf.ausliefern(name, &original).await;
+
+        let pfad = ordner.path().join(format!("nachher-{name}"));
+        std::fs::write(&pfad, &geliefert.bytes).expect("geschrieben");
+        let tags = ffprobe(&pfad, zeittags).to_string();
+        assert!(!tags.contains("creation_time"), "{name}: {tags}");
+        assert_eq!(
+            ffprobe(&pfad, dauer),
+            ffprobe(&vorher_pfad, dauer),
+            "{name}"
+        );
+        let dekodiert = std::process::Command::new("ffmpeg")
+            .args(["-v", "error", "-i"])
+            .arg(&pfad)
+            .args(["-f", "null", "-"])
+            .output()
+            .expect("ffmpeg");
+        assert!(
+            dekodiert.status.success() && dekodiert.stderr.is_empty(),
+            "{name}: {}",
+            String::from_utf8_lossy(&dekodiert.stderr)
+        );
+        for typ in [b"mvhd", b"tkhd", b"mdhd"] {
+            let funde = finden(&geliefert.bytes, typ);
+            assert!(!funde.is_empty(), "{name}");
+            for kiste in funde {
+                let breite = if kiste[0] == 1 { 8 } else { 4 };
+                assert!(
+                    kiste[4..4 + 2 * breite].iter().all(|b| *b == 0),
+                    "{name}: {}",
+                    String::from_utf8_lossy(typ)
+                );
+            }
+        }
+        assert!(!enthaelt(&geliefert.bytes, &zeit), "{name}: Zeit");
+        assert_eq!(
+            finden(&geliefert.bytes, b"mdat"),
+            finden(&original, b"mdat"),
+            "{name}"
+        );
+        assert_eq!(
+            finden(&geliefert.bytes, b"tfdt"),
+            finden(&original, b"tfdt"),
+            "{name}"
+        );
+        assert!(!enthaelt(&geliefert.bytes, b"+52.5200"), "{name}: Ort");
+    }
+}

@@ -142,6 +142,7 @@ fn moov(port: &Port<'_>, moov: Kiste, zaehler: &mut Zaehler) -> Ergebnis<()> {
     for kind in kinder(port, moov.inhalt, moov.ende, zaehler)? {
         match &kind.typ {
             b"cmov" => return metadaten("cmov nicht prüfbar"),
+            b"mvhd" => zeiten_nullen(port, kind)?,
             b"trak" => trak(port, kind, zaehler)?,
             b"udta" => udta(port, kind, zaehler)?,
             b"meta" => nutzer_meta(port, kind, zaehler)?,
@@ -152,16 +153,41 @@ fn moov(port: &Port<'_>, moov: Kiste, zaehler: &mut Zaehler) -> Ergebnis<()> {
     Ok(())
 }
 
-/// `trak`: Abstieg nur zu `udta` und `meta`; alles andere ist Wiedergabestruktur und bleibt.
+/// `trak`: Abstieg zu `udta`, `meta`, den Zeitfeldern in `tkhd` und — nur für `mdhd` — in `mdia`; alles andere ist
+/// Wiedergabestruktur und bleibt.
 fn trak(port: &Port<'_>, trak: Kiste, zaehler: &mut Zaehler) -> Ergebnis<()> {
     for kind in kinder(port, trak.inhalt, trak.ende, zaehler)? {
         match &kind.typ {
             b"udta" => udta(port, kind, zaehler)?,
             b"meta" => nutzer_meta(port, kind, zaehler)?,
+            b"tkhd" => zeiten_nullen(port, kind)?,
+            b"mdia" => {
+                for mdhd in kinder(port, kind.inhalt, kind.ende, zaehler)? {
+                    if &mdhd.typ == b"mdhd" {
+                        zeiten_nullen(port, mdhd)?;
+                    }
+                }
+            }
             _ => {}
         }
     }
     Ok(())
+}
+
+/// Zeitfelder der Struktur (ADR-0047 B2 Regel 5g): `creation_time` und `modification_time` hinter Version und Flaggen
+/// genullt — Version 0 je 4, Version 1 je 8 Bytes; gelesen wird nur das Versionsbyte. Unbekannte Version oder zu kurz
+/// → `metadaten`.
+fn zeiten_nullen(port: &Port<'_>, kiste: Kiste) -> Ergebnis<()> {
+    let version = port.lesen(kiste.inhalt, 1.min(kiste.ende - kiste.inhalt))?;
+    let breite = match version.first() {
+        Some(0) => 4,
+        Some(1) => 8,
+        _ => return metadaten("Zeitfelder unlesbar"),
+    };
+    if kiste.ende - kiste.inhalt < 4 + 2 * breite {
+        return metadaten("Zeitfelder unlesbar");
+    }
+    port.nullen(kiste.inhalt + 4, 2 * breite)
 }
 
 /// `udta` (unter `moov` und `trak`): Erlaubnisliste, Abstieg in `meta`; ein Rest unter 8 Bytes ist kein Block.
@@ -1449,5 +1475,136 @@ mod tests {
             .position(|f| f == b"MM\0*")
             .expect("minimales EXIF");
         assert_eq!(orientierung(&getilgt[tiff..]), Some(6));
+    }
+
+    /// 2026-10-29T12:34:56Z in Sekunden seit 1904-01-01 (Zeitrechnung von ISOBMFF).
+    const ZEIT: u64 = 3_876_122_096;
+
+    /// Eine Zeit-Box (`mvhd`, `tkhd`, `mdhd`) in Version 0 oder 1: Erstell- und Änderungszeit, dann `timescale`
+    /// bzw. Spurkennung und `duration`, dann `rest`.
+    fn zeitkiste(typ: &[u8], version: u8, mitte: u32, dauer: u64, rest: &[u8]) -> Vec<u8> {
+        let mut inhalt = vec![version, 0, 0, 0];
+        if version == 1 {
+            inhalt.extend_from_slice(&ZEIT.to_be_bytes());
+            inhalt.extend_from_slice(&(ZEIT + 1).to_be_bytes());
+            inhalt.extend_from_slice(&mitte.to_be_bytes());
+            if typ == b"tkhd" {
+                inhalt.extend_from_slice(&[0; 4]);
+            }
+            inhalt.extend_from_slice(&dauer.to_be_bytes());
+        } else {
+            inhalt.extend_from_slice(&(ZEIT as u32).to_be_bytes());
+            inhalt.extend_from_slice(&(ZEIT as u32 + 1).to_be_bytes());
+            inhalt.extend_from_slice(&mitte.to_be_bytes());
+            if typ == b"tkhd" {
+                inhalt.extend_from_slice(&[0; 4]);
+            }
+            inhalt.extend_from_slice(&(dauer as u32).to_be_bytes());
+        }
+        inhalt.extend_from_slice(rest);
+        kiste(typ, &inhalt)
+    }
+
+    fn film(version: u8) -> Vec<u8> {
+        let mvhd = zeitkiste(b"mvhd", version, 1_000, 5_000, &[0x11; 80]);
+        let tkhd = zeitkiste(b"tkhd", version, 1, 5_000, &[0x22; 60]);
+        let mdhd = zeitkiste(b"mdhd", version, 90_000, 450_000, &[0x55, 0xC4, 0, 0]);
+        let mdia = kiste(
+            b"mdia",
+            &[
+                mdhd,
+                kiste(b"hdlr", &[0x33; 25]),
+                kiste(b"minf", &[0x44; 30]),
+            ]
+            .concat(),
+        );
+        let trak = kiste(b"trak", &[tkhd, kiste(b"edts", &[0x66; 20]), mdia].concat());
+        let tfdt = kiste(
+            b"tfdt",
+            &[&[1u8, 0, 0, 0][..], &ZEIT.to_be_bytes()].concat(),
+        );
+        let mvex = kiste(
+            b"mvex",
+            &kiste(
+                b"mehd",
+                &[&[1u8, 0, 0, 0][..], &ZEIT.to_be_bytes()].concat(),
+            ),
+        );
+        let moof = kiste(b"moof", &kiste(b"traf", &tfdt));
+        [
+            ftyp(),
+            kiste(b"moov", &[mvhd, trak, mvex].concat()),
+            moof,
+            kiste(b"mdat", b"Mediendaten"),
+        ]
+        .concat()
+    }
+
+    /// Die Bytes einer Box `typ` (erste Fundstelle, ab dem Kopf).
+    fn box_bei<'a>(bytes: &'a [u8], typ: &[u8]) -> &'a [u8] {
+        let stelle = bytes.windows(4).position(|f| f == typ).expect("Box") - 4;
+        let groesse =
+            u32::from_be_bytes(bytes[stelle..stelle + 4].try_into().expect("Größe")) as usize;
+        &bytes[stelle..stelle + groesse]
+    }
+
+    /// ADR-0047 B2 Regel 5g, P10 (Unit) (B0647): in `mvhd`, `trak/tkhd`, `trak/mdia/mdhd` sind Erstell- und
+    /// Änderungszeit genullt (Version 0 je 4, Version 1 je 8 Bytes); `timescale`, Spurkennung, `duration`, Sprache,
+    /// der Rest der Boxen, `tfdt` und `mehd` bleiben byte-gleich.
+    #[test]
+    fn zeitfelder_werden_genullt_dauer_und_takt_bleiben() {
+        for version in [0u8, 1] {
+            let original = film(version);
+            let breite = if version == 1 { 8 } else { 4 };
+
+            let (ergebnis, datei) = tilgen(original.clone());
+
+            ergebnis.expect("getilgt");
+            let getilgt = datei.inhalt();
+            assert_eq!(getilgt.len(), original.len());
+            for typ in [&b"mvhd"[..], b"tkhd", b"mdhd"] {
+                let vorher = box_bei(&original, typ);
+                let nachher = box_bei(&getilgt, typ);
+                let zeiten = 12..12 + 2 * breite;
+                assert!(
+                    nachher[zeiten.clone()].iter().all(|b| *b == 0),
+                    "v{version} {}",
+                    String::from_utf8_lossy(typ)
+                );
+                assert_eq!(nachher[..12], vorher[..12]);
+                assert_eq!(
+                    nachher[zeiten.end..],
+                    vorher[zeiten.end..],
+                    "v{version} Dauer und Rest"
+                );
+            }
+            for typ in [&b"tfdt"[..], b"mehd", b"edts", b"hdlr", b"minf", b"mdat"] {
+                assert_eq!(box_bei(&getilgt, typ), box_bei(&original, typ));
+            }
+            assert_eq!(
+                getilgt
+                    .windows(4)
+                    .filter(|f| *f == &(ZEIT as u32).to_be_bytes())
+                    .count(),
+                2,
+                "nur tfdt und mehd tragen die Zahl noch"
+            );
+        }
+    }
+
+    /// Regel 5g: eine Zeit-Box mit unbekannter Version oder zu kurz → `metadaten`.
+    #[test]
+    fn eine_zeitbox_mit_unbekannter_version_oder_zu_kurz_ist_nicht_tilgbar() {
+        for mvhd in [
+            kiste(b"mvhd", &[2u8; 100]),
+            kiste(b"mvhd", &[0u8; 10]),
+            kiste(b"mvhd", &[1u8, 0, 0, 0, 0, 0]),
+        ] {
+            let (ergebnis, _) = tilgen([ftyp(), kiste(b"moov", &mvhd)].concat());
+            assert!(
+                matches!(ergebnis, Err(Abbruch::Metadaten(_))),
+                "{ergebnis:?}"
+            );
+        }
     }
 }
