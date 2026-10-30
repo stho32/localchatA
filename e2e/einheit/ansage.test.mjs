@@ -178,3 +178,15 @@ test('Trennen und Wiederverbinden sofort, außerhalb der Bündelung, „Verbindu
     [12000, 'Wieder verbunden · 3 nachgeladen'],
   ]);
 });
+
+test('im offenen Direktgespräch nennt die Ansage das Gespräch ohne „#“ (R00050 B0787)', () => {
+  const offen = 'direkt:ben@127.0.0.3';
+  const fremd = { art: 'fremd', von: 'ben@127.0.0.3', channel: offen, offenerChannel: offen };
+
+  const erste = ansage(ANSAGE_LEER, fremd, 0);
+  const zweite = ansage(erste.zustand, fremd, 1000);
+  const gesammelt = ansage(zweite.zustand, { art: 'takt' }, 10000);
+
+  assert.equal(erste.text, 'Neue Nachricht von ben@127.0.0.3 in Direktnachricht mit ben@127.0.0.3');
+  assert.equal(gesammelt.text, '1 neue Nachricht in Direktnachricht mit ben@127.0.0.3');
+});

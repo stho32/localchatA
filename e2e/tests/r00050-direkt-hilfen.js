@@ -3,6 +3,7 @@
 // Browser, weitere Teilnehmer per API von eigenen Herkünften (Linux: ganz 127.0.0.0/8 ist lokal), Senden und Lesen im
 // Direktgespräch per API, die Adresse `#/d/<kennung>` und die Beschriftungen des Privat-Modus.
 const fs = require('fs');
+const http = require('http');
 const path = require('path');
 const { expect } = require('@playwright/test');
 const { sendenStarten, beitreten, anfragen, imBrowserBeitreten } = require('./senden-hilfen');
@@ -37,6 +38,37 @@ async function direktStarten(browser, { sammeln = { zusaetzlich: tippenOhneGespr
 function direktSenden(adresse, token, gegenueber, text, herkunft) {
   const pfad = `api/direkt/${encodeURIComponent(gegenueber)}/nachrichten`;
   return anfragen(adresse, { methode: 'POST', pfad, koerper: { text }, token, herkunft });
+}
+
+/// Meldet `dateien` ({ name, inhalt }) an, lädt sie hoch und sendet sie mit `text` ins Direktgespräch; → Zeit der Nachricht.
+async function direktMitAnhaengenSenden(adresse, token, gegenueber, text, dateien, herkunft) {
+  const ids = [];
+  for (const { name, inhalt } of dateien) {
+    const angemeldet = await anfragen(adresse, { methode: 'POST', pfad: 'api/anhaenge', koerper: { name, bytes: inhalt.length }, token, herkunft });
+    expect(angemeldet.status, JSON.stringify(angemeldet.daten)).toBe(201);
+    const { id } = angemeldet.daten.anhang;
+    expect(await bytesHochladen(adresse, `api/anhaenge/${id}`, token, inhalt, herkunft), `Hochladen ${name}`).toBe(200);
+    ids.push(id);
+  }
+  const pfad = `api/direkt/${encodeURIComponent(gegenueber)}/nachrichten`;
+  const gesendet = await anfragen(adresse, { methode: 'POST', pfad, koerper: { text, anhaenge: ids }, token, herkunft });
+  expect(gesendet.status, JSON.stringify(gesendet.daten)).toBe(201);
+  return gesendet.daten.nachricht.zeit;
+}
+
+function bytesHochladen(adresse, pfad, token, inhalt, herkunft) {
+  const ziel = new URL(pfad, adresse);
+  return new Promise((fertig, gescheitert) => {
+    const anfrage = http.request({
+      host: ziel.hostname, port: ziel.port, path: ziel.pathname, method: 'PUT', localAddress: herkunft,
+      headers: { 'Content-Type': 'application/octet-stream', 'Content-Length': inhalt.length, 'X-LocalchatA-Sitzung': token },
+    }, (antwort) => {
+      antwort.resume();
+      antwort.on('end', () => fertig(antwort.statusCode));
+    });
+    anfrage.once('error', gescheitert);
+    anfrage.end(inhalt);
+  });
 }
 
 async function direktLesen(adresse, token, gegenueber, herkunft) {
@@ -117,6 +149,6 @@ function kontrastUnterschritten(wurzelSelektor) {
 }
 
 module.exports = {
-  ANNA, BEN, CORA, HINWEIS, KEIN_GESPRAECH, tippenOhneGespraech, direktStarten, direktSenden, direktLesen, paarordner, direktOeffnen, verlaufMit, eingabeAn,
+  ANNA, BEN, CORA, HINWEIS, KEIN_GESPRAECH, tippenOhneGespraech, direktStarten, direktSenden, direktMitAnhaengenSenden, direktLesen, paarordner, direktOeffnen, verlaufMit, eingabeAn,
   gespraechOffen, kontrastUnterschritten,
 };

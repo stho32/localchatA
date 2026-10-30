@@ -1,4 +1,4 @@
-// Gebündelte Ansage (ADR-0038 Regel 10), rein mit gestellter Zeit: fremde Nachrichten des offenen Channels — sind
+// Gebündelte Ansage (ADR-0038 Regel 10), rein mit gestellter Zeit: fremde Nachrichten des offenen Gesprächs — sind
 // seit der letzten Ansage mindestens 10 s vergangen und ist nichts gesammelt, sofort; sonst gesammelt und frühestens
 // 10 s nach der letzten Ansage als eine. Eigene, nachgeladene und nachgeholte nie; ein Fehlschlag sofort.
 //
@@ -7,6 +7,8 @@
 //         Entfernt — sofort, der Takt der gesammelten bleibt; R00025 F0084) · { art: 'getrennt' } · { art: 'wiederverbunden',
 //         text } (sofort; „Verbindung verloren“ einmal je Trennung, nicht je Versuch)
 // → { zustand, text: Ansage | null }
+import { ortText } from './gespraech.js';
+
 export const ANSAGE_LEER = { letzteAnsageMs: null, gesammelt: 0, channel: null, getrennt: false };
 
 const ABSTAND_MS = 10000;
@@ -47,7 +49,7 @@ function fremdAnsagen(zustand, { von, channel, offenerChannel }, jetztMs) {
     return { zustand, text: null };
   }
   if (zustand.gesammelt === 0 && abstandErreicht(zustand, jetztMs)) {
-    return { zustand: { ...zustand, letzteAnsageMs: jetztMs, channel }, text: `Neue Nachricht von ${von} in # ${channel}` };
+    return { zustand: { ...zustand, letzteAnsageMs: jetztMs, channel }, text: `Neue Nachricht von ${von} in ${ortText(channel)}` };
   }
   return { zustand: { ...zustand, gesammelt: zustand.gesammelt + 1, channel }, text: null };
 }
@@ -60,7 +62,7 @@ function gesammeltAnsagen(zustand, jetztMs) {
   if (zustand.gesammelt === 1) {
     anzahl = '1 neue Nachricht';
   }
-  return { zustand: { ...zustand, gesammelt: 0, letzteAnsageMs: jetztMs }, text: `${anzahl} in # ${zustand.channel}` };
+  return { zustand: { ...zustand, gesammelt: 0, letzteAnsageMs: jetztMs }, text: `${anzahl} in ${ortText(zustand.channel)}` };
 }
 
 function abstandErreicht(zustand, jetztMs) {
