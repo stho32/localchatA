@@ -204,10 +204,14 @@ for (const ohneSperren of [false, true]) {
     await waehlen(page, [textDatei('a.txt'), textDatei('b.txt')]);
     await knopf(page).click();
 
-    const zeileA = eintrag(page).locator('.lc-hochladung-datei', { hasText: 'a.txt' });
-    await expect(zeileA.locator('.lc-hochladung-grund')).toHaveText('⚠ Nicht hochgeladen (Probe A4).');
-    await expect(eintrag(page).locator('.lc-hochladung-datei', { hasText: 'b.txt' }).locator('.lc-hochladung-zustand')).toHaveText('hochgeladen');
-    await zeileA.getByRole('button', { name: 'a.txt erneut hochladen', exact: true }).click();
+    // Welche der beiden zuerst sendet, entscheidet der Platz — die Probe sucht die gescheiterte Zeile.
+    const gescheitert = eintrag(page).locator('.lc-hochladung-datei')
+      .filter({ has: page.locator('.lc-hochladung-grund', { hasText: '⚠ Nicht hochgeladen (Probe A4).' }) });
+    await expect(gescheitert).toHaveCount(1);
+    const name = (await gescheitert.locator('.lc-datei-name').textContent()).trim();
+    const andere = ['a.txt', 'b.txt'].find((kandidat) => kandidat !== name);
+    await expect(eintrag(page).locator('.lc-hochladung-datei', { hasText: andere }).locator('.lc-hochladung-zustand')).toHaveText('hochgeladen');
+    await gescheitert.getByRole('button', { name: `${name} erneut hochladen`, exact: true }).click();
     await expect.poll(() => anfragen.filter((anfrage) => anfrage.pfad.endsWith('/nachrichten')).length).toBe(1);
     expect(anfragen.find((anfrage) => anfrage.pfad.endsWith('/nachrichten')).koerper.anhaenge).toHaveLength(2);
     expect(fehler).toEqual([]);
