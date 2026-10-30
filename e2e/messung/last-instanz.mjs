@@ -1,6 +1,6 @@
 'use strict';
 // Gemeinsame Werkzeuge der Lastgeneratoren (R00049 F0167, F0170): Instanz auf freiem Port starten, beitreten,
-// Gesundheit lesen, Anfragen von einer festen Herkunft mit gemessener Dauer.
+// Gesundheit lesen, Anfragen von einer festen Herkunft mit gemessener Dauer, offener Ereignisstrom.
 import { spawn } from 'node:child_process';
 import http from 'node:http';
 
@@ -82,4 +82,74 @@ function datenLesen(text) {
 
 export function warten(ms) {
   return new Promise((weiter) => setTimeout(weiter, Math.max(ms, 0)));
+}
+
+// Ein offener GET /api/ereignisse: merkt jedes Ereignis mit seinem Augenblick; `naechstes` wartet auf das erste ab
+// einer Stelle, das passt (Infinity nach `hoechstensInMs`).
+export function stromOeffnen(adresse, token, herkunft) {
+  const ziel = new URL('api/ereignisse', adresse);
+  const ereignisse = [];
+  const wartende = new Set();
+  let anfrage;
+  const offen = new Promise((bereit, gescheitert) => {
+    anfrage = http.get({
+      host: ziel.hostname, port: ziel.port, path: ziel.pathname, localAddress: herkunft,
+      headers: { 'X-LocalchatA-Sitzung': token },
+    }, (antwort) => {
+      if (antwort.statusCode !== 200) {
+        gescheitert(new Error(`Strom: ${antwort.statusCode}`));
+        return;
+      }
+      bereit();
+      let rest = '';
+      antwort.setEncoding('utf8');
+      antwort.on('data', (stueck) => {
+        rest += stueck;
+        let stelle = rest.indexOf('\n\n');
+        while (stelle >= 0) {
+          ereignisMerken(rest.slice(0, stelle), ereignisse, wartende);
+          rest = rest.slice(stelle + 2);
+          stelle = rest.indexOf('\n\n');
+        }
+      });
+    });
+    anfrage.once('error', gescheitert);
+  });
+  return {
+    offen,
+    schliessen: () => anfrage.destroy(),
+    stand: () => ereignisse.length,
+    naechstes: (ab, passt, hoechstensInMs) => {
+      const schon = ereignisse.slice(ab).find((eintrag) => passt(eintrag.ereignis));
+      if (schon) {
+        return Promise.resolve(schon.zeit);
+      }
+      return new Promise((erledigt) => {
+        const warter = { passt, erledigt };
+        wartende.add(warter);
+        setTimeout(() => {
+          wartende.delete(warter);
+          erledigt(Infinity);
+        }, hoechstensInMs);
+      });
+    },
+  };
+}
+
+function ereignisMerken(block, ereignisse, wartende) {
+  const zeit = performance.now();
+  const daten = block.split('\n').filter((zeile) => zeile.startsWith('data:')).map((zeile) => zeile.slice(5).trim()).join('');
+  let ereignis;
+  try {
+    ereignis = JSON.parse(daten);
+  } catch {
+    return;
+  }
+  ereignisse.push({ ereignis, zeit });
+  for (const warter of wartende) {
+    if (warter.passt(ereignis)) {
+      wartende.delete(warter);
+      warter.erledigt(zeit);
+    }
+  }
 }
