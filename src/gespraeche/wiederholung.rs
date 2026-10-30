@@ -549,6 +549,25 @@ pub fn pruefsumme_mit(text: &str, anhaenge: &[super::anhangid::Anhangid]) -> u64
     hasher.finish()
 }
 
+/// Prüfsumme einer Sendung (ADR-0053 Regel 2): über Text, Anhang-IDs und die Zeit des Bezugs als Zeitpunkt
+/// (Millisekunden); ohne Bezug dieselbe wie `pruefsumme_mit` — gleicher Schlüssel mit anderem oder ohne Bezug → wie
+/// ein anderer Text.
+pub fn pruefsumme_sendung(
+    text: &str,
+    anhaenge: &[super::anhangid::Anhangid],
+    antwort_auf: Option<&Zeit>,
+) -> u64 {
+    use std::hash::{DefaultHasher, Hash, Hasher};
+    let Some(bezug) = antwort_auf else {
+        return pruefsumme_mit(text, anhaenge);
+    };
+    let mut hasher = DefaultHasher::new();
+    pruefsumme_mit(text, anhaenge).hash(&mut hasher);
+    "antwort_auf".hash(&mut hasher);
+    bezug.timestamp_millis().hash(&mut hasher);
+    hasher.finish()
+}
+
 /// Prüfsumme eines Bearbeitens (ADR-0048 Regel 8): über die Art der Operation, die Zielzeit als Zeitpunkt und den
 /// Text, wie er ankam — ein Schlüssel des Sendens passt nie.
 pub fn pruefsumme_bearbeiten(ziel: &Zeit, text: &str) -> u64 {
@@ -563,6 +582,28 @@ pub fn pruefsumme_bearbeiten(ziel: &Zeit, text: &str) -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// R00047 B0708: die Prüfsumme einer Sendung umfasst den Bezug als Zeitpunkt; ohne Bezug gleich der bisherigen.
+    #[test]
+    fn die_pruefsumme_einer_sendung_umfasst_den_bezug() {
+        let zeit = |text| Zeit::parse_from_rfc3339(text).expect("Zeit");
+        let t1 = zeit("2026-10-30T09:10:03.004+01:00");
+        let summe = pruefsumme_sendung("Antwort", &[], Some(&t1));
+
+        assert_eq!(
+            summe,
+            pruefsumme_sendung("Antwort", &[], Some(&zeit("2026-10-30T08:10:03.004Z")))
+        );
+        assert_ne!(
+            summe,
+            pruefsumme_sendung("Antwort", &[], Some(&zeit("2026-10-30T09:10:03.005+01:00")))
+        );
+        assert_ne!(summe, pruefsumme_sendung("Antwort", &[], None));
+        assert_eq!(
+            pruefsumme_sendung("Antwort", &[], None),
+            pruefsumme("Antwort")
+        );
+    }
 
     /// R00039 B0600: die Prüfsumme des Bearbeitens umfasst Art, Zielzeit (als Zeitpunkt) und Text — anders als die des
     /// Sendens mit demselben Text, gleich für dieselbe Zielzeit in anderer Schreibweise.

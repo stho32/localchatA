@@ -401,3 +401,88 @@ async fn p8_schreibkonto_und_quote_gelten_auch_fuer_antworten() {
     assert!(am_konto.kopf.get("retry-after").is_some());
     assert_eq!(channels_stand(wurzel.path()), vorher);
 }
+
+/// `POST …/allgemein/nachrichten` mit `Idempotency-Key` und Körper.
+async fn mit_schluessel(
+    absender: &Absender,
+    basis: &str,
+    token: &str,
+    schluessel: &str,
+    koerper: &Value,
+) -> ApiAntwort {
+    api_antwort(
+        absender
+            .anfrage(
+                reqwest::Method::POST,
+                format!("{basis}api/channels/allgemein/nachrichten"),
+            )
+            .header("Content-Type", "application/json")
+            .header("X-LocalchatA-Sitzung", token)
+            .header("Idempotency-Key", schluessel)
+            .body(koerper.to_string()),
+    )
+    .await
+}
+
+/// ADR-0053 P6 (Wiederholung), Regel 2, US-22, Mutante Z6: derselbe Schlüssel mit anderem Bezug oder ohne Bezug →
+/// 422 `schluessel`, nichts geschrieben; mit demselben Bezug nach dem Löschen des Originals → wie die erste (200 nach
+/// ADR-0034 Regel 6), dieselbe Zeit, ein Satz, das Zitat im heutigen Zustand `geloescht`.
+#[tokio::test]
+async fn p6_der_wiederholschluessel_umfasst_den_bezug() {
+    let wurzel = ordner();
+    let instanz = starten(wurzel.path());
+    let basis = instanz.adresse.as_str();
+    let absender = Absender::von("127.0.0.1");
+    let (claude, codex) = agenten(&absender, basis).await;
+    let t1 = gesendet(&absender, basis, &claude, "allgemein", "Frage?").await;
+    let t2 = gesendet(&absender, basis, &claude, "allgemein", "Noch eine").await;
+    let erste = mit_schluessel(
+        &absender,
+        basis,
+        &codex,
+        "k1",
+        &json!({"text": "Antwort", "antwort_auf": t1}),
+    )
+    .await;
+    assert_eq!(erste.status, 201, "{}", erste.json);
+    let vorher = channels_stand(wurzel.path());
+
+    let anderer_bezug = mit_schluessel(
+        &absender,
+        basis,
+        &codex,
+        "k1",
+        &json!({"text": "Antwort", "antwort_auf": t2}),
+    )
+    .await;
+    let ohne_bezug =
+        mit_schluessel(&absender, basis, &codex, "k1", &json!({"text": "Antwort"})).await;
+
+    for antwort in [&anderer_bezug, &ohne_bezug] {
+        assert_eq!(antwort.status, 422, "{}", antwort.json);
+        assert_eq!(antwort.json["regel"], "schluessel");
+    }
+    assert_eq!(channels_stand(wurzel.path()), vorher);
+    loeschen(&absender, basis, &claude, "allgemein", &t1).await;
+    let vorher = channels_stand(wurzel.path());
+    let wiederholt = mit_schluessel(
+        &absender,
+        basis,
+        &codex,
+        "k1",
+        &json!({"text": "Antwort", "antwort_auf": t1}),
+    )
+    .await;
+    assert_eq!(wiederholt.status, 200, "{}", wiederholt.json);
+    assert_eq!(
+        wiederholt.json["nachricht"]["zeit"],
+        erste.json["nachricht"]["zeit"]
+    );
+    assert_eq!(
+        wiederholt.json["nachricht"]["antwort_auf"],
+        json!({"zeit": t1, "von": CLAUDE, "zustand": "geloescht", "textanfang": "", "anhang": null,
+               "geaendert": wiederholt.json["nachricht"]["antwort_auf"]["geaendert"]})
+    );
+    assert!(wiederholt.json["nachricht"]["antwort_auf"]["geaendert"].is_string());
+    assert_eq!(channels_stand(wurzel.path()), vorher);
+}

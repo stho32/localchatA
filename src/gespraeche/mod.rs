@@ -579,7 +579,7 @@ impl Gespraeche {
         let mut verlauf = sperren(&verlauf);
         let mut stand = sperren(&self.schreiben);
         let jetzt = self.uhr.jetzt();
-        let pruefsumme = wiederholung::pruefsumme_mit(text, ids);
+        let pruefsumme = wiederholung::pruefsumme_sendung(text, ids, antwort_auf.as_ref());
         let pruefung = schluessel.map(|schluessel| {
             stand
                 .wiederholung
@@ -589,18 +589,28 @@ impl Gespraeche {
             Some(Pruefung::Anders) => return Err(Sendefehler::SchluesselAnders),
             Some(Pruefung::Wiederholt { zeit }) => {
                 // Frühere Fassungen liefert keine Antwort (ADR-0048 Regel 3): ist die Nachricht inzwischen
-                // geändert, kommt die aktuelle Fassung aus dem Verlauf.
-                let geaendert = verlauf
+                // geändert, kommt die aktuelle Fassung aus dem Verlauf; der Bezug kommt aus ihrem Satz, das Zitat
+                // im heutigen Zustand (ADR-0053 Regel 2).
+                let im_index = verlauf
                     .nachricht(&zeit)
-                    .filter(|kopie| kopie.aenderung.is_some())
                     .as_ref()
-                    .and_then(nachricht_in_fassung)
+                    .and_then(nachricht_in_fassung);
+                let bezug = im_index
+                    .as_ref()
+                    .and_then(|nachricht| nachricht.bezug.clone());
+                let geaendert = im_index
+                    .filter(|nachricht| nachricht.geaendert.is_some())
                     .map(|nachricht| self.zustand_eintragen(nachricht));
                 let nachricht = geaendert.unwrap_or_else(|| {
                     let zeilen = self.anhangzeilen_der_ids(ids);
-                    nachricht_bilden(zeit, von, art, text, zeilen, None).0
+                    let mut nachricht = nachricht_bilden(zeit, von, art, text, zeilen, None).0;
+                    nachricht.bezug = bezug;
+                    nachricht
                 });
-                return Ok((Gesendet::Wiederholt(nachricht), None));
+                return Ok((
+                    Gesendet::Wiederholt(zitat_eintragen(&verlauf, nachricht)),
+                    None,
+                ));
             }
             Some(Pruefung::Neu) | None => {}
         }
@@ -1369,6 +1379,16 @@ fn lesend<T>(sperre: &RwLock<T>) -> std::sync::RwLockReadGuard<'_, T> {
     sperre
         .read()
         .unwrap_or_else(|vergiftet| vergiftet.into_inner())
+}
+
+/// Das Zitat einer gelieferten Nachricht (ADR-0053 Regel 3): ihr Bezug aufgelöst über das Original im Index des
+/// eigenen Gesprächs; ohne Bezug keines.
+fn zitat_eintragen(verlauf: &Verlauf, mut nachricht: Nachricht) -> Nachricht {
+    nachricht.antwort_auf = nachricht
+        .bezug
+        .as_ref()
+        .map(|bezug| Box::new(zitat::zitat(bezug, verlauf.fund(&bezug.zeit))));
+    nachricht
 }
 
 /// Der Bezug einer Antwort, geprüft im Index des Gesprächs (ADR-0053 Regel 2): keine Nachricht mit dieser Zeit →
