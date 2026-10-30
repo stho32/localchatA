@@ -881,7 +881,9 @@ mod tests {
         let satzlaenge = {
             let verlauf =
                 lesend(&gespraeche.verzeichnis).verlaeufe[&Gespraech::channel("k0")].clone();
-            let (_, lesebytes) = sperren(&verlauf).naechste_nach(&t0).expect("erste Nachricht");
+            let (_, lesebytes) = sperren(&verlauf)
+                .naechste_nach(&t0)
+                .expect("erste Nachricht");
             lesebytes
         };
 
@@ -1000,11 +1002,8 @@ mod tests {
         let erste = senden();
         uhr.stellen(beginn + chrono::Duration::days(1));
         let zweite = senden();
-        let mut straenge = gespraeche.straenge(
-            beginn - chrono::Duration::seconds(1),
-            erste,
-            &erwaehnung(),
-        );
+        let mut straenge =
+            gespraeche.straenge(beginn - chrono::Duration::seconds(1), erste, &erwaehnung());
         let strang = &mut straenge[0];
         assert_eq!(strang.kopf.map(|(zeit, _)| zeit), Some(erste));
         sperren(&strang.verlauf).tag_entfernen(erste.date_naive());
