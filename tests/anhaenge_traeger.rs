@@ -513,6 +513,27 @@ fn heic_mit(
     ipco: &[Vec<u8>],
     weitere: &[Vec<u8>],
 ) -> Vec<u8> {
+    heic_mit_iloc(items, ipco, weitere, |anfaenge| {
+        let mut iloc = vec![1u8, 0, 0, 0, 0x44, 0x00];
+        iloc.extend((items.len() as u16).to_be_bytes());
+        for (n, ((_, _, daten), ab)) in items.iter().zip(anfaenge).enumerate() {
+            iloc.extend((n as u16 + 1).to_be_bytes());
+            iloc.extend([0, 0, 0, 0]);
+            iloc.extend(1u16.to_be_bytes());
+            iloc.extend((*ab as u32).to_be_bytes());
+            iloc.extend((daten.len() as u32).to_be_bytes());
+        }
+        kiste(b"iloc", &iloc)
+    })
+}
+
+/// HEIC wie `heic_mit`, das `iloc` baut `iloc` aus den Anfängen der Item-Daten in der Datei (Item n hat ID n + 1).
+fn heic_mit_iloc(
+    items: &[(&[u8; 4], &[u8], Vec<u8>)],
+    ipco: &[Vec<u8>],
+    weitere: &[Vec<u8>],
+    iloc: impl Fn(&[u64]) -> Vec<u8>,
+) -> Vec<u8> {
     let iinf = kiste(
         b"iinf",
         &[
@@ -529,17 +550,14 @@ fn heic_mit(
     );
     let iprp = kiste(b"iprp", &kiste(b"ipco", &ipco.concat()));
     let bauen = |mdat_anfang: u64| {
-        let mut iloc = vec![1u8, 0, 0, 0, 0x44, 0x00];
-        iloc.extend((items.len() as u16).to_be_bytes());
-        let mut ab = mdat_anfang;
-        for (n, (_, _, daten)) in items.iter().enumerate() {
-            iloc.extend((n as u16 + 1).to_be_bytes());
-            iloc.extend([0, 0, 0, 0]);
-            iloc.extend(1u16.to_be_bytes());
-            iloc.extend((ab as u32).to_be_bytes());
-            iloc.extend((daten.len() as u32).to_be_bytes());
-            ab += daten.len() as u64;
-        }
+        let anfaenge: Vec<u64> = items
+            .iter()
+            .scan(mdat_anfang, |ab, (_, _, daten)| {
+                let anfang = *ab;
+                *ab += daten.len() as u64;
+                Some(anfang)
+            })
+            .collect();
         let hdlr = kiste(b"hdlr", &[&[0u8; 8][..], b"pict", &[0; 13]].concat());
         let meta = kiste(
             b"meta",
@@ -548,7 +566,7 @@ fn heic_mit(
                 &hdlr,
                 &kiste(b"pitm", b"\0\0\0\0\0\x01"),
                 &iinf,
-                &kiste(b"iloc", &iloc),
+                &iloc(&anfaenge),
                 &iprp,
                 &weitere.concat(),
             ]
