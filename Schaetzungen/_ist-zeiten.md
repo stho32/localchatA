@@ -628,3 +628,4 @@ Nie vom User erfragen.
 | 2026-10-30 | R00049 Auf Nachrichten warten | F0169 (B0750, B0751) + Nacharbeit F0166 B1/B2/B3/S1/O1 (Wanduhr gesamt) | Entwicklung/Nacharbeit | — | 1,3h | 1,3h | autonom (entw2) |
 | 2026-10-30 | R00047 Im Browser mit Zitat antworten | F0159, F0160 (B0713–B0722, Wanduhr gesamt) | Entwicklung | — | 2,2h | 2,2h | autonom (entw3) |
 | 2026-10-30 | R00045 Härtung Tippanzeige (#83) | Rennen, Verdrahtung, Server-Testlücken, Textbaustein (Wanduhr gesamt) | Härtung | — | 0,6h | 0,6h | autonom (entw) |
+| 2026-10-30 | R00041/R00007/R00020 Härtung Verlauf-Tastatur (#82) | Fokus in Sicht, Alt-Pfeile, Pille, Rennen ↑, Designsystem (Wanduhr gesamt) | Härtung | — | 0,4h | 0,4h | autonom (entw) |
