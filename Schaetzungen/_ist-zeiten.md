@@ -648,3 +648,4 @@ Nie vom User erfragen.
 | 2026-10-30 | R00049 Direktnachricht weckt + Nacharbeit F0172 | F0168 (B0747–B0749), Sollte 2–5 (Wanduhr gesamt) | Entwicklung/Nacharbeit | — | 0,7h | 0,7h | autonom (entw2) |
 | 2026-10-30 | R00050 Entfallen und Grenzen im Direktgespräch | F0175 (B0777–B0780) + Review-Proben (Wanduhr gesamt) | Entwicklung | 4,8–8,8h | 1,3h | 1,3h | autonom (entw3) |
 | 2026-10-30 | R00050 Härtung Welle 2 | Sollte 1–3, Optional 6 aus code-reviewer Welle 2 (Wanduhr gesamt) | Nacharbeit | — | 0,7h | 0,7h | autonom (entw) |
+| 2026-10-30 | R00030 Tests an angepasste Stories | 375×480, Folgen nur am Ende, Player außerhalb, Ende vor Wiedergabe (Wanduhr gesamt) | Nacharbeit | — | 0,5h | 0,5h | autonom (entw) |
