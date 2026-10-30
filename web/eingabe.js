@@ -109,7 +109,7 @@ export function eingabeAnlegen({ senden, entwurf, ansagen, tippen, tippzeile, hi
     }
     if (zuEigenerLetzten(ereignis, feld.value)) {
       ereignis.preventDefault();
-      eigeneLetzteFokussieren();
+      eigeneLetzteFokussieren(() => document.activeElement === feld && feld.value === '');
       return;
     }
     const wirkung = taste(ereignis, feld.value, zeigerart());

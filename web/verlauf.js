@@ -691,10 +691,12 @@ export function verlaufAnlegen({
 
   // ↑ in der leeren Eingabe: die jüngste eigene, bestätigte, nicht gelöschte Nachricht unter den neuesten 100; keine
   // → nichts. Steht der Verlauf nicht am Neuesten, öffnet er zuerst neu (wie beim Senden, ADR-0037 Regel 1).
-  async function eigeneLetzteFokussieren() {
+  // `nochGueltig` fragt nach dem Neuöffnen, ob die Eingabe noch leer ist und den Fokus hat: wer inzwischen weitertippt,
+  // behält ihn (Karte #82).
+  async function eigeneLetzteFokussieren(nochGueltig = () => true) {
     if (fenster !== null && fenster.neuer) {
       const ergebnis = await oeffnen(offenerName);
-      if (ergebnis.art !== 'geladen') {
+      if (ergebnis.art !== 'geladen' || !nochGueltig()) {
         return;
       }
     }

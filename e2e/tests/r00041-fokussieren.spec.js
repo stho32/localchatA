@@ -331,6 +331,34 @@ test('Pfeil hoch (B1, Probe a): „Mein“ liegt weit weggescrollt — ↑ sprin
   expect(a.fehler).toEqual([]);
 });
 
+test('Pfeil hoch (Karte #82): wer während des Neuöffnens weitertippt, behält den Fokus in der Eingabe', async ({ browser }) => {
+  test.setTimeout(120000);
+  instanz = await sendenStarten({ anzahl: 800 });
+  const a = await kontextOeffnen(browser, { streng: true });
+  await imBrowserBeitreten(a.page, instanz.adresse, 'shoff');
+  await imBrowserSenden(a.page, 'Mein');
+  await betaSendetViele(2);
+  await expect(nachrichten(a.page).last()).toContainText('Fremd 2');
+  await weitHochScrollen(a.page, 7);
+  await expect(a.page.getByRole('button', { name: /Zum Neuesten/ })).toBeVisible();
+
+  let verzoegert = 0;
+  await a.page.route(/\/nachrichten\?.*\bn=100\b/, async (route) => {
+    verzoegert += 1;
+    await new Promise((fertig) => setTimeout(fertig, 1500));
+    await route.continue();
+  });
+  await eingabe(a.page).focus();
+  await a.page.keyboard.press('ArrowUp');
+  await a.page.keyboard.type('ab');
+  await expect(a.page.getByRole('button', { name: /Zum Neuesten/ })).toBeHidden({ timeout: 10000 });
+  expect(verzoegert, 'das Neuöffnen lief über die verzögerte Antwort').toBe(1);
+  await a.page.waitForTimeout(3000); // die Fokussierung käme spät nach dem Neuöffnen
+  await expect(eingabe(a.page)).toBeFocused();
+  await expect(eingabe(a.page)).toHaveValue('ab');
+  expect(a.fehler).toEqual([]);
+});
+
 test('Pfeil hoch (B1, Probe b): eine ältere eigene „Alt“ steht im Fenster, die letzte „Mein“ nicht — ↑ trifft „Mein“', async ({ browser }) => {
   test.setTimeout(180000);
   instanz = await sendenStarten({ anzahl: 800 });
