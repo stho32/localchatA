@@ -3,11 +3,13 @@
 // einmal je Worker in einem eigenen Wegwerf-Ordner erzeugt, und Anhänge, die `beta` über die API sendet (Gegeben über
 // die API, R00029). Video und Ton sind 1 s lang statt 6 s — vor F0165 spielt nichts, gezeigt wird nur die Datei-Zeile.
 const fs = require('fs');
+const http = require('http');
 const os = require('os');
 const path = require('path');
 const { execFileSync } = require('child_process');
 const { betaSendet, mitAnhaengenSenden, browserOeffnen, nachrichtMitZeit } = require('./r00041-hilfen');
-const { sendenStarten, imBrowserBeitreten } = require('./senden-hilfen');
+const { sendenStarten, imBrowserBeitreten, anfragen } = require('./senden-hilfen');
+const { expect } = require('./rahmen');
 
 let vorrat = null;
 
@@ -76,18 +78,22 @@ function heic() {
   return Buffer.concat([boxe('ftyp', ftyp), boxe('moov', boxe('mvhd', Buffer.alloc(100))), boxe('mdat', Buffer.from('MEDIENDATEN'))]);
 }
 
-/// Instanz mit `allgemein`; `beta` sendet je Eintrag von `nachrichten` ({ text, namen }) eine Nachricht mit diesen
+/// Instanz mit `allgemein`; `beta` sendet je Eintrag von `nachrichten` ({ text, namen, antwortAuf? }) eine Nachricht mit diesen
 /// Testdateien (oder eigenen { name, inhalt }); `vorSeite(page)` läuft vor dem Beitritt (Netz-Fakes); A (`shoff`) ist im
-/// Browser beigetreten. → { instanz, a, zeiten, ids: je Nachricht die IDs }
+/// Browser beigetreten; `antwortAuf` ist die Stelle einer früheren Nachricht der Liste. → { instanz, a, beta, zeiten, ids }
 async function anzeigeStarten(browser, nachrichten, { geraet, vorbereiten, vorSeite = async () => {} } = {}) {
   const instanz = await sendenStarten({ vorbereiten });
   const beta = await betaSendet(instanz.adresse, []);
   const zeiten = [];
   const ids = [];
-  for (const { text = '', namen } of nachrichten) {
+  for (const { text = '', namen, antwortAuf } of nachrichten) {
     const dateien = namen.map(dateiAus);
     const gesammelt = [];
-    zeiten.push(await mitAnhaengenSenden(instanz.adresse, beta.token, text, dateien, undefined, gesammelt));
+    if (antwortAuf === undefined) {
+      zeiten.push(await mitAnhaengenSenden(instanz.adresse, beta.token, text, dateien, undefined, gesammelt));
+    } else {
+      zeiten.push(await mitBezugSenden(instanz.adresse, beta.token, { text, dateien, antwortAuf: zeiten[antwortAuf] }, gesammelt));
+    }
     ids.push(gesammelt);
   }
   const optionen = {};
@@ -101,6 +107,36 @@ async function anzeigeStarten(browser, nachrichten, { geraet, vorbereiten, vorSe
     await nachrichtMitZeit(a.page, zeit).waitFor();
   }
   return { instanz, a, beta, zeiten, ids };
+}
+
+/// Wie mitAnhaengenSenden (R00041), aber als Antwort (`antwort_auf`, R00047); → die Zeit der Nachricht.
+async function mitBezugSenden(adresse, token, { text, dateien, antwortAuf }, ids) {
+  const herkunft = '127.0.0.2';
+  for (const { name, inhalt } of dateien) {
+    const angemeldet = await anfragen(adresse, { methode: 'POST', pfad: 'api/anhaenge', koerper: { name, bytes: inhalt.length }, token, herkunft });
+    expect(angemeldet.status, JSON.stringify(angemeldet.daten)).toBe(201);
+    ids.push(angemeldet.daten.anhang.id);
+    expect(await hochladen(adresse, `api/anhaenge/${angemeldet.daten.anhang.id}`, token, inhalt, herkunft), `Hochladen ${name}`).toBe(200);
+  }
+  const koerper = { text, anhaenge: ids, antwort_auf: antwortAuf };
+  const gesendet = await anfragen(adresse, { methode: 'POST', pfad: 'api/channels/allgemein/nachrichten', koerper, token, herkunft });
+  expect(gesendet.status, JSON.stringify(gesendet.daten)).toBe(201);
+  return gesendet.daten.nachricht.zeit;
+}
+
+function hochladen(adresse, pfad, token, inhalt, herkunft) {
+  const ziel = new URL(pfad, adresse);
+  return new Promise((fertig, gescheitert) => {
+    const anfrage = http.request({
+      host: ziel.hostname, port: ziel.port, path: ziel.pathname, method: 'PUT', localAddress: herkunft, agent: false,
+      headers: { 'Content-Type': 'application/octet-stream', 'Content-Length': inhalt.length, 'X-LocalchatA-Sitzung': token },
+    }, (antwort) => {
+      antwort.resume();
+      antwort.on('end', () => fertig(antwort.statusCode));
+    });
+    anfrage.once('error', gescheitert);
+    anfrage.end(inhalt);
+  });
 }
 
 /// Ein Eintrag ist der Name einer Testdatei oder eine eigene Datei { name, inhalt }.

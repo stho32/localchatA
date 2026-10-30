@@ -650,10 +650,10 @@ export function verlaufAnlegen({
     schalterRollen(liste[stelle]);
   }
 
-  // Auch die Knöpfe einer Nachricht („Ganze Nachricht anzeigen“, die Marke „bearbeitet“) sind nur Stopp, solange ihre
-  // Nachricht der Stopp ist.
+  // Auch die Knöpfe einer Nachricht („Ganze Nachricht anzeigen“, die Marke „bearbeitet“) und ihre Anhänge (Vorschau,
+  // „Öffnen“, „Laden“, Player; R00030 B0732) sind nur Stopp, solange ihre Nachricht der Stopp ist.
   function schalterRollen(stoppNachricht) {
-    for (const schalterEinzeln of inhalt.querySelectorAll('.lc-msg button')) {
+    for (const schalterEinzeln of inhalt.querySelectorAll('.lc-msg button, .lc-msg a[href], .lc-msg video, .lc-msg audio')) {
       let soll = '-1';
       if (schalterEinzeln.closest('.lc-msg') === stoppNachricht) {
         soll = '0';
