@@ -180,3 +180,4 @@ Eine Zeile je Auftrag an eine Rolle und je Retrospektive.
 | 2026-10-30 | #13 | Sperre Demo-Update/Release: bis F0173 und F0177 auf main zählt Health Direktnachrichten mit und warten-seit verrät deren Zeit (code-reviewer geprobt) | Director |
 | 2026-10-30 | Demo | Betreiber: Demo jetzt aktualisieren (bekannte API-Lücke G3 bis F0168 hingenommen) und ab dann laufend mit main mitziehen — Demo-Sperre aufgehoben | Director |
 | 2026-10-30 | Betrieb | Nachtmodus bis 2026-10-31 08:00 (Betreiber „1“): höchstens ein Entwickler und eine prüfende Rolle, CARGO_BUILD_JOBS=1, nice 19, Playwright --workers=2, keine Lasttests; laufende Aufträge (entw, entw2, entw3) laufen zu Ende | Director |
+| 2026-10-30 | #17 | I0016 Auf Nachrichten warten → Erledigt: F0166–F0171 und F0168 gebaut, Reviews (code, security, observability, realist-Schleifenbremse) und Entwicklertest inkl. Nachtrag F0168 bestanden; Drift-Punkte R00049 auf #84 | Director |
