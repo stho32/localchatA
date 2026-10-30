@@ -29,7 +29,8 @@ async function einfuegen(page, text) {
 }
 
 for (const geraet of ['telefon', 'desktop']) {
-  test(`Gruppe (${geraet}): „Senden“ ist der letzte und einzige Schalter rechts vom Feld, Abstand ≥ 8 px`, async ({ browser }) => {
+  // Mit R00030 („Bestand bleibt grün“): „Senden“ ist das letzte Kind, „Anhang“ der einzige weitere Schalter.
+  test(`Gruppe (${geraet}): „Senden“ ist der letzte Schalter rechts vom Feld, „Anhang“ der einzige weitere, Abstand ≥ 8 px`, async ({ browser }) => {
     instanz = await sendenStarten();
     const { page, fehler } = await seiteAuf(browser, geraet);
 
@@ -37,10 +38,10 @@ for (const geraet of ['telefon', 'desktop']) {
     await expect(gruppe).toHaveCount(1);
     const aufbau = await gruppe.evaluate((element) => ({
       letztesIstKnopf: element.lastElementChild.textContent === 'Senden',
-      schalter: element.querySelectorAll('button, [role="button"]').length,
+      schalter: [...element.querySelectorAll('button, [role="button"]')].map((schalter) => schalter.getAttribute('aria-label') || schalter.textContent),
       abstand: parseFloat(getComputedStyle(element).columnGap),
     }));
-    expect(aufbau).toEqual({ letztesIstKnopf: true, schalter: 1, abstand: expect.any(Number) });
+    expect(aufbau).toEqual({ letztesIstKnopf: true, schalter: ['Anhang', 'Senden'], abstand: expect.any(Number) });
     expect(aufbau.abstand).toBeGreaterThanOrEqual(8);
     expect(fehler).toEqual([]);
   });
@@ -194,6 +195,8 @@ test('Bildschirmleser (Desktop): ein Schalter „Senden“ ohne aria-label und o
   await expect(knopf(page)).not.toHaveAttribute('disabled', /.*/);
   await expect(knopf(page)).toHaveAttribute('aria-disabled', 'true');
   await eingabe(page).focus();
+  await page.keyboard.press('Tab');
+  await expect(page.locator('.lc-comp').getByRole('button', { name: 'Anhang', exact: true })).toBeFocused();
   await page.keyboard.press('Tab');
   await expect(knopf(page)).toBeFocused();
   await einfuegen(page, STEUERZEICHEN);

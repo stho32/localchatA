@@ -138,15 +138,17 @@ test('Touch (Telefon): Tippen lässt den Fokus im Feld, danach sendet „Senden�
   expect(a.fehler).toEqual([]);
 });
 
-// Reihenfolge und Beschreibung (V5, V17): Tab vom Feld → Senden → Steuerzeichen entfernen; der Schalter liegt in
+// Reihenfolge und Beschreibung (V5, V17): Tab vom Feld → Anhang (R00030) → Senden → Steuerzeichen entfernen; der Schalter liegt in
 // keinem Element, auf das aria-describedby von Feld oder Senden zeigt.
-test('Reihenfolge: Feld → Senden → Steuerzeichen entfernen, nicht im Beschreibungsziel', async ({ browser }) => {
+test('Reihenfolge: Feld → Anhang → Senden → Steuerzeichen entfernen, nicht im Beschreibungsziel', async ({ browser }) => {
   instanz = await sendenStarten();
   const a = await kontextOeffnen(browser, { streng: true });
   await imBrowserBeitreten(a.page, instanz.adresse, 'shoff');
   await eingabe(a.page).fill(ROT);
 
   await eingabe(a.page).focus();
+  await a.page.keyboard.press('Tab');
+  await expect(a.page.locator('.lc-comp-anhang')).toBeFocused();
   await a.page.keyboard.press('Tab');
   await expect(knopf(a.page)).toBeFocused();
   await a.page.keyboard.press('Tab');

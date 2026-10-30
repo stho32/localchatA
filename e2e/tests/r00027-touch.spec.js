@@ -33,6 +33,8 @@ for (const thema of ['light', 'dark']) {
       await page.keyboard.type(text);
       await expect(page.locator('.lc-comp-box')).toHaveCSS('outline-style', 'solid');
       await page.keyboard.press('Tab');
+      await expect(page.locator('.lc-comp-anhang')).toBeFocused();
+      await page.keyboard.press('Tab');
       await expect(knopf(page)).toBeFocused();
       await expect(page.locator('.lc-comp-box')).toHaveCSS('outline-style', 'none');
       const ring = await knopf(page).evaluate(fokusringVermessen);

@@ -139,6 +139,8 @@ test('Tastatur (Desktop): Tab auf den Knopf, Enter und Leertaste senden, der Fok
 
   await page.keyboard.type('eins');
   await page.keyboard.press('Tab');
+  await expect(page.locator('.lc-comp-anhang')).toBeFocused();
+  await page.keyboard.press('Tab');
   await expect(knopf(page)).toBeFocused();
   await page.keyboard.press('Enter');
   await expect(bestaetigt(page, 'eins')).toHaveCount(1);
@@ -146,10 +148,16 @@ test('Tastatur (Desktop): Tab auf den Knopf, Enter und Leertaste senden, der Fok
 
   await page.keyboard.type('zwei');
   await page.keyboard.press('Tab');
+  await expect(page.locator('.lc-comp-anhang')).toBeFocused();
+  await page.keyboard.press('Tab');
   await expect(knopf(page)).toBeFocused();
   await page.keyboard.press(' ');
   await expect(bestaetigt(page, 'zwei')).toHaveCount(1);
   expect(await feldHatFokus(page)).toBe(true);
+
+  await page.keyboard.press('Tab');
+
+  await expect(page.locator('.lc-comp-anhang')).toBeFocused();
 
   await page.keyboard.press('Tab');
   await expect(knopf(page)).toBeFocused();

@@ -51,7 +51,8 @@ export function eingabeAnlegen({ senden, entwurf, ansagen, tippen, tippzeile, ei
   feld.setAttribute('aria-describedby', zeile.id);
   const knopf = element('button', { type: 'button', className: 'lc-comp-senden', textContent: 'Senden' });
   knopf.setAttribute('aria-describedby', zeile.id);
-  const aktionen = element('div', { className: 'lc-comp-aktionen' }, [knopf]);
+  const anhang = anhangSchalterAnlegen(feld);
+  const aktionen = element('div', { className: 'lc-comp-aktionen' }, [anhang.schalter, anhang.auswahl, knopf]);
   const kasten = element('div', { className: 'lc-comp-box' }, [feld, aktionen]);
   // Neben, nicht in der Hinweiszeile: deren Text ist die Beschreibung von Feld und Knopf (R00025 F0086, V17).
   const bereinigen = element('button', { type: 'button', textContent: 'Steuerzeichen entfernen' });
@@ -118,6 +119,11 @@ export function eingabeAnlegen({ senden, entwurf, ansagen, tippen, tippzeile, ei
     if (ereignis.key === 'Escape' && antwort.steht()) {
       ereignis.preventDefault();
       antwort.abbrechen();
+      return;
+    }
+    if (anhangTaste(ereignis)) {
+      ereignis.preventDefault();
+      anhang.oeffnen();
       return;
     }
     if (zuEigenerLetzten(ereignis, feld.value)) {
@@ -319,6 +325,39 @@ function antwortzeileAnlegen(feld, ansagen) {
     }
   }
   return { zeile, beginnen, verwerfen, abbrechen, nachfuehren, steht: () => bezug !== null };
+}
+
+// Der Schalter „Anhang“ vor „Senden“ (R00030 B0448, ADR-0038 Ergänzung Karte #41 K7): zugänglicher Name immer „Anhang“,
+// sichtbar unter 480 px das Symbol ⎘, sonst der Text (das CSS wählt). Er öffnet die Dateiauswahl des Systems (jede
+// Datei, Mehrfachauswahl); danach — gewählt oder abgebrochen — liegt der Fokus im Feld.
+function anhangSchalterAnlegen(feld) {
+  const auswahl = element('input', { type: 'file', multiple: true, hidden: true, className: 'lc-anhang-auswahl' });
+  const schalter = element('button', { type: 'button', className: 'lc-comp-anhang' }, [
+    element('span', { className: 'lc-anhang-text', textContent: 'Anhang' }),
+    element('span', { className: 'lc-anhang-symbol', textContent: '⎘' }),
+  ]);
+  schalter.setAttribute('aria-label', 'Anhang');
+  schalter.setAttribute('aria-keyshortcuts', 'Control+Shift+U');
+  function oeffnen() {
+    auswahl.value = '';
+    auswahl.click();
+  }
+  // Ein Tippen auf den Schalter nimmt dem Feld den Fokus nicht: die Bildschirmtastatur bleibt offen.
+  schalter.addEventListener('pointerdown', (ereignis) => {
+    if (document.activeElement === feld) {
+      ereignis.preventDefault();
+    }
+  });
+  schalter.addEventListener('click', oeffnen);
+  auswahl.addEventListener('change', () => feld.focus());
+  auswahl.addEventListener('cancel', () => feld.focus());
+  return { schalter, auswahl, oeffnen };
+}
+
+// Strg Shift U im Feld öffnet die Dateiauswahl (R00030 B0448).
+function anhangTaste(ereignis) {
+  const mitStrg = ereignis.ctrlKey || ereignis.metaKey;
+  return mitStrg && ereignis.shiftKey && !ereignis.altKey && ereignis.key.toLowerCase() === 'u';
 }
 
 function zusammen(zurueck, inzwischen) {

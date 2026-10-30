@@ -169,6 +169,15 @@ body { background: var(--kd-bg); color: var(--kd-ink); font-family: var(--font-s
   .lc-antwort-an { flex: 0 1 auto; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 }
 .lc-comp-aktionen { display: flex; flex: none; column-gap: var(--kd-space-8); }
+/* Schalter „Anhang“ vor „Senden“ (R00030 B0448): unter 480 px das Symbol ⎘ (benannte Ausnahme im Designsystem), sonst
+   der Text; Zielfläche ≥ 24 px mit Maus, ≥ 44 px auf Touch; eigener Ring außen auf kd-surface (UX M3) */
+.lc-comp-anhang { min-width: 24px; min-height: 32px; padding: 0 var(--kd-space-8); border: 1px solid var(--kd-line-strong); background: var(--kd-surface); color: var(--kd-ink); font-weight: 600; cursor: pointer; touch-action: manipulation; }
+.lc-anhang-symbol { display: none; }
+@media (max-width: 479px) {
+  .lc-anhang-text { display: none; }
+  .lc-anhang-symbol { display: inline; }
+}
+.lc .lc-comp-anhang:focus-visible { outline: 2px solid var(--kd-focus); outline-offset: 2px; }
 .lc-comp-senden { min-width: 24px; min-height: 32px; padding: 0 var(--kd-space-12); border: 1px solid var(--kd-accent); background: var(--kd-accent); color: var(--kd-on-accent); font-weight: 600; cursor: pointer; touch-action: manipulation; }
 .lc-comp-senden[aria-disabled="true"] { border-color: var(--kd-line); background: var(--kd-surface); color: var(--kd-ink-muted); cursor: default; }
 /* Der Ring liegt außen auf kd-surface — innen auf kd-accent wäre er unsichtbar; das Polster der Box (4 px) fasst
@@ -177,7 +186,7 @@ body { background: var(--kd-bg); color: var(--kd-ink); font-family: var(--font-s
 /* Touch-Geräte (grober Zeiger): Zielfläche 44 px; ab 16 px Schrift zoomt Safari unter iOS beim Fokus nicht ins Feld —
    gelöst über die Schrift, nie über ein Zoomverbot im Viewport (UX-Vorprüfung #41 M2) */
 @media (pointer: coarse) {
-  .lc-comp-senden { min-width: 44px; min-height: 44px; }
+  .lc-comp-anhang, .lc-comp-senden { min-width: 44px; min-height: 44px; }
   .lc .lc-comp-feld { font-size: 16px; line-height: 24px; }
 }
 /* Leerer Channel (ADR-0038 Regel 9): wie Agenten hier schreiben */
