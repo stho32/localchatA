@@ -51,6 +51,7 @@ pub async fn bearbeiten(
     kopf: HeaderMap,
     koerper: Body,
 ) -> Response {
+    let eintritt = Instant::now();
     if let Err(gebremst) =
         zustand
             .schreibkonto
@@ -116,7 +117,6 @@ pub async fn bearbeiten(
             &teilnehmer,
         );
     }
-    let eintritt = Instant::now();
     let text_bytes = text.len();
     let gespraeche = Arc::clone(&zustand.gespraeche);
     let gespraech = Gespraech::channel(&name);
