@@ -22,10 +22,10 @@ import { einordnen, zusammenfuehren, fassungUebernehmen, buendlerAnlegen, folgen
 // Nachrichten unterwegs oder fehlgeschlagen unter allen bestätigten; an fehlgeschlagenen rufen „Erneut senden“ und
 // „Verwerfen“ schalter('erneut' | 'verwerfen', schluessel) (ADR-0038 Regel 5).
 // bearbeitenSpeichern: async (channel, zeit, text) → Antwort (api.js nachrichtBearbeiten); hinweisen(text): die Hinweiszeile
-// der Seite (R00041 F0135).
+// der Seite; ansagen(text): eine Ansage über die Region der Seite (R00041 F0135).
 export function verlaufAnlegen({
   abrufen, schalter = () => {}, fokusRueckgaengig = () => {}, fokusVerloren = () => {}, bearbeitenSpeichern = async () => ({ art: 'netzfehler' }),
-  hinweisen = () => {},
+  hinweisen = () => {}, ansagen = () => {},
 }) {
   const inhalt = element('div', { className: 'lc-log-inhalt' });
   const ausstehend = element('div', { className: 'lc-ausstehend' });
@@ -281,6 +281,7 @@ export function verlaufAnlegen({
     uebernehmen: (nachricht) => fassungenErsetzen([nachricht]),
     alsGeloeschtZeigen: geloeschtSetzen,
     hinweisen,
+    ansagen,
   });
 
   function tasteAufNachricht(ereignis) {

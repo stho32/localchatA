@@ -161,6 +161,20 @@ const schriftKontrast = (locator) => locator.evaluate((element) => {
   return (Math.max(vorn, hinten) + 0.05) / (Math.min(vorn, hinten) + 0.05);
 });
 
+/// Schreibt jeden nicht leeren Inhalt der Ansage-Region mit; → Abfrage der bisherigen Ansagen.
+async function ansagenMitschreiben(page) {
+  await page.evaluate(() => {
+    window.ansagen = [];
+    const region = document.querySelector('[role="status"][aria-live="polite"]');
+    new MutationObserver(() => {
+      if (region.textContent !== '') {
+        window.ansagen.push(region.textContent);
+      }
+    }).observe(region, { childList: true, characterData: true, subtree: true });
+  });
+  return () => page.evaluate(() => window.ansagen);
+}
+
 /// Alle Textknoten des Verlaufs, deren Text genau `text` ist (getrimmt).
 const textknotenMit = (page, text) => page.evaluate((gesucht) => {
   const laeufer = document.createTreeWalker(document.querySelector('[role="log"]'), NodeFilter.SHOW_TEXT);
@@ -175,5 +189,5 @@ const textknotenMit = (page, text) => page.evaluate((gesucht) => {
 
 module.exports = {
   BETA, betaVerlauf, mitAnhaengenSenden, PNG, webm, betaSendet, bearbeitenPerApi, loeschenPerApi, browserOeffnen, imBrowserSenden, nachrichtMitZeit, zeigtBearbeitet,
-  zeigtGeloescht, textknotenMit, schriftKontrast,
+  zeigtGeloescht, textknotenMit, schriftKontrast, ansagenMitschreiben,
 };

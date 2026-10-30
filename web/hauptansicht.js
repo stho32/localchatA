@@ -75,6 +75,7 @@ export function zeichnen(wurzel, teilnehmer, optionen) {
     abrufen: optionen.verlaufAbrufen,
     bearbeitenSpeichern: (channel, zeit, text) => optionen.nachrichtBearbeiten(channel, zeit, text, neuerSchluessel()),
     hinweisen: statusMelden,
+    ansagen: (text) => ansagen.melden({ art: 'sofort', text }),
     fokusRueckgaengig: (schluessel) => senden.rueckgaengigFokussiert(schluessel),
     fokusVerloren: () => eingabe.fokussieren(),
     schalter: (aktion, schluessel) => {

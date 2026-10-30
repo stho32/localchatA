@@ -11,6 +11,7 @@ const {
 } = require('./senden-hilfen');
 const {
   betaSendet, browserOeffnen, imBrowserSenden, nachrichtMitZeit, zeigtBearbeitet, loeschenPerApi, textknotenMit,
+  ansagenMitschreiben,
 } = require('./r00041-hilfen');
 
 const QUOTE_ORDNER = path.resolve(__dirname, '../../target/debug/examples/quote-ordner');
@@ -462,5 +463,40 @@ test('Während des Bearbeitens (B0611): beta sendet drei Nachrichten, während A
   await a.page.keyboard.type('ammen');
   await expect(feld(a.page)).toHaveValue('Hallo zusammen');
   await expect(feld(a.page)).toBeFocused();
+  expect(a.fehler).toEqual([]);
+});
+
+test('Ansagen (B0612, S2, S3): beim Öffnen keine; Speichern genau einmal „Änderung gespeichert.“, unverändert „Keine Änderung.“, Esc „Bearbeiten abgebrochen.“; Fokus sichtbar an den Knöpfen', async ({ browser }) => {
+  instanz = await sendenStarten();
+  const a = await browserOeffnen(browser, { streng: true });
+  await imBrowserBeitreten(a.page, instanz.adresse, 'shoff');
+  const zeit = await imBrowserSenden(a.page, 'Hallo');
+  await a.page.waitForTimeout(300);
+  const angesagt = await ansagenMitschreiben(a.page);
+
+  await feldOeffnen(a.page, zeit);
+  await a.page.waitForTimeout(300);
+  expect(await angesagt()).toEqual([]);
+  for (const name of ['Abbrechen', 'Speichern']) {
+    await nachrichtMitZeit(a.page, zeit).getByRole('button', { name }).focus();
+    await a.page.keyboard.press('Shift+Tab');
+    await a.page.keyboard.press('Tab');
+    expect(await a.page.evaluate(() => document.activeElement.matches(':focus-visible') && getComputedStyle(document.activeElement).outlineStyle !== 'none')).toBe(true);
+  }
+  await feld(a.page).focus();
+  await a.page.keyboard.type(' zusammen');
+  await a.page.keyboard.press('Enter');
+  await expect(nachrichtMitZeit(a.page, zeit)).toBeFocused();
+  await expect.poll(angesagt).toEqual(['Änderung gespeichert.']);
+
+  await a.page.keyboard.press('e');
+  await a.page.keyboard.press('Enter');
+  await expect.poll(angesagt).toEqual(['Änderung gespeichert.', 'Keine Änderung.']);
+
+  await a.page.keyboard.press('e');
+  await a.page.keyboard.press('Escape');
+  await expect.poll(angesagt).toEqual(['Änderung gespeichert.', 'Keine Änderung.', 'Bearbeiten abgebrochen.']);
+  await a.page.waitForTimeout(300);
+  expect(await angesagt()).toHaveLength(3);
   expect(a.fehler).toEqual([]);
 });

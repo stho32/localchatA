@@ -73,9 +73,10 @@ function fehlerText({ status, daten }) {
 
 // Das eine Feld des Tabs. zeiger: () → 'fein' | 'grob' · fokusAufNachricht(zeit): Fokus auf die Nachricht im Verlauf ·
 // speichern: async (channel, zeit, text) → Antwort wie api.js nachrichtBearbeiten · uebernehmen(nachricht): die
-// gespeicherte Fassung in den Verlauf · alsGeloeschtZeigen(zeit) · hinweisen(text): die Hinweiszeile der Seite.
+// gespeicherte Fassung in den Verlauf · alsGeloeschtZeigen(zeit) · hinweisen(text): die Hinweiszeile der Seite ·
+// ansagen(text): genau eine Ansage über die Region der Seite (UX S2); beim Öffnen keine (S3).
 // beginnen(channel, artikel, nachricht) öffnet das Feld in `artikel`; istOffen(zeit) sagt, ob es an dieser Nachricht steht.
-export function bearbeitenAnlegen({ zeiger, fokusAufNachricht, speichern, uebernehmen, alsGeloeschtZeigen, hinweisen }) {
+export function bearbeitenAnlegen({ zeiger, fokusAufNachricht, speichern, uebernehmen, alsGeloeschtZeigen, hinweisen, ansagen }) {
   let offen = null;
 
   function beginnen(channel, artikel, nachricht) {
@@ -154,6 +155,11 @@ export function bearbeitenAnlegen({ zeiger, fokusAufNachricht, speichern, uebern
     }
     uebernehmen(ergebnis.nachricht);
     fokusAufNachricht(zeit);
+    if (ergebnis.art === 'unveraendert') {
+      ansagen('Keine Änderung.');
+      return;
+    }
+    ansagen('Änderung gespeichert.');
   }
 
   // Die Abweisung steht am Feld und beschreibt es (UX S5); aria-invalid nur bei Prüffehlern; das Getippte bleibt.
@@ -170,6 +176,7 @@ export function bearbeitenAnlegen({ zeiger, fokusAufNachricht, speichern, uebern
     const zeit = offen.zeit;
     schliessen();
     fokusAufNachricht(zeit);
+    ansagen('Bearbeiten abgebrochen.');
   }
 
   function schliessen() {
