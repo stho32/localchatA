@@ -23,6 +23,8 @@ pub mod nachricht_loeschen;
 mod pflege;
 pub mod platte;
 pub mod quote;
+#[cfg(test)]
+mod schranke;
 mod speicherablage;
 pub mod textregel;
 mod verlaufsindex;
@@ -227,6 +229,9 @@ pub struct Gespraeche {
     /// Ob `gebunden` über 90 % der Anhang-Quote steht (B0515); gewechselt nur über `anhangschwelle_pruefen`.
     anhangschwelle: std::sync::atomic::AtomicBool,
     anhangschwelle_melden: anhaenge::AnhangschwelleMelden,
+    /// Schranken vor den Sperren für feste Verschränkungen in Tests (ADR-0048 Ergänzung „Karte #73“ K8).
+    #[cfg(test)]
+    schranken: schranke::Schranken,
 }
 
 /// Ein beim Laden übergangener Anhang bzw. ein Anhang-Ordner, der sich nicht öffnen ließ (ADR-0046 Regel 7 und
@@ -423,6 +428,8 @@ impl Gespraeche {
             geloescht_nachzukuerzen: Mutex::new(Vec::new()),
             anhangschwelle: std::sync::atomic::AtomicBool::new(false),
             anhangschwelle_melden: Arc::new(|_: &anhaenge::Anhangschwelle| {}),
+            #[cfg(test)]
+            schranken: schranke::Schranken::default(),
             zufall: Arc::new(crate::zufall::Betriebssystemzufall),
         })
     }
@@ -676,6 +683,8 @@ impl Gespraeche {
             .get(gespraech)
             .cloned()
             .ok_or(Bearbeitfehler::Unbekannt)?;
+        #[cfg(test)]
+        self.schranken.passieren(schranke::Vorgang::Bearbeiten);
         let mut verlauf = sperren(&verlauf);
         let mut stand = sperren(&self.schreiben);
         let jetzt = self.uhr.jetzt();
@@ -907,6 +916,12 @@ impl Gespraeche {
             verdraengt_melden,
             ..self
         }
+    }
+
+    /// Stellt eine Schranke vor die Sperren des nächsten Durchgangs von `vorgang` (nur Testbau, K8).
+    #[cfg(test)]
+    fn vor_den_sperren_anhalten(&self, vorgang: schranke::Vorgang) -> Arc<std::sync::Barrier> {
+        self.schranken.aufstellen(vorgang)
     }
 
     /// Ob die Schreibsperre gerade frei ist — nur für die Probe „nach der Sperre“.

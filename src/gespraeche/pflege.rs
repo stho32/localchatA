@@ -151,6 +151,8 @@ impl Gespraeche {
         let mut nachrichten = 0;
         let mut je_tag = Vec::new();
         for tag in entfallend {
+            #[cfg(test)]
+            self.schranken.passieren(super::schranke::Vorgang::Pflegen);
             let mut verlauf = sperren(&verlauf);
             if let Some(ziel) = verlauf.tag_haelt_aenderungen_fuer_bestehende_tage(tag) {
                 je_tag.push(Pflegebericht::Zurueckgestellt {

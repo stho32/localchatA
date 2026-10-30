@@ -1953,84 +1953,132 @@ mod tests {
         assert_eq!(entfallen.1.gebunden, 0);
     }
 
-    /// R00040 „Wettlauf mit dem Entfallen“ (M6; ADR-0048 Regel 9 „Wettläufe“): Uhr 23:59:59.900, Frist 1 in
-    /// `allgemein`, Nachricht A mit Anhang (1 MiB) dort, Nachricht B mit Anhang (1 MiB) in `technik` (Frist 7); kurz nach
-    /// Mitternacht Entfallen und Löschen von A gleichzeitig — zehnmal → entweder `Nachricht` (404) oder gelöscht mit
-    /// einem Anhang; je Anhang genau ein Abzug: G ist danach genau z(B), die Invarianten aus F1′ Regel 1 gelten.
-    #[test]
-    fn loeschen_und_entfallen_gleichzeitig_ziehen_je_anhang_einmal_ab() {
-        use crate::gespraeche::nachricht_loeschen::{Loeschfehler, NachrichtGeloescht};
-        let tag = NaiveDate::from_ymd_opt(2026, 10, 29).expect("Tag");
+    /// Aufbau der Verschränkung „Löschen und Entfallen“: Uhr 23:59:59.900, Frist 1 in `allgemein`, Nachricht A mit
+    /// Anhang (1 MiB) dort, Nachricht B mit Anhang (1 MiB) in `technik` (Frist 7); die Uhr steht danach kurz nach
+    /// Mitternacht. Liefert Gespräche, `beta` und die Zeit von A.
+    fn loeschen_und_entfallen_aufbauen() -> (Arc<Gespraeche>, Kennung, crate::uhr::Zeit) {
         let (beta, alpha) = (kennung("beta@127.0.0.1"), kennung("alpha@127.0.0.1"));
-        for _ in 0..10 {
-            let ablage = Arc::new(Speicherablage::neu());
-            ablage.gespraech_anlegen(&Gespraech::channel("allgemein"));
-            ablage.gespraech_anlegen(&Gespraech::channel("technik"));
-            let uhr = Arc::new(GestellteUhr::neu(
-                chrono::DateTime::parse_from_rfc3339("2026-10-29T23:59:59.900+01:00")
-                    .expect("Zeit"),
-            ));
-            let gespraeche = Arc::new(
-                Gespraeche::laden(ablage.clone(), uhr.clone())
-                    .expect("geladen")
-                    .mit_anhangquote(Some(10 * MIB))
-                    .mit_anhangablage(Arc::new(
-                        crate::gespraeche::anhangspeicher::Anhangspeicher::neu(),
-                    ))
-                    .mit_zufall(Arc::new(FesteFolge::neu(1..=100))),
-            );
-            let senden = |channel: &str, name: &str| {
-                let id = fertig(&gespraeche, "beta@127.0.0.1", name, &vec![1; MIB as usize]);
-                let Ok(crate::gespraeche::Gesendet::Neu(nachricht)) = gespraeche
-                    .senden_mit_anhaengen(
-                        &Gespraech::channel(channel),
-                        &beta,
-                        Art::Agent,
-                        "x",
-                        &[id],
-                        None,
-                    )
-                else {
-                    panic!("gesendet")
-                };
-                nachricht.zeit
+        let ablage = Arc::new(Speicherablage::neu());
+        ablage.gespraech_anlegen(&Gespraech::channel("allgemein"));
+        ablage.gespraech_anlegen(&Gespraech::channel("technik"));
+        let uhr = Arc::new(GestellteUhr::neu(
+            chrono::DateTime::parse_from_rfc3339("2026-10-29T23:59:59.900+01:00").expect("Zeit"),
+        ));
+        let gespraeche = Arc::new(
+            Gespraeche::laden(ablage.clone(), uhr.clone())
+                .expect("geladen")
+                .mit_anhangquote(Some(10 * MIB))
+                .mit_anhangablage(Arc::new(
+                    crate::gespraeche::anhangspeicher::Anhangspeicher::neu(),
+                ))
+                .mit_zufall(Arc::new(FesteFolge::neu(1..=100))),
+        );
+        let senden = |channel: &str, name: &str| {
+            let id = fertig(&gespraeche, "beta@127.0.0.1", name, &vec![1; MIB as usize]);
+            let Ok(crate::gespraeche::Gesendet::Neu(nachricht)) = gespraeche.senden_mit_anhaengen(
+                &Gespraech::channel(channel),
+                &beta,
+                Art::Agent,
+                "x",
+                &[id],
+                None,
+            ) else {
+                panic!("gesendet")
             };
-            let a = senden("allgemein", "a.bin");
-            senden("technik", "b.bin");
-            gespraeche
-                .frist_setzen("allgemein", 1, true, &alpha)
-                .expect("Frist 1");
-            uhr.stellen(
-                chrono::DateTime::parse_from_rfc3339("2026-10-30T00:00:00.100+01:00")
-                    .expect("Zeit"),
-            );
+            nachricht.zeit
+        };
+        let a = senden("allgemein", "a.bin");
+        senden("technik", "b.bin");
+        gespraeche
+            .frist_setzen("allgemein", 1, true, &alpha)
+            .expect("Frist 1");
+        uhr.stellen(
+            chrono::DateTime::parse_from_rfc3339("2026-10-30T00:00:00.100+01:00").expect("Zeit"),
+        );
+        (gespraeche, beta, a)
+    }
 
-            let (geloescht, _) = std::thread::scope(|scope| {
-                let loeschen = scope.spawn(|| {
-                    gespraeche.nachricht_loeschen(&Gespraech::channel("allgemein"), &beta, a)
-                });
-                let entfallen = scope.spawn(|| {
-                    gespraeche.pflegen(
-                        NaiveDate::from_ymd_opt(2026, 10, 30).expect("Tag"),
-                        crate::gespraeche::Pflegeanlass::Tageswechsel,
-                    )
-                });
-                (
-                    loeschen.join().expect("löschen"),
-                    entfallen.join().expect("entfallen"),
-                )
+    fn entfallen_pflegen(gespraeche: &Gespraeche) -> Vec<crate::gespraeche::Pflegebericht> {
+        gespraeche.pflegen(
+            NaiveDate::from_ymd_opt(2026, 10, 30).expect("Tag"),
+            crate::gespraeche::Pflegeanlass::Tageswechsel,
+        )
+    }
+
+    /// R00040 „Wettlauf mit dem Entfallen“ (M6; ADR-0048 Regel 9 „Wettläufe“), fest verschränkt statt zufällig
+    /// (R00043 F0149, ADR-0048 Ergänzung „Karte #73“ K8, Verschränkung 3): das Löschen von A steht vor seinen Sperren
+    /// an der Schranke, die Pflege entfernt den Tag von A und läuft durch, dann wird das Löschen freigegeben → die
+    /// Nachricht ist entfallen (`Nachricht`, 404), kein Löschsatz, je Anhang genau ein Abzug: G ist danach genau z(B),
+    /// die Invarianten aus F1′ Regel 1 gelten. Ein Löschen, das den entfallenen Tag noch beschriebe oder A noch
+    /// einmal abzöge, wird rot (G ≠ z(B)).
+    #[test]
+    fn loeschen_nach_dem_entfallen_ihres_tages_findet_die_nachricht_nicht_und_zieht_nichts_ab() {
+        use crate::gespraeche::nachricht_loeschen::Loeschfehler;
+        use crate::gespraeche::schranke::Vorgang;
+        let tag = NaiveDate::from_ymd_opt(2026, 10, 29).expect("Tag");
+        let (gespraeche, beta, a) = loeschen_und_entfallen_aufbauen();
+        let schranke = gespraeche.vor_den_sperren_anhalten(Vorgang::Loeschen);
+
+        let (geloescht, berichte) = std::thread::scope(|scope| {
+            let loeschen = scope.spawn(|| {
+                gespraeche.nachricht_loeschen(&Gespraech::channel("allgemein"), &beta, a)
             });
+            schranke.wait();
+            let berichte = entfallen_pflegen(&gespraeche);
+            schranke.wait();
+            (loeschen.join().expect("löschen"), berichte)
+        });
 
-            match &geloescht {
-                Err(Loeschfehler::Nachricht) => {}
-                Ok(NachrichtGeloescht::Neu { anhaenge, .. }) => {
-                    assert_eq!(anhaenge.umfang.anhaenge, 1, "{geloescht:?}");
-                }
-                anderes => panic!("{anderes:?}"),
-            }
-            assert_eq!(gespraeche.anhangkennzahlen().gebunden, MIB, "{geloescht:?}");
-            invarianten(&gespraeche, &[("allgemein", tag), ("technik", tag)]);
-        }
+        assert!(
+            berichte.iter().any(|bericht| matches!(
+                bericht,
+                crate::gespraeche::Pflegebericht::Entfallen { tage, .. } if tage == &[tag]
+            )),
+            "{berichte:?}"
+        );
+        assert_eq!(
+            geloescht.as_ref().err(),
+            Some(&Loeschfehler::Nachricht),
+            "{geloescht:?}"
+        );
+        assert_eq!(gespraeche.anhangkennzahlen().gebunden, MIB, "{geloescht:?}");
+        invarianten(&gespraeche, &[("allgemein", tag), ("technik", tag)]);
+    }
+
+    /// R00043 F0149 (K8, Verschränkung 3, andere Folge): die Pflege steht vor der Sperre des entfallenden Tags von A
+    /// an der Schranke, das Löschen von A läuft vollständig durch, dann wird die Pflege freigegeben → A ist gelöscht
+    /// mit einem Anhang, danach entfällt der Tag: je Anhang genau ein Abzug (G = z(B)), Löschsatz in der Ablage von
+    /// heute, Invarianten gelten.
+    #[test]
+    fn entfallen_nach_dem_durchgelaufenen_loeschen_zieht_den_anhang_nicht_noch_einmal_ab() {
+        use crate::gespraeche::nachricht_loeschen::NachrichtGeloescht;
+        use crate::gespraeche::schranke::Vorgang;
+        let tag = NaiveDate::from_ymd_opt(2026, 10, 29).expect("Tag");
+        let (gespraeche, beta, a) = loeschen_und_entfallen_aufbauen();
+        let schranke = gespraeche.vor_den_sperren_anhalten(Vorgang::Pflegen);
+
+        let (geloescht, berichte) = std::thread::scope(|scope| {
+            let pflege = scope.spawn(|| entfallen_pflegen(&gespraeche));
+            schranke.wait();
+            let geloescht =
+                gespraeche.nachricht_loeschen(&Gespraech::channel("allgemein"), &beta, a);
+            schranke.wait();
+            (geloescht, pflege.join().expect("pflege"))
+        });
+
+        let Ok(NachrichtGeloescht::Neu { anhaenge, .. }) = &geloescht else {
+            panic!("gelöscht erwartet: {geloescht:?}");
+        };
+        assert_eq!(anhaenge.umfang.anhaenge, 1, "{geloescht:?}");
+        assert!(
+            berichte.iter().any(|bericht| matches!(
+                bericht,
+                crate::gespraeche::Pflegebericht::Entfallen { tage, .. } if tage == &[tag]
+            )),
+            "{berichte:?}"
+        );
+        assert_eq!(gespraeche.anhangkennzahlen().gebunden, MIB, "{geloescht:?}");
+        invarianten(&gespraeche, &[("allgemein", tag), ("technik", tag)]);
     }
 
     /// Was ein Wettlauf zwischen Laufwerk-Löschen und Nachricht-Löschen ergab: Gespräche, ID des Anhangs, Ergebnis

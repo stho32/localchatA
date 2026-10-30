@@ -92,6 +92,8 @@ impl Gespraeche {
             .get(gespraech)
             .cloned()
             .ok_or(Loeschfehler::Unbekannt)?;
+        #[cfg(test)]
+        self.schranken.passieren(super::schranke::Vorgang::Loeschen);
         let mut verlauf = sperren(&verlauf);
         let mut stand = sperren(&self.schreiben);
         let jetzt = self.uhr.jetzt();
@@ -614,6 +616,105 @@ mod tests {
             "{:?}",
             neu_geladen.defekte()
         );
+        assert_eq!(neueste(&neu_geladen), block);
+    }
+    /// Zeit der Nachricht, wie sie im Log als Bezug steht.
+    fn bezug(ziel: &Zeit) -> String {
+        ziel.format("%Y-%m-%dT%H:%M:%S%.3f%:z").to_string()
+    }
+
+    /// R00043 F0149 (ADR-0048 Ergänzung „Karte #73“ K8, Verschränkung 1): das Bearbeiten steht vor seinen Sperren an
+    /// der Schranke, das Löschen läuft vollständig durch, dann wird das Bearbeiten freigegeben → `Geloescht` (409),
+    /// im Log kein Bearbeitungssatz hinter dem Löschsatz, Neuladen gleich. Mutanten „Bearbeiten ignoriert `Geloescht`“
+    /// und „Bearbeiten prüft `Geloescht` vor der Sperre“ (die Prüfung wird vor der Schranke gemerkt) werden rot.
+    #[test]
+    fn bearbeiten_vor_den_sperren_angehalten_trifft_das_durchgelaufene_loeschen() {
+        use super::super::schranke::Vorgang;
+        let (gespraeche, ablage, uhr) = im_speicher("2026-10-27T14:00:00.000+01:00");
+        let beta = kennung("beta@127.0.0.1");
+        let ziel = senden(&gespraeche, &beta, "eins");
+        let schranke = gespraeche.vor_den_sperren_anhalten(Vorgang::Bearbeiten);
+
+        let (geloescht, bearbeitet) = std::thread::scope(|scope| {
+            let bearbeiten =
+                scope.spawn(|| gespraeche.bearbeiten(&allgemein(), &beta, ziel, "zwei"));
+            schranke.wait();
+            let geloescht = gespraeche.nachricht_loeschen(&allgemein(), &beta, ziel);
+            schranke.wait();
+            (geloescht, bearbeiten.join().expect("bearbeiten"))
+        });
+
+        assert!(
+            matches!(geloescht, Ok(NachrichtGeloescht::Neu { .. })),
+            "{geloescht:?}"
+        );
+        assert_eq!(bearbeitet.as_ref().err(), Some(&Bearbeitfehler::Geloescht));
+        let log = ablage.inhalt(&allgemein(), tag("2026-10-27")).expect("Tag");
+        assert!(
+            log.contains(&format!("+ geloescht: {}\n", bezug(&ziel))),
+            "{log}"
+        );
+        assert!(!log.contains("+ bearbeitet:"), "{log}");
+        let block = neueste(&gespraeche);
+        assert_eq!(block.len(), 1);
+        assert!(block[0].text.is_empty(), "{block:?}");
+        let neu_geladen = Gespraeche::laden(ablage.clone(), uhr.clone()).expect("geladen");
+        assert_eq!(neueste(&neu_geladen), block);
+    }
+
+    /// R00043 F0149 (K8, Verschränkung 2): das Löschen steht vor seinen Sperren an der Schranke, das Bearbeiten läuft
+    /// durch, dann wird das Löschen freigegeben → beide Sätze in dieser Folge (erst Bearbeitung, dann Löschsatz),
+    /// Endzustand gelöscht, Neuladen gleich; ein weiteres Bearbeiten danach → `Geloescht`.
+    #[test]
+    fn loeschen_vor_den_sperren_angehalten_kommt_nach_dem_durchgelaufenen_bearbeiten() {
+        use super::super::schranke::Vorgang;
+        let (gespraeche, ablage, uhr) = im_speicher("2026-10-27T14:00:00.000+01:00");
+        let beta = kennung("beta@127.0.0.1");
+        let ziel = senden(&gespraeche, &beta, "eins");
+        let schranke = gespraeche.vor_den_sperren_anhalten(Vorgang::Loeschen);
+
+        let (bearbeitet, geloescht) = std::thread::scope(|scope| {
+            let loeschen = scope.spawn(|| gespraeche.nachricht_loeschen(&allgemein(), &beta, ziel));
+            schranke.wait();
+            let bearbeitet = gespraeche.bearbeiten(&allgemein(), &beta, ziel, "zwei");
+            schranke.wait();
+            (bearbeitet, loeschen.join().expect("löschen"))
+        });
+
+        assert!(
+            matches!(bearbeitet, Ok(Bearbeitet::Neu(_))),
+            "{bearbeitet:?}"
+        );
+        assert!(
+            matches!(geloescht, Ok(NachrichtGeloescht::Neu { .. })),
+            "{geloescht:?}"
+        );
+        let log = ablage.inhalt(&allgemein(), tag("2026-10-27")).expect("Tag");
+        let bezug = bezug(&ziel);
+        let bearbeitung = log
+            .find(&format!("+ bearbeitet: {bezug}\n"))
+            .expect("Bearbeitung");
+        let loeschung = log
+            .find(&format!("+ geloescht: {bezug}\n"))
+            .expect("Löschsatz");
+        assert!(bearbeitung < loeschung, "{log}");
+        assert_eq!(log.matches("+ bearbeitet:").count(), 1, "{log}");
+        let block = neueste(&gespraeche);
+        assert!(
+            block.len() == 1
+                && block[0].text.is_empty()
+                && block[0]
+                    .geaendert
+                    .is_some_and(|geaendert| geaendert.zustand == Aenderungszustand::Geloescht),
+            "{block:?}"
+        );
+        assert_eq!(
+            gespraeche
+                .bearbeiten(&allgemein(), &beta, ziel, "drei")
+                .err(),
+            Some(Bearbeitfehler::Geloescht)
+        );
+        let neu_geladen = Gespraeche::laden(ablage.clone(), uhr.clone()).expect("geladen");
         assert_eq!(neueste(&neu_geladen), block);
     }
 }
