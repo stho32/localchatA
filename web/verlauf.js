@@ -482,12 +482,12 @@ export function verlaufAnlegen({
 
   // Der Text kommt aus dem Fenster, nie aus dem DOM (ADR-0052 Regel 1); der Aufruf bleibt in der Geste. Das versteckte
   // Feld nimmt für den Aufruf den Fokus und die Leiste (nur bei Hover oder Fokus sichtbar) verlöre ihn mit: sie bleibt
-  // stehen, bis der Fokus auf ihren Knopf zurückgelegt ist.
+  // stehen, bis der Fokus auf ihren Knopf zurückgelegt ist. Wirft das Kopieren, gilt es als nicht möglich.
   function nachrichtKopieren(artikel, text) {
     artikel.classList.add('lc-kopiert-laeuft');
     const ausgang = kopieren(text, document);
     artikel.classList.remove('lc-kopiert-laeuft');
-    ausgang.then((ergebnis) => kopierenMelden(artikel, ergebnis));
+    ausgang.catch(() => 'nicht_moeglich').then((ergebnis) => kopierenMelden(artikel, ergebnis));
   }
 
   // Rückmeldung nach dem Kopieren: am Knopf, in der Ansage-Region; ein offenes Menü auf Touch bleibt kurz stehen, damit

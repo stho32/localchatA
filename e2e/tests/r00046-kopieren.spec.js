@@ -993,3 +993,26 @@ test('Desktop: Kopieren bei t = 0 und t ≈ 1000 — bei t ≈ 2500 steht noch �
   expect(ende - klicks[1]).toBeLessThanOrEqual(2000 + 300);
   expect(a.fehler).toEqual([]);
 });
+
+// Nacharbeit #78 (code-reviewer A4 b): scheitert das Kopieren mit einer Ausnahme statt mit einem Ergebnis, sieht der
+// Lesende den Fehlschlag am Knopf — kein unbehandelter Fehler in der Konsole.
+test('Kopieren wirft (execCommand scheitert, navigator.clipboard wirft beim Zugriff): „⚠ Kopieren nicht möglich“, kein Fehler in der Konsole (A4 b)', async ({ browser }) => {
+  instanz = await sendenStarten();
+  const fremd = await claudeSendet(instanz.adresse, ['Wirft']);
+  const a = await seiteOeffnen(browser, instanz.adresse);
+  const zeit = fremd.zeiten[0];
+  await expect(nachrichtMitZeit(a.page, zeit)).toHaveCount(1);
+  await ablageBelegen(a.page);
+  await a.page.evaluate(() => {
+    document.execCommand = () => false;
+    Object.defineProperty(Navigator.prototype, 'clipboard', { configurable: true, get() { throw new Error('Zwischenablage kaputt'); } });
+  });
+  const angesagt = await ansagenMitschreiben(a.page);
+
+  await ueberHoverKopieren(a.page, zeit);
+
+  await expect(kopierKnopf(a.page, zeit).locator('.lc-aktion-anzeige')).toHaveText('⚠ Kopieren nicht möglich');
+  await expect.poll(angesagt).toEqual([FEHLER_ANSAGE]);
+  expect(await ablageLesen(a.page)).toBe(WAECHTER);
+  expect(a.fehler).toEqual([]);
+});
