@@ -106,6 +106,15 @@ test('gebremst: auch das erste Setzen nach einem Ende wartet bis Retry-After', (
   assert.deepEqual(aufrufe, ['setzen allgemein@0', 'setzen allgemein@1010']);
 });
 
+test('ohne Strom wird nicht gemeldet — weder Setzen noch Löschen; wieder verbunden meldet die erste Taste sofort', () => {
+  const { aufrufe } = abspielen([
+    [0, eingabe('h')], [100, { art: 'verbindung', verbunden: false }], [200, eingabe('ha')], [300, eingabe('')],
+    [400, { art: 'gewechselt', channel: 'allgemein' }], [3500, eingabe('x', 'technik')],
+    [3600, { art: 'verbindung', verbunden: true }], [3700, eingabe('xy', 'technik')], [3800, eingabe('xyz', 'technik')],
+  ]);
+  assert.deepEqual(aufrufe, ['setzen allgemein@0', 'setzen technik@3700']);
+});
+
 test('ein unbekanntes Ereignis ist ein Fehler, kein stilles Nichts', () => {
   assert.throws(() => tippen(TIPPEN_LEER, { art: 'fokus' }, 0), /unbekanntes Ereignis fokus/);
 });

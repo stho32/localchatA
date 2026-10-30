@@ -103,11 +103,12 @@ export function zeichnen(wurzel, teilnehmer, optionen) {
     ansagen: ansagen.melden,
   });
   const tippanzeige = aktivitaetsanzeigeAnlegen({ kennung: teilnehmer.kennung });
+  const tippen = tippenAnlegen({ melden: optionen.aktivitaetMelden });
   const eingabe = eingabeAnlegen({
     senden: senden.senden,
     entwurf: entwurfAnlegen({ speicher: window.sessionStorage }),
     ansagen: ansagen.melden,
-    tippen: tippenAnlegen({ melden: optionen.aktivitaetMelden }),
+    tippen,
     tippzeile: tippanzeige.zeile,
     eigeneLetzteFokussieren: verlauf.eigeneLetzteFokussieren,
   });
@@ -145,9 +146,11 @@ export function zeichnen(wurzel, teilnehmer, optionen) {
     anzahlZeigen: (wieViele) => {
       anzahl.textContent = String(wieViele);
     },
-    // Jeder Beginn und jedes Ende eines Stroms leert die Tippanzeige: nach einem Abriss wird nichts nachgeholt.
+    // Jeder Beginn und jedes Ende eines Stroms leert die Tippanzeige: nach einem Abriss wird nichts nachgeholt. Ohne
+    // Strom meldet die Eingabe kein Tippen.
     verbindungZeigen: (zustand, naechsterVersuchUm) => {
       tippanzeige.leeren();
+      tippen.verbindung(zustand === 'verbunden');
       letzterZustand = verbindungZeigen({ region, standUnbekannt }, letzterZustand, zustand);
       wieder.melden({ art: 'strom', zustand, naechsterVersuchUm });
     },
