@@ -347,7 +347,7 @@ fn quote_melden(zustand: &Zustand, channel: &str, wer: &str, belegt: u64, hoechs
 
 /// Quelle der Quote-Episode ist die Kennung (mit der Grenze); Channel und Belegung sind Werte der einzelnen
 /// Abweisung und stehen nur in der Beginn-Zeile (ADR-0044 Ergänzung Karte #66).
-fn quote_auftreten(channel: &str, wer: &str, belegt: u64, hoechstens: u64) -> Auftreten {
+pub(super) fn quote_auftreten(channel: &str, wer: &str, belegt: u64, hoechstens: u64) -> Auftreten {
     Auftreten {
         stufe: Stufe::Warning,
         bereich: Bereich::Quote,

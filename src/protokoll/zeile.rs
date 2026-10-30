@@ -61,6 +61,8 @@ pub enum Bereich {
     Anhang,
     /// Der Ereignisstrom (ADR-0042 Ergänzung Karte #31 Punkt 7).
     Live,
+    /// Eigene Nachrichten ändern (ADR-0048 Regel 13).
+    Aendern,
 }
 
 impl Bereich {
@@ -84,6 +86,7 @@ impl Bereich {
             Bereich::Quote => "quote",
             Bereich::Anhang => "anhang",
             Bereich::Live => "live",
+            Bereich::Aendern => "aendern",
         }
     }
 }

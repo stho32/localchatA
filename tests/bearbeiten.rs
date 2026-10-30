@@ -674,6 +674,13 @@ async fn an_der_vollen_quote_ist_bearbeiten_507() {
     );
     assert!(fehler.contains("--plattenquote"), "{fehler}");
     assert_eq!(channels_stand(wurzel.path()), vorher);
+    let protokoll = std::fs::read_to_string(wurzel.path().join(format!("logs/{HEUTE}.log")))
+        .expect("Protokoll");
+    let quote = protokoll
+        .lines()
+        .find(|zeile| zeile.contains(" WARNING quote ") && zeile.contains("Episode beginnt"))
+        .expect("Quote-Episode");
+    assert!(quote.contains("route=bearbeiten"), "{quote}");
 }
 
 /// R00039 „Von Hand geschriebener Änderungssatz“ (M13): ein Satz mit Kennung `gamma` bezieht sich auf `beta`s t1 →

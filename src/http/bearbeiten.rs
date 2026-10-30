@@ -15,11 +15,15 @@ use super::koerper::{
 use super::nachrichten::NachrichtAntwort;
 use super::senden::{
     SCHLUESSEL_ANDERS, SCHLUESSEL_FORMAT, groesse_in_worten, mit_tausenderpunkt,
-    nicht_gespeichert_antwort, schluessel_abgewiesen, schluessel_lesen, text_abgewiesen, unbekannt,
+    nicht_gespeichert_antwort, quote_auftreten, schluessel_abgewiesen, schluessel_lesen,
+    text_abgewiesen, unbekannt,
 };
 use super::teilnehmer::Teilnehmer;
 use crate::gespraeche::textregel::{Textfehler, laenge_und_zeichen_pruefen};
 use crate::gespraeche::{Bearbeitet, Bearbeitfehler, Gespraech, Nachricht};
+use crate::protokoll::episoden::Auftreten;
+use crate::protokoll::vorlauf;
+use crate::protokoll::{Bereich, Kontext, Protokoll, Schluessel, Stufe};
 use crate::schreibkonto::eimer::kosten_senden;
 use crate::uhr::Zeit;
 use axum::Json;
@@ -29,6 +33,7 @@ use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use serde_json::{Value, json};
 use std::sync::Arc;
+use std::time::Instant;
 
 const ROUTE: &str = "POST /api/channels/{name}/nachrichten/bearbeiten";
 
@@ -111,6 +116,8 @@ pub async fn bearbeiten(
             &teilnehmer,
         );
     }
+    let eintritt = Instant::now();
+    let text_bytes = text.len();
     let gespraeche = Arc::clone(&zustand.gespraeche);
     let gespraech = Gespraech::channel(&name);
     let von = teilnehmer.kennung.clone();
@@ -119,14 +126,110 @@ pub async fn bearbeiten(
         gespraeche.bearbeiten_mit(&gespraech, &von, ziel, &text, schluessel.as_deref())
     })
     .await;
+    let melden = |grund| {
+        bearbeitet_melden(&zustand.protokoll, &name, &wer, text_bytes, eintritt, grund);
+    };
     match ergebnis {
-        Ok(Ok(
-            Bearbeitet::Neu(nachricht)
-            | Bearbeitet::Unveraendert(nachricht)
-            | Bearbeitet::Wiederholt(nachricht),
-        )) => bearbeitet(&name, &nachricht),
-        Ok(Err(fehler)) => abgewiesen(fehler, &name, &wer),
+        Ok(Ok(Bearbeitet::Neu(nachricht))) => {
+            vorlauf::eintragen(&zustand.protokoll, zustand.gespraeche.zeit_vorlauf_ms());
+            melden(None);
+            bearbeitet(&name, &nachricht)
+        }
+        Ok(Ok(Bearbeitet::Wiederholt(nachricht))) => {
+            melden(Some("wiederholung"));
+            bearbeitet(&name, &nachricht)
+        }
+        Ok(Ok(Bearbeitet::Unveraendert(nachricht))) => {
+            melden(Some("unveraendert"));
+            bearbeitet(&name, &nachricht)
+        }
+        Ok(Err(fehler)) => {
+            abweisung_melden(&zustand.protokoll, &fehler, &name, &wer);
+            abgewiesen(fehler, &name, &wer)
+        }
         Err(abbruch) => abgebrochen(&zustand, &Abgebrochen::from(abbruch), &wer, &name),
+    }
+}
+
+/// `DEBUG aendern Nachricht bearbeitet` (ADR-0048 Regel 13): Channel, Kennung, Bytes des neuen Texts als `anzahl`, die
+/// Zeit vom Eintritt in den Handler bis zum Schreiben; ohne Satz `grund=wiederholung|unveraendert` — nie der Text.
+fn bearbeitet_melden(
+    protokoll: &Protokoll,
+    channel: &str,
+    wer: &str,
+    text_bytes: usize,
+    eintritt: Instant,
+    grund: Option<&str>,
+) {
+    let kontext = Kontext::neu()
+        .mit(Schluessel::Channel, channel)
+        .mit(Schluessel::Kennung, wer)
+        .mit(Schluessel::Anzahl, text_bytes)
+        .mit(Schluessel::DauerMs, eintritt.elapsed().as_millis());
+    let kontext = match grund {
+        Some(grund) => kontext.mit(Schluessel::Grund, grund),
+        None => kontext,
+    };
+    protokoll.eintragen(
+        Stufe::Debug,
+        Bereich::Aendern,
+        "Nachricht bearbeitet",
+        kontext,
+    );
+}
+
+/// Abweisungen unter der Sperre mit eigener Episode: 403 `fremd` je Kennung (WARNING), 500 je Datei und Grund
+/// (ERROR), 507 in der Quote-Episode der Kennung mit `route=bearbeiten`.
+fn abweisung_melden(protokoll: &Protokoll, fehler: &Bearbeitfehler, channel: &str, wer: &str) {
+    match fehler {
+        Bearbeitfehler::Fremd { .. } => protokoll.episode(fremd_auftreten(channel, wer)),
+        Bearbeitfehler::Ablage { datei, grund } => {
+            protokoll.episode(schreibfehler_auftreten(channel, wer, datei, grund));
+        }
+        Bearbeitfehler::Quote { belegt, hoechstens } => {
+            let mut auftreten = quote_auftreten(channel, wer, *belegt, *hoechstens);
+            auftreten.kontext = auftreten
+                .kontext
+                .mit_nur_beginn(Schluessel::Route, "bearbeiten");
+            protokoll.episode(auftreten);
+        }
+        _ => {}
+    }
+}
+
+/// Quelle der Episode „fremd“ ist die Kennung (M16: je Kennung eine Episode); der Channel steht nur am Beginn.
+fn fremd_auftreten(channel: &str, wer: &str) -> Auftreten {
+    Auftreten {
+        stufe: Stufe::Warning,
+        bereich: Bereich::Aendern,
+        text: crate::protokoll::episodentexte::FREMD_ABGEWIESEN,
+        quelle: wer.to_string(),
+        kontext: Kontext::neu()
+            .mit(Schluessel::Kennung, wer)
+            .mit_nur_beginn(Schluessel::Channel, channel),
+        art: None,
+        verworfen: None,
+        bytes: None,
+        anzeige: None,
+    }
+}
+
+/// Quelle des Schreibfehlers sind Datei und Grund; die Kennung gehört dem einzelnen Auftreten.
+fn schreibfehler_auftreten(channel: &str, wer: &str, datei: &str, grund: &str) -> Auftreten {
+    Auftreten {
+        stufe: Stufe::Error,
+        bereich: Bereich::Aendern,
+        text: crate::protokoll::episodentexte::AENDERUNG_NICHT_GESCHRIEBEN,
+        quelle: format!("{datei} {grund}"),
+        kontext: Kontext::neu()
+            .mit(Schluessel::Channel, channel)
+            .mit_nur_beginn(Schluessel::Kennung, wer)
+            .mit(Schluessel::Datei, datei)
+            .mit(Schluessel::Grund, grund),
+        art: None,
+        verworfen: None,
+        bytes: None,
+        anzeige: None,
     }
 }
 
@@ -298,5 +401,69 @@ mod tests {
         ] {
             assert_eq!(zeit_lesen(&falsch), None, "{falsch}");
         }
+    }
+
+    /// R00039 B0601 (ADR-0048 Regel 13): 403 `fremd` ist eine WARNING-Episode je Kennung mit Channel am Beginn; der
+    /// Schreibfehler eine ERROR-Episode je Datei und Grund, die Ende-Zeile ohne Kennung; die Quote-Episode trägt
+    /// `route=bearbeiten`.
+    #[test]
+    fn abweisungen_des_bearbeitens_sind_episoden() {
+        use crate::protokoll::testhilfe::{im_speicher, zeit};
+        let (protokoll, speicher, uhr, _) =
+            im_speicher("2026-10-28T12:00:00+01:00", Stufe::Information);
+        let datei = "channels/allgemein/2026-10-28.log";
+        let fremd = |wer: &str| Bearbeitfehler::Fremd {
+            absender: crate::gespraeche::Kennung::bilden(wer).expect("Kennung"),
+        };
+        let ablage = Bearbeitfehler::Ablage {
+            datei: datei.to_string(),
+            grund: "Kein Platz mehr".to_string(),
+        };
+
+        for wer in ["gamma@127.0.0.1", "gamma@127.0.0.1", "delta@127.0.0.1"] {
+            abweisung_melden(&protokoll, &fremd("beta@127.0.0.1"), "allgemein", wer);
+        }
+        abweisung_melden(&protokoll, &ablage, "allgemein", "beta@127.0.0.1");
+        abweisung_melden(&protokoll, &ablage, "allgemein", "gamma@127.0.0.1");
+        abweisung_melden(
+            &protokoll,
+            &Bearbeitfehler::Quote {
+                belegt: 100,
+                hoechstens: 1000,
+            },
+            "allgemein",
+            "beta@127.0.0.1",
+        );
+        uhr.stellen(zeit("2026-10-28T12:01:00+01:00"));
+        protokoll.episoden_schliessen();
+
+        let zeilen = speicher.zeilen();
+        let von = |teil: &str| -> Vec<&String> {
+            zeilen.iter().filter(|zeile| zeile.contains(teil)).collect()
+        };
+        let fremde = von(" WARNING aendern Ändern fremder Nachricht abgewiesen — Episode ");
+        assert_eq!(fremde.len(), 4, "{zeilen:#?}");
+        assert!(fremde[0].ends_with("Episode beginnt | kennung=gamma@127.0.0.1 channel=allgemein"));
+        assert!(fremde[1].ends_with("Episode beginnt | kennung=delta@127.0.0.1 channel=allgemein"));
+        let ende_gamma = fremde
+            .iter()
+            .find(|zeile| zeile.contains("Episode endet") && zeile.contains("kennung=gamma@"))
+            .expect("Ende gamma");
+        assert!(
+            ende_gamma.contains("Episode endet: 2 in ") && !ende_gamma.contains("channel="),
+            "{fremde:#?}"
+        );
+        let fehler = von(" ERROR aendern Änderung nicht geschrieben — Episode ");
+        assert_eq!(fehler.len(), 2, "{zeilen:#?}");
+        assert!(
+            fehler[0].contains("kennung=beta@127.0.0.1")
+                && fehler[0].contains(&format!("datei={datei}"))
+        );
+        assert!(
+            fehler[1].contains("Episode endet: 2 in ") && !fehler[1].contains("kennung="),
+            "{fehler:#?}"
+        );
+        let quote = von(" WARNING quote ");
+        assert!(quote[0].contains("route=bearbeiten"), "{quote:#?}");
     }
 }

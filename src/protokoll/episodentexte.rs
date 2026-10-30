@@ -27,6 +27,8 @@ pub const HOCHLADUNGEN_BELEGEN: &str =
 pub const PLATTE_FAST_VOLL: &str = "Hochladen abgewiesen: Platte fast voll";
 pub const RESERVIERUNG_VERFALLEN: &str = "Reservierung verfallen ohne Hochladen";
 pub const EREIGNISSTROM_UEBERHOLT: &str = "Ereignisstrom überholt, neuer Stand gesendet";
+pub const FREMD_ABGEWIESEN: &str = "Ändern fremder Nachricht abgewiesen";
+pub const AENDERUNG_NICHT_GESCHRIEBEN: &str = "Änderung nicht geschrieben";
 pub const SCHLUESSEL_VERDRAENGT: &str =
     "Wiederholschlüssel vor Ablauf verdrängt — eine Wiederholung kann doppelt ankommen";
 
@@ -78,6 +80,8 @@ mod tests {
         reservierung_verfallen: RESERVIERUNG_VERFALLEN = "Reservierung verfallen ohne Hochladen";
         ereignisstrom_ueberholt: EREIGNISSTROM_UEBERHOLT =
             "Ereignisstrom überholt, neuer Stand gesendet";
+        fremd_abgewiesen: FREMD_ABGEWIESEN = "Ändern fremder Nachricht abgewiesen";
+        aenderung_nicht_geschrieben: AENDERUNG_NICHT_GESCHRIEBEN = "Änderung nicht geschrieben";
         schluessel_verdraengt: SCHLUESSEL_VERDRAENGT =
             "Wiederholschlüssel vor Ablauf verdrängt — eine Wiederholung kann doppelt ankommen";
     }
