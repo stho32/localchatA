@@ -683,3 +683,143 @@ for (const fenster of [FENSTER_TELEFON, FENSTER_MIT_TASTATUR]) {
     });
   }
 }
+
+// Nacharbeit #78 (UX S1, code-reviewer A2): scrollt der Verlauf von selbst — eine neue Nachricht am Ende zieht ihn mit —,
+// bleibt das Menü offen und wandert mit seinem Schalter; scrollt der Nutzer (Rad, Wischen), schließt es.
+
+/// Lage von Menü, Schalter und sichtbarem Teil des Verlaufs der Nachricht `zeit` im Fenster.
+function menueUndSchalter(page, zeit) {
+  return page.evaluate((nachrichtZeit) => {
+    const artikel = document.querySelector(`.lc-msg[data-zeit="${nachrichtZeit}"]`);
+    const menue = artikel.querySelector('.lc-aktionen').getBoundingClientRect();
+    const knopf = artikel.querySelector('.lc-aktionen-schalter').getBoundingClientRect();
+    const log = document.querySelector('[role="log"]').getBoundingClientRect();
+    return {
+      menue: { oben: menue.top, unten: menue.bottom }, schalter: { oben: knopf.top, unten: knopf.bottom }, verlauf: { oben: log.top, unten: log.bottom },
+    };
+  }, zeit);
+}
+
+test('Touch-Menü bei Live-Autoscroll (UX S1): an der letzten Nachricht offen, ein zweiter Teilnehmer sendet — nach 900 ms offen, ganz im Verlauf, in Höhe des Schalters; Kopieren zeigt „✓ Kopiert.“', async ({ browser }) => {
+  const verlauf = verlaufVon('beta@127.0.0.2', 30);
+  instanz = await sendenStarten({ vorbereiten: verlauf.vorbereiten });
+  const a = await geraetOeffnen(browser, 'telefon', { fenster: FENSTER_TELEFON, streng: true });
+  await imBrowserBeitreten(a.page, instanz.adresse, 'shoff');
+  await pruefFeldAnlegen(a.page);
+  const letzte = verlauf.zeiten[29];
+  await expect(nachrichtMitZeit(a.page, letzte)).toBeVisible();
+  await schalter(a.page, letzte).tap();
+  await expect(schalter(a.page, letzte)).toHaveAttribute('aria-expanded', 'true');
+
+  const zweiter = await claudeSendet(instanz.adresse, ['Einunddreißig kommt live']);
+  await expect(nachrichtMitZeit(a.page, zweiter.zeiten[0])).toBeVisible();
+  await a.page.waitForTimeout(900);
+
+  await expect(schalter(a.page, letzte)).toHaveAttribute('aria-expanded', 'true');
+  const lage = await menueUndSchalter(a.page, letzte);
+  expect(lage.menue.oben).toBeGreaterThanOrEqual(80);
+  expect(lage.menue.unten).toBeLessThanOrEqual(581);
+  expect(lage.menue.oben).toBeGreaterThanOrEqual(lage.verlauf.oben);
+  expect(lage.menue.unten).toBeLessThanOrEqual(lage.verlauf.unten);
+  const inHoehe = Math.abs(lage.menue.oben - lage.schalter.oben) <= 1;
+  const buendigHochgeschoben = Math.abs(lage.menue.unten - (lage.verlauf.unten - 4)) <= 1 && lage.menue.oben <= lage.schalter.oben;
+  expect(inHoehe || buendigHochgeschoben, JSON.stringify(lage)).toBe(true);
+  const t = await treffer(kopierKnopf(a.page, letzte));
+  expect(t.getroffen).toEqual([true, true, true, true, true]);
+  await ablageBelegen(a.page);
+  await kopierKnopf(a.page, letzte).tap();
+  await expect(kopierKnopf(a.page, letzte).locator('.lc-aktion-anzeige')).toHaveText('✓ Kopiert.');
+  expect(await ablageLesen(a.page)).toBe('Nachricht 30');
+  expect(a.fehler).toEqual([]);
+});
+
+test('Touch-Menü an der vorletzten von 30 Nachrichten, ein Agent sendet (A2 Probe 2): das Menü bleibt offen, „Kopieren“ trifft an Mitte und vier Ecken', async ({ browser }) => {
+  const verlauf = verlaufVon('beta@127.0.0.2', 30);
+  instanz = await sendenStarten({ vorbereiten: verlauf.vorbereiten });
+  const a = await geraetOeffnen(browser, 'telefon', { fenster: FENSTER_TELEFON, streng: true });
+  await imBrowserBeitreten(a.page, instanz.adresse, 'shoff');
+  const vorletzte = verlauf.zeiten[28];
+  await expect(nachrichtMitZeit(a.page, verlauf.zeiten[29])).toBeVisible();
+  await schalter(a.page, vorletzte).tap();
+  await expect(schalter(a.page, vorletzte)).toHaveAttribute('aria-expanded', 'true');
+
+  const agent = await claudeSendet(instanz.adresse, ['Agent meldet sich']);
+  await expect(nachrichtMitZeit(a.page, agent.zeiten[0])).toBeVisible();
+  await a.page.waitForTimeout(900);
+
+  await expect(schalter(a.page, vorletzte)).toHaveAttribute('aria-expanded', 'true');
+  const t = await treffer(kopierKnopf(a.page, vorletzte));
+  expect(t.imSichtbaren).toBe(true);
+  expect(t.getroffen).toEqual([true, true, true, true, true]);
+  expect(a.fehler).toEqual([]);
+});
+
+test('Touch-Menü: verlässt der Schalter durch neue Nachrichten den sichtbaren Teil des Verlaufs, schließt das Menü', async ({ browser }) => {
+  const verlauf = verlaufVon('beta@127.0.0.2', 30);
+  instanz = await sendenStarten({ vorbereiten: verlauf.vorbereiten });
+  const a = await geraetOeffnen(browser, 'telefon', { fenster: FENSTER_MIT_TASTATUR, streng: true });
+  await imBrowserBeitreten(a.page, instanz.adresse, 'shoff');
+  const letzte = verlauf.zeiten[29];
+  await expect(nachrichtMitZeit(a.page, letzte)).toBeVisible();
+  await schalter(a.page, letzte).tap();
+  await expect(schalter(a.page, letzte)).toHaveAttribute('aria-expanded', 'true');
+
+  const agent = await claudeSendet(instanz.adresse, Array.from({ length: 12 }, (_, nummer) => `Flut ${nummer + 1}`));
+  await expect(nachrichtMitZeit(a.page, agent.zeiten[11])).toBeVisible();
+
+  await expect(schalter(a.page, letzte)).toHaveAttribute('aria-expanded', 'false');
+  await expect(nachrichtMitZeit(a.page, letzte).locator('.lc-aktionen')).toBeHidden();
+  expect(a.fehler).toEqual([]);
+});
+
+test('Touch-Menü: scrollt der Nutzer den Verlauf um 40 px (Rad), schließt es (A2 Probe 1)', async ({ browser }) => {
+  const verlauf = verlaufVon('beta@127.0.0.2', 30);
+  instanz = await sendenStarten({ vorbereiten: verlauf.vorbereiten });
+  const a = await geraetOeffnen(browser, 'telefon', { fenster: FENSTER_TELEFON, streng: true });
+  await imBrowserBeitreten(a.page, instanz.adresse, 'shoff');
+  const zeit = verlauf.zeiten[27];
+  await expect(nachrichtMitZeit(a.page, verlauf.zeiten[29])).toBeVisible();
+  await schalter(a.page, zeit).tap();
+  await expect(schalter(a.page, zeit)).toHaveAttribute('aria-expanded', 'true');
+  const scrollTop = () => a.page.locator('[role="log"]').evaluate((log) => log.scrollTop);
+  const vorher = await scrollTop();
+
+  const mitte = await a.page.locator('[role="log"]').evaluate((log) => {
+    const rand = log.getBoundingClientRect();
+    return { x: rand.left + 40, y: rand.top + rand.height / 2 };
+  });
+  await a.page.mouse.move(mitte.x, mitte.y);
+  await a.page.mouse.wheel(0, -40);
+  await expect.poll(scrollTop).toBeLessThan(vorher);
+
+  await expect(schalter(a.page, zeit)).toHaveAttribute('aria-expanded', 'false');
+  expect(a.fehler).toEqual([]);
+});
+
+test('Touch-Menü: Wischen im Verlauf schließt es (UX S1 Zusatz)', async ({ browser }) => {
+  const verlauf = verlaufVon('beta@127.0.0.2', 30);
+  instanz = await sendenStarten({ vorbereiten: verlauf.vorbereiten });
+  const a = await geraetOeffnen(browser, 'telefon', { fenster: FENSTER_TELEFON, streng: true });
+  await imBrowserBeitreten(a.page, instanz.adresse, 'shoff');
+  const zeit = verlauf.zeiten[27];
+  await expect(nachrichtMitZeit(a.page, verlauf.zeiten[29])).toBeVisible();
+  await schalter(a.page, zeit).tap();
+  await expect(schalter(a.page, zeit)).toHaveAttribute('aria-expanded', 'true');
+  const scrollTop = () => a.page.locator('[role="log"]').evaluate((log) => log.scrollTop);
+  const vorher = await scrollTop();
+  const start = await a.page.locator('[role="log"]').evaluate((log) => {
+    const rand = log.getBoundingClientRect();
+    return { x: rand.left + 60, y: rand.top + 60 };
+  });
+
+  const befehle = await a.page.context().newCDPSession(a.page);
+  await befehle.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [start] });
+  for (let schritt = 1; schritt <= 10; schritt += 1) {
+    await befehle.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x: start.x, y: start.y + schritt * 20 }] });
+  }
+  await befehle.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+  await expect.poll(scrollTop).toBeLessThan(vorher);
+
+  await expect(schalter(a.page, zeit)).toHaveAttribute('aria-expanded', 'false');
+  expect(a.fehler).toEqual([]);
+});

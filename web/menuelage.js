@@ -21,3 +21,9 @@ function bereichWaehlen(bereiche, menue) {
   }
   return passend;
 }
+
+// Steht der Schalter ganz im Bereich (dem sichtbaren Teil des Verlaufs)? Nur dann gehört das offene Menü noch zu etwas,
+// das man sieht (Nacharbeit #78, UX S1).
+export function schalterGanzSichtbar(schalter, bereich) {
+  return schalter.oben >= bereich.oben && schalter.unten <= bereich.unten;
+}

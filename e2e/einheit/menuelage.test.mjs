@@ -3,7 +3,7 @@
 // Verlaufs, sonst in den sichtbaren Teil des Fensters (visualViewport).
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { menueLage, MENUE_RAND } from '../../web/menuelage.js';
+import { menueLage, MENUE_RAND, schalterGanzSichtbar } from '../../web/menuelage.js';
 
 const bereich = (oben, unten) => ({ oben, unten, links: 0, rechts: 375 });
 const schalter = (oben) => ({ oben, unten: oben + 44, links: 331, rechts: 375 });
@@ -42,4 +42,18 @@ test('links nicht aus dem Fenster: ein breites Menü bleibt mit dem Rand im Bere
   const lage = menueLage({ schalter: { oben: 10, unten: 54, links: 100, rechts: 144 }, menue: { breite: 200, hoehe: 50 }, bereiche: [bereich(0, 600)] });
 
   assert.equal(lage.links, MENUE_RAND);
+});
+
+// Nacharbeit #78 (UX S1): scrollt der Verlauf von selbst, bleibt das Menü offen, solange sein Schalter ganz im sichtbaren
+// Teil des Verlaufs steht.
+test('der Schalter ganz im Bereich, auch bündig an oberem und unterem Rand: sichtbar', () => {
+  for (const oben of [85, 300, 585 - 44]) {
+    assert.equal(schalterGanzSichtbar(schalter(oben), bereich(85, 585)), true, `oben ${oben}`);
+  }
+});
+
+test('der Schalter ein Pixel über oder unter dem Bereich, oder ganz draußen: nicht sichtbar', () => {
+  for (const oben of [84, 585 - 43, -200, 700]) {
+    assert.equal(schalterGanzSichtbar(schalter(oben), bereich(85, 585)), false, `oben ${oben}`);
+  }
 });

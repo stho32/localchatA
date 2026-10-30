@@ -13,7 +13,7 @@ import { pfeilRichtung, pfeilZiel, tabStopp, eigeneLetzte, nachrichtTaste, kopie
 import { bearbeitenAnlegen } from './bearbeiten.js';
 import { rueckfrageOeffnen, loeschenAuswerten } from './loeschen.js';
 import { kopieren, rueckmeldungFuer, RUECKMELDUNG_LEER, MENUE_OFFEN_MS } from './kopieren.js';
-import { menueLage } from './menuelage.js';
+import { menueLage, schalterGanzSichtbar } from './menuelage.js';
 import { zeigerart } from './eingabe.js';
 import {
   einordnen, zusammenfuehren, fassungUebernehmen, buendlerAnlegen, folgenOderZaehlen, pillenText, auslaufNach, nichtGeladenText, hinweisTextNachziehen,
@@ -323,15 +323,10 @@ export function verlaufAnlegen({
   }
 
   // Das offene Menü steht fest im Fenster (position: fixed, der Verlauf schneidet es nicht ab) und liegt ganz im sichtbaren
-  // Teil — des Verlaufs, wenn es dort hineinpasst, sonst des Fensters (UX K1). Scrollt der Verlauf, schließt es.
+  // Teil — des Verlaufs, wenn es dort hineinpasst, sonst des Fensters (UX K1).
   function menueEinpassen(menueSchalter, menue) {
     const menueRand = menue.getBoundingClientRect();
-    const sicht = window.visualViewport;
-    const fenster = { oben: sicht.offsetTop, unten: sicht.offsetTop + sicht.height, links: sicht.offsetLeft, rechts: sicht.offsetLeft + sicht.width };
-    const verlaufRand = log.getBoundingClientRect();
-    const verlaufSichtbar = {
-      oben: Math.max(verlaufRand.top, fenster.oben), unten: Math.min(verlaufRand.bottom, fenster.unten), links: fenster.links, rechts: fenster.rechts,
-    };
+    const { fenster, verlaufSichtbar } = sichtbareBereiche();
     const lage = menueLage({
       schalter: schalterRand(menueSchalter),
       menue: { breite: menueRand.width, hoehe: menueRand.height },
@@ -339,6 +334,31 @@ export function verlaufAnlegen({
     });
     menue.style.top = `${lage.oben}px`;
     menue.style.left = `${lage.links}px`;
+  }
+
+  function sichtbareBereiche() {
+    const sicht = window.visualViewport;
+    const fenster = { oben: sicht.offsetTop, unten: sicht.offsetTop + sicht.height, links: sicht.offsetLeft, rechts: sicht.offsetLeft + sicht.width };
+    const verlaufRand = log.getBoundingClientRect();
+    const verlaufSichtbar = {
+      oben: Math.max(verlaufRand.top, fenster.oben), unten: Math.min(verlaufRand.bottom, fenster.unten), links: fenster.links, rechts: fenster.rechts,
+    };
+    return { fenster, verlaufSichtbar };
+  }
+
+  // Scrollt der Verlauf von selbst (neue Nachricht am Ende, Nachladen, Lesestelle halten), wandert das Menü mit seinem
+  // Schalter und schließt erst, wenn der Schalter den sichtbaren Teil des Verlaufs verlässt (UX S1). Scrollt der Nutzer,
+  // schließt es: Rad hier, Wischen und Ziehen am Balken über pointerdown.
+  function menueNachfuehren() {
+    const offenerSchalter = inhalt.querySelector('.lc-aktionen-schalter[aria-expanded="true"]');
+    if (offenerSchalter === null) {
+      return;
+    }
+    if (!schalterGanzSichtbar(schalterRand(offenerSchalter), sichtbareBereiche().verlaufSichtbar)) {
+      menueSchliessen();
+      return;
+    }
+    menueEinpassen(offenerSchalter, document.getElementById(offenerSchalter.getAttribute('aria-controls')));
   }
 
   function schalterRand(menueSchalter) {
@@ -365,7 +385,8 @@ export function verlaufAnlegen({
       menueSchliessen();
     }
   }, { signal });
-  log.addEventListener('scroll', menueSchliessen, { passive: true, signal });
+  log.addEventListener('scroll', menueNachfuehren, { passive: true, signal });
+  log.addEventListener('wheel', menueSchliessen, { passive: true, signal });
   log.addEventListener('keydown', (ereignis) => {
     const offenerSchalter = inhalt.querySelector('.lc-aktionen-schalter[aria-expanded="true"]');
     if (ereignis.key === 'Escape' && offenerSchalter !== null) {
