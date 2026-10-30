@@ -56,6 +56,9 @@ pub struct Eintrag {
     zustand: AtomicU8,
     /// Die Nachricht des Anhangs ist gelöscht (ADR-0048 Regel 9): ein gescheitertes Kürzen setzt ihn nie zurück.
     nachricht_geloescht: AtomicBool,
+    /// Das Zählmaß steht noch in `G` (Befund #67 B2): wer es per Tauschen auf `false` gewinnt — das gelungene Kürzen,
+    /// das Entfallen oder das Verwaisen seines Tags —, zieht genau einmal ab.
+    gezaehlt: AtomicBool,
 }
 
 impl Eintrag {
@@ -81,6 +84,7 @@ impl Eintrag {
             absender: absender.clone(),
             zustand: AtomicU8::new(zustand.als_zahl()),
             nachricht_geloescht: AtomicBool::new(false),
+            gezaehlt: AtomicBool::new(zustand == Zustand::Vorhanden),
         }
     }
 
@@ -108,6 +112,15 @@ impl Eintrag {
 
     pub fn nachricht_geloescht(&self) -> bool {
         self.nachricht_geloescht.load(Ordering::SeqCst)
+    }
+
+    /// `true`, wenn dieser Aufruf das Zählmaß aus `G` nehmen darf — genau einmal je Eintrag.
+    pub fn abzug_gewinnen(&self) -> bool {
+        self.gezaehlt.swap(false, Ordering::SeqCst)
+    }
+
+    fn gezaehlt(&self) -> bool {
+        self.gezaehlt.load(Ordering::SeqCst)
     }
 
     /// Das Zählmaß an der Anhang-Quote.
@@ -198,7 +211,8 @@ impl Anhangverzeichnis {
         eintrag.waisen = eintrag.waisen.saturating_add(z);
     }
 
-    /// Σ `z` der Einträge `vorhanden` plus Waisen eines Tages.
+    /// Σ `z` der Einträge, deren Zählmaß noch in `G` steht (`vorhanden`, und `geloescht`, solange nicht gekürzt), plus
+    /// Waisen eines Tages.
     pub fn bytes_je_tag(&self, gespraech: &Gespraech, tag: NaiveDate) -> u64 {
         let innen = self.lesend();
         let Some(eintrag) = innen.tage.get(&(gespraech.clone(), tag)) else {
@@ -208,14 +222,15 @@ impl Anhangverzeichnis {
             .ids
             .iter()
             .filter_map(|id| innen.eintraege.get(id))
-            .filter(|eintrag| eintrag.zustand() == Zustand::Vorhanden)
+            .filter(|eintrag| eintrag.gezaehlt())
             .map(|eintrag| eintrag.z())
             .sum::<u64>()
             + eintrag.waisen
     }
 
-    /// Der Tag entfällt: jeder Eintrag `vorhanden` → `entfallen` (wer gewinnt, zieht ab), dann aus dem Verzeichnis;
-    /// liefert Σ `z` der gewonnenen plus Waisen — Gelöschte zieht der Löschende ab.
+    /// Der Tag entfällt: jeder Eintrag `vorhanden` → `entfallen`, dann aus dem Verzeichnis; liefert Σ `z` der Einträge,
+    /// deren Abzug dieser Aufruf gewinnt, plus Waisen — auch eines gelöschten, dessen Kürzen scheiterte oder noch
+    /// läuft; einen schon gekürzten zog der Löschende ab (Befund #67 B2).
     pub fn tag_entfernen(&self, gespraech: &Gespraech, tag: NaiveDate) -> u64 {
         let ids = {
             let innen = self.lesend();
@@ -230,7 +245,8 @@ impl Anhangverzeichnis {
             let innen = self.lesend();
             for id in &ids {
                 if let Some(eintrag) = innen.eintraege.get(id) {
-                    if eintrag.tauschen(Zustand::Vorhanden, Zustand::Entfallen) {
+                    eintrag.tauschen(Zustand::Vorhanden, Zustand::Entfallen);
+                    if eintrag.abzug_gewinnen() {
                         abzuziehen = abzuziehen.saturating_add(eintrag.z());
                     }
                     entfallen.push(Arc::clone(eintrag));
@@ -249,8 +265,9 @@ impl Anhangverzeichnis {
     }
 
     /// Die Anhänge eines Tags ließen sich nach seiner Tagesdatei nicht entfernen (ADR-0046 Ergänzung „Review #53 B1“
-    /// Regel 4): jeder Eintrag `vorhanden` → `entfallen` (wer gewinnt, gibt sein Zählmaß an die Waisen des Tags), alle
-    /// Einträge aus dem Verzeichnis; der Tag bleibt mit `W` — `G` ändert sich nicht. Liefert das neue `W`.
+    /// Regel 4): jeder Eintrag `vorhanden` → `entfallen`, wer den Abzug gewinnt (auch ein nicht gekürzter gelöschter,
+    /// Befund #67 B2), gibt sein Zählmaß an die Waisen des Tags; alle Einträge aus dem Verzeichnis; der Tag bleibt mit
+    /// `W` — `G` ändert sich nicht. Liefert das neue `W`.
     pub fn tag_verwaisen(&self, gespraech: &Gespraech, tag: NaiveDate) -> u64 {
         let mut innen = self.schreibend();
         let Some(ids) = innen
@@ -262,10 +279,11 @@ impl Anhangverzeichnis {
         };
         let mut gewonnen = 0u64;
         for id in ids {
-            if let Some(eintrag) = innen.eintraege.remove(&id)
-                && eintrag.tauschen(Zustand::Vorhanden, Zustand::Entfallen)
-            {
-                gewonnen = gewonnen.saturating_add(eintrag.z());
+            if let Some(eintrag) = innen.eintraege.remove(&id) {
+                eintrag.tauschen(Zustand::Vorhanden, Zustand::Entfallen);
+                if eintrag.abzug_gewinnen() {
+                    gewonnen = gewonnen.saturating_add(eintrag.z());
+                }
             }
         }
         let eintrag = innen.tage.entry((gespraech.clone(), tag)).or_default();
@@ -590,8 +608,9 @@ mod tests {
         assert_eq!(verzeichnis.tag_entfernen(&allgemein(), tag()), waisen);
     }
 
-    /// Vergleichen-und-Tauschen: von zwei Übergängen aus `vorhanden` gewinnt genau einer; Entfallen zieht Gelöschte
-    /// nicht ab (Mutante „Entfallen zieht Gelöschte ab“).
+    /// Vergleichen-und-Tauschen: von zwei Übergängen aus `vorhanden` gewinnt genau einer; ein gelöschter zählt, bis
+    /// sein Abzug gewonnen ist (genau einmal); Entfallen zieht abgezogene Gelöschte nicht noch einmal ab (Mutante
+    /// „Entfallen zieht Gelöschte ab“), nicht abgezogene schon (Befund #67 B2).
     #[test]
     fn genau_ein_uebergang_gewinnt_und_entfallen_zieht_geloeschte_nicht_ab() {
         let verzeichnis = Anhangverzeichnis::default();
@@ -607,12 +626,24 @@ mod tests {
         let a = verzeichnis
             .finden(&Anhangid::lesen(ID_A).expect("ID"))
             .expect("a");
+        let b = verzeichnis
+            .finden(&Anhangid::lesen(ID_B).expect("ID"))
+            .expect("b");
         assert!(a.tauschen(Zustand::Vorhanden, Zustand::Geloescht));
         assert!(!a.tauschen(Zustand::Vorhanden, Zustand::Geloescht));
+        assert!(b.tauschen(Zustand::Vorhanden, Zustand::Geloescht));
+        assert_eq!(
+            verzeichnis.bytes_je_tag(&allgemein(), tag()),
+            65_536 + 69_632,
+            "gelöscht, noch nicht abgezogen"
+        );
+        assert!(a.abzug_gewinnen());
+        assert!(!a.abzug_gewinnen());
         assert_eq!(verzeichnis.bytes_je_tag(&allgemein(), tag()), 69_632);
 
         assert_eq!(verzeichnis.tag_entfernen(&allgemein(), tag()), 69_632);
         assert_eq!(a.zustand(), Zustand::Geloescht);
+        assert!(!b.abzug_gewinnen(), "das Entfallen zog b ab");
     }
 
     #[test]

@@ -348,7 +348,7 @@ impl Gespraeche {
 
     /// Die Anhänge gelöschter Nachrichten sind `geloescht`, gleich welche Länge ihre Datei hat (ADR-0048 Regel 9,
     /// ändert ADR-0046 F1′ Regel 8 für diesen Fall): ein beim Laden `vorhandener` wird getauscht und bleibt in G gezählt,
-    /// bis er gekürzt ist. Liefert diese Einträge.
+    /// bis er gekürzt ist oder sein Tag entfällt. Liefert diese Einträge.
     fn anhaenge_geloeschter_nachrichten(
         &self,
     ) -> Vec<std::sync::Arc<super::anhangverzeichnis::Eintrag>> {
@@ -2012,5 +2012,191 @@ mod tests {
         );
         assert_eq!(zustand(&gespraeche, &erst_laufwerk), Zustand::Geloescht);
         assert_eq!(gespraeche.anhangkennzahlen().gebunden, 2 * MIB);
+    }
+
+    /// Nachricht A von `beta` mit einem Anhang (1 MiB) in `allgemein` (Frist 1), Nachricht B mit einem Anhang (1 MiB)
+    /// in `technik` (Frist 7), beide am 29.10.; mit `kuerzen_scheitert` lässt sich der Anhang von A nicht kürzen (wie
+    /// `ELOOP`). Liefert Gespräche, Ablage, Speicher und die Zeit von A.
+    fn a_mit_frist_1_und_b(
+        kuerzen_scheitert: bool,
+    ) -> (
+        Arc<Gespraeche>,
+        Arc<Speicherablage>,
+        Arc<crate::gespraeche::anhangspeicher::Anhangspeicher>,
+        crate::uhr::Zeit,
+    ) {
+        let (gespraeche, ablage, speicher) = mit_ablage();
+        let senden = |channel: &str, name: &str| {
+            let id = fertig(&gespraeche, "beta@127.0.0.1", name, &vec![1; MIB as usize]);
+            let Ok(crate::gespraeche::Gesendet::Neu(nachricht)) = gespraeche.senden_mit_anhaengen(
+                &Gespraech::channel(channel),
+                &kennung("beta@127.0.0.1"),
+                Art::Agent,
+                "x",
+                std::slice::from_ref(&id),
+                None,
+            ) else {
+                panic!("gesendet")
+            };
+            (id, nachricht.zeit)
+        };
+        let (a, zeit_a) = senden("allgemein", "a.bin");
+        senden("technik", "b.bin");
+        if kuerzen_scheitert {
+            speicher.kuerzen_scheitert(&gespraeche.anhang_finden(&a).expect("A").datei);
+        }
+        gespraeche
+            .frist_setzen("allgemein", 1, true, &kennung("alpha@127.0.0.1"))
+            .expect("Frist 1");
+        (gespraeche, ablage, speicher, zeit_a)
+    }
+
+    fn a_loeschen(gespraeche: &Gespraeche, zeit_a: crate::uhr::Zeit) {
+        gespraeche
+            .nachricht_loeschen(
+                &Gespraech::channel("allgemein"),
+                &kennung("beta@127.0.0.1"),
+                zeit_a,
+            )
+            .expect("A gelöscht");
+    }
+
+    fn am_30_pflegen(gespraeche: &Gespraeche) -> Vec<crate::gespraeche::Pflegebericht> {
+        gespraeche.pflegen(
+            NaiveDate::from_ymd_opt(2026, 10, 30).expect("Tag"),
+            crate::gespraeche::Pflegeanlass::Tageswechsel,
+        )
+    }
+
+    /// Befund #67 B2 (Abnahme-Probe; ADR-0048 Regel 9 c, F1′ Regel 1): das Kürzen beim Löschen der Nachricht scheitert,
+    /// ihr Anhang bleibt `geloescht` und gezählt (G = z(A) + z(B)); entfällt sein Tag, gibt das Entfallen den Platz frei
+    /// — G = z(B), nicht erst nach dem Neustart; die Invariante G = Σ Zählmaß je Tag gilt davor und danach (Mutante
+    /// „Entfallen zählt nur vorhandene“ rot).
+    #[test]
+    fn scheitert_das_kuerzen_beim_loeschen_der_nachricht_gibt_das_entfallen_ihres_tags_den_platz_frei()
+     {
+        let (gespraeche, _, _, zeit_a) = a_mit_frist_1_und_b(true);
+
+        a_loeschen(&gespraeche, zeit_a);
+        let g_geloescht = gespraeche.anhangkennzahlen().gebunden;
+        invarianten(
+            &gespraeche,
+            &[("allgemein", tag_29()), ("technik", tag_29())],
+        );
+        let berichte = am_30_pflegen(&gespraeche);
+
+        assert_eq!(g_geloescht, 2 * MIB, "gescheitert: A bleibt gezählt");
+        assert!(
+            berichte.iter().all(|bericht| matches!(
+                bericht,
+                crate::gespraeche::Pflegebericht::Entfallen { .. }
+            )),
+            "{berichte:?}"
+        );
+        assert_eq!(gespraeche.anhangkennzahlen().gebunden, MIB, "nur B bleibt");
+        invarianten(
+            &gespraeche,
+            &[("allgemein", tag_29()), ("technik", tag_29())],
+        );
+    }
+
+    /// Befund #67 B2, Variante „Kürzen gelingt“: A ist abgezogen, das Entfallen zieht ihn nicht noch einmal ab — G =
+    /// z(B) vor und nach dem Entfallen (Mutante „Entfallen zieht jeden Gelöschten ab“ rot).
+    #[test]
+    fn gelingt_das_kuerzen_zieht_das_entfallen_den_anhang_nicht_noch_einmal_ab() {
+        let (gespraeche, _, _, zeit_a) = a_mit_frist_1_und_b(false);
+
+        a_loeschen(&gespraeche, zeit_a);
+        let g_geloescht = gespraeche.anhangkennzahlen().gebunden;
+        am_30_pflegen(&gespraeche);
+
+        assert_eq!(g_geloescht, MIB);
+        assert_eq!(gespraeche.anhangkennzahlen().gebunden, MIB);
+        invarianten(
+            &gespraeche,
+            &[("allgemein", tag_29()), ("technik", tag_29())],
+        );
+    }
+
+    /// Befund #67 B2, Variante „Neustart dazwischen“: nach dem Löschen mit gescheitertem Kürzen neu geladen, das
+    /// Nachkürzen beim Start scheitert wieder → G = z(A) + z(B); das Entfallen gibt z(A) frei.
+    #[test]
+    fn nach_einem_neustart_gibt_das_entfallen_den_nicht_gekuerzten_anhang_frei() {
+        let (gespraeche, ablage, speicher, zeit_a) = a_mit_frist_1_und_b(true);
+        a_loeschen(&gespraeche, zeit_a);
+        let neu = Gespraeche::laden(
+            ablage.clone(),
+            Arc::new(GestellteUhr::neu(
+                chrono::DateTime::parse_from_rfc3339("2026-10-29T12:00:00.000+01:00")
+                    .expect("Zeit"),
+            )),
+        )
+        .expect("geladen")
+        .mit_anhangquote(Some(10 * MIB))
+        .mit_anhangablage(speicher.clone());
+
+        let gescheitert = neu.geloeschte_anhaenge_kuerzen();
+        let g_gestartet = neu.anhangkennzahlen().gebunden;
+        am_30_pflegen(&neu);
+
+        assert!(gescheitert[0].grund.is_some(), "{gescheitert:?}");
+        assert_eq!(g_gestartet, 2 * MIB);
+        assert_eq!(neu.anhangkennzahlen().gebunden, MIB);
+        invarianten(&neu, &[("allgemein", tag_29()), ("technik", tag_29())]);
+    }
+
+    /// Befund #67 B2, Variante „gleichzeitig“: das Löschen der Nachricht wartet vor dem Kürzen (Schranke, A schon
+    /// `geloescht`), in diesem Fenster entfällt der Tag; danach scheitert bzw. gelingt das Kürzen → je Anhang genau
+    /// ein Abzug: G = z(B) in beiden Fällen.
+    #[test]
+    fn entfaellt_der_tag_waehrend_des_kuerzens_zieht_genau_einer_ab() {
+        for kuerzen_scheitert in [true, false] {
+            let (gespraeche, _, speicher, zeit_a) = a_mit_frist_1_und_b(kuerzen_scheitert);
+            let schranke = Arc::new(std::sync::Barrier::new(2));
+            speicher.vor_kuerzen_warten(Arc::clone(&schranke));
+            let loeschen = {
+                let gespraeche = Arc::clone(&gespraeche);
+                std::thread::spawn(move || a_loeschen(&gespraeche, zeit_a))
+            };
+            schranke.wait();
+            am_30_pflegen(&gespraeche);
+            schranke.wait();
+            loeschen.join().expect("gelöscht");
+
+            assert_eq!(
+                gespraeche.anhangkennzahlen().gebunden,
+                MIB,
+                "Kürzen scheitert: {kuerzen_scheitert}"
+            );
+            invarianten(
+                &gespraeche,
+                &[("allgemein", tag_29()), ("technik", tag_29())],
+            );
+        }
+    }
+
+    /// Befund #67 B2, Variante „Entfernen der Anhänge scheitert einmal“ (ADR-0046 Ergänzung „Review #53 B1“ Regel 4):
+    /// der nicht gekürzte Anhang der gelöschten Nachricht geht mit den übrigen an die Waisen des Tags — G bleibt
+    /// z(A) + z(B) und die Invariante gilt; die nächste Pflege entfernt den Tag und gibt z(A) frei.
+    #[test]
+    fn scheitert_das_entfernen_der_anhaenge_wird_der_nicht_gekuerzte_waise_und_danach_frei() {
+        let (gespraeche, _, speicher, zeit_a) = a_mit_frist_1_und_b(true);
+        a_loeschen(&gespraeche, zeit_a);
+        speicher.tag_entfernen_scheitert_einmal(&Gespraech::channel("allgemein"), tag_29());
+
+        am_30_pflegen(&gespraeche);
+        let g_verwaist = gespraeche.anhangkennzahlen().gebunden;
+        invarianten(
+            &gespraeche,
+            &[("allgemein", tag_29()), ("technik", tag_29())],
+        );
+        am_30_pflegen(&gespraeche);
+
+        assert_eq!(g_verwaist, 2 * MIB);
+        assert_eq!(gespraeche.anhangkennzahlen().gebunden, MIB);
+        invarianten(
+            &gespraeche,
+            &[("allgemein", tag_29()), ("technik", tag_29())],
+        );
     }
 }

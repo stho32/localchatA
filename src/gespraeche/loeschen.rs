@@ -195,11 +195,11 @@ impl Gespraeche {
     }
 
     /// Schritte (b) und (c) für gewonnene Einträge (Zustand schon `geloescht`): (b) ohne Sperre je Datei auf 0 Bytes
-    /// kürzen, (c) unter der Schreibsperre je Erfolg `G −= z` und den Zähler `geloescht` erhöhen; je Fehler zurück nach
-    /// `vorhanden` (F1′ Regel 5 c) — außer die Nachricht des Anhangs ist gelöscht, dann bleibt er `geloescht` (ADR-0048
-    /// Regel 9 c), gleich wer ihn gewann (Befund #67 B1). Das Merkmal setzt das Nachricht-Löschen unter derselben
-    /// Schreibsperre, unter der hier zurückgesetzt wird. Liefert je Eintrag die Datei mit Grund des Fehlers (ohne
-    /// Grund: gekürzt).
+    /// kürzen, (c) unter der Schreibsperre je Erfolg `G −= z`, wenn der Abzug nicht schon an das Entfallen des Tags
+    /// ging (Befund #67 B2), und den Zähler `geloescht` erhöhen; je Fehler zurück nach `vorhanden` (F1′ Regel 5 c) —
+    /// außer die Nachricht des Anhangs ist gelöscht, dann bleibt er `geloescht` und gezählt (ADR-0048 Regel 9 c), gleich
+    /// wer ihn gewann (Befund #67 B1). Das Merkmal setzt das Nachricht-Löschen unter derselben Schreibsperre, unter
+    /// der hier zurückgesetzt wird. Liefert je Eintrag die Datei mit Grund des Fehlers (ohne Grund: gekürzt).
     fn kuerzen_und_abziehen(&self, gewonnen: Vec<Arc<Eintrag>>) -> Vec<(Arc<Eintrag>, Gekuerzt)> {
         let gekuerzt: Vec<(Arc<Eintrag>, Result<(), String>)> = gewonnen
             .into_iter()
@@ -217,11 +217,13 @@ impl Gespraeche {
             .map(|(eintrag, ergebnis)| {
                 let grund = match ergebnis {
                     Ok(()) => {
-                        let _ = self.anhangzaehler.gebunden.fetch_update(
-                            Ordering::SeqCst,
-                            Ordering::SeqCst,
-                            |g| Some(g.saturating_sub(eintrag.z())),
-                        );
+                        if eintrag.abzug_gewinnen() {
+                            let _ = self.anhangzaehler.gebunden.fetch_update(
+                                Ordering::SeqCst,
+                                Ordering::SeqCst,
+                                |g| Some(g.saturating_sub(eintrag.z())),
+                            );
+                        }
                         self.anhangzaehler.geloescht.fetch_add(1, Ordering::SeqCst);
                         None
                     }

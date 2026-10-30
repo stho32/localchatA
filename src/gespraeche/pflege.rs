@@ -188,7 +188,7 @@ impl Gespraeche {
 impl Gespraeche {
     /// Nach der Tagesdatei entfallen die Anhänge des Tags (ADR-0046 Regel 9, Ergänzung „Karte #9 Security-Gate“
     /// Regel 4): über Verzeichnisdeskriptoren, nie einem Symlink folgend; erst danach aus dem Verzeichnis und `G −=` die
-    /// gewonnenen `vorhanden` samt Waisen (Gelöschte zieht der Löschende ab). Scheitert das Entfernen, gehen die
+    /// gewonnenen Abzüge samt Waisen (Befund #67 B2: auch nicht gekürzte Gelöschte). Scheitert das Entfernen, gehen die
     /// Einträge nach `entfallen`, ihre Bytes bleiben als Waisen des Tags in `G`, und jede nächste Pflege versucht es
     /// erneut — der Tag steht weiter in `anhaenge/` (ADR-0046 Ergänzung „Review #53 B1“ Regeln 3 und 4).
     pub(super) fn anhaenge_entfallen(
