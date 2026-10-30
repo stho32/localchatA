@@ -4,13 +4,18 @@
 //! 415/413/400 → Gespräch 404 (nicht sichtbar wie unbekannt) → Wert 422 (`zustand`, `gueltigkeit`, `feld`,
 //! `aktivitaeten`) → Bremse 429 (Episode `WARNING aktivitaet`) → Wirkung. Kein Eintrag im Betriebsprotokoll, wenn es
 //! gelingt (Regel 11).
+//!
+//! Dieselben Handler bedienen `PUT|DELETE|GET /api/direkt/{kennung}/aktivitaet` (ADR-0055 Regel 3, ADR-0051 Regel
+//! 10): das Paar entsteht aus Sitzung und Pfad (nach der Sitzung 401: Kennung 422, `selbst` 422), und ohne
+//! bestehendes Gespräch ist die Antwort ein 404 wie für ein nie vergebenes.
 
 use super::Zustand;
 use super::anfrageprotokoll::mit_regel;
+use super::bearbeiten::{unbekannt_regel, unbekannt_wie};
 use super::koerper::{Koerperfehler, Koerperort, json_lesen, koerperfehler_beantworten};
-use super::senden::unbekannt;
 use super::teilnehmer::Teilnehmer;
 use super::teilnehmerliste::zeit_als_text;
+use super::ziel::{Segment, Ziel, bezug, ziel_aus_pfad};
 use crate::aktivitaet::{self, Abweisung, Gebremst, Gesetzt, Grenze};
 use crate::gespraeche::{Gespraech, sichtbar_fuer};
 use crate::protokoll::episoden::{Auftreten, Quelle};
@@ -25,6 +30,7 @@ use serde_json::{Value, json};
 use std::sync::Arc;
 
 const ROUTE: &str = "PUT /api/channels/{name}/aktivitaet";
+const ROUTE_DIREKT: &str = "PUT /api/direkt/{kennung}/aktivitaet";
 const BEISPIEL: &str = r#"{"zustand":"denkt_nach","gueltig_s":60}"#;
 /// Körpergrenze (ADR-0051 Regel 4): der größte gültige Körper `{"zustand":"denkt_nach","gueltig_s":120}` hat 40 Bytes;
 /// mit Raum für Leerraum und Einrückung 1 KiB.
@@ -37,10 +43,36 @@ pub async fn setzen(
     kopf: HeaderMap,
     koerper: Body,
 ) -> Response {
+    setzen_in(teilnehmer, zustand, Ziel::Channel(name), kopf, koerper).await
+}
+
+pub(super) async fn setzen_direkt(
+    teilnehmer: Teilnehmer,
+    State(zustand): State<Arc<Zustand>>,
+    segment: Segment,
+    kopf: HeaderMap,
+    koerper: Body,
+) -> Response {
+    match ziel_aus_pfad(&teilnehmer, &segment) {
+        Ok(ziel) => setzen_in(teilnehmer, zustand, ziel, kopf, koerper).await,
+        Err(fehler) => fehler.antwort(&teilnehmer.kennung),
+    }
+}
+
+async fn setzen_in(
+    teilnehmer: Teilnehmer,
+    zustand: Arc<Zustand>,
+    ziel: Ziel,
+    kopf: HeaderMap,
+    koerper: Body,
+) -> Response {
     let wer = teilnehmer.kennung.als_text();
     let ort = Koerperort {
         protokoll: &zustand.protokoll,
-        route: ROUTE,
+        route: match ziel {
+            Ziel::Channel(_) => ROUTE,
+            Ziel::Direkt { .. } => ROUTE_DIREKT,
+        },
         herkunft: teilnehmer.herkunft,
         kennung: Some(wer),
     };
@@ -48,8 +80,8 @@ pub async fn setzen(
         Ok(koerper) => koerper,
         Err(fehler) => return koerper_abgewiesen(fehler),
     };
-    let Some(gespraech) = sichtbares_gespraech(&zustand, &name, &teilnehmer) else {
-        return mit_regel(unbekannt(&name), "channel_unbekannt", Some(wer));
+    let Some(gespraech) = bestehendes_gespraech(&zustand, &ziel, &teilnehmer) else {
+        return unbekannt_beantworten(&ziel, wer);
     };
     let wunsch = match wunsch_lesen(&koerper) {
         Ok(wunsch) => wunsch,
@@ -64,7 +96,7 @@ pub async fn setzen(
     ) {
         Ok(gesetzt) => gesetzt_beantworten(gesetzt),
         Err(Abweisung::Gebremst(gebremst)) => {
-            gebremst_melden(&zustand.protokoll, gebremst, &teilnehmer, &name)
+            gebremst_melden(&zustand.protokoll, gebremst, &teilnehmer, &ziel)
         }
         Err(Abweisung::Gueltigkeit) => abgewiesen(&Wertfehler::Gueltigkeit, wer),
         Err(Abweisung::ZuViele) => abgewiesen(&Wertfehler::ZuViele, wer),
@@ -76,12 +108,23 @@ pub async fn loeschen(
     State(zustand): State<Arc<Zustand>>,
     Path(name): Path<String>,
 ) -> Response {
-    let Some(gespraech) = sichtbares_gespraech(&zustand, &name, &teilnehmer) else {
-        return mit_regel(
-            unbekannt(&name),
-            "channel_unbekannt",
-            Some(teilnehmer.kennung.als_text()),
-        );
+    loeschen_in(&teilnehmer, &zustand, &Ziel::Channel(name))
+}
+
+pub(super) async fn loeschen_direkt(
+    teilnehmer: Teilnehmer,
+    State(zustand): State<Arc<Zustand>>,
+    segment: Segment,
+) -> Response {
+    match ziel_aus_pfad(&teilnehmer, &segment) {
+        Ok(ziel) => loeschen_in(&teilnehmer, &zustand, &ziel),
+        Err(fehler) => fehler.antwort(&teilnehmer.kennung),
+    }
+}
+
+fn loeschen_in(teilnehmer: &Teilnehmer, zustand: &Zustand, ziel: &Ziel) -> Response {
+    let Some(gespraech) = bestehendes_gespraech(zustand, ziel, teilnehmer) else {
+        return unbekannt_beantworten(ziel, teilnehmer.kennung.als_text());
     };
     zustand.aktivitaet.beenden(&teilnehmer.kennung, &gespraech);
     StatusCode::NO_CONTENT.into_response()
@@ -94,12 +137,23 @@ pub async fn lesen(
     State(zustand): State<Arc<Zustand>>,
     Path(name): Path<String>,
 ) -> Response {
-    let Some(gespraech) = sichtbares_gespraech(&zustand, &name, &teilnehmer) else {
-        return mit_regel(
-            unbekannt(&name),
-            "channel_unbekannt",
-            Some(teilnehmer.kennung.als_text()),
-        );
+    lesen_in(&teilnehmer, &zustand, &Ziel::Channel(name))
+}
+
+pub(super) async fn lesen_direkt(
+    teilnehmer: Teilnehmer,
+    State(zustand): State<Arc<Zustand>>,
+    segment: Segment,
+) -> Response {
+    match ziel_aus_pfad(&teilnehmer, &segment) {
+        Ok(ziel) => lesen_in(&teilnehmer, &zustand, &ziel),
+        Err(fehler) => fehler.antwort(&teilnehmer.kennung),
+    }
+}
+
+fn lesen_in(teilnehmer: &Teilnehmer, zustand: &Zustand, ziel: &Ziel) -> Response {
+    let Some(gespraech) = bestehendes_gespraech(zustand, ziel, teilnehmer) else {
+        return unbekannt_beantworten(ziel, teilnehmer.kennung.als_text());
     };
     let gelesen = zustand.aktivitaet.lesen(&gespraech, &teilnehmer.kennung);
     let aktivitaeten: Vec<Value> = gelesen
@@ -117,17 +171,33 @@ pub async fn lesen(
         .into_response()
 }
 
-/// Das Gespräch des Pfads, wenn es bekannt und für den Aufrufer sichtbar ist — sonst keines (404 wie unbekannt, kein
-/// Orakel). Archivierte Channels gibt es erst mit I0022.
-fn sichtbares_gespraech(
+/// Das Gespräch der Route, wenn es besteht — sonst keines (404 wie unbekannt, kein Orakel). Ein Channel muss dem
+/// Aufrufer sichtbar sein (archivierte gibt es erst mit I0022); ein Direktgespräch ist durch den Bau sichtbar: das
+/// Paar entstand aus der Sitzung und dem Pfad, es besteht mit mindestens einer Nachricht in der Frist (ADR-0055
+/// Regel 3). Ohne Gespräch wird nichts angelegt.
+fn bestehendes_gespraech(
     zustand: &Zustand,
-    name: &str,
+    ziel: &Ziel,
     teilnehmer: &Teilnehmer,
 ) -> Option<Gespraech> {
-    let gespraech = Gespraech::channel(name);
-    let sichtbar = zustand.gespraeche.channel_bekannt(name)
-        && sichtbar_fuer(&gespraech, &teilnehmer.kennung, false);
-    sichtbar.then_some(gespraech)
+    match ziel {
+        Ziel::Channel(name) => {
+            let gespraech = Gespraech::channel(name);
+            let sichtbar = zustand.gespraeche.channel_bekannt(name)
+                && sichtbar_fuer(&gespraech, &teilnehmer.kennung, false);
+            sichtbar.then_some(gespraech)
+        }
+        Ziel::Direkt { paar, .. } => zustand
+            .gespraeche
+            .direkt_besteht(paar)
+            .then(|| Gespraech::Direkt(paar.clone())),
+    }
+}
+
+/// 404 für ein Gespräch, das es für den Aufrufer nicht gibt: „# name gibt es nicht.“ im Channel, im Direktgespräch
+/// dieselbe Antwort wie für eine nie vergebene Zeit.
+fn unbekannt_beantworten(ziel: &Ziel, wer: &str) -> Response {
+    mit_regel(unbekannt_wie(ziel), unbekannt_regel(ziel), Some(wer))
 }
 
 /// Warum ein Körper keinen Zustand ergibt.
@@ -188,10 +258,15 @@ fn gebremst_melden(
     protokoll: &Protokoll,
     gebremst: Gebremst,
     teilnehmer: &Teilnehmer,
-    channel: &str,
+    ziel: &Ziel,
 ) -> Response {
     let wer = teilnehmer.kennung.als_text();
-    protokoll.episode(gebremst_auftreten(wer, channel, gebremst.grenze));
+    let name = ziel.name();
+    protokoll.episode(gebremst_auftreten(wer, &name, gebremst.grenze));
+    let wo = match ziel {
+        Ziel::Channel(name) => format!("# {name}"),
+        Ziel::Direkt { .. } => "dem Direktgespräch".to_string(),
+    };
     let wieder_in_ms = u64::try_from(gebremst.wieder_in.as_millis()).unwrap_or(u64::MAX);
     let sekunden = wieder_in_ms.div_ceil(1_000).max(1);
     let von = match gebremst.grenze {
@@ -201,9 +276,8 @@ fn gebremst_melden(
             teilnehmer.herkunft
         ),
     };
-    let fehler = format!(
-        "Zu viele Aktivitätsmeldungen von {von} in # {channel} — wieder möglich in {sekunden} s."
-    );
+    let fehler =
+        format!("Zu viele Aktivitätsmeldungen von {von} in {wo} — wieder möglich in {sekunden} s.");
     (
         StatusCode::TOO_MANY_REQUESTS,
         [(RETRY_AFTER, sekunden.to_string())],
@@ -225,7 +299,7 @@ pub(crate) fn gebremst_auftreten(wer: &str, channel: &str, grenze: Grenze) -> Au
         episodentexte::AKTIVITAET_GEBREMST,
         Quelle::neu().mit(Schluessel::Kennung, wer),
     )
-    .einzeln(Schluessel::Channel, channel)
+    .einzeln(bezug(channel), channel)
     .einzeln(Schluessel::Grenze, grenze.als_text())
     .art(grenze.als_text())
 }

@@ -81,6 +81,26 @@ impl Teilnehmer {
         .await
     }
 
+    /// Eine Anfrage an `/api/direkt/<segment>/<unterpfad>` mit beliebiger Methode und optionalem JSON-Körper.
+    pub async fn aufrufen(
+        &self,
+        methode: reqwest::Method,
+        basis: &str,
+        segment: &str,
+        unterpfad: &str,
+        koerper: Option<&Value>,
+    ) -> ApiAntwort {
+        let anfrage = self
+            .absender
+            .anfrage(methode, format!("{basis}api/direkt/{segment}/{unterpfad}"))
+            .header("X-LocalchatA-Sitzung", &self.token);
+        api_antwort(match koerper {
+            Some(koerper) => anfrage.json(koerper),
+            None => anfrage,
+        })
+        .await
+    }
+
     /// `POST /api/verlassen` — der Teilnehmer geht.
     pub async fn verlassen(&self, basis: &str) -> ApiAntwort {
         api_antwort(

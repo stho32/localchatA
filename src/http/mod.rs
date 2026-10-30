@@ -153,6 +153,12 @@ pub fn router(zustand: Zustand) -> Router {
         )
         .route("/api/direkt", get(direktliste::auflisten))
         .route(
+            "/api/direkt/{kennung}/aktivitaet",
+            put(aktivitaet::setzen_direkt)
+                .delete(aktivitaet::loeschen_direkt)
+                .get(aktivitaet::lesen_direkt),
+        )
+        .route(
             "/api/direkt/{kennung}/nachrichten",
             get(nachrichten::beantworten_direkt).post(senden::senden_direkt),
         )
