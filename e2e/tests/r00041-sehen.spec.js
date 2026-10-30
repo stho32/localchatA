@@ -6,7 +6,8 @@ const { sichtbarNach } = require('./hilfen');
 const { netzAus, netzAn, leiste } = require('./r00012-hilfen');
 const { sendenStarten, imBrowserBeitreten, nachrichten } = require('./senden-hilfen');
 const {
-  betaSendet, betaVerlauf, bearbeitenPerApi, browserOeffnen, nachrichtMitZeit, zeigtBearbeitet, textknotenMit,
+  betaSendet, betaVerlauf, bearbeitenPerApi, loeschenPerApi, browserOeffnen, nachrichtMitZeit, zeigtBearbeitet,
+  zeigtGeloescht, textknotenMit, mitAnhaengenSenden, PNG, webm,
 } = require('./r00041-hilfen');
 
 let instanz;
@@ -215,4 +216,96 @@ test('Außerhalb des Fensters (B0604): 600 Nachrichten, B am Ende; beta bearbeit
   await expect(nachrichtMitZeit(b.page, erste).locator('.lc-body')).toHaveText('Ganz am Anfang');
   await expect(nachrichtMitZeit(b.page, erste).locator('.lc-marke', { hasText: 'bearbeitet' })).toHaveCount(1);
   expect(b.fehler).toEqual([]);
+});
+
+for (const { titel, ohneWorker } of [{ titel: 'mit SharedWorker', ohneWorker: false }, { titel: 'ohne SharedWorker', ohneWorker: true }]) {
+  test(`Live gelöscht (B0621, ${titel}): A und B zeigen „Nachricht gelöscht“ unter 1 s, ohne Text; nach dem Neuladen ebenso`, async ({ browser }) => {
+    instanz = await sendenStarten();
+    const beta = await betaSendet(instanz.adresse, ['Hallo']);
+    const zeit = beta.zeiten[0];
+    const a = await browserOeffnen(browser, { ohneWorker });
+    const b = await browserOeffnen(browser, { ohneWorker });
+    await imBrowserBeitreten(a.page, instanz.adresse, 'shoff');
+    await imBrowserBeitreten(b.page, instanz.adresse, 'anna');
+    await expect(nachrichtMitZeit(a.page, zeit)).toHaveCount(1);
+    await expect(nachrichtMitZeit(b.page, zeit)).toHaveCount(1);
+
+    const antwort = await loeschenPerApi(instanz.adresse, beta.token, zeit);
+    expect(antwort.status, JSON.stringify(antwort.daten)).toBe(200);
+    const bisA = await sichtbarNach(a.page, zeigtGeloescht, { argument: { zeit }, ab: antwort.empfangen, timeout: 10000 });
+    const bisB = await sichtbarNach(b.page, zeigtGeloescht, { argument: { zeit }, ab: antwort.empfangen, timeout: 10000 });
+    expect(bisA).toBeLessThan(GRENZE_MS);
+    expect(bisB).toBeLessThan(GRENZE_MS);
+    expect(await textknotenMit(a.page, 'Hallo')).toEqual([]);
+    expect(await textknotenMit(b.page, 'Hallo')).toEqual([]);
+    await expect(nachrichtMitZeit(a.page, zeit).locator('.lc-meta .lc-id')).toContainText('beta');
+
+    await a.page.reload();
+    await expect(nachrichtMitZeit(a.page, zeit).locator('.lc-body')).toHaveText('Nachricht gelöscht');
+    expect(await textknotenMit(a.page, 'Hallo')).toEqual([]);
+    expect(a.fehler).toEqual([]);
+    expect(b.fehler).toEqual([]);
+  });
+}
+
+test('Gelöscht mit Anhängen (B0621): der Knoten enthält kein Bild, keinen Film, keinen Ton und keinen Verweis auf /anhaenge/; danach fragt A nichts mehr dort an', async ({ browser }) => {
+  instanz = await sendenStarten();
+  const beta = await betaSendet(instanz.adresse, []);
+  const zeit = await mitAnhaengenSenden(instanz.adresse, beta.token, 'Mit Dateien', [{ name: 'foto.png', inhalt: PNG }, { name: 'film.webm', inhalt: webm() }]);
+  const a = await browserOeffnen(browser);
+  await imBrowserBeitreten(a.page, instanz.adresse, 'shoff');
+  await expect(nachrichtMitZeit(a.page, zeit)).toHaveCount(1);
+  const anhangAbrufe = [];
+
+  const antwort = await loeschenPerApi(instanz.adresse, beta.token, zeit);
+  expect(antwort.status, JSON.stringify(antwort.daten)).toBe(200);
+  a.page.on('request', (anfrage) => {
+    if (new URL(anfrage.url()).pathname.startsWith('/anhaenge/')) {
+      anhangAbrufe.push(anfrage.url());
+    }
+  });
+  await sichtbarNach(a.page, zeigtGeloescht, { argument: { zeit }, ab: antwort.empfangen, timeout: 10000 });
+  const knoten = nachrichtMitZeit(a.page, zeit);
+  await expect(knoten.locator('img, video, audio')).toHaveCount(0);
+  await expect(knoten.locator('a[href*="/anhaenge/"]')).toHaveCount(0);
+  await a.page.waitForTimeout(500);
+  expect(anhangAbrufe).toEqual([]);
+  expect(a.fehler).toEqual([]);
+});
+
+test('Nachholen gelöscht (B0621): B offline, beta löscht, B online → nach „Wieder verbunden“ „Nachricht gelöscht“, ohne Neuladen', async ({ browser }) => {
+  instanz = await sendenStarten();
+  const beta = await betaSendet(instanz.adresse, ['Hallo']);
+  const zeit = beta.zeiten[0];
+  const b = await browserOeffnen(browser);
+  await imBrowserBeitreten(b.page, instanz.adresse, 'anna');
+  await expect(nachrichtMitZeit(b.page, zeit)).toHaveCount(1);
+  await b.page.evaluate(() => { window.nichtNeuGeladen = true; });
+
+  await netzAus(b);
+  expect((await loeschenPerApi(instanz.adresse, beta.token, zeit)).status).toBe(200);
+  await netzAn(b);
+  await expect(leiste(b.page)).toHaveText(/Wieder verbunden/);
+  await expect(nachrichtMitZeit(b.page, zeit).locator('.lc-body')).toHaveText('Nachricht gelöscht');
+  expect(await b.page.evaluate(() => window.nichtNeuGeladen)).toBe(true);
+  expect(ohneNetzfehler(b.fehler)).toEqual([]);
+});
+
+test('Endgültig (B0621): ein verspätetes aenderung „bearbeitet“ mit kleinerem geaendert nach dem Löschen lässt „Nachricht gelöscht“ stehen', async ({ browser }) => {
+  instanz = await sendenStarten();
+  const beta = await betaSendet(instanz.adresse, ['Hallo']);
+  const zeit = beta.zeiten[0];
+  const a = await browserOeffnen(browser, { ohneWorker: true });
+  await stromMitVerzoegerung(a.page, '"text":"Verspätet"', 300);
+  await imBrowserBeitreten(a.page, instanz.adresse, 'shoff');
+  await expect(nachrichtMitZeit(a.page, zeit)).toHaveCount(1);
+
+  expect((await bearbeitenPerApi(instanz.adresse, beta.token, zeit, 'Verspätet')).status).toBe(200);
+  expect((await loeschenPerApi(instanz.adresse, beta.token, zeit)).status).toBe(200);
+  await expect(nachrichtMitZeit(a.page, zeit).locator('.lc-body')).toHaveText('Nachricht gelöscht');
+  await a.page.waitForFunction(() => window.verzoegertAusgeliefert === true, null, { timeout: 5000 });
+  await a.page.waitForTimeout(100);
+  await expect(nachrichtMitZeit(a.page, zeit).locator('.lc-body')).toHaveText('Nachricht gelöscht');
+  expect(await textknotenMit(a.page, 'Verspätet')).toEqual([]);
+  expect(a.fehler).toEqual([]);
 });

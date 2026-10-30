@@ -1,6 +1,11 @@
 'use strict';
 // Hilfen für R00041 (eigene Nachrichten bearbeiten und löschen im Browser): Bearbeiten und Löschen per API (R00039,
 // R00040), Browser mit und ohne SharedWorker, Senden im Browser, Textknoten des Verlaufs.
+const fs = require('fs');
+const http = require('http');
+const os = require('os');
+const path = require('path');
+const { execFileSync } = require('child_process');
 const { expect } = require('@playwright/test');
 const { fehlerSammeln, channelAnlegen } = require('./hilfen');
 const { anfragen, beitreten, senden, eingabe } = require('./senden-hilfen');
@@ -27,6 +32,51 @@ function bearbeitenPerApi(adresse, token, zeit, text, herkunft = BETA) {
 /// `POST …/nachrichten/loeschen {zeit}`.
 function loeschenPerApi(adresse, token, zeit, herkunft = BETA) {
   return anfragen(adresse, { methode: 'POST', pfad: 'api/channels/allgemein/nachrichten/loeschen', koerper: { zeit }, token, herkunft });
+}
+
+/// Legt Anhänge über die API ab (R00029: anmelden, hochladen) und sendet sie mit `text` nach `allgemein`; dateien:
+/// [{ name, inhalt: Buffer }] → die Zeit der Nachricht.
+async function mitAnhaengenSenden(adresse, token, text, dateien, herkunft = BETA) {
+  const ids = [];
+  for (const { name, inhalt } of dateien) {
+    const angemeldet = await anfragen(adresse, { methode: 'POST', pfad: 'api/anhaenge', koerper: { name, bytes: inhalt.length }, token, herkunft });
+    expect(angemeldet.status, JSON.stringify(angemeldet.daten)).toBe(201);
+    const { id } = angemeldet.daten.anhang;
+    const hochgeladen = await bytesSenden(adresse, `api/anhaenge/${id}`, token, inhalt, herkunft);
+    expect(hochgeladen, `Hochladen ${name}`).toBe(200);
+    ids.push(id);
+  }
+  const gesendet = await anfragen(adresse, { methode: 'POST', pfad: 'api/channels/allgemein/nachrichten', koerper: { text, anhaenge: ids }, token, herkunft });
+  expect(gesendet.status, JSON.stringify(gesendet.daten)).toBe(201);
+  return gesendet.daten.nachricht.zeit;
+}
+
+function bytesSenden(adresse, pfad, token, inhalt, herkunft) {
+  const ziel = new URL(pfad, adresse);
+  return new Promise((fertig, gescheitert) => {
+    const anfrage = http.request({
+      host: ziel.hostname, port: ziel.port, path: ziel.pathname, method: 'PUT', localAddress: herkunft,
+      headers: { 'Content-Type': 'application/octet-stream', 'Content-Length': inhalt.length, 'X-LocalchatA-Sitzung': token },
+    }, (antwort) => {
+      antwort.resume();
+      antwort.on('end', () => fertig(antwort.statusCode));
+    });
+    anfrage.once('error', gescheitert);
+    anfrage.end(inhalt);
+  });
+}
+
+/// Ein PNG von 1 × 1 Pixel.
+const PNG = Buffer.from('89504e470d0a1a0a0000000d4948445200000001000000010802000000907753de0000000c49444154789c63606060000000040001f61738550000000049454e44ae426082', 'hex');
+
+/// Ein WebM aus ffmpeg (VP8, 1 s, ohne Ton), im eigenen Wegwerf-Ordner erzeugt.
+function webm() {
+  const ordner = fs.mkdtempSync(path.join(os.tmpdir(), 'localchata-e2e-webm-'));
+  const pfad = path.join(ordner, 'film.webm');
+  execFileSync('ffmpeg', ['-v', 'error', '-y', '-f', 'lavfi', '-i', 'testsrc=d=1:s=64x48:r=10', '-c:v', 'libvpx', '-an', pfad]);
+  const inhalt = fs.readFileSync(pfad);
+  fs.rmSync(ordner, { recursive: true, force: true });
+  return inhalt;
 }
 
 /// Vorbereitung für sendenStarten: `allgemein` mit `anzahl` Nachrichten von `beta@127.0.0.2` (eine je Sekunde ab 14:00
@@ -98,6 +148,6 @@ const textknotenMit = (page, text) => page.evaluate((gesucht) => {
 }, text);
 
 module.exports = {
-  BETA, betaVerlauf, betaSendet, bearbeitenPerApi, loeschenPerApi, browserOeffnen, imBrowserSenden, nachrichtMitZeit, zeigtBearbeitet,
+  BETA, betaVerlauf, mitAnhaengenSenden, PNG, webm, betaSendet, bearbeitenPerApi, loeschenPerApi, browserOeffnen, imBrowserSenden, nachrichtMitZeit, zeigtBearbeitet,
   zeigtGeloescht, textknotenMit,
 };
