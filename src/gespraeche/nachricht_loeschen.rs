@@ -143,7 +143,9 @@ impl Gespraeche {
 impl Gespraeche {
     /// Je Anhang der Nachricht `vorhanden → geloescht` per Vergleichen-und-Tauschen, unter der Schreibsperre nach dem
     /// Löschsatz (ADR-0048 Regel 9 a): ab hier antwortet der Abruf 410. Ein schon im Laufwerk gelöschter Anhang wird
-    /// übersprungen — je Anhang genau ein Abzug. Liefert die gewonnenen Einträge für Kürzen und Abzug.
+    /// übersprungen — je Anhang genau ein Abzug —, trägt aber wie jeder die gelöschte Nachricht: scheitert das Kürzen
+    /// des Laufwerks danach, bleibt er `geloescht` (Befund #67 B1). Liefert die gewonnenen Einträge für Kürzen und
+    /// Abzug.
     fn anhaenge_markieren(
         &self,
         gespraech: &Gespraech,
@@ -154,6 +156,7 @@ impl Gespraeche {
             .iter()
             .filter_map(|zeile| self.anhangverzeichnis.finden(&zeile.id))
             .filter(|eintrag| eintrag.gespraech == *gespraech && eintrag.satzzeit == nachricht.zeit)
+            .inspect(|eintrag| eintrag.nachricht_geloescht_setzen())
             .filter(|eintrag| eintrag.tauschen(Zustand::Vorhanden, Zustand::Geloescht))
             .collect()
     }

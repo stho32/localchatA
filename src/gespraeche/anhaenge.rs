@@ -372,6 +372,7 @@ impl Gespraeche {
                         .filter(|eintrag| {
                             eintrag.gespraech == *gespraech && eintrag.satzzeit == zeit
                         })
+                        .inspect(|eintrag| eintrag.nachricht_geloescht_setzen())
                         .filter(|eintrag| eintrag.tauschen(Zustand::Vorhanden, Zustand::Geloescht)),
                 );
             }
@@ -1839,5 +1840,177 @@ mod tests {
             assert_eq!(gespraeche.anhangkennzahlen().gebunden, MIB, "{geloescht:?}");
             invarianten(&gespraeche, &[("allgemein", tag), ("technik", tag)]);
         }
+    }
+
+    /// Was ein Wettlauf zwischen Laufwerk-Löschen und Nachricht-Löschen ergab: Gespräche, ID des Anhangs, Ergebnis
+    /// des Laufwerks, Ergebnis des Nachricht-Löschens.
+    type Wettlauf = (
+        Arc<Gespraeche>,
+        Anhangid,
+        crate::gespraeche::loeschen::Einzelergebnis,
+        crate::gespraeche::nachricht_loeschen::NachrichtGeloescht,
+    );
+
+    /// Eine Nachricht `Bericht` von `beta` mit einem Anhang (1 MiB) in `allgemein`. `gamma` löscht ihn im Laufwerk
+    /// und wartet vor dem Kürzen (Schranke): der Anhang ist schon `geloescht`. In diesem Fenster löscht `beta` die
+    /// Nachricht. Danach kürzt das Laufwerk — mit `kuerzen_scheitert` scheitert es (wie `ELOOP`).
+    fn laufwerk_vor_dem_kuerzen_dann_nachricht(kuerzen_scheitert: bool) -> Wettlauf {
+        use crate::gespraeche::loeschen::Loeschen;
+        let (gespraeche, _, speicher) = mit_ablage();
+        let id = fertig(
+            &gespraeche,
+            "beta@127.0.0.1",
+            "a.bin",
+            &vec![1; MIB as usize],
+        );
+        let Ok(crate::gespraeche::Gesendet::Neu(nachricht)) = gespraeche.senden_mit_anhaengen(
+            &Gespraech::channel("allgemein"),
+            &kennung("beta@127.0.0.1"),
+            Art::Agent,
+            "Bericht",
+            std::slice::from_ref(&id),
+            None,
+        ) else {
+            panic!("gesendet")
+        };
+        if kuerzen_scheitert {
+            let datei = gespraeche
+                .anhang_finden(&id)
+                .expect("Eintrag")
+                .datei
+                .clone();
+            speicher.kuerzen_scheitert(&datei);
+        }
+        let schranke = Arc::new(std::sync::Barrier::new(2));
+        speicher.vor_kuerzen_warten(Arc::clone(&schranke));
+        let laufwerk = {
+            let (gespraeche, id) = (Arc::clone(&gespraeche), id.clone());
+            std::thread::spawn(move || {
+                gespraeche.anhaenge_loeschen(&kennung("gamma@127.0.0.1"), &[id], true, |_| true)
+            })
+        };
+        schranke.wait();
+        let geloescht = gespraeche
+            .nachricht_loeschen(
+                &Gespraech::channel("allgemein"),
+                &kennung("beta@127.0.0.1"),
+                nachricht.zeit,
+            )
+            .expect("Nachricht gelöscht");
+        schranke.wait();
+        let Loeschen::Geloescht(bericht) = laufwerk.join().expect("Laufwerk") else {
+            panic!("Bericht erwartet")
+        };
+        (gespraeche, id, bericht.ergebnisse[0].1, geloescht)
+    }
+
+    /// Befund #67 B1 (Abnahme-Probe; ADR-0048 Regel 9 c, F0137, M15): das Laufwerk hat den Anhang schon auf
+    /// `geloescht` gesetzt, als die Nachricht gelöscht wird; scheitert danach sein Kürzen, kehrt der Anhang nicht nach
+    /// `vorhanden` zurück — der Abruf (`anhang_finden`, wie `GET /anhaenge/{id}`) liefert `geloescht` (410), nicht die
+    /// Datei (200). Er bleibt gezählt, bis er gekürzt ist oder sein Tag entfällt (Mutante „Laufwerk setzt immer zurück“
+    /// rot).
+    #[test]
+    fn scheitert_das_kuerzen_im_laufwerk_bleibt_der_anhang_einer_inzwischen_geloeschten_nachricht_geloescht()
+     {
+        use crate::gespraeche::anhangverzeichnis::Zustand;
+        use crate::gespraeche::loeschen::Einzelergebnis;
+        use crate::gespraeche::nachricht_loeschen::NachrichtGeloescht;
+
+        let (gespraeche, id, laufwerk, geloescht) = laufwerk_vor_dem_kuerzen_dann_nachricht(true);
+
+        let NachrichtGeloescht::Neu { anhaenge, .. } = geloescht else {
+            panic!("neu gelöscht: {geloescht:?}")
+        };
+        assert!(
+            anhaenge.ergebnisse.is_empty(),
+            "das Laufwerk hatte ihn schon: {anhaenge:?}"
+        );
+        assert_eq!(laufwerk, Einzelergebnis::Fehler);
+        assert_eq!(
+            gespraeche.anhang_finden(&id).expect("Eintrag").zustand(),
+            Zustand::Geloescht,
+            "GET muss 410 liefern"
+        );
+        assert_eq!(
+            gespraeche.anhangkennzahlen().gebunden,
+            MIB,
+            "noch nicht gekürzt"
+        );
+    }
+
+    /// Befund #67 B1, Variante „Kürzen gelingt“: derselbe Wettlauf ohne Fehler → `geloescht`, G genau einmal um z
+    /// kleiner, der Zähler `geloescht` genau einmal höher.
+    #[test]
+    fn gelingt_das_kuerzen_im_laufwerk_zieht_es_den_anhang_einer_inzwischen_geloeschten_nachricht_einmal_ab()
+     {
+        use crate::gespraeche::anhangverzeichnis::Zustand;
+        use crate::gespraeche::loeschen::Einzelergebnis;
+
+        let (gespraeche, id, laufwerk, _) = laufwerk_vor_dem_kuerzen_dann_nachricht(false);
+
+        assert_eq!(laufwerk, Einzelergebnis::Geloescht);
+        assert_eq!(
+            gespraeche.anhang_finden(&id).expect("Eintrag").zustand(),
+            Zustand::Geloescht
+        );
+        assert_eq!(gespraeche.anhangkennzahlen().gebunden, 0);
+        assert_eq!(gespraeche.anhangkennzahlen().geloescht, 1);
+    }
+
+    /// Befund #67 B1, Variante „Reihenfolge umgekehrt“: erst die Nachricht (ihr Kürzen scheitert, der Anhang bleibt
+    /// `geloescht` und gezählt), dann das Laufwerk → `schon_geloescht`, nichts zurückgesetzt; und andersherum: das
+    /// Laufwerk scheitert zuerst (zurück nach `vorhanden`, die Nachricht steht noch), dann löscht die Nachricht ihn →
+    /// `geloescht`.
+    #[test]
+    fn nachricht_und_laufwerk_nacheinander_lassen_den_anhang_geloescht() {
+        use crate::gespraeche::anhangverzeichnis::Zustand;
+        use crate::gespraeche::loeschen::{Einzelergebnis, Loeschen};
+        let (gespraeche, _, speicher) = mit_ablage();
+        let (beta, gamma) = (kennung("beta@127.0.0.1"), kennung("gamma@127.0.0.1"));
+        let senden = |name: &str| {
+            let id = fertig(&gespraeche, "beta@127.0.0.1", name, &vec![1; MIB as usize]);
+            let Ok(crate::gespraeche::Gesendet::Neu(nachricht)) = gespraeche.senden_mit_anhaengen(
+                &Gespraech::channel("allgemein"),
+                &beta,
+                Art::Agent,
+                "x",
+                std::slice::from_ref(&id),
+                None,
+            ) else {
+                panic!("gesendet")
+            };
+            speicher.kuerzen_scheitert(&gespraeche.anhang_finden(&id).expect("Eintrag").datei);
+            (id, nachricht.zeit)
+        };
+        let (erst_nachricht, zeit_1) = senden("a.bin");
+        let (erst_laufwerk, zeit_2) = senden("b.bin");
+        let laufwerk = |id: &Anhangid| match gespraeche.anhaenge_loeschen(
+            &gamma,
+            std::slice::from_ref(id),
+            true,
+            |_| true,
+        ) {
+            Loeschen::Geloescht(bericht) => bericht.ergebnisse[0].1,
+            anders => panic!("{anders:?}"),
+        };
+
+        gespraeche
+            .nachricht_loeschen(&Gespraech::channel("allgemein"), &beta, zeit_1)
+            .expect("gelöscht");
+        let danach = laufwerk(&erst_nachricht);
+        let zuerst = laufwerk(&erst_laufwerk);
+        let zustand_zuerst = zustand(&gespraeche, &erst_laufwerk);
+        gespraeche
+            .nachricht_loeschen(&Gespraech::channel("allgemein"), &beta, zeit_2)
+            .expect("gelöscht");
+
+        assert_eq!(danach, Einzelergebnis::SchonGeloescht);
+        assert_eq!(zustand(&gespraeche, &erst_nachricht), Zustand::Geloescht);
+        assert_eq!(
+            (zuerst, zustand_zuerst),
+            (Einzelergebnis::Fehler, Zustand::Vorhanden)
+        );
+        assert_eq!(zustand(&gespraeche, &erst_laufwerk), Zustand::Geloescht);
+        assert_eq!(gespraeche.anhangkennzahlen().gebunden, 2 * MIB);
     }
 }

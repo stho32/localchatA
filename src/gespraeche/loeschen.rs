@@ -82,14 +82,6 @@ pub enum Loeschen {
     Geloescht(Geloescht),
 }
 
-/// Was mit einem Anhang geschieht, dessen Kürzen scheitert: im Laufwerk zurück nach `vorhanden` (F1′ Regel 5 c), beim
-/// Löschen seiner Nachricht bleibt er `geloescht` (ADR-0048 Regel 9 c).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum BeiFehler {
-    ZurueckNachVorhanden,
-    BleibtGeloescht,
-}
-
 /// Rest-Buchung am Schreibkonto: ⌈n / 100⌉ Einheiten.
 pub fn rest_einheiten(ids: usize) -> u32 {
     u32::try_from(ids.div_ceil(100)).unwrap_or(u32::MAX)
@@ -155,7 +147,7 @@ impl Gespraeche {
         let mut dateien = Vec::new();
         for (stelle, (eintrag, datei)) in stellen
             .into_iter()
-            .zip(self.kuerzen_und_abziehen(eintraege, BeiFehler::ZurueckNachVorhanden))
+            .zip(self.kuerzen_und_abziehen(eintraege))
         {
             ergebnisse[stelle].1 = match datei.grund {
                 None => {
@@ -185,7 +177,7 @@ impl Gespraeche {
         let mut ergebnisse = Vec::new();
         let mut erfolge = Vec::new();
         let mut dateien = Vec::new();
-        for (eintrag, datei) in self.kuerzen_und_abziehen(gewonnen, BeiFehler::BleibtGeloescht) {
+        for (eintrag, datei) in self.kuerzen_und_abziehen(gewonnen) {
             let ergebnis = match datei.grund {
                 None => Einzelergebnis::Geloescht,
                 Some(_) => Einzelergebnis::Fehler,
@@ -203,13 +195,12 @@ impl Gespraeche {
     }
 
     /// Schritte (b) und (c) für gewonnene Einträge (Zustand schon `geloescht`): (b) ohne Sperre je Datei auf 0 Bytes
-    /// kürzen, (c) unter der Schreibsperre je Erfolg `G −= z` und den Zähler `geloescht` erhöhen; je Fehler nach
-    /// `bei_fehler`. Liefert je Eintrag die Datei mit Grund des Fehlers (ohne Grund: gekürzt).
-    fn kuerzen_und_abziehen(
-        &self,
-        gewonnen: Vec<Arc<Eintrag>>,
-        bei_fehler: BeiFehler,
-    ) -> Vec<(Arc<Eintrag>, Gekuerzt)> {
+    /// kürzen, (c) unter der Schreibsperre je Erfolg `G −= z` und den Zähler `geloescht` erhöhen; je Fehler zurück nach
+    /// `vorhanden` (F1′ Regel 5 c) — außer die Nachricht des Anhangs ist gelöscht, dann bleibt er `geloescht` (ADR-0048
+    /// Regel 9 c), gleich wer ihn gewann (Befund #67 B1). Das Merkmal setzt das Nachricht-Löschen unter derselben
+    /// Schreibsperre, unter der hier zurückgesetzt wird. Liefert je Eintrag die Datei mit Grund des Fehlers (ohne
+    /// Grund: gekürzt).
+    fn kuerzen_und_abziehen(&self, gewonnen: Vec<Arc<Eintrag>>) -> Vec<(Arc<Eintrag>, Gekuerzt)> {
         let gekuerzt: Vec<(Arc<Eintrag>, Result<(), String>)> = gewonnen
             .into_iter()
             .map(|eintrag| {
@@ -235,7 +226,7 @@ impl Gespraeche {
                         None
                     }
                     Err(grund) => {
-                        if bei_fehler == BeiFehler::ZurueckNachVorhanden {
+                        if !eintrag.nachricht_geloescht() {
                             eintrag.tauschen(Zustand::Geloescht, Zustand::Vorhanden);
                         }
                         Some(grund)
@@ -258,7 +249,7 @@ impl Gespraeche {
     pub fn geloeschte_anhaenge_kuerzen(&self) -> Vec<Gekuerzt> {
         let gewonnen = std::mem::take(&mut *sperren(&self.geloescht_nachzukuerzen));
         let dateien = self
-            .kuerzen_und_abziehen(gewonnen, BeiFehler::BleibtGeloescht)
+            .kuerzen_und_abziehen(gewonnen)
             .into_iter()
             .map(|(_, datei)| datei)
             .collect();

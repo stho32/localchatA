@@ -11,7 +11,7 @@ use super::logformat::{self, Anhangbefund};
 use crate::uhr::Zeit;
 use chrono::NaiveDate;
 use std::collections::{HashMap, HashSet};
-use std::sync::atomic::{AtomicU8, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use std::sync::{Arc, RwLock};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -54,6 +54,8 @@ pub struct Eintrag {
     pub satzzeit: Zeit,
     pub absender: Kennung,
     zustand: AtomicU8,
+    /// Die Nachricht des Anhangs ist gelöscht (ADR-0048 Regel 9): ein gescheitertes Kürzen setzt ihn nie zurück.
+    nachricht_geloescht: AtomicBool,
 }
 
 impl Eintrag {
@@ -78,6 +80,7 @@ impl Eintrag {
             satzzeit,
             absender: absender.clone(),
             zustand: AtomicU8::new(zustand.als_zahl()),
+            nachricht_geloescht: AtomicBool::new(false),
         }
     }
 
@@ -95,6 +98,16 @@ impl Eintrag {
                 Ordering::SeqCst,
             )
             .is_ok()
+    }
+
+    /// Die Nachricht des Anhangs ist gelöscht — unter der Schreibsperre, wie das Zurücksetzen nach einem gescheiterten
+    /// Kürzen (Befund #67 B1).
+    pub fn nachricht_geloescht_setzen(&self) {
+        self.nachricht_geloescht.store(true, Ordering::SeqCst);
+    }
+
+    pub fn nachricht_geloescht(&self) -> bool {
+        self.nachricht_geloescht.load(Ordering::SeqCst)
     }
 
     /// Das Zählmaß an der Anhang-Quote.
