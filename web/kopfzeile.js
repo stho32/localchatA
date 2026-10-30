@@ -2,8 +2,12 @@
 // rechts Kürzel-Kachel und `name@herkunft`, Herkunft gedämpft, Farbe und Marke nach Art, danach die Schalter
 // der Bedienung (z. B. „Teilnehmer“). Zone „Ort“: nach dem Instanznamen der gewählte Channel als Schalter
 // `# name ▾` (öffnet die Channel-Einstellungen, ADR-0033), ab 720 px seine Frist und danach seine Beschreibung
-// (ADR-0027 Regel 5); der Tab heißt dann „# name — localchatA“.
+// (ADR-0027 Regel 5); der Tab heißt dann „# name — localchatA“. Im Direktgespräch steht dort die volle Kennung des
+// Gegenübers, und unter der Kopfzeile liegt der Hinweis als Streifen (R00050 F0178).
 import { fristText } from './frist.js';
+
+// Wortlaut ux-reviewer, PO 168 (V1): er verspricht nicht mehr, als gilt — nur in Oberfläche und API sind es die zwei.
+const PRIVAT_HINWEIS = 'Direktnachricht — nur ihr beide im Chat; die Dateien liegen im Ordner der Instanz';
 
 export function zeichnen(wurzel, teilnehmer, { kennungFokussieren = false, schalter = [], einstellungenOeffnen = () => {} } = {}) {
   const art = artDes(teilnehmer);
@@ -28,12 +32,19 @@ export function zeichnen(wurzel, teilnehmer, { kennungFokussieren = false, schal
     bedienung,
   ]);
   kopf.setAttribute('role', 'banner');
-  wurzel.replaceChildren(kopf);
+  const streifen = element('p', { className: 'lc-privat-hinweis', textContent: PRIVAT_HINWEIS, hidden: true });
+  wurzel.replaceChildren(kopf, streifen);
   if (kennungFokussieren) {
     kennung.focus();
   }
   const frist = element('span', { className: 'lc-head-frist' });
-  return { ortZeigen: (channel) => ortZeigen({ ort, einstellungen, frist }, channel) };
+  return {
+    ortZeigen: (channel) => {
+      streifen.hidden = true;
+      ortZeigen({ ort, einstellungen, frist }, channel);
+    },
+    direktZeigen: (gegenueber) => direktZeigen({ ort, streifen }, gegenueber),
+  };
 }
 
 // Der Schalter bleibt dasselbe Element, solange ein Channel gewählt ist — ein Wechsel aus dem Strom nimmt ihm den
@@ -68,6 +79,20 @@ function ortZeigen({ ort, einstellungen, frist }, channel) {
     ort.append(beschreibungZeichnen(channel.beschreibung));
   }
   document.title = `# ${channel.name} — localchatA`;
+}
+
+// Im Direktgespräch (V1–V3): statt `# name ▾` die volle Kennung des Gegenübers, ungekürzt und ohne Schalter, ab 720 px
+// die Frist — fest 7 Tage, wählbar erst mit F0179 (PO 166) —; der Hinweis steht bei jeder Breite unter der Kopfzeile.
+function direktZeigen({ ort, streifen }, gegenueber) {
+  const FRIST_TAGE = 7;
+  const [name, herkunft] = gegenueber.split('@');
+  const kennung = element('span', { className: 'lc-head-gegenueber' }, [
+    name, element('wbr'), element('i', { textContent: `@${herkunft}` }),
+  ]);
+  const frist = element('span', { className: 'lc-head-frist', textContent: fristText(FRIST_TAGE) });
+  ort.replaceChildren(ort.querySelector('.lc-head-inst'), kennung, frist);
+  streifen.hidden = false;
+  document.title = `Direktnachricht mit ${gegenueber} — localchatA`;
 }
 
 // Einzeilig mit Ellipse, ganz im title, die Schreibrichtung in <bdi> isoliert (ADR-0022 Regel 5); unter 720 px

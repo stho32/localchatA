@@ -47,6 +47,9 @@ body { background: var(--kd-bg); color: var(--kd-ink); font-family: var(--font-s
   .lc-head-nav:empty { display: none; }
 }
 @media (max-width: 719px) { .lc-head-desc, .lc-head-frist { display: none; } }
+/* Die Kennung des Gegenübers im Direktgespräch (V3): Mono wie jede Kennung, bricht um statt zu kürzen */
+.lc-head-gegenueber { font-family: var(--font-mono); font-size: 12px; line-height: 16px; font-weight: 600; color: var(--kd-header-ink); white-space: normal; overflow-wrap: anywhere; min-width: 0; flex: 0 1 auto; }
+.lc-head-gegenueber i { font-style: normal; font-weight: 400; color: var(--kd-header-muted); }
 .lc-head-chan { font-size: 14px; line-height: 20px; font-weight: 600; min-width: 0; overflow: hidden; text-overflow: ellipsis; flex: 0 1 auto; }
 /* Der Schalter schrumpft nicht mit: erst geben Beschreibung und Instanzname Platz ab; passt der Name allein nicht,
    begrenzt die Zone ihn (abzüglich der Lücke zum Instanzname), und er endet auf … (R00019 F0065) */
@@ -69,6 +72,7 @@ body { background: var(--kd-bg); color: var(--kd-ink); font-family: var(--font-s
   .lc-head-nav, .lc-head-inst { display: none; }
   .lc-head-schalter { max-width: 100%; }
   .lc-me { line-height: 16px; }
+  .lc-head:has(.lc-head-gegenueber) { grid-template-rows: minmax(44px, auto) minmax(36px, auto); }
 }
 /* Mit grobem Zeiger ist `# name ▾` ein Ziel von 44 × 44 px; die Leiste wächst dafür ab 480 px auf 44 px, das Token
    kd-header bleibt 40 px (ADR-0033 Ergänzung Karte #27); unter 480 px passt er in Zeile 1 */
@@ -94,8 +98,11 @@ body { background: var(--kd-bg); color: var(--kd-ink); font-family: var(--font-s
 
 /* Hauptansicht (Bildschirm 4.2): Kopfzeile, Mitte, rechts die Teilnehmer; nur die Mitte und die Liste scrollen. Die eine
    Spalte hat keine Mindestbreite aus dem Inhalt, sonst weitete der nicht umbrechbare Name der Kopfzeile das Fenster */
-.lc-app { height: 100%; display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(var(--kd-header), auto) minmax(0, 1fr); }
-.lc-main { grid-row: 2; display: grid; grid-template-columns: var(--lc-sidebar) minmax(0, 1fr) var(--lc-members); min-height: 0; }
+.lc-app { height: 100%; display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(var(--kd-header), auto) auto minmax(0, 1fr); }
+/* Der Hinweis des Direktgesprächs (R00050 V1, V2): ein Streifen unter der Kopfzeile über die ganze Breite, bei jeder
+   Breite ganz zu sehen — er bricht um, nie wird er gekürzt; ohne Direktgespräch ist die Zeile 0 px hoch */
+.lc-privat-hinweis { grid-row: 2; margin: 0; padding: var(--kd-space-4) var(--kd-space-12); background: var(--lc-privat-bg); color: var(--kd-ink); border-bottom: 1px solid var(--kd-line); font-size: 12px; line-height: 16px; overflow-wrap: anywhere; }
+.lc-main { grid-row: 3; display: grid; grid-template-columns: var(--lc-sidebar) minmax(0, 1fr) var(--lc-members); min-height: 0; }
 .lc-main.ohne-teilnehmer { grid-template-columns: var(--lc-sidebar) minmax(0, 1fr); }
 .lc-center { position: relative; min-width: 0; min-height: 0; overflow: hidden; display: flex; flex-direction: column; background: var(--kd-surface); }
 /* Privat-Modus (R00050 F0178): im Direktgespräch trägt alles, was in der Mitte auf kd-surface liegt, lc-privat-bg. */

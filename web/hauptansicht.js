@@ -461,14 +461,15 @@ function auswahlEinrichten({
   }
   function direktFolgen({ gegenueber }) {
     seitenleiste.auswahlZeigen(null);
-    kopf.ortZeigen(null);
     beiAuswahl(null);
     mitte.classList.toggle('lc-privat', gegenueber !== null);
     if (gegenueber === null) {
+      kopf.ortZeigen(null);
       schliessen();
       mitteFuellen(mitte, ...keinGespraech(rueckwegChannel(liste)));
       return;
     }
+    kopf.direktZeigen(gegenueber);
     oeffnen(direktgespraech(gegenueber));
   }
   function folgen() {
