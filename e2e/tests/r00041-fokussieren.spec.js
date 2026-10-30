@@ -37,3 +37,150 @@ test('Zugänglicher Name (B0632): jede bestätigte Nachricht heißt „<Kennung>
   await expect(a.page.getByRole('article', { name: /^beta@127\.0\.0\.2, \d\d:\d\d: Hallo zusammen$/ })).toHaveCount(1);
   expect(a.fehler).toEqual([]);
 });
+
+/// Der Fokus steht auf einer Nachricht: ihre `data-zeit` (null, wenn nicht).
+const fokussierteZeit = (page) => page.evaluate(() => {
+  const aktiv = document.activeElement;
+  if (aktiv === null || !aktiv.matches('.lc-msg')) {
+    return null;
+  }
+  return aktiv.dataset.zeit;
+});
+
+/// Der Fokus steht sichtbar (Fokusring) auf einer Nachricht, die ganz im Verlauf liegt, nicht unter dem klebenden Tagestrenner.
+const fokusSichtbarImVerlauf = (page) => page.evaluate(() => {
+  const aktiv = document.activeElement;
+  const log = document.querySelector('[role="log"]').getBoundingClientRect();
+  const lage = aktiv.getBoundingClientRect();
+  const trenner = document.querySelector('.lc-day');
+  let oben = log.top;
+  if (trenner !== null) {
+    oben = Math.max(oben, trenner.getBoundingClientRect().bottom);
+  }
+  return {
+    nachricht: aktiv.matches('.lc-msg'),
+    fokusSichtbar: aktiv.matches(':focus-visible'),
+    ring: getComputedStyle(aktiv).outlineStyle,
+    ganz: lage.top >= oben - 1 && lage.bottom <= log.bottom + 1,
+  };
+});
+
+/// Was im Verlauf per Tab erreichbar ist (tabindex 0 oder Knopf ohne tabindex -1): die Nachrichten, in denen es liegt.
+const tabErreichbarIn = (page) => page.evaluate(() => {
+  const erreichbar = [...document.querySelectorAll('.lc-log .lc-msg, .lc-log .lc-msg button')]
+    .filter((knoten) => knoten.getAttribute('tabindex') !== '-1' && (knoten.tabIndex >= 0));
+  return [...new Set(erreichbar.map((knoten) => knoten.closest('.lc-msg').dataset.zeit))];
+});
+
+/// Drückt Tab, bis die Eingabe den Fokus hat (höchstens `grenze` Mal) und liefert, wo der Fokus unterwegs war.
+async function tabBisEingabe(page, grenze = 4) {
+  const besucht = [];
+  for (let schritt = 0; schritt < grenze; schritt += 1) {
+    await page.keyboard.press('Tab');
+    const stelle = await page.evaluate(() => {
+      const aktiv = document.activeElement;
+      const nachricht = aktiv.closest('.lc-msg');
+      return { eingabe: aktiv.matches('.lc-comp-feld'), nachricht: nachricht === null ? null : nachricht.dataset.zeit };
+    });
+    besucht.push(stelle.nachricht);
+    if (stelle.eingabe) {
+      return besucht;
+    }
+  }
+  throw new Error(`Eingabe nach ${grenze} Tab nicht erreicht: ${JSON.stringify(besucht)}`);
+}
+
+test('Rollfokus (B0631): genau eine Nachricht ist Tab-Stopp; Tab führt vom Rand in sie und von ihr in die Eingabe', async ({ browser }) => {
+  instanz = await sendenStarten({ anzahl: 20 });
+  const a = await kontextOeffnen(browser, { streng: true });
+  await imBrowserBeitreten(a.page, instanz.adresse, 'shoff');
+  await expect(nachrichten(a.page)).toHaveCount(20);
+
+  await expect(a.page.locator('.lc-log .lc-msg[tabindex="0"]')).toHaveCount(1);
+  await expect(a.page.locator('.lc-log .lc-msg[tabindex="-1"]')).toHaveCount(19);
+  await expect(a.page.getByRole('log')).toHaveAttribute('tabindex', '-1');
+  const neueste = await nachrichten(a.page).last().getAttribute('data-zeit');
+  expect(await tabErreichbarIn(a.page)).toEqual([neueste]);
+
+  await a.page.getByRole('navigation', { name: 'Channels' }).getByRole('link', { name: 'technik', exact: true }).focus();
+  await a.page.keyboard.press('Tab');
+  expect(await fokussierteZeit(a.page)).toBe(neueste);
+  const unterwegs = await tabBisEingabe(a.page);
+  expect(unterwegs.filter((zeit) => zeit !== null && zeit !== neueste)).toEqual([]);
+  expect(a.fehler).toEqual([]);
+});
+
+test('Rollfokus (B0631): ↑ und ↓ wechseln die Nachricht, sichtbar und in Sicht; der Tab-Stopp folgt dem Fokus', async ({ browser }) => {
+  instanz = await sendenStarten({ anzahl: 60 });
+  const a = await kontextOeffnen(browser, { streng: true });
+  await imBrowserBeitreten(a.page, instanz.adresse, 'shoff');
+  await expect(nachrichten(a.page)).toHaveCount(60);
+  const zeiten = await nachrichten(a.page).evaluateAll((alle) => alle.map((einzeln) => einzeln.dataset.zeit));
+
+  await nachrichten(a.page).last().focus();
+  for (let schritt = 1; schritt <= 40; schritt += 1) {
+    await a.page.keyboard.press('ArrowUp');
+    expect(await fokussierteZeit(a.page)).toBe(zeiten[59 - schritt]);
+    const lage = await fokusSichtbarImVerlauf(a.page);
+    expect(lage, `Schritt ${schritt}`).toEqual({ nachricht: true, fokusSichtbar: true, ring: 'solid', ganz: true });
+  }
+  await a.page.keyboard.press('ArrowDown');
+  expect(await fokussierteZeit(a.page)).toBe(zeiten[20]);
+  expect(await fokusSichtbarImVerlauf(a.page)).toEqual({ nachricht: true, fokusSichtbar: true, ring: 'solid', ganz: true });
+
+  await expect(a.page.locator('.lc-log .lc-msg[tabindex="0"]')).toHaveCount(1);
+  expect(await a.page.locator('.lc-log .lc-msg[tabindex="0"]').getAttribute('data-zeit')).toBe(zeiten[20]);
+  expect(await tabErreichbarIn(a.page)).toEqual([zeiten[20]]);
+  // Weit oben steht die Pille „Zum Neuesten“ zwischen Verlauf und Eingabe: ein Stopp ohne Nachricht.
+  const unterwegs = await tabBisEingabe(a.page);
+  expect(unterwegs.filter((zeit) => zeit !== null && zeit !== zeiten[20])).toEqual([]);
+  // Zurück führt in dieselbe Nachricht (höchstens über ihre Leiste „Ganze Nachricht anzeigen“).
+  for (let schritt = 0; schritt < unterwegs.length; schritt += 1) {
+    await a.page.keyboard.press('Shift+Tab');
+  }
+  expect(await a.page.evaluate(() => document.activeElement.closest('.lc-msg')?.dataset.zeit ?? null)).toBe(zeiten[20]);
+  expect(a.fehler).toEqual([]);
+});
+
+test('Rollfokus (B0631): am Rand bleibt der Fokus; Umschalter und Alt ↑ lassen die Nachricht stehen', async ({ browser }) => {
+  instanz = await sendenStarten({ anzahl: 3 });
+  const a = await kontextOeffnen(browser, { streng: true });
+  await imBrowserBeitreten(a.page, instanz.adresse, 'shoff');
+  await expect(nachrichten(a.page)).toHaveCount(3);
+  const zeiten = await nachrichten(a.page).evaluateAll((alle) => alle.map((einzeln) => einzeln.dataset.zeit));
+
+  await nachrichten(a.page).last().focus();
+  await a.page.keyboard.press('ArrowDown');
+  expect(await fokussierteZeit(a.page)).toBe(zeiten[2]);
+  await a.page.keyboard.press('Shift+ArrowUp');
+  await a.page.keyboard.press('Control+ArrowUp');
+  expect(await fokussierteZeit(a.page)).toBe(zeiten[2]);
+  await a.page.keyboard.press('ArrowUp');
+  await a.page.keyboard.press('ArrowUp');
+  await a.page.keyboard.press('ArrowUp');
+  expect(await fokussierteZeit(a.page)).toBe(zeiten[0]);
+  await a.page.keyboard.press('Escape');
+  await expect(eingabe(a.page)).toBeFocused();
+  expect(a.fehler).toEqual([]);
+});
+
+test('Rollfokus (B0631): über die Blockgrenze nach oben — der nächste Pfeil trifft die nachgeladene Nachricht', async ({ browser }) => {
+  instanz = await sendenStarten({ anzahl: 250 });
+  const a = await kontextOeffnen(browser, { streng: true });
+  await imBrowserBeitreten(a.page, instanz.adresse, 'shoff');
+  await expect(nachrichten(a.page)).toHaveCount(100);
+  const ersteZeit = await nachrichten(a.page).first().getAttribute('data-zeit');
+
+  await nachrichten(a.page).last().focus();
+  for (let schritt = 0; schritt < 99; schritt += 1) {
+    await a.page.keyboard.press('ArrowUp');
+  }
+  expect(await fokussierteZeit(a.page)).toBe(ersteZeit);
+  await expect.poll(() => nachrichten(a.page).count()).toBeGreaterThan(100);
+
+  await a.page.keyboard.press('ArrowUp');
+  const jetzt = await fokussierteZeit(a.page);
+  expect(Date.parse(jetzt)).toBeLessThan(Date.parse(ersteZeit));
+  expect(await fokusSichtbarImVerlauf(a.page)).toEqual({ nachricht: true, fokusSichtbar: true, ring: 'solid', ganz: true });
+  expect(a.fehler).toEqual([]);
+});

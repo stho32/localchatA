@@ -113,7 +113,7 @@ body { background: var(--kd-bg); color: var(--kd-ink); font-family: var(--font-s
 .lc-log { flex: 1; min-height: 0; overflow-y: auto; overflow-anchor: none; }
 .lc-log-inhalt { padding: var(--kd-space-12) 0; }
 .lc-msg { display: grid; grid-template-columns: var(--lc-gutter) minmax(0, var(--lc-measure)); padding: var(--kd-space-2) var(--kd-space-12) var(--kd-space-2) 0; }
-.lc-msg:hover { background: var(--kd-surface-2); }
+.lc-msg:hover, .lc-msg:focus-within { background: var(--kd-surface-2); }
 .lc-msg.first { margin-top: var(--kd-space-12); }
 .lc-msg .g { display: flex; justify-content: center; padding-top: var(--kd-space-2); }
 /* Folgenachricht: die Uhrzeit links erscheint bei Hover und Fokus, für Bildschirmleser ist sie immer da */

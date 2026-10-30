@@ -9,6 +9,7 @@
 import { nachrichtZeichnen, kopfSetzen, trennerZeichnen, langeEinklappen, langeUmschalten } from './nachricht.js';
 import { gliederung, folgeGliedern, datumBenennen } from './gliederung.js';
 import { nachladen, einfuegen } from './fenster.js';
+import { pfeilRichtung, pfeilZiel, tabStopp } from './fokus.js';
 import { einordnen, zusammenfuehren, buendlerAnlegen, folgenOderZaehlen, pillenText, auslaufNach, nichtGeladenText, hinweisTextNachziehen, sprungZiel as sprungZielBerechnen } from './live-verlauf.js';
 
 // abrufen: async (name, cursor, signal) → { art: 'block' | 'fehler' | 'abgebrochen', … } (api.js verlaufAbrufen);
@@ -214,7 +215,86 @@ export function verlaufAnlegen({ abrufen, schalter = () => {}, fokusRueckgaengig
       ereignis.preventDefault();
       zumNeuesten();
     }
+    if (ereignis.target.classList.contains('lc-msg')) {
+      pfeilBedienen(ereignis);
+    }
   });
+
+  // Rollfokus (R00041 F0141): genau eine Nachricht des Verlaufs ist Tab-Stopp (tabindex 0, alle anderen -1) — die
+  // zuletzt fokussierte, sonst die neueste; solange der Verlauf Nachrichten hat, ist er selbst keiner (leer bleibt er
+  // der Stopp, ADR-0026). ↑/↓ auf einer Nachricht wechseln zur vorigen/nächsten, auch über Blockgrenzen: der Blick
+  // folgt, und das Nachladen läuft wie beim Scrollen. Tasten in Knöpfen und Feldern einer Nachricht bleiben dort.
+  let rollZeit = null;
+  function nachrichtenImVerlauf() {
+    return Array.from(inhalt.querySelectorAll(':scope > .lc-msg'));
+  }
+
+  function rollfokusPflegen() {
+    const liste = nachrichtenImVerlauf();
+    const stelle = tabStopp(liste.map((einzeln) => einzeln.dataset.zeit), rollZeit);
+    liste.forEach((einzeln, nummer) => {
+      let soll = '-1';
+      if (nummer === stelle) {
+        soll = '0';
+      }
+      if (einzeln.getAttribute('tabindex') !== soll) {
+        einzeln.setAttribute('tabindex', soll);
+      }
+    });
+    log.tabIndex = -1;
+    if (stelle === null) {
+      log.tabIndex = 0;
+    }
+    schalterRollen(liste[stelle]);
+  }
+
+  // Auch die Leiste „Ganze Nachricht anzeigen“ einer Nachricht ist nur Stopp, solange ihre Nachricht der Stopp ist.
+  function schalterRollen(stoppNachricht) {
+    for (const schalterEinzeln of inhalt.querySelectorAll('.lc-foldbar button')) {
+      let soll = '-1';
+      if (schalterEinzeln.closest('.lc-msg') === stoppNachricht) {
+        soll = '0';
+      }
+      if (schalterEinzeln.getAttribute('tabindex') !== soll) {
+        schalterEinzeln.setAttribute('tabindex', soll);
+      }
+    }
+  }
+  new MutationObserver(rollfokusPflegen).observe(inhalt, { childList: true, subtree: true });
+  log.addEventListener('focusin', (ereignis) => {
+    const nachricht = ereignis.target.closest('.lc-msg');
+    if (nachricht !== null && inhalt.contains(nachricht)) {
+      rollZeit = nachricht.dataset.zeit;
+      rollfokusPflegen();
+    }
+  });
+
+  function pfeilBedienen(ereignis) {
+    const richtung = pfeilRichtung(ereignis);
+    if (richtung === null) {
+      return;
+    }
+    ereignis.preventDefault();
+    const liste = nachrichtenImVerlauf();
+    const ziel = pfeilZiel(richtung, liste.indexOf(ereignis.target), liste.length);
+    if (ziel !== null) {
+      nachrichtFokussieren(liste[ziel]);
+    }
+  }
+
+  // Fokus auf die Nachricht und in Sicht bringen, ohne den Browser springen zu lassen: nicht unter den klebenden
+  // Tagestrenner, nicht unter den unteren Rand. Das Scrollen löst das Nachladen aus wie jedes Scrollen.
+  function nachrichtFokussieren(nachricht) {
+    nachricht.focus({ preventScroll: true });
+    const rahmenLage = log.getBoundingClientRect();
+    const lage = nachricht.getBoundingClientRect();
+    const obereGrenze = rahmenLage.top + klebenderTrennerUnterkante(nachricht);
+    if (lage.top < obereGrenze) {
+      log.scrollTop -= obereGrenze - lage.top;
+    } else if (lage.bottom > rahmenLage.bottom) {
+      log.scrollTop += Math.min(lage.bottom - rahmenLage.bottom, lage.top - obereGrenze);
+    }
+  }
 
   // Öffnet den Channel mit den neuesten 100 (ADR-0037 Ergänzung „Karte #61“, 7h): → { art: 'geladen' | 'fehler' |
   // 'abgebrochen' }. Bricht der Aufrufer über `signal` ab (Zeitgrenze, Ende des Laufs), gilt das als Fehlschlag;
@@ -224,6 +304,7 @@ export function verlaufAnlegen({ abrufen, schalter = () => {}, fokusRueckgaengig
     laufend.abort();
     laufend = new AbortController();
     const dieser = laufend;
+    rollZeit = null;
     signal.addEventListener('abort', () => dieser.abort());
     const hinweisBleibt = name === offenerName && nichtGeladenSteht();
     offenerName = name;
@@ -677,6 +758,7 @@ export function verlaufAnlegen({ abrufen, schalter = () => {}, fokusRueckgaengig
   function schliessen() {
     laufend.abort();
     offenerName = null;
+    rollZeit = null;
     geladen = false;
     puffer = [];
     nurGezaehlte = [];

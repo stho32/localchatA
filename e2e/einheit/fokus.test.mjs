@@ -25,3 +25,35 @@ test('mit Strg, Alt oder Meta und in einem offenen Dialog bleibt alles, wie es i
   assert.equal(fokusTaste(taste('Escape'), 'dialog'), null);
   assert.equal(fokusTaste(taste('a'), 'sonst'), null);
 });
+
+// Rollfokus im Verlauf (R00041 F0141, B0631): ↑/↓ ohne Umschalter wechseln die Nachricht, genau eine Nachricht ist Tab-Stopp.
+import { pfeilRichtung, pfeilZiel, tabStopp } from '../../web/fokus.js';
+
+test('↑ und ↓ ohne Umschalter geben die Richtung, jede Taste mit Strg, Alt, Meta oder Umschalt keine', () => {
+  assert.equal(pfeilRichtung(taste('ArrowUp', { shiftKey: false })), 'zurueck');
+  assert.equal(pfeilRichtung(taste('ArrowDown', { shiftKey: false })), 'vor');
+  assert.equal(pfeilRichtung(taste('ArrowUp', { shiftKey: true })), null);
+  assert.equal(pfeilRichtung(taste('ArrowDown', { ctrlKey: true, shiftKey: false })), null);
+  assert.equal(pfeilRichtung(taste('ArrowUp', { altKey: true, shiftKey: false })), null);
+  assert.equal(pfeilRichtung(taste('ArrowDown', { metaKey: true, shiftKey: false })), null);
+  assert.equal(pfeilRichtung(taste('ArrowLeft', { shiftKey: false })), null);
+  assert.equal(pfeilRichtung(taste('a', { shiftKey: false })), null);
+});
+
+test('das Ziel ist die vorige oder nächste Stelle, am Rand und ohne Nachrichten keines', () => {
+  assert.equal(pfeilZiel('zurueck', 5, 10), 4);
+  assert.equal(pfeilZiel('vor', 5, 10), 6);
+  assert.equal(pfeilZiel('zurueck', 0, 10), null);
+  assert.equal(pfeilZiel('vor', 9, 10), null);
+  assert.equal(pfeilZiel('vor', 0, 1), null);
+  assert.equal(pfeilZiel(null, 5, 10), null);
+});
+
+test('Tab-Stopp ist die gemerkte Nachricht, sonst die neueste, ohne Nachrichten keiner', () => {
+  const zeiten = ['a', 'b', 'c'];
+  assert.equal(tabStopp(zeiten, 'b'), 1);
+  assert.equal(tabStopp(zeiten, null), 2);
+  assert.equal(tabStopp(zeiten, 'weg'), 2);
+  assert.equal(tabStopp([], 'b'), null);
+  assert.equal(tabStopp([], null), null);
+});

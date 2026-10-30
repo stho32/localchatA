@@ -264,7 +264,7 @@ test('Kontrollpaar zu S4: ohne vorherigen Fehler löst die Wahl des gewählten C
   expect(a.fehler).toEqual([]);
 });
 
-test('Fokus: Tab von der Seitenleiste erreicht den Verlauf (role=log, aria-live=off), Bild ↑ scrollt ihn', async ({ browser }) => {
+test('Fokus: Tab von der Seitenleiste erreicht den Verlauf (role=log, aria-live=off) auf seiner Tab-Stopp-Nachricht (R00041 F0141), Bild ↑ scrollt ihn', async ({ browser }) => {
   await starten((ordner) => grossAnlegen(ordner));
   const a = await seiteMitFehlern(browser);
   await beitreten(a.page);
@@ -274,7 +274,7 @@ test('Fokus: Tab von der Seitenleiste erreicht den Verlauf (role=log, aria-live=
 
   await link(a.page, 'gross').focus();
   await a.page.keyboard.press('Tab');
-  await expect(verlauf(a.page)).toBeFocused();
+  await expect(verlauf(a.page).locator(':focus')).toHaveCount(1);
   const vorher = await verlauf(a.page).evaluate((log) => log.scrollTop);
   await a.page.keyboard.press('PageUp');
 
@@ -286,7 +286,7 @@ test('Fokus: Tab von der Seitenleiste erreicht den Verlauf (role=log, aria-live=
 
 // R00011 (ADR-0038 Regel 8) setzt die Eingabe zwischen Verlauf und Teilnehmerliste; R00027 (Ergänzung Karte #41 K7)
 // den Knopf „Senden“ hinter das Feld.
-test('Tab-Reihenfolge: Kopfzeile → Seitenleiste → Verlauf → Eingabe → Senden → Teilnehmerliste', async ({ browser }) => {
+test('Tab-Reihenfolge: Kopfzeile → Seitenleiste → Verlauf (die eine Tab-Stopp-Nachricht, R00041 F0141) → Eingabe → Senden → Teilnehmerliste', async ({ browser }) => {
   await starten((ordner) => channelAnlegen(ordner, 'allgemein', US9));
   const a = await seiteMitFehlern(browser);
   await beitreten(a.page);
@@ -300,7 +300,7 @@ test('Tab-Reihenfolge: Kopfzeile → Seitenleiste → Verlauf → Eingabe → Se
     folge.push(await a.page.evaluate(() => document.activeElement.getAttribute('aria-label') || document.activeElement.textContent));
   }
 
-  expect(folge).toEqual(['Channel anlegen', 'allgemein', 'Verlauf # allgemein', 'Nachricht an # allgemein', 'Senden', 'Teilnehmer']);
+  expect(folge).toEqual(['Channel anlegen', 'allgemein', `${ALPHA}, 14:40: <b>vier</b>`, 'Nachricht an # allgemein', 'Senden', 'Teilnehmer']);
   expect(a.fehler).toEqual([]);
 });
 
