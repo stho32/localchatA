@@ -142,7 +142,7 @@ fn ist(art: &'static str) -> impl Fn(&Empfangen) -> bool {
 /// Anhänge nach der 200 antwortet 410; `anhang_belegt` sinkt von 2.764.800 auf 0 binnen 1 s; `alpha` erhält
 /// `aenderung` (t3 ohne Anhänge) und `anhaenge` mit beiden IDs und Satzzeit t3, beide binnen 1 s; im Protokoll genau
 /// eine `INFORMATION anhang Anhänge gelöscht` mit `grund=nachricht` und `fremde=0`, ohne ID und ohne `foto.png`;
-/// beide Dateien haben 0 Bytes.
+/// beide Dateien haben 0 Bytes; nach einem Neustart weiter 410 und `anhang_belegt` 0.
 #[tokio::test]
 async fn die_anhaenge_verschwinden_mit_der_nachricht() {
     let wurzel = ordner();
@@ -215,6 +215,11 @@ async fn die_anhaenge_verschwinden_mit_der_nachricht() {
     );
     assert_eq!(laenge(&datei_von(wurzel.path(), "foto.png")), 0);
     assert_eq!(laenge(&datei_von(wurzel.path(), "bericht.pdf")), 0);
+    drop(instanz);
+    let neu = starten(wurzel.path());
+    assert_eq!(abrufen(&beta, &neu.adresse, &gegeben.foto).await.0, 410);
+    assert_eq!(abrufen(&beta, &neu.adresse, &gegeben.bericht).await.0, 410);
+    assert_eq!(anhang_belegt(&neu.adresse).await, 0);
 }
 
 /// R00040 „Vorher im Laufwerk gelöscht“ (US-8, M7): `gamma` löscht `foto.png` im Laufwerk (`bestaetigt: true`);
