@@ -2,7 +2,7 @@
 // Sendeschlange als Eintrag „wird hochgeladen …“ am Ende des eigenen Verlaufs, bis jede Datei angemeldet und oben ist;
 // Text, der in der Zwischenzeit gesendet wird, geht sofort hinaus (N1). Die Einträge gehören dem Tab — ein
 // Channelwechsel unterbricht nichts, gezeigt werden die des offenen Channels.
-import { groesseInWorten } from './loeschen.js';
+import { groesseInWorten } from './groesse.js';
 import { typkuerzel } from './dateiliste.js';
 import { nachrichtZeichnen } from './nachricht.js';
 import { nurLeerraum } from './textregel.js';

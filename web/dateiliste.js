@@ -1,7 +1,7 @@
 // Gewählte Dateien über dem Feld (R00030 F0101 B0449): je Channel im Speicher des Tabs, höchstens 10 je Nachricht — so
 // viele offene Hochladungen erlaubt die Instanz je Kennung (R00029). Eine Liste role="list" „Angehängte Dateien“, je
 // Datei Typkürzel, Name, Größe in Worten und „Entfernen“; jede Auswahl wird einmal über die eine Ansage-Region gesagt.
-import { groesseInWorten } from './loeschen.js';
+import { groesseInWorten } from './groesse.js';
 
 export const HOECHSTENS_DATEIEN = 10;
 

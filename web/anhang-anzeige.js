@@ -1,5 +1,5 @@
 // Anhänge im Verlauf zeigen (R00030 F0102, ADR-0047 Regeln 5–7, Designsystem components/Anhang).
-import { groesseInWorten } from './loeschen.js';
+import { groesseInWorten } from './groesse.js';
 import { typkuerzel } from './dateiliste.js';
 import { playerZeichnen } from './player.js';
 

@@ -1,7 +1,7 @@
-// Unit-Tests der Rückfrage vor dem Löschen (R00041 F0139 B0622, UX S1; node --test) und der Größe in Worten nach R00030.
+// Unit-Tests der Rückfrage vor dem Löschen (R00041 F0139 B0622, UX S1; node --test).
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { rueckfrageText, groesseInWorten } from '../../web/loeschen.js';
+import { rueckfrageText } from '../../web/loeschen.js';
 
 const ZEIT = '2026-10-30T14:09:12.345+01:00';
 const nachricht = (extra) => ({ zeit: ZEIT, von: 'shoff@127.0.0.1', text: 'Bericht', zustand: null, geaendert: null, anhaenge: [], ...extra });
@@ -35,17 +35,6 @@ test('Textanfang: die ersten 40 Zeichen und „…“; eine Zeile; ohne Text nur
   assert.equal(rueckfrageText(nachricht({ text: 'a'.repeat(40) })).auszug, `14:09: ${'a'.repeat(40)}`);
   assert.equal(rueckfrageText(nachricht({ text: 'Eins\nZwei' })).auszug, '14:09: Eins Zwei');
   assert.equal(rueckfrageText(nachricht({ text: '' })).auszug, '14:09');
-});
-
-test('Größe in Worten (R00030): Byte, KiB ganz und kaufmännisch, ab 1 MiB eine Nachkommastelle mit Komma, GiB', () => {
-  const faelle = [
-    [0, '0 Byte'], [812, '812 Byte'], [1023, '1.023 Byte'], [1024, '1 KiB'], [307200, '300 KiB'], [1048063, '1.023 KiB'],
-    [1048064, '1,0 MiB'], [1048575, '1,0 MiB'], [1048576, '1,0 MiB'], [2457600, '2,3 MiB'], [2764800, '2,6 MiB'],
-    [1610612736, '1,5 GiB'],
-  ];
-  for (const [bytes, worte] of faelle) {
-    assert.equal(groesseInWorten(bytes), worte, `${bytes}`);
-  }
 });
 
 // R00041 F0139 B0624: was die Antwort des Löschens bedeutet.

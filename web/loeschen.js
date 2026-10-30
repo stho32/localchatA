@@ -1,6 +1,7 @@
 // Eigene Nachricht löschen (R00041 F0139, ADR-0048 Regel 12): vor jedem Löschen genau eine Rückfrage, die bei Anhängen
 // Zahl und Größe der mitgelöschten nennt (UX S1, PO 95).
 import { uhrzeit } from './gliederung.js';
+import { groesseInWorten } from './groesse.js';
 
 // Die Texte der Rückfrage, rein: Frage (mit Zahl und Größe der Anhänge im Zustand `vorhanden`), darunter Uhrzeit und
 // Textanfang (40 Zeichen, eine Zeile, längerer Text mit „…“; ohne Text nur die Uhrzeit), zuletzt die Warnung.
@@ -34,34 +35,6 @@ function auszugText(zeit, text) {
   return `${uhrzeit(zeit)}: ${anfang}`;
 }
 
-// Größe in Worten (R00030 „Größe in Worten“, wie der Server ADR-0044 Regel 4), rein: unter 1.024 Bytes „<n> Byte“; unter
-// 1 MiB „<n> KiB“ ganz und kaufmännisch gerundet (mindestens 1; ergibt die Rundung 1.024 KiB, gilt „1,0 MiB“); darüber
-// MiB bzw. ab 1 GiB GiB mit einer Nachkommastelle und Komma.
-export function groesseInWorten(bytes) {
-  const KIB = 1024;
-  const MIB = KIB * KIB;
-  const GIB = KIB * MIB;
-  if (bytes < KIB) {
-    return `${tausender(bytes)} Byte`;
-  }
-  const kib = Math.max(1, Math.round(bytes / KIB));
-  if (bytes < MIB && kib < KIB) {
-    return `${tausender(kib)} KiB`;
-  }
-  if (bytes < GIB) {
-    return mitZehnteln(bytes, MIB, 'MiB');
-  }
-  return mitZehnteln(bytes, GIB, 'GiB');
-}
-
-function mitZehnteln(bytes, einheit, name) {
-  const zehntel = Math.floor((bytes * 20 + einheit) / (2 * einheit));
-  return `${tausender(Math.floor(zehntel / 10))},${zehntel % 10} ${name}`;
-}
-
-function tausender(wert) {
-  return new Intl.NumberFormat('de-DE').format(wert);
-}
 
 // Was die Antwort des Löschens bedeutet (UX S2), rein: 200 (auch „schon gelöscht“) → die gelöschte Fassung; sonst der
 // Text der Instanz mit ⚠, ohne Antwort „⚠ Keine Antwort vom Server beim Löschen.“
