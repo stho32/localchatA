@@ -3,6 +3,7 @@ import { textPruefen, nurLeerraum, steuerzeichenEntfernen } from './textregel.js
 import { hinweis, hinweisAnsagen } from './hinweis.js';
 import { zuEigenerLetzten } from './fokus.js';
 import { bezugAusNachricht, zitatText } from './zitat.js';
+import { uhrzeit } from './gliederung.js';
 
 const IME_TASTENCODE = 229;
 
@@ -56,7 +57,7 @@ export function eingabeAnlegen({ senden, entwurf, ansagen, tippen, tippzeile, hi
   const bereinigen = element('button', { type: 'button', textContent: 'Steuerzeichen entfernen' });
   const bereinigenGruppe = element('div', { className: 'lc-send-schalter lc-comp-bereinigen', hidden: true }, [bereinigen]);
   const hinweisReihe = element('div', { className: 'lc-comp-hinweisreihe' }, [zeile, tippzeile, bereinigenGruppe]);
-  const antwort = antwortzeileAnlegen(feld);
+  const antwort = antwortzeileAnlegen(feld, ansagen);
   const rahmen = element('div', { className: 'lc-comp' }, [antwort.zeile, kasten, hinweisReihe]);
   let channel = null;
   let gezeigt = hinweis(textPruefen(''));
@@ -103,7 +104,7 @@ export function eingabeAnlegen({ senden, entwurf, ansagen, tippen, tippzeile, hi
   feld.addEventListener('keydown', (ereignis) => {
     if (ereignis.key === 'Escape' && antwort.steht()) {
       ereignis.preventDefault();
-      antwort.verwerfen();
+      antwort.abbrechen();
       return;
     }
     if (zuEigenerLetzten(ereignis, feld.value)) {
@@ -218,7 +219,7 @@ export function eingabeAnlegen({ senden, entwurf, ansagen, tippen, tippzeile, hi
     // „Antworten“ an einer Nachricht des Fensters (R00047 B0714): die Zeile über dem Feld, der Fokus im Feld — synchron in
     // der Geste, damit auf Touch die Bildschirmtastatur aufgeht.
     antwortBeginnen: (nachricht) => {
-      antwort.zeigen(bezugAusNachricht(nachricht));
+      antwort.beginnen(bezugAusNachricht(nachricht));
       feld.focus();
     },
     // Die Hauptansicht weicht dem Beitreten-Bildschirm: der Entwurf wird sofort geschrieben (R00025 F0088).
@@ -229,13 +230,15 @@ export function eingabeAnlegen({ senden, entwurf, ansagen, tippen, tippzeile, hi
 // Die Antwortzeile über dem Feld (R00047 B0714, ADR-0053 Regel 7, Vorprüfung `ux-reviewer`): role="group" mit dem
 // Namen „Antwort an <Kennung>“, darin „Antwort an <Kennung>:“, der Textanfang einzeilig und „Abbrechen“. Höchstens ein
 // Bezug, gehalten hier im Zustand der Eingabe, nie im Entwurf; „Abbrechen“ und `Esc` verwerfen ihn, der Fokus geht ins
-// Feld, der Text bleibt. Kein aria-describedby auf das Feld.
-function antwortzeileAnlegen(feld) {
+// Feld, der Text bleibt. Kein aria-describedby auf das Feld. Angesagt werden Beginnen und Abbrechen je genau einmal (B0719):
+// „Antwort an <Kennung>, <HH:MM>.“ mit der Uhrzeit des Originals — nicht noch einmal für dieselbe Nachricht, solange die
+// Zeile steht — und „Antwort abgebrochen.“; Senden und Channelwechsel verwerfen still.
+function antwortzeileAnlegen(feld, ansagen) {
   const kennung = element('span', { className: 'lc-antwort-kennung' });
   const text = element('span', { className: 'lc-antwort-text' });
-  const abbrechen = element('button', { type: 'button', className: 'lc-antwort-abbrechen', textContent: 'Abbrechen' });
+  const abbrechenKnopf = element('button', { type: 'button', className: 'lc-antwort-abbrechen', textContent: 'Abbrechen' });
   const zeile = element('div', { className: 'lc-antwortzeile', hidden: true }, [
-    element('span', { className: 'lc-antwort-an' }, ['Antwort an ', kennung, ':']), text, abbrechen,
+    element('span', { className: 'lc-antwort-an' }, ['Antwort an ', kennung, ':']), text, abbrechenKnopf,
   ]);
   zeile.setAttribute('role', 'group');
   let bezug = null;
@@ -248,6 +251,14 @@ function antwortzeileAnlegen(feld) {
     zeile.hidden = false;
   }
 
+  function beginnen(neuerBezug) {
+    const schonDieselbe = bezug !== null && Date.parse(bezug.zeit) === Date.parse(neuerBezug.zeit);
+    zeigen(neuerBezug);
+    if (!schonDieselbe) {
+      ansagen({ art: 'sofort', text: `Antwort an ${neuerBezug.von}, ${uhrzeit(neuerBezug.zeit)}.` });
+    }
+  }
+
   // → der verworfene Bezug oder null, wenn keiner stand
   function verwerfen() {
     const verworfen = bezug;
@@ -256,24 +267,27 @@ function antwortzeileAnlegen(feld) {
     return verworfen;
   }
 
+  function abbrechen() {
+    if (verwerfen() !== null) {
+      ansagen({ art: 'sofort', text: 'Antwort abgebrochen.' });
+    }
+    feld.focus();
+  }
+
   // Ein Tippen auf „Abbrechen“ nimmt dem Feld den Fokus nicht: die Bildschirmtastatur bleibt offen.
-  abbrechen.addEventListener('pointerdown', (ereignis) => {
+  abbrechenKnopf.addEventListener('pointerdown', (ereignis) => {
     if (document.activeElement === feld) {
       ereignis.preventDefault();
     }
   });
-  abbrechen.addEventListener('click', () => {
-    verwerfen();
-    feld.focus();
-  });
+  abbrechenKnopf.addEventListener('click', abbrechen);
   zeile.addEventListener('keydown', (ereignis) => {
     if (ereignis.key === 'Escape' && bezug !== null) {
       ereignis.preventDefault();
-      verwerfen();
-      feld.focus();
+      abbrechen();
     }
   });
-  return { zeile, zeigen, verwerfen, steht: () => bezug !== null };
+  return { zeile, beginnen, verwerfen, abbrechen, steht: () => bezug !== null };
 }
 
 function zusammen(zurueck, inzwischen) {
