@@ -428,6 +428,14 @@ button.lc-marke { min-width: 24px; min-height: 24px; padding: 0 var(--kd-space-4
 .lc-anhang .lc-datei-name { display: flex; }
 .lc-datei-name-anfang { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .lc-datei-name-ende { flex: none; white-space: pre; }
+/* Gelöschter Anhang (B0517, UX V4): „foto.png · 300 KiB · Gelöscht“; Name samt Trenner und der Nachsatz sind zwei Teile, die
+   bei Platzmangel in zwei Zeilen umbrechen; „Gelöscht“ in kd-ink-muted, nie kd-accent, nicht durchgestrichen */
+.lc-anhang .lc-datei-geloescht .lc-datei-kopf { display: flex; flex-wrap: wrap; align-items: center; column-gap: var(--kd-space-4); }
+.lc-datei-namenszug { flex: 1 1 auto; min-width: calc(96px + 3ch); display: flex; }
+.lc-datei-namenszug .lc-datei-name { flex: 1 1 96px; min-width: 96px; }
+.lc-datei-trenner { flex: none; white-space: pre; color: var(--kd-ink-muted); }
+.lc-datei-nachsatz { flex: none; display: flex; white-space: pre; }
+.lc-datei-geloescht-marke { color: var(--kd-ink-muted); }
 /* Schmal (Inhaltsbreite unter 260 px): die Links stehen immer in Zeile 2 — mit einem wie mit zwei Links dieselbe Gestalt */
 .lc-anhang { container-type: inline-size; }
 @container (max-width: 259.98px) {

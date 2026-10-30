@@ -66,6 +66,14 @@ function gestalt(form, oeffnen) {
   return { form, breite: null, hoehe: null, oeffnen };
 }
 
+// Die Teile der Zeile eines gelöschten Anhangs (B0517, UX V4): gesehen „foto.png · 300 KiB · Gelöscht“, vorgelesen
+// „foto.png, 300 KiB, Gelöscht“. anhang: { name, bytes } aus der API (bei `geloescht` bleiben beide).
+export function geloeschtBeschriftung({ name, bytes }) {
+  const groesse = groesseInWorten(bytes);
+  const marke = 'Gelöscht';
+  return { name, groesse, marke, vorgelesen: `${name}, ${groesse}, ${marke}` };
+}
+
 // Die Anhänge einer Nachricht in Sendefolge, gestapelt unter dem Text.
 export function anhaengeZeichnen(anhaenge) {
   return element('div', { className: 'lc-anhaenge' }, anhaenge.map(anhangZeichnen));
@@ -80,7 +88,9 @@ function anhangZeichnen(anhang) {
   if (['video', 'audio'].includes(darstellung.form)) {
     teile.unshift(playerZeichnen(anhang, darstellung.form, rahmenMasse(RAHMEN_HOECHSTENS)));
   }
-  return element('div', { className: 'lc-anhang' }, teile);
+  const anhangKnoten = element('div', { className: 'lc-anhang' }, teile);
+  anhangKnoten.dataset.anhang = anhang.id;
+  return anhangKnoten;
 }
 
 // Bildvorschau (B0458): der Platz steht aus `width`/`height`, bevor ein Byte lädt — bis dahin mit Name und Maßen auf
@@ -148,24 +158,50 @@ function bildGrossZeigen(anhang, vorschau) {
 // Datei-Zeile (B0457, Designsystem Anhang): Kürzel (nur für die Augen), Name mit Ellipse, Größe in Worten, „Öffnen“ in
 // einem neuen Tab, wo der Browser die Art darstellt, und „Laden“ unter dem Anzeigenamen; alles nur als Text. Reicht der
 // Platz dem Namen nicht für 96 px, brechen die Links in eine zweite Zeile um (CSS, UX V1). Ein gelöschter Anhang hat
-// keine Links (Wortlaut und Ansage bringt F0118).
+// keine Links, sondern die Zeile „Gelöscht“.
 function dateiZeileZeichnen(anhang, { form, oeffnen }) {
-  const kuerzel = element('span', { className: 'lc-datei-kuerzel', textContent: typkuerzel(anhang.name) });
-  kuerzel.setAttribute('aria-hidden', 'true');
+  if (form === 'geloescht') {
+    return geloeschteZeileZeichnen(anhang);
+  }
   const kopf = element('span', { className: 'lc-datei-kopf' }, [
-    kuerzel,
+    kuerzelZeichnen(anhang.name),
     nameZeichnen(anhang.name),
     element('span', { className: 'lc-datei-groesse', textContent: groesseInWorten(anhang.bytes) }),
   ]);
-  if (form === 'geloescht') {
-    return element('div', { className: 'lc-datei' }, [kopf]);
-  }
   const links = [];
   if (oeffnen) {
     links.push(verweisZeichnen(anhang, 'Öffnen', 'öffnen', { target: '_blank', rel: 'noopener' }));
   }
   links.push(verweisZeichnen(anhang, 'Laden', 'laden', { download: anhang.name }));
   return element('div', { className: 'lc-datei' }, [kopf, element('span', { className: 'lc-datei-links' }, links)]);
+}
+
+function kuerzelZeichnen(name) {
+  const kuerzel = element('span', { className: 'lc-datei-kuerzel', textContent: typkuerzel(name) });
+  kuerzel.setAttribute('aria-hidden', 'true');
+  return kuerzel;
+}
+
+// Die Zeile „foto.png · 300 KiB · Gelöscht“ (B0517, UX V4): weder Link noch Knopf noch fokussierbar, „Gelöscht“ in
+// kd-ink-muted (CSS). Eine benannte Gruppe trägt den vorgelesenen Text mit Kommas; ihr sichtbarer Inhalt ist für
+// Bildschirmleser verborgen, damit nichts doppelt kommt. Die Trenner stehen am Zeilenende, wo die Zeile umbricht.
+function geloeschteZeileZeichnen(anhang) {
+  const beschriftung = geloeschtBeschriftung(anhang);
+  const trenner = () => element('span', { className: 'lc-datei-trenner', textContent: ' · ' });
+  const kopf = element('span', { className: 'lc-datei-kopf' }, [
+    kuerzelZeichnen(anhang.name),
+    element('span', { className: 'lc-datei-namenszug' }, [nameZeichnen(anhang.name), trenner()]),
+    element('span', { className: 'lc-datei-nachsatz' }, [
+      element('span', { className: 'lc-datei-groesse', textContent: beschriftung.groesse }),
+      trenner(),
+      element('span', { className: 'lc-datei-geloescht-marke', textContent: beschriftung.marke }),
+    ]),
+  ]);
+  kopf.setAttribute('aria-hidden', 'true');
+  const zeile = element('div', { className: 'lc-datei lc-datei-geloescht' }, [kopf]);
+  zeile.setAttribute('role', 'group');
+  zeile.setAttribute('aria-label', beschriftung.vorgelesen);
+  return zeile;
 }
 
 // Der Name kürzt in der Mitte: die letzten 8 Zeichen (Uhrzeit, Nummer, Endung) bleiben stehen, die Ellipse nimmt der

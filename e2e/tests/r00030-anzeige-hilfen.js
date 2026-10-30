@@ -176,4 +176,11 @@ function dateiAus(eintrag) {
 /// Die Datei-Zeile des Anhangs `name` in der Nachricht.
 const dateiZeile = (knoten, name) => knoten.locator('.lc-datei').filter({ has: knoten.page().locator('.lc-datei-name', { hasText: name }) });
 
-module.exports = { testdateien, anzeigeStarten, dateiZeile };
+/// Löscht Anhänge über die API (R00029 F0116, mit Bestätigung): `POST /api/anhaenge/loeschen`; → die Antwort mit `empfangen`.
+async function anhaengeLoeschen(adresse, token, ids, herkunft = '127.0.0.2') {
+  const antwort = await anfragen(adresse, { methode: 'POST', pfad: 'api/anhaenge/loeschen', koerper: { ids, bestaetigt: true }, token, herkunft });
+  expect(antwort.status, JSON.stringify(antwort.daten)).toBe(200);
+  return antwort;
+}
+
+module.exports = { testdateien, anzeigeStarten, dateiZeile, anhaengeLoeschen };

@@ -1,7 +1,7 @@
 // Unit-Tests der Darstellung eines Anhangs im Verlauf (R00030 F0102 B0455, „Darstellung wählen“ und „Breiten“; node --test).
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { darstellungWaehlen, rahmenMasse } from '../../web/anhang-anzeige.js';
+import { darstellungWaehlen, rahmenMasse, geloeschtBeschriftung } from '../../web/anhang-anzeige.js';
 
 const MIB = 1024 * 1024;
 const anhang = (art, extra = {}) => ({ id: 'a', name: 'datei', bytes: 307200, art, breite: null, hoehe: null, zustand: 'vorhanden', ...extra });
@@ -85,4 +85,15 @@ test('sehr schmale und flache Bilder: jede Seite der Vorschau mindestens 1 px', 
   assert.deepEqual(darstellungWaehlen({ art: 'image/png', bytes: 1000, breite: 1000, hoehe: 1, zustand: 'vorhanden' }), vorschau(360, 1));
   assert.deepEqual(darstellungWaehlen({ art: 'image/png', bytes: 1000, breite: 1, hoehe: 1000, zustand: 'vorhanden' }), vorschau(1, 240));
   assert.deepEqual(darstellungWaehlen({ art: 'image/png', bytes: 1000, breite: 16384, hoehe: 10, zustand: 'vorhanden' }), vorschau(360, 1));
+});
+
+// B0517 (UX V4): die Zeile „foto.png · 300 KiB · Gelöscht“ — gesehen in drei Teilen, vorgelesen mit Kommas.
+test('Zeile „Gelöscht“: Name, Größe in Worten und „Gelöscht“; vorgelesen „foto.png, 300 KiB, Gelöscht“', () => {
+  const geloescht = (name, bytes) => geloeschtBeschriftung({ ...anhang('image/png', { name, bytes }), zustand: 'geloescht' });
+  assert.deepEqual(geloeschtBeschriftung({ ...anhang('image/png', { name: 'foto.png' }), zustand: 'geloescht' }), {
+    name: 'foto.png', groesse: '300 KiB', marke: 'Gelöscht', vorgelesen: 'foto.png, 300 KiB, Gelöscht',
+  });
+  assert.equal(geloescht('film.webm', 1048575).vorgelesen, 'film.webm, 1,0 MiB, Gelöscht');
+  assert.equal(geloescht('bericht.pdf', 2457600).vorgelesen, 'bericht.pdf, 2,3 MiB, Gelöscht');
+  assert.equal(geloescht('<img onerror=x>.png', 12).vorgelesen, '<img onerror=x>.png, 12 Byte, Gelöscht');
 });
