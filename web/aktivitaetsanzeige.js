@@ -106,10 +106,47 @@ function beiwerk(text) {
   return { text, name: false };
 }
 
-// Die Zeile `p.lc-comp-tipp` für die Hinweisreihe der Eingabe; `kennung` ist die eigene.
+// Ansage für Bildschirmleser (ux-reviewer C), rein mit gestellter Zeit: `text` ist die Zeile ohne „ …“ ('' ohne
+// Anzeige). Gesetzt wird nur beim Wechsel von leer zu nicht leer und frühestens 30 s nach der vorigen Setzung, geleert
+// beim Wechsel zu leer; Erneuerungen, Namens- und Zustandswechsel sagen nichts an.
+// → { zustand, schreiben: null | Text für die Region }
+export const ANSAGE_STILL = { zeileStand: false, region: '', gesetztMs: null };
+
+export function tippAnsage(zustand, text, jetztMs) {
+  const ABSTAND_MS = 30000;
+  const zeileSteht = text !== '';
+  const neu = { ...zustand, zeileStand: zeileSteht };
+  if (zeileSteht === zustand.zeileStand) {
+    return { zustand: neu, schreiben: null };
+  }
+  if (!zeileSteht) {
+    return regionSchreiben(neu, '');
+  }
+  const abstandReicht = zustand.gesetztMs === null || jetztMs - zustand.gesetztMs >= ABSTAND_MS;
+  if (!abstandReicht) {
+    return { zustand: neu, schreiben: null };
+  }
+  return regionSchreiben({ ...neu, gesetztMs: jetztMs }, text);
+}
+
+function regionSchreiben(zustand, text) {
+  if (zustand.region === text) {
+    return { zustand, schreiben: null };
+  }
+  return { zustand: { ...zustand, region: text }, schreiben: text };
+}
+
+// Die Zeile `p.lc-comp-tipp` für die Hinweisreihe der Eingabe und ihre eigene Ansage-Region `.lc-tipp-ansage` (nie die
+// gemeinsame `.lc-ansage`, ADR-0038 Regel 10 bleibt unberührt); `kennung` ist die eigene.
 export function aktivitaetsanzeigeAnlegen({ kennung }) {
   const zeile = document.createElement('p');
   zeile.className = 'lc-comp-tipp';
+  const region = document.createElement('p');
+  region.className = 'lc-unsichtbar lc-tipp-ansage';
+  region.setAttribute('role', 'status');
+  region.setAttribute('aria-live', 'polite');
+  region.setAttribute('aria-atomic', 'true');
+  let ansage = ANSAGE_STILL;
   let tabelle = AKTIVITAETEN_LEER;
   let channel = null;
   let bildBestellt = false;
@@ -130,7 +167,16 @@ export function aktivitaetsanzeigeAnlegen({ kennung }) {
     if (zeile.textContent !== teile.map((teil) => teil.text).join('')) {
       zeile.replaceChildren(...teile.map(teilAlsKnoten));
     }
+    ansagen(teile.slice(0, -1).map((teil) => teil.text).join(''));
     zumAblaufWecken(aktive);
+  }
+
+  function ansagen(text) {
+    const ergebnis = tippAnsage(ansage, text, Date.now());
+    ansage = ergebnis.zustand;
+    if (ergebnis.schreiben !== null) {
+      region.textContent = ergebnis.schreiben;
+    }
   }
 
   function zumAblaufWecken(aktive) {
@@ -144,6 +190,7 @@ export function aktivitaetsanzeigeAnlegen({ kennung }) {
 
   return {
     zeile,
+    region,
     ereignis: (ereignis) => {
       tabelle = aktivitaetEinordnen(tabelle, ereignis, Date.now());
       zeichnenBestellen();

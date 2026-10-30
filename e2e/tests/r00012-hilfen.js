@@ -12,7 +12,9 @@ const vorlaeufige = (page) => page.getByRole('log').locator('.lc-msg.lc-vorlaeuf
 /// Bestätigte (nicht vorläufige) Nachrichten, deren Text genau `text` ist.
 const bestaetigt = (page, text) => page.getByRole('log').locator('.lc-msg:not(.lc-vorlaeufig)')
   .filter({ has: page.locator('.lc-body', { hasText: new RegExp(`^${text}$`) }) });
-const ansageRegion = (page) => page.locator('[role="status"][aria-live="polite"]');
+/// Die eine gemeinsame Ansage-Region (ADR-0038 Regel 10). Daneben steht seit R00045 (ux-reviewer C, Karte #77) genau eine
+/// weitere, die eigene Region der Tippanzeige `.lc-tipp-ansage` — sie ist hier ausgenommen, jede andere zählt mit.
+const ansageRegion = (page) => page.locator('[role="status"][aria-live="polite"]:not(.lc-tipp-ansage)');
 
 /// „Strom getrennt“ (R00012): Netz des Kontexts aus, bis die Leiste „Verbindung verloren“ steht.
 async function netzAus(seite) {

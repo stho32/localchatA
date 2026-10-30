@@ -3,7 +3,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  AKTIVITAETEN_LEER, aktivitaetEinordnen, nachrichtEingetroffen, aktiveIn, anzeigeTeile, anzeigeText,
+  AKTIVITAETEN_LEER, aktivitaetEinordnen, nachrichtEingetroffen, aktiveIn, anzeigeTeile, anzeigeText, ANSAGE_STILL, tippAnsage,
 } from '../../web/aktivitaetsanzeige.js';
 
 const JETZT = '2026-10-30T10:00:00.000+01:00';
@@ -129,4 +129,52 @@ test('Teile: Namen sind als Name markiert (halbfett), Zählung und Verben nicht'
 
 test('Wortlaut: ein unbekannter Zustand ist ein Fehler', () => {
   assert.throws(() => anzeigeText(aktiv(['anna@x', 'schreibt'])), /unbekannter Zustand schreibt/);
+});
+
+// Ansage (R00045 F0162 B0691, ux-reviewer C; gestellte Uhr): Text = Zeile ohne „ …“; gesetzt nur beim Wechsel leer →
+// nicht leer und frühestens 30 s nach der vorigen Setzung, geleert beim Wechsel nicht leer → leer; dieselbe Zeichenkette
+// nie neu. Die Schritte sind [ms, Text der Zeile ohne „ …“]; gesammelt wird, was in die Region geschrieben wird.
+function ansagen(schritte) {
+  let zustand = ANSAGE_STILL;
+  const geschrieben = [];
+  for (const [jetztMs, text] of schritte) {
+    const ergebnis = tippAnsage(zustand, text, jetztMs);
+    zustand = ergebnis.zustand;
+    if (ergebnis.schreiben !== null) {
+      geschrieben.push(`${JSON.stringify(ergebnis.schreiben)}@${jetztMs}`);
+    }
+  }
+  return geschrieben;
+}
+
+test('Ansage: anna tippt 12 s mit Erneuerungen, dann Ablauf → genau zwei Änderungen', () => {
+  const schritte = [[0, '']];
+  for (let ms = 100; ms <= 12000; ms += 3000) {
+    schritte.push([ms, 'anna tippt']);
+  }
+  schritte.push([18000, '']);
+  assert.deepEqual(ansagen(schritte), ['"anna tippt"@100', '""@18000']);
+});
+
+test('Ansage: Namens- und Zustandswechsel bei nicht leerer Zeile ändern nichts (M13)', () => {
+  assert.deepEqual(ansagen([
+    [0, 'anna tippt'], [1000, 'anna und ben tippen'], [2000, 'anna und ben tippen · claude denkt nach'], [3000, 'claude denkt nach'],
+  ]), ['"anna tippt"@0']);
+});
+
+test('Ansage: frühestens 30 s nach der vorigen Setzung — dazwischen bleibt die Region leer, auch wenn die Zeile wieder steht', () => {
+  assert.deepEqual(ansagen([
+    [0, 'anna tippt'], [7000, ''], [10000, 'ben tippt'], [16000, ''], [29999, 'cora tippt'], [29999.5, ''], [30000, 'dora tippt'],
+  ]), ['"anna tippt"@0', '""@7000', '"dora tippt"@30000']);
+});
+
+test('Ansage: leer → leer und eine leere Region werden nie neu geschrieben; dieselbe Zeichenkette nie zweimal hintereinander', () => {
+  assert.deepEqual(ansagen([[0, ''], [5, '']]), []);
+  assert.deepEqual(ansagen([[0, 'anna tippt'], [100, ''], [40000, ''], [50000, 'anna tippt']]), [
+    '"anna tippt"@0', '""@100', '"anna tippt"@50000',
+  ]);
+});
+
+test('Ansage: übersprungene Setzung → beim Leeren wird nichts geschrieben (die Region ist schon leer)', () => {
+  assert.deepEqual(ansagen([[0, 'anna tippt'], [100, ''], [200, 'ben tippt'], [300, '']]), ['"anna tippt"@0', '""@100']);
 });

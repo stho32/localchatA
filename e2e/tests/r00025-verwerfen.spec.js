@@ -43,7 +43,9 @@ async function dreiVerwerfen(page) {
   await expect(rueckgaengig(page)).toBeVisible();
 }
 
-const EINE_LIVE_REGION = `document.querySelectorAll('[aria-live]:not([aria-live="off"]), [role="status"], [role="alert"], [role="log"]:not([aria-live="off"])').length`;
+// Ausgenommen ist nur die eigene Region der Tippanzeige `.lc-tipp-ansage` (R00045 ux-reviewer C, Karte #77: bewusst nicht
+// die gemeinsame Region); jede andere Live-Region zählt weiter mit.
+const EINE_LIVE_REGION = `document.querySelectorAll('[aria-live]:not([aria-live="off"]):not(.lc-tipp-ansage), [role="status"]:not(.lc-tipp-ansage), [role="alert"], [role="log"]:not([aria-live="off"])').length`;
 
 // Zielgröße (V3, wörtlich: „‚Rückgängig‘ und ‚Steuerzeichen entfernen‘ sind `<button type="button">`, im Stil von
 // `.lc-send-schalter`, mit `touch-action: manipulation`. Desktop: ≥ 24 × 24 px. Telefon (…, 375 × 812) und Tablet

@@ -103,6 +103,7 @@ export function zeichnen(wurzel, teilnehmer, optionen) {
     ansagen: ansagen.melden,
   });
   const tippanzeige = aktivitaetsanzeigeAnlegen({ kennung: teilnehmer.kennung });
+  wurzel.append(tippanzeige.region);
   const tippen = tippenAnlegen({ melden: optionen.aktivitaetMelden });
   const eingabe = eingabeAnlegen({
     senden: senden.senden,
