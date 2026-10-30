@@ -26,7 +26,6 @@ const MOOV_ERLAUBT: &[&[u8; 4]] = &[
 /// Erlaubnisliste im obersten `meta` mit Handler `pict` (Regel 5e); `iprp` wird betreten (`udes`).
 const HEIF_META_ERLAUBT: &[&[u8; 4]] = &[
     b"hdlr", b"pitm", b"iloc", b"iinf", b"iref", b"iprp", b"idat", b"dinf", b"grpl", b"ipro",
-    b"free", b"skip",
 ];
 
 /// Bild- und abgeleitete Items, die bleiben (Regel 5e); `Exif` wird minimal, jedes andere Item genullt.
@@ -37,6 +36,10 @@ const HEIF_ITEMS_ERLAUBT: &[&[u8; 4]] = &[
 
 /// Erlaubnisliste in `udta` (Regel 5c): Kapitel, Spurauswahl, `meta`.
 const UDTA_ERLAUBT: &[&[u8; 4]] = &[b"chpl", b"tsel", b"meta"];
+
+/// Platzhalter (ADR-0047 Ergänzung „Karte #9 Security-Review B3“ Regel 5h): auf jeder Ebene, die der Tilger betritt,
+/// bleiben Typ, Größe und Kopf, der Inhalt wird genullt.
+const PLATZHALTER: &[&[u8; 4]] = &[b"free", b"skip", b"wide"];
 
 fn metadaten<T>(grund: &'static str) -> Ergebnis<T> {
     Err(Abbruch::Metadaten(grund))
@@ -107,6 +110,7 @@ pub fn isobmff(port: &Port<'_>, zaehler: &mut Zaehler) -> Ergebnis<()> {
         zaehler.block()?;
         match &kiste.typ {
             b"moov" => moov(port, kiste, zaehler)?,
+            typ if PLATZHALTER.contains(&typ) => platzhalter(port, kiste)?,
             b"meta" => match handler(port, kiste)? {
                 Some(handler) if &handler != b"pict" => nutzer_meta(port, kiste, zaehler)?,
                 _ => oberstes_meta(port, kiste, zaehler)?,
@@ -134,6 +138,11 @@ fn unkenntlich(port: &Port<'_>, kiste: Kiste, zaehler: &mut Zaehler) -> Ergebnis
     port.nullen(kiste.inhalt, kiste.ende - kiste.inhalt)
 }
 
+/// Ein Platzhalter: Inhalt hinter dem Kopf genullt (Nullziel, nie gelesen); ohne Inhalt nichts zu tun.
+fn platzhalter(port: &Port<'_>, kiste: Kiste) -> Ergebnis<()> {
+    port.nullen(kiste.inhalt, kiste.ende - kiste.inhalt)
+}
+
 /// `moov`: Erlaubnisliste, `cmov` ist nicht prüfbar; Abstieg in `trak`, `udta`, `meta`.
 fn moov(port: &Port<'_>, moov: Kiste, zaehler: &mut Zaehler) -> Ergebnis<()> {
     if zu_gross(moov) {
@@ -146,6 +155,7 @@ fn moov(port: &Port<'_>, moov: Kiste, zaehler: &mut Zaehler) -> Ergebnis<()> {
             b"trak" => trak(port, kind, zaehler)?,
             b"udta" => udta(port, kind, zaehler)?,
             b"meta" => nutzer_meta(port, kind, zaehler)?,
+            typ if PLATZHALTER.contains(&typ) => platzhalter(port, kind)?,
             typ if MOOV_ERLAUBT.contains(&typ) => {}
             _ => unkenntlich(port, kind, zaehler)?,
         }
@@ -162,12 +172,15 @@ fn trak(port: &Port<'_>, trak: Kiste, zaehler: &mut Zaehler) -> Ergebnis<()> {
             b"meta" => nutzer_meta(port, kind, zaehler)?,
             b"tkhd" => zeiten_nullen(port, kind)?,
             b"mdia" => {
-                for mdhd in kinder(port, kind.inhalt, kind.ende, zaehler)? {
-                    if &mdhd.typ == b"mdhd" {
-                        zeiten_nullen(port, mdhd)?;
+                for enkel in kinder(port, kind.inhalt, kind.ende, zaehler)? {
+                    match &enkel.typ {
+                        b"mdhd" => zeiten_nullen(port, enkel)?,
+                        typ if PLATZHALTER.contains(&typ) => platzhalter(port, enkel)?,
+                        _ => {}
                     }
                 }
             }
+            typ if PLATZHALTER.contains(&typ) => platzhalter(port, kind)?,
             _ => {}
         }
     }
@@ -195,6 +208,7 @@ fn udta(port: &Port<'_>, udta: Kiste, zaehler: &mut Zaehler) -> Ergebnis<()> {
     for kind in kinder(port, udta.inhalt, udta.ende, zaehler)? {
         match &kind.typ {
             b"meta" => nutzer_meta(port, kind, zaehler)?,
+            typ if PLATZHALTER.contains(&typ) => platzhalter(port, kind)?,
             typ if UDTA_ERLAUBT.contains(&typ) => {}
             _ => unkenntlich(port, kind, zaehler)?,
         }
@@ -213,7 +227,7 @@ fn meta_kinder_ab(port: &Port<'_>, meta: Kiste) -> Ergebnis<u64> {
 }
 
 /// Erlaubnisliste eines `meta` mit Nutzerdaten (Regel 5d); `keys` bleibt und wird nicht gelesen.
-const NUTZER_META_ERLAUBT: &[&[u8; 4]] = &[b"hdlr", b"keys", b"ilst", b"free", b"skip"];
+const NUTZER_META_ERLAUBT: &[&[u8; 4]] = &[b"hdlr", b"keys", b"ilst"];
 
 /// Ein `meta` unter `moov`, `trak`, `udta` oder ein oberstes `meta` mit Handler ungleich `pict` (ADR-0047 B2 Regel
 /// 5d): Erlaubnisliste; in `ilst` je Eintrag die Werte (`data`, `mean`, `name`) hinter ihrem Kopf genullt — alle
@@ -227,9 +241,14 @@ fn nutzer_meta(port: &Port<'_>, meta: Kiste, zaehler: &mut Zaehler) -> Ergebnis<
         match &kind.typ {
             b"ilst" => {
                 for eintrag in kinder(port, kind.inhalt, kind.ende, zaehler)? {
-                    werte_nullen(port, eintrag, zaehler)?;
+                    if PLATZHALTER.contains(&&eintrag.typ) {
+                        platzhalter(port, eintrag)?;
+                    } else {
+                        werte_nullen(port, eintrag, zaehler)?;
+                    }
                 }
             }
+            typ if PLATZHALTER.contains(&typ) => platzhalter(port, kind)?,
             typ if NUTZER_META_ERLAUBT.contains(&typ) => {}
             _ => unkenntlich(port, kind, zaehler)?,
         }
@@ -297,6 +316,7 @@ fn oberstes_meta(port: &Port<'_>, meta: Kiste, zaehler: &mut Zaehler) -> Ergebni
     for kind in &kinder {
         match &kind.typ {
             b"iprp" => eigenschaften(port, *kind, zaehler)?,
+            typ if PLATZHALTER.contains(&typ) => platzhalter(port, *kind)?,
             typ if HEIF_META_ERLAUBT.contains(&typ) => {}
             _ => unkenntlich(port, *kind, zaehler)?,
         }
@@ -360,8 +380,10 @@ fn eigenschaften(port: &Port<'_>, iprp: Kiste, zaehler: &mut Zaehler) -> Ergebni
             continue;
         }
         for eigenschaft in kinder(port, ipco.inhalt, ipco.ende, zaehler)? {
-            if &eigenschaft.typ == b"udes" {
-                unkenntlich(port, eigenschaft, zaehler)?;
+            match &eigenschaft.typ {
+                b"udes" => unkenntlich(port, eigenschaft, zaehler)?,
+                typ if PLATZHALTER.contains(&typ) => platzhalter(port, eigenschaft)?,
+                _ => {}
             }
         }
     }
@@ -1590,6 +1612,222 @@ mod tests {
                 "nur tfdt und mehd tragen die Zahl noch"
             );
         }
+    }
+
+    /// Eine Ortsspur wie in Dashcams: NMEA-Satz und Koordinate als Text.
+    const NMEA: &[u8] =
+        b"$GPRMC,123456.00,A,5231.2000,N,01324.3000,E,0.0,0.0,291026,,,A*6C GPSLatitude 52.52";
+
+    /// Platzhalter `typ` mit der Kennung `marke` und der Ortsspur als Inhalt.
+    fn platzhalter(typ: &[u8; 4], marke: &str) -> Vec<u8> {
+        kiste(typ, &[marke.as_bytes(), NMEA].concat())
+    }
+
+    /// Der Platzhalter mit dem Inhalt `alt` steht im Ergebnis mit gleichem Kopf (Größe, Typ) und genulltem Inhalt.
+    fn platzhalter_genullt(original: &[u8], getilgt: &[u8], alt: &[u8], was: &str) {
+        let stelle = original
+            .windows(alt.len())
+            .position(|fenster| fenster == alt)
+            .expect("Platzhalter im Original");
+        let (kopf, ende) = (stelle..stelle + 8, stelle + alt.len());
+        assert_eq!(getilgt[kopf.clone()], original[kopf], "{was}: Kopf");
+        assert!(
+            getilgt[stelle + 8..ende].iter().all(|b| *b == 0),
+            "{was}: Inhalt"
+        );
+    }
+
+    /// ADR-0047 B3 Regel 5h, Proben (a)–(f) (B0649): `free`, `skip`, `wide` auf jeder betretenen Ebene — oben (mit
+    /// `ptrh`/`gps`, `LIGOGPSINFO`, einem `mdat` samt JPEG mit Exif-GPS), in `moov`, `trak`, `mdia`, `udta`, `meta`,
+    /// `ilst` — behalten Typ, Größe und Kopf, ihr Inhalt ist Nullen; `mdat`, `hdlr`, `stco` byte-gleich.
+    #[test]
+    fn platzhalter_behalten_typ_und_groesse_ihr_inhalt_ist_genullt() {
+        let jpeg_mit_gps = [
+            &b"\xFF\xD8\xFF\xE1\0\x30Exif\0\0MM\0*GPS\0\0\0\x34\0\0\0\x01\0\0\0\x1F"[..],
+            NMEA,
+        ]
+        .concat();
+        let oben = [
+            platzhalter(b"free", "ptrh gps "),
+            platzhalter(b"skip", "LIGOGPSINFO "),
+            kiste(b"free", &kiste(b"mdat", &jpeg_mit_gps)),
+            platzhalter(b"wide", "wide oben "),
+        ];
+        let hdlr = kiste(b"hdlr", &[&[0u8; 8][..], b"mdir", &[0; 13]].concat());
+        let ilst = kiste(
+            b"ilst",
+            &[
+                platzhalter(b"free", "in ilst "),
+                wert(&[0xA9, b'n', b'a', b'm'], b"Titel"),
+            ]
+            .concat(),
+        );
+        let meta_kinder = [
+            hdlr.clone(),
+            platzhalter(b"free", "in meta "),
+            platzhalter(b"wide", "wide in meta "),
+            ilst,
+        ];
+        let udta_kinder = [
+            platzhalter(b"free", "in udta "),
+            platzhalter(b"skip", "skip in udta "),
+            kiste(b"meta", &[&[0u8; 4][..], &meta_kinder.concat()].concat()),
+        ];
+        let stco = kiste(b"stco", b"\0\0\0\0\0\0\0\x01\0\0\0\x30");
+        let mdia = kiste(b"mdia", &platzhalter(b"free", "in mdia "));
+        let trak = kiste(
+            b"trak",
+            &[stco.clone(), platzhalter(b"skip", "in trak "), mdia].concat(),
+        );
+        let moov = kiste(
+            b"moov",
+            &[
+                platzhalter(b"free", "in moov "),
+                trak,
+                kiste(b"udta", &udta_kinder.concat()),
+                platzhalter(b"wide", "wide in moov "),
+            ]
+            .concat(),
+        );
+        let mdat = kiste(b"mdat", b"Mediendaten");
+        let original = [ftyp(), oben.concat(), moov, mdat.clone()].concat();
+
+        let (ergebnis, datei) = tilgen(original.clone());
+
+        ergebnis.expect("getilgt");
+        let getilgt = datei.inhalt();
+        assert_eq!(getilgt.len(), original.len());
+        for spur in [&b"5231.2000"[..], b"52.52", b"GPS", b"LIGOGPSINFO", b"ptrh"] {
+            assert!(
+                !enthaelt(&getilgt, spur),
+                "{}",
+                String::from_utf8_lossy(spur)
+            );
+        }
+        for (marke, typ) in [
+            ("ptrh gps ", b"free"),
+            ("LIGOGPSINFO ", b"skip"),
+            ("wide oben ", b"wide"),
+            ("in moov ", b"free"),
+            ("in trak ", b"skip"),
+            ("in mdia ", b"free"),
+            ("in udta ", b"free"),
+            ("skip in udta ", b"skip"),
+            ("in meta ", b"free"),
+            ("wide in meta ", b"wide"),
+            ("wide in moov ", b"wide"),
+            ("in ilst ", b"free"),
+        ] {
+            platzhalter_genullt(&original, &getilgt, &platzhalter(typ, marke), marke);
+        }
+        let mit_jpeg = kiste(b"free", &kiste(b"mdat", &jpeg_mit_gps));
+        platzhalter_genullt(&original, &getilgt, &mit_jpeg, "free mit JPEG");
+        for bleibt in [&mdat, &hdlr, &stco] {
+            assert!(enthaelt(&getilgt, bleibt));
+        }
+        assert_eq!(&getilgt[getilgt.len() - mdat.len()..], &mdat[..]);
+    }
+
+    /// ADR-0047 B3 Regel 5h, Probe (g) (B0649): `free` und `skip` im obersten HEIF-`meta` und ein `free` in `ipco` →
+    /// Kopf gleich, Inhalt Nullen; das Exif-Item minimal wie vorher.
+    #[test]
+    fn platzhalter_im_obersten_heif_meta_und_in_ipco_werden_genullt() {
+        let exif = exif_mit_ort();
+        let lang = exif.len() as u64;
+        let im_meta = platzhalter(b"free", "HEIF meta ");
+        let skip = platzhalter(b"skip", "HEIF skip ");
+        let in_ipco = platzhalter(b"free", "in ipco ");
+        let iprp = kiste(b"iprp", &kiste(b"ipco", &in_ipco));
+        let iinf = kiste(
+            b"iinf",
+            &[&[0u8, 0, 0, 0, 0, 1][..], &item_infe(1, b"Exif")].concat(),
+        );
+        let bauen = |mdat_anfang: u64| {
+            let meta = kiste(
+                b"meta",
+                &[
+                    &[0u8, 0, 0, 0][..],
+                    &hdlr_pict(),
+                    &iinf,
+                    &iloc_aus(&[(1, mdat_anfang, lang)]),
+                    &iprp,
+                    &im_meta,
+                    &skip,
+                ]
+                .concat(),
+            );
+            [kiste(b"ftyp", b"heic\0\0\0\0mif1heic"), meta].concat()
+        };
+        let mdat_anfang = bauen(0).len() as u64 + 8;
+        let original = [bauen(mdat_anfang), kiste(b"mdat", &exif)].concat();
+
+        let (ergebnis, datei) = tilgen(original.clone());
+
+        ergebnis.expect("getilgt");
+        let getilgt = datei.inhalt();
+        assert!(!enthaelt(&getilgt, b"5231.2000") && !enthaelt(&getilgt, b"GPS"));
+        for (alt, was) in [(&im_meta, "meta"), (&skip, "skip"), (&in_ipco, "ipco")] {
+            platzhalter_genullt(&original, &getilgt, alt, was);
+        }
+    }
+
+    /// ADR-0047 B3 Regel 5h (B0649): `free` mit `size` = 1 → 16 Bytes Kopf bleiben, Rest Nullen; `free` mit `size` 0
+    /// am Dateiende → bis zum Ende Nullen, Länge gleich; ein `free` von 8 Bytes bleibt, wie es ist; ein `skip` von
+    /// 3 MiB wird nie gelesen.
+    #[test]
+    fn platzhalter_mit_64_bit_groesse_groesse_0_und_ohne_inhalt() {
+        let inhalt = [&b"64 Bit "[..], NMEA].concat();
+        let mut gross = 1u32.to_be_bytes().to_vec();
+        gross.extend_from_slice(b"free");
+        gross.extend_from_slice(&(16 + inhalt.len() as u64).to_be_bytes());
+        gross.extend_from_slice(&inhalt);
+        let leer = kiste(b"free", b"");
+        let riesig = kiste(b"skip", &[NMEA, &vec![b'7'; 3 * MIB]].concat());
+        let bis_ende = [&0u32.to_be_bytes()[..], b"free", b"bis ende ", NMEA].concat();
+        let original = [
+            ftyp(),
+            gross.clone(),
+            leer.clone(),
+            riesig,
+            kiste(b"mdat", b"Mediendaten"),
+            bis_ende.clone(),
+        ]
+        .concat();
+
+        let (ergebnis, datei) = tilgen(original.clone());
+
+        ergebnis.expect("getilgt");
+        let getilgt = datei.inhalt();
+        assert_eq!(getilgt.len(), original.len());
+        assert!(!enthaelt(&getilgt, b"5231.2000") && !enthaelt(&getilgt, &[b'7'; 64]));
+        let stelle = ftyp().len();
+        assert_eq!(getilgt[stelle..stelle + 16], gross[..16]);
+        assert!(
+            getilgt[stelle + 16..stelle + gross.len()]
+                .iter()
+                .all(|b| *b == 0)
+        );
+        let ende = getilgt.len() - bis_ende.len();
+        assert_eq!(getilgt[ende..ende + 8], bis_ende[..8]);
+        assert!(getilgt[ende + 8..].iter().all(|b| *b == 0));
+        assert!(enthaelt(&getilgt, b"Mediendaten"));
+        assert!(datei.groesste_lesung() <= 16, "{}", datei.groesste_lesung());
+        let leer_an = stelle + gross.len();
+        assert_eq!(getilgt[leer_an..leer_an + 8], leer[..]);
+    }
+
+    /// ADR-0047 B3 Regel 5h (B0649): `free` mit `size` 0 in `moov` → `metadaten`.
+    #[test]
+    fn ein_platzhalter_mit_groesse_0_in_moov_ist_nicht_tilgbar() {
+        let ohne_groesse = [&0u32.to_be_bytes()[..], b"free", NMEA].concat();
+        let daten = [ftyp(), kiste(b"moov", &ohne_groesse)].concat();
+
+        let (ergebnis, _) = tilgen(daten);
+
+        assert!(
+            matches!(ergebnis, Err(Abbruch::Metadaten(_))),
+            "{ergebnis:?}"
+        );
     }
 
     /// Regel 5g: eine Zeit-Box mit unbekannter Version oder zu kurz → `metadaten`.

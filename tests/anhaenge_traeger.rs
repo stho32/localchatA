@@ -1,5 +1,5 @@
-//! R00029 F0115 „Unbekannte Träger“ und „Qualität bleibt“ über das echte Programm (ADR-0047 Ergänzung „Karte #9
-//! Security-Review B2“, P1–P9): je Datei hochladen, senden, `GET /anhaenge/<id>` — in den ausgelieferten Bytes kein
+//! R00029 F0115 „Unbekannte Träger“, „Qualität bleibt“, „Platzhalter“ und „Varianten“ über das echte Programm (ADR-0047
+//! Ergänzungen „Karte #9 Security-Review B2“, P1–P10, und „B3“, Proben (a)–(g), P11): je Datei hochladen, senden, `GET /anhaenge/<id>` — in den ausgelieferten Bytes kein
 //! Ort, Länge wie angemeldet, Bilddaten byte-gleich; was die Darstellung braucht, bleibt byte-gleich.
 
 mod gemeinsam;
@@ -836,4 +836,160 @@ async fn zeitfelder_der_struktur_sind_getilgt() {
         );
         assert!(!enthaelt(&geliefert.bytes, b"+52.5200"), "{name}: Ort");
     }
+}
+
+/// Eine Ortsspur wie in Dashcams (BlackVue, LIGO): NMEA-Satz, Koordinate als Text und binär.
+fn nmea() -> Vec<u8> {
+    [
+        &b"$GPRMC,123456.00,A,5231.2000,N,01324.3000,E,0.0,0.0,291026,,,A*6C "[..],
+        &ort(),
+    ]
+    .concat()
+}
+
+/// Hängt `neu` ans Ende der Box, die `pfad` von oben nennt (leer: ans Ende der Datei); die Größen der Behälter
+/// wachsen mit. `moov` muss hinter `mdat` stehen, damit die Versätze in `stco` gelten.
+fn einfuegen(bytes: &[u8], pfad: &[&[u8; 4]], neu: &[u8]) -> Vec<u8> {
+    fn bauen(bytes: &[u8], anfang: usize, ende: usize, pfad: &[&[u8; 4]], neu: &[u8]) -> Vec<u8> {
+        let Some((ziel, rest)) = pfad.split_first() else {
+            return [&bytes[anfang..ende], neu].concat();
+        };
+        let mut aus = Vec::new();
+        let mut gefunden = false;
+        for (typ, inhalt, bis) in boxen(bytes, anfang, ende) {
+            if gefunden || &typ != *ziel {
+                aus.extend(&bytes[inhalt - 8..bis]);
+                continue;
+            }
+            gefunden = true;
+            let teil = bauen(bytes, inhalt, bis, rest, neu);
+            aus.extend(((teil.len() + 8) as u32).to_be_bytes());
+            aus.extend(typ);
+            aus.extend(teil);
+        }
+        assert!(gefunden, "{}", String::from_utf8_lossy(*ziel));
+        aus
+    }
+    let liste = boxen(bytes, 0, bytes.len());
+    let stelle = |gesucht: &[u8; 4]| liste.iter().position(|(typ, _, _)| typ == gesucht);
+    assert!(stelle(b"mdat") < stelle(b"moov"), "moov hinter mdat");
+    bauen(bytes, 0, bytes.len(), pfad, neu)
+}
+
+/// Der Platzhalter `alt` (aus dem Original) steht in `bytes` an derselben Stelle mit gleichem Kopf und Nullen.
+fn platzhalter_genullt(name: &str, original: &[u8], bytes: &[u8], alt: &[u8]) {
+    let stelle = original
+        .windows(alt.len())
+        .position(|fenster| fenster == alt)
+        .expect("Platzhalter im Original");
+    assert_eq!(bytes[stelle..stelle + 8], alt[..8], "{name}: Typ und Größe");
+    assert!(
+        bytes[stelle + 8..stelle + alt.len()]
+            .iter()
+            .all(|b| *b == 0),
+        "{name}: Inhalt"
+    );
+}
+
+/// `ffprobe -v error` ohne Ausgabe und `ffmpeg -v error -i … -f null -` mit Code 0 ohne Ausgabe.
+fn spielt_fehlerfrei(name: &str, bytes: &[u8]) {
+    let ordner = ordner();
+    let pfad = ordner.path().join(name);
+    std::fs::write(&pfad, bytes).expect("geschrieben");
+    let geprobt = std::process::Command::new("ffprobe")
+        .args(["-v", "error"])
+        .arg(&pfad)
+        .output()
+        .expect("Vorbedingung fehlt: ffprobe");
+    assert!(
+        geprobt.status.success() && geprobt.stdout.is_empty() && geprobt.stderr.is_empty(),
+        "{name}: {}",
+        String::from_utf8_lossy(&geprobt.stderr)
+    );
+    let dekodiert = std::process::Command::new("ffmpeg")
+        .args(["-v", "error", "-i"])
+        .arg(&pfad)
+        .args(["-f", "null", "-"])
+        .output()
+        .expect("Vorbedingung fehlt: ffmpeg");
+    assert!(
+        dekodiert.status.success() && dekodiert.stderr.is_empty(),
+        "{name}: {}",
+        String::from_utf8_lossy(&dekodiert.stderr)
+    );
+}
+
+/// Kein Ort, keine NMEA-Spur, gleiche Länge, `mdat` byte-gleich, der Platzhalter `alt` mit Kopf und Nullen.
+fn platzhalter_ohne_ort(name: &str, original: &[u8], bytes: &[u8], alt: &[u8]) {
+    ohne_ort(name, bytes);
+    for spur in [&b"5231.2000"[..], b"$GPRMC", b"LIGOGPSINFO", b"ptrh"] {
+        assert!(
+            !enthaelt(bytes, spur),
+            "{name}: {}",
+            String::from_utf8_lossy(spur)
+        );
+    }
+    assert_eq!(bytes.len(), original.len(), "{name}");
+    assert_eq!(finden(bytes, b"mdat"), finden(original, b"mdat"), "{name}");
+    platzhalter_genullt(name, original, bytes, alt);
+}
+
+/// Ein JPEG (Vorschau einer Drohne) mit `APP1` Exif und GPS-IFD: `GPSLatitude` 52° 31′ 12″ als RATIONAL.
+fn vorschau_mit_gps() -> Vec<u8> {
+    let mut gps_ifd = 1u16.to_be_bytes().to_vec();
+    gps_ifd.extend([0, 2, 0, 5, 0, 0, 0, 3, 0, 0, 0, 56]);
+    gps_ifd.extend(0u32.to_be_bytes());
+    gps_ifd.extend(ORT_BINAER);
+    let tiff = gemeinsam::dateien::tiff(&[(0x0112, 3, 1, 1), (0x8825, 4, 1, 38)], &gps_ifd);
+    jpeg(&[(0xe1, [&b"Exif\0\0"[..], &tiff].concat())], 64, 48)
+}
+
+/// ADR-0047 B3 Regel 5h, Proben (a)–(g) des `security-reviewer` (B0649): Ortsspur nur in (a) oberstem `free` mit
+/// `ptrh`/`gps`, (b) oberstem `skip` mit `LIGOGPSINFO`, (c) oberstem `free` mit `mdat` und JPEG mit Exif-GPS,
+/// (d) `free` in `moov`, (e) `free` in `udta` und in `udta/meta`, (f) oberstem `wide`, (g) `free` im obersten
+/// HEIF-`meta` → ausgeliefert ohne Ort, Typ und Größe gleich, Inhalt Nullen, Länge und `mdat` gleich; die Filme
+/// spielen fehlerfrei (`ffprobe`, `ffmpeg`).
+#[tokio::test]
+async fn platzhalter_verlieren_ihre_ortsspur() {
+    let lauf = Lauf::neu().await;
+    let ordner = ordner();
+    let grund = film(ordner.path(), "grund.mp4", &[]);
+    let spur = |typ: &[u8; 4], marke: &[u8]| kiste(typ, &[marke, &nmea()].concat());
+    let mit_jpeg = kiste(b"free", &kiste(b"mdat", &vorschau_mit_gps()));
+    /// Name, Pfad der Elternbox (leer: oben), Platzhalter.
+    type Fall<'a> = (&'a str, &'a [&'a [u8; 4]], Vec<u8>);
+    let filme: Vec<Fall> = vec![
+        ("a.mp4", &[], spur(b"free", b"ptrh\0\0\0\x40gps ")),
+        ("b.mp4", &[], spur(b"skip", b"LIGOGPSINFO\0")),
+        ("c.mp4", &[], mit_jpeg),
+        ("d.mp4", &[b"moov"], spur(b"free", b"im moov ")),
+        ("e1.mp4", &[b"moov", b"udta"], spur(b"free", b"in udta ")),
+        (
+            "e2.mp4",
+            &[b"moov", b"udta", b"meta"],
+            spur(b"free", b"in meta "),
+        ),
+        ("f.mp4", &[], spur(b"wide", b"wide ")),
+    ];
+    for (name, pfad, platzhalter) in filme {
+        let original = einfuegen(&grund, pfad, &platzhalter);
+        spielt_fehlerfrei(&format!("vorher-{name}"), &original);
+
+        let geliefert = lauf.ausliefern(name, &original).await;
+
+        platzhalter_ohne_ort(name, &original, &geliefert.bytes, &platzhalter);
+        spielt_fehlerfrei(name, &geliefert.bytes);
+    }
+
+    let im_heif = spur(b"free", b"HEIF meta ");
+    let kachel = vec![0x5a; 64];
+    let heic = heic_mit(
+        &[(b"hvc1", b"", kachel.clone())],
+        &[],
+        std::slice::from_ref(&im_heif),
+    );
+    let geliefert = lauf.ausliefern("g.heic", &heic).await;
+    platzhalter_ohne_ort("g.heic", &heic, &geliefert.bytes, &im_heif);
+    assert!(enthaelt(&geliefert.bytes, &kachel));
+    assert_eq!(geliefert.anhang["art"], "image/heic");
 }
