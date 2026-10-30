@@ -307,10 +307,15 @@ function antwortzeileAnlegen(feld, ansagen) {
       abbrechen();
     }
   });
+  // Wird das Original gelöscht, während die Zeile steht, sagt sie es einmal an (UX S2, Karte #79); gelöscht bleibt gelöscht.
   function nachfuehren(ereignis) {
     const neu = bezugNachfuehren(bezug, ereignis);
-    if (neu !== bezug) {
-      zeigen(neu);
+    if (neu === bezug) {
+      return;
+    }
+    zeigen(neu);
+    if (neu.zustand === 'geloescht') {
+      ansagen({ art: 'sofort', text: `Antwort an ${neu.von}: Nachricht gelöscht.` });
     }
   }
   return { zeile, beginnen, verwerfen, abbrechen, nachfuehren, steht: () => bezug !== null };

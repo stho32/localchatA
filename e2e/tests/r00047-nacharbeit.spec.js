@@ -132,3 +132,24 @@ test('code-reviewer S3, Ereignisweg: die Antwort wird während des Bearbeitens p
   await expect(nachrichtMitZeit(b.page, antwort).locator('.lc-zitat')).toHaveCount(0);
   expect(b.fehler).toEqual([]);
 });
+
+test('UX S2 (b): Antwortzeile offen, das Original wird per API gelöscht → binnen 1 s sagt die Region einmal „Nachricht gelöscht“; die Zeile zeigt es, der Text im Feld bleibt', async ({ browser }) => {
+  instanz = await sendenStarten();
+  const anna = await annaSchreibt(instanz.adresse, ['Frage?']);
+  const b = await benOeffnen(browser, instanz.adresse);
+  await expect(nachrichtMitZeit(b.page, anna.zeiten[0])).toHaveCount(1);
+  await ueberHoverAntworten(b.page, anna.zeiten[0]);
+  await b.page.keyboard.type('Ja');
+  const angesagt = await ansagenMitschreiben(b.page);
+  const ansage = `Antwort an ${ANNA_KENNUNG}: Nachricht gelöscht.`;
+
+  const geloeschtUm = Date.now();
+  expect((await loeschenPerApi(instanz.adresse, anna.token, anna.zeiten[0], '127.0.0.2')).status).toBe(200);
+  await expect.poll(angesagt, { intervals: [25], timeout: 10000 }).toEqual([ansage]);
+  expect(Date.now() - geloeschtUm).toBeLessThanOrEqual(1000);
+  await expect(antwortzeile(b.page).locator('.lc-antwort-text')).toHaveText('Nachricht gelöscht');
+  await b.page.waitForTimeout(500);
+  expect(await angesagt()).toEqual([ansage]);
+  await expect(eingabe(b.page)).toHaveValue('Ja');
+  expect(b.fehler).toEqual([]);
+});

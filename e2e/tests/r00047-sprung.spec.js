@@ -220,6 +220,22 @@ test('Scheitert der Abruf, steht der Hinweis am Zitat, das Fenster bleibt; der n
   expect(b.fehler.filter((fehler) => !fehler.includes('nach='))).toEqual([]);
 });
 
+test('UX S2 (a): scheitert der Sprung (Route nach= abgebrochen), sagt die Region genau einmal „Original nicht geladen: keine Antwort vom Server. Zum Wiederholen erneut anklicken.“', async ({ browser }) => {
+  const { antwort } = await antwortAufDieAelteste();
+  const b = await benOeffnen(browser, instanz.adresse, { serverWegErwartet: true });
+  await expect(nachrichtMitZeit(b.page, antwort)).toHaveCount(1);
+  await b.page.route(/\/nachrichten\?nach=/, (route) => route.abort('connectionrefused'));
+  const angesagt = await ansagenMitschreiben(b.page);
+  const ansage = NICHT_GELADEN.replace(/^⚠ /, '');
+
+  await zitatVon(b.page, antwort).click();
+  await expect(nachrichtMitZeit(b.page, antwort).locator('.lc-zitat-hinweis')).toHaveText(NICHT_GELADEN);
+  await expect.poll(angesagt).toEqual([ansage]);
+  await b.page.waitForTimeout(500);
+  expect(await angesagt()).toEqual([ansage]);
+  expect(b.fehler.filter((fehler) => !fehler.includes('nach='))).toEqual([]);
+});
+
 test('Entfallenes Original (Z4, B0718): kein Abruf, Hinweis am Zitat und in der Region, der Verlauf bleibt, wo er ist', async ({ browser }) => {
   const entfallenAuf = '2026-10-20T10:00:00.000+01:00';
   const antwort = '2026-10-28T14:05:00.000+01:00';

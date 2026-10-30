@@ -751,8 +751,8 @@ export function verlaufAnlegen({
 
   // Das Zitat einer Antwort führt zu ihrem Original (R00047 B0717, B0718, ADR-0053 Regel 8, Vorprüfung `ux-reviewer` Z4);
   // Klick, Antippen und Enter kommen als Klick an. Der Sprung wird nicht angesagt. Ein entfallenes Original holt der Tab
-  // gar nicht erst: der Hinweis steht am Zitat und wird angesagt; scheitert der Abruf, steht dort der Fehler, und der
-  // nächste Klick versucht es neu.
+  // gar nicht erst: der Hinweis steht am Zitat und wird angesagt; scheitert der Abruf, steht dort der Fehler, wird ohne ⚠
+  // angesagt (UX S2, Karte #79), und der nächste Klick versucht es neu.
   const ENTFALLEN = 'Die ältere Nachricht gibt es nicht mehr (Aufbewahrungsfrist abgelaufen).';
   const NICHT_GELADEN = '⚠ Original nicht geladen: keine Antwort vom Server. Zum Wiederholen erneut anklicken.';
   async function zitatBedienen(zitat) {
@@ -765,6 +765,7 @@ export function verlaufAnlegen({
     const ergebnis = await springen(zitat.dataset.zeit);
     if (ergebnis === 'nicht-geladen') {
       zitatHinweisSetzen(zitat, NICHT_GELADEN);
+      ansagen(NICHT_GELADEN.replace(/^⚠ /, ''));
     }
     if (ergebnis === 'nicht-da') {
       zitatHinweisSetzen(zitat, ENTFALLEN);
