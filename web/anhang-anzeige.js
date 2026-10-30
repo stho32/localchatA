@@ -99,10 +99,6 @@ function vorschauZeichnen(anhang, { breite, hoehe }) {
   return vorschau;
 }
 
-// Datei-Zeile (B0457, Designsystem Anhang): Kürzel (nur für die Augen), Name mit Ellipse, Größe in Worten, „Öffnen“ in
-// einem neuen Tab, wo der Browser die Art darstellt, und „Laden“ unter dem Anzeigenamen; alles nur als Text. Reicht der
-// Platz dem Namen nicht für 96 px, brechen die Links in eine zweite Zeile um (CSS, UX V1). Ein gelöschter Anhang hat
-// keine Links (Wortlaut und Ansage bringt F0118).
 // Bild im Dialog (B0459): das Original in den Bildschirm eingepasst, modal, mit dem Anzeigenamen als Namen; der Fokus
 // steht auf „Schließen“ und bleibt im Dialog. Esc, „Schließen“ oder Tippen daneben schließen, der Fokus kehrt auf die
 // Vorschau zurück. Der Dialog hängt am Dokument, nicht an der Nachricht: er überlebt das Neuzeichnen des Verlaufs.
@@ -134,6 +130,10 @@ function bildGrossZeigen(anhang, vorschau) {
   schliessen.focus();
 }
 
+// Datei-Zeile (B0457, Designsystem Anhang): Kürzel (nur für die Augen), Name mit Ellipse, Größe in Worten, „Öffnen“ in
+// einem neuen Tab, wo der Browser die Art darstellt, und „Laden“ unter dem Anzeigenamen; alles nur als Text. Reicht der
+// Platz dem Namen nicht für 96 px, brechen die Links in eine zweite Zeile um (CSS, UX V1). Ein gelöschter Anhang hat
+// keine Links (Wortlaut und Ansage bringt F0118).
 function dateiZeileZeichnen(anhang, { form, oeffnen }) {
   const kuerzel = element('span', { className: 'lc-datei-kuerzel', textContent: typKuerzel(anhang.name) });
   kuerzel.setAttribute('aria-hidden', 'true');
