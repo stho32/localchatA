@@ -83,3 +83,33 @@ test('Channelwechsel mit Alt ↓ / Alt ↑ aus einer Nachricht: der Fokus liegt 
   await expect(eingabe(a.page)).toBeFocused();
   expect(a.fehler).toEqual([]);
 });
+
+test('Pille „Zum Neuesten“: wächst nur die Eingabe, erscheint sie nicht neu (Abstand knapp unter der alten Sichthöhe)', async ({ browser }) => {
+  test.setTimeout(120000);
+  instanz = await sendenStarten({ anzahl: 300 });
+  const a = await geraetOeffnen(browser, 'desktop', { streng: true });
+  await imBrowserBeitreten(a.page, instanz.adresse, 'shoff');
+  const pille = a.page.getByRole('button', { name: /Zum Neuesten/ });
+  await expect(pille).toBeHidden();
+
+  const vorher = await verlauf(a.page).evaluate((log) => {
+    log.scrollTop = log.scrollHeight - log.clientHeight - Math.round(log.clientHeight * 0.9);
+    return log.clientHeight;
+  });
+  await a.page.waitForTimeout(300);
+  await expect(pille).toBeHidden();
+
+  await eingabe(a.page).focus();
+  for (let zeile = 0; zeile < 5; zeile += 1) {
+    await a.page.keyboard.type(`Zeile ${zeile}`);
+    await a.page.keyboard.press('Shift+Enter');
+  }
+  const nachher = await verlauf(a.page).evaluate((log) => log.clientHeight);
+  expect(nachher, 'die Eingabe ist gewachsen').toBeLessThan(vorher - 40);
+  await a.page.waitForTimeout(300);
+  await expect(pille).toBeHidden();
+
+  await verlauf(a.page).evaluate((log) => { log.scrollTop -= 200; });
+  await expect(pille).toBeVisible();
+  expect(a.fehler).toEqual([]);
+});

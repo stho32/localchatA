@@ -91,6 +91,11 @@ export function verlaufAnlegen({
   let sichtVorher = log.clientHeight;
   let scrollTopGemerkt = log.scrollTop;
 
+  // Die Sichthöhe, an der die Pille „weit oben“ misst: sie ändert sich nur durch Scrollen, Öffnen und das Ende — wächst
+  // allein die Eingabe, taucht eine versteckte Pille nicht auf (Karte #82, Code-Review #80).
+  let schwelleSicht = log.clientHeight;
+  let nachgefuehrtAuf = null; // scrollTop, auf den die Nachführung nach einer Höhenänderung gesetzt hat: kein Lesen
+
   function sichtGeaendert() {
     return log.clientHeight !== sichtVorher;
   }
@@ -104,8 +109,9 @@ export function verlaufAnlegen({
     if (amEnde) {
       neueGezaehlt = 0;
       ersteNeue = null;
+      schwelleSicht = log.clientHeight;
     }
-    const weitOben = abstandUnten() > log.clientHeight;
+    const weitOben = abstandUnten() > schwelleSicht;
     pille.hidden = fenster === null || !(weitOben || fenster.neuer || neueGezaehlt > 0);
     pillenBeschriftung.textContent = 'Zum Neuesten';
     if (neueGezaehlt > 0) {
@@ -118,6 +124,9 @@ export function verlaufAnlegen({
   log.addEventListener('scroll', () => {
     if (sichtGeaendert()) {
       return;
+    }
+    if (log.scrollTop !== nachgefuehrtAuf) {
+      schwelleSicht = log.clientHeight;
     }
     lageMerken();
     pruefen();
@@ -139,6 +148,7 @@ export function verlaufAnlegen({
         hoeheNachher: log.clientHeight,
         inhaltsHoehe: log.scrollHeight,
       });
+      nachgefuehrtAuf = log.scrollTop;
     }
     sichtVorher = log.clientHeight;
     lageMerken();
@@ -870,6 +880,7 @@ export function verlaufAnlegen({
     const dieser = laufend;
     rollZeit = null;
     fokusZeit = null;
+    schwelleSicht = log.clientHeight;
     waehrendDesSprungs = null;
     signal.addEventListener('abort', () => dieser.abort());
     const hinweisBleibt = name === offenerName && nichtGeladenSteht();
