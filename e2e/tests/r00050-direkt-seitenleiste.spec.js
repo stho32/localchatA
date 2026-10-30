@@ -105,6 +105,37 @@ test('Statuswort (V8): offline und weg stehen als Wort am Eintrag, online nicht'
   expect(anna.fehler).toEqual([]);
 });
 
+// Nacharbeit F0180 (code-reviewer #13, Sollte 2): ein fremder Beitritt ändert keinen Eintrag — der Abschnitt wird nicht
+// angefasst (0 Mutationen, Marke und Fokus bleiben); eine echte Änderung (ben online → offline) zeichnet neu.
+// Mutante: jedes Teilnehmer-Ereignis ersetzt alle Einträge → Mutationen > 0, Marke weg, rot.
+test('Neu zeichnen nur bei Änderung (Nacharbeit): fremder Beitritt = 0 Mutationen, Marke und Fokus bleiben; ben online → offline zeichnet neu', async ({ browser }) => {
+  const { anna, token } = await starten(browser);
+  expect((await direktSenden(instanz.adresse, token.ben, ANNA, 'hallo', '127.0.0.3')).status).toBe(201);
+  await expect(eintragVon(anna.page, BEN)).toHaveAttribute('aria-label', `Direktnachricht mit ${BEN}, online`);
+  await eintragVon(anna.page, BEN).focus();
+  await eintragVon(anna.page, BEN).evaluate((knoten) => {
+    knoten.dataset.marke = '1';
+    window.mutationen = 0;
+    new MutationObserver((liste) => {
+      window.mutationen += liste.length;
+    }).observe(document.querySelector('nav[aria-label="Direktnachrichten"]'), { childList: true, subtree: true, attributes: true, characterData: true });
+  });
+
+  await dazu('dora', '127.0.0.4');
+  await expect(anna.page.getByText('dora', { exact: false }).first()).toBeVisible();
+  await anna.page.waitForTimeout(1500);
+  expect(await anna.page.evaluate(() => window.mutationen), 'Mutationen im Abschnitt nach fremdem Beitritt').toBe(0);
+  expect(await anna.page.locator('nav[aria-label="Direktnachrichten"] [data-marke="1"]').count()).toBe(1);
+  await expect(eintragVon(anna.page, BEN)).toBeFocused();
+
+  stroeme.forEach((strom) => strom.schliessen());
+  stroeme = [];
+  await expect(eintragVon(anna.page, BEN)).toHaveAttribute('aria-label', new RegExp(`^Direktnachricht mit ${BEN}, offline`), { timeout: 15000 });
+  await expect(eintragVon(anna.page, BEN).locator('.lc-status')).toHaveText(/^(offline|gleich weg)$/);
+  expect(await anna.page.evaluate(() => window.mutationen)).toBeGreaterThan(0);
+  expect(anna.fehler).toEqual([]);
+});
+
 test('Telefon 375 px mit Touch (V8, V5): drei Einträge mit Statuspunkt und Kürzel, ≥ 44 px hoch, voller Name', async ({ browser }) => {
   const { anna, token } = await starten(browser, { geraet: GERAETE.telefon });
   const dora = await dazu('dora', '127.0.0.4');

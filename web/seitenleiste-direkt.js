@@ -1,7 +1,8 @@
 // Direktnachrichten der Seitenleiste verdrahten (R00050 F0180 B0786, A00005): die Liste kommt aus `GET /api/direkt` —
 // bei jedem Stand der Teilnehmer, also am Anfang jedes Stroms, damit auch nach einer Trennung nichts fehlt — und aus
 // jeder `nachricht` mit `direkt` (auch der eigenen: sie nennt das Gegenüber); der Status jedes Eintrags folgt der
-// Teilnehmerliste. Schlägt das Laden fehl und ist noch nichts bekannt, steht das im Abschnitt; der nächste Stand
+// Teilnehmerliste. Gezeichnet wird nur, wenn sich die Einträge ändern: fremde Teilnehmer lassen den Abschnitt unberührt.
+// Schlägt das Laden fehl und ist noch nichts bekannt, steht das im Abschnitt; der nächste Stand
 // versucht es wieder.
 // abrufen: async () → { serverWeg, status, daten: { direktgespraeche: [{ kennung }] } }
 import { direktlisteZusammenfuehren, direkteintrag } from './direktliste.js';
@@ -12,19 +13,24 @@ export function direktleisteEinrichten({ seitenleiste, abrufen }) {
   let anwesende = [];
   let uhr = { versatz: 0, jetzt: Date.now(), standUnbekannt: false };
 
+  let gezeichnet = null;
+
   function zeichnen() {
     if (kennungen === null) {
       return;
     }
-    seitenleiste.direktZeigen(kennungen.map((kennung) => direkteintrag(kennung, anwesende, uhr)));
+    const eintraege = kennungen.map((kennung) => direkteintrag(kennung, anwesende, uhr));
+    const abbild = JSON.stringify(eintraege);
+    if (abbild === gezeichnet) {
+      return;
+    }
+    gezeichnet = abbild;
+    seitenleiste.direktZeigen(eintraege);
   }
 
   function aufnehmen(neue) {
-    const bisher = kennungen;
     kennungen = direktlisteZusammenfuehren(kennungen, neue);
-    if (kennungen !== bisher) {
-      zeichnen();
-    }
+    zeichnen();
   }
 
   async function laden() {
