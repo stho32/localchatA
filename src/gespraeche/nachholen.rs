@@ -44,7 +44,7 @@ pub const NACHHOLBUDGET: Nachholbudget = Nachholbudget {
 const BYTE_JE_KOSTENEINHEIT: usize = 1_024;
 
 /// Die Kosten eines Satzes der Länge `satzbytes` (Länge in der Tagesdatei; bei einer bearbeiteten Nachricht das
-/// Größere aus Satz und Änderungssatz, `ausgewertete_satzbytes`) — Sätze unter 1 KiB kosten 1.
+/// Größere aus Satz und Änderungssatz, `Verlauf::naechste_nach`) — Sätze unter 1 KiB kosten 1.
 pub fn kosten_eines_satzes(satzbytes: usize) -> usize {
     1 + satzbytes / BYTE_JE_KOSTENEINHEIT
 }
