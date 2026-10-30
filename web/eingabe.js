@@ -119,6 +119,7 @@ export function eingabeAnlegen({
     if (unterbrochenZeigen) {
       zeile.textContent = unterbrochenHinweise.get(channel);
     }
+    zeile.classList.toggle('lc-hinweis-unterbrochen', unterbrochenZeigen);
     zeile.classList.toggle('lc-fehler', neu.stufe === 'fehler');
     if (neu.stufe === 'fehler') {
       feld.setAttribute('aria-invalid', 'true');

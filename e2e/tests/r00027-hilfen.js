@@ -5,6 +5,7 @@ const { fehlerSammeln } = require('./hilfen');
 
 const GERAETE = {
   telefon: { viewport: { width: 375, height: 812 }, hasTouch: true, isMobile: true, deviceScaleFactor: 3 },
+  telefonSchmal: { viewport: { width: 320, height: 568 }, hasTouch: true, isMobile: true, deviceScaleFactor: 2 },
   tablet: { viewport: { width: 768, height: 1024 }, hasTouch: true, isMobile: true, deviceScaleFactor: 2 },
   tabletQuer: { viewport: { width: 1024, height: 768 }, hasTouch: true, isMobile: true, deviceScaleFactor: 2 },
   desktop: { viewport: { width: 1280, height: 800 } },

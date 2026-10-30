@@ -28,9 +28,9 @@ const seitenleiste = (page) => page.getByRole('navigation', { name: 'Channels' }
 /// Desktop, gedrosselt auf `bytesJeSekunde` beim Hochladen. Vor jedem Laden der Seite merkt sich ein Init-Skript den
 /// Tab-Speicher (`speicherBeimLaden`) und schreibt die Ansagen mit (`ansagenNachDemLaden`); `dialoge` sammelt die Art
 /// jeder Rückfrage des Browsers und bestätigt sie.
-async function seiteAuf(browser, { bytesJeSekunde = 100 * 1024, zusaetzlich = {} } = {}) {
+async function seiteAuf(browser, { bytesJeSekunde = 100 * 1024, zusaetzlich = {}, geraet = 'desktop' } = {}) {
   instanz = await anhangStarten();
-  const seite = await geraetOeffnen(browser, 'desktop', { zusaetzlich });
+  const seite = await geraetOeffnen(browser, geraet, { zusaetzlich });
   await seite.page.addInitScript(() => {
     window.speicherBeimLaden = Object.fromEntries(Object.entries(window.sessionStorage));
     window.ansagenNachDemLaden = [];
@@ -238,3 +238,29 @@ test('Hauptansicht weicht dem Beitreten-Bildschirm: die Hochladung hält an, nac
   expect(mitAnhang).toEqual([]);
   expect(fehler).toEqual([]);
 });
+
+// ux-reviewer #43 F0119 S1: auf dem Telefon endet der Hinweis lesbar auf „bitte erneut wählen.“ bzw. „Text steht oben im
+// Feld.“ — die Hinweiszeile wächst, statt nach zwei Zeilen abzuschneiden; am Desktop bleibt es eine Zeile.
+for (const [geraet, titel] of [['telefonSchmal', '320 Touch'], ['telefon', '375 Touch'], ['desktop', 'Desktop']]) {
+  for (const entwurf of ['', 'Neu']) {
+    test(`Hinweis ganz lesbar (ux S1, ${titel}${entwurf === '' ? '' : ', mit Entwurf'}): drei übliche Namen → scrollHeight ≤ clientHeight`, async ({ browser }) => {
+      const { page, fehler } = await seiteAuf(browser, { geraet });
+      const MIB = 1024 * 1024;
+      await sendenMitDateien(page, 'Bericht anbei', ['Quartalsbericht.pdf', 'Urlaubsfoto.png', 'Besprechungsprotokoll.txt'].map((name) => textDatei(name, MIB)));
+      if (entwurf !== '') {
+        await eingabe(page).fill(entwurf);
+      }
+
+      await neuLaden(page);
+
+      const schluss = entwurf === '' ? 'bitte erneut wählen.' : 'Text steht oben im Feld.';
+      await expect(hinweiszeile(page)).toContainText(schluss);
+      const mass = await hinweiszeile(page).evaluate((element) => ({ gescrollt: element.scrollHeight - element.clientHeight, hoehe: element.clientHeight }));
+      expect(mass.gescrollt, `scrollHeight − clientHeight (Höhe ${mass.hoehe})`).toBeLessThanOrEqual(0);
+      if (geraet === 'desktop' && entwurf === '') {
+        expect(mass.hoehe, 'Desktop: eine Zeile').toBeLessThanOrEqual(21);
+      }
+      expect(fehler).toEqual([]);
+    });
+  }
+}
