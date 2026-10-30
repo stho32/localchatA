@@ -408,6 +408,11 @@ async fn nach_der_sperre(
         anhangdateien,
     } = startlaeufe;
     let bus = Arc::new(Bus::neu(live::KAPAZITAET));
+    let signalbus = Arc::new(bus::Signalbus::neu(live::SIGNAL_KAPAZITAET));
+    let aktivitaet = Arc::new(
+        crate::aktivitaet::Aktivitaet::neu(Arc::clone(&uhr))
+            .mit_veroeffentlichen(bus::aktivitaet_veroeffentlichen(&signalbus)),
+    );
     let gespraeche = Arc::new(
         verlauf_laden(&ordner, Arc::clone(&uhr), &protokoll)?
             .mit_quote(quote.hoechstens())
@@ -554,7 +559,8 @@ async fn nach_der_sperre(
         gespraeche,
         anwesenheit,
         bus,
-        signalbus: Arc::new(bus::Signalbus::neu(live::SIGNAL_KAPAZITAET)),
+        signalbus,
+        aktivitaet,
         herzschlag,
         ende: ende.clone(),
         grenzschutz: Grenzschutz::neu(rechnername::lesen(), auftrag.erreichbar_als)

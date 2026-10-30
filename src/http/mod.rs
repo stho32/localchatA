@@ -2,6 +2,7 @@
 
 mod abbruch;
 mod abweisungsseite;
+mod aktivitaet;
 mod anfrageprotokoll;
 pub(crate) mod anhaenge;
 pub(crate) mod auskunft;
@@ -69,6 +70,8 @@ pub struct Zustand {
     pub bus: Arc<Bus>,
     /// Flüchtige Signale neben dem Ereignisbus (ADR-0051 Regel 6).
     pub signalbus: Arc<crate::live::bus::Signalbus>,
+    /// Wer gerade tippt oder nachdenkt (A00019); veröffentlicht auf den Signalbus.
+    pub aktivitaet: Arc<crate::aktivitaet::Aktivitaet>,
     /// Abstand der Herzschläge im Ereignisstrom.
     pub herzschlag: Duration,
     /// Ende des Programms — jeder Strom hört es und endet selbst.
@@ -128,6 +131,10 @@ pub fn router(zustand: Zustand) -> Router {
             post(nachricht_loeschen::loeschen),
         )
         .route("/api/channels/{name}/frist", put(frist::setzen))
+        .route(
+            "/api/channels/{name}/aktivitaet",
+            put(aktivitaet::setzen).delete(aktivitaet::loeschen),
+        )
         .route("/api/ich", get(ich::beantworten))
         .route("/api/teilnehmer", get(teilnehmerliste::beantworten))
         .route("/api/ereignisse", get(ereignisse::beantworten))
@@ -165,6 +172,9 @@ pub(crate) mod testserver {
     pub fn zustand(ordner: &Path) -> Zustand {
         let leer = tempfile::tempdir().expect("Wegwerf-Ordner");
         let bus = Arc::new(crate::live::bus::Bus::neu(crate::live::KAPAZITAET));
+        let signalbus = Arc::new(crate::live::bus::Signalbus::neu(
+            crate::live::SIGNAL_KAPAZITAET,
+        ));
         let gespraeche = Gespraeche::laden(
             Arc::new(Dateiablage::neu(
                 leer.path(),
@@ -186,9 +196,12 @@ pub(crate) mod testserver {
             gespraeche: Arc::new(gespraeche),
             anwesenheit: Arc::new(anwesenheit),
             bus,
-            signalbus: Arc::new(crate::live::bus::Signalbus::neu(
-                crate::live::SIGNAL_KAPAZITAET,
-            )),
+            aktivitaet: Arc::new(
+                crate::aktivitaet::Aktivitaet::neu(Arc::new(Systemuhr)).mit_veroeffentlichen(
+                    crate::live::bus::aktivitaet_veroeffentlichen(&signalbus),
+                ),
+            ),
+            signalbus,
             herzschlag: Duration::from_secs(5),
             ende: Ende::nie(),
             grenzschutz: Grenzschutz::neu(None, Vec::new()),

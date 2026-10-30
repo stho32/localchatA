@@ -132,8 +132,6 @@ pub fn aenderungen_veroeffentlichen(
 
 /// Ein flüchtiges Signal (ADR-0051 Regel 5): ohne Stand, ohne Ordnungszahl, nie im Stand beim Öffnen eines Stroms,
 /// nie im Nachholen.
-// Bis die Route (B0686) die Aktivität verdrahtet, nutzt nur der Test die Veröffentlichung.
-#[cfg_attr(not(test), allow(dead_code))]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Signal {
     Aktivitaet(crate::aktivitaet::Aenderung),
@@ -164,7 +162,6 @@ impl Signalbus {
     }
 
     /// Ohne Abonnenten geht das Signal an niemanden — das ist kein Fehler.
-    #[cfg_attr(not(test), allow(dead_code))]
     pub fn veroeffentlichen(&self, signal: Signal) {
         let _ohne_abonnenten = self.sender.send(signal);
     }
@@ -188,7 +185,6 @@ impl Signalabonnement {
 }
 
 /// Die Veröffentlichung für die Aktivität: jede Änderung als Signal auf den Signalbus.
-#[cfg_attr(not(test), allow(dead_code))]
 pub fn aktivitaet_veroeffentlichen(
     signalbus: &std::sync::Arc<Signalbus>,
 ) -> crate::aktivitaet::Veroeffentlichen {

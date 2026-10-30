@@ -3,8 +3,6 @@
 //! Halter der Tabelle; jede Änderung geht **unter der eigenen Sperre** an eine eingesetzte Veröffentlichung, damit die
 //! Reihenfolge der Signale je Kennung und Gespräch die der Änderungen ist. Den Bus kennt der Baustein nicht, die
 //! Anwesenheit ruft er nie (Sperrfolge Anwesenheit → Aktivität).
-// Bis die Route (B0686) den Baustein nutzt, ruft ihn nur der Test.
-#![cfg_attr(not(test), allow(dead_code))]
 
 use crate::gespraeche::{Gespraech, Kennung};
 use crate::uhr::{Uhr, Zeit};
@@ -190,6 +188,10 @@ impl Aktivitaet {
     }
 
     /// Beendet alle Zustände der Kennung (Verlassen, offline eines Menschen); Ende-Signale nach Gespräch geordnet.
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "Verlassen und offline rufen es ab B0694")
+    )]
     pub fn beenden_alle(&self, kennung: &Kennung) {
         let mut tabelle = self.sperre();
         let jetzt = self.uhr.jetzt();
@@ -208,6 +210,7 @@ impl Aktivitaet {
     }
 
     /// Die gültigen Zustände des Gesprächs ohne den des Lesenden, nach Kennung sortiert.
+    #[cfg_attr(not(test), expect(dead_code, reason = "gelesen erst über GET (B0696)"))]
     pub fn lesen(&self, gespraech: &Gespraech, ohne: &Kennung) -> Gelesen {
         let tabelle = self.sperre();
         let jetzt = self.uhr.jetzt();
@@ -253,6 +256,21 @@ fn gueltigkeit(zustand: Zustand, gueltig_s: Option<u32>) -> Result<TimeDelta, Ab
 fn aufraeumen(tabelle: &mut Tabelle, kennung: &Kennung, jetzt: Zeit) {
     let ganz = tabelle.len() > DURCHGANG_AB;
     tabelle.retain(|(k, _), eintrag| (!ganz && k != kennung) || eintrag.gilt(jetzt));
+}
+
+/// Sichtbarkeitsregel (ADR-0051 Regel 10): ein Channel für jeden mit Sitzung, ein Direktgespräch
+/// (`<kennung-a>+<kennung-b>`, ADR-0003) nur für die Beteiligten, ein archiviertes Gespräch für niemanden. Setzen,
+/// Löschen und Lesen gehen nur für Sichtbares; sonst antwortet die Route wie für ein unbekanntes.
+pub fn sichtbar(gespraech: &Gespraech, fuer: &Kennung, archiviert: bool) -> bool {
+    if archiviert {
+        return false;
+    }
+    match gespraech {
+        Gespraech::Channel(_) => true,
+        Gespraech::Direkt(beteiligte) => beteiligte
+            .split('+')
+            .any(|beteiligt| beteiligt == fuer.als_text()),
+    }
 }
 
 fn beendet(kennung: &Kennung, gespraech: &Gespraech) -> Aenderung {
