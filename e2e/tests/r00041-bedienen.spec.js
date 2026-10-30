@@ -64,7 +64,7 @@ test('Desktop (B0609): an der eigenen Nachricht erscheinen bei Hover „Bearbeit
   expect(a.fehler).toEqual([]);
 });
 
-test('Tab-Stopps (B0609, R00046): von der fokussierten eigenen Nachricht erreicht Tab „Kopieren“, „Bearbeiten“, „Löschen“, dann die Eingabe; von einer fremden nur „Kopieren“, dann die Eingabe', async ({ browser }) => {
+test('Tab-Stopps (B0609, R00046, R00047): von der fokussierten eigenen Nachricht erreicht Tab „Antworten“, „Kopieren“, „Bearbeiten“, „Löschen“, dann die Eingabe; von einer fremden nur „Antworten“ und „Kopieren“, dann die Eingabe', async ({ browser }) => {
   instanz = await sendenStarten();
   const a = await browserOeffnen(browser, { streng: true });
   await imBrowserBeitreten(a.page, instanz.adresse, 'shoff');
@@ -74,13 +74,13 @@ test('Tab-Stopps (B0609, R00046): von der fokussierten eigenen Nachricht erreich
 
   await eingabe(a.page).focus();
   await a.page.keyboard.press('ArrowUp');
-  expect(await tabBisEingabe(a.page)).toEqual(['Kopieren', 'Bearbeiten', 'Löschen']);
+  expect(await tabBisEingabe(a.page)).toEqual(['Antworten', 'Kopieren', 'Bearbeiten', 'Löschen']);
   await nachrichtMitZeit(a.page, beta.zeiten[0]).focus();
-  expect(await tabBisEingabe(a.page)).toEqual(['Kopieren']);
+  expect(await tabBisEingabe(a.page)).toEqual(['Antworten', 'Kopieren']);
   expect(a.fehler).toEqual([]);
 });
 
-test('Nur eigene (B0609, R00046): an Nachrichten von anna und beta kein Bearbeiten und Löschen, nur Kopieren; an „wird gesendet …“ und fehlgeschlagenen gar keine Aktion', async ({ browser }) => {
+test('Nur eigene (B0609, R00046, R00047): an Nachrichten von anna und beta kein Bearbeiten und Löschen, nur Antworten und Kopieren; an „wird gesendet …“ und fehlgeschlagenen gar keine Aktion', async ({ browser }) => {
   instanz = await sendenStarten();
   const a = await browserOeffnen(browser, { zusaetzlich: { '/api/channels/allgemein/nachrichten': [500] } });
   const b = await browserOeffnen(browser);
@@ -95,7 +95,7 @@ test('Nur eigene (B0609, R00046): an Nachrichten von anna und beta kein Bearbeit
     for (const name of ['Bearbeiten', 'Löschen']) {
       await expect(nachrichtMitZeit(a.page, zeit).getByRole('button', { name })).toHaveCount(0);
     }
-    await expect(nachrichtMitZeit(a.page, zeit).locator('.lc-aktion')).toHaveText(['Kopieren']);
+    await expect(nachrichtMitZeit(a.page, zeit).locator('.lc-aktion')).toHaveText(['Antworten', 'Kopieren']);
   }
 
   let freigeben;

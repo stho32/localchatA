@@ -58,7 +58,7 @@ for (const geraet of ['telefon', 'tablet']) {
   });
 }
 
-test('Schalter „⋯“ (B0628, UX M6): an drei gruppierten Einzeilern je ≥ 44 × 44 px und an Mitte und Ecken selbst getroffen; Menüpunkte ≥ 44 × 44 px mit 8 px Abstand; höchstens ein Menü offen; an fremden nur Kopieren', async ({ browser }) => {
+test('Schalter „⋯“ (B0628, UX M6): an drei gruppierten Einzeilern je ≥ 44 × 44 px und an Mitte und Ecken selbst getroffen; Menüpunkte ≥ 44 × 44 px mit 8 px Abstand; höchstens ein Menü offen; an fremden nur Antworten und Kopieren', async ({ browser }) => {
   instanz = await sendenStarten();
   const a = await geraetOeffnen(browser, 'telefon', { streng: true });
   await imBrowserBeitreten(a.page, instanz.adresse, 'shoff');
@@ -69,7 +69,7 @@ test('Schalter „⋯“ (B0628, UX M6): an drei gruppierten Einzeilern je ≥ 4
   const beta = await betaSendet(instanz.adresse, ['Fremd']);
   await expect(nachrichtMitZeit(a.page, beta.zeiten[0])).toHaveCount(1);
   await expect(schalter(a.page, beta.zeiten[0])).toHaveCount(1);
-  await expect(nachrichtMitZeit(a.page, beta.zeiten[0]).locator('.lc-aktion')).toHaveCount(1);
+  await expect(nachrichtMitZeit(a.page, beta.zeiten[0]).locator('.lc-aktion')).toHaveText(['Antworten', 'Kopieren']);
   await expect(nachrichtMitZeit(a.page, beta.zeiten[0]).getByRole('button', { name: /Bearbeiten|Löschen/ })).toHaveCount(0);
   await expect(nachrichtMitZeit(a.page, zeiten[1])).not.toHaveClass(/\bfirst\b/);
 

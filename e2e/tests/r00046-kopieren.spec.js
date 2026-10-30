@@ -51,7 +51,7 @@ async function seiteOeffnen(browser, adresse, name = 'shoff', optionen = { stren
   return a;
 }
 
-test('Aktion an eigener und fremder Nachricht: Kopieren in der Leiste bei Hover, zuerst; Bearbeiten und Löschen nur an der eigenen', async ({ browser }) => {
+test('Aktion an eigener und fremder Nachricht: Kopieren in der Leiste bei Hover, nach Antworten (R00047); Bearbeiten und Löschen nur an der eigenen', async ({ browser }) => {
   instanz = await sendenStarten();
   const a = await seiteOeffnen(browser, instanz.adresse);
   const eigene = await imBrowserSenden(a.page, 'Hallo');
@@ -61,12 +61,12 @@ test('Aktion an eigener und fremder Nachricht: Kopieren in der Leiste bei Hover,
   await expect(kopierKnopf(a.page, eigene)).toBeHidden();
 
   await nachrichtMitZeit(a.page, eigene).hover();
-  await expect(nachrichtMitZeit(a.page, eigene).locator('.lc-aktion')).toHaveText(['Kopieren', 'Bearbeiten', 'Löschen']);
+  await expect(nachrichtMitZeit(a.page, eigene).locator('.lc-aktion')).toHaveText(['Antworten', 'Kopieren', 'Bearbeiten', 'Löschen']);
   await expect(kopierKnopf(a.page, eigene)).toBeVisible();
 
   await nachrichtMitZeit(a.page, fremde).hover();
   await expect(kopierKnopf(a.page, fremde)).toBeVisible();
-  await expect(nachrichtMitZeit(a.page, fremde).locator('.lc-aktion')).toHaveText(['Kopieren']);
+  await expect(nachrichtMitZeit(a.page, fremde).locator('.lc-aktion')).toHaveText(['Antworten', 'Kopieren']);
   await expect(nachrichtMitZeit(a.page, fremde).getByRole('button', { name: /Bearbeiten|lösch/i })).toHaveCount(0);
   expect(a.fehler).toEqual([]);
 });
@@ -143,7 +143,7 @@ test('Ruhig (P6): kein Netzaufruf, Fokus auf dem Knopf, Lage unverändert, die D
   expect(await ablageLesen(a.page)).toBe('Zwei');
 });
 
-test('Tastatur: von der fokussierten Nachricht führt Tab zu „Kopieren“, Enter und Leertaste kopieren', async ({ browser }) => {
+test('Tastatur: von der fokussierten Nachricht führt Tab über „Antworten“ (R00047) zu „Kopieren“, Enter und Leertaste kopieren', async ({ browser }) => {
   instanz = await sendenStarten();
   const fremd = await claudeSendet(instanz.adresse, ['Erste', 'Zweite']);
   const a = await seiteOeffnen(browser, instanz.adresse);
@@ -152,6 +152,7 @@ test('Tastatur: von der fokussierten Nachricht führt Tab zu „Kopieren“, Ent
   for (const taste of ['Enter', ' ']) {
     await ablageBelegen(a.page);
     await nachrichtMitZeit(a.page, fremd.zeiten[1]).focus();
+    await a.page.keyboard.press('Tab');
     await a.page.keyboard.press('Tab');
     await expect(kopierKnopf(a.page, fremd.zeiten[1])).toBeFocused();
     await a.page.keyboard.press(taste);
@@ -171,11 +172,12 @@ test('nicht angeboten: gelöschte Nachricht, reine Anhänge, „wird gesendet �
   await expect(nachrichtMitZeit(a.page, mitBild)).toHaveCount(1);
   await expect(nachrichtMitZeit(a.page, nurAnhang)).toHaveCount(1);
 
-  for (const zeit of [fremd.zeiten[0], nurAnhang]) {
-    await nachrichtMitZeit(a.page, zeit).hover();
-    await expect(nachrichtMitZeit(a.page, zeit).locator('.lc-aktionen')).toHaveCount(0);
-    await expect(nachrichtMitZeit(a.page, zeit).getByRole('button', { name: /Kopieren|Aktionen/ })).toHaveCount(0);
-  }
+  await nachrichtMitZeit(a.page, fremd.zeiten[0]).hover();
+  await expect(nachrichtMitZeit(a.page, fremd.zeiten[0]).locator('.lc-aktionen')).toHaveCount(0);
+  await expect(nachrichtMitZeit(a.page, fremd.zeiten[0]).getByRole('button', { name: /Kopieren|Aktionen/ })).toHaveCount(0);
+  // Eine Nachricht nur aus Anhängen trägt „Antworten“ (R00047), aber kein „Kopieren“.
+  await nachrichtMitZeit(a.page, nurAnhang).hover();
+  await expect(nachrichtMitZeit(a.page, nurAnhang).locator('.lc-aktion')).toHaveText(['Antworten']);
 
   await ablageBelegen(a.page);
   await ueberHoverKopieren(a.page, mitBild);
@@ -346,6 +348,7 @@ test('Taste C wirkungslos bei offenem Dialog, auf dem Knopf „Kopieren“ und b
   await a.page.evaluate(() => document.getElementById('lc-pruefen-dialog').remove());
 
   await nachrichtFokussiertMitWaechter(a.page, fremd.zeiten[0]);
+  await a.page.keyboard.press('Tab');
   await a.page.keyboard.press('Tab');
   await expect(kopierKnopf(a.page, fremd.zeiten[0])).toBeFocused();
   await a.page.keyboard.press('c');
@@ -637,7 +640,7 @@ test('Touch: der Schalter „⋯“ an fremden Nachrichten verengt .lc-body nich
 });
 
 for (const fenster of [FENSTER_TELEFON, FENSTER_MIT_TASTATUR]) {
-  // Eigene Nachrichten tragen drei Einträge im Menü (Kopieren, Bearbeiten, Löschen), fremde einen.
+  // Eigene Nachrichten tragen vier Einträge im Menü (Antworten, Kopieren, Bearbeiten, Löschen), fremde zwei (R00047).
   for (const [wessen, von] of [['eigene', 'shoff@127.0.0.1'], ['fremde', 'beta@127.0.0.2']]) {
     test(`Touch-Menü vollständig sichtbar (${fenster.width} × ${fenster.height}, ${wessen} Nachrichten): bei jeder sichtbaren Nachricht (auch der ersten und der letzten), ohne Scrollen; Esc, Tipp daneben und zweites Tippen schließen`, async ({ browser }) => {
       const verlauf = verlaufVon(von, 30);
@@ -657,7 +660,7 @@ for (const fenster of [FENSTER_TELEFON, FENSTER_MIT_TASTATUR]) {
         await schalter(a.page, zeit).tap();
         await expect(schalter(a.page, zeit)).toHaveAttribute('aria-expanded', 'true');
         const eintraege = nachrichtMitZeit(a.page, zeit).locator('.lc-aktion');
-        await expect(eintraege).toHaveCount(wessen === 'eigene' ? 3 : 1);
+        await expect(eintraege).toHaveCount(wessen === 'eigene' ? 4 : 2);
         for (let stelle = 0; stelle < await eintraege.count(); stelle += 1) {
           const t = await treffer(eintraege.nth(stelle));
           expect(t.imSichtbaren, `Eintrag ${stelle} bei ${zeit}`).toBe(true);

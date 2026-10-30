@@ -133,10 +133,10 @@ test('Rollfokus (B0631): ↑ und ↓ wechseln die Nachricht, sichtbar und in Sic
   expect(await a.page.locator('.lc-log .lc-msg[tabindex="0"]').getAttribute('data-zeit')).toBe(zeiten[20]);
   expect(await tabErreichbarIn(a.page)).toEqual([zeiten[20]]);
   // Weit oben steht die Pille „Zum Neuesten“ zwischen Verlauf und Eingabe: ein Stopp ohne Nachricht.
-  const unterwegs = await tabBisEingabe(a.page);
+  const unterwegs = await tabBisEingabe(a.page, 5);
   expect(unterwegs.filter((zeit) => zeit !== null && zeit !== zeiten[20])).toEqual([]);
-  // Zurück führt in dieselbe Nachricht: die Stopps außerhalb von ihr (Pille, Eingabe) zurück; ihre Leiste „Kopieren“ steht
-  // nur, solange die Nachricht den Fokus hat (R00046), und liegt beim Zurückgehen nicht im Weg.
+  // Zurück führt in dieselbe Nachricht: die Stopps außerhalb von ihr (Pille, Eingabe) zurück; ihre Leiste „Antworten“ und
+  // „Kopieren“ steht nur, solange die Nachricht den Fokus hat (R00046), und liegt beim Zurückgehen nicht im Weg.
   for (let schritt = 0; schritt < unterwegs.filter((zeit) => zeit === null).length; schritt += 1) {
     await a.page.keyboard.press('Shift+Tab');
   }

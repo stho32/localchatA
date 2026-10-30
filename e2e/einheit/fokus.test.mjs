@@ -101,7 +101,7 @@ test('ohne eigene Nachricht keine; eine ähnliche Kennung ist nicht meine', () =
 });
 
 // Taste C auf der fokussierten Nachricht (R00046 I0042 B0702, ADR-0052 Regel C1): nur Abkürzung, ausgewertet wird `key`.
-import { kopierTaste } from '../../web/fokus.js';
+import { kopierTaste, antwortTaste } from '../../web/fokus.js';
 
 const LAGE = { zielIstNachricht: true, markierungLeer: true, dialogOffen: false };
 const cTaste = (extra = {}) => ({ key: 'c', code: 'KeyC', ctrlKey: false, altKey: false, metaKey: false, shiftKey: false, repeat: false, isComposing: false, ...extra });
@@ -139,4 +139,31 @@ test('markierter Text → nicht (es gilt das gewohnte Kopieren des Browsers)', (
 
 test('offener Dialog → nicht', () => {
   assert.equal(kopierTaste(cTaste(), { ...LAGE, dialogOffen: true }), false);
+});
+
+// Taste R auf der fokussierten Nachricht (R00047 B0713): dieselben Regeln wie C.
+const rTaste = (extra = {}) => ({ key: 'r', code: 'KeyR', ctrlKey: false, altKey: false, metaKey: false, shiftKey: false, repeat: false, isComposing: false, ...extra });
+
+test('Taste R: r und R (Feststelltaste) auf der Nachricht → antworten', () => {
+  assert.equal(antwortTaste(rTaste(), LAGE), true);
+  assert.equal(antwortTaste(rTaste({ key: 'R' }), LAGE), true);
+});
+
+test('Taste R mit Strg, Alt, Meta oder Umschalt, gehalten oder in Komposition → nicht', () => {
+  for (const extra of [{ ctrlKey: true }, { altKey: true }, { metaKey: true }, { key: 'R', shiftKey: true }, { repeat: true }, { isComposing: true }]) {
+    assert.equal(antwortTaste(rTaste(extra), LAGE), false, JSON.stringify(extra));
+  }
+});
+
+test('Taste R wertet key, nicht code; c antwortet nicht, r kopiert nicht', () => {
+  assert.equal(antwortTaste(rTaste({ code: 'KeyJ' }), LAGE), true);
+  assert.equal(antwortTaste(rTaste({ key: 'j' }), LAGE), false);
+  assert.equal(antwortTaste(cTaste(), LAGE), false);
+  assert.equal(kopierTaste(rTaste(), LAGE), false);
+});
+
+test('Taste R: Ziel nicht die Nachricht, markierter Text, offener Dialog → nicht', () => {
+  assert.equal(antwortTaste(rTaste(), { ...LAGE, zielIstNachricht: false }), false);
+  assert.equal(antwortTaste(rTaste(), { ...LAGE, markierungLeer: false }), false);
+  assert.equal(antwortTaste(rTaste(), { ...LAGE, dialogOffen: true }), false);
 });

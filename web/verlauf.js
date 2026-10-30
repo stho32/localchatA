@@ -9,7 +9,7 @@
 import { nachrichtZeichnen, kopfSetzen, trennerZeichnen, langeEinklappen, langeUmschalten, markeUmschalten, kopierRueckmeldungZeigen } from './nachricht.js';
 import { gliederung, folgeGliedern, datumBenennen } from './gliederung.js';
 import { nachladen, einfuegen } from './fenster.js';
-import { pfeilRichtung, pfeilZiel, tabStopp, eigeneLetzte, nachrichtTaste, kopierTaste } from './fokus.js';
+import { pfeilRichtung, pfeilZiel, tabStopp, eigeneLetzte, nachrichtTaste, kopierTaste, antwortTaste } from './fokus.js';
 import { bearbeitenAnlegen } from './bearbeiten.js';
 import { rueckfrageOeffnen, loeschenAuswerten } from './loeschen.js';
 import { kopieren, rueckmeldungFuer, RUECKMELDUNG_LEER, MENUE_OFFEN_MS } from './kopieren.js';
@@ -29,10 +29,11 @@ import {
 // „Verwerfen“ schalter('erneut' | 'verwerfen', schluessel) (ADR-0038 Regel 5).
 // bearbeitenSpeichern: async (channel, zeit, text) → Antwort (api.js nachrichtBearbeiten); loeschen: async (channel, zeit) →
 // Antwort (api.js nachrichtLoeschen); hinweisen(text): die Hinweiszeile der Seite; ansagen(text): eine Ansage über die
-// Region der Seite (R00041 F0135, F0139). signal: Abbau der Ansicht — Listener an document und window enden mit ihr.
+// Region der Seite (R00041 F0135, F0139). antworten(nachricht): die Aktion „Antworten“ an einer Nachricht des Fensters
+// (R00047 B0713), synchron in der Geste. signal: Abbau der Ansicht — Listener an document und window enden mit ihr.
 export function verlaufAnlegen({
   abrufen, schalter = () => {}, fokusRueckgaengig = () => {}, fokusVerloren = () => {}, bearbeitenSpeichern = async () => ({ art: 'netzfehler' }),
-  loeschen = async () => ({ art: 'netzfehler' }), hinweisen = () => {}, ansagen = () => {}, signal = new AbortController().signal,
+  loeschen = async () => ({ art: 'netzfehler' }), hinweisen = () => {}, ansagen = () => {}, antworten = () => {}, signal = new AbortController().signal,
 }) {
   const inhalt = element('div', { className: 'lc-log-inhalt' });
   const ausstehend = element('div', { className: 'lc-ausstehend' });
@@ -288,8 +289,8 @@ export function verlaufAnlegen({
     }
   });
 
-  // Aktionen an der Nachricht (R00041 F0135, F0139; R00046): aus der Leiste, dem Menü „⋯“ oder per Taste (C, E, Entf) auf
-  // der fokussierten Nachricht — nur, wenn die Nachricht die Aktion trägt.
+  // Aktionen an der Nachricht (R00041 F0135, F0139; R00046; R00047): aus der Leiste, dem Menü „⋯“ oder per Taste (R, C, E,
+  // Entf) auf der fokussierten Nachricht — nur, wenn die Nachricht die Aktion trägt.
   const bearbeiten = bearbeitenAnlegen({
     zeiger: zeigerart,
     fokusAufNachricht: (zeit) => {
@@ -450,9 +451,10 @@ export function verlaufAnlegen({
       markierungLeer: document.getSelection().isCollapsed,
       dialogOffen: document.querySelector('dialog[open]') !== null,
     };
-    if (kopierTaste(ereignis, lage) && ereignis.target.querySelector('.lc-aktion[data-aktion="kopieren"]') !== null) {
+    const buchstabe = buchstabenAktion(ereignis, lage);
+    if (buchstabe !== null && ereignis.target.querySelector(`.lc-aktion[data-aktion="${buchstabe}"]`) !== null) {
       ereignis.preventDefault();
-      aktionAusfuehren('kopieren', ereignis.target);
+      aktionAusfuehren(buchstabe, ereignis.target);
       return;
     }
     const aktion = nachrichtTaste(ereignis);
@@ -463,10 +465,23 @@ export function verlaufAnlegen({
     aktionAusfuehren(aktion, ereignis.target);
   }
 
+  function buchstabenAktion(ereignis, lage) {
+    if (antwortTaste(ereignis, lage)) {
+      return 'antworten';
+    }
+    if (kopierTaste(ereignis, lage)) {
+      return 'kopieren';
+    }
+    return null;
+  }
+
   function aktionAusfuehren(aktion, artikel) {
     const bekannt = bekannteNachricht(artikel.dataset.zeit);
     if (bekannt === null) {
       return;
+    }
+    if (aktion === 'antworten') {
+      antworten(bekannt.nachricht);
     }
     if (aktion === 'kopieren') {
       nachrichtKopieren(artikel, bekannt.nachricht.text);

@@ -41,7 +41,7 @@ export function nachrichtZeichnen(nachricht, eigeneKennung = '') {
 // entscheidet das CSS nach der Zeigerart. Die Knöpfe tragen ihre Aktion in data-aktion, der Verlauf führt sie aus.
 // → [Schalter, Leiste]
 function aktionenZeichnen(aktionen, zeit) {
-  const BESCHRIFTUNG = { kopieren: 'Kopieren', bearbeiten: 'Bearbeiten', loeschen: 'Löschen' };
+  const BESCHRIFTUNG = { antworten: 'Antworten', kopieren: 'Kopieren', bearbeiten: 'Bearbeiten', loeschen: 'Löschen' };
   const knoepfe = aktionen.map((aktion) => {
     const knopf = element('button', { type: 'button', className: 'lc-aktion' });
     knopf.dataset.aktion = aktion;
@@ -134,12 +134,18 @@ export function kopierbar({ zeit, text = '', zustand }) {
   return zeit !== undefined && zustand !== 'geloescht' && text !== '';
 }
 
+// Auf eine Nachricht antworten (R00047 I0044, B0713): jede bestätigte, nicht gelöschte Nachricht — eigene, fremde, von
+// Agenten, auch eine nur aus Anhängen.
+export function antwortbar({ zeit, zustand }) {
+  return zeit !== undefined && zustand !== 'geloescht';
+}
+
 // Die Aktionen einer Nachricht in der Reihenfolge der Leiste (Designsystem Nachricht: Antworten · Kopieren · Bearbeiten
-// · Löschen); jede Aktion trägt ihre eigene Bedingung (PO 145): Kopieren gilt an jeder kopierbaren Nachricht, Bearbeiten
-// und Löschen nur an der eigenen.
+// · Löschen); jede Aktion trägt ihre eigene Bedingung (PO 145): Antworten gilt an jeder antwortbaren, Kopieren an jeder
+// kopierbaren Nachricht, Bearbeiten und Löschen nur an der eigenen.
 export function aktionenFuer(nachricht, eigeneKennung) {
   const eigen = bearbeitbar(nachricht, eigeneKennung);
-  return [['kopieren', kopierbar(nachricht)], ['bearbeiten', eigen], ['loeschen', eigen]]
+  return [['antworten', antwortbar(nachricht)], ['kopieren', kopierbar(nachricht)], ['bearbeiten', eigen], ['loeschen', eigen]]
     .filter(([, gilt]) => gilt).map(([aktion]) => aktion);
 }
 

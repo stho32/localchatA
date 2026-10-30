@@ -97,11 +97,20 @@ export function nachrichtTaste(ereignis) {
 // zählen, Strg, Alt, Meta und Umschalt nicht (Strg+C gehört dem Browser), ebenso wenig Wiederholung und Eingabemethode.
 // lage: zielIstNachricht — der Fokus steht auf der Nachricht selbst, nicht in einem Feld, auf einem Knopf oder einem Zitat;
 // markierungLeer — nichts ist markiert (sonst gilt das gewohnte Kopieren des Browsers); dialogOffen.
-export function kopierTaste(ereignis, { zielIstNachricht, markierungLeer, dialogOffen }) {
+export function kopierTaste(ereignis, lage) {
+  return buchstabeAufNachricht(ereignis, lage, 'c');
+}
+
+// Taste `R` auf der fokussierten Nachricht (R00047 I0044, B0713): nur Abkürzung für „Antworten“, mit denselben Regeln wie `C`.
+export function antwortTaste(ereignis, lage) {
+  return buchstabeAufNachricht(ereignis, lage, 'r');
+}
+
+function buchstabeAufNachricht(ereignis, { zielIstNachricht, markierungLeer, dialogOffen }, buchstabe) {
   if (ereignis.ctrlKey || ereignis.altKey || ereignis.metaKey || ereignis.shiftKey || ereignis.repeat || ereignis.isComposing) {
     return false;
   }
-  if (ereignis.key !== 'c' && ereignis.key !== 'C') {
+  if (ereignis.key !== buchstabe && ereignis.key !== buchstabe.toUpperCase()) {
     return false;
   }
   return zielIstNachricht && markierungLeer && !dialogOffen;
