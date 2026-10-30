@@ -187,7 +187,17 @@ async fn ueber_einen_neustart_der_instanz_geht_keine_erwaehnung_verloren() {
     let sendend: Vec<_> = (0..SENDER.len() * CHANNELS.len())
         .map(|nummer| tokio::spawn(senden(Arc::clone(&adresse), nummer, Arc::clone(&gesendet))))
         .collect();
+    let frist = std::time::Instant::now() + Duration::from_secs(60);
     while empfangen.load(Ordering::SeqCst) < NEUSTART_NACH {
+        assert!(
+            std::time::Instant::now() < frist,
+            "nach 60 s erst {} von {NEUSTART_NACH} Nachrichten empfangen — eine Task ist ausgefallen?",
+            empfangen.load(Ordering::SeqCst)
+        );
+        assert!(
+            !wartend.is_finished(),
+            "der wartende Agent ist vor dem Neustart zu Ende (Panik?)"
+        );
         tokio::time::sleep(Duration::from_millis(5)).await;
     }
     let vor_dem_neustart = empfangen.load(Ordering::SeqCst);

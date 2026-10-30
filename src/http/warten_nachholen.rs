@@ -334,6 +334,9 @@ async fn die_pruefungen_vor_dem_reservieren_gehen_vor() {
         tokio::time::sleep(Duration::from_millis(10)).await;
     }
 
+    // Das Warten oben hat selbst fehlgeschlagene Reservierungen gezählt (Beobachtung mit Seiteneffekt) — verglichen
+    // wird darum mit dem Stand unmittelbar vor den fünf Antworten, nicht mit 0.
+    let gebremst_vorher = aufbau.gesundheit().await["nachholen"]["gebremst"].clone();
     let ohne_sitzung = aufbau.holen(None, SCHWER).await;
     let falsch = aufbau.holen(Some("claude"), "api/warten?bis=abc").await;
     let unbekannt = aufbau
@@ -349,7 +352,11 @@ async fn die_pruefungen_vor_dem_reservieren_gehen_vor() {
     assert_eq!(unbekannt.status, 404);
     assert_eq!(fuenfter.status, 429);
     assert_eq!(fuenfter.koerper["grenze"], "warten");
-    assert_eq!(aufbau.gesundheit().await["nachholen"]["gebremst"], 0);
+    assert_eq!(
+        aufbau.gesundheit().await["nachholen"]["gebremst"],
+        gebremst_vorher,
+        "keine der fünf Antworten hat ein 429 `nachholen` erzeugt"
+    );
 }
 
 /// Betrieb: drei 429 `nachholen` von `claude` sind **eine** Episode — genau eine Zeile „Episode beginnt“ mit
