@@ -53,6 +53,14 @@ pub enum Pflegebericht {
         anlass: Pflegeanlass,
         ursache: String,
     },
+    /// Ein Tag trägt Änderungssätze zu Nachrichten eines Tags, der noch im Index steht (dessen Entfernen scheiterte):
+    /// er bleibt in Datei und Index bis zum nächsten Anlass, damit Gelöschtes gelöscht bleibt (ADR-0048 Ergänzung
+    /// „Karte #73“ K6). `ziel` ist der ältere Tag, der ihn hält.
+    Zurueckgestellt {
+        channel: Channelname,
+        datei: String,
+        ziel: NaiveDate,
+    },
     /// Die Einstellungen sind defekt — in diesem Channel entfällt nichts (ADR-0032 Regel 5).
     Gesperrt {
         channel: Channelname,
@@ -97,7 +105,8 @@ impl Gespraeche {
     }
 
     /// Ein Channel: Frist und Verlauf lesend nachschlagen → Tage der Platte teilen (ADR-0030 Regel 3) → je
-    /// entfallendem Tag unter der Sperre des Gesprächs Datei entfernen, nur bei Erfolg aus dem Index (Regel 4).
+    /// entfallendem Tag unter der Sperre des Gesprächs: zurückstellen, solange er Änderungssätze zu einem Tag im Index
+    /// trägt (ADR-0048 Ergänzung „Karte #73“ K6), sonst Datei entfernen, nur bei Erfolg aus dem Index (Regel 4).
     fn channel_pflegen(
         &self,
         name: &Channelname,
@@ -140,9 +149,17 @@ impl Gespraeche {
         let (_, entfallend) = frist::teilen(&mit_anhangtagen, heute, frist_tage);
         let mut entfallen = Vec::new();
         let mut nachrichten = 0;
-        let mut fehler = Vec::new();
+        let mut je_tag = Vec::new();
         for tag in entfallend {
             let mut verlauf = sperren(&verlauf);
+            if let Some(ziel) = verlauf.tag_haelt_aenderungen_fuer_bestehende_tage(tag) {
+                je_tag.push(Pflegebericht::Zurueckgestellt {
+                    channel: name.clone(),
+                    datei: gespraech.tagesdatei(tag),
+                    ziel,
+                });
+                continue;
+            }
             match self.ablage.tag_entfernen(&gespraech, tag) {
                 Ok(()) => {
                     if let Some((saetze, bytes)) = verlauf.tag_entfernen(tag) {
@@ -151,7 +168,7 @@ impl Gespraeche {
                         self.unter_90_melden(vorher, vorher.saturating_sub(bytes), anlass);
                     }
                     if let Err(ursache) = self.anhaenge_entfallen(&gespraech, tag, anlass) {
-                        fehler.push(Pflegebericht::AnhaengeNichtEntfernt {
+                        je_tag.push(Pflegebericht::AnhaengeNichtEntfernt {
                             channel: name.clone(),
                             tag,
                             anlass: anlass.clone(),
@@ -162,7 +179,7 @@ impl Gespraeche {
                         entfallen.push(tag);
                     }
                 }
-                Err(ursache) => fehler.push(Pflegebericht::NichtEntfallen {
+                Err(ursache) => je_tag.push(Pflegebericht::NichtEntfallen {
                     channel: name.clone(),
                     datei: gespraech.tagesdatei(tag),
                     anlass: anlass.clone(),
@@ -180,7 +197,7 @@ impl Gespraeche {
                 anlass: anlass.clone(),
             });
         }
-        berichte.extend(fehler);
+        berichte.extend(je_tag);
         berichte
     }
 }
@@ -236,6 +253,7 @@ impl FristGesetzt {
                     tage, nachrichten, ..
                 } => Some((tage.len(), *nachrichten)),
                 Pflegebericht::NichtEntfallen { .. }
+                | Pflegebericht::Zurueckgestellt { .. }
                 | Pflegebericht::AnhaengeNichtEntfernt { .. }
                 | Pflegebericht::TageNichtErmittelt { .. }
                 | Pflegebericht::Gesperrt { .. } => None,

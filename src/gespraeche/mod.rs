@@ -1895,11 +1895,12 @@ mod tests {
         assert_eq!(ohne_tag_1.kennzahlen().nachrichten, 0);
     }
 
-    /// Code-Review #48 A1 (mit R00040): eine teilweise gescheiterte Pflege entfernt den Tag des Änderungssatzes, der
-    /// Tag der Nachricht bleibt (sein Entfernen scheitert). Die Nachricht zeigt dann ihren Text wie nach einem
-    /// Neustart — nie „gelöscht“ —, und Bearbeiten geht weiter; eine gelöschte Nachricht bleibt gelöscht.
+    /// Code-Review #48 A1 (mit R00040), seit ADR-0048 Ergänzung „Karte #73“ K6 (R00043 F0147): scheitert das Entfernen
+    /// des Tags der Nachricht, verliert die Bearbeitung ihren Tag nicht mehr — der Tag des Änderungssatzes wird
+    /// zurückgestellt. Die Nachricht zeigt ihre bearbeitete Fassung — nie „gelöscht“ —, und Bearbeiten geht weiter;
+    /// eine gelöschte Nachricht bleibt gelöscht. (Vor K6 erwartete der Test hier den ursprünglichen Text.)
     #[test]
-    fn verliert_die_bearbeitung_ihren_tag_gilt_wieder_der_text_der_nachricht() {
+    fn scheitert_der_tag_der_nachricht_bleibt_die_bearbeitung_und_bearbeiten_geht_weiter() {
         let (gespraeche, ablage, uhr) = im_speicher("2026-10-27T14:00:00.000+01:00");
         let allgemein = Gespraech::channel("allgemein");
         let alice = kennung("alice@127.0.0.2");
@@ -1924,7 +1925,13 @@ mod tests {
 
         let block = neueste(&gespraeche);
         assert_eq!(block.len(), 2, "{block:?}");
-        assert_eq!((block[0].text.as_str(), block[0].geaendert), ("eins", None));
+        assert_eq!(
+            (
+                block[0].text.as_str(),
+                block[0].geaendert.map(|geaendert| geaendert.zustand)
+            ),
+            ("eins, korrigiert", Some(Aenderungszustand::Bearbeitet))
+        );
         assert_eq!(
             block[1].geaendert.map(|geaendert| geaendert.zustand),
             Some(Aenderungszustand::Geloescht)

@@ -136,6 +136,8 @@ pub enum Schluessel {
     AlterMs,
     /// Tag einer Tagesdatei bzw. eines Anhang-Ordners (`JJJJ-MM-TT`).
     Tag,
+    /// Tag, der einen anderen Tag hält (`JJJJ-MM-TT`, ADR-0042 Ergänzung „Karte #73“ (3)).
+    Ziel,
     /// Gedeutete Blöcke des Tilgers.
     Bloecke,
     /// Gelesene und geschriebene Bytes des Tilgers (ADR-0047 B1 Regel 4).
@@ -200,6 +202,7 @@ impl Schluessel {
             Schluessel::PlattenquoteOption => "plattenquote_option",
             Schluessel::AlterMs => "alter_ms",
             Schluessel::Tag => "tag",
+            Schluessel::Ziel => "ziel",
             Schluessel::Anhang => "anhang",
             Schluessel::Bloecke => "bloecke",
             Schluessel::Arbeit => "arbeit",

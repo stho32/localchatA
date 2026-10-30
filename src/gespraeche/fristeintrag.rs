@@ -10,6 +10,9 @@ use chrono::NaiveDate;
 pub const ANHAENGE_NICHT_ENTFERNT: &str =
     "Anhänge eines Tags nicht entfernt — erneuter Versuch bei der nächsten Pflege";
 
+/// Text der Zeile, wenn ein Tag wegen eines nicht entfernten Ziel-Tags bleibt (ADR-0042 Ergänzung „Karte #73“ (3)).
+pub const TAG_ZURUECKGESTELLT: &str = "Tag zurückgestellt — erneuter Versuch beim nächsten Anlass";
+
 /// Der Eintrag zu einem Pflegebericht: Entfallen als INFORMATION, ein nicht entfallener Tag und ein nicht
 /// auflistbarer Ordner als ERROR, defekte Einstellungen als WARNING (R00017, Abbildung Zeilen 2–5; R00019). Im
 /// Bereich `frist` ist `grund` immer der Anlass, ein Plattenfehler steht in `ursache` (R00019).
@@ -56,6 +59,19 @@ pub fn pflege_eintrag(bericht: &Pflegebericht) -> Eintrag {
                 anlass,
             )
             .mit(Schluessel::Ursache, ursache),
+        ),
+        Pflegebericht::Zurueckgestellt {
+            channel,
+            datei,
+            ziel,
+        } => Eintrag::neu(
+            Stufe::Debug,
+            Bereich::Frist,
+            TAG_ZURUECKGESTELLT,
+            Kontext::neu()
+                .mit(Schluessel::Channel, channel)
+                .mit(Schluessel::Datei, datei)
+                .mit(Schluessel::Ziel, ziel.format("%Y-%m-%d")),
         ),
         Pflegebericht::AnhaengeNichtEntfernt {
             channel,
@@ -322,6 +338,22 @@ mod tests {
                 format!("{anfang} {kontext} {ursache}")
             );
         }
+    }
+
+    /// R00043 F0147 „Protokoll“ (ADR-0042 Ergänzung „Karte #73“ (3)): ein zurückgestellter Tag ist eine DEBUG-Zeile im
+    /// Bereich `frist` mit `channel`, `datei` (der zurückgestellte Tag) und `ziel` (der Tag, der ihn hält), ohne Anlass.
+    #[test]
+    fn zurueckgestellt_ist_debug_mit_channel_datei_und_ziel() {
+        let bericht = Pflegebericht::Zurueckgestellt {
+            channel: channel("allgemein"),
+            datei: "channels/allgemein/2026-10-27.log".into(),
+            ziel: NaiveDate::from_ymd_opt(2026, 10, 26).expect("Tag"),
+        };
+
+        assert_eq!(
+            ab_der_stufe(&pflege_eintrag(&bericht)),
+            "DEBUG frist Tag zurückgestellt — erneuter Versuch beim nächsten Anlass | channel=allgemein datei=channels/allgemein/2026-10-27.log ziel=2026-10-26"
+        );
     }
 
     /// R00019 F0063 „Pflege“ und F0064 „Einträge mit Anlass“ (ADR-0042 Ergänzung R00019 Punkt 1): ein nicht

@@ -308,6 +308,24 @@ impl Verlauf {
         Some((tag.nachrichten.len(), tag.rohtext.len() as u64))
     }
 
+    /// Der älteste andere Tag im Index, auf dessen Nachricht ein Änderungssatz des Tages `datum` zielt; keiner, wenn
+    /// der Tag nicht im Index steht oder seine Änderungssätze nur Nachrichten des eigenen Tages oder entfallener Tage
+    /// treffen (ADR-0048 Ergänzung „Karte #73“ K6).
+    pub fn tag_haelt_aenderungen_fuer_bestehende_tage(
+        &self,
+        datum: NaiveDate,
+    ) -> Option<NaiveDate> {
+        self.tage
+            .get(&datum)?
+            .aenderungssaetze()
+            .filter_map(|(_, satz)| match logformat::satzart(satz) {
+                logformat::Satzart::Aenderung { ziel, .. } => tag_der_nachricht(&self.tage, &ziel),
+                logformat::Satzart::DefekteAenderung(_) | logformat::Satzart::Nachricht => None,
+            })
+            .filter(|ziel_tag| *ziel_tag != datum)
+            .min()
+    }
+
     /// Wie viele Nachrichten die Tage echt vor `grenze` im Index haben.
     pub fn saetze_vor(&self, grenze: NaiveDate) -> usize {
         self.tage
@@ -532,6 +550,16 @@ impl Tag {
 /// Datums (dort steht sie, wenn der Versatz der des Servers ist), dann in den Tagen um die Zeit — so kostet das
 /// Nachschlagen beim Laden vieler Änderungssätze eine binäre Suche statt bis zu fünf (ADR-0048 QE2).
 fn nachricht_finden<'a>(tage: &'a BTreeMap<NaiveDate, Tag>, zeit: &Zeit) -> Option<&'a [u8]> {
+    fundort(tage, zeit).map(|(_, satz)| satz)
+}
+
+/// Der Tag im Index, in dem die Nachricht mit genau dieser Zeit steht (gesucht wie in `nachricht_finden`).
+fn tag_der_nachricht(tage: &BTreeMap<NaiveDate, Tag>, zeit: &Zeit) -> Option<NaiveDate> {
+    fundort(tage, zeit).map(|(datum, _)| datum)
+}
+
+/// Tag und Satz der Nachricht mit genau dieser Zeit: zuerst im Tag ihres eigenen Datums, dann in den Tagen um die Zeit.
+fn fundort<'a>(tage: &'a BTreeMap<NaiveDate, Tag>, zeit: &Zeit) -> Option<(NaiveDate, &'a [u8])> {
     let im_tag = |tag: &'a Tag| {
         let index = grenze_im_tag(&tag.rohtext, &tag.nachrichten, zeit, Seite::Vor);
         let anfang = *tag.nachrichten.get(index)?;
@@ -539,10 +567,14 @@ fn nachricht_finden<'a>(tage: &'a BTreeMap<NaiveDate, Tag>, zeit: &Zeit) -> Opti
             .then(|| &tag.rohtext[tag.spanne(index)])
     };
     let eigenes = zeit.date_naive();
-    tage.get(&eigenes).and_then(im_tag).or_else(|| {
+    let im_eigenen = tage
+        .get(&eigenes)
+        .and_then(im_tag)
+        .map(|satz| (eigenes, satz));
+    im_eigenen.or_else(|| {
         tage.range(tag_mit_abstand(*zeit, -2)..=tag_mit_abstand(*zeit, 2))
             .filter(|(datum, _)| **datum != eigenes)
-            .find_map(|(_, tag)| im_tag(tag))
+            .find_map(|(datum, tag)| im_tag(tag).map(|satz| (*datum, satz)))
     })
 }
 
@@ -1136,6 +1168,66 @@ mod tests {
     }
 
     const BEARBEITET_UM_10_00_01: &str = "@ 2026-10-28T10:00:01.500+01:00 a@127.0.0.2\n+ bearbeitet: 2026-10-28T10:00:00.000+01:00\n  neu und länger als der alte Text\n\n";
+
+    /// R00043 F0147 (ADR-0048 Ergänzung „Karte #73“ K6): ein Tag hält nur, wenn ein Änderungssatz auf eine Nachricht
+    /// eines anderen Tages im Index zielt — der älteste solche Tag; Änderungen am eigenen Tag, an einem entfallenen Tag
+    /// (Waise) und ein Tag außerhalb des Index halten nichts. Mutanten „eigener Tag hält“ und „Waise hält“ rot.
+    #[test]
+    fn ein_tag_haelt_nur_fuer_ziele_in_anderen_tagen_des_index() {
+        let mut verlauf = Verlauf::default();
+        for (datum, satz) in [
+            (
+                "2026-10-25",
+                "@ 2026-10-25T10:00:00.000+01:00 a@127.0.0.2\n  v\n\n",
+            ),
+            (
+                "2026-10-26",
+                "@ 2026-10-26T10:00:00.000+01:00 a@127.0.0.2\n  w\n\n",
+            ),
+            (
+                "2026-10-27",
+                "@ 2026-10-27T09:00:00.000+01:00 a@127.0.0.2\n  x\n\n",
+            ),
+            (
+                "2026-10-27",
+                "@ 2026-10-27T09:00:01.000+01:00 a@127.0.0.2\n+ bearbeitet: 2026-10-27T09:00:00.000+01:00\n  x2\n\n",
+            ),
+            (
+                "2026-10-27",
+                "@ 2026-10-27T09:00:02.000+01:00 a@127.0.0.2\n+ geloescht: 2026-10-26T10:00:00.000+01:00\n\n",
+            ),
+            (
+                "2026-10-27",
+                "@ 2026-10-27T09:00:03.000+01:00 a@127.0.0.2\n+ bearbeitet: 2026-10-25T10:00:00.000+01:00\n  v2\n\n",
+            ),
+            (
+                "2026-10-28",
+                "@ 2026-10-28T09:00:00.000+01:00 a@127.0.0.2\n+ geloescht: 2026-10-20T10:00:00.000+01:00\n\n",
+            ),
+            (
+                "2026-10-28",
+                "@ 2026-10-28T09:00:01.000+01:00 a@127.0.0.2\n+ bearbeitet: 2026-10-28T09:00:00.000+01:00\n  y\n\n",
+            ),
+        ] {
+            verlauf.anhaengen(tag(datum), satz, false);
+        }
+        let haelt = |verlauf: &Verlauf, datum| {
+            verlauf.tag_haelt_aenderungen_fuer_bestehende_tage(tag(datum))
+        };
+
+        assert_eq!(haelt(&verlauf, "2026-10-27"), Some(tag("2026-10-25")));
+        assert_eq!(haelt(&verlauf, "2026-10-28"), None, "Waise und Satzzeit");
+        assert_eq!(haelt(&verlauf, "2026-10-26"), None, "ohne Änderungssätze");
+        assert_eq!(haelt(&verlauf, "2026-10-29"), None, "nicht im Index");
+        verlauf.tag_entfernen(tag("2026-10-25"));
+        assert_eq!(haelt(&verlauf, "2026-10-27"), Some(tag("2026-10-26")));
+        verlauf.tag_entfernen(tag("2026-10-26"));
+        assert_eq!(
+            haelt(&verlauf, "2026-10-27"),
+            None,
+            "nur noch der eigene Tag"
+        );
+    }
 
     /// Ein Tag 28.10. mit Nachrichten um 10:00:00, 10:00:01, 10:00:02 und Änderungssätzen nach der ersten und nach
     /// der letzten — geladen oder angehängt.

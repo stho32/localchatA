@@ -63,6 +63,13 @@ impl Speicherablage {
             .insert((gespraech.clone(), tag));
     }
 
+    /// Das Entfernen dieses Tages gelingt wieder (Rechte zurückgesetzt).
+    pub fn entfernen_gelingt(&self, gespraech: &Gespraech, tag: NaiveDate) {
+        self.innen()
+            .entfernen_scheitert
+            .remove(&(gespraech.clone(), tag));
+    }
+
     /// Jedes `tage` dieses Gesprächs scheitert (wie ein Ordner ohne Leserecht, `chmod a-r`).
     pub fn auflisten_scheitern(&self, gespraech: &Gespraech) {
         self.innen().auflisten_scheitert.insert(gespraech.clone());

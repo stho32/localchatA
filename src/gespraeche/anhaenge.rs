@@ -2199,4 +2199,151 @@ mod tests {
             &[("allgemein", tag_29()), ("technik", tag_29())],
         );
     }
+
+    /// Die Nachricht mit dieser Zeit im Block der neuesten 100 von `allgemein`.
+    fn in_allgemein(gespraeche: &Gespraeche, zeit: crate::uhr::Zeit) -> Option<Nachricht> {
+        gespraeche
+            .verlauf(
+                "allgemein",
+                &abfrage::Abfrage {
+                    abschnitt: abfrage::Abschnitt::Neueste,
+                    n: abfrage::Blockgroesse::bilden(100).expect("Blockgröße"),
+                },
+                usize::MAX,
+            )
+            .expect("bekannt")
+            .nachrichten
+            .into_iter()
+            .find(|nachricht| nachricht.zeit == zeit)
+    }
+
+    /// R00043 F0147 „Tage A, B, C“, wörtlich aus ADR-0048 Ergänzung „Karte #73“ K6 (Speicherablage mit Fehler beim
+    /// Entfernen von Tag A, Pflege am 4. November mit Frist 7, so dass A, B und C entfallen): Tag A trägt M mit einem
+    /// Anhang (sein Kürzen scheitert, damit das Laden ihn nur über den Löschsatz als `geloescht` kennt) und N; Tag B den
+    /// Löschsatz zu M und die Bearbeitung von N; Tag C nur eine eigene Nachricht. Pflege → A `NichtEntfallen`, B
+    /// `Zurueckgestellt` und weiter in Ablage und Index, C entfällt; M bleibt `geloescht`, N bearbeitet — auch nach
+    /// dem Neuladen, der Anhang von M bleibt `geloescht`; Fehler behoben, Pflege → A und B entfallen. Mutant „B
+    /// entfällt trotzdem“ rot (Neuladen zeigt M mit Text).
+    #[test]
+    fn ein_plattenfehler_beim_entfernen_eines_tags_holt_geloeschtes_nicht_zurueck() {
+        use crate::gespraeche::anhangverzeichnis::Zustand;
+        let zeit = |text| chrono::DateTime::parse_from_rfc3339(text).expect("Zeit");
+        let allgemein = Gespraech::channel("allgemein");
+        let beta = kennung("beta@127.0.0.1");
+        let ablage = Arc::new(Speicherablage::neu());
+        ablage.gespraech_anlegen(&allgemein);
+        let speicher = Arc::new(crate::gespraeche::anhangspeicher::Anhangspeicher::neu());
+        let uhr = Arc::new(GestellteUhr::neu(zeit("2026-10-26T12:00:00.000+01:00")));
+        let laden = || {
+            Gespraeche::laden(ablage.clone(), uhr.clone())
+                .expect("geladen")
+                .mit_anhangquote(Some(10 * MIB))
+                .mit_anhangablage(speicher.clone())
+                .mit_zufall(Arc::new(FesteFolge::neu(1..=100)))
+        };
+        let gespraeche = laden();
+        let id = fertig(&gespraeche, "beta@127.0.0.1", "m.bin", &[7; 1024]);
+        let Ok(crate::gespraeche::Gesendet::Neu(m)) = gespraeche.senden_mit_anhaengen(
+            &allgemein,
+            &beta,
+            Art::Agent,
+            "M mit Anhang",
+            std::slice::from_ref(&id),
+            None,
+        ) else {
+            panic!("M gesendet")
+        };
+        let n = gespraeche
+            .senden(&allgemein, &beta, Art::Agent, "N, erste Fassung")
+            .expect("N gesendet");
+        speicher.kuerzen_scheitert(&gespraeche.anhang_finden(&id).expect("Eintrag").datei);
+        uhr.stellen(zeit("2026-10-27T12:00:00.000+01:00"));
+        gespraeche
+            .nachricht_loeschen(&allgemein, &beta, m.zeit)
+            .expect("M gelöscht");
+        gespraeche
+            .bearbeiten(&allgemein, &beta, n.zeit, "N, bearbeitet")
+            .expect("N bearbeitet");
+        uhr.stellen(zeit("2026-10-28T12:00:00.000+01:00"));
+        gespraeche
+            .senden(&allgemein, &beta, Art::Agent, "C, eigene")
+            .expect("C gesendet");
+        let (tag_a, tag_b, tag_c, am_4_november) = (
+            NaiveDate::from_ymd_opt(2026, 10, 26).expect("A"),
+            NaiveDate::from_ymd_opt(2026, 10, 27).expect("B"),
+            NaiveDate::from_ymd_opt(2026, 10, 28).expect("C"),
+            NaiveDate::from_ymd_opt(2026, 11, 4).expect("Pflege"),
+        );
+        ablage.entfernen_scheitern(&allgemein, tag_a);
+        let tage =
+            || crate::gespraeche::Logablage::tage(ablage.as_ref(), &allgemein).expect("Tage");
+
+        let berichte = gespraeche.pflegen(am_4_november, Pflegeanlass::Tageswechsel);
+        let tage_danach = tage();
+        let (m_danach, n_danach) = (
+            in_allgemein(&gespraeche, m.zeit),
+            in_allgemein(&gespraeche, n.zeit),
+        );
+        let neu = laden();
+        let (m_neu, n_neu) = (in_allgemein(&neu, m.zeit), in_allgemein(&neu, n.zeit));
+        let anhang_neu = zustand(&neu, &id);
+        ablage.entfernen_gelingt(&allgemein, tag_a);
+        let behoben = gespraeche.pflegen(am_4_november, Pflegeanlass::Tageswechsel);
+
+        let geloescht = |nachricht: &Option<Nachricht>| {
+            nachricht.as_ref().map(|nachricht| {
+                (
+                    nachricht.text.clone(),
+                    nachricht.geaendert.map(|geaendert| geaendert.zustand),
+                )
+            })
+        };
+        let m_erwartet = Some((String::new(), Some(Aenderungszustand::Geloescht)));
+        let n_erwartet = Some((
+            "N, bearbeitet".to_string(),
+            Some(Aenderungszustand::Bearbeitet),
+        ));
+        assert_eq!(geloescht(&m_neu), m_erwartet, "Neuladen: M bleibt gelöscht");
+        assert_eq!(
+            geloescht(&n_neu),
+            n_erwartet,
+            "Neuladen: N bleibt bearbeitet"
+        );
+        assert_eq!(anhang_neu, Zustand::Geloescht);
+        assert_eq!(geloescht(&m_danach), m_erwartet);
+        assert_eq!(geloescht(&n_danach), n_erwartet);
+        assert_eq!(tage_danach, vec![tag_a, tag_b]);
+        let channel = crate::name::Channelname::bilden("allgemein").expect("Name");
+        assert_eq!(
+            berichte,
+            vec![
+                Pflegebericht::Entfallen {
+                    channel: channel.clone(),
+                    tage: vec![tag_c],
+                    nachrichten: 1,
+                    frist: 7,
+                    anlass: Pflegeanlass::Tageswechsel,
+                },
+                Pflegebericht::NichtEntfallen {
+                    channel: channel.clone(),
+                    datei: "channels/allgemein/2026-10-26.log".into(),
+                    anlass: Pflegeanlass::Tageswechsel,
+                    ursache: "Entfernen scheitert (Speicher-Logablage)".into(),
+                },
+                Pflegebericht::Zurueckgestellt {
+                    channel: channel.clone(),
+                    datei: "channels/allgemein/2026-10-27.log".into(),
+                    ziel: tag_a,
+                },
+            ]
+        );
+        assert!(
+            matches!(
+                behoben.as_slice(),
+                [Pflegebericht::Entfallen { tage, .. }] if *tage == vec![tag_a, tag_b]
+            ),
+            "{behoben:?}"
+        );
+        assert!(tage().is_empty());
+    }
 }
