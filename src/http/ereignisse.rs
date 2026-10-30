@@ -7,13 +7,14 @@
 use super::Zustand;
 use super::abbruch::{Abgebrochen, Grenzort, abbruch_beantworten, abbruch_eintragen};
 use super::channels::{channel_als_json, stand_als_json as channels_als_json};
-use super::nachrichten::NachrichtAntwort;
+use super::nachrichten::{NachrichtAntwort, ZitatAntwort};
 use super::teilnehmer::{gemeldetes_token, nicht_erkannt};
 use super::teilnehmerliste::{stand_als_json, zeile_als_json, zeit_als_text};
 use crate::aktivitaet::{Aenderung, Gesetzt};
 use crate::anwesenheit::status::Status;
 use crate::anwesenheit::{Anwesenheit, Halter, Stand, Wechsel};
 use crate::gespraeche::Gespraech;
+use crate::gespraeche::zitat::zitat_der_nachricht;
 use crate::gespraeche::{ChannelStand, ChannelWechsel, Nachricht};
 use crate::live::bus::{Abonnement, Empfang, Ereignis, Signal, Signalabonnement, Signalempfang};
 use crate::protokoll::episoden::{Auftreten, Quelle};
@@ -347,13 +348,16 @@ fn nachricht_ereignis(channel: &str, nachricht: &Nachricht) -> Event {
     Event::default().data(ereignis.to_string())
 }
 
-/// `{"art":"aenderung","channel":…,"nachricht":{zeit, von, art, text, zustand, geaendert, anhaenge}}` — die
-/// Nachricht in der Form der Antwort (ADR-0048 Regel 11).
+/// `{"art":"aenderung","channel":…,"nachricht":{zeit, von, art, text, zustand, geaendert, anhaenge, antwort_auf},
+/// "zitat":{…}}` — die Nachricht in der Form der Antwort (ADR-0048 Regel 11) und das Zitat, wie es in jeder Antwort
+/// auf sie stünde (ADR-0053 Regel 4).
 fn aenderung_als_json(channel: &str, nachricht: &Nachricht) -> serde_json::Value {
+    let zitat = zitat_der_nachricht(nachricht);
     json!({
         "art": "aenderung",
         "channel": channel,
         "nachricht": NachrichtAntwort::aus(nachricht),
+        "zitat": ZitatAntwort::aus(&zitat),
     })
 }
 
@@ -445,6 +449,10 @@ mod tests {
                     "zeit": "2026-10-28T12:00:00.001+01:00", "von": "beta@127.0.0.1", "art": "agent",
                     "text": "Hallo zusammen", "zustand": "bearbeitet",
                     "geaendert": "2026-10-28T12:05:00.000+01:00", "anhaenge": [], "antwort_auf": null
+                },
+                "zitat": {
+                    "zeit": "2026-10-28T12:00:00.001+01:00", "von": "beta@127.0.0.1", "zustand": "bearbeitet",
+                    "textanfang": "Hallo zusammen", "anhang": null, "geaendert": "2026-10-28T12:05:00.000+01:00"
                 }
             })
         );

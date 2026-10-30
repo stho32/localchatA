@@ -1,11 +1,9 @@
 //! Zitat einer Antwort (ADR-0053 Regel 3): der Bezug aus der Metazeile, aufgelöst beim Lesen über das Original im
 //! Index des eigenen Gesprächs — ein lebender Verweis, keine Kopie. Rein.
 
-use super::Kennung;
-#[cfg(test)]
-use super::Nachricht;
 use super::logformat::{self, Antwortbezug};
 use super::textanfang::textanfang_aus;
+use super::{Aenderungszustand, Kennung, Nachricht};
 use crate::uhr::Zeit;
 
 /// Das Zitat, wie jede gelieferte Antwort es trägt: `{zeit, von, zustand, textanfang, anhang, geaendert}`.
@@ -110,6 +108,33 @@ pub fn zitat(bezug: &Antwortbezug, fund: Option<Fund<'_>>) -> Zitat {
         textanfang,
         anhang,
         geaendert,
+    }
+}
+
+/// Das Zitat einer Nachricht auf sich selbst in ihrer Fassung (ADR-0053 Regel 4, Thema `aenderung`): so, wie es in
+/// jeder Antwort auf sie stünde.
+pub fn zitat_der_nachricht(nachricht: &Nachricht) -> Zitat {
+    let zustand = match nachricht.geaendert.map(|geaendert| geaendert.zustand) {
+        None => Zitatzustand::Da,
+        Some(Aenderungszustand::Bearbeitet) => Zitatzustand::Bearbeitet,
+        Some(Aenderungszustand::Geloescht) => Zitatzustand::Geloescht,
+    };
+    let geloescht = zustand == Zitatzustand::Geloescht;
+    let textanfang = if geloescht {
+        String::new()
+    } else {
+        textanfang_aus(nachricht.text.chars())
+    };
+    let anhang = (!geloescht && textanfang.is_empty())
+        .then(|| nachricht.anhaenge.first().map(|anhang| anhang.name.clone()))
+        .flatten();
+    Zitat {
+        zeit: nachricht.zeit,
+        von: nachricht.von.clone(),
+        zustand,
+        textanfang,
+        anhang,
+        geaendert: nachricht.geaendert.map(|geaendert| geaendert.zeit),
     }
 }
 
@@ -316,6 +341,69 @@ mod tests {
                 geleert.anhang.as_deref()
             ),
             (Zitatzustand::Bearbeitet, "", Some("Bericht März.pdf"))
+        );
+    }
+
+    /// R00047 B0710 (ADR-0053 Regel 4): das Zitat einer Nachricht auf sich selbst — ungeändert `da`, bearbeitet mit
+    /// neuem Text und `geaendert`, nur Anhang → sein Name, gelöscht ohne Text und Anhang.
+    #[test]
+    fn das_zitat_einer_nachricht_auf_sich_selbst() {
+        let anhang = logformat::anhangzeile_lesen(
+            "aaaaaaaaaaaaaaaaaaaaaaaaab 12 application/pdf - 091003004-1-Bericht.pdf Bericht März.pdf",
+        )
+        .expect("Anhang");
+        let nachricht = Nachricht {
+            zeit: t(T1),
+            von: Kennung::bilden("claude@127.0.0.1").expect("Kennung"),
+            art: None,
+            text: "Frage?".to_string(),
+            anhaenge: vec![anhang],
+            geaendert: None,
+            bezug: None,
+            antwort_auf: None,
+        };
+        let geaendert = |zustand| {
+            Some(super::super::Geaendert {
+                zeit: t(T2),
+                zustand,
+            })
+        };
+        let nur_anhang = Nachricht {
+            text: String::new(),
+            geaendert: geaendert(Aenderungszustand::Bearbeitet),
+            ..nachricht.clone()
+        };
+        let geloescht = Nachricht {
+            text: String::new(),
+            anhaenge: Vec::new(),
+            geaendert: geaendert(Aenderungszustand::Geloescht),
+            ..nachricht.clone()
+        };
+
+        let da = zitat_der_nachricht(&nachricht);
+        let anhang = zitat_der_nachricht(&nur_anhang);
+        let weg = zitat_der_nachricht(&geloescht);
+
+        assert_eq!(
+            (da.zustand, da.textanfang.as_str(), da.anhang, da.geaendert),
+            (Zitatzustand::Da, "Frage?", None, None)
+        );
+        assert_eq!(
+            (
+                anhang.zustand,
+                anhang.textanfang.as_str(),
+                anhang.anhang.as_deref()
+            ),
+            (Zitatzustand::Bearbeitet, "", Some("Bericht März.pdf"))
+        );
+        assert_eq!(
+            (
+                weg.zustand,
+                weg.textanfang.as_str(),
+                weg.anhang,
+                weg.geaendert
+            ),
+            (Zitatzustand::Geloescht, "", None, Some(t(T2)))
         );
     }
 

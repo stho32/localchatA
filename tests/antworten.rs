@@ -712,3 +712,117 @@ async fn p7_keine_verschachtelung_zeitfolge_und_geloeschte_antwort() {
         "geloescht"
     );
 }
+
+/// `POST …/allgemein/nachrichten/bearbeiten` → 200.
+async fn bearbeiten(
+    absender: &Absender,
+    basis: &str,
+    token: &str,
+    zeit: &str,
+    text: &str,
+) -> Value {
+    let antwort = api_antwort(
+        absender
+            .anfrage(
+                reqwest::Method::POST,
+                format!("{basis}api/channels/allgemein/nachrichten/bearbeiten"),
+            )
+            .header("Content-Type", "application/json")
+            .header("X-LocalchatA-Sitzung", token)
+            .body(json!({"zeit": zeit, "text": text}).to_string()),
+    )
+    .await;
+    assert_eq!(antwort.status, 200, "{}", antwort.json);
+    antwort.json
+}
+
+/// ADR-0053 P6 (Thema `aenderung`), Regel 4, S4, US-23, Mutante Z10: Bearbeiten des Originals → `aenderung` mit
+/// `zitat` (`bearbeitet`, neuer Textanfang, `geaendert`), Löschen → `zitat` `geloescht` ohne Text; ein Geheimnis, das
+/// ein Bearbeiten entfernt, liefert danach kein Block, kein Ereignis und keine Antwort; eine bearbeitete Antwort
+/// behält im Ereignis ihr `antwort_auf`.
+#[tokio::test]
+async fn p6_das_ereignis_aenderung_traegt_das_zitat() {
+    let wurzel = ordner();
+    let instanz = starten(wurzel.path());
+    let basis = instanz.adresse.as_str();
+    let absender = Absender::von("127.0.0.1");
+    let (claude, codex) = agenten(&absender, basis).await;
+    let t1 = gesendet(&absender, basis, &claude, "allgemein", "Frage? GEHEIM-4711").await;
+    let t2 = gesendet(&absender, basis, &claude, "allgemein", "Nur kurz").await;
+    let antwort = antworten(&absender, basis, &codex, "Antwort", json!(t1)).await;
+    let t_antwort = antwort.json["nachricht"]["zeit"]
+        .as_str()
+        .expect("zeit")
+        .to_string();
+    let mut strom = gemeinsam::strom::Strom::oeffnen(&absender, basis, &codex).await;
+    let ist_aenderung_von = |zeit: String| {
+        move |e: &gemeinsam::strom::Empfangen| {
+            e.data["art"] == "aenderung" && e.data["nachricht"]["zeit"] == zeit.as_str()
+        }
+    };
+
+    let bearbeitet = bearbeiten(&absender, basis, &claude, &t1, "Frage!").await;
+    let nach_bearbeiten = strom
+        .bis(
+            std::time::Duration::from_secs(10),
+            ist_aenderung_von(t1.clone()),
+        )
+        .await
+        .expect("aenderung");
+    loeschen(&absender, basis, &claude, "allgemein", &t2).await;
+    let nach_loeschen = strom
+        .bis(
+            std::time::Duration::from_secs(10),
+            ist_aenderung_von(t2.clone()),
+        )
+        .await
+        .expect("aenderung");
+    bearbeiten(&absender, basis, &codex, &t_antwort, "Antwort, bearbeitet").await;
+    let antwort_bearbeitet = strom
+        .bis(
+            std::time::Duration::from_secs(10),
+            ist_aenderung_von(t_antwort.clone()),
+        )
+        .await
+        .expect("aenderung");
+
+    assert_eq!(
+        nach_bearbeiten.data["zitat"],
+        json!({"zeit": t1, "von": CLAUDE, "zustand": "bearbeitet", "textanfang": "Frage!", "anhang": null,
+               "geaendert": bearbeitet["nachricht"]["geaendert"]})
+    );
+    let zitat = &nach_loeschen.data["zitat"];
+    assert_eq!(
+        (
+            &zitat["zeit"],
+            &zitat["zustand"],
+            &zitat["textanfang"],
+            &zitat["anhang"]
+        ),
+        (&json!(t2), &json!("geloescht"), &json!(""), &Value::Null)
+    );
+    assert!(zitat["geaendert"].is_string());
+    assert_eq!(
+        antwort_bearbeitet.data["nachricht"]["antwort_auf"],
+        json!({"zeit": t1, "von": CLAUDE, "zustand": "bearbeitet", "textanfang": "Frage!", "anhang": null,
+               "geaendert": bearbeitet["nachricht"]["geaendert"]})
+    );
+    assert_eq!(
+        antwort_bearbeitet.data["zitat"]["textanfang"],
+        "Antwort, bearbeitet"
+    );
+    let neue = antworten(&absender, basis, &codex, "Noch eine", json!(t1)).await;
+    let block = verlauf(&absender, basis, &codex, "allgemein").await;
+    strom.mitlesen(std::time::Duration::from_millis(300)).await;
+    let nach_dem_bearbeiten = strom
+        .ereignisse
+        .iter()
+        .map(|e| e.data.to_string())
+        .collect::<Vec<_>>();
+    for text in [neue.json.to_string(), block.to_string()]
+        .into_iter()
+        .chain(nach_dem_bearbeiten)
+    {
+        assert!(!text.contains("4711"), "frühere Fassung geliefert: {text}");
+    }
+}
