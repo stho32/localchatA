@@ -708,8 +708,8 @@ fn die_eine_funktion_und_verwandte_namen_sind_nicht_rot() {
 fn ein_wildcard_im_strom_filter_ist_rot() {
     let quellen = mit_geaendert(&echt(), "src/http/ereignisse.rs", |text| {
         text.replace(
-            "Gespraech::Direkt(paar) => Ort::Direkt(paar.gegenueber(halter).cloned()),",
-            "_ => Ort::Direkt(None),",
+            "Gespraech::Direkt(paar) => match paar.gegenueber(halter) {",
+            "_ => match None::<&Kennung> {",
         )
     });
     let befunde = pruefen(&quellen);
