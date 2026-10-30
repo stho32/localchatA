@@ -351,7 +351,8 @@ fn ohne_erwaehnung_erzeugen(ordner: &Path, anzahl: usize) -> Vec<Zeit> {
     verlauf_erzeugen(ordner, "allgemein", anzahl, 1, zeit(JETZT), ortszeit).expect("erzeugt");
     let mut zeiten = Vec::new();
     for eintrag in std::fs::read_dir(ordner.join("channels/allgemein")).expect("Channel") {
-        let inhalt = std::fs::read_to_string(eintrag.expect("Eintrag").path()).expect("Datei");
+        let pfad = eintrag.expect("Eintrag").path();
+        let inhalt = kurz_umschreiben(&pfad);
         assert!(!inhalt.contains("@codex"), "erzeugt mit Erwähnung");
         zeiten.extend(
             inhalt
@@ -363,6 +364,21 @@ fn ohne_erwaehnung_erzeugen(ordner: &Path, anzahl: usize) -> Vec<Zeit> {
     zeiten.sort();
     assert_eq!(zeiten.len(), anzahl);
     zeiten
+}
+
+/// Schreibt die Tagesdatei mit denselben Kopfzeilen, aber kurzem Text (`Nachricht n`) neu: Sätze unter 1 KiB kosten
+/// je 1 (F0171, K6), und genau darauf rechnen die Grenzfälle in Sätzen — die erzeugten Texte reichen bis 1.346 Byte
+/// (154 von 5.000 Sätzen kosten 2). Liefert den neuen Inhalt.
+fn kurz_umschreiben(pfad: &Path) -> String {
+    let erzeugt = std::fs::read_to_string(pfad).expect("Datei");
+    let inhalt: String = erzeugt
+        .lines()
+        .filter(|zeile| zeile.starts_with("@ "))
+        .enumerate()
+        .map(|(nummer, kopf)| format!("{kopf}\n  Nachricht {nummer}\n\n"))
+        .collect();
+    std::fs::write(pfad, &inhalt).expect("geschrieben");
+    inhalt
 }
 
 /// Ruft `bis=0&erwaehnung` als `codex`, zuerst ab vor der ersten erzeugten Nachricht, dann mit dem zurückgegebenen
