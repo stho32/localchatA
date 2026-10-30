@@ -62,6 +62,15 @@ test('die eigene Kennung und jede ungültige Adresse führen zu keinem Gespräch
   }
 });
 
+// Code-Review #13 F0178 S1: IPv4-gemappte Formen sind am Server Aliase der IPv4-Kennung (to_canonical) — auch in der
+// Schreibweise, die der Browser selbst bildet (Hex). Die Gegenprobe ohne `ffff` bleibt eine echte IPv6-Kennung.
+test('IPv4-gemappte Kennungen führen zu keinem Gespräch, ::7f00:1 bleibt gültig (S1)', () => {
+  for (const hash of ['#/d/ben%40%3A%3Affff%3A7f00%3A1', '#/d/ben%40%3A%3Affff%3A127.0.0.1', '#/d/ben%40%3A%3A7f00%3A1%3A']) {
+    assert.deepEqual(direktAuswahl(hash, ICH), { gegenueber: null }, hash);
+  }
+  assert.deepEqual(direktAuswahl('#/d/ben%40%3A%3A7f00%3A1', ICH), { gegenueber: 'ben@::7f00:1' });
+});
+
 function holenMit(status, text = '{}') {
   const aufrufe = [];
   const holen = async (pfad, optionen) => {

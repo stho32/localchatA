@@ -40,7 +40,10 @@ function entschluesselt(teil) {
 }
 
 // name@herkunft: ein Teilnehmername nach der Namensregel, die Herkunft eine IPv4- oder IPv6-Adresse so, wie der
-// URL-Parser des Browsers sie selbst schreibt (IPv6 klein und gekürzt) — dieselbe Form, die der Server verlangt.
+// URL-Parser des Browsers sie selbst schreibt (IPv6 klein und gekürzt) — dieselbe Form, die der Server verlangt. Eine
+// IPv4-gemappte Adresse (`::ffff:7f00:1`) ist am Server ein Alias der IPv4-Kennung und damit kein Gespräch.
+const IPV4_GEMAPPT = /^::ffff:[0-9a-f]{1,4}:[0-9a-f]{1,4}$/;
+
 function kanonischeKennung(kennung) {
   const teile = kennung.split('@');
   if (teile.length !== 2 || !pruefen(teile[0], 'teilnehmer').gueltig) {
@@ -48,7 +51,7 @@ function kanonischeKennung(kennung) {
   }
   const herkunft = teile[1];
   if (herkunft.includes(':')) {
-    return hostnameDes(`[${herkunft}]`) === `[${herkunft}]`;
+    return !IPV4_GEMAPPT.test(herkunft) && hostnameDes(`[${herkunft}]`) === `[${herkunft}]`;
   }
   return /^\d+\.\d+\.\d+\.\d+$/.test(herkunft) && hostnameDes(herkunft) === herkunft;
 }

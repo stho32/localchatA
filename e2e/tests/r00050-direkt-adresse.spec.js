@@ -84,6 +84,7 @@ test('Entwurf und Tippen (B0784, V10): der Entwurf liegt unter localchatA.entwur
 
 for (const [fall, kennung] of [
   ['die eigene Kennung', ANNA], ['ohne Herkunft', 'xyz'], ['eine unmögliche Adresse', 'ben@999.1.1.1'], ['Großbuchstaben', 'BEN@127.0.0.3'],
+  ['IPv4-gemappt (Code-Review S1)', 'ben@::ffff:7f00:1'],
 ]) {
   test(`Keine Adresse eines Gesprächs (B0784, V14): ${fall} → „${KEIN_GESPRAECH}“ mit Rückweg, Eingabe disabled`, async ({ browser }) => {
     const { anna } = await starten(browser);
