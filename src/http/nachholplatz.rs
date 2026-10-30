@@ -24,7 +24,7 @@ use std::net::IpAddr;
 use std::sync::{Arc, Mutex, PoisonError};
 
 /// K5: ein Aufruf reserviert so viele Sätze, wie er höchstens prüfen darf — das Budget (K1).
-pub const RESERVIERUNG: u64 = NACHHOLBUDGET.saetze as u64;
+pub const RESERVIERUNG: u64 = NACHHOLBUDGET.kosten as u64;
 
 /// Der Platz eines Aufrufs auf der Nachholbank, mit der Reservierung für sein erstes Nachholen.
 pub struct Platz {
@@ -59,8 +59,8 @@ impl Platz {
 impl Nachholplatz for Platz {
     type Fehler = Abgebrochen;
 
-    /// Das erste Nachholen rechnet die Reservierung ab; jedes weitere (nach `Lagged`) bucht nicht. Geprüfte Sätze
-    /// zählen immer.
+    /// Das erste Nachholen rechnet die Reservierung ab; jedes weitere (nach `Lagged`) bucht nicht. Die geprüften Sätze
+    /// zählen immer, abgerechnet werden die Kosten.
     fn ausfuehren<F>(&self, arbeit: F) -> Nacharbeit<Abgebrochen>
     where
         F: FnOnce() -> Option<Nachgeholt> + Send + 'static,
@@ -75,13 +75,13 @@ impl Nachholplatz for Platz {
         Box::pin(async move {
             bank.ausfuehren(move || {
                 let nachgeholt = arbeit();
-                let geprueft = nachgeholt
-                    .as_ref()
-                    .map_or(0, |nachgeholt| nachgeholt.geprueft);
-                let geprueft = u64::try_from(geprueft).unwrap_or(u64::MAX);
-                konto.geprueft(geprueft);
+                let zahl = |wert: fn(&Nachgeholt) -> usize| {
+                    let wert = nachgeholt.as_ref().map_or(0, wert);
+                    u64::try_from(wert).unwrap_or(u64::MAX)
+                };
+                konto.geprueft(zahl(|nachgeholt| nachgeholt.saetze));
                 if let Some(reservierung) = reservierung {
-                    reservierung.abrechnen(geprueft);
+                    reservierung.abrechnen(zahl(|nachgeholt| nachgeholt.kosten));
                 }
                 nachgeholt
             })
@@ -90,7 +90,7 @@ impl Nachholplatz for Platz {
     }
 }
 
-/// Reservierte, noch nicht abgerechnete Sätze; fällt sie ohne Abrechnung (Arbeit nie gelaufen, Abbruch vor dem
+/// Reservierte, noch nicht abgerechnete Kosten; fällt sie ohne Abrechnung (Arbeit nie gelaufen, Abbruch vor dem
 /// Platz), wird alles erstattet.
 struct Reservierung {
     konto: Arc<Nachholkonto>,
@@ -187,7 +187,8 @@ mod tests {
             treffer: Vec::new(),
             stand: Zeit::parse_from_rfc3339("2026-10-30T12:00:00+01:00").expect("Zeit"),
             weitere: false,
-            geprueft: saetze,
+            kosten: saetze,
+            saetze,
         })
     }
 

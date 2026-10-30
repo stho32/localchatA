@@ -23,17 +23,19 @@ pub struct Nachholbudget {
     pub nachrichten: usize,
     /// Höchstens so viele Lieferbytes je Antwort (`lieferbytes`); der erste Treffer immer.
     pub bytes: usize,
-    /// Höchstens so viele geprüfte Sätze je Nachholen.
-    pub saetze: usize,
+    /// Höchstens so viele Kosten (`kosten_eines_satzes`) je Nachholen; der erste Satz immer.
+    pub kosten: usize,
 }
 
-/// Das Budget eines Aufrufs: 100 Nachrichten, 256 KiB (ADR-0039), 2.000 geprüfte Sätze — K1 (ADR-0054 Ergänzung
-/// „Nachholen von `warten` …“ Regel 2, R00049 F0170): hält jede Belegung der Nachholbank kurz (≈ 10 ms). Bleibt
-/// nach genau so vielen Sätzen keiner ungeprüft, endet das Nachholen ohne `weitere`.
+/// Das Budget eines Aufrufs: 100 Nachrichten, 256 KiB (ADR-0039), 2.000 Kosten — K1 (ADR-0054 Ergänzung „Nachholen
+/// von `warten` …“ Regel 2, R00049 F0170; seit F0171 in Kosten statt in Sätzen, ADR-0054 Ergänzung „Kosten-Einheit
+/// des Nachholens“ Regel 2): hält jede Belegung der Nachholbank kurz (≈ 10 ms). Ein Satz, der das Rest-Budget
+/// überschreitet, wird nicht mehr geprüft (`weitere`); bleibt nach genau 2.000 Kosten keiner ungeprüft, endet das
+/// Nachholen ohne `weitere`.
 pub const NACHHOLBUDGET: Nachholbudget = Nachholbudget {
     nachrichten: 100,
     bytes: 262_144,
-    saetze: 2_000,
+    kosten: 2_000,
 };
 
 /// Wie viele Satzbytes eine Kosteneinheit trägt — K6 (ADR-0054 Ergänzung „Kosten-Einheit des Nachholens“ Regel 1,
@@ -53,8 +55,10 @@ pub struct Nachgeholt {
     /// Bis hierher ist alles geprüft: bei `weitere` die zuletzt geprüfte Zeit, sonst `max(seit, marke)`.
     pub stand: Zeit,
     pub weitere: bool,
-    /// So viele Sätze hat das Nachholen geprüft — die Kosten am Nachholkonto (ADR-0054 Ergänzung Regel 4).
-    pub geprueft: usize,
+    /// So viele Kosten hat das Nachholen geprüft — die Abrechnung am Nachholkonto (ADR-0054 Ergänzung Regel 3).
+    pub kosten: usize,
+    /// So viele Sätze hat das Nachholen geprüft — der Zähler `nachholen.saetze`.
+    pub saetze: usize,
 }
 
 /// Wie viele Bytes ein Treffer im Budget zählt: Text, Namen der Anhänge und Textanfang des Zitats — der Inhalt,
@@ -87,15 +91,17 @@ impl Gespraeche {
             treffer: Vec::new(),
             stand: seit,
             weitere: false,
-            geprueft: 0,
+            kosten: 0,
+            saetze: 0,
         };
         let mut bytes = 0;
         while let Some(naechster) = naechster_strang(&mut straenge) {
-            let budget_erschoepft =
-                ergebnis.geprueft == budget.saetze || ergebnis.treffer.len() == budget.nachrichten;
-            let Some(nachricht) = straenge[naechster].puffer.front() else {
+            let Some(Gelesen { nachricht, kosten }) = straenge[naechster].puffer.front() else {
                 break;
             };
+            let kosten = *kosten;
+            let budget_erschoepft = ergebnis.treffer.len() == budget.nachrichten
+                || (ergebnis.saetze > 0 && ergebnis.kosten + kosten > budget.kosten);
             let anlass = treffer(&straenge[naechster].gespraech, nachricht, wartender, filter);
             let zu_gross = anlass.is_some()
                 && !ergebnis.treffer.is_empty()
@@ -105,10 +111,11 @@ impl Gespraeche {
                 return ergebnis;
             }
             let strang = &mut straenge[naechster];
-            let Some(nachricht) = strang.puffer.pop_front() else {
+            let Some(Gelesen { nachricht, .. }) = strang.puffer.pop_front() else {
                 break;
             };
-            ergebnis.geprueft += 1;
+            ergebnis.kosten += kosten;
+            ergebnis.saetze += 1;
             ergebnis.stand = nachricht.zeit;
             if let Some(anlass) = anlass {
                 bytes += lieferbytes(&nachricht);
@@ -156,9 +163,20 @@ fn naechster_strang(straenge: &mut [Strang<'_>]) -> Option<usize> {
     straenge
         .iter()
         .enumerate()
-        .filter_map(|(index, strang)| strang.puffer.front().map(|kopf| (index, kopf.zeit)))
+        .filter_map(|(index, strang)| {
+            strang
+                .puffer
+                .front()
+                .map(|kopf| (index, kopf.nachricht.zeit))
+        })
         .min_by_key(|(_, zeit)| *zeit)
         .map(|(index, _)| index)
+}
+
+/// Eine gelesene Nachricht samt den Kosten ihres Satzes.
+struct Gelesen {
+    nachricht: Nachricht,
+    kosten: usize,
 }
 
 /// Die Nachrichten eines Gesprächs mit `ab < zeit ≤ marke`, blockweise aus dem Index gelesen.
@@ -166,7 +184,7 @@ struct Strang<'a> {
     gespraeche: &'a Gespraeche,
     gespraech: Gespraech,
     verlauf: Arc<Mutex<Verlauf>>,
-    puffer: VecDeque<Nachricht>,
+    puffer: VecDeque<Gelesen>,
     /// Zeit der zuletzt gelesenen Nachricht (exklusiver Cursor des nächsten Blocks).
     ab: Zeit,
     marke: Zeit,
@@ -184,13 +202,17 @@ impl Strang<'_> {
             n: Blockgroesse::bilden(BLOCK_HOECHSTENS).unwrap_or_else(Blockgroesse::standard),
         };
         let block = sperren(&self.verlauf).block(&abfrage, BLOCKBYTES);
-        let nachrichten: Vec<Nachricht> = block
+        let nachrichten: Vec<Gelesen> = block
             .saetze
             .iter()
-            .filter_map(nachricht_in_fassung)
-            .map(|nachricht| self.gespraeche.zustand_eintragen(nachricht))
+            .filter_map(|kopie| {
+                nachricht_in_fassung(kopie).map(|nachricht| Gelesen {
+                    nachricht: self.gespraeche.zustand_eintragen(nachricht),
+                    kosten: kosten_eines_satzes(kopie.satz.len()),
+                })
+            })
             .collect();
-        let Some(letzte) = nachrichten.last().map(|nachricht| nachricht.zeit) else {
+        let Some(letzte) = nachrichten.last().map(|gelesen| gelesen.nachricht.zeit) else {
             self.erschoepft = true;
             return;
         };
@@ -199,7 +221,7 @@ impl Strang<'_> {
         self.puffer.extend(
             nachrichten
                 .into_iter()
-                .filter(|nachricht| nachricht.zeit <= self.marke),
+                .filter(|gelesen| gelesen.nachricht.zeit <= self.marke),
         );
     }
 }
@@ -351,7 +373,7 @@ mod tests {
     fn das_budget_an_saetzen_endet_mit_weitere_an_der_letzten_gepruefen() {
         let (gespraeche, t) = verschraenkt();
         let vier = Nachholbudget {
-            saetze: 4,
+            kosten: 4,
             ..NACHHOLBUDGET
         };
 
@@ -426,10 +448,10 @@ mod tests {
         }
     }
 
-    /// N3 (B0757, K1): das Budget sind 2.000 geprüfte Sätze je Aufruf.
+    /// N3 (B0757, K1): das Budget sind 2.000 Kosten je Aufruf (seit F0171 Kosten, für kurze Sätze gleich Sätze).
     #[test]
-    fn das_budget_sind_zweitausend_saetze() {
-        assert_eq!(NACHHOLBUDGET.saetze, 2_000);
+    fn das_budget_sind_zweitausend_kosten() {
+        assert_eq!(NACHHOLBUDGET.kosten, 2_000);
     }
 
     /// N3 (B0757, K1): 5.000 Sätze ohne Treffer → `weitere` am 2.000., `weitere` am 4.000., dann `frist` (kein
@@ -449,8 +471,12 @@ mod tests {
             vec![(t[2_000], true), (t[4_000], true), (t[5_000], false)]
         );
         assert!(aufrufe.iter().all(|aufruf| aufruf.treffer.is_empty()));
-        let geprueft: Vec<usize> = aufrufe.iter().map(|aufruf| aufruf.geprueft).collect();
-        assert_eq!(geprueft, [2_000, 2_000, 1_000]);
+        let kosten: Vec<usize> = aufrufe.iter().map(|aufruf| aufruf.kosten).collect();
+        let saetze: Vec<usize> = aufrufe.iter().map(|aufruf| aufruf.saetze).collect();
+        assert_eq!(
+            (kosten, saetze),
+            (vec![2_000, 2_000, 1_000], vec![2_000, 2_000, 1_000])
+        );
     }
 
     /// N3 Grenzfall (Auslegung des planer, beim Bau bestätigt): genau 4.000 Sätze → der zweite Aufruf prüft die
@@ -507,6 +533,75 @@ mod tests {
             .to_vec();
 
         assert_eq!(kosten, vec![1, 1, 2, 17, 33]);
+    }
+
+    /// Ein Channel `a` mit `anzahl` Nachrichten von `anna`, jede mit einem Text aus `laenge` Buchstaben (ohne
+    /// Zeilenumbruch), je 1 ms später; `t0…tn` wie in `reihe`.
+    fn lange_reihe(anzahl: usize, laenge: usize) -> (Gespraeche, Vec<Zeit>) {
+        let ablage = Arc::new(Speicherablage::neu());
+        ablage.gespraech_anlegen(&Gespraech::channel("a"));
+        let beginn = zeit("2026-10-30T12:00:00.000+01:00");
+        let gespraeche =
+            Gespraeche::laden(ablage, Arc::new(GestellteUhr::neu(beginn))).expect("geladen");
+        let mut zeiten = vec![beginn - chrono::Duration::seconds(1)];
+        for _ in 0..anzahl {
+            let gesendet = gespraeche
+                .senden(
+                    &Gespraech::channel("a"),
+                    &anna(),
+                    Art::Mensch,
+                    &"x".repeat(laenge),
+                )
+                .expect("gesendet");
+            zeiten.push(gesendet.zeit);
+        }
+        (gespraeche, zeiten)
+    }
+
+    /// K2 (B0761): 300 Sätze zu 16 KiB (je 17 Kosten) ohne Treffer → 117 Sätze für 1.989 Kosten (117 × 17 ≤ 2.000 <
+    /// 118 × 17), `weitere`; dann wieder 117; dann die restlichen 66 ohne `weitere`; lückenlos, ohne Doppel.
+    #[test]
+    fn dreihundert_lange_saetze_sind_117_117_und_66() {
+        let (gespraeche, t) = lange_reihe(300, 16_384);
+
+        let aufrufe = in_schleife(&gespraeche, &t, &erwaehnung());
+
+        let je_aufruf: Vec<(usize, usize, Zeit, bool)> = aufrufe
+            .iter()
+            .map(|aufruf| (aufruf.saetze, aufruf.kosten, aufruf.stand, aufruf.weitere))
+            .collect();
+        assert_eq!(
+            je_aufruf,
+            vec![
+                (117, 1_989, t[117], true),
+                (117, 1_989, t[234], true),
+                (66, 1_122, t[300], false),
+            ]
+        );
+    }
+
+    /// K2 Fortschritt (B0761): bei einem Budget von 5 wird ein Satz zu 16 KiB trotzdem geprüft — der erste Satz
+    /// eines Aufrufs immer; der zweite nicht mehr (`weitere`), die Wiederholung kommt voran und endet.
+    #[test]
+    fn der_erste_satz_wird_auch_ueber_dem_budget_geprueft() {
+        let (gespraeche, t) = lange_reihe(3, 16_384);
+        let fuenf = Nachholbudget {
+            kosten: 5,
+            ..NACHHOLBUDGET
+        };
+
+        let erster = gespraeche.nachholen(t[0], t[3], &claude(), &erwaehnung(), fuenf);
+        let zweiter = gespraeche.nachholen(erster.stand, t[3], &claude(), &erwaehnung(), fuenf);
+        let dritter = gespraeche.nachholen(zweiter.stand, t[3], &claude(), &erwaehnung(), fuenf);
+
+        assert_eq!(
+            [&erster, &zweiter, &dritter].map(|aufruf| (
+                aufruf.saetze,
+                aufruf.stand,
+                aufruf.weitere
+            )),
+            [(1, t[1], true), (1, t[2], true), (1, t[3], false)]
+        );
     }
 
     /// Lieferbytes: der Text zählt mit seiner Länge in Bytes.
