@@ -11,5 +11,6 @@ Nicht entschieden, nicht geraten — bitte beantworten.
 7. **Ungelesen über Tabs hinweg.** Gilt „gelesen“ je Browser-Tab oder je Name? Bei Namen, die beim Schließen frei werden, gibt es keinen dauerhaften Leser.
 8. **Name zurückgewinnen.** Ein zurückkehrender Tab findet seinen Namen wieder — was, wenn ihn in der Minute dazwischen jemand anderes genommen hat?
 9. **Dateigröße.** Die 25 MB im Entwurf sind ein Platzhalter; welche Grenze gilt?
+   **Antwort (2026-10-30, R00030, ADR-0046):** Keine feste Grenze je Datei. Es gilt der Platz für Anhänge der Instanz (Anhang-Quote): eine Datei, die nicht passt, weist die Anmeldung vor dem ersten Byte ab, mit frei und nötig im Text der Instanz; größer als der ganze Platz ist „zu groß“. Größen erscheinen in Byte, KiB, MiB, GiB.
 10. **Wer sieht welche Channels?** Alle sehen alle, oder gibt es Beitritt/Verlassen? Ohne Rechte vermutlich alle — dann braucht die Seitenleiste ein Ausblenden.
     **Antwort (2026-10-28, Director nach Empfehlung, R00006):** Alle sehen alle Channels; es gibt kein Beitreten oder Verlassen eines Channels. Ein Ausblenden je Browser ist nicht geplant — käme es, wäre es eine eigene Interaction (ADR-0021, ADR-0027 Regel 8).
