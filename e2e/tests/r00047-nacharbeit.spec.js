@@ -2,8 +2,9 @@
 // R00047 I0044 Nacharbeit Karte #79 (Browserteil): Abnahme-Proben aus ux-reviewer und code-reviewer.
 const { test, expect } = require('./rahmen');
 const { sendenStarten, eingabe } = require('./senden-hilfen');
-const { nachrichtMitZeit, ansagenMitschreiben, loeschenPerApi } = require('./r00041-hilfen');
-const { annaSchreibt, benOeffnen, antwortzeile, ueberHoverAntworten, tippenUndSenden, zitatVon } = require('./r00047-hilfen');
+const { nachrichtMitZeit, ansagenMitschreiben, loeschenPerApi, bearbeitenPerApi } = require('./r00041-hilfen');
+const { netzAus, netzAn } = require('./r00012-hilfen');
+const { ANNA, annaSchreibt, mitBezugSenden, benOeffnen, antwortzeile, ueberHoverAntworten, tippenUndSenden, zitatVon } = require('./r00047-hilfen');
 
 let instanz;
 test.afterEach(async () => {
@@ -215,4 +216,22 @@ test('code-reviewer S1: Channelwechsel zwischen Senden und Abweisen → der Text
   await b.page.getByRole('link', { name: 'technik' }).click();
   await expect(eingabe(b.page)).toHaveValue('Hallo technik');
   expect(b.fehler).toEqual([]);
+});
+
+test('code-reviewer S2 (c): Strom unterbrochen, das Original wird bearbeitet, Strom wieder da → das Zitat zeigt den neuen Text', async ({ browser }) => {
+  instanz = await sendenStarten();
+  const anna = await annaSchreibt(instanz.adresse, ['Frage?']);
+  const antwort = await mitBezugSenden(instanz.adresse, anna.token, 'Selbst geantwortet', anna.zeiten[0], ANNA);
+  const b = await benOeffnen(browser, instanz.adresse, { ohneWorker: true });
+  await expect(zitatVon(b.page, antwort).locator('.lc-zitat-text')).toHaveText('Frage?');
+
+  await netzAus(b);
+  expect((await bearbeitenPerApi(instanz.adresse, anna.token, anna.zeiten[0], 'Frage!', ANNA)).status).toBe(200);
+  await b.page.waitForTimeout(300);
+  await expect(zitatVon(b.page, antwort).locator('.lc-zitat-text')).toHaveText('Frage?');
+  await netzAn(b);
+
+  await expect(zitatVon(b.page, antwort).locator('.lc-zitat-text')).toHaveText('Frage!', { timeout: 10000 });
+  await expect(nachrichtMitZeit(b.page, anna.zeiten[0]).locator('.lc-body')).toHaveText('Frage!');
+  expect(b.fehler.filter((zeile) => !/ERR_INTERNET_DISCONNECTED/.test(zeile))).toEqual([]);
 });

@@ -7,7 +7,7 @@ const { test, expect } = require('./rahmen');
 const { instanzStarten, channelAnlegen, grossAnlegen, sichtbarNach } = require('./hilfen');
 const { JETZT, sendenStarten, anfragen, beitreten, imBrowserBeitreten } = require('./senden-hilfen');
 const { geraetOeffnen } = require('./r00027-hilfen');
-const { browserOeffnen, nachrichtMitZeit, loeschenPerApi, ansagenMitschreiben } = require('./r00041-hilfen');
+const { browserOeffnen, nachrichtMitZeit, loeschenPerApi, ansagenMitschreiben, bearbeitenPerApi } = require('./r00041-hilfen');
 const {
   ANNA, CLAUDE, claudeSchreibt, mitBezugSenden, benOeffnen, zitatVon,
 } = require('./r00047-hilfen');
@@ -234,6 +234,60 @@ test('UX S2 (a): scheitert der Sprung (Route nach= abgebrochen), sagt die Region
   await b.page.waitForTimeout(500);
   expect(await angesagt()).toEqual([ansage]);
   expect(b.fehler.filter((fehler) => !fehler.includes('nach='))).toEqual([]);
+});
+
+/// Hält die Antwort jedes Abrufs `…/nachrichten?nach=` `ms` lang auf: die Instanz antwortet sofort, der Tab erhält es später.
+const sprungAntwortVerzoegern = (page, ms) => page.route(/\/nachrichten\?nach=/, async (route) => {
+  const antwort = await route.fetch();
+  await new Promise((weiter) => setTimeout(weiter, ms));
+  await route.fulfill({ response: antwort }).catch(() => {});
+});
+
+test('code-reviewer S2 (a): Klick aufs Zitat, nach= verzögert, Wechsel nach # technik → der Verlauf bleibt „Verlauf # technik“ ohne Original und Antwort', async ({ browser }) => {
+  const { original, antwort } = await antwortAufDieAelteste();
+  const b = await benOeffnen(browser, instanz.adresse);
+  await expect(nachrichtMitZeit(b.page, antwort)).toHaveCount(1);
+  await sprungAntwortVerzoegern(b.page, 1500);
+
+  await zitatVon(b.page, antwort).click();
+  await b.page.getByRole('link', { name: 'technik' }).click();
+  await expect(b.page.getByRole('log')).toHaveAttribute('aria-label', 'Verlauf # technik');
+  await b.page.waitForTimeout(2500);
+  await expect(b.page.getByRole('log')).toHaveAttribute('aria-label', 'Verlauf # technik');
+  await expect(nachrichtMitZeit(b.page, original)).toHaveCount(0);
+  await expect(nachrichtMitZeit(b.page, antwort)).toHaveCount(0);
+  await expect(b.page.locator('.lc-hervorgehoben')).toHaveCount(0);
+  expect(b.fehler).toEqual([]);
+});
+
+test('code-reviewer S2 (b): das Original wird bearbeitet, nachdem die Instanz den Block gelesen hat und bevor er ankommt → nach dem Sprung zeigen Original und Zitat im geholten Block den neuen Text', async ({ browser }) => {
+  const original = '2026-10-27T10:00:00.000+01:00';
+  const antwortImBlock = '2026-10-27T10:01:00.000+01:00';
+  instanz = await sendenStarten({
+    anzahl: 300,
+    vorbereiten: (ordner) => {
+      fs.writeFileSync(`${ordner}/channels/allgemein/2026-10-27.log`,
+        `@ ${original} claude@127.0.0.3\n+ art: agent\n  Alter Text\n\n`
+        + `@ ${antwortImBlock} anna@127.0.0.2\n+ art: mensch\n+ antwort_auf: ${original} claude@127.0.0.3\n  Im Block\n\n`);
+    },
+  });
+  const claude = await claudeSchreibt(instanz.adresse, []);
+  const antwort = await mitBezugSenden(instanz.adresse, claude.token, 'Darauf', original, CLAUDE);
+  const b = await benOeffnen(browser, instanz.adresse);
+  await expect(nachrichtMitZeit(b.page, antwort)).toHaveCount(1);
+  await expect(zitatVon(b.page, antwort).locator('.lc-zitat-text')).toHaveText('Alter Text');
+  await sprungAntwortVerzoegern(b.page, 1500);
+
+  const gelesen = b.page.waitForRequest(/\/nachrichten\?nach=/);
+  await zitatVon(b.page, antwort).click();
+  await gelesen;
+  await b.page.waitForTimeout(300);
+  expect((await bearbeitenPerApi(instanz.adresse, claude.token, original, 'Neuer Text', CLAUDE)).status).toBe(200);
+
+  await sichtbarNach(b.page, hervorgehobenImBild, { argument: { zeit: original }, ab: Date.now(), timeout: 5000 });
+  await expect(nachrichtMitZeit(b.page, original).locator('.lc-body')).toHaveText('Neuer Text');
+  await expect(zitatVon(b.page, antwortImBlock).locator('.lc-zitat-text')).toHaveText('Neuer Text');
+  expect(b.fehler).toEqual([]);
 });
 
 test('Entfallenes Original (Z4, B0718): kein Abruf, Hinweis am Zitat und in der Region, der Verlauf bleibt, wo er ist', async ({ browser }) => {
