@@ -5,6 +5,7 @@
 // „Agent“ für Agenten, in kd-mensch ohne Marke für Menschen und Sätze ohne Art.
 import { kuerzel } from './kopfzeile.js';
 import { uhrzeit, zeitTitel, datumBenennen, datumUhrzeit } from './gliederung.js';
+import { zitatText, zitatName, antwortAufText } from './zitat.js';
 
 // nachricht: { zeit, von, art, text, zustand? } aus der API; ohne Zeit (eigene, noch unterwegs) ohne Uhrzeit im Kopf
 // und ohne zugänglichen Namen (sie ist keine Station des Rollfokus, F0141). Gilt für die Nachricht mindestens eine
@@ -24,6 +25,9 @@ export function nachrichtZeichnen(nachricht, eigeneKennung = '') {
     text.id = `lc-text-${nachricht.zeit}`;
   }
   const inhalt = element('div', { className: 'lc-msg-inhalt' }, [text]);
+  if (nachricht.antwort_auf !== undefined && nachricht.antwort_auf !== null) {
+    inhalt.prepend(zitatZeichnen(nachricht.antwort_auf));
+  }
   if (darstellung.marke === 'bearbeitet') {
     inhalt.append(markeBearbeitetZeichnen(nachricht.zeit, darstellung.zuletztBearbeitet));
   }
@@ -96,6 +100,25 @@ export function inhaltDarstellen({ text, zustand, geaendert }) {
   return { text, marke: null, zuletztBearbeitet: null };
 }
 
+// Das Zitat einer Antwort über ihrem Text (R00047 B0716, ADR-0053 Regel 6, Vorprüfung `ux-reviewer`): ein Knopf mit dem
+// Kopf „↩ <Kennung> <HH:MM>“ (das ↩ nur für die Augen) und darunter, was das Zitat zeigt — auf zwei Zeilen gekürzt per
+// CSS. Alles nur als Text (textContent), nie als HTML oder Markdown: ein Zitat lädt nichts nach. Der Verlauf führt den
+// Sprung aus; die Zeit des Originals steht in data-zeit.
+function zitatZeichnen(bezug) {
+  const pfeil = element('span', { textContent: '↩' });
+  pfeil.setAttribute('aria-hidden', 'true');
+  const kopf = element('span', { className: 'lc-zitat-kopf' }, [
+    pfeil, ' ', element('span', { className: 'lc-zitat-von', textContent: bezug.von }), ' ', element('span', { textContent: uhrzeit(bezug.zeit) }),
+  ]);
+  const zitat = element('button', { type: 'button', className: 'lc-zitat' }, [
+    kopf, element('span', { className: 'lc-zitat-text', textContent: zitatText(bezug) }),
+  ]);
+  zitat.dataset.zeit = bezug.zeit;
+  zitat.dataset.zustand = bezug.zustand;
+  zitat.setAttribute('aria-label', zitatName(bezug));
+  return zitat;
+}
+
 // An der Stelle des Textes einer gelöschten Nachricht steht ihre Marke.
 function textZeichnen(darstellung) {
   if (darstellung.marke === 'geloescht') {
@@ -152,9 +175,9 @@ export function aktionenFuer(nachricht, eigeneKennung) {
 const NAME_TEXTANFANG_ZEICHEN = 120;
 
 // Der zugängliche Name einer Nachricht im Verlauf (F0141, B0632): „<Kennung>, <HH:MM>[, bearbeitet | , Nachricht
-// gelöscht]: <Textanfang>“; der Textanfang ist eine Zeile und endet nach 120 Zeichen mit „…“, eine gelöschte
-// Nachricht nennt statt seiner die Marke.
-export function zugaenglicherName({ von, zeit, text = '', zustand }) {
+// gelöscht][, Antwort auf <Kennung> <HH:MM>]: <Textanfang>“; der Textanfang ist eine Zeile und endet nach 120 Zeichen mit
+// „…“, eine gelöschte Nachricht nennt statt seiner die Marke; eine Antwort nennt ihr Original (R00047 Z1).
+export function zugaenglicherName({ von, zeit, text = '', zustand, antwort_auf: bezug = null }) {
   const kopf = `${von}, ${uhrzeit(zeit)}`;
   if (zustand === 'geloescht') {
     return `${kopf}, Nachricht gelöscht`;
@@ -163,11 +186,15 @@ export function zugaenglicherName({ von, zeit, text = '', zustand }) {
   if (zustand === 'bearbeitet') {
     marke = ', bearbeitet';
   }
+  let antwortAuf = '';
+  if (bezug !== null) {
+    antwortAuf = `, ${antwortAufText(bezug)}`;
+  }
   const anfang = textanfang(text);
   if (anfang === '') {
-    return `${kopf}${marke}`;
+    return `${kopf}${marke}${antwortAuf}`;
   }
-  return `${kopf}${marke}: ${anfang}`;
+  return `${kopf}${marke}${antwortAuf}: ${anfang}`;
 }
 
 function textanfang(text) {

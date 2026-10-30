@@ -2,7 +2,7 @@
 // der Bezug der Antwortzeile, und was eine Zeile oder ein Zitat zu einem Bezug zeigt.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { bezugAusNachricht, zitatText } from '../../web/zitat.js';
+import { bezugAusNachricht, zitatText, zitatName } from '../../web/zitat.js';
 
 const ZEIT = '2026-10-30T14:03:00.000+01:00';
 
@@ -35,4 +35,11 @@ test('zitatText: Textanfang; gelöscht, entfallen und nur Anhang mit ihrem Wortl
 
 test('zitatText: ein Zustand, den der Tab nicht kennt, ist ein Fehler, kein leeres Zitat', () => {
   assert.throws(() => zitatText({ zeit: ZEIT, von: 'a@b', zustand: 'verschoben', textanfang: 'x', anhang: null }), /verschoben/);
+});
+
+test('zitatName: „Zur Nachricht springen: <Kennung> <HH:MM>, <was das Zitat zeigt>“ — ohne das ↩, die Uhrzeit im Versatz des Originals', () => {
+  const bezug = { zeit: '2026-10-28T14:03:59.999+01:00', von: 'anna@127.0.0.2', zustand: 'da', textanfang: 'Frage?', anhang: null, geaendert: null };
+  assert.equal(zitatName(bezug), 'Zur Nachricht springen: anna@127.0.0.2 14:03, Frage?');
+  assert.equal(zitatName({ ...bezug, zustand: 'geloescht', textanfang: '' }), 'Zur Nachricht springen: anna@127.0.0.2 14:03, Nachricht gelöscht');
+  assert.equal(zitatName({ ...bezug, textanfang: '', anhang: 'bericht.pdf' }), 'Zur Nachricht springen: anna@127.0.0.2 14:03, Anhang: bericht.pdf');
 });

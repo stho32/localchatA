@@ -35,3 +35,23 @@ test('ein langer Text endet nach 120 Zeichen mit einem Auslassungszeichen, ohne 
 test('ein Text nur aus Leerraum lässt den Doppelpunkt weg', () => {
   assert.equal(zugaenglicherName(nachricht({ text: ' \n ' })), 'beta@127.0.0.1, 14:09');
 });
+
+// Antwort (R00047 B0716, Z1): der Name nennt das Original — „<Kennung>, <HH:MM>, Antwort auf <Kennung> <HH:MM>: <Text>“.
+const bezug = (extra = {}) => ({ zeit: '2026-10-28T14:03:00.000+01:00', von: 'anna@127.0.0.2', zustand: 'da', textanfang: 'Frage?', anhang: null, geaendert: null, ...extra });
+
+test('Antwort: nach Kennung und Uhrzeit „Antwort auf <Kennung> <HH:MM>“, dann der eigene Text', () => {
+  assert.equal(zugaenglicherName(nachricht({ text: 'Ja', antwort_auf: bezug() })), 'beta@127.0.0.1, 14:09, Antwort auf anna@127.0.0.2 14:03: Ja');
+  assert.equal(zugaenglicherName(nachricht({ text: 'Ja', antwort_auf: bezug({ zustand: 'bearbeitet', textanfang: 'Frage!' }) })), 'beta@127.0.0.1, 14:09, Antwort auf anna@127.0.0.2 14:03: Ja');
+});
+
+test('Antwort auf ein gelöschtes Original: „…, Nachricht gelöscht: <Text>“; auf ein entfallenes: „Antwort auf ältere Nachricht, nicht mehr vorhanden“', () => {
+  assert.equal(zugaenglicherName(nachricht({ text: 'Ja', antwort_auf: bezug({ zustand: 'geloescht', textanfang: '' }) })),
+    'beta@127.0.0.1, 14:09, Antwort auf anna@127.0.0.2 14:03, Nachricht gelöscht: Ja');
+  assert.equal(zugaenglicherName(nachricht({ text: 'Ja', antwort_auf: bezug({ zustand: 'entfallen', textanfang: '' }) })),
+    'beta@127.0.0.1, 14:09, Antwort auf ältere Nachricht, nicht mehr vorhanden: Ja');
+});
+
+test('Antwort, selbst bearbeitet: die Marke steht vor dem Bezug; ohne Bezug (null) wie bisher', () => {
+  assert.equal(zugaenglicherName(nachricht({ text: 'Ja', zustand: 'bearbeitet', antwort_auf: bezug() })), 'beta@127.0.0.1, 14:09, bearbeitet, Antwort auf anna@127.0.0.2 14:03: Ja');
+  assert.equal(zugaenglicherName(nachricht({ antwort_auf: null })), 'beta@127.0.0.1, 14:09: Hallo');
+});
