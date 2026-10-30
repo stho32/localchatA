@@ -110,3 +110,59 @@ async fn jeder_ungueltige_direktordner_ist_genau_eine_warnung_laden_und_der_heal
         "der Name schleust keine Zeile ein: {zeilen:#?}"
     );
 }
+
+/// O1, dritter Teil (wörtlich): `anhaenge` im Paar als Symlink wird nicht gefolgt — ein Senden mit Anhang scheitert
+/// mit 500 `nicht gespeichert`, nichts steht im Log, das Ziel des Symlinks bleibt leer, der Anhang liegt wieder im
+/// Eingang.
+#[tokio::test]
+async fn anhaenge_im_paar_als_symlink_wird_nie_gefolgt() {
+    use gemeinsam::anhaenge::{ablegen, im_eingang, starten as starten_anhaenge};
+    use gemeinsam::direkt::{ANNA_BEN, BEN, paarinhalt, runde_mit};
+    use gemeinsam::senden::ordner as senden_ordner;
+    use serde_json::json;
+    let wurzel = senden_ordner();
+    let ziel = tempfile::tempdir().expect("Ziel");
+    let paar = wurzel.path().join("direkt").join(ANNA_BEN);
+    std::fs::create_dir_all(&paar).expect("Paar");
+    std::os::unix::fs::symlink(ziel.path(), paar.join("anhaenge")).expect("Symlink anhaenge");
+    let instanz = starten_anhaenge(
+        wurzel.path(),
+        &[],
+        &[("LOCALCHATA_JETZT", "2026-10-28T12:00:00.000+01:00")],
+    );
+    let r = runde_mit(wurzel, instanz).await;
+    let basis = r.instanz.adresse.clone();
+    let id = ablegen(
+        &r.anna.absender,
+        &basis,
+        &r.anna.token,
+        "notiz.txt",
+        b"anhang".to_vec(),
+    )
+    .await;
+
+    let antwort = r
+        .anna
+        .senden(
+            &basis,
+            BEN,
+            &json!({"text": "mit Anhang", "anhaenge": [id]}),
+        )
+        .await;
+
+    assert_eq!(antwort.status, 500, "{}", antwort.json);
+    assert_eq!(
+        std::fs::read_dir(ziel.path()).expect("Ziel").count(),
+        0,
+        "Ziel unberührt"
+    );
+    assert!(
+        paarinhalt(r.wurzel.path(), ANNA_BEN).is_empty(),
+        "kein Satz im Log"
+    );
+    assert_eq!(
+        im_eingang(r.wurzel.path()).len(),
+        1,
+        "der Anhang liegt wieder im Eingang"
+    );
+}
