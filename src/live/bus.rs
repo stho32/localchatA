@@ -14,6 +14,12 @@ pub enum Ereignis {
         channel: String,
         nachricht: Nachricht,
     },
+    /// Eine geänderte Nachricht eines Channels in ihrer neuen Fassung (ADR-0048 Regel 11); ohne Stand, geordnet über
+    /// `geaendert`.
+    Aenderung {
+        channel: String,
+        nachricht: Nachricht,
+    },
     /// Gelöschte Anhänge eines Channels (ADR-0047 Ergänzung „F1′“ Regel 3): je (ID, Satzzeit); eigenes Thema,
     /// ohne Ordnungszahl, endgültig und idempotent.
     Anhaenge {
@@ -101,6 +107,22 @@ pub fn nachrichten_veroeffentlichen(
     std::sync::Arc::new(move |gespraech: &Gespraech, nachricht: &Nachricht| {
         if let Gespraech::Channel(channel) = gespraech {
             bus.veroeffentlichen(Ereignis::Nachricht {
+                channel: channel.clone(),
+                nachricht: nachricht.clone(),
+            });
+        }
+    })
+}
+
+/// Die Veröffentlichung für Änderungen: jede geänderte Nachricht eines Channels als Ereignis `aenderung` auf den Bus
+/// (ADR-0048 Regel 11); Direktgespräche haben ihren eigenen Weg (I0012).
+pub fn aenderungen_veroeffentlichen(
+    bus: &std::sync::Arc<Bus>,
+) -> crate::gespraeche::NachrichtVeroeffentlichen {
+    let bus = std::sync::Arc::clone(bus);
+    std::sync::Arc::new(move |gespraech: &Gespraech, nachricht: &Nachricht| {
+        if let Gespraech::Channel(channel) = gespraech {
+            bus.veroeffentlichen(Ereignis::Aenderung {
                 channel: channel.clone(),
                 nachricht: nachricht.clone(),
             });
@@ -212,6 +234,39 @@ mod tests {
         drop(bus);
 
         assert_eq!(abonnement.naechstes().await, None);
+    }
+
+    /// R00039 B0602: eine Änderung eines Channels geht als `Aenderung` auf den Bus; die eines Direktgesprächs nicht.
+    #[tokio::test]
+    async fn eine_aenderung_geht_als_ereignis_auf_den_bus() {
+        let bus = std::sync::Arc::new(Bus::neu(4));
+        let mut abonnement = bus.abonnieren();
+        let nachricht = Nachricht {
+            zeit: Zeit::parse_from_rfc3339("2026-10-28T12:00:00.001+01:00").expect("Zeit"),
+            von: Kennung::bilden("beta@127.0.0.1").expect("Kennung"),
+            art: None,
+            text: "Hallo zusammen".into(),
+            anhaenge: Vec::new(),
+            geaendert: None,
+        };
+        let veroeffentlichen = aenderungen_veroeffentlichen(&bus);
+
+        veroeffentlichen(
+            &Gespraech::Direkt("beta@127.0.0.1+gamma@127.0.0.1".into()),
+            &nachricht,
+        );
+        veroeffentlichen(&Gespraech::channel("allgemein"), &nachricht);
+
+        assert_eq!(
+            tokio::time::timeout(std::time::Duration::from_secs(1), abonnement.naechstes())
+                .await
+                .ok()
+                .flatten(),
+            Some(Empfang::Ereignis(Ereignis::Aenderung {
+                channel: "allgemein".into(),
+                nachricht
+            }))
+        );
     }
 
     #[tokio::test]

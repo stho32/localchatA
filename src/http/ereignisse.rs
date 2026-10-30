@@ -135,6 +135,10 @@ enum Ausgabe {
         channel: String,
         geloescht: Vec<(String, crate::uhr::Zeit)>,
     },
+    Aenderung {
+        channel: String,
+        nachricht: Nachricht,
+    },
     Herzschlag,
 }
 
@@ -150,6 +154,9 @@ impl Strom {
             Ausgabe::Channel(wechsel) => channel_ereignis(&wechsel),
             Ausgabe::Nachricht { channel, nachricht } => nachricht_ereignis(&channel, &nachricht),
             Ausgabe::Anhaenge { channel, geloescht } => anhaenge_ereignis(&channel, &geloescht),
+            Ausgabe::Aenderung { channel, nachricht } => {
+                Event::default().data(aenderung_als_json(&channel, &nachricht).to_string())
+            }
             Ausgabe::Herzschlag => herzschlag_ereignis(&self.anwesenheit),
         };
         Some((Ok(ereignis), self))
@@ -187,6 +194,9 @@ impl Strom {
                     }
                     Empfang::Ereignis(Ereignis::Anhaenge { channel, geloescht }) => {
                         Ausgabe::Anhaenge { channel, geloescht }
+                    }
+                    Empfang::Ereignis(Ereignis::Aenderung { channel, nachricht }) => {
+                        Ausgabe::Aenderung { channel, nachricht }
                     }
                     Empfang::NeuerStand { verpasst } => {
                         self.ueberholt_melden(verpasst);
@@ -276,6 +286,16 @@ fn nachricht_ereignis(channel: &str, nachricht: &Nachricht) -> Event {
     Event::default().data(ereignis.to_string())
 }
 
+/// `{"art":"aenderung","channel":…,"nachricht":{zeit, von, art, text, zustand, geaendert, anhaenge}}` — die
+/// Nachricht in der Form der Antwort (ADR-0048 Regel 11).
+fn aenderung_als_json(channel: &str, nachricht: &Nachricht) -> serde_json::Value {
+    json!({
+        "art": "aenderung",
+        "channel": channel,
+        "nachricht": NachrichtAntwort::aus(nachricht),
+    })
+}
+
 /// `{"art":"anhaenge","channel":…,"geloescht":[{"id":…,"zeit":<Satzzeit>}]}` (B0514).
 fn anhaenge_ereignis(channel: &str, geloescht: &[(String, crate::uhr::Zeit)]) -> Event {
     let ereignis = json!({
@@ -309,6 +329,38 @@ mod tests {
     use crate::zufall::Betriebssystemzufall;
     use axum::http::StatusCode;
     use std::time::Duration;
+
+    /// R00039 B0602 (ADR-0048 Regel 11): das Ereignis `aenderung` trägt Channel und die Nachricht in der Form der
+    /// Antwort, mit `zustand` und `geaendert`.
+    #[test]
+    fn eine_aenderung_ist_ein_ereignis_mit_der_nachricht_in_ihrer_fassung() {
+        use crate::gespraeche::{Aenderungszustand, Art, Geaendert};
+        let zeit = |text| crate::uhr::Zeit::parse_from_rfc3339(text).expect("Zeit");
+        let nachricht = Nachricht {
+            zeit: zeit("2026-10-28T12:00:00.001+01:00"),
+            von: Kennung::bilden("beta@127.0.0.1").expect("Kennung"),
+            art: Some(Art::Agent),
+            text: "Hallo zusammen".into(),
+            anhaenge: Vec::new(),
+            geaendert: Some(Geaendert {
+                zeit: zeit("2026-10-28T12:05:00.000+01:00"),
+                zustand: Aenderungszustand::Bearbeitet,
+            }),
+        };
+
+        assert_eq!(
+            aenderung_als_json("allgemein", &nachricht),
+            json!({
+                "art": "aenderung",
+                "channel": "allgemein",
+                "nachricht": {
+                    "zeit": "2026-10-28T12:00:00.001+01:00", "von": "beta@127.0.0.1", "art": "agent",
+                    "text": "Hallo zusammen", "zustand": "bearbeitet",
+                    "geaendert": "2026-10-28T12:05:00.000+01:00", "anhaenge": []
+                }
+            })
+        );
+    }
 
     /// Gespräche im Speicher, deren Channel-Wechsel auf `bus` gehen.
     fn gespraeche_am(bus: &Arc<Bus>) -> Arc<Gespraeche> {
@@ -407,6 +459,7 @@ mod tests {
                 | Ausgabe::Channel(_)
                 | Ausgabe::Nachricht { .. }
                 | Ausgabe::Anhaenge { .. }
+                | Ausgabe::Aenderung { .. }
                 | Ausgabe::Herzschlag => {}
             }
             if neuer_stand.is_some() {
