@@ -281,6 +281,113 @@ test('Pfeil hoch (B0633): eine gelöschte eigene letzte Nachricht wird überspru
   expect(a.fehler).toEqual([]);
 });
 
+/// Springt n-mal an den oberen Rand des Verlaufs; jedes Mal wird ältere Vergangenheit nachgeladen, bis das Fenster den
+/// neuesten Block verliert (die Pille „Zum Neuesten“ steht dann da).
+async function weitHochScrollen(page, anzahl) {
+  const log = page.getByRole('log');
+  for (let sprung = 0; sprung < anzahl; sprung += 1) {
+    await log.evaluate((element) => { element.scrollTop = 0; });
+    await page.waitForFunction(() => document.querySelector('[role="log"]').dataset.laedt === undefined);
+    await page.waitForTimeout(150);
+  }
+}
+
+/// Fremde Nachrichten per API, `anzahl` Stück, Text „Fremd <n>“; je zwei Nachrichten ein anderer Absender (eine
+/// eigene Herkunftsadresse), damit die Bremse je Kennung und je Herkunft nicht anschlägt.
+let absenderZaehler = 0;
+async function betaSendetViele(anzahl) {
+  absenderZaehler += 1000;
+  let token = null;
+  let herkunft = null;
+  for (let nummer = 1; nummer <= anzahl; nummer += 1) {
+    if (nummer % 2 === 1) {
+      const absender = absenderZaehler + Math.floor(nummer / 2) + 1;
+      herkunft = `127.0.1.${absender % 250 + 1}`;
+      token = await beitreten(instanz.adresse, `fremd-${absender}`, { herkunft });
+    }
+    const antwort = await senden(instanz.adresse, token, 'allgemein', `Fremd ${nummer}`, herkunft);
+    expect(antwort.status, JSON.stringify(antwort.daten)).toBe(201);
+  }
+}
+
+test('Pfeil hoch (B1, Probe a): „Mein“ liegt weit weggescrollt — ↑ springt zum Neuesten und fokussiert „Mein“', async ({ browser }) => {
+  test.setTimeout(120000);
+  instanz = await sendenStarten({ anzahl: 800 });
+  const a = await kontextOeffnen(browser, { streng: true });
+  await imBrowserBeitreten(a.page, instanz.adresse, 'shoff');
+  await imBrowserSenden(a.page, 'Mein');
+  await betaSendetViele(2);
+  await expect(nachrichten(a.page).last()).toContainText('Fremd 2');
+
+  await weitHochScrollen(a.page, 7);
+  await expect(a.page.getByRole('button', { name: /Zum Neuesten/ })).toBeVisible();
+  await expect(a.page.getByRole('log').locator('.lc-msg', { hasText: 'Fremd 2' })).toHaveCount(0);
+
+  await eingabe(a.page).focus();
+  await a.page.keyboard.press('ArrowUp');
+  await expect.poll(() => textDerFokussierten(a.page)).toBe('Mein');
+  expect(await fokusSichtbarImVerlauf(a.page)).toEqual({ nachricht: true, fokusSichtbar: true, ring: 'solid', ganz: true });
+  expect(a.fehler).toEqual([]);
+});
+
+test('Pfeil hoch (B1, Probe b): eine ältere eigene „Alt“ steht im Fenster, die letzte „Mein“ nicht — ↑ trifft „Mein“', async ({ browser }) => {
+  test.setTimeout(180000);
+  instanz = await sendenStarten({ anzahl: 800 });
+  const a = await kontextOeffnen(browser, { streng: true });
+  await imBrowserBeitreten(a.page, instanz.adresse, 'shoff');
+  await imBrowserSenden(a.page, 'Alt');
+  await betaSendetViele(450);
+  await imBrowserSenden(a.page, 'Mein');
+  await betaSendetViele(1);
+  // Frisch geöffnet, damit die Blöcke so geschnitten sind wie nach dem Laden: neueste 100, dann je 100 nach oben.
+  await a.page.reload();
+  await expect(nachrichten(a.page).last()).toContainText('Fremd 1');
+
+  await weitHochScrollen(a.page, 5);
+  await expect(a.page.getByRole('button', { name: /Zum Neuesten/ })).toBeVisible();
+  const imFenster = await nachrichten(a.page).evaluateAll((alle) => alle.map((einzeln) => einzeln.querySelector('.lc-body').textContent));
+  expect(imFenster).toContain('Alt');
+  expect(imFenster).not.toContain('Mein');
+
+  await eingabe(a.page).focus();
+  await a.page.keyboard.press('ArrowUp');
+  await expect.poll(() => textDerFokussierten(a.page)).toBe('Mein');
+  expect(a.fehler).toEqual([]);
+});
+
+test('Pfeil hoch (B1, Probe c): ohne eigene Nachricht und weit hochgescrollt bleibt der Fokus in der Eingabe', async ({ browser }) => {
+  test.setTimeout(120000);
+  instanz = await sendenStarten({ anzahl: 800 });
+  const a = await kontextOeffnen(browser, { streng: true });
+  await imBrowserBeitreten(a.page, instanz.adresse, 'shoff');
+  await weitHochScrollen(a.page, 7);
+  await expect(a.page.getByRole('button', { name: /Zum Neuesten/ })).toBeVisible();
+
+  await eingabe(a.page).focus();
+  await a.page.keyboard.press('ArrowUp');
+  await a.page.waitForTimeout(500);
+  await expect(eingabe(a.page)).toBeFocused();
+  expect(await fokussierteZeit(a.page)).toBeNull();
+  expect(a.fehler).toEqual([]);
+});
+
+test('Pfeil hoch (B1, Probe d): die eigene letzte liegt jenseits der neuesten 100 — nichts geschieht', async ({ browser }) => {
+  test.setTimeout(120000);
+  instanz = await sendenStarten();
+  const a = await kontextOeffnen(browser, { streng: true });
+  await imBrowserBeitreten(a.page, instanz.adresse, 'shoff');
+  await imBrowserSenden(a.page, 'Mein');
+  await betaSendetViele(120);
+  await expect(nachrichten(a.page)).toHaveCount(121);
+
+  await eingabe(a.page).focus();
+  await a.page.keyboard.press('ArrowUp');
+  await a.page.waitForTimeout(500);
+  await expect(eingabe(a.page)).toBeFocused();
+  expect(await fokussierteZeit(a.page)).toBeNull();
+  expect(a.fehler).toEqual([]);
+});
+
 /// Hält die Abrufe des Nachholens (`nach` und `n=200`) an, bis `freigeben()` gerufen wird.
 async function nachholenAnhalten(page) {
   let freigeben;

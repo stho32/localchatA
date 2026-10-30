@@ -326,8 +326,15 @@ export function verlaufAnlegen({ abrufen, schalter = () => {}, fokusRueckgaengig
     }
   }
 
-  // ↑ in der leeren Eingabe: die jüngste eigene, bestätigte, nicht gelöschte Nachricht des Fensters; keine → nichts.
-  function eigeneLetzteFokussieren() {
+  // ↑ in der leeren Eingabe: die jüngste eigene, bestätigte, nicht gelöschte Nachricht unter den neuesten 100; keine
+  // → nichts. Steht der Verlauf nicht am Neuesten, öffnet er zuerst neu (wie beim Senden, ADR-0037 Regel 1).
+  async function eigeneLetzteFokussieren() {
+    if (fenster !== null && fenster.neuer) {
+      const ergebnis = await oeffnen(offenerName);
+      if (ergebnis.art !== 'geladen') {
+        return;
+      }
+    }
     const liste = nachrichtenImVerlauf();
     const stelle = eigeneLetzte(liste.map((einzeln) => einzeln.dataset), eigeneKennung);
     if (stelle !== null) {

@@ -60,10 +60,14 @@ export function zuEigenerLetzten(ereignis, text) {
   return pfeilRichtung(ereignis) === 'zurueck' && text === '' && !komponiert;
 }
 
-// Die Stelle der jüngsten bestätigten, nicht gelöschten Nachricht von `kennung` in `nachrichten` ({ von, zustand },
-// älteste zuerst); null, wenn es keine gibt.
-export function eigeneLetzte(nachrichten, kennung) {
-  for (let stelle = nachrichten.length - 1; stelle >= 0; stelle -= 1) {
+// Wie weit zurück ↑ in der leeren Eingabe nach der eigenen letzten Nachricht sucht (R00041 US-13: die neuesten 100).
+export const SUCHTIEFE_EIGENE_LETZTE = 100;
+
+// Die Stelle der jüngsten bestätigten, nicht gelöschten Nachricht von `kennung` unter den neuesten `suchtiefe` von
+// `nachrichten` ({ von, zustand }, älteste zuerst); null, wenn es dort keine gibt.
+export function eigeneLetzte(nachrichten, kennung, suchtiefe = SUCHTIEFE_EIGENE_LETZTE) {
+  const ersteGesuchte = Math.max(0, nachrichten.length - suchtiefe);
+  for (let stelle = nachrichten.length - 1; stelle >= ersteGesuchte; stelle -= 1) {
     const nachricht = nachrichten[stelle];
     if (nachricht.von === kennung && nachricht.zustand !== 'geloescht') {
       return stelle;

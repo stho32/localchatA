@@ -86,6 +86,13 @@ test('eine gelöschte eigene wird übersprungen, eine bearbeitete zählt', () =>
   assert.equal(eigeneLetzte([satz(ICH), satz(ICH, 'bearbeitet'), satz(BETA)], ICH), 1);
 });
 
+test('gesucht wird nur in den neuesten 100: eine eigene dahinter zählt nicht, die 100. von hinten noch', () => {
+  const hinten = (anzahl) => Array.from({ length: anzahl }, () => satz(BETA));
+  assert.equal(eigeneLetzte([satz(ICH), ...hinten(100)], ICH), null);
+  assert.equal(eigeneLetzte([satz(ICH), ...hinten(99)], ICH), 0);
+  assert.equal(eigeneLetzte([satz(ICH), ...hinten(299)], ICH, 300), 0);
+});
+
 test('ohne eigene Nachricht keine; eine ähnliche Kennung ist nicht meine', () => {
   assert.equal(eigeneLetzte([satz(BETA), satz(BETA)], ICH), null);
   assert.equal(eigeneLetzte([satz('shoff@127.0.0.2')], ICH), null);
