@@ -9,6 +9,16 @@ use axum::extract::State;
 use serde::Serialize;
 use std::sync::Arc;
 
+/// `nachholen {saetze, gebremst, bank_plaetze, bank_belegt}`: seit dem Start geprüfte Sätze, Zahl der 429
+/// `nachholen`, Plätze der Nachholbank (fest) und belegte (Momentwert).
+#[derive(Debug, Serialize)]
+pub struct Nachholen {
+    saetze: u64,
+    gebremst: u64,
+    bank_plaetze: usize,
+    bank_belegt: usize,
+}
+
 #[derive(Debug, Serialize)]
 pub struct Gesundheit {
     status: &'static str,
@@ -27,6 +37,8 @@ pub struct Gesundheit {
     halter: usize,
     /// Laufende Warte-Aufrufe (ADR-0054 Regel 10), Momentwert.
     wartend: usize,
+    /// Nachholen von `warten` (ADR-0054 Ergänzung „Nachholen von `warten` …“ Regel 8).
+    nachholen: Nachholen,
     herzschlag_ms: u128,
     abrissgrenze_ms: u128,
     protokoll_stufe: &'static str,
@@ -98,6 +110,12 @@ pub async fn beantworten(State(zustand): State<Arc<Zustand>>) -> Json<Gesundheit
         sitzungen: betrieb.sitzungen,
         halter: betrieb.halter,
         wartend: zustand.wartende.anzahl(),
+        nachholen: Nachholen {
+            saetze: zustand.nachholkonto.saetze(),
+            gebremst: zustand.nachholkonto.gebremst(),
+            bank_plaetze: zustand.nachholbank.plaetze(),
+            bank_belegt: zustand.nachholbank.belegt(),
+        },
         herzschlag_ms: zustand.herzschlag.as_millis(),
         abrissgrenze_ms: pflege_aus(zustand.herzschlag).user_timeout.as_millis(),
         protokoll_stufe: protokoll.stufe.als_wert(),
@@ -178,6 +196,18 @@ mod tests {
             .as_object_mut()
             .and_then(|felder| felder.remove("wartend"));
         assert_eq!(wartend, Some(json!(0)));
+        let nachholen = inhalt
+            .as_object_mut()
+            .and_then(|felder| felder.remove("nachholen"));
+        assert_eq!(
+            nachholen,
+            Some(json!({
+                "saetze": 0,
+                "gebremst": 0,
+                "bank_plaetze": Werkbank::nachholbank().plaetze(),
+                "bank_belegt": 0,
+            }))
+        );
         assert_eq!(status, 200);
         assert_eq!(typ, "application/json");
         assert_eq!(

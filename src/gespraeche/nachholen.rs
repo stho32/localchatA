@@ -43,6 +43,8 @@ pub struct Nachgeholt {
     /// Bis hierher ist alles geprüft: bei `weitere` die zuletzt geprüfte Zeit, sonst `max(seit, marke)`.
     pub stand: Zeit,
     pub weitere: bool,
+    /// So viele Sätze hat das Nachholen geprüft — die Kosten am Nachholkonto (ADR-0054 Ergänzung Regel 4).
+    pub geprueft: usize,
 }
 
 /// Wie viele Bytes ein Treffer im Budget zählt: Text, Namen der Anhänge und Textanfang des Zitats — der Inhalt,
@@ -75,12 +77,12 @@ impl Gespraeche {
             treffer: Vec::new(),
             stand: seit,
             weitere: false,
+            geprueft: 0,
         };
         let mut bytes = 0;
-        let mut geprueft = 0;
         while let Some(naechster) = naechster_strang(&mut straenge) {
             let budget_erschoepft =
-                geprueft == budget.saetze || ergebnis.treffer.len() == budget.nachrichten;
+                ergebnis.geprueft == budget.saetze || ergebnis.treffer.len() == budget.nachrichten;
             let Some(nachricht) = straenge[naechster].puffer.front() else {
                 break;
             };
@@ -96,7 +98,7 @@ impl Gespraeche {
             let Some(nachricht) = strang.puffer.pop_front() else {
                 break;
             };
-            geprueft += 1;
+            ergebnis.geprueft += 1;
             ergebnis.stand = nachricht.zeit;
             if let Some(anlass) = anlass {
                 bytes += lieferbytes(&nachricht);
@@ -437,6 +439,8 @@ mod tests {
             vec![(t[2_000], true), (t[4_000], true), (t[5_000], false)]
         );
         assert!(aufrufe.iter().all(|aufruf| aufruf.treffer.is_empty()));
+        let geprueft: Vec<usize> = aufrufe.iter().map(|aufruf| aufruf.geprueft).collect();
+        assert_eq!(geprueft, [2_000, 2_000, 1_000]);
     }
 
     /// N3 Grenzfall (Auslegung des planer, beim Bau bestätigt): genau 4.000 Sätze → der zweite Aufruf prüft die

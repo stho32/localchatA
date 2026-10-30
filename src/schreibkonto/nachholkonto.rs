@@ -33,6 +33,7 @@ pub struct Nachholkonto {
     uhr: Arc<dyn Uhr>,
     tabellen: Mutex<Tabellen>,
     gebremst: AtomicU64,
+    saetze: AtomicU64,
 }
 
 impl Nachholkonto {
@@ -41,6 +42,7 @@ impl Nachholkonto {
             uhr,
             tabellen: Mutex::default(),
             gebremst: AtomicU64::new(0),
+            saetze: AtomicU64::new(0),
         }
     }
 
@@ -74,6 +76,16 @@ impl Nachholkonto {
         let jetzt = self.uhr.jetzt();
         self.tabellen()
             .gutschreiben(NACHHOLEN, kennung, herkunft, saetze, jetzt);
+    }
+
+    /// Zählt tatsächlich geprüfte Sätze — jedes Nachholen, auch das nach `Lagged`, das nicht bucht.
+    pub fn geprueft(&self, saetze: u64) {
+        self.saetze.fetch_add(saetze, Ordering::Relaxed);
+    }
+
+    /// Seit dem Start geprüfte Sätze (`/api/gesundheit` `nachholen.saetze`).
+    pub fn saetze(&self) -> u64 {
+        self.saetze.load(Ordering::Relaxed)
     }
 
     fn tabellen(&self) -> MutexGuard<'_, Tabellen> {

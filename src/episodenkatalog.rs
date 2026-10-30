@@ -30,6 +30,7 @@ use crate::http::bremse::{Gegenstand, gebremst_auftreten};
 use crate::http::ereignisse::ueberholt_auftreten;
 use crate::http::grenzschutz::abweisung_auftreten as grenzschutz_auftreten;
 use crate::http::koerper::{Koerperort, koerper_auftreten};
+use crate::http::nachholplatz::gebremst_auftreten as nachholen_gebremst_auftreten;
 use crate::http::senden::{quote_auftreten, schreibfehler_auftreten};
 use crate::http::teilnehmer::Teilnehmer;
 use crate::http::warten::gebremst_auftreten as warten_gebremst_auftreten;
@@ -563,6 +564,23 @@ fn katalog() -> Vec<Zeile> {
                 )
             },
         },
+        Zeile {
+            name: "nachholen · Nachholen gebremst: zu viele geprüfte Sätze",
+            bauweise: "http::nachholplatz::gebremst_auftreten",
+            texte: 1,
+            quelle: &[S::Kennung],
+            beginn: &[S::Grenze],
+            ende: &[],
+            ende_wert: &[],
+            bauen: |a, _| {
+                let grenze = if a.einzeln() % 2 == 1 {
+                    Grenze::Kennung
+                } else {
+                    Grenze::Herkunft
+                };
+                nachholen_gebremst_auftreten(&a.kennung_der_quelle(), grenze)
+            },
+        },
     ]
 }
 
@@ -869,7 +887,7 @@ fn jede_stelle_im_quelltext_hat_eine_bauweise_im_katalog() {
 }
 
 /// Die Zeilen der Tabelle in ADR-0042, Ergänzung „Karte #70“, in ihrer Reihenfolge, und die Zeile der Ergänzung „Karte #77“.
-const ZEILEN_DER_TABELLE: [&str; 25] = [
+const ZEILEN_DER_TABELLE: [&str; 26] = [
     "verbindung · Verbindung an der Platzgrenze abgewiesen",
     "verbindung · Verbindung an der Abrissgrenze geschlossen",
     "verbindung · Verbindung nicht angenommen",
@@ -895,6 +913,7 @@ const ZEILEN_DER_TABELLE: [&str; 25] = [
     "aendern · Änderung nicht geschrieben",
     "aktivitaet · Aktivität gebremst: zu viele Meldungen",
     "warten · Warten gebremst: zu viele gleichzeitige Aufrufe",
+    "nachholen · Nachholen gebremst: zu viele geprüfte Sätze",
 ];
 
 /// Jede Zeile der Tabelle hat ihre Katalogzeile und umgekehrt — auch wenn ihre Bauweise noch in einer anderen

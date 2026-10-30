@@ -34,6 +34,7 @@ pub const SCHLUESSEL_VERDRAENGT: &str =
     "Wiederholschlüssel vor Ablauf verdrängt — eine Wiederholung kann doppelt ankommen";
 pub const AKTIVITAET_GEBREMST: &str = "Aktivität gebremst: zu viele Meldungen";
 pub const WARTEN_GEBREMST: &str = "Warten gebremst: zu viele gleichzeitige Aufrufe";
+pub const NACHHOLEN_GEBREMST: &str = "Nachholen gebremst: zu viele geprüfte Sätze";
 
 /// Ein Episodentext endet ohne Satzzeichen und trägt höchstens einen Gedankenstrich (vor Folge oder Ausweg);
 /// gilt auch für den Vorlauftext aus `uhr`.
@@ -90,6 +91,7 @@ mod tests {
             "Wiederholschlüssel vor Ablauf verdrängt — eine Wiederholung kann doppelt ankommen";
         aktivitaet_gebremst: AKTIVITAET_GEBREMST = "Aktivität gebremst: zu viele Meldungen";
         warten_gebremst: WARTEN_GEBREMST = "Warten gebremst: zu viele gleichzeitige Aufrufe";
+        nachholen_gebremst: NACHHOLEN_GEBREMST = "Nachholen gebremst: zu viele geprüfte Sätze";
     }
 
     /// Die Regel selbst: jedes verbotene Satzzeichen am Ende und ein zweiter Gedankenstrich fallen auf.

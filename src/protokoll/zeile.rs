@@ -67,6 +67,8 @@ pub enum Bereich {
     Aktivitaet,
     /// Warten auf Nachrichten (ADR-0054 Regel 8 und 10).
     Warten,
+    /// Nachholen von `warten` am Nachholkonto (ADR-0054 Ergänzung „Nachholen von `warten` …“ Regel 8).
+    Nachholen,
 }
 
 impl Bereich {
@@ -93,6 +95,7 @@ impl Bereich {
             Bereich::Aendern => "aendern",
             Bereich::Aktivitaet => "aktivitaet",
             Bereich::Warten => "warten",
+            Bereich::Nachholen => "nachholen",
         }
     }
 }

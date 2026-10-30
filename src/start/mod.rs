@@ -46,6 +46,7 @@ use crate::protokoll::vorlauf;
 use crate::protokoll::wache::bewacht;
 use crate::protokoll::{Bereich, Kontext, Protokoll, Schluessel, Stufe};
 use crate::schreibkonto::Schreibkonto;
+use crate::schreibkonto::nachholkonto::Nachholkonto;
 use crate::uhr::{self, Uhr};
 use crate::zufall::Betriebssystemzufall;
 use aufruf::HILFE;
@@ -572,6 +573,7 @@ async fn nach_der_sperre(
             .mit_alle_namen(auftrag.alle_namen),
         werkbank: http::Werkbank::aus_kernen(),
         nachholbank: http::Werkbank::nachholbank(),
+        nachholkonto: Arc::new(Nachholkonto::neu(Arc::clone(&uhr))),
         schreibkonto: Arc::new(Schreibkonto::neu(Arc::clone(&uhr))),
         protokoll: Arc::clone(&protokoll),
         testpanik,

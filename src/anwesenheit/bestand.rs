@@ -349,6 +349,15 @@ impl Anwesenheit {
         Some(sitzung)
     }
 
+    /// Die lebende Sitzung des Tokens derselben Herkunft — ohne Lebenszeichen und ohne Wechsel: `warten` erkennt so
+    /// den Teilnehmer, bevor Grenze und Nachholkonto prüfen; erst der Halter ist das Lebenszeichen (Code-Review #17
+    /// F0169 A5).
+    pub fn sitzung_ohne_lebenszeichen(&self, token: &Token, herkunft: IpAddr) -> Option<Sitzung> {
+        let (mut bestand, jetzt) = self.bestand_und_jetzt();
+        self.lebender_eintrag(&mut bestand, token, herkunft, jetzt)
+            .map(|eintrag| eintrag.sitzung.clone())
+    }
+
     /// Ob die Sitzung des Tokens noch im Bestand ist — ohne Lebenszeichen, ohne Wechsel (Code-Review #17 F0169 A1:
     /// nach einem überholten Abonnement prüft `warten`, ob sein `weg` verloren ging).
     pub fn besteht(&self, token: &Token) -> bool {

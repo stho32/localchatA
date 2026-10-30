@@ -6,9 +6,12 @@
 use super::Zustand;
 use super::abbruch::{Grenzort, abbruch_beantworten};
 use super::anfrageprotokoll::mit_regel;
-use super::nachholplatz::Platz;
+use super::nachholplatz::{
+    Platz, gebremst_auftreten as nachholen_gebremst_auftreten,
+    gebremst_beantworten as nachholen_gebremst_beantworten,
+};
 use super::nachrichten::{NachrichtAntwort, dekodieren};
-use super::teilnehmer::{Teilnehmer, gemeldetes_token, nicht_erkannt};
+use super::teilnehmer::{gemeldetes_token, nicht_erkannt};
 use super::teilnehmerliste::zeit_als_text;
 use crate::gespraeche::Gespraech;
 use crate::gespraeche::treffer::{Filter, Treffer};
@@ -139,16 +142,27 @@ fn bis_lesen(wert: &str) -> Result<Duration, Parameterfehler> {
         .ok_or(Parameterfehler::Bis)
 }
 
-/// `GET /api/warten`: Sitzung (401) → Parameter (422) → Channels (404) → Halter → warten → 200
-/// `{nachrichten, seit, ende}` mit `Cache-Control: no-store`. Bucht nichts am Schreibkonto (E9).
+/// `GET /api/warten`: Sitzung (401, ohne Lebenszeichen) → Parameter (422) → Channels (404) → Grenze je Kennung
+/// (429 `warten`) → Nachholkonto reservieren (429 `nachholen`) → Halter → warten → 200 `{nachrichten, seit, ende}`
+/// mit `Cache-Control: no-store` (ADR-0054 Ergänzung „Nachholen von `warten` …“ Regel 5). Ein 429 hinterlässt
+/// weder Halter noch Lebenszeichen. Bucht nichts am Schreibkonto (E9).
 pub async fn beantworten(
-    teilnehmer: Teilnehmer,
     State(zustand): State<Arc<Zustand>>,
     ConnectInfo(gegenstelle): ConnectInfo<SocketAddr>,
     kopf: HeaderMap,
     RawQuery(query): RawQuery,
 ) -> Response {
-    let kennung = teilnehmer.kennung.als_text();
+    let herkunft = gegenstelle.ip();
+    let Some(token) = gemeldetes_token(&kopf) else {
+        return nicht_erkannt(&kopf);
+    };
+    let Some(sitzung) = zustand
+        .anwesenheit
+        .sitzung_ohne_lebenszeichen(&token, herkunft)
+    else {
+        return nicht_erkannt(&kopf);
+    };
+    let kennung = sitzung.kennung.als_text();
     let parameter = match parameter_lesen(query.as_deref()) {
         Ok(parameter) => parameter,
         Err(fehler) => return mit_regel(abgewiesen(&fehler), fehler.grund(), Some(kennung)),
@@ -164,23 +178,37 @@ pub async fn beantworten(
             Some(kennung),
         );
     }
-    let Some(token) = gemeldetes_token(&kopf) else {
-        return nicht_erkannt(&kopf);
-    };
-    let verbunden = zustand.anwesenheit.verbunden(&token, gegenstelle.ip());
-    let Some((halter, _veroeffentlicht)) = verbunden else {
-        return nicht_erkannt(&kopf);
-    };
     let Some(wartend) = zustand.wartende.zaehlen(kennung) else {
         zustand
             .protokoll
             .episode(gebremst_auftreten(kennung, AUFRUFE_JE_KENNUNG));
         return mit_regel(zu_viele_aufrufe(), "warten_grenze", Some(kennung));
     };
+    let platz = match Platz::reservieren(
+        &zustand.nachholbank,
+        &zustand.nachholkonto,
+        &sitzung.kennung,
+        herkunft,
+    ) {
+        Ok(platz) => platz,
+        Err(gebremst) => {
+            zustand
+                .protokoll
+                .episode(nachholen_gebremst_auftreten(kennung, gebremst.grenze));
+            return mit_regel(
+                nachholen_gebremst_beantworten(gebremst, &sitzung.kennung, herkunft),
+                "nachholen_grenze",
+                Some(kennung),
+            );
+        }
+    };
+    let Some((halter, _veroeffentlicht)) = zustand.anwesenheit.verbunden(&token, herkunft) else {
+        return nicht_erkannt(&kopf);
+    };
     let auftrag = Warteauftrag {
         seit: parameter.seit,
         bis: parameter.bis,
-        wartender: teilnehmer.kennung.clone(),
+        wartender: sitzung.kennung.clone(),
         filter: Filter {
             channels: parameter.channels.into_iter().collect(),
             direkt: parameter.direkt,
@@ -196,7 +224,7 @@ pub async fn beantworten(
     let ergebnis = warten(
         Arc::clone(&zustand.gespraeche),
         &zustand.bus,
-        &Platz::auf(&zustand.nachholbank),
+        &platz,
         auftrag,
         Arc::new(|_| {}),
     )

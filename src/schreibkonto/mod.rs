@@ -4,10 +4,6 @@
 //! Setzen der Frist (Ergänzung Karte #31 (b)).
 
 pub mod eimer;
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "das Nachholkonto verdrahtet B0758 (warten)")
-)]
 pub mod nachholkonto;
 
 use crate::gespraeche::Kennung;

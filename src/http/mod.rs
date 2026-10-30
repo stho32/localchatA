@@ -39,6 +39,8 @@ mod teilnehmerliste;
 mod testauskunft;
 mod verlassen;
 pub(crate) mod warten;
+#[cfg(test)]
+mod warten_nachholen;
 mod werkbank;
 
 pub use anhaenge::hochladen::HOCHLADEBANK;
@@ -85,6 +87,8 @@ pub struct Zustand {
     /// Eigene Bank für das Nachholen von `warten`, nie die Werkbank (ADR-0054 Ergänzung „Nachholen von `warten` …“
     /// Regel 1, K2).
     pub nachholbank: Werkbank,
+    /// Nachholkonto in geprüften Sätzen je Kennung und je Herkunft (K3, K4), nie das Schreibkonto (E9).
+    pub nachholkonto: Arc<crate::schreibkonto::nachholkonto::Nachholkonto>,
     /// Token-Eimer gegen Flut beim Senden (A00014).
     pub schreibkonto: Arc<Schreibkonto>,
     /// Betriebsprotokoll der Instanz (A00015).
@@ -220,6 +224,9 @@ pub(crate) mod testserver {
             grenzschutz: Grenzschutz::neu(None, Vec::new()),
             werkbank: Werkbank::aus_kernen(),
             nachholbank: Werkbank::nachholbank(),
+            nachholkonto: Arc::new(crate::schreibkonto::nachholkonto::Nachholkonto::neu(
+                Arc::new(Systemuhr),
+            )),
             schreibkonto: Arc::new(crate::schreibkonto::Schreibkonto::neu(Arc::new(Systemuhr))),
             protokoll: Arc::new(crate::protokoll::Protokoll::ohne_ablage()),
             testpanik: crate::protokoll::testpanik::Testpanik::keine(),
