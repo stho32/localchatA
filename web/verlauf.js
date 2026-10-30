@@ -427,7 +427,7 @@ export function verlaufAnlegen({ abrufen, schalter = () => {}, fokusRueckgaengig
     eingeordnetMerken(ergebnis.block.nachrichten);
     fenster = { bloecke: [ergebnis.block.nachrichten], aelter: ergebnis.block.aelter, neuer: false };
     juengste = ergebnis.block.nachrichten[ergebnis.block.nachrichten.length - 1].zeit;
-    const knoten = gegliedertZeichnen(ergebnis.block.nachrichten, null, heute);
+    const knoten = gegliedertZeichnen(ergebnis.block.nachrichten, null, { heute, kennung: eigeneKennung });
     bloeckeKnoten = [knoten];
     inhalt.replaceChildren(...knoten);
     langeEinklappen(nurNachrichten(knoten));
@@ -659,7 +659,7 @@ export function verlaufAnlegen({ abrufen, schalter = () => {}, fokusRueckgaengig
     const knoten = bloeckeKnoten[blockStelle];
     const knotenStelle = knoten.findIndex((einzeln) => einzeln.classList.contains('lc-msg') && Date.parse(einzeln.dataset.zeit) === zeitpunkt);
     const alt = knoten[knotenStelle];
-    const neu = nachrichtZeichnen(uebernommen);
+    const neu = nachrichtZeichnen(uebernommen, eigeneKennung);
     kopfSetzen(neu, alt.classList.contains('first'));
     alt.replaceWith(neu);
     knoten[knotenStelle] = neu;
@@ -689,7 +689,7 @@ export function verlaufAnlegen({ abrufen, schalter = () => {}, fokusRueckgaengig
       const davor = fenster.bloecke[stelle - 1];
       vorige = davor[davor.length - 1];
     }
-    const knoten = gegliedertZeichnen(folge, vorige, heute, ersteNeue);
+    const knoten = gegliedertZeichnen(folge, vorige, { heute, kennung: eigeneKennung }, ersteNeue);
     bloeckeKnoten[stelle].forEach((einzeln) => einzeln.remove());
     inhalt.append(...knoten);
     fenster.bloecke[stelle] = folge;
@@ -702,14 +702,14 @@ export function verlaufAnlegen({ abrufen, schalter = () => {}, fokusRueckgaengig
   function anfuegen(neue) {
     if (fenster === null) {
       fenster = { bloecke: [neue], aelter: false, neuer: false };
-      const knoten = gegliedertZeichnen(neue, null, heute, ersteNeue);
+      const knoten = gegliedertZeichnen(neue, null, { heute, kennung: eigeneKennung }, ersteNeue);
       bloeckeKnoten = [knoten];
       inhalt.replaceChildren(...knoten);
       langeEinklappen(nurNachrichten(knoten));
       return;
     }
     const letzter = fenster.bloecke[fenster.bloecke.length - 1];
-    const knoten = gegliedertZeichnen(neue, letzter[letzter.length - 1], heute, ersteNeue);
+    const knoten = gegliedertZeichnen(neue, letzter[letzter.length - 1], { heute, kennung: eigeneKennung }, ersteNeue);
     letzter.push(...neue);
     bloeckeKnoten[bloeckeKnoten.length - 1].push(...knoten);
     inhalt.append(...knoten);
@@ -862,7 +862,7 @@ export function verlaufAnlegen({ abrufen, schalter = () => {}, fokusRueckgaengig
 
   function knotenEinfuegen(nachrichten, richtung) {
     if (richtung === 'aelter') {
-      const knoten = gegliedertZeichnen(nachrichten, null, heute);
+      const knoten = gegliedertZeichnen(nachrichten, null, { heute, kennung: eigeneKennung });
       inhalt.prepend(...knoten);
       bloeckeKnoten.unshift(knoten);
       grenzeGliedern(nachrichten[nachrichten.length - 1], 1);
@@ -870,7 +870,7 @@ export function verlaufAnlegen({ abrufen, schalter = () => {}, fokusRueckgaengig
       return;
     }
     const letzte = fenster.bloecke[fenster.bloecke.length - 1];
-    const knoten = gegliedertZeichnen(nachrichten, letzte[letzte.length - 1], heute);
+    const knoten = gegliedertZeichnen(nachrichten, letzte[letzte.length - 1], { heute, kennung: eigeneKennung });
     inhalt.append(...knoten);
     bloeckeKnoten.push(knoten);
     langeEinklappen(nurNachrichten(knoten));
@@ -1102,9 +1102,10 @@ function nurNachrichten(knoten) {
   return knoten.filter((einzeln) => einzeln.classList.contains('lc-msg'));
 }
 
-// Nachrichten nach der vorigen (oder null) gegliedert: Tagestrenner vor dem ersten des Tages, Kopf nur bei neuer
-// Gruppe (ADR-0026 Regel 4) und an der ersten gezählten neuen (Zeit oder null).
-function gegliedertZeichnen(nachrichten, vorige, heute, ersteNeue = null) {
+// Nachrichten nach der vorigen (oder null) gegliedert: Tagestrenner vor dem ersten des Tages (benannt nach `heute`),
+// Kopf nur bei neuer Gruppe (ADR-0026 Regel 4) und an der ersten gezählten neuen (Zeit oder null); Aktionen nach der
+// eigenen `kennung`.
+function gegliedertZeichnen(nachrichten, vorige, { heute, kennung }, ersteNeue = null) {
   const gliederungen = folgeGliedern(vorige, nachrichten, ersteNeue);
   const knoten = [];
   nachrichten.forEach((nachricht, stelle) => {
@@ -1112,7 +1113,7 @@ function gegliedertZeichnen(nachrichten, vorige, heute, ersteNeue = null) {
     if (tagestrenner !== null) {
       knoten.push(trennerZeichnen(tagestrenner, heute));
     }
-    const artikel = nachrichtZeichnen(nachricht);
+    const artikel = nachrichtZeichnen(nachricht, kennung);
     kopfSetzen(artikel, kopf);
     knoten.push(artikel);
   });

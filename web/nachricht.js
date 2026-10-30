@@ -7,8 +7,9 @@ import { kuerzel } from './kopfzeile.js';
 import { uhrzeit, zeitTitel, datumBenennen, datumUhrzeit } from './gliederung.js';
 
 // nachricht: { zeit, von, art, text, zustand? } aus der API; ohne Zeit (eigene, noch unterwegs) ohne Uhrzeit im Kopf
-// und ohne zugänglichen Namen (sie ist keine Station des Rollfokus, F0141).
-export function nachrichtZeichnen(nachricht) {
+// und ohne zugänglichen Namen (sie ist keine Station des Rollfokus, F0141). Gilt für die Nachricht mindestens eine
+// Aktion (aktionenFuer mit der eigenen Kennung), trägt sie die Leiste der Aktionen.
+export function nachrichtZeichnen(nachricht, eigeneKennung = '') {
   const artikel = element('article', { className: 'lc-msg' });
   artikel.dataset.von = nachricht.von;
   artikel.dataset.art = darstellungsart(nachricht.art);
@@ -27,8 +28,24 @@ export function nachrichtZeichnen(nachricht) {
     inhalt.append(markeBearbeitetZeichnen(nachricht.zeit, darstellung.zuletztBearbeitet));
   }
   artikel.append(element('div', { className: 'g' }), inhalt);
+  const aktionen = aktionenFuer(nachricht, eigeneKennung);
+  if (aktionen.length > 0) {
+    artikel.append(aktionenZeichnen(aktionen));
+  }
   kopfSetzen(artikel, true);
   return artikel;
+}
+
+// Die Leiste der Aktionen (Designsystem Nachricht): am Desktop rechts oben bei Hover und Fokus; die Knöpfe tragen ihre
+// Aktion in data-aktion, der Verlauf führt sie aus.
+function aktionenZeichnen(aktionen) {
+  const BESCHRIFTUNG = { bearbeiten: 'Bearbeiten', loeschen: 'Löschen' };
+  const knoepfe = aktionen.map((aktion) => {
+    const knopf = element('button', { type: 'button', className: 'lc-aktion', textContent: BESCHRIFTUNG[aktion] });
+    knopf.dataset.aktion = aktion;
+    return knopf;
+  });
+  return element('div', { className: 'lc-aktionen' }, knoepfe);
 }
 
 // Was eine Nachricht zeigt (R00041 F0134, ADR-0048 Regel 4): ihren Text und — bearbeitet — die Marke „bearbeitet“ mit
