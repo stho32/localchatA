@@ -993,7 +993,7 @@ export function verlaufAnlegen({
       hinweisNachziehen();
       return;
     }
-    const fehler = hinweis(nichtGeladenText(selbstversuchend()), 'lc-mitte-hinweis lc-fehler');
+    const fehler = hinweis(nichtGeladenText(selbstversuchend(), offenerName), 'lc-mitte-hinweis lc-fehler');
     fehler.setAttribute('role', 'alert');
     inhalt.replaceChildren(fehler);
   }
@@ -1007,7 +1007,7 @@ export function verlaufAnlegen({
   function hinweisNachziehen() {
     const knoten = inhalt.querySelector('[role="alert"]');
     if (knoten !== null) {
-      hinweisTextNachziehen(knoten, selbstversuchend());
+      hinweisTextNachziehen(knoten, selbstversuchend(), offenerName);
     }
   }
 

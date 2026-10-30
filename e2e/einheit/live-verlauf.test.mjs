@@ -170,6 +170,16 @@ test('Hinweistext je Zustand: selbstversuchend „wird geladen …“, sonst „
   assert.equal(nichtGeladenText(false), '⚠ Verlauf nicht geladen — Channel erneut wählen, um es noch einmal zu versuchen.');
 });
 
+// Code-Review #13 F0178 O1: im Direktgespräch gibt es keinen Channel, den man erneut wählen könnte.
+test('Hinweistext im Direktgespräch: „Direktnachricht erneut wählen …“, im Channel weiter „Channel …“ (O1)', () => {
+  assert.equal(nichtGeladenText(false, 'direkt:ben@127.0.0.3'), '⚠ Verlauf nicht geladen — Direktnachricht erneut wählen, um es noch einmal zu versuchen.');
+  assert.equal(nichtGeladenText(false, 'allgemein'), '⚠ Verlauf nicht geladen — Channel erneut wählen, um es noch einmal zu versuchen.');
+  assert.equal(nichtGeladenText(true, 'direkt:ben@127.0.0.3'), '⚠ Verlauf nicht geladen — wird geladen, sobald die Verbindung zurück ist.');
+  const knoten = alarmKnoten(nichtGeladenText(true, 'direkt:ben@127.0.0.3'));
+  hinweisTextNachziehen(knoten, false, 'direkt:ben@127.0.0.3');
+  assert.equal(knoten.textContent, '⚠ Verlauf nicht geladen — Direktnachricht erneut wählen, um es noch einmal zu versuchen.');
+});
+
 // Ein Knoten, der jeden Schreibzugriff zählt (ein Textwechsel im role="alert"-Knoten würde angesagt).
 function alarmKnoten(text) {
   const knoten = { schreibzugriffe: 0, inhalt: text, role: 'alert' };

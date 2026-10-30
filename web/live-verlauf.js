@@ -1,4 +1,5 @@
 // Fremde Nachrichten im offenen Verlauf (ADR-0037 Regel 6, ADR-0028 Regeln 5, 7), rein.
+import { gegenueberIn } from './gespraech.js';
 
 // Übernimmt in Folge nur Nachrichten, deren Zeit (als Zeitpunkt) jünger ist als die jüngste bekannte; kleinere und
 // gleiche fallen weg. juengste: Zeit (RFC 3339) oder null → { neue, juengste }.
@@ -103,18 +104,23 @@ export function auslaufNach({ hoehe, sichtbar, angefuegt }) {
 }
 
 // Der Hinweis „Verlauf nicht geladen“ (R00037 Regel 1, ADR-0037 Ergänzung Karte #65) sagt, was geschieht: lädt der Tab
-// von selbst (Strom getrennt oder ein Laden-Lauf läuft), wartet der Mensch; sonst hilft nur die neue Wahl des Channels.
-export function nichtGeladenText(selbstversuchend) {
+// von selbst (Strom getrennt oder ein Laden-Lauf läuft), wartet der Mensch; sonst hilft nur die neue Wahl des Gesprächs —
+// eines Channels oder der Direktnachricht (schluessel aus gespraech.js).
+export function nichtGeladenText(selbstversuchend, schluessel = '') {
   if (selbstversuchend) {
     return '⚠ Verlauf nicht geladen — wird geladen, sobald die Verbindung zurück ist.';
   }
-  return '⚠ Verlauf nicht geladen — Channel erneut wählen, um es noch einmal zu versuchen.';
+  let gespraech = 'Channel';
+  if (gegenueberIn(schluessel) !== null) {
+    gespraech = 'Direktnachricht';
+  }
+  return `⚠ Verlauf nicht geladen — ${gespraech} erneut wählen, um es noch einmal zu versuchen.`;
 }
 
 // Zieht den Text des stehenden Hinweises nach, wenn sich der Zustand geändert hat — nur der Text desselben Knotens
 // (role="alert" bleibt), und nur bei Unterschied, damit der Bildschirmleser nichts doppelt ansagt. → der Knoten
-export function hinweisTextNachziehen(knoten, selbstversuchend) {
-  const text = nichtGeladenText(selbstversuchend);
+export function hinweisTextNachziehen(knoten, selbstversuchend, schluessel = '') {
+  const text = nichtGeladenText(selbstversuchend, schluessel);
   if (knoten.textContent !== text) {
     knoten.textContent = text;
   }

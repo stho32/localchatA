@@ -6,7 +6,7 @@
 const { test, expect } = require('./rahmen');
 const { mitText } = require('./senden-hilfen');
 const {
-  ANNA, BEN, CORA, KEIN_GESPRAECH, direktStarten, direktSenden, direktLesen, paarordner, direktOeffnen, verlaufMit, eingabeAn,
+  ANNA, BEN, CORA, KEIN_GESPRAECH, tippenOhneGespraech, direktStarten, direktSenden, direktLesen, paarordner, direktOeffnen, verlaufMit, eingabeAn,
   gespraechOffen, kontrastUnterschritten,
 } = require('./r00050-direkt-hilfen');
 
@@ -142,3 +142,29 @@ for (const thema of ['light', 'dark']) {
     expect(anna.fehler).toEqual([]);
   });
 }
+
+// Code-Review #13 F0178 O1: im Direktgespräch sagt der Hinweis „Direktnachricht erneut wählen“, und die neue Wahl über
+// das Menü der Teilnehmerliste versucht es — wie die Wahl des offenen Channels in der Seitenleiste (R00007 US-13).
+test('Nicht geladen im Direktgespräch (O1): „Direktnachricht erneut wählen“, die Wahl über das Menü lädt erneut', async ({ browser }) => {
+  const { instanz: gestartet, anna, token } = await starten(browser, {
+    sammeln: { zusaetzlich: tippenOhneGespraech(BEN, CORA), serverWegErwartet: true },
+  });
+  expect((await direktSenden(gestartet.adresse, token.ben, ANNA, 'Erste von ben', '127.0.0.3')).status).toBe(201);
+  const abruf = `**/api/direkt/${encodeURIComponent(BEN)}/nachrichten?n=100`;
+  await anna.page.route(abruf, (route) => route.abort('connectionrefused'));
+  const ueberDasMenue = async () => {
+    await anna.page.getByRole('complementary', { name: 'Teilnehmer' }).locator('.lc-person')
+      .filter({ has: anna.page.locator('.lc-id', { hasText: BEN }) }).getByRole('button').click();
+    await anna.page.getByRole('menuitem', { name: 'Direktnachricht' }).click();
+  };
+
+  await ueberDasMenue();
+  await expect(mitte(anna.page).locator('.lc-fehler'))
+    .toHaveText('⚠ Verlauf nicht geladen — Direktnachricht erneut wählen, um es noch einmal zu versuchen.');
+  await anna.page.unroute(abruf);
+  await ueberDasMenue();
+
+  await expect(verlaufMit(anna.page, BEN).locator('.lc-msg .lc-body')).toHaveText(['Erste von ben']);
+  await expect(mitte(anna.page).locator('.lc-fehler')).toHaveCount(0);
+  expect(anna.fehler).toEqual([]);
+});

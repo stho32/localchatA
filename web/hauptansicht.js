@@ -168,12 +168,16 @@ export function zeichnen(wurzel, teilnehmer, optionen) {
     eigeneKennung: teilnehmer.kennung,
   }, vorigeAnsichtAbmelden.signal);
   // Ein Direktgespräch beginnt nur hier (R00050 P5): die Adresse wählt es, das Panel geht unter 1100 px zu, der Fokus in
-  // die Eingabe (V6).
+  // die Eingabe (V6). Ist es schon offen, ist die Wahl ein neuer Versuch wie beim Channel (R00007).
   teilnehmermenueEinrichten({
     zeilen,
     direktnachricht: (kennung) => {
+      const schonOffen = window.location.hash === direktHash(kennung);
       window.location.hash = direktHash(kennung);
       auswahlFolgen.folgen();
+      if (schonOffen) {
+        wieder.erneutWaehlen();
+      }
       teilnehmerPanel.schliessenUnterDerGrenze();
       eingabe.fokussieren();
     },
