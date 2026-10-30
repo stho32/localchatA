@@ -107,11 +107,20 @@ function vorschauZeichnen(anhang, { breite, hoehe }) {
 
 // Bild im Dialog (B0459): das Original in den Bildschirm eingepasst, modal, mit dem Anzeigenamen als Namen; der Fokus
 // steht auf „Schließen“ und bleibt im Dialog. Esc, „Schließen“ oder Tippen daneben schließen, der Fokus kehrt auf die
-// Vorschau zurück. Der Dialog hängt am Dokument, nicht an der Nachricht: er überlebt das Neuzeichnen des Verlaufs.
+// Vorschau zurück. Der Dialog hängt am Dokument, nicht an der Nachricht: er überlebt das Neuzeichnen des Verlaufs. Die
+// eingepasste Fläche steht aus den Maßen der API, bevor ein Byte lädt — „Schließen“ springt nicht; scheitert das Laden,
+// sagt die Fläche „Bild nicht verfügbar.“ (ux-reviewer #43 F0102 S1).
 function bildGrossZeigen(anhang, vorschau) {
   const schliessen = element('button', { type: 'button', className: 'lc-btn', textContent: 'Schließen' });
   const bild = element('img', { className: 'lc-bild-gross', src: anhang.url, alt: anhang.name });
-  const dialog = element('dialog', { className: 'lc-bild-dialog' }, [element('div', { className: 'lc-bild-rahmen' }, [bild, schliessen])]);
+  bild.style.setProperty('--bild-breite', anhang.breite);
+  bild.style.setProperty('--bild-hoehe', anhang.hoehe);
+  const platz = element('span', { className: 'lc-bild-gross-platz' });
+  const flaeche = element('div', { className: 'lc-bild-gross-flaeche' }, [bild, platz]);
+  bild.addEventListener('error', () => {
+    platz.textContent = 'Bild nicht verfügbar.';
+  });
+  const dialog = element('dialog', { className: 'lc-bild-dialog' }, [element('div', { className: 'lc-bild-rahmen' }, [flaeche, schliessen])]);
   dialog.setAttribute('aria-label', anhang.name);
   schliessen.addEventListener('click', () => dialog.close());
   dialog.addEventListener('click', (ereignis) => {

@@ -158,3 +158,47 @@ for (const { titel, geraet } of GERAETE) {
     expect(lauf.a.fehler).toEqual([]);
   });
 }
+
+/// Hält jede Antwort unter /anhaenge/ `ms` zurück (geholt sofort, ausgeliefert verzögert).
+const anhaengeVerzoegern = (ms) => (page) => page.context().route('**/anhaenge/**', async (route) => {
+  const antwort = await route.fetch();
+  await new Promise((weiter) => setTimeout(weiter, ms));
+  await route.fulfill({ response: antwort });
+});
+
+test('Bild im Dialog vor dem Laden (Nacharbeit F0102, ux-reviewer S1): 375 × 667 Touch, Original 4 s verzögert → nach 500 ms steht der Dialog in der eingepassten Bildgröße (≥ 200 × 150), „Schließen“ springt nach dem Laden nicht (± 1 px)', async ({ browser }) => {
+  test.setTimeout(60000);
+  const geraet = { viewport: { width: 375, height: 667 }, hasTouch: true, isMobile: true, deviceScaleFactor: 3 };
+  const lauf = await anzeigeStarten(browser, [{ namen: ['foto.png'] }], { geraet, vorSeite: anhaengeVerzoegern(4000) });
+  instanz = lauf.instanz;
+  const { page } = lauf.a;
+  await nachrichtMitZeit(page, lauf.zeiten[0]).getByRole('button', { name: 'foto.png groß anzeigen', exact: true }).tap();
+  const dialog = page.getByRole('dialog', { name: 'foto.png', exact: true });
+  await expect(dialog).toBeVisible();
+  await page.waitForTimeout(500);
+  const bild = dialog.getByRole('img', { name: 'foto.png', exact: true });
+  expect(await bild.evaluate((element) => element.complete && element.naturalWidth > 0)).toBe(false);
+  const flaeche = await rechteck(bild);
+  expect(flaeche.width).toBeGreaterThanOrEqual(200);
+  expect(flaeche.height).toBeGreaterThanOrEqual(150);
+  const schliessen = dialog.getByRole('button', { name: 'Schließen', exact: true });
+  const vorher = await rechteck(schliessen);
+  await expect.poll(() => bild.evaluate((element) => element.complete && element.naturalWidth > 0), { timeout: 15000 }).toBe(true);
+  const nachher = await rechteck(schliessen);
+  expect(Math.abs(nachher.left - vorher.left)).toBeLessThanOrEqual(1);
+  expect(Math.abs(nachher.top - vorher.top)).toBeLessThanOrEqual(1);
+  expect(lauf.a.fehler).toEqual([]);
+});
+
+test('Bild im Dialog bei Fehler (Nacharbeit F0102, ux-reviewer S1): Original 404 → im Dialog „Bild nicht verfügbar.“', async ({ browser }) => {
+  const geraet = { viewport: { width: 375, height: 667 }, hasTouch: true, isMobile: true, deviceScaleFactor: 3 };
+  const lauf = await anzeigeStarten(browser, [{ namen: ['foto.png'] }], {
+    geraet, vorSeite: (page) => page.context().route('**/anhaenge/**', (route) => route.fulfill({ status: 404, body: '' })),
+  });
+  instanz = lauf.instanz;
+  const { page } = lauf.a;
+  await nachrichtMitZeit(page, lauf.zeiten[0]).getByRole('button', { name: 'foto.png groß anzeigen', exact: true }).tap();
+  const dialog = page.getByRole('dialog', { name: 'foto.png', exact: true });
+  await expect(dialog.getByText('Bild nicht verfügbar.', { exact: true })).toBeVisible();
+  expect(lauf.a.fehler.filter((zeile) => !/Failed to load resource/.test(zeile))).toEqual([]);
+});
