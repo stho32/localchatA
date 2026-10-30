@@ -43,6 +43,9 @@ pub struct Warteauftrag {
     pub programmende: Programmende,
     /// Das Betriebsprotokoll: ein überholtes Abonnement schreibt eine DEBUG-Zeile (Regel 3.6 und 10).
     pub protokoll: Arc<Protokoll>,
+    /// Ob die Sitzung des Wartenden noch im Bestand ist — nach einem überholten Abonnement gefragt, weil ihr `weg`
+    /// unter den verlorenen Ereignissen sein kann (Code-Review #17 F0169 A1).
+    pub sitzung_besteht: Arc<dyn Fn() -> bool + Send + Sync>,
 }
 
 /// DEBUG `live` je überholtem Abonnement, genau eine Zeile: wer wartet und wie viele Ereignisse fehlten — nie Inhalt
@@ -147,6 +150,9 @@ pub async fn warten<P: Nachholplatz>(
             Some(Empfang::Ereignis(_)) => None,
             Some(Empfang::NeuerStand { verpasst }) => {
                 ueberholt_melden(&auftrag, verpasst);
+                if !(auftrag.sitzung_besteht)() {
+                    return Ok(sammlung.ergebnis(Ende::Verlassen));
+                }
                 let nachgeholt =
                     nachholen(&gespraeche, platz, &auftrag, &sammlung, &beobachter).await?;
                 sammlung.aufnehmen(nachgeholt)
@@ -269,6 +275,9 @@ impl Sammlung {
                 None => return Ende::Treffer,
                 Some(Empfang::NeuerStand { verpasst }) => {
                     ueberholt_melden(auftrag, verpasst);
+                    if !(auftrag.sitzung_besteht)() {
+                        return Ende::Verlassen;
+                    }
                     return Ende::Weitere;
                 }
                 Some(Empfang::Ereignis(Ereignis::Nachricht { channel, nachricht })) => {
@@ -368,6 +377,7 @@ mod tests {
             filter: Filter::default(),
             programmende: Programmende::nie(),
             protokoll: Arc::new(Protokoll::ohne_ablage()),
+            sitzung_besteht: Arc::new(|| true),
         }
     }
 
@@ -549,6 +559,60 @@ mod tests {
 
         assert!(ergebnis.treffer.is_empty());
         assert_eq!(ergebnis.ende, Ende::Verlassen);
+    }
+
+    /// Code-Review #17 F0169 A1 (Probe wörtlich): Bus Kapazität 2, der Aufruf wartet 3 s, `weg_von(agent)` und
+    /// drei fremde Ereignisse synchron → das Abonnement ist überholt und hat das `weg` verloren; nach `NeuerStand`
+    /// prüft der Aufruf die Sitzung gegen den Bestand und endet mit `Verlassen` (nicht mit `Frist`).
+    #[tokio::test]
+    async fn ein_verlorenes_weg_der_eigenen_sitzung_endet_mit_verlassen() {
+        let bus = Arc::new(Bus::neu(2));
+        let gespraeche = gespraeche_mit(speicher(), &bus);
+        let besteht = Arc::new(std::sync::atomic::AtomicBool::new(true));
+        let mut warte = auftrag(None, Duration::from_secs(3));
+        warte.sitzung_besteht = {
+            let besteht = Arc::clone(&besteht);
+            Arc::new(move || besteht.load(std::sync::atomic::Ordering::SeqCst))
+        };
+        let aufruf = tokio::spawn({
+            let gespraeche = Arc::clone(&gespraeche);
+            let bus = Arc::clone(&bus);
+            async move { warten(gespraeche, &bus, &Blockierend, warte, still()).await }
+        });
+        tokio::time::sleep(Duration::from_millis(200)).await;
+
+        besteht.store(false, std::sync::atomic::Ordering::SeqCst);
+        bus.veroeffentlichen(weg_von("agent@127.0.0.1", "agent"));
+        for _ in 0..3 {
+            bus.veroeffentlichen(weg_von("anna@127.0.0.1", "anna"));
+        }
+        let ergebnis = tokio::time::timeout(Duration::from_secs(5), aufruf)
+            .await
+            .expect("Ende")
+            .expect("Aufruf")
+            .expect("gewartet");
+
+        assert_eq!(ergebnis.ende, Ende::Verlassen);
+    }
+
+    /// A1 Gegenprobe: ein überholtes Abonnement bei bestehender Sitzung endet nicht mit `Verlassen`.
+    #[tokio::test]
+    async fn ein_ueberholtes_abonnement_bei_bestehender_sitzung_wartet_weiter() {
+        let bus = Arc::new(Bus::neu(2));
+        let gespraeche = gespraeche_mit(speicher(), &bus);
+        let aufruf = tokio::spawn({
+            let gespraeche = Arc::clone(&gespraeche);
+            let bus = Arc::clone(&bus);
+            async move { warten(gespraeche, &bus, &Blockierend, auftrag(None, KURZ), still()).await }
+        });
+        tokio::time::sleep(Duration::from_millis(200)).await;
+
+        for _ in 0..4 {
+            bus.veroeffentlichen(weg_von("anna@127.0.0.1", "anna"));
+        }
+        let ergebnis = aufruf.await.expect("Aufruf").expect("gewartet");
+
+        assert_eq!(ergebnis.ende, Ende::Frist);
     }
 
     /// Wartet in Schleife mit dem jeweils gelieferten `seit`, bis `anzahl` Treffer da sind oder eine Frist ohne

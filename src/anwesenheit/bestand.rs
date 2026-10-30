@@ -349,6 +349,12 @@ impl Anwesenheit {
         Some(sitzung)
     }
 
+    /// Ob die Sitzung des Tokens noch im Bestand ist — ohne Lebenszeichen, ohne Wechsel (Code-Review #17 F0169 A1:
+    /// nach einem überholten Abonnement prüft `warten`, ob sein `weg` verloren ging).
+    pub fn besteht(&self, token: &Token) -> bool {
+        self.bestand().eintraege.contains_key(token)
+    }
+
     /// Ein Halter der Sitzung (ADR-0016 Regel 2), nur mit gültigem Token derselben Herkunft; ein
     /// Lebenszeichen. War die Sitzung `offline`, ist sie ab jetzt `online` — der Wechsel kommt mit.
     pub fn verbunden(
@@ -1452,6 +1458,28 @@ mod tests {
         assert_eq!(erstes.len(), 1);
         assert_eq!(zweites, vec![]);
         assert_eq!(anwesenheit.bestand().stand, stand_davor + 1);
+    }
+
+    /// A1 (Code-Review #17 F0169): `besteht` gilt für eine beigetretene Sitzung, nach `verlassen` nicht mehr, nie für
+    /// ein unbekanntes Token — und ändert den Stand nicht.
+    #[test]
+    fn eine_sitzung_besteht_bis_zum_verlassen() {
+        let (_, anwesenheit) = mit_gestellter_uhr();
+        let token = anwesenheit
+            .beitreten(&wunsch("alpha", Art::Agent), ip("127.0.0.2"))
+            .expect("alpha")
+            .sitzung
+            .token;
+        let unbekannt = Token::lesen("00000000000000000000000000000000").expect("Token");
+        let stand = anwesenheit.bestand().stand;
+
+        let vorher = (anwesenheit.besteht(&token), anwesenheit.besteht(&unbekannt));
+        let stand_nach_der_frage = anwesenheit.bestand().stand;
+        anwesenheit.verlassen(&token, ip("127.0.0.2"));
+
+        assert_eq!(vorher, (true, false));
+        assert_eq!(stand_nach_der_frage, stand);
+        assert!(!anwesenheit.besteht(&token));
     }
 
     /// Nacharbeit 1, Security (CWE-770): ein verlassener Platz zählt für `JE_HERKUNFT` und `GESAMT` weiter, bis

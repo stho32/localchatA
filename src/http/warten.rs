@@ -164,8 +164,10 @@ pub async fn beantworten(
             Some(kennung),
         );
     }
-    let verbunden = gemeldetes_token(&kopf)
-        .and_then(|token| zustand.anwesenheit.verbunden(&token, gegenstelle.ip()));
+    let Some(token) = gemeldetes_token(&kopf) else {
+        return nicht_erkannt(&kopf);
+    };
+    let verbunden = zustand.anwesenheit.verbunden(&token, gegenstelle.ip());
     let Some((halter, _veroeffentlicht)) = verbunden else {
         return nicht_erkannt(&kopf);
     };
@@ -186,6 +188,10 @@ pub async fn beantworten(
         },
         programmende: zustand.ende.clone(),
         protokoll: Arc::clone(&zustand.protokoll),
+        sitzung_besteht: {
+            let anwesenheit = Arc::clone(&zustand.anwesenheit);
+            Arc::new(move || anwesenheit.besteht(&token))
+        },
     };
     let ergebnis = warten(
         Arc::clone(&zustand.gespraeche),
