@@ -71,6 +71,17 @@ impl Eimer {
         }
     }
 
+    /// Schreibt gut, höchstens bis zum Vorrat (Erstattung des Nachholkontos).
+    pub fn gutgeschrieben(self, art: Eimerart, einheiten: u64) -> Eimer {
+        Eimer {
+            stand_mikro: self
+                .stand_mikro
+                .saturating_add(einheiten.saturating_mul(MIKRO))
+                .min(art.vorrat * MIKRO),
+            ..self
+        }
+    }
+
     /// So viele ms, bis der Eimer `einheiten` trägt (0, wenn er sie schon trägt), aufgerundet.
     pub fn wartezeit_ms(&self, art: Eimerart, einheiten: u64) -> u64 {
         let fehlt = (einheiten * MIKRO).saturating_sub(self.stand_mikro);
@@ -140,6 +151,23 @@ mod tests {
         assert!(!zurueck.reicht(1));
         assert_eq!(zurueck.wartezeit_ms(JE_KENNUNG, 1), 1_000);
         assert!(zurueck.nachgefuellt(JE_KENNUNG, t(-3_599_000)).reicht(1));
+    }
+
+    /// Gutschrift (Erstattung des Nachholkontos): höchstens bis zum Vorrat, auch bei sehr großen Beträgen.
+    #[test]
+    fn gutschrift_hoechstens_bis_zum_vorrat() {
+        let eimer = Eimer::voll(JE_KENNUNG, t(0)).abgebucht(10);
+
+        assert!(eimer.gutgeschrieben(JE_KENNUNG, 5).reicht(25));
+        assert!(!eimer.gutgeschrieben(JE_KENNUNG, 5).reicht(26));
+        assert_eq!(
+            eimer.gutgeschrieben(JE_KENNUNG, 50),
+            Eimer::voll(JE_KENNUNG, t(0))
+        );
+        assert_eq!(
+            eimer.gutgeschrieben(JE_KENNUNG, u64::MAX),
+            Eimer::voll(JE_KENNUNG, t(0))
+        );
     }
 
     #[test]

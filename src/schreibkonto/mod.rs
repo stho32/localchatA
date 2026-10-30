@@ -4,6 +4,11 @@
 //! Setzen der Frist (Ergänzung Karte #31 (b)).
 
 pub mod eimer;
+#[cfg_attr(
+    not(test),
+    expect(dead_code, reason = "das Nachholkonto verdrahtet B0758 (warten)")
+)]
+pub mod nachholkonto;
 
 use crate::gespraeche::Kennung;
 use crate::uhr::Uhr;
@@ -100,7 +105,7 @@ impl Schreibkonto {
 
 /// Vorrat und Nachschub der beiden Eimer eines Kontos.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct Kontoarten {
+pub(crate) struct Kontoarten {
     kennung: Eimerart,
     herkunft: Eimerart,
 }
@@ -155,6 +160,22 @@ impl Tabellen {
             ));
         }
         Ok(())
+    }
+
+    /// Schreibt `einheiten` an beiden Eimern gut, je höchstens bis zum Vorrat.
+    fn gutschreiben(
+        &mut self,
+        arten: Kontoarten,
+        kennung: &Kennung,
+        herkunft: IpAddr,
+        einheiten: u64,
+        jetzt: crate::uhr::Zeit,
+    ) {
+        let je_kennung = nachgefuellt(&self.kennungen, kennung, arten.kennung, jetzt)
+            .gutgeschrieben(arten.kennung, einheiten);
+        let je_herkunft = nachgefuellt(&self.herkuenfte, &herkunft, arten.herkunft, jetzt)
+            .gutgeschrieben(arten.herkunft, einheiten);
+        self.ablegen(arten, kennung, herkunft, (je_kennung, je_herkunft), jetzt);
     }
 
     /// Legt die Eimer nach einer Buchung ab und räumt bei vielen Einträgen auf.
