@@ -5,7 +5,8 @@
 
 mod gemeinsam;
 
-use gemeinsam::senden::{beitreten, ordner, starten};
+use gemeinsam::protokoll::zeilen;
+use gemeinsam::senden::{HEUTE, beitreten, ordner, senden, starten};
 use gemeinsam::strom::{Empfangen, Strom};
 use gemeinsam::{Absender, ApiAntwort, Instanz, api_antwort};
 use serde_json::{Value, json};
@@ -95,13 +96,14 @@ struct Runde {
     instanz: Instanz,
     absender: Absender,
     anna: String,
+    ben: String,
     cora: String,
     strom_ben: Strom,
 }
 
 async fn runde() -> Runde {
     let wurzel = ordner();
-    let instanz = starten(wurzel.path(), &[]);
+    let instanz = starten(wurzel.path(), &[("LOCALCHATA_PROTOKOLL_STUFE", "debug")]);
     let absender = Absender::von("127.0.0.1");
     let anna = beitreten(&absender, &instanz.adresse, "anna", None).await;
     let ben = beitreten(&absender, &instanz.adresse, "ben", None).await;
@@ -116,6 +118,7 @@ async fn runde() -> Runde {
         instanz,
         absender,
         anna,
+        ben,
         cora,
         strom_ben,
     }
@@ -358,4 +361,168 @@ async fn p8_abweisungen_ohne_wirkung() {
         ]
     );
     assert!(wirkung.is_none(), "{wirkung:?}");
+}
+
+/// `anna` setzt `tippt` in `channel`, und `ben` hat es gelesen.
+async fn anna_tippt_bei_ben(r: &mut Runde, channel: &str) {
+    let gesetzt = setzen(
+        &r.absender,
+        &r.instanz,
+        Some(&r.anna),
+        channel,
+        json!({"zustand": "tippt"}),
+    )
+    .await;
+    assert_eq!(gesetzt.status, 200, "{}", gesetzt.json);
+    r.strom_ben
+        .bis(Duration::from_secs(5), aktivitaet_von("anna@127.0.0.1"))
+        .await
+        .expect("gesetzt bei ben");
+}
+
+/// Die Arten, die `ben` ab `ab` gelesen hat, ohne Herzschläge; `aktivitaet` mit Channel und Zustand.
+fn gelesen_ab(strom: &Strom, ab: usize) -> Vec<String> {
+    strom.ereignisse[ab..]
+        .iter()
+        .filter(|e| e.event != "herzschlag")
+        .map(|e| match e.data["art"].as_str() {
+            Some("aktivitaet") => format!("aktivitaet {} {}", e.data["channel"], e.data["zustand"]),
+            Some("nachricht") => format!("nachricht {}", e.data["channel"]),
+            art => format!("{art:?}"),
+        })
+        .collect()
+}
+
+/// B0687, P4 zweiter Satz (Mutante M7): `anna` sendet → `ben` liest `nachricht`, danach `aktivitaet` mit
+/// `zustand: null`, in dieser Reihenfolge; eine Nachricht in `# technik` beendet den Zustand in `# allgemein` nicht.
+#[tokio::test]
+async fn p4_senden_beendet_den_zustand_nach_der_nachricht_nur_im_gespraech() {
+    let mut r = runde().await;
+    anna_tippt_bei_ben(&mut r, "allgemein").await;
+    let ab = r.strom_ben.ereignisse.len();
+
+    let gesendet = senden(
+        &r.absender,
+        &r.instanz.adresse,
+        &r.anna,
+        "allgemein",
+        "fertig",
+    )
+    .await;
+    r.strom_ben
+        .bis(Duration::from_secs(5), ist_aktivitaet)
+        .await
+        .expect("Ende bei ben");
+    let in_allgemein = gelesen_ab(&r.strom_ben, ab);
+    anna_tippt_bei_ben(&mut r, "allgemein").await;
+    let ab = r.strom_ben.ereignisse.len();
+    let in_technik = senden(
+        &r.absender,
+        &r.instanz.adresse,
+        &r.anna,
+        "technik",
+        "anderswo",
+    )
+    .await;
+    r.strom_ben
+        .bis(Duration::from_secs(5), |e| e.data["art"] == "nachricht")
+        .await
+        .expect("Nachricht in technik");
+    let nach_technik = r.strom_ben.bis(STILLE, ist_aktivitaet).await;
+
+    assert_eq!((gesendet.status, in_technik.status), (201, 201));
+    assert_eq!(
+        in_allgemein,
+        ["nachricht \"allgemein\"", "aktivitaet \"allgemein\" null"]
+    );
+    assert!(
+        nach_technik.is_none(),
+        "{nach_technik:?} nach {:?}",
+        gelesen_ab(&r.strom_ben, ab)
+    );
+}
+
+/// Alle Dateien unter `channels/` mit Inhalt — gleich heißt: dieselben Dateien mit denselben Bytes (wie `sha256sum`).
+fn channels_abbild(ordner: &std::path::Path) -> Vec<(std::path::PathBuf, Vec<u8>)> {
+    let mut offen = vec![ordner.join("channels")];
+    let mut dateien = Vec::new();
+    while let Some(verzeichnis) = offen.pop() {
+        for eintrag in std::fs::read_dir(&verzeichnis)
+            .expect("Verzeichnis")
+            .flatten()
+        {
+            let pfad = eintrag.path();
+            if pfad.is_dir() {
+                offen.push(pfad);
+            } else {
+                let inhalt = std::fs::read(&pfad).expect("Datei");
+                dateien.push((pfad, inhalt));
+            }
+        }
+    }
+    dateien.sort();
+    dateien
+}
+
+/// B0687, P6 Flüchtig: 30 Aufrufe Setzen und Löschen über 10 s → `channels/` Byte für Byte gleich, im
+/// Betriebsprotokoll (Stufe Debug) keine Zeile mit `aktivitaet`; `ben` verbindet neu → erstes Ereignis `teilnehmer`,
+/// kein `aktivitaet` vor dem nächsten Setzen, obwohl `anna` gerade tippt.
+#[tokio::test]
+async fn p6_nichts_bleibt_zurueck_und_ein_neuer_strom_holt_nichts_nach() {
+    let mut r = runde().await;
+    senden(
+        &r.absender,
+        &r.instanz.adresse,
+        &r.ben,
+        "allgemein",
+        "vorher",
+    )
+    .await;
+    let vorher = channels_abbild(&r.instanz.ordner);
+    let takt = Duration::from_millis(667);
+
+    let mut staende = Vec::new();
+    for _ in 0..15 {
+        let gesetzt = setzen(
+            &r.absender,
+            &r.instanz,
+            Some(&r.anna),
+            "allgemein",
+            json!({"zustand": "tippt"}),
+        )
+        .await;
+        let geloescht = loeschen(&r.absender, &r.instanz, &r.anna, "allgemein").await;
+        staende.push((gesetzt.status, geloescht.status));
+        tokio::time::sleep(takt).await;
+    }
+    anna_tippt_bei_ben(&mut r, "allgemein").await;
+    drop(std::mem::replace(
+        &mut r.strom_ben,
+        Strom::oeffnen(&r.absender, &r.instanz.adresse, &r.ben).await,
+    ));
+    let erstes = r
+        .strom_ben
+        .bis(Duration::from_secs(5), |e| e.event != "herzschlag")
+        .await
+        .expect("erstes Ereignis");
+    let vor_dem_setzen = r.strom_ben.bis(STILLE, ist_aktivitaet).await;
+    anna_tippt_bei_ben(&mut r, "allgemein").await;
+    let nachher = channels_abbild(&r.instanz.ordner);
+    let mit_aktivitaet: Vec<String> = zeilen(&r.instanz.ordner, HEUTE)
+        .into_iter()
+        .filter(|zeile| zeile.contains("aktivitaet"))
+        .collect();
+
+    assert!(
+        staende.iter().all(|stand| *stand == (200, 204)),
+        "{staende:?}"
+    );
+    assert_eq!(nachher, vorher, "channels/ unverändert");
+    assert!(
+        !zeilen(&r.instanz.ordner, HEUTE).is_empty(),
+        "Protokoll auf Stufe Debug geschrieben"
+    );
+    assert!(mit_aktivitaet.is_empty(), "{mit_aktivitaet:#?}");
+    assert_eq!(erstes.data["art"], "teilnehmer");
+    assert!(vor_dem_setzen.is_none(), "{vor_dem_setzen:?}");
 }

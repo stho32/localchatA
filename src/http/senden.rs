@@ -138,6 +138,10 @@ pub async fn senden(
     .await;
     match ergebnis {
         Ok(Ok(Gesendet::Neu(nachricht))) => {
+            // Nach dem Veröffentlichen der Nachricht, außerhalb der Schreibsperre (ADR-0051 Regel 7 b).
+            zustand
+                .aktivitaet
+                .beenden(&teilnehmer.kennung, &Gespraech::channel(&name));
             vorlauf::eintragen(&zustand.protokoll, zustand.gespraeche.zeit_vorlauf_ms());
             gesendet_melden(&zustand, &name, &wer, text_bytes, eintritt, None);
             gesendet(StatusCode::CREATED, &name, &nachricht)
