@@ -152,6 +152,26 @@ impl Verlauf {
             },
         );
     }
+
+    /// Hängt einen Löschsatz an und setzt die Fassung der Nachricht `ziel` auf `Geloescht` (nach erfolgreichem
+    /// Schreiben; endgültig).
+    pub fn loeschung_anhaengen(
+        &mut self,
+        tag: NaiveDate,
+        satz: &str,
+        zeilenende_ergaenzt: bool,
+        ziel: Zeit,
+        geaendert: Zeit,
+    ) {
+        self.anhaengen(tag, satz, zeilenende_ergaenzt);
+        self.fassungen.insert(
+            ziel,
+            Fassung {
+                geaendert,
+                zustand: Fassungszustand::Geloescht,
+            },
+        );
+    }
 }
 
 #[derive(Debug, Default)]

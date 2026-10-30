@@ -127,6 +127,16 @@ pub fn bearbeitungssatz(zeit: Zeit, von: &Kennung, ziel: Zeit, text: &str) -> St
     satz
 }
 
+/// Der Löschsatz (ADR-0048 Regel 1): eigene Kopfzeile, genau eine Bezugs-Metazeile `+ geloescht:`, kein Text — nur
+/// die abschließende Leerzeile.
+pub fn loeschsatz(zeit: Zeit, von: &Kennung, ziel: Zeit) -> String {
+    format!(
+        "@ {} {von}\n{GELOESCHT_METAZEILE}{}\n\n",
+        zeit_im_log(&zeit),
+        zeit_im_log(&ziel)
+    )
+}
+
 /// Der Text so, wie ihn ein Satz nach dem Zurücklesen liefert (`\r\n` als `\n`, ohne abschließende Leerzeilen).
 pub fn text_wie_im_log(text: &str) -> String {
     let mut satz = String::from("@ x\n");
