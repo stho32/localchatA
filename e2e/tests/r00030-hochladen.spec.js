@@ -82,9 +82,46 @@ test('Fortschritt (Desktop, 1 MiB/s): bericht.pdf → Balken „bericht.pdf wird
   expect(fehler).toEqual([]);
 });
 
+/// Im Browser: je PUT die Zeit vom send bis zum Ende des Körpers (`upload` loadend), auf der gemeinsamen Uhr aller Tabs
+/// (performance.timeOrigin + now). Die Ereignisse `request`/`requestfinished` in Playwright kommen versetzt an und
+/// täuschen einen dritten PUT vor (Code-Review #43 F0101 A3).
+function koerperZeitenMitschreiben() {
+  window.koerperZeiten = [];
+  const oeffnen = XMLHttpRequest.prototype.open;
+  const senden = XMLHttpRequest.prototype.send;
+  const jetzt = () => performance.timeOrigin + performance.now();
+  XMLHttpRequest.prototype.open = function oeffnenMitMethode(methode, ...rest) {
+    this.methodeR00030 = methode;
+    return oeffnen.call(this, methode, ...rest);
+  };
+  XMLHttpRequest.prototype.send = function sendenMitZeit(...rest) {
+    if (this.methodeR00030 === 'PUT') {
+      const zeit = { beginn: jetzt(), ende: null };
+      window.koerperZeiten.push(zeit);
+      this.upload.addEventListener('loadend', () => {
+        zeit.ende = jetzt();
+      });
+    }
+    return senden.apply(this, rest);
+  };
+}
+
+/// Höchstzahl gleichzeitig offener Spannen [beginn, ende).
+function hoechstensZugleich(zeiten) {
+  const ereignisse = zeiten.flatMap(({ beginn, ende }) => [[beginn, 1], [ende, -1]]).sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+  let offen = 0;
+  let hoechstens = 0;
+  for (const [, schritt] of ereignisse) {
+    offen += schritt;
+    hoechstens = Math.max(hoechstens, offen);
+  }
+  return hoechstens;
+}
+
 test('Höchstens zwei zugleich (Desktop): zwei Tabs, je 3 Dateien gedrosselt → nie mehr als 2 PUT gleichzeitig, alle 6 kommen an, kein 429; die dritte zeigt „wartet“', async ({ browser }) => {
   instanz = await anhangStarten();
   const kontext = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+  await kontext.addInitScript(koerperZeitenMitschreiben);
   const eins = await kontext.newPage();
   const fehlerEins = fehlerSammeln(eins);
   await imBrowserBeitreten(eins, instanz.adresse, 'shoff');
@@ -93,20 +130,11 @@ test('Höchstens zwei zugleich (Desktop): zwei Tabs, je 3 Dateien gedrosselt →
   await zwei.goto(`${instanz.adresse}#/c/allgemein`);
   await expect(zwei.getByRole('log')).toHaveAttribute('aria-label', 'Verlauf # allgemein');
 
-  let laufend = 0;
-  let hoechstens = 0;
   const antworten = [];
   for (const seite of [eins, zwei]) {
     await drosseln(seite);
-    seite.on('request', (anfrage) => {
-      if (anfrage.method() === 'PUT' && anfrage.url().includes('/api/anhaenge/')) {
-        laufend += 1;
-        hoechstens = Math.max(hoechstens, laufend);
-      }
-    });
     const ende = async (anfrage) => {
       if (anfrage.method() === 'PUT' && anfrage.url().includes('/api/anhaenge/')) {
-        laufend -= 1;
         const antwort = await anfrage.response();
         antworten.push(antwort === null ? 0 : antwort.status());
       }
@@ -133,7 +161,9 @@ test('Höchstens zwei zugleich (Desktop): zwei Tabs, je 3 Dateien gedrosselt →
 
   await expect.poll(() => antworten.length, { timeout: 25000 }).toBe(6);
   expect(antworten).toEqual([200, 200, 200, 200, 200, 200]);
-  expect(hoechstens).toBe(2);
+  const zeiten = (await Promise.all([eins, zwei].map((seite) => seite.evaluate(() => window.koerperZeiten)))).flat();
+  expect(zeiten).toHaveLength(6);
+  expect(hoechstensZugleich(zeiten)).toBe(2);
   expect(anmeldungen.every((status) => status === 201), JSON.stringify(anmeldungen)).toBe(true);
   expect(fehlerEins).toEqual([]);
   expect(fehlerZwei).toEqual([]);
