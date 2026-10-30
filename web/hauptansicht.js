@@ -116,7 +116,6 @@ export function zeichnen(wurzel, teilnehmer, optionen) {
     ansagen: ansagen.melden,
     tippen,
     tippzeile: tippanzeige.zeile,
-    hinweisen: statusMelden,
     eigeneLetzteFokussieren: verlauf.eigeneLetzteFokussieren,
   });
   const wieder = wiederverbindenEinrichten({

@@ -42,8 +42,8 @@ export function taste(ereignis, text, zeiger) {
 // Wirkung, darum wird die Taste dort immer verbraucht. `tippen` (tippen.js) erfährt jede Eingabe, das Senden und den
 // Wechsel des Channels — nie das Wiederherstellen des Entwurfs (R00045 F0161). `tippzeile` (aktivitaetsanzeige.js)
 // steht in der Hinweisreihe hinter der Hinweiszeile, nie in ihr und nie in aria-describedby. Über dem Feld steht die
-// Antwortzeile (antwortzeileAnlegen); `hinweisen(text)` ist die Hinweiszeile der Seite.
-export function eingabeAnlegen({ senden, entwurf, ansagen, tippen, tippzeile, hinweisen = () => {}, eigeneLetzteFokussieren = () => {} }) {
+// Antwortzeile (antwortzeileAnlegen).
+export function eingabeAnlegen({ senden, entwurf, ansagen, tippen, tippzeile, eigeneLetzteFokussieren = () => {} }) {
   const feld = document.createElement('textarea');
   feld.rows = 1;
   feld.className = 'lc-comp-feld';
@@ -61,6 +61,8 @@ export function eingabeAnlegen({ senden, entwurf, ansagen, tippen, tippzeile, hi
   const rahmen = element('div', { className: 'lc-comp' }, [antwort.zeile, kasten, hinweisReihe]);
   let channel = null;
   let gezeigt = hinweis(textPruefen(''));
+  const MELDUNG_STEHT_MS = 6000;
+  let meldungEnde = null;
 
   function textBewerten() {
     hinweisZeigen();
@@ -68,6 +70,7 @@ export function eingabeAnlegen({ senden, entwurf, ansagen, tippen, tippzeile, hi
   }
 
   function hinweisZeigen() {
+    clearTimeout(meldungEnde);
     const ergebnis = textPruefen(feld.value);
     const neu = hinweis(ergebnis);
     bereinigenGruppe.hidden = ergebnis.art !== 'zeichen';
@@ -82,6 +85,16 @@ export function eingabeAnlegen({ senden, entwurf, ansagen, tippen, tippzeile, hi
       ansagen({ art: 'sofort', text: neu.text.replace(/^⚠ /, '') });
     }
     gezeigt = neu;
+  }
+
+  // Eine Meldung ohne Fehler steht in der Hinweiszeile statt über Feld und „Senden“ (UX S1, Karte #79) und wird einmal
+  // angesagt; nach einigen Sekunden oder mit der nächsten Eingabe zeigt die Zeile wieder den Hinweis zum Text.
+  function meldungZeigen(text) {
+    clearTimeout(meldungEnde);
+    zeile.textContent = text;
+    zeile.classList.remove('lc-fehler');
+    ansagen({ art: 'sofort', text });
+    meldungEnde = setTimeout(hinweisZeigen, MELDUNG_STEHT_MS);
   }
 
   // Nicht verfügbar heißt aria-disabled, nie disabled: der Knopf bleibt fokussierbar und wird vorgelesen (K2, K3).
@@ -203,9 +216,6 @@ export function eingabeAnlegen({ senden, entwurf, ansagen, tippen, tippzeile, hi
         tippen.gewechselt(channel);
       }
       const verworfen = antwort.verwerfen();
-      if (verworfen !== null) {
-        hinweisen(`Die Antwort an ${verworfen.von} wurde beim Wechsel verworfen.`);
-      }
       channel = name;
       const beschriftung = `Nachricht an # ${name}`;
       feld.setAttribute('aria-label', beschriftung);
@@ -213,6 +223,9 @@ export function eingabeAnlegen({ senden, entwurf, ansagen, tippen, tippzeile, hi
       feld.value = entwurf.oeffnen(name);
       hoeheAnpassen(feld);
       textBewerten();
+      if (verworfen !== null) {
+        meldungZeigen(`Die Antwort an ${verworfen.von} wurde beim Wechsel verworfen.`);
+      }
     },
     fokussieren: () => feld.focus(),
     bezugAbgewiesen,

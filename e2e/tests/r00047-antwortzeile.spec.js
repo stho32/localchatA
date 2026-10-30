@@ -85,7 +85,7 @@ test('Zeile und Channelwechsel: nach # technik und zurück ist die Zeile weg, de
   await b.page.getByRole('link', { name: 'technik' }).click();
   await expect(b.page.getByRole('log')).toHaveAttribute('aria-label', 'Verlauf # technik');
   await expect(antwortzeile(b.page)).toHaveCount(0);
-  await expect(b.page.locator('.lc-statuszeile')).toHaveText(`Die Antwort an ${ANNA_KENNUNG} wurde beim Wechsel verworfen.`);
+  await expect(b.page.locator('#lc-comp-hinweis')).toHaveText(`Die Antwort an ${ANNA_KENNUNG} wurde beim Wechsel verworfen.`);
   await b.page.getByRole('link', { name: 'allgemein' }).click();
   await expect(b.page.getByRole('log')).toHaveAttribute('aria-label', 'Verlauf # allgemein');
   await expect(nachrichtMitZeit(b.page, anna.zeiten[0])).toHaveCount(1);
