@@ -3,11 +3,13 @@
 //! 429 (1 Einheit vorab) · 415/400/413/408 · 422 (B0505) · 409 `bestaetigen` · 429 (Rest-Buchung) · 200.
 
 use super::super::Zustand;
+use super::super::abbruch::{Abgebrochen, Grenzort, abbruch_beantworten};
 use super::super::anfrageprotokoll::{mit_regel, mit_regel_und};
 use super::super::bremse::{Gegenstand, gebremst_melden};
 use super::super::koerper::{Koerperfehler, Koerperort, felder_lesen, koerperfehler_beantworten};
 use super::super::senden::groesse_in_worten;
 use super::super::teilnehmer::Teilnehmer;
+use super::super::werkbank::bank_erwerben;
 use super::loeschkoerper::{self, auftrag_pruefen};
 use crate::gespraeche::Gespraech;
 use crate::gespraeche::loeschen::{Einzelergebnis, Geloescht, Loeschen, Umfang};
@@ -66,27 +68,45 @@ pub async fn loeschen(
             return mit_regel(antwort, abweisung.regel, Some(&wer));
         }
     };
-    let Ok(erlaubnis) = Arc::clone(&zustand.hochladebank).acquire_owned().await else {
-        return super::super::abbruch::interner_fehler("Löschen");
+    let ort = Grenzort {
+        route: ROUTE,
+        operation: "anhaenge_loeschen",
+        kennung: Some(&wer),
+        channel: None,
     };
+    let erlaubnis = match bank_erwerben(&zustand.hochladebank).await {
+        Ok(erlaubnis) => erlaubnis,
+        Err(abbruch) => {
+            return abbruch_beantworten(&zustand.protokoll, &abbruch, &ort, NICHT_GELOESCHT);
+        }
+    };
+    let testpanik = zustand.testpanik.clone();
     let auftrag = Loeschauftrag {
         gespraeche: Arc::clone(&zustand.gespraeche),
         konto: Arc::clone(&zustand.schreibkonto),
         protokoll: Arc::clone(&zustand.protokoll),
         bus: Arc::clone(&zustand.bus),
-        teilnehmer,
+        teilnehmer: teilnehmer.clone(),
         auftrag,
     };
     let fertig = tokio::task::spawn_blocking(move || {
         let _erlaubnis = erlaubnis;
+        testpanik.loeschen();
         auftrag.ausfuehren()
     })
     .await;
     match fertig {
         Ok(antwort) => antwort,
-        Err(_) => super::super::abbruch::interner_fehler("Löschen"),
+        Err(fehler) => abbruch_beantworten(
+            &zustand.protokoll,
+            &Abgebrochen::from(fehler),
+            &ort,
+            NICHT_GELOESCHT,
+        ),
     }
 }
+
+const NICHT_GELOESCHT: &str = "Anhänge nicht gelöscht";
 
 /// Alles nach dem Start des Löschens in einem Blocking-Teil (ADR-0048 K2, gleiche Klasse wie beim Löschen einer
 /// Nachricht): Wirkung, Protokollzeilen, Ereignis und Bau der Antwort, ohne `await` dazwischen — bricht der Client ab,
@@ -146,7 +166,7 @@ impl Loeschauftrag {
                 veroeffentlichen(&self.bus, &bericht);
                 (StatusCode::OK, Json(ergebnis(&bericht))).into_response()
             }
-            (Loeschen::Gebremst, None) => super::super::abbruch::interner_fehler("Löschen"),
+            (Loeschen::Gebremst, None) => super::super::abbruch::interner_fehler(NICHT_GELOESCHT),
         }
     }
 }
@@ -301,7 +321,10 @@ fn koerper_abgewiesen(fehler: Koerperfehler) -> Response {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::http::loeschaufbau::{aufbau, naechstes_anhaenge_ereignis};
+    use crate::http::loeschaufbau::{aufbau, aufbau_mit, naechstes_anhaenge_ereignis};
+    use crate::protokoll::testpanik::Testpanik;
+    use crate::zufall::FesteFolge;
+    use std::ffi::OsStr;
 
     /// R00043 B0666 (ADR-0048 K2, gleiche Klasse beim Löschen im Laufwerk): bricht der Client nach dem Start des
     /// Löschens ab, stehen trotzdem die Zeile `INFORMATION anhang Anhänge gelöscht` (ohne `grund`) und das Ereignis
@@ -322,6 +345,67 @@ mod tests {
         let information = aufbau.zeilen_mit(" INFORMATION anhang Anhänge gelöscht");
         assert_eq!(information.len(), 1, "{:#?}", aufbau.zeilen.zeilen());
         assert!(!information[0].contains("grund="), "{information:#?}");
+    }
+
+    async fn fehlertext(antwort: Response) -> String {
+        let koerper = axum::body::to_bytes(antwort.into_body(), 4096)
+            .await
+            .expect("Körper");
+        let json: Value = serde_json::from_slice(&koerper).expect("JSON");
+        json["fehler"].as_str().expect("fehler").to_string()
+    }
+
+    /// R00043 B0667 (ADR-0048 K3): geschlossene Hochladebank beim Löschen im Laufwerk → 500 mit „Anhänge nicht
+    /// gelöscht“ und genau ein `EXCEPTION … grund=werkbank_geschlossen operation=anhaenge_loeschen`.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn eine_geschlossene_hochladebank_im_laufwerk_wird_beantwortet_und_protokolliert() {
+        let aufbau = aufbau();
+        let (_, id) = aufbau.nachricht_mit_anhang("beta@127.0.0.1");
+        aufbau.zustand.hochladebank.close();
+
+        let antwort = aufbau.anhaenge_loeschen("beta@127.0.0.1", &[&id]).await;
+
+        assert_eq!(antwort.status(), StatusCode::INTERNAL_SERVER_ERROR);
+        assert_eq!(
+            fehlertext(antwort).await,
+            "Interner Fehler — Anhänge nicht gelöscht; bitte erneut versuchen"
+        );
+        let eintraege = aufbau.zeilen_mit(" programmfehler ");
+        assert_eq!(eintraege.len(), 1, "{eintraege:#?}");
+        assert!(
+            eintraege[0].contains(" EXCEPTION programmfehler "),
+            "{eintraege:#?}"
+        );
+        assert!(
+            eintraege[0].contains("route=\"POST /api/anhaenge/loeschen\" operation=anhaenge_loeschen status=500 kennung=beta@127.0.0.1 grund=werkbank_geschlossen"),
+            "{eintraege:#?}"
+        );
+    }
+
+    /// R00043 B0667: Panik im Blocking-Teil des Laufwerk-Löschens → 500, genau ein `ERROR … grund=panik`.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn eine_panik_im_laufwerk_wird_beantwortet_und_danach_loescht_es_weiter() {
+        let panik = Testpanik::aus_wert(Some(OsStr::new("loeschen"))).expect("gültig");
+        let aufbau = aufbau_mit(Arc::new(FesteFolge::neu(1..=100)), panik);
+        let (_, id) = aufbau.nachricht_mit_anhang("beta@127.0.0.1");
+
+        let antwort = aufbau.anhaenge_loeschen("beta@127.0.0.1", &[&id]).await;
+
+        assert_eq!(antwort.status(), StatusCode::INTERNAL_SERVER_ERROR);
+        let eintraege = aufbau.zeilen_mit(" programmfehler ");
+        assert_eq!(eintraege.len(), 1, "{eintraege:#?}");
+        assert!(
+            eintraege[0].contains(" ERROR programmfehler "),
+            "{eintraege:#?}"
+        );
+        assert!(
+            eintraege[0].contains(
+                "operation=anhaenge_loeschen status=500 kennung=beta@127.0.0.1 grund=panik"
+            ),
+            "{eintraege:#?}"
+        );
+        let erneut = aufbau.anhaenge_loeschen("beta@127.0.0.1", &[&id]).await;
+        assert_eq!(erneut.status(), StatusCode::OK);
     }
 
     #[test]

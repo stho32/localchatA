@@ -15,8 +15,9 @@ use crate::name::Name;
 use crate::protokoll::Stufe;
 use crate::protokoll::senke::Speicher;
 use crate::protokoll::testhilfe::{im_speicher, zeit};
+use crate::protokoll::testpanik::Testpanik;
 use crate::uhr::{GestellteUhr, Zeit};
-use crate::zufall::FesteFolge;
+use crate::zufall::{FesteFolge, Zufall};
 use axum::body::Body;
 use axum::extract::{Path, State};
 use axum::http::HeaderMap;
@@ -36,6 +37,11 @@ pub struct Aufbau {
 
 /// Channel `allgemein`, Anhang-Quote 10 MiB, Uhr 2026-10-29 12:00, Stufe `Debug`.
 pub fn aufbau() -> Aufbau {
+    aufbau_mit(Arc::new(FesteFolge::neu(1..=100)), Testpanik::keine())
+}
+
+/// Wie `aufbau`, mit eigenem Zufall (ein Zufall, der in Panik gerät, bringt `anmelden` zum Abbruch) und Testknopf.
+pub fn aufbau_mit(zufall: Arc<dyn Zufall>, testpanik: Testpanik) -> Aufbau {
     let ordner = tempfile::tempdir().expect("Wegwerf-Ordner");
     let ablage = Arc::new(Speicherablage::neu());
     ablage.gespraech_anlegen(&Gespraech::channel("allgemein"));
@@ -45,11 +51,12 @@ pub fn aufbau() -> Aufbau {
         .expect("geladen")
         .mit_anhangquote(Some(10 * MIB))
         .mit_anhangablage(anhaenge.clone())
-        .mit_zufall(Arc::new(FesteFolge::neu(1..=100)));
+        .mit_zufall(zufall);
     let mut zustand = testserver::zustand(ordner.path());
     zustand.gespraeche = Arc::new(gespraeche);
     let (protokoll, zeilen, _, _) = im_speicher("2026-10-29T12:00:00+01:00", Stufe::Debug);
     zustand.protokoll = protokoll;
+    zustand.testpanik = testpanik;
     Aufbau {
         zustand: Arc::new(zustand),
         zeilen,
@@ -192,6 +199,30 @@ impl Aufbau {
             State(Arc::clone(&self.zustand)),
             json_kopf(),
             Body::from(koerper.to_string()),
+        )
+    }
+
+    /// Der Handler `POST /api/anhaenge` als Aufruf mit `{"name": …, "bytes": …}`.
+    pub fn anhaenge_anmelden(&self, wer: &str) -> impl Future<Output = Response> + Send + use<> {
+        let koerper = serde_json::json!({"name": "a.bin", "bytes": 10});
+        anhaenge::anmelden(
+            teilnehmer(wer),
+            State(Arc::clone(&self.zustand)),
+            json_kopf(),
+            Body::from(koerper.to_string()),
+        )
+    }
+
+    /// Der Handler `DELETE /api/anhaenge/{id}`.
+    pub fn anhaenge_verwerfen(
+        &self,
+        wer: &str,
+        id: &Anhangid,
+    ) -> impl Future<Output = Response> + Send + use<> {
+        anhaenge::verwerfen(
+            teilnehmer(wer),
+            State(Arc::clone(&self.zustand)),
+            Path(id.als_text().to_string()),
         )
     }
 }

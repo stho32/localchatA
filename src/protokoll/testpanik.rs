@@ -1,5 +1,6 @@
-//! Testknopf `LOCALCHATA_TESTPANIK=verlauf|takt` (ADR-0042 Regel 4 mit Ergänzung): nur im Debug-Build gelesen;
-//! `verlauf` lässt den nächsten Verlaufsblock einmal in Panik geraten, `takt` den Anwesenheits-Takt. Im
+//! Testknopf `LOCALCHATA_TESTPANIK=verlauf|takt|loeschen` (ADR-0042 Regel 4 mit Ergänzung, ADR-0048 K3): nur im
+//! Debug-Build gelesen; `verlauf` lässt den nächsten Verlaufsblock einmal in Panik geraten, `takt` den
+//! Anwesenheits-Takt, `loeschen` den nächsten Blocking-Teil eines Löschens (Nachricht, Laufwerk) oder Verwerfens. Im
 //! Release-Build wird die Variable nie gelesen und nichts gerät in Panik.
 
 use std::ffi::OsStr;
@@ -14,9 +15,10 @@ pub const VARIABLE: &str = "LOCALCHATA_TESTPANIK";
 pub struct Testpanik {
     verlauf: Arc<AtomicBool>,
     takt: Arc<AtomicBool>,
+    loeschen: Arc<AtomicBool>,
 }
 
-/// Ein Wert außer `verlauf` und `takt` (auch leer).
+/// Ein Wert außer `verlauf`, `takt` und `loeschen` (auch leer).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Testpanikfehler {
     pub wert: String,
@@ -26,7 +28,7 @@ impl fmt::Display for Testpanikfehler {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
-            "{VARIABLE} kennt nur verlauf und takt: {}",
+            "{VARIABLE} kennt nur verlauf, takt und loeschen: {}",
             super::in_anfuehrung(&self.wert)
         )
     }
@@ -45,6 +47,7 @@ impl Testpanik {
             None => {}
             Some(Ok("verlauf")) => testpanik.verlauf.store(true, Ordering::SeqCst),
             Some(Ok("takt")) => testpanik.takt.store(true, Ordering::SeqCst),
+            Some(Ok("loeschen")) => testpanik.loeschen.store(true, Ordering::SeqCst),
             Some(Ok(anderer)) => {
                 return Err(Testpanikfehler {
                     wert: anderer.to_string(),
@@ -72,6 +75,13 @@ impl Testpanik {
     pub fn verlauf(&self) {
         if self.verlauf.swap(false, Ordering::SeqCst) {
             panic!("Testpanik im Verlauf ({VARIABLE}=verlauf)");
+        }
+    }
+
+    /// Gerät einmal in Panik, wenn `loeschen` gewählt ist.
+    pub fn loeschen(&self) {
+        if self.loeschen.swap(false, Ordering::SeqCst) {
+            panic!("Testpanik beim Löschen ({VARIABLE}=loeschen)");
         }
     }
 
@@ -106,6 +116,15 @@ mod tests {
         assert!(std::panic::catch_unwind(|| testpanik.verlauf()).is_err());
         assert!(std::panic::catch_unwind(|| testpanik.verlauf()).is_ok());
         assert!(std::panic::catch_unwind(|| testpanik.takt()).is_ok());
+    }
+
+    /// R00043 B0667 (ADR-0048 K3): `loeschen` gerät genau einmal in Panik und berührt die anderen Orte nicht.
+    #[test]
+    fn loeschen_geraet_genau_einmal_in_panik() {
+        let testpanik = Testpanik::aus_wert(Some(OsStr::new("loeschen"))).expect("gültig");
+        assert!(std::panic::catch_unwind(|| testpanik.verlauf()).is_ok());
+        assert!(std::panic::catch_unwind(|| testpanik.loeschen()).is_err());
+        assert!(std::panic::catch_unwind(|| testpanik.loeschen()).is_ok());
     }
 
     #[test]

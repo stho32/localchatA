@@ -110,6 +110,87 @@ async fn us8_panik_im_verlauf_wird_exception_und_error_an_der_grenze_die_instanz
     assert_eq!(alle_protokolle(wurzel.path()).matches(&token).count(), 0);
 }
 
+/// R00043 F0144 (ADR-0048 K3): eine Panik im Blocking-Teil des Löschens (`LOCALCHATA_TESTPANIK=loeschen`) antwortet
+/// 500 ohne Fremdtext, schreibt genau eine `EXCEPTION` (Haken) und einen `ERROR` (Grenze, `operation=nachricht_loeschen`,
+/// `grund=panik`); das Senden danach und das zweite Löschen gehen unverändert.
+#[tokio::test]
+async fn panik_im_loeschen_wird_exception_und_error_an_der_grenze_senden_und_loeschen_gehen_weiter()
+{
+    let wurzel = tempfile::tempdir().expect("Wegwerf-Ordner");
+    std::fs::create_dir_all(wurzel.path().join("channels/allgemein")).expect("Channel");
+    let mut instanz = starten_um(wurzel.path(), &[("LOCALCHATA_TESTPANIK", "loeschen")]);
+    let absender = Absender::von("127.0.0.1");
+    let token = absender
+        .beitreten(&instanz.adresse, json!({"name": "beta"}), None)
+        .await
+        .json["token"]
+        .as_str()
+        .expect("Token")
+        .to_string();
+    let senden = |text: &str| {
+        absender
+            .anfrage(
+                reqwest::Method::POST,
+                format!("{}api/channels/allgemein/nachrichten", instanz.adresse),
+            )
+            .header("X-LocalchatA-Sitzung", &token)
+            .json(&json!({"text": text}))
+            .send()
+    };
+    let loeschen = |zeit: &str| {
+        absender
+            .anfrage(
+                reqwest::Method::POST,
+                format!(
+                    "{}api/channels/allgemein/nachrichten/loeschen",
+                    instanz.adresse
+                ),
+            )
+            .header("X-LocalchatA-Sitzung", &token)
+            .json(&json!({"zeit": zeit}))
+            .send()
+    };
+    let gesendet: serde_json::Value = senden("eins")
+        .await
+        .expect("Antwort")
+        .json()
+        .await
+        .expect("JSON");
+    let zeit = gesendet["nachricht"]["zeit"]
+        .as_str()
+        .expect("zeit")
+        .to_string();
+
+    let erste = loeschen(&zeit).await.expect("Antwort");
+    let erster_status = erste.status().as_u16();
+    let erster_text = erste.text().await.expect("Text");
+    let weiter = senden("zwei").await.expect("Antwort").status().as_u16();
+    let zweite = loeschen(&zeit).await.expect("Antwort").status().as_u16();
+    assert!(instanz.signal_und_warten("TERM").success());
+
+    assert_eq!(erster_status, 500);
+    assert_eq!(
+        serde_json::from_str::<serde_json::Value>(&erster_text).expect("JSON"),
+        json!({"fehler": "Interner Fehler — Nachricht nicht gelöscht; bitte erneut versuchen"})
+    );
+    for fremd in ["panicked", "Testpanik", "JoinError"] {
+        assert!(!erster_text.contains(fremd), "{erster_text}");
+    }
+    let datei = zeilen(wurzel.path(), "2026-10-28");
+    let exceptions = mit(&datei, "EXCEPTION", "programmfehler");
+    let errors = mit(&datei, "ERROR", "programmfehler");
+    assert_eq!(exceptions.len(), 1, "{datei:#?}");
+    assert_eq!(errors.len(), 1, "{datei:#?}");
+    assert_eq!(
+        wert(&errors[0], "operation").as_deref(),
+        Some("nachricht_loeschen")
+    );
+    assert_eq!(wert(&errors[0], "grund").as_deref(), Some("panik"));
+    assert_eq!(wert(&errors[0], "status").as_deref(), Some("500"));
+    assert_eq!(weiter, 201);
+    assert_eq!(zweite, 200);
+}
+
 /// Erwartet ≤ 1 s nach der Startzeile (ein Takt), Grenze 2 s; Abfrage alle 100 ms.
 #[tokio::test]
 async fn us9_ein_ausgefallener_takt_wird_sichtbar() {

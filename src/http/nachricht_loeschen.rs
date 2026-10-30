@@ -7,6 +7,7 @@
 //! Restbuchung — Löschen ist von sich aus wiederholbar.
 
 use super::Zustand;
+use super::abbruch::{Abgebrochen, Grenzort, abbruch_beantworten};
 use super::anfrageprotokoll::mit_regel;
 use super::anhaenge::loeschen::{Anlass, protokollieren, veroeffentlichen};
 use super::bearbeiten::{
@@ -18,6 +19,7 @@ use super::koerper::{Koerperfehler, Koerperort, json_lesen, koerperfehler_beantw
 use super::nachrichten::NachrichtAntwort;
 use super::senden::{nicht_gespeichert_antwort, quote_auftreten, unbekannt};
 use super::teilnehmer::Teilnehmer;
+use super::werkbank::bank_erwerben;
 use crate::gespraeche::loeschen::Geloescht;
 use crate::gespraeche::nachricht_loeschen::{Loeschfehler, NachrichtGeloescht};
 use crate::gespraeche::{Gespraech, Gespraeche, Nachricht};
@@ -82,28 +84,46 @@ pub async fn loeschen(
     let Some(ziel) = zeit_lesen(&wert) else {
         return mit_regel(zeit_abgewiesen(), "zeit", Some(&wer));
     };
-    let Ok(erlaubnis) = Arc::clone(&zustand.hochladebank).acquire_owned().await else {
-        return super::abbruch::interner_fehler("Löschen");
+    let ort = Grenzort {
+        route: ROUTE,
+        operation: "nachricht_loeschen",
+        kennung: Some(&wer),
+        channel: Some(&name),
     };
+    let erlaubnis = match bank_erwerben(&zustand.hochladebank).await {
+        Ok(erlaubnis) => erlaubnis,
+        Err(abbruch) => {
+            return abbruch_beantworten(&zustand.protokoll, &abbruch, &ort, NICHT_GELOESCHT);
+        }
+    };
+    let testpanik = zustand.testpanik.clone();
     let auftrag = Loeschauftrag {
         gespraeche: Arc::clone(&zustand.gespraeche),
         protokoll: Arc::clone(&zustand.protokoll),
         bus: Arc::clone(&zustand.bus),
-        teilnehmer,
-        channel: name,
+        teilnehmer: teilnehmer.clone(),
+        channel: name.clone(),
         ziel,
         eintritt,
     };
     let fertig = tokio::task::spawn_blocking(move || {
         let _erlaubnis = erlaubnis;
+        testpanik.loeschen();
         auftrag.ausfuehren()
     })
     .await;
     match fertig {
         Ok(antwort) => antwort,
-        Err(_) => super::abbruch::interner_fehler("Löschen"),
+        Err(fehler) => abbruch_beantworten(
+            &zustand.protokoll,
+            &Abgebrochen::from(fehler),
+            &ort,
+            NICHT_GELOESCHT,
+        ),
     }
 }
+
+const NICHT_GELOESCHT: &str = "Nachricht nicht gelöscht";
 
 /// Alles, was nach dem Commit-Punkt geschieht, in einem Blocking-Teil (ADR-0048 K2): die Wirkung, die Protokollzeilen,
 /// die Episoden, das Ereignis und der Bau der Antwort. Fällt die Zukunft des Handlers, weil der Client abbricht,
@@ -284,7 +304,10 @@ fn koerper_abgewiesen(fehler: Koerperfehler) -> Response {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::http::loeschaufbau::{aufbau, naechstes_anhaenge_ereignis};
+    use crate::http::loeschaufbau::{aufbau, aufbau_mit, naechstes_anhaenge_ereignis};
+    use crate::protokoll::testpanik::Testpanik;
+    use crate::zufall::FesteFolge;
+    use std::ffi::OsStr;
 
     /// R00043 B0666 (ADR-0048 K2): bricht der Client nach dem Start des Löschens ab, stehen trotzdem genau eine Zeile
     /// `DEBUG aendern Nachricht gelöscht`, eine `INFORMATION anhang Anhänge gelöscht … grund=nachricht` und ein
@@ -338,6 +361,86 @@ mod tests {
 
         let fehler = aufbau.zeilen_mit(" ERROR anhang Löschen gescheitert");
         assert_eq!(fehler.len(), 1, "{:#?}", aufbau.zeilen.zeilen());
+    }
+
+    async fn fehlertext(antwort: Response) -> String {
+        let koerper = axum::body::to_bytes(antwort.into_body(), 4096)
+            .await
+            .expect("Körper");
+        let json: Value = serde_json::from_slice(&koerper).expect("JSON");
+        json["fehler"].as_str().expect("fehler").to_string()
+    }
+
+    /// R00043 B0667 (ADR-0048 K3): eine geschlossene Hochladebank antwortet 500 ohne Fremdtext und schreibt genau
+    /// einen Eintrag `EXCEPTION programmfehler … grund=werkbank_geschlossen operation=nachricht_loeschen`.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn eine_geschlossene_hochladebank_beim_loeschen_wird_beantwortet_und_protokolliert() {
+        let aufbau = aufbau();
+        let (zeit, _) = aufbau.nachricht_mit_anhang("beta@127.0.0.1");
+        aufbau.zustand.hochladebank.close();
+
+        let antwort = aufbau.nachricht_loeschen("beta@127.0.0.1", zeit).await;
+
+        assert_eq!(antwort.status(), StatusCode::INTERNAL_SERVER_ERROR);
+        assert_eq!(
+            fehlertext(antwort).await,
+            "Interner Fehler — Nachricht nicht gelöscht; bitte erneut versuchen"
+        );
+        let eintraege = aufbau.zeilen_mit(" programmfehler ");
+        assert_eq!(eintraege.len(), 1, "{eintraege:#?}");
+        assert!(
+            eintraege[0].contains(" EXCEPTION programmfehler "),
+            "{eintraege:#?}"
+        );
+        assert!(
+            eintraege[0].contains("route=\"POST /api/channels/{name}/nachrichten/loeschen\" operation=nachricht_loeschen status=500 kennung=beta@127.0.0.1 channel=allgemein grund=werkbank_geschlossen"),
+            "{eintraege:#?}"
+        );
+    }
+
+    /// R00043 B0667: eine Panik im Blocking-Teil (Testknopf `loeschen`) antwortet 500 ohne Fremdtext und schreibt
+    /// genau einen `ERROR programmfehler … grund=panik`; die Erlaubnis kehrt zurück, danach löscht und sendet es
+    /// unverändert.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn eine_panik_beim_loeschen_wird_beantwortet_und_danach_geht_alles_weiter() {
+        let panik = Testpanik::aus_wert(Some(OsStr::new("loeschen"))).expect("gültig");
+        let aufbau = aufbau_mit(Arc::new(FesteFolge::neu(1..=100)), panik);
+        let (zeit, _) = aufbau.nachricht_mit_anhang("beta@127.0.0.1");
+        let frei_vorher = aufbau.zustand.hochladebank.available_permits();
+
+        let antwort = aufbau.nachricht_loeschen("beta@127.0.0.1", zeit).await;
+
+        assert_eq!(antwort.status(), StatusCode::INTERNAL_SERVER_ERROR);
+        let text = fehlertext(antwort).await;
+        assert_eq!(
+            text,
+            "Interner Fehler — Nachricht nicht gelöscht; bitte erneut versuchen"
+        );
+        assert!(!text.contains("Testpanik"), "{text}");
+        let eintraege = aufbau.zeilen_mit(" programmfehler ");
+        assert_eq!(eintraege.len(), 1, "{eintraege:#?}");
+        assert!(
+            eintraege[0].contains(" ERROR programmfehler "),
+            "{eintraege:#?}"
+        );
+        assert!(
+            eintraege[0].contains("operation=nachricht_loeschen status=500 kennung=beta@127.0.0.1 channel=allgemein grund=panik"),
+            "{eintraege:#?}"
+        );
+        assert_eq!(aufbau.zustand.hochladebank.available_permits(), frei_vorher);
+        let gesendet = aufbau.zustand.gespraeche.senden(
+            &Gespraech::channel("allgemein"),
+            &teilnehmer_kennung("beta@127.0.0.1"),
+            crate::anwesenheit::Art::Agent,
+            "weiter",
+        );
+        assert!(gesendet.is_ok(), "{gesendet:?}");
+        let erneut = aufbau.nachricht_loeschen("beta@127.0.0.1", zeit).await;
+        assert_eq!(erneut.status(), StatusCode::OK);
+    }
+
+    fn teilnehmer_kennung(text: &str) -> crate::gespraeche::Kennung {
+        crate::gespraeche::Kennung::bilden(text).expect("Kennung")
     }
 
     /// Ein weiteres Feld wird genannt, auch `bestaetigt` (ADR-0048 Regel 12); nur `zeit` ist erlaubt.

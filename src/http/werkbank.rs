@@ -15,6 +15,25 @@ pub fn erlaubnisse_aus_kernen(kerne: usize) -> usize {
     kerne.max(MINDESTENS)
 }
 
+/// Wartet auf eine Erlaubnis der Hochladebank (ADR-0048 K3, neben `Werkbank::erwerben`): eine geschlossene Bank ist
+/// derselbe Abbruch wie eine geschlossene Werkbank (`Abbruchart::Geschlossen`), nie ein stilles 500.
+pub async fn bank_erwerben(bank: &Arc<Semaphore>) -> Result<OwnedSemaphorePermit, Abgebrochen> {
+    erlaubnis_nehmen(bank, "Hochladebank").await
+}
+
+async fn erlaubnis_nehmen(
+    erlaubnisse: &Arc<Semaphore>,
+    name: &str,
+) -> Result<OwnedSemaphorePermit, Abgebrochen> {
+    Arc::clone(erlaubnisse)
+        .acquire_owned()
+        .await
+        .map_err(|fehler| Abgebrochen {
+            art: Abbruchart::Geschlossen,
+            ursache: format!("{name} geschlossen — {fehler}"),
+        })
+}
+
 /// Die Werkbank; Klone teilen dieselben Erlaubnisse.
 #[derive(Debug, Clone)]
 pub struct Werkbank {
@@ -50,13 +69,7 @@ impl Werkbank {
 
     /// Wartet auf eine Erlaubnis; sie gilt, bis sie fallen gelassen wird.
     pub async fn erwerben(&self) -> Result<OwnedSemaphorePermit, Abgebrochen> {
-        Arc::clone(&self.erlaubnisse)
-            .acquire_owned()
-            .await
-            .map_err(|fehler| Abgebrochen {
-                art: Abbruchart::Geschlossen,
-                ursache: format!("Werkbank geschlossen — {fehler}"),
-            })
+        erlaubnis_nehmen(&self.erlaubnisse, "Werkbank").await
     }
 
     /// Erwirbt eine Erlaubnis und führt `arbeit` mit ihr auf einem Blocking-Thread aus.

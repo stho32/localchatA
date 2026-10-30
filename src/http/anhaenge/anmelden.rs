@@ -4,6 +4,7 @@
 //! 422 `leer` · 422 `name` · 422 `zu_gross` · 429 offen · 507 `platte` · 507 `quote` (`voll` | `hochladungen`) · 201.
 
 use super::super::Zustand;
+use super::super::abbruch::{Abgebrochen, Grenzort, abbruch_beantworten};
 use super::super::anfrageprotokoll::mit_regel;
 use super::super::bremse::{Gegenstand, gebremst_melden};
 use super::super::felder::{Felder, doppelt, wert};
@@ -106,7 +107,17 @@ pub async fn anmelden(
             let (antwort, regel) = abgewiesen(&fehler);
             mit_regel(antwort, regel, Some(&wer))
         }
-        Err(_) => super::super::abbruch::interner_fehler("Anmelden"),
+        Err(fehler) => abbruch_beantworten(
+            &zustand.protokoll,
+            &Abgebrochen::from(fehler),
+            &Grenzort {
+                route: ROUTE,
+                operation: "anhaenge_anmelden",
+                kennung: Some(&wer),
+                channel: None,
+            },
+            "Anhang nicht angemeldet",
+        ),
     }
 }
 
@@ -525,6 +536,45 @@ mod tests {
             );
             assert!(zeilen[1].ends_with(ende), "{name}: {zeilen:#?}");
         }
+    }
+
+    struct Panikzufall;
+
+    impl crate::zufall::Zufall for Panikzufall {
+        fn token(&self) -> Result<crate::zufall::Token, crate::zufall::Zufallsfehler> {
+            panic!("Panik im Zufall");
+        }
+    }
+
+    /// R00043 B0667 (ADR-0048 K3): eine Panik im Blocking-Teil des Anmeldens antwortet 500 ohne Fremdtext und
+    /// schreibt genau einen `ERROR programmfehler … operation=anhaenge_anmelden grund=panik`.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn eine_panik_beim_anmelden_wird_beantwortet_und_protokolliert() {
+        use crate::http::loeschaufbau::aufbau_mit;
+        use crate::protokoll::testpanik::Testpanik;
+        let aufbau = aufbau_mit(Arc::new(Panikzufall), Testpanik::keine());
+
+        let antwort = aufbau.anhaenge_anmelden("beta@127.0.0.1").await;
+
+        assert_eq!(antwort.status(), StatusCode::INTERNAL_SERVER_ERROR);
+        let koerper = axum::body::to_bytes(antwort.into_body(), 4096)
+            .await
+            .expect("Körper");
+        let json: Value = serde_json::from_slice(&koerper).expect("JSON");
+        assert_eq!(
+            json["fehler"],
+            "Interner Fehler — Anhang nicht angemeldet; bitte erneut versuchen"
+        );
+        let eintraege = aufbau.zeilen_mit(" programmfehler ");
+        assert_eq!(eintraege.len(), 1, "{eintraege:#?}");
+        assert!(
+            eintraege[0].contains(" ERROR programmfehler "),
+            "{eintraege:#?}"
+        );
+        assert!(
+            eintraege[0].contains("route=\"POST /api/anhaenge\" operation=anhaenge_anmelden status=500 kennung=beta@127.0.0.1 grund=panik"),
+            "{eintraege:#?}"
+        );
     }
 
     /// B0525 an der Grenze im Zählmaß (Q = 10 MiB): 2.617.345 Bytes (z = 640 × 4.096 = Q/4) → großer Anspruch,
