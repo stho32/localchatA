@@ -14,6 +14,7 @@ import { bearbeitenAnlegen } from './bearbeiten.js';
 import { rueckfrageOeffnen, loeschenAuswerten } from './loeschen.js';
 import { kopieren, rueckmeldungFuer, RUECKMELDUNG_LEER, MENUE_OFFEN_MS } from './kopieren.js';
 import { menueLage, schalterGanzSichtbar } from './menuelage.js';
+import { zitatNachfuehren } from './zitat.js';
 import { zeigerart } from './eingabe.js';
 import {
   einordnen, zusammenfuehren, fassungUebernehmen, buendlerAnlegen, folgenOderZaehlen, pillenText, auslaufNach, nichtGeladenText, hinweisTextNachziehen,
@@ -24,7 +25,8 @@ import {
 // das Ergebnis von `oeffnen` sagt, ob der Verlauf steht.
 // Live (ADR-0037 Regeln 1, 6): nachrichtAnnehmen(nachricht, eigen) ordnet über die Zeit ein und fügt je Frame ein —
 // am Ende folgt der Blick, sonst zählt die Pille „n neue Nachrichten“; fassungAnnehmen(channel, nachricht) ersetzt eine
-// Nachricht im Fenster durch ihre geänderte Fassung (ADR-0048 Regel 11); vorlaeufigeZeigen(liste) zeichnet eigene
+// Nachricht im Fenster durch ihre geänderte Fassung (ADR-0048 Regel 11); zitatAnnehmen(channel, zitat) führt die Zitate
+// der Antworten auf diese Nachricht nach (R00047 B0721, ADR-0053 Regel 5); vorlaeufigeZeigen(liste) zeichnet eigene
 // Nachrichten unterwegs oder fehlgeschlagen unter allen bestätigten; an fehlgeschlagenen rufen „Erneut senden“ und
 // „Verwerfen“ schalter('erneut' | 'verwerfen', schluessel) (ADR-0038 Regel 5).
 // bearbeitenSpeichern: async (channel, zeit, text) → Antwort (api.js nachrichtBearbeiten); loeschen: async (channel, zeit) →
@@ -775,7 +777,7 @@ export function verlaufAnlegen({
   // oder fehlt sie im Block, bleibt das Fenster, wie es ist. Ein Wechsel des Channels oder ein neuer Sprung bricht ab.
   // → 'gesprungen' | 'nicht-geladen' | 'nicht-da' | 'abgebrochen'
   let sprungLauf = new AbortController();
-  let sprungFassungen = null;
+  let waehrendDesSprungs = null;
   async function springen(zeit) {
     const knoten = nachrichtKnoten(zeit);
     if (knoten !== null) {
@@ -787,13 +789,13 @@ export function verlaufAnlegen({
     const dieser = sprungLauf;
     const kanal = laufend;
     kanal.signal.addEventListener('abort', () => dieser.abort(), { once: true });
-    sprungFassungen = [];
+    waehrendDesSprungs = [];
     const ergebnis = await abrufen(offenerName, { nach: zeitDavor(zeit) }, dieser.signal);
     if (dieser !== sprungLauf || kanal !== laufend) {
       return 'abgebrochen';
     }
-    const waehrendDesAbrufs = sprungFassungen;
-    sprungFassungen = null;
+    const waehrendDesAbrufs = waehrendDesSprungs;
+    waehrendDesSprungs = null;
     if (ergebnis.art !== 'block') {
       return 'nicht-geladen';
     }
@@ -802,7 +804,8 @@ export function verlaufAnlegen({
       return 'nicht-da';
     }
     fensterDurchBlockErsetzen(ergebnis.block);
-    fassungenErsetzen(waehrendDesAbrufs);
+    fassungenErsetzen(waehrendDesAbrufs.filter((eintrag) => eintrag.fassung !== undefined).map((eintrag) => eintrag.fassung));
+    zitateNachfuehren(waehrendDesAbrufs.filter((eintrag) => eintrag.zitat !== undefined).map((eintrag) => eintrag.zitat));
     hervorheben(nachrichtKnoten(zeit));
     lageMerken();
     pruefen();
@@ -862,7 +865,7 @@ export function verlaufAnlegen({
     const dieser = laufend;
     rollZeit = null;
     fokusZeit = null;
-    sprungFassungen = null;
+    waehrendDesSprungs = null;
     signal.addEventListener('abort', () => dieser.abort());
     const hinweisBleibt = name === offenerName && nichtGeladenSteht();
     offenerName = name;
@@ -947,9 +950,13 @@ export function verlaufAnlegen({
   function gepuffertesAnnehmen() {
     const gepuffert = puffer;
     puffer = [];
-    gepuffert.forEach(({ nachricht, eigen, fassung }) => {
+    gepuffert.forEach(({ nachricht, eigen, fassung, zitat }) => {
       if (fassung !== undefined) {
         fassungAnnehmen(offenerName, fassung);
+        return;
+      }
+      if (zitat !== undefined) {
+        zitatAnnehmen(offenerName, zitat);
         return;
       }
       nachrichtAnnehmen(nachricht, eigen);
@@ -962,14 +969,30 @@ export function verlaufAnlegen({
     if (channel !== offenerName || offenerName === null || gescheitert) {
       return;
     }
-    if (sprungFassungen !== null) {
-      sprungFassungen.push(fassung);
+    if (waehrendDesSprungs !== null) {
+      waehrendDesSprungs.push({ fassung });
     }
     if (!geladen) {
       puffer.push({ fassung });
       return;
     }
     buendler.annehmen({ channel, nachricht: null, fassung, eigen: false });
+  }
+
+  // Das neue Zitat einer geänderten Nachricht (R00047 B0721, ADR-0053 Regel 5) geht denselben Weg wie ihre Fassung: vor dem
+  // ersten Block gepuffert, während eines Sprungs gemerkt, sonst im nächsten Frame übernommen.
+  function zitatAnnehmen(channel, zitat) {
+    if (channel !== offenerName || offenerName === null || gescheitert) {
+      return;
+    }
+    if (waehrendDesSprungs !== null) {
+      waehrendDesSprungs.push({ zitat });
+    }
+    if (!geladen) {
+      puffer.push({ zitat });
+      return;
+    }
+    buendler.annehmen({ channel, nachricht: null, zitat, eigen: false });
   }
 
   // Eine Nachricht des offenen Channels, fremd oder eigen bestätigt; vor dem ersten Block gepuffert, nach „Verlauf nicht
@@ -1030,6 +1053,10 @@ export function verlaufAnlegen({
     const fassungen = gesammelt.filter((eintrag) => eintrag.channel === offenerName && eintrag.fassung !== undefined);
     if (fassungen.length > 0 && !gescheitert) {
       fassungenErsetzen(fassungen.map((eintrag) => eintrag.fassung));
+    }
+    const zitate = gesammelt.filter((eintrag) => eintrag.channel === offenerName && eintrag.zitat !== undefined);
+    if (zitate.length > 0 && !gescheitert) {
+      zitateNachfuehren(zitate.map((eintrag) => eintrag.zitat));
     }
     ausstehendZeichnen();
     auslaufAbbauen(sichtbar, inhaltsHoehe() - inhaltVorher);
@@ -1096,7 +1123,12 @@ export function verlaufAnlegen({
       abrufen: (cursor) => abrufen(channel, cursor, dieser.signal),
       anfang: fenster.bloecke[0][0].zeit,
       juengste: juengsteImFenster(),
-      uebernehmen: (nachricht) => fassungAnnehmen(channel, nachricht),
+      uebernehmen: (nachricht) => {
+        fassungAnnehmen(channel, nachricht);
+        if (nachricht.antwort_auf !== undefined && nachricht.antwort_auf !== null) {
+          zitatAnnehmen(channel, nachricht.antwort_auf);
+        }
+      },
       gilt: () => dieser === laufend,
     });
   }
@@ -1139,6 +1171,33 @@ export function verlaufAnlegen({
     if (feldDaran) {
       nachrichtFokussieren(nachrichtKnoten(uebernommen.zeit));
     }
+  }
+
+  // Jede Antwort im Fenster auf die geänderte Nachricht zeigt ihr neues Zitat (zitatNachfuehren); die Lesestelle bleibt.
+  // Steht an der Antwort das Bearbeiten-Feld, merkt sich das Fenster nur den neuen Stand, gezeichnet wird nach dem Schließen.
+  function zitateNachfuehren(zitate) {
+    if (fenster === null) {
+      return;
+    }
+    const anker = ankerMerken(log, inhalt);
+    const feldZeit = bearbeiten.offeneZeitIn(offenerName);
+    for (const zitat of zitate) {
+      const ereignis = { nachricht: { zeit: zitat.zeit }, zitat };
+      fenster.bloecke.forEach((block, blockStelle) => {
+        zitatNachfuehren(block, ereignis).forEach((neu, stelle) => {
+          if (neu === block[stelle]) {
+            return;
+          }
+          const feldDaran = feldZeit !== null && Date.parse(feldZeit) === Date.parse(neu.zeit);
+          if (feldDaran) {
+            block[stelle] = neu;
+            return;
+          }
+          knotenErsetzen({ blockStelle, stelle }, neu);
+        });
+      });
+    }
+    ankerHalten(log, anker);
   }
 
   function feldSchliessenWeilGeloescht(zeit) {
@@ -1469,6 +1528,7 @@ export function verlaufAnlegen({
     heuteSetzen,
     nachrichtAnnehmen,
     fassungAnnehmen,
+    zitatAnnehmen,
     fassungenAuffrischen,
     nachgeholtAnnehmen,
     vorlaeufigeZeigen,

@@ -93,13 +93,16 @@ export function sendenEinrichten({
       }
       anwenden(zustellen(zustellung.zustand, { art: 'ereignis', kennung, channel, nachricht }));
     },
-    // Eine geänderte Fassung (ADR-0048 Regel 11) ruht mit den Ereignissen; was in der Trennung geschah, bringt das
-    // Nachholen.
-    fassungEmpfangen: ({ channel, nachricht }) => {
+    // Eine geänderte Fassung (ADR-0048 Regel 11) und ihr Zitat (R00047 B0721, ADR-0053 Regel 5) ruhen mit den Ereignissen;
+    // was in der Trennung geschah, bringt das Nachholen.
+    fassungEmpfangen: ({ channel, nachricht, zitat }) => {
       if (ereignisseRuhen) {
         return;
       }
       verlauf.fassungAnnehmen(channel, nachricht);
+      if (zitat !== undefined && zitat !== null) {
+        verlauf.zitatAnnehmen(channel, zitat);
+      }
     },
     channelGeoeffnet: (channel) => {
       offenerChannel = channel;
