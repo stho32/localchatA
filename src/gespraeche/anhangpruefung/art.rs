@@ -5,22 +5,28 @@
 pub const DATEI: &str = "application/octet-stream";
 
 /// Die eine Stelle der Disposition (R00029 „Disposition“, Befund #53 A1): `inline` für alle Arten der Tabelle außer
-/// `application/octet-stream`, HEIC und HEIF (Download, ADR-0047 Ergänzung „Karte #9 Nacharbeit F3 und F4“) und Text
+/// `application/octet-stream`, HEIC und HEIF (Download, ADR-0047 Ergänzung „Karte #9 Nacharbeit F3 und F4“),
+/// `video/ogg` (Theora spielt im Browser nur den Ton, ADR-0014 Ergänzung „Karte #71 (Chrome 154)“ Regel 5) und Text
 /// über 16 MiB — gilt beim Erkennen wie beim Ausliefern.
 pub fn inline(typ: &str, bytes: u64) -> bool {
-    let nur_laden = [DATEI, super::medien::HEIC_TYP, super::medien::HEIF_TYP].contains(&typ);
+    let nur_laden = [
+        DATEI,
+        super::medien::HEIC_TYP,
+        super::medien::HEIF_TYP,
+        "video/ogg",
+    ]
+    .contains(&typ);
     let grosser_text = typ == super::erkenner::TEXT && bytes > super::text::TEXT_INLINE_HOECHSTENS;
     !(nur_laden || grosser_text)
 }
 
-/// Die Medienarten, deren Direktlink im Medien-Dokument des Browsers abspielt (ADR-0014 Ergänzung „Karte #71“
-/// Regel 2): nur ihre Antworten bekommen den Marker für `media-src 'self'` und CORP `cross-origin`. Eine neue Art der
-/// Tabelle ohne Eintrag hier spielt nicht (fail-closed).
-pub const MEDIENARTEN: [&str; 6] = [
+/// Die Medienarten, deren Direktlink im Medien-Dokument des Browsers abspielt (ADR-0014 Ergänzung „Karte #71
+/// (Chrome 154)“ Regel 5): nur ihre Antworten bekommen den Marker für die Medien-CSP. `video/ogg` steht nicht darin,
+/// es wird geladen. Eine neue Art der Tabelle ohne Eintrag hier spielt nicht (fail-closed).
+pub const MEDIENARTEN: [&str; 5] = [
     "video/mp4",
     "audio/mp4",
     "video/webm",
-    "video/ogg",
     "audio/ogg",
     "audio/mpeg",
 ];
@@ -57,15 +63,31 @@ mod tests {
     use super::super::erkenner::ARTEN;
     use super::*;
 
-    /// B0663: über alle Arten der Tabelle (ADR-0047 Frage 3) trägt genau jede Video- und Tonart den Marker — eine
-    /// siebte Medienart in `ARTEN` ohne Eintrag in `MEDIENARTEN` macht diesen Test rot.
+    /// B0663, B0728: über alle Arten der Tabelle (ADR-0047 Frage 3) tragen genau diese fünf den Marker (ADR-0014
+    /// Ergänzung „Karte #71 (Chrome 154)“ Regel 5) — `video/ogg` nicht, eine neue Art nicht ohne Entscheidung.
     #[test]
-    fn genau_die_medienarten_der_tabelle_bekommen_den_marker() {
+    fn genau_die_fuenf_medienarten_der_tabelle_bekommen_den_marker() {
+        let fuenf = [
+            "video/mp4",
+            "audio/mp4",
+            "video/webm",
+            "audio/ogg",
+            "audio/mpeg",
+        ];
         for typ in ARTEN {
-            let medium = typ.starts_with("video/") || typ.starts_with("audio/");
-            assert_eq!(medienart(typ), medium, "{typ}");
+            assert_eq!(medienart(typ), fuenf.contains(&typ), "{typ}");
         }
-        assert_eq!(ARTEN.iter().filter(|typ| medienart(typ)).count(), 6);
+        assert_eq!(ARTEN.iter().filter(|typ| medienart(typ)).count(), 5);
+        assert!(ARTEN.contains(&"video/ogg"));
+    }
+
+    /// B0728 (Regel 5, O1): `video/ogg` wird geladen (`attachment`), die fünf Medienarten bleiben `inline`.
+    #[test]
+    fn video_ogg_wird_geladen_die_medienarten_spielen() {
+        assert!(!inline("video/ogg", 1_000));
+        for typ in MEDIENARTEN {
+            assert!(inline(typ, 1_000), "{typ}");
+        }
     }
 
     #[test]

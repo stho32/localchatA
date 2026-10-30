@@ -232,7 +232,8 @@ fn mov_ohne_ftyp() -> Vec<u8> {
 /// ADR-0047 Ergänzung „Karte #9 Nacharbeit F3 und F4“, Erste Tests (Integration): ein HEIC-Foto (Hauptmarke `heic`)
 /// → `Content-Type: image/heic`, `Content-Disposition: attachment; filename*=…`, Verlauf ohne Maße; ein AVIF →
 /// `image/avif` inline; eine MOV-Datei ohne `ftyp` → `application/octet-stream`, `attachment`, Bytes byte-gleich
-/// (nicht getilgt).
+/// (nicht getilgt). Theora (`video/ogg`) gehört seit Karte #71 (Chrome 154) zu „nur laden“ (Regel 5, O1):
+/// `video/ogg`, `attachment`; Ogg/Opus (`audio/ogg`) bleibt inline.
 #[tokio::test]
 async fn heif_familie_und_mov_ohne_ftyp_ueber_das_programm() {
     use gemeinsam::anhaenge::ablegen;
@@ -261,6 +262,18 @@ async fn heif_familie_und_mov_ohne_ftyp_ueber_das_programm() {
             mov.clone(),
             "application/octet-stream",
             "attachment",
+        ),
+        (
+            "film.ogv",
+            dateien::ogg(b"\x80theora\x03"),
+            "video/ogg",
+            "attachment",
+        ),
+        (
+            "ton.ogg",
+            dateien::ogg(b"OpusHead\x01\x02"),
+            "audio/ogg",
+            "inline",
         ),
     ];
     let mut ids = Vec::new();
