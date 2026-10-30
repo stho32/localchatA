@@ -170,8 +170,8 @@ test('Leer (B0610, UX S4): ohne Anhang leer → „Speichern“ aria-disabled, K
   await feld(a.page).fill('');
   const speichern = nachrichtMitZeit(a.page, zeit).getByRole('button', { name: 'Speichern' });
   await expect(speichern).toHaveAttribute('aria-disabled', 'true');
-  await expect(nachrichtMitZeit(a.page, zeit).getByText('Leer geht nicht — zum Entfernen „Löschen“ wählen.', { exact: true })).toBeVisible();
-  await expect(feld(a.page)).toHaveAccessibleDescription(/Leer geht nicht — zum Entfernen „Löschen“ wählen\./);
+  await expect(nachrichtMitZeit(a.page, zeit).getByText('Leer geht nicht — zum Entfernen ‚Löschen‘ wählen.', { exact: true })).toBeVisible();
+  await expect(feld(a.page)).toHaveAccessibleDescription(/Leer geht nicht — zum Entfernen ‚Löschen‘ wählen\./);
   // aria-disabled gilt Playwright als gesperrt — der Klick wird erzwungen, wie ein Mensch ihn trotzdem tut.
   await speichern.click({ force: true });
   await feld(a.page).press('Enter');

@@ -27,9 +27,9 @@ test('Esc bricht ab; Alt Enter und Enter während einer Komposition tun nichts',
   assert.equal(feldTaste(taste('a'), 'fein'), null);
 });
 
-test('leer ohne Anhang: Hinweis „Leer geht nicht — zum Entfernen „Löschen“ wählen.“; mit Anhang darf leer gespeichert werden', () => {
-  assert.equal(speicherHinweis('', 0), 'Leer geht nicht — zum Entfernen „Löschen“ wählen.');
-  assert.equal(speicherHinweis('  \n ', 0), 'Leer geht nicht — zum Entfernen „Löschen“ wählen.');
+test('leer ohne Anhang: Hinweis „Leer geht nicht — zum Entfernen ‚Löschen‘ wählen.“; mit Anhang darf leer gespeichert werden', () => {
+  assert.equal(speicherHinweis('', 0), 'Leer geht nicht — zum Entfernen ‚Löschen‘ wählen.');
+  assert.equal(speicherHinweis('  \n ', 0), 'Leer geht nicht — zum Entfernen ‚Löschen‘ wählen.');
   assert.equal(speicherHinweis('', 1), null);
   assert.equal(speicherHinweis('Hallo', 0), null);
 });

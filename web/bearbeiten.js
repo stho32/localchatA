@@ -36,7 +36,7 @@ export function speicherHinweis(text, anhangZahl) {
     return null;
   }
   if (ergebnis.art === 'leer') {
-    return 'Leer geht nicht — zum Entfernen „Löschen“ wählen.';
+    return 'Leer geht nicht — zum Entfernen ‚Löschen‘ wählen.';
   }
   if (ergebnis.art === 'ok') {
     return null;
