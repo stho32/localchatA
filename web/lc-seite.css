@@ -320,3 +320,7 @@ button.lc-marke { min-width: 24px; min-height: 24px; padding: 0 var(--kd-space-4
   .lc-msg > .lc-aktionen-schalter[aria-expanded="true"] + .lc-aktionen.lc-nach-oben { top: auto; bottom: 0; }
   .lc-aktion { min-width: 44px; min-height: 44px; font-size: 14px; }
 }
+/* Rückfrage vor dem Löschen (R00041 F0139): „Löschen“ als Gefahr in kd-danger, Auszug gedämpft */
+.lc-rueckfrage p { margin: 0 0 var(--kd-space-8); overflow-wrap: anywhere; }
+.lc-rueckfrage-auszug { color: var(--kd-ink-muted); }
+.lc-btn.lc-gefahr { color: var(--kd-danger); border-color: var(--kd-danger); }

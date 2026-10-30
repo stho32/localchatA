@@ -11,6 +11,7 @@ import { gliederung, folgeGliedern, datumBenennen } from './gliederung.js';
 import { nachladen, einfuegen } from './fenster.js';
 import { pfeilRichtung, pfeilZiel, tabStopp, eigeneLetzte, nachrichtTaste } from './fokus.js';
 import { bearbeitenAnlegen } from './bearbeiten.js';
+import { rueckfrageOeffnen } from './loeschen.js';
 import { zeigerart } from './eingabe.js';
 import { einordnen, zusammenfuehren, fassungUebernehmen, buendlerAnlegen, folgenOderZaehlen, pillenText, auslaufNach, nichtGeladenText, hinweisTextNachziehen, sprungZiel as sprungZielBerechnen, scrollTopNachHoehe } from './live-verlauf.js';
 
@@ -385,6 +386,20 @@ export function verlaufAnlegen({
     if (aktion === 'bearbeiten') {
       bearbeiten.beginnen(offenerName, artikel, bekannt.nachricht);
     }
+    if (aktion === 'loeschen') {
+      loeschenFragen(bekannt.nachricht);
+    }
+  }
+
+  // Löschen nach genau einer Rückfrage (F0139); danach steht der Fokus wieder auf der Nachricht.
+  function loeschenFragen(nachricht) {
+    const zurueckZurNachricht = () => {
+      const knoten = nachrichtKnoten(nachricht.zeit);
+      if (knoten !== null) {
+        nachrichtFokussieren(knoten);
+      }
+    };
+    rueckfrageOeffnen(rahmen, nachricht, { bestaetigt: zurueckZurNachricht, abgebrochen: zurueckZurNachricht });
   }
 
   function nachrichtKnoten(zeit) {

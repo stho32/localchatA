@@ -62,3 +62,59 @@ function mitZehnteln(bytes, einheit, name) {
 function tausender(wert) {
   return new Intl.NumberFormat('de-DE').format(wert);
 }
+
+// Die Rückfrage als modaler Dialog (UX M5, S7, PO 126): Frage als Name, Auszug und Warnung als Beschreibung, Knöpfe
+// „Abbrechen“ · „Löschen“; der Startfokus steht auf „Abbrechen“, damit ein schnelles Enter nichts löscht; Tab bleibt
+// im Dialog. Ein Klick auf „Löschen“ schließt sofort — ein Doppelklick bestätigt einmal. ort: Element, in das der Dialog
+// kommt · bestaetigt() nach „Löschen“ · abgebrochen() nach „Abbrechen“ und Esc.
+export function rueckfrageOeffnen(ort, nachricht, { bestaetigt, abgebrochen }) {
+  const texte = rueckfrageText(nachricht);
+  const frage = element('h2', { id: 'lc-rueckfrage-frage', className: 'lc-dialog-titel', textContent: texte.frage });
+  const auszug = element('p', { id: 'lc-rueckfrage-auszug', className: 'lc-rueckfrage-auszug', textContent: texte.auszug });
+  const warnung = element('p', { id: 'lc-rueckfrage-warnung', className: 'lc-rueckfrage-warnung', textContent: texte.warnung });
+  const abbrechenKnopf = element('button', { type: 'button', className: 'lc-btn', textContent: 'Abbrechen' });
+  const loeschenKnopf = element('button', { type: 'button', className: 'lc-btn lc-gefahr', textContent: 'Löschen' });
+  const dialog = element('dialog', { className: 'lc-dialog lc-rueckfrage' }, [
+    frage, auszug, warnung, element('div', { className: 'lc-dialog-schalter' }, [abbrechenKnopf, loeschenKnopf]),
+  ]);
+  dialog.setAttribute('aria-labelledby', frage.id);
+  dialog.setAttribute('aria-describedby', `${auszug.id} ${warnung.id}`);
+  let bestaetigung = false;
+  abbrechenKnopf.addEventListener('click', () => dialog.close());
+  loeschenKnopf.addEventListener('click', () => {
+    bestaetigung = true;
+    dialog.close();
+  });
+  dialog.addEventListener('keydown', (ereignis) => fokusImDialogHalten(ereignis, [abbrechenKnopf, loeschenKnopf]));
+  dialog.addEventListener('close', () => {
+    dialog.remove();
+    if (bestaetigung) {
+      bestaetigt();
+      return;
+    }
+    abgebrochen();
+  });
+  ort.append(dialog);
+  dialog.showModal();
+  abbrechenKnopf.focus();
+}
+
+// Tab und Umschalt Tab wandern zwischen den Knöpfen des Dialogs, nie hinaus.
+function fokusImDialogHalten(ereignis, knoepfe) {
+  if (ereignis.key !== 'Tab') {
+    return;
+  }
+  ereignis.preventDefault();
+  const stelle = knoepfe.indexOf(document.activeElement);
+  let naechste = (stelle + 1) % knoepfe.length;
+  if (ereignis.shiftKey) {
+    naechste = (stelle - 1 + knoepfe.length) % knoepfe.length;
+  }
+  knoepfe[naechste].focus();
+}
+
+function element(tag, eigenschaften = {}, kinder = []) {
+  const neu = Object.assign(document.createElement(tag), eigenschaften);
+  neu.append(...kinder);
+  return neu;
+}
