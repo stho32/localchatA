@@ -81,8 +81,18 @@ function heic() {
 /// Instanz mit `allgemein`; `beta` sendet je Eintrag von `nachrichten` ({ text, namen, antwortAuf? }) eine Nachricht mit diesen
 /// Testdateien (oder eigenen { name, inhalt }); `vorSeite(page)` läuft vor dem Beitritt (Netz-Fakes); A (`shoff`) ist im
 /// Browser beigetreten; `antwortAuf` ist die Stelle einer früheren Nachricht der Liste. → { instanz, a, beta, zeiten, ids }
+/// Scheitert das Gegeben, stoppt die Instanz hier — der Test kennt sie noch nicht und könnte sie nicht stoppen.
 async function anzeigeStarten(browser, nachrichten, { geraet, vorbereiten, vorSeite = async () => {} } = {}) {
   const instanz = await sendenStarten({ vorbereiten });
+  try {
+    return await anzeigeHerstellen(browser, instanz, nachrichten, { geraet, vorSeite });
+  } catch (fehler) {
+    await instanz.stoppen();
+    throw fehler;
+  }
+}
+
+async function anzeigeHerstellen(browser, instanz, nachrichten, { geraet, vorSeite }) {
   const beta = await betaSendet(instanz.adresse, []);
   const zeiten = [];
   const ids = [];
