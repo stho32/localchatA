@@ -116,3 +116,26 @@ for (const fenster of FENSTER) {
     expect(fehler).toEqual([]);
   });
 }
+
+// UX-Review #43 F0101 S1 (Probe wörtlich): „leeres Feld bei 320 und 375 → Platzhalter einzeilig (nowrap + ellipsis oder
+// kürzer), keine Zeile angeschnitten.“ Gemessen: das leere Feld scrollt nicht (scrollHeight ≤ clientHeight) — ein
+// zweizeiliger Platzhalter macht es höher als die eine Zeile.
+for (const fenster of FENSTER.filter((eintrag) => eintrag.fenster.width <= 375)) {
+  test(`S1 Platzhalter einzeilig (${fenster.name})`, async ({ browser }) => {
+    instanz = await anhangStarten();
+    const { page, fehler } = await geraetOeffnen(browser, fenster.geraet, { fenster: fenster.fenster });
+    await imBrowserBeitreten(page, instanz.adresse, 'shoff');
+
+    const feld = page.getByRole('textbox', { name: 'Nachricht an # allgemein' });
+    await expect(feld).toHaveValue('');
+    const mass = await feld.evaluate((element) => ({
+      scroll: element.scrollHeight,
+      client: element.clientHeight,
+      zeile: parseFloat(getComputedStyle(element).lineHeight),
+      platzhalterUmbruch: getComputedStyle(element, '::placeholder').whiteSpace,
+    }));
+    expect(mass.scroll, JSON.stringify(mass)).toBeLessThanOrEqual(mass.client);
+    expect(mass.client, JSON.stringify(mass)).toBeLessThan(2 * mass.zeile);
+    expect(fehler).toEqual([]);
+  });
+}

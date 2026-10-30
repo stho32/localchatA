@@ -150,7 +150,9 @@ body { background: var(--kd-bg); color: var(--kd-ink); font-family: var(--font-s
 /* Der Rahmen der Box zeigt den Fokus des Felds; den des Knopfs zeigt dessen eigener Ring */
 .lc-comp-box:has(.lc-comp-feld:focus) { outline: 2px solid var(--kd-focus); outline-offset: -1px; }
 .lc .lc-comp-feld { display: block; flex: 1; min-width: 0; min-height: 40px; max-height: var(--lc-composer-max); overflow-y: auto; resize: none; border: 0; padding: var(--kd-space-8); background: transparent; color: var(--kd-ink); outline: 0; }
-.lc-comp-feld::placeholder { color: var(--kd-ink-muted); }
+/* Der Platzhalter bleibt einzeilig und kürzt mit Ellipse — bei 320/375 px bräche „Nachricht an # <name>“ sonst in
+   eine angeschnittene zweite Zeile (UX-Review #43 F0101 S1) */
+.lc-comp-feld::placeholder { color: var(--kd-ink-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
 /* Antwortzeile über dem Feld (R00047, Designsystem Nachricht „Antworten“): „Antwort an <Kennung>:“, der Textanfang
    einzeilig, „Abbrechen“ (≥ 24 px mit Maus, ≥ 44 px auf Touch); schmal bricht sie um, ohne Querscroll; bei niedriger
