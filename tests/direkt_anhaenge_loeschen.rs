@@ -250,7 +250,16 @@ async fn gleichzeitiges_loeschen_zeigt_cora_nie_schon_geloescht() {
             "{}",
             von_cora.json
         );
-        assert_eq!(gestalt(&von_cora, &[&id]), gestalt(&zufall, &[ZUFALL_ZWEI]));
+        // `platz` ist instanzweit und zeitabhängig: annas Löschen verbucht die Quote nebenher. Das zeigt dieselbe
+        // Zahl im Health-Check ohne Sitzung (`anhang_belegt`, Restorakel (f) der ADR-0055) und sagt nichts über das
+        // Gespräch; verglichen wird der Rest der Antwort, `platz` nur in seiner Form.
+        let ohne_platz = |antwort: &ApiAntwort, id: &str| {
+            let mut json = antwort.json.clone();
+            let platz = json.as_object_mut().expect("Objekt").remove("platz");
+            assert!(platz.is_some_and(|p| p["belegt"].is_u64() && p["frei"].is_u64()));
+            (antwort.status, json.to_string().replace(id, "<id>"))
+        };
+        assert_eq!(ohne_platz(&von_cora, &id), ohne_platz(&zufall, ZUFALL_ZWEI));
         assert_eq!(von_cora.json["geloescht"], 0);
         tokio::time::sleep(Duration::from_millis(600)).await;
     }
