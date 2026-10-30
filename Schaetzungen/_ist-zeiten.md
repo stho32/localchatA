@@ -614,3 +614,4 @@ Nie vom User erfragen.
 | 2026-10-30 | R00043 Löschen und Bearbeiten über die API gehärtet | B0670 Plattenfehler holt Gelöschtes nicht zurück (Wanduhr) | Entwicklung | 2-4h | 0,4h | 0,4h | autonom (entw2) |
 | 2026-10-30 | R00043 Löschen und Bearbeiten über die API gehärtet | Strom I B0666–B0669, B0673 (5 Bubbles, Wanduhr gesamt) | Entwicklung | 10–14h | 0,55h | 0,55h | autonom (entw2) |
 | 2026-10-30 | R00043 Löschen und Bearbeiten über die API gehärtet | Strom III B0671, B0672 (Wanduhr gesamt) | Entwicklung | 4–6h | 0,25h | 0,25h | autonom (entw2) |
+| 2026-10-30 | R00045 Tippanzeige und denkt nach | F0161 Serverteil B0684–B0687 (Wanduhr gesamt) | Entwicklung | 8–14h | 0,6h | 0,6h | autonom (entw2) |
