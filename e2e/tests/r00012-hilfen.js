@@ -46,4 +46,37 @@ function sendungenMitschreiben(page) {
   return sendungen;
 }
 
-module.exports = { ROUTE, leiste, vorlaeufige, bestaetigt, ansageRegion, netzAus, netzAn, saetzeMit, sendungenMitschreiben };
+// Schaltet sich zwischen Strom und Seite (MessagePort des SharedWorker): Ereignisse `nachricht` lassen sich verschlucken
+// (gezählt in lcProbe.verschluckt), und der zuletzt gekommene Stand der Teilnehmer lässt sich noch einmal zustellen —
+// so, wie der Server nach `NeuerStand` einen Stand schickt (src/http/ereignisse.rs).
+async function stromProbeEinrichten(kontext) {
+  await kontext.addInitScript(() => {
+    const beschreibung = Object.getOwnPropertyDescriptor(MessagePort.prototype, 'onmessage');
+    const probe = { verschlucken: false, verschluckt: 0, letzterStand: null, standWiederholen: null };
+    window.lcProbe = probe;
+    Object.defineProperty(MessagePort.prototype, 'onmessage', {
+      configurable: true,
+      get() {
+        return beschreibung.get.call(this);
+      },
+      set(rueckruf) {
+        const port = this;
+        probe.standWiederholen = () => rueckruf.call(port, { data: probe.letzterStand });
+        beschreibung.set.call(this, (nachricht) => {
+          const daten = nachricht.data;
+          const ereignis = daten !== null && daten.art === 'ereignis' && daten.ereignis;
+          if (ereignis && ereignis.art === 'teilnehmer') {
+            probe.letzterStand = daten;
+          }
+          if (ereignis && ereignis.art === 'nachricht' && probe.verschlucken) {
+            probe.verschluckt += 1;
+            return;
+          }
+          rueckruf.call(port, nachricht);
+        });
+      },
+    });
+  });
+}
+
+module.exports = { stromProbeEinrichten, ROUTE, leiste, vorlaeufige, bestaetigt, ansageRegion, netzAus, netzAn, saetzeMit, sendungenMitschreiben };

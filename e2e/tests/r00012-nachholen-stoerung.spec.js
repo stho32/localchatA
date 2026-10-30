@@ -4,7 +4,7 @@
 // Der Abruf `nach=` wird über page.route gehalten, abgebrochen oder mit 500 beantwortet.
 const { test, expect } = require('./rahmen');
 const { sendenStarten, beitreten, senden, kontextOeffnen, imBrowserBeitreten, nachrichten } = require('./senden-hilfen');
-const { leiste, bestaetigt, netzAus, netzAn } = require('./r00012-hilfen');
+const { leiste, bestaetigt, netzAus, netzAn, stromProbeEinrichten } = require('./r00012-hilfen');
 
 const NACHHOLEN = (adresse) => adresse.searchParams.has('nach');
 
@@ -21,39 +21,6 @@ function ohneGescheiterteAnfragen(fehler) {
 }
 
 const warten = (ms) => new Promise((weiter) => setTimeout(weiter, ms));
-
-// Schaltet sich zwischen Strom und Seite (MessagePort des SharedWorker): Ereignisse `nachricht` lassen sich verschlucken
-// (gezählt in lcProbe.verschluckt), und der zuletzt gekommene Stand der Teilnehmer lässt sich noch einmal zustellen —
-// so, wie der Server nach `NeuerStand` einen Stand schickt (src/http/ereignisse.rs).
-async function stromProbeEinrichten(kontext) {
-  await kontext.addInitScript(() => {
-    const beschreibung = Object.getOwnPropertyDescriptor(MessagePort.prototype, 'onmessage');
-    const probe = { verschlucken: false, verschluckt: 0, letzterStand: null, standWiederholen: null };
-    window.lcProbe = probe;
-    Object.defineProperty(MessagePort.prototype, 'onmessage', {
-      configurable: true,
-      get() {
-        return beschreibung.get.call(this);
-      },
-      set(rueckruf) {
-        const port = this;
-        probe.standWiederholen = () => rueckruf.call(port, { data: probe.letzterStand });
-        beschreibung.set.call(this, (nachricht) => {
-          const daten = nachricht.data;
-          const ereignis = daten !== null && daten.art === 'ereignis' && daten.ereignis;
-          if (ereignis && ereignis.art === 'teilnehmer') {
-            probe.letzterStand = daten;
-          }
-          if (ereignis && ereignis.art === 'nachricht' && probe.verschlucken) {
-            probe.verschluckt += 1;
-            return;
-          }
-          rueckruf.call(port, nachricht);
-        });
-      },
-    });
-  });
-}
 
 // „Während des Abrufs“ (Abnahme-Probe Code-Review #22 B1, wörtlich): „(1) B getrennt, beta sendet l1; Abruf nach= per
 // route.fetch, danach beta „waehrend“, Antwort 0/300/1500 ms zurückgehalten → l1 und waehrend je 1× in Zeitfolge;

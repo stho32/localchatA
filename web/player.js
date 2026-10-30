@@ -32,9 +32,10 @@ export function mediumSpielt(wurzel) {
 }
 
 // Eine Nachricht wird ersetzt (B0734, R00041): jeder Player des alten Knotens, dessen Anhang auch der neue zeigt, zieht
-// samt seinem Element in den neuen Knoten um — Wiedergabe, Stelle und Fokus bleiben, nichts lädt neu. Zeigt der neue ihn
-// nicht mehr (gelöscht), hält er an und lädt nichts mehr nach. Der Umzug geschieht, bevor `neu` den alten Knoten ersetzt,
-// im selben Zug — so hängt das Element nie über eine Aufgabe hinaus außerhalb des Dokuments und läuft weiter.
+// samt seinem Element in den neuen Knoten um — Wiedergabe und Stelle bleiben, nichts lädt neu; der Fokus fällt auf die
+// Nachricht (V4). Zeigt der neue ihn nicht mehr (gelöscht), hält er an und lädt nichts mehr nach. Der Umzug geschieht,
+// bevor `neu` den alten Knoten ersetzt, im selben Zug — so hängt das Element nie über eine Aufgabe hinaus außerhalb des
+// Dokuments und läuft weiter.
 export function medienUebernehmen(alt, neu) {
   for (const bisher of alt.querySelectorAll('.lc-player')) {
     const platz = neu.querySelector(`.lc-player[data-anhang="${CSS.escape(bisher.dataset.anhang)}"]`);
@@ -65,4 +66,32 @@ export function medienAufbewahren(wurzel) {
     }
   }
   return ablage;
+}
+
+// Ein Block mit spielendem Medium wird nicht entladen (B0754, V7) — sonst verstummte es beim Scrollen. knoten: die Knoten
+// des Blocks.
+export function blockSpielt(knoten) {
+  return knoten.some(mediumSpielt);
+}
+
+// Die Ablage der Medien je Channel (B0754): wer einen Channel verlässt, legt dessen Medien ab; die Rückkehr setzt sie an
+// dieselbe Stelle. Eine leere Ablage überschreibt keine gefüllte — scheitert die Rückkehr und wird der Channel noch einmal
+// gewählt, wartet das Medium weiter.
+export function medienAblageAnlegen() {
+  const jeChannel = new Map();
+  return {
+    aufbewahren(channel, wurzel) {
+      const ablage = medienAufbewahren(wurzel);
+      if (ablage.childElementCount > 0) {
+        jeChannel.set(channel, ablage);
+      }
+    },
+    zurueck(channel, wurzel) {
+      const ablage = jeChannel.get(channel);
+      if (ablage !== undefined) {
+        jeChannel.delete(channel);
+        medienUebernehmen(ablage, wurzel);
+      }
+    },
+  };
 }

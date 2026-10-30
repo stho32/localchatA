@@ -16,7 +16,7 @@ import { kopieren, rueckmeldungFuer, RUECKMELDUNG_LEER, MENUE_OFFEN_MS } from '.
 import { menueLage, schalterGanzSichtbar } from './menuelage.js';
 import { zitatNachfuehren } from './zitat.js';
 import { zeigerart } from './eingabe.js';
-import { mediumSpielt, medienUebernehmen, medienAufbewahren } from './player.js';
+import { mediumSpielt, medienUebernehmen, medienAblageAnlegen, blockSpielt } from './player.js';
 import {
   einordnen, zusammenfuehren, fassungUebernehmen, buendlerAnlegen, folgenOderZaehlen, pillenText, auslaufNach, nichtGeladenText, hinweisTextNachziehen,
   sprungZiel as sprungZielBerechnen, scrollTopNachHoehe, fensterNeuLesen, zeitDanach, zeitDavor, anhaengeAlsGeloescht, geloeschteAnhaenge,
@@ -503,11 +503,6 @@ export function verlaufAnlegen({
     oeffnen(offenerName, undefined, { vor: zeitDanach(bearbeiten.offeneZeitIn(offenerName)) });
   }
 
-  // Ein Block mit spielendem Medium wird nicht entladen (R00030 B0754, V7) — sonst verstummte es beim Scrollen.
-  function blockSpielt(knoten) {
-    return knoten.some(mediumSpielt);
-  }
-
   function blockMitFeld(block) {
     const zeit = bearbeiten.offeneZeitIn(offenerName);
     return zeit !== null && block !== undefined && block.some((nachricht) => Date.parse(nachricht.zeit) === Date.parse(zeit));
@@ -959,7 +954,7 @@ export function verlaufAnlegen({
     const knoten = gegliedertZeichnen(ergebnis.block.nachrichten, null, { heute, kennung: eigeneKennung });
     bloeckeKnoten = [knoten];
     inhalt.replaceChildren(...knoten);
-    medienZurueck(name);
+    medienAblage.zurueck(name, inhalt);
     langeEinklappen(nurNachrichten(knoten));
     ansEnde();
     lageMerken();
@@ -970,19 +965,11 @@ export function verlaufAnlegen({
   }
 
   // Wiedergabe beim Verlassen (R00030 B0754): wer den Inhalt verlässt, hält jedes Medium an; was schon gespielt hat,
-  // wartet je Channel in einer Ablage und kehrt mit dem Channel an seine Stelle zurück — dasselbe Element, angehalten.
-  const medienJeChannel = new Map();
+  // wartet je Channel in der Ablage und kehrt mit dem Channel an seine Stelle zurück.
+  const medienAblage = medienAblageAnlegen();
   function aufbewahren() {
     if (offenerName !== null) {
-      medienJeChannel.set(offenerName, medienAufbewahren(inhalt));
-    }
-  }
-
-  function medienZurueck(name) {
-    const ablage = medienJeChannel.get(name);
-    if (ablage !== undefined) {
-      medienJeChannel.delete(name);
-      medienUebernehmen(ablage, inhalt);
+      medienAblage.aufbewahren(offenerName, inhalt);
     }
   }
 
@@ -1406,11 +1393,23 @@ export function verlaufAnlegen({
       vorige = davor[davor.length - 1];
     }
     const knoten = gegliedertZeichnen(folge, vorige, { heute, kennung: eigeneKennung }, ersteNeue);
+    medienInNeueKnotenZiehen(bloeckeKnoten[stelle], knoten);
     bloeckeKnoten[stelle].forEach((einzeln) => einzeln.remove());
     inhalt.append(...knoten);
     fenster.bloecke[stelle] = folge;
     bloeckeKnoten[stelle] = knoten;
     langeEinklappen(nurNachrichten(knoten));
+  }
+
+  // Beim Neuzeichnen des Blocks zieht jeder Player in den neuen Knoten seiner Nachricht um (R00030 B0734).
+  function medienInNeueKnotenZiehen(alte, neue) {
+    const neueJeZeit = new Map(nurNachrichten(neue).map((einzeln) => [einzeln.dataset.zeit, einzeln]));
+    nurNachrichten(alte).forEach((alt) => {
+      const neu = neueJeZeit.get(alt.dataset.zeit);
+      if (neu !== undefined) {
+        medienUebernehmen(alt, neu);
+      }
+    });
   }
 
   // Neue Nachrichten ans Ende des jüngsten Blocks; im leeren Channel entsteht der erste Block. Die erste gezählte neue

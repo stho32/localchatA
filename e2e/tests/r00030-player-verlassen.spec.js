@@ -82,3 +82,34 @@ test('Nicht entladen (B0754, V7, US-27): B spielt film.webm ganz unten in einem 
   expect(await page.evaluate(() => window.gemerktesVideo.paused)).toBe(false);
   expect(lauf.a.fehler).toEqual([]);
 });
+
+test('Gescheiterte Rückkehr (code S2): B spielt film.webm in allgemein, wechselt nach technik; der erste Abruf von allgemein bei der Rückkehr scheitert („Verlauf nicht geladen“), B wählt allgemein erneut → dasselbe Element, angehalten an derselben Stelle', async ({ browser }) => {
+  const lauf = await anzeigeStarten(browser, [{ text: 'Video', namen: [langesVideo()] }]);
+  instanz = lauf.instanz;
+  const { page } = lauf.a;
+  const knoten = () => nachrichtMitZeit(page, lauf.zeiten[0]);
+  await abspielen(player(knoten(), 'film.webm'));
+  await elementMerken(player(knoten(), 'film.webm'), 'gemerktesVideo');
+  await channelWaehlen(page, 'technik');
+  const zeitBeimVerlassen = await page.evaluate(() => window.gemerktesVideo.currentTime);
+  let abgebrochen = false;
+  await page.route(/\/api\/channels\/allgemein\/nachrichten\?/, async (route) => {
+    if (abgebrochen) {
+      await route.continue();
+      return;
+    }
+    abgebrochen = true;
+    await route.abort();
+  });
+
+  await page.getByRole('navigation', { name: 'Channels' }).getByRole('link', { name: 'allgemein', exact: true }).click();
+  await expect(page.getByRole('alert').filter({ hasText: 'Verlauf nicht geladen' })).toBeVisible();
+  await channelWaehlen(page, 'allgemein');
+
+  await expect(knoten()).toHaveCount(1);
+  const medium = player(knoten(), 'film.webm');
+  expect(await istDasselbe(medium, 'gemerktesVideo'), 'dasselbe Element').toBe(true);
+  const { pausiert, zeit } = await wiedergabe(medium);
+  expect(pausiert).toBe(true);
+  expect(Math.abs(zeit - zeitBeimVerlassen)).toBeLessThanOrEqual(0.05);
+});
