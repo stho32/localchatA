@@ -172,3 +172,44 @@ test('A3 ohne Web Locks (Grenze je Tab): 5 Dateien → nie mehr als 2 PUT zuglei
   expect(anfragen.find((anfrage) => anfrage.pfad.endsWith('/nachrichten')).koerper.anhaenge).toHaveLength(5);
   expect(fehler).toEqual([]);
 });
+
+// A4: eine Ausnahme beim Hochladen (hier: der erste PUT wirft schon beim send) endet sichtbar — ⚠ mit Grund und
+// „Erneut hochladen“ statt ewig „lädt“ —, der Platz wird frei, die zweite Datei lädt; mit und ohne Web Locks.
+for (const ohneSperren of [false, true]) {
+  test(`A4 Ausnahme beim Hochladen (${ohneSperren ? 'ohne' : 'mit'} Web Locks): ⚠ und „Erneut hochladen“, die andere Datei lädt weiter`, async ({ browser }) => {
+    instanz = await anhangStarten();
+    const { page, fehler } = await geraetOeffnen(browser, 'desktop');
+    await page.addInitScript((sperrenEntfernen) => {
+      if (sperrenEntfernen) {
+        delete Navigator.prototype.locks;
+      }
+      let ersterPut = true;
+      const oeffnen = XMLHttpRequest.prototype.open;
+      const senden = XMLHttpRequest.prototype.send;
+      XMLHttpRequest.prototype.open = function oeffnenMitMethode(methode, ...rest) {
+        this.methodeR00030 = methode;
+        return oeffnen.call(this, methode, ...rest);
+      };
+      XMLHttpRequest.prototype.send = function sendenEinmalKaputt(...rest) {
+        if (this.methodeR00030 === 'PUT' && ersterPut) {
+          ersterPut = false;
+          throw new Error('Probe A4');
+        }
+        return senden.apply(this, rest);
+      };
+    }, ohneSperren);
+    await imBrowserBeitreten(page, instanz.adresse, 'shoff');
+    const anfragen = anfragenMitschreiben(page);
+
+    await waehlen(page, [textDatei('a.txt'), textDatei('b.txt')]);
+    await knopf(page).click();
+
+    const zeileA = eintrag(page).locator('.lc-hochladung-datei', { hasText: 'a.txt' });
+    await expect(zeileA.locator('.lc-hochladung-grund')).toHaveText('⚠ Nicht hochgeladen (Probe A4).');
+    await expect(eintrag(page).locator('.lc-hochladung-datei', { hasText: 'b.txt' }).locator('.lc-hochladung-zustand')).toHaveText('hochgeladen');
+    await zeileA.getByRole('button', { name: 'a.txt erneut hochladen', exact: true }).click();
+    await expect.poll(() => anfragen.filter((anfrage) => anfrage.pfad.endsWith('/nachrichten')).length).toBe(1);
+    expect(anfragen.find((anfrage) => anfrage.pfad.endsWith('/nachrichten')).koerper.anhaenge).toHaveLength(2);
+    expect(fehler).toEqual([]);
+  });
+}

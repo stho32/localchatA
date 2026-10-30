@@ -194,7 +194,8 @@ export function hochladungenAnlegen({
     }
   }
 
-  // Unter einem Platz (höchstens 2 je Browser) der PUT mit Balken; bis zum Platz „wartet“.
+  // Unter einem Platz (höchstens 2 je Browser) der PUT mit Balken; bis zum Platz „wartet“. Eine Ausnahme beim Hochladen
+  // gibt den Platz frei und endet als Fehlschlag mit „Erneut hochladen“ (Code-Review #43 F0101 A4).
   function dateiHochladen(eintrag, datei) {
     datei.zustand = 'wartetAufPlatz';
     datei.prozent = 0;
@@ -232,6 +233,11 @@ export function hochladungenAnlegen({
         return;
       }
       dateiScheitert(eintrag, datei, ergebnis.art, ergebnis.grund);
+    }).catch((ausnahme) => {
+      datei.laufend = null;
+      if (eintrag.dateien.includes(datei)) {
+        dateiScheitert(eintrag, datei, 'fehlgeschlagen', `Nicht hochgeladen (${ausnahme.message}).`);
+      }
     });
   }
 
@@ -448,7 +454,7 @@ function plaetzeImBrowser() {
     return plaetzeImTab(PLAETZE.length);
   }
   const sperren = globalThis.navigator.locks;
-  return (arbeit) => new Promise((fertig) => {
+  return (arbeit) => new Promise((fertig, gescheitert) => {
     const zurueckziehen = new AbortController();
     let begonnen = false;
     for (const platz of PLAETZE) {
@@ -460,10 +466,16 @@ function plaetzeImBrowser() {
         zurueckziehen.abort();
         try {
           await arbeit();
-        } finally {
           fertig();
+        } catch (ausnahme) {
+          gescheitert(ausnahme);
         }
-      }).catch(() => {});
+      }).catch((ausnahme) => {
+        const zurueckgezogen = ausnahme.name === 'AbortError';
+        if (!zurueckgezogen) {
+          gescheitert(ausnahme);
+        }
+      });
     }
   });
 }
@@ -482,10 +494,10 @@ function plaetzeImTab(anzahl) {
       }
     }
   }
-  return (arbeit) => new Promise((fertig) => {
+  return (arbeit) => new Promise((fertig, gescheitert) => {
     const starten = () => {
       frei -= 1;
-      laufen(arbeit).then(fertig);
+      laufen(arbeit).then(fertig, gescheitert);
     };
     if (frei > 0) {
       starten();
