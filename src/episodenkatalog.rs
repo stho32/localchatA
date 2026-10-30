@@ -588,13 +588,6 @@ fn je_zeile_und_text(pruefung: impl Fn(&Zeile, usize)) {
     }
 }
 
-/// Die Tabelle hat 23 Zeilen; eine gelöschte Katalogzeile fällt auf, auch wenn ihre Bauweise noch in einer anderen
-/// Zeile steht.
-#[test]
-fn der_katalog_hat_eine_zeile_je_zeile_der_tabelle() {
-    assert_eq!(katalog().len(), 23);
-}
-
 /// E1: A und B mit gleicher Quelle sind eine Episode, C mit anderer Quelle eine zweite. Episoden der Instanz
 /// (Quelle ohne Werte) haben keine andere Quelle.
 #[test]
@@ -703,7 +696,7 @@ fn e4_fortlaufendes_traegt_im_ende_den_wert_des_letzten_auftretens() {
     });
 }
 
-/// Alle Quelltextdateien unter `src/`, ohne diesen Katalog.
+/// Alle Quelltextdateien unter `src/` (Pfad relativ zu `src/`), ohne diesen Katalog.
 fn quelltexte() -> Vec<(std::path::PathBuf, String)> {
     fn sammeln(ordner: &std::path::Path, alle: &mut Vec<std::path::PathBuf>) {
         for eintrag in std::fs::read_dir(ordner).expect("src lesbar") {
@@ -715,35 +708,62 @@ fn quelltexte() -> Vec<(std::path::PathBuf, String)> {
             }
         }
     }
+    let wurzel = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
     let mut pfade = Vec::new();
-    sammeln(
-        &std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src"),
-        &mut pfade,
-    );
+    sammeln(&wurzel, &mut pfade);
     pfade
         .into_iter()
         .filter(|pfad| !pfad.ends_with("episodenkatalog.rs"))
         .map(|pfad| {
             let inhalt = std::fs::read_to_string(&pfad).expect("Quelltext");
-            (pfad, inhalt)
+            let relativ = pfad.strip_prefix(&wurzel).expect("unter src").to_path_buf();
+            (relativ, inhalt)
         })
         .collect()
 }
 
-/// Die Zahl der Stellen `Auftreten::neu(` außerhalb von Testcode und ohne Kommentarzeilen. Testcode ist jedes
-/// Item, das mit `#[cfg(test)]` bzw. `#[cfg(all(test` in Spalte 0 beginnt: es endet an der ersten Zeile in Spalte 0,
-/// die mit `;` schließt (`mod x;`, `use …;`) oder mit `}` beginnt bzw. auf `}` endet (rustfmt-Form) — danach
-/// zählt der Produktivcode wieder.
-fn stellen_im_quelltext(quelltexte: &[(std::path::PathBuf, String)]) -> usize {
+/// Die Bauweisen (Modulpfad `::` Funktionsname) an den Stellen `Auftreten::neu(` außerhalb von Testcode und ohne
+/// Kommentarzeilen, eine je Stelle. Testcode ist jedes Item, das mit `#[cfg(test)]` bzw. `#[cfg(all(test` in
+/// Spalte 0 beginnt: es endet an der ersten Zeile in Spalte 0, die mit `;` schließt (`mod x;`, `use …;`) oder mit
+/// `}` beginnt bzw. auf `}` endet (rustfmt-Form) — danach zählt der Produktivcode wieder.
+fn stellen_im_quelltext(quelltexte: &[(std::path::PathBuf, String)]) -> Vec<String> {
     quelltexte
         .iter()
-        .map(|(_, inhalt)| stellen_ausserhalb_von_testitems(inhalt))
-        .sum()
+        .flat_map(|(pfad, inhalt)| {
+            let modul = modulpfad(pfad);
+            stellen_ausserhalb_von_testitems(inhalt)
+                .into_iter()
+                .map(move |funktion| format!("{modul}::{funktion}"))
+        })
+        .collect()
 }
 
-fn stellen_ausserhalb_von_testitems(inhalt: &str) -> usize {
+/// `http/senden.rs` → `http::senden`; `start/mod.rs` → `start`.
+fn modulpfad(pfad: &std::path::Path) -> String {
+    let teile: Vec<String> = pfad
+        .with_extension("")
+        .components()
+        .map(|teil| teil.as_os_str().to_string_lossy().into_owned())
+        .collect();
+    let modul = teile.join("::");
+    modul.strip_suffix("::mod").unwrap_or(&modul).to_string()
+}
+
+/// Der Name der Funktion, die eine Zeile einführt (`pub(crate) async fn name(`), wenn sie eine einführt.
+fn funktionsname(zeile: &str) -> Option<&str> {
+    let (davor, danach) = zeile.split_once("fn ")?;
+    let am_wortanfang = davor.is_empty() || davor.ends_with(char::is_whitespace);
+    let name_ende = danach
+        .find(|zeichen: char| !(zeichen.is_alphanumeric() || zeichen == '_'))
+        .unwrap_or(danach.len());
+    (am_wortanfang && name_ende > 0).then(|| &danach[..name_ende])
+}
+
+/// Die Funktionsnamen der Stellen `Auftreten::neu(` in einem Quelltext, eine je Stelle.
+fn stellen_ausserhalb_von_testitems(inhalt: &str) -> Vec<String> {
     let mut im_testitem = false;
-    let mut stellen = 0;
+    let mut funktion = "?";
+    let mut stellen = Vec::new();
     for zeile in inhalt.lines() {
         if !im_testitem
             && (zeile.starts_with("#[cfg(test)]") || zeile.starts_with("#[cfg(all(test"))
@@ -755,8 +775,14 @@ fn stellen_ausserhalb_von_testitems(inhalt: &str) -> usize {
             im_testitem = !schliesst_item(zeile);
             continue;
         }
-        if !zeile.trim_start().starts_with("//") {
-            stellen += zeile.matches("Auftreten::neu(").count();
+        if zeile.trim_start().starts_with("//") {
+            continue;
+        }
+        if let Some(name) = funktionsname(zeile) {
+            funktion = name;
+        }
+        for _ in 0..zeile.matches("Auftreten::neu(").count() {
+            stellen.push(funktion.to_string());
         }
     }
     stellen
@@ -769,18 +795,133 @@ fn schliesst_item(zeile: &str) -> bool {
     oberste_ebene && (ende.ends_with(';') || ende.starts_with('}') || ende.ends_with('}'))
 }
 
+/// Was in `soll` steht und in `ist` fehlt, sortiert und ohne Doppelte.
+fn differenz<T: AsRef<str>, U: AsRef<str>>(soll: &[T], ist: &[U]) -> Vec<String> {
+    let mut fehlt: Vec<String> = soll
+        .iter()
+        .map(AsRef::as_ref)
+        .filter(|eintrag| !ist.iter().any(|vorhanden| vorhanden.as_ref() == *eintrag))
+        .map(str::to_string)
+        .collect();
+    fehlt.sort_unstable();
+    fehlt.dedup();
+    fehlt
+}
+
 /// Vollständigkeit: jede Stelle, die ein `Auftreten` baut, hat eine Bauweise-Funktion im Katalog — eine neue
-/// Bauweise ohne Katalogzeile ist rot.
+/// Bauweise ohne Katalogzeile ist rot, und die Meldung nennt sie beim Namen.
 #[test]
 fn jede_stelle_im_quelltext_hat_eine_bauweise_im_katalog() {
-    let mut bauweisen: Vec<&str> = katalog().iter().map(|zeile| zeile.bauweise).collect();
-    bauweisen.sort_unstable();
-    bauweisen.dedup();
+    let stellen = stellen_im_quelltext(&quelltexte());
+    let zeilen = katalog();
+    let im_katalog: Vec<&str> = zeilen.iter().map(|zeile| zeile.bauweise).collect();
+
+    let ohne_zeile = differenz(&stellen, &im_katalog);
+    let ohne_stelle = differenz(&im_katalog, &stellen);
+    assert!(
+        ohne_zeile.is_empty(),
+        "Bauweisen im Quelltext ohne Katalogzeile: {ohne_zeile:#?}"
+    );
+    assert!(
+        ohne_stelle.is_empty(),
+        "Bauweisen im Katalog ohne Stelle im Quelltext: {ohne_stelle:#?}"
+    );
+    assert_eq!(
+        stellen.len(),
+        differenz(&im_katalog, &Vec::<&str>::new()).len(),
+        "Stellen `Auftreten::neu(` im Quelltext gegen verschiedene Bauweisen im Katalog"
+    );
+}
+
+/// Die Zeilen der Tabelle in ADR-0042, Ergänzung „Karte #70“, in ihrer Reihenfolge.
+const ZEILEN_DER_TABELLE: [&str; 23] = [
+    "verbindung · Verbindung an der Platzgrenze abgewiesen",
+    "verbindung · Verbindung an der Abrissgrenze geschlossen",
+    "verbindung · Verbindung nicht angenommen",
+    "grenzschutz · Anfrage mit fremdem Host abgewiesen · Anfrage mit fremdem Ursprung abgewiesen",
+    "grenzschutz · Namensauflösung zu langsam",
+    "sitzung · Beitritt an der Sitzungsgrenze abgewiesen",
+    "channels · Anlegen an der Channel-Grenze abgewiesen",
+    "körper · Körper abgewiesen",
+    "senden · Nachricht nicht gespeichert",
+    "senden · Wiederholschlüssel vor Ablauf verdrängt",
+    "schreibkonto · Senden gebremst · Bearbeiten gebremst · Frist gebremst · Anhänge gebremst · Löschen gebremst",
+    "zeit · Nachrichtenzeit läuft der Systemuhr voraus",
+    "live · Ereignisstrom überholt, neuer Stand gesendet",
+    "quote · Senden abgewiesen: Quote erreicht (beim Bearbeiten route=bearbeiten, beim Löschen route=loeschen)",
+    "anhang · Hochladen abgewiesen: Platz für Anhänge voll",
+    "anhang · Hochladen abgewiesen: laufende Hochladungen belegen den Platz",
+    "anhang · Hochladen abgewiesen: Platte fast voll",
+    "anhang · Hochladen abgewiesen: Metadaten nicht tilgbar (art nach ADR-0042 Z. 354, vom Director für B0657 entschieden)",
+    "anhang · Hochladen zu langsam abgebrochen",
+    "anhang · Reservierung verfallen ohne Hochladen",
+    "anhang · Großer Anspruch",
+    "aendern · Ändern fremder Nachricht abgewiesen",
+    "aendern · Änderung nicht geschrieben",
+];
+
+/// Jede Zeile der Tabelle hat ihre Katalogzeile und umgekehrt — auch wenn ihre Bauweise noch in einer anderen
+/// Zeile steht; die Meldung nennt die Zeile.
+#[test]
+fn jede_zeile_der_tabelle_hat_eine_katalogzeile() {
+    let zeilen = katalog();
+    let im_katalog: Vec<&str> = zeilen.iter().map(|zeile| zeile.name).collect();
+
+    let fehlt = differenz(&ZEILEN_DER_TABELLE, &im_katalog);
+    let zuviel = differenz(&im_katalog, &ZEILEN_DER_TABELLE);
+    assert!(
+        fehlt.is_empty(),
+        "Zeilen der Tabelle ohne Katalogzeile: {fehlt:#?}"
+    );
+    assert!(
+        zuviel.is_empty(),
+        "Katalogzeilen ohne Zeile in der Tabelle: {zuviel:#?}"
+    );
+    assert_eq!(im_katalog.len(), ZEILEN_DER_TABELLE.len());
+}
+
+/// Die Differenz nennt, was fehlt: Bauweisen des Quelltexts ohne Katalogzeile beim Namen, und eine Zeile mit
+/// mehrfach genutzter Bauweise fehlt in der Zeilenliste, obwohl ihre Bauweise bleibt.
+#[test]
+fn die_differenz_nennt_die_fehlende_bauweise_und_die_fehlende_zeile() {
+    let quelltext = [
+        "start::abriss::abriss_auftreten",
+        "http::senden::quote_auftreten",
+    ];
+    let katalog = ["http::senden::quote_auftreten"];
+    assert_eq!(
+        differenz(&quelltext, &katalog),
+        ["start::abriss::abriss_auftreten"]
+    );
+
+    let tabelle = ["verbindung · a", "sitzung · b"];
+    let zeilen = ["sitzung · b"];
+    assert_eq!(differenz(&tabelle, &zeilen), ["verbindung · a"]);
+    assert!(differenz(&zeilen, &tabelle).is_empty());
+}
+
+/// Die Bauweise einer Stelle ist Modulpfad und Funktionsname, auch für `mod.rs` und Dateien in Ordnern.
+#[test]
+fn die_stelle_nennt_modulpfad_und_funktion() {
+    let quelltexte = vec![
+        (
+            std::path::PathBuf::from("start/abriss.rs"),
+            "pub(crate) fn abriss_auftreten(x: u8) -> Auftreten {\n    Auftreten::neu(1)\n}\n"
+                .to_string(),
+        ),
+        (
+            std::path::PathBuf::from("start/mod.rs"),
+            "pub(crate) async fn verfall_auftreten() -> Auftreten {\n    Auftreten::neu(2)\n}\n"
+                .to_string(),
+        ),
+    ];
 
     assert_eq!(
-        stellen_im_quelltext(&quelltexte()),
-        bauweisen.len(),
-        "Stellen `Auftreten::neu(` im Quelltext gegen verschiedene Bauweisen im Katalog: {bauweisen:#?}"
+        stellen_im_quelltext(&quelltexte),
+        [
+            "start::abriss::abriss_auftreten",
+            "start::verfall_auftreten"
+        ]
     );
 }
 
@@ -793,7 +934,7 @@ fn die_zaehlung_der_stellen_ignoriert_kommentare_und_testmodule() {
             .to_string(),
     )];
 
-    assert_eq!(stellen_im_quelltext(&quelltexte), 2);
+    assert_eq!(stellen_im_quelltext(&quelltexte).len(), 2);
 }
 
 /// Produktivcode hinter einem `#[cfg(test)]`-Einzelitem (Funktion, `mod x;`, `impl`) zählt; nur das Item selbst
@@ -830,5 +971,5 @@ fn die_zaehlung_der_stellen_zaehlt_produktivcode_nach_einem_testeinzelitem() {
         quelltext.to_string(),
     )];
 
-    assert_eq!(stellen_im_quelltext(&quelltexte), 3);
+    assert_eq!(stellen_im_quelltext(&quelltexte).len(), 3);
 }
