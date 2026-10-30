@@ -541,6 +541,58 @@ async fn kuerzen_folgt_keinem_symlink() {
     assert_eq!(abrufen(gamma, g.basis(), &g.c).await, 404);
 }
 
+/// R00038 F0131 (B0593, ADR-0046 Ergänzung Karte #66 Teil D, wörtlich): die Datei von `c` ist durch eine FIFO gleichen
+/// Namens ersetzt → `GET /anhaenge/c` antwortet binnen 2 s mit dem Fehlerstatus des Lesefehlers (404, nicht 200,
+/// kein Hängen), ein zweiter Abruf ebenso, `GET /api/gesundheit` bleibt erreichbar; `POST /api/anhaenge/loeschen`
+/// endet binnen 2 s, die Antwort nennt den Fehler, `anhang_belegt` ist unverändert. Mutante „ohne `NONBLOCK`“ →
+/// der Abruf läuft in die Zeitgrenze; „ohne `S_ISREG`“ → der Abruf liefert 200.
+#[tokio::test]
+async fn eine_fifo_statt_der_anhangdatei_haengt_weder_abruf_noch_loeschen() {
+    use std::time::{Duration, Instant};
+    let g = gegeben().await;
+    let (gamma, token) = &g.gamma;
+    let c = datei(g.pfad(), "allgemein", "c.bin");
+    std::fs::remove_file(&c).expect("weg");
+    rustix::fs::mknodat(
+        rustix::fs::CWD,
+        &c,
+        rustix::fs::FileType::Fifo,
+        rustix::fs::Mode::from_raw_mode(0o644),
+        0,
+    )
+    .expect("mkfifo");
+    let vorher = gesundheit(g.basis()).await["anhang_belegt"].clone();
+    let frist = Duration::from_secs(2);
+
+    for versuch in 1..=2 {
+        let start = Instant::now();
+        let status = tokio::time::timeout(frist, abrufen(gamma, g.basis(), &g.c))
+            .await
+            .unwrap_or_else(|_| panic!("Abruf {versuch} hängt (Frist 2 s)"));
+        assert_eq!(status, 404, "Abruf {versuch}");
+        assert!(start.elapsed() < frist, "Abruf {versuch}");
+    }
+    assert_eq!(gesundheit(g.basis()).await["anhang_belegt"], vorher);
+
+    let antwort = tokio::time::timeout(
+        frist,
+        loeschen(
+            gamma,
+            g.basis(),
+            token,
+            json!({"ids": [g.c], "bestaetigt": true}),
+        ),
+    )
+    .await
+    .expect("Löschen hängt (Frist 2 s)");
+    assert_eq!(
+        antwort.json["ergebnisse"][0]["ergebnis"], "fehler",
+        "{}",
+        antwort.json
+    );
+    assert_eq!(gesundheit(g.basis()).await["anhang_belegt"], vorher);
+}
+
 /// Gelöscht ausliefern (B0509, M14, M44′): `GET` und `HEAD /anhaenge/a` → 410 `text/plain` mit dem Text, CSP
 /// `sandbox`, `nosniff`, `Cache-Control: no-store` — auch mit `If-None-Match: "<a>"` und mit `Range` (nie 304, nie
 /// 206); ohne Gespräch, Tag oder Name im Körper.

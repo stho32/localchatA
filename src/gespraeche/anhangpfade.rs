@@ -81,7 +81,21 @@ pub fn tag_anlegen(
     ordner_anlegen(&anhaenge, &tagname(tag))
 }
 
-/// Die Datei zum Lesen (Ausliefern), `O_NOFOLLOW` in jeder Komponente.
+/// Weist eine Datei ab, die keine reguläre ist (FIFO, Gerät, Socket), am gehaltenen Deskriptor — zwischen Prüfen
+/// und Lesen liegt keine Rennbedingung (ADR-0046 Ergänzung Karte #66 Teil D).
+fn regulaere_datei_pruefen(fd: &OwnedFd) -> io::Result<()> {
+    let stand = rustix::fs::fstat(fd)?;
+    if FileType::from_raw_mode(stand.st_mode) == FileType::RegularFile {
+        return Ok(());
+    }
+    Err(io::Error::new(
+        io::ErrorKind::InvalidInput,
+        "keine reguläre Datei",
+    ))
+}
+
+/// Die Datei zum Lesen (Ausliefern), `O_NOFOLLOW` in jeder Komponente, `O_NONBLOCK`, damit das Öffnen einer FIFO
+/// nicht hängt; eine Datei, die nicht regulär ist, ist ein Fehler.
 pub fn zum_lesen(
     instanz: &OwnedFd,
     gespraech: &Gespraech,
@@ -92,14 +106,16 @@ pub fn zum_lesen(
     let fd = rustix::fs::openat(
         &tag,
         komponente(datei)?,
-        OFlags::RDONLY | OFlags::NOFOLLOW | OFlags::CLOEXEC,
+        OFlags::RDONLY | OFlags::NOFOLLOW | OFlags::CLOEXEC | OFlags::NONBLOCK,
         Mode::empty(),
     )?;
+    regulaere_datei_pruefen(&fd)?;
     Ok(File::from(fd))
 }
 
 /// Kürzt die Datei auf 0 Bytes (Löschen, ADR-0046 Ergänzung „F1′“ Regel 5 b): `O_WRONLY | O_NOFOLLOW`,
-/// `ftruncate(0)`, kein `unlink`; fehlt sie (oder ihr Tag), ist das Erfolg.
+/// `ftruncate(0)`, kein `unlink`; fehlt sie (oder ihr Tag), ist das Erfolg; wie `zum_lesen` ohne zu blockieren und
+/// nur für eine reguläre Datei.
 pub fn kuerzen(
     instanz: &OwnedFd,
     gespraech: &Gespraech,
@@ -113,12 +129,13 @@ pub fn kuerzen(
     let fd = match rustix::fs::openat(
         &tag,
         komponente(datei)?,
-        OFlags::WRONLY | OFlags::NOFOLLOW | OFlags::CLOEXEC,
+        OFlags::WRONLY | OFlags::NOFOLLOW | OFlags::CLOEXEC | OFlags::NONBLOCK,
         Mode::empty(),
     ) {
         Err(rustix::io::Errno::NOENT) => return Ok(()),
         anderes => anderes?,
     };
+    regulaere_datei_pruefen(&fd)?;
     rustix::fs::ftruncate(&fd, 0)?;
     Ok(())
 }
@@ -283,6 +300,108 @@ mod tests {
         )
         .expect("fremd");
         (wurzel, fremd)
+    }
+
+    /// R00038 B0593 (ADR-0046 Ergänzung Karte #66 Teil D): ersetzt `mkfifo` die Datei, endet `zum_lesen` und
+    /// `kuerzen` binnen 1 s mit `Err` (kein Thread bleibt hängen); die FIFO hat keine Gegenstelle. Mutante „ohne
+    /// `NONBLOCK`“ → die Zeitgrenze reißt.
+    fn fifo_aufbau() -> tempfile::TempDir {
+        let wurzel = tempfile::tempdir().expect("Wegwerf-Ordner");
+        let tag = wurzel.path().join("channels/c/anhaenge/2026-10-29");
+        std::fs::create_dir_all(&tag).expect("Ordner");
+        rustix::fs::mknodat(
+            rustix::fs::CWD,
+            tag.join("x.bin"),
+            FileType::Fifo,
+            Mode::from_raw_mode(0o644),
+            0,
+        )
+        .expect("mkfifo");
+        wurzel
+    }
+
+    /// Führt `arbeit` in einem eigenen Thread aus und wartet höchstens 1 s auf das Ergebnis.
+    fn binnen_einer_sekunde<T: Send + 'static>(
+        arbeit: impl FnOnce() -> T + Send + 'static,
+    ) -> Option<T> {
+        let (sender, empfaenger) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let _ = sender.send(arbeit());
+        });
+        empfaenger
+            .recv_timeout(std::time::Duration::from_secs(1))
+            .ok()
+    }
+
+    #[test]
+    fn zum_lesen_weist_eine_fifo_ohne_gegenstelle_binnen_einer_sekunde_ab() {
+        let wurzel = fifo_aufbau();
+        let pfad = wurzel.path().to_path_buf();
+
+        let ergebnis = binnen_einer_sekunde(move || {
+            zum_lesen(&instanz(&pfad), &c(), tag_29(), "x.bin").map(|_| ())
+        });
+
+        let fehler = ergebnis
+            .expect("kein Thread hängt (Zeitgrenze 1 s)")
+            .expect_err("eine FIFO ist keine reguläre Datei");
+        assert_eq!(fehler.kind(), io::ErrorKind::InvalidInput, "{fehler}");
+    }
+
+    #[test]
+    fn kuerzen_weist_eine_fifo_binnen_einer_sekunde_ab() {
+        let wurzel = fifo_aufbau();
+        let pfad = wurzel.path().to_path_buf();
+        // Mit Leser, damit das Öffnen zum Schreiben nicht schon an `ENXIO` scheitert: die Prüfung auf eine
+        // reguläre Datei muss greifen.
+        let _leser = rustix::fs::open(
+            pfad.join("channels/c/anhaenge/2026-10-29/x.bin"),
+            OFlags::RDONLY | OFlags::NONBLOCK | OFlags::CLOEXEC,
+            Mode::empty(),
+        )
+        .expect("Leser");
+
+        let ergebnis =
+            binnen_einer_sekunde(move || kuerzen(&instanz(&pfad), &c(), tag_29(), "x.bin"));
+
+        let fehler = ergebnis
+            .expect("kein Thread hängt (Zeitgrenze 1 s)")
+            .expect_err("eine FIFO ist keine reguläre Datei");
+        assert_eq!(fehler.kind(), io::ErrorKind::InvalidInput, "{fehler}");
+    }
+
+    #[test]
+    fn kuerzen_weist_eine_fifo_ohne_leser_ab_ohne_zu_haengen() {
+        let wurzel = fifo_aufbau();
+        let pfad = wurzel.path().to_path_buf();
+
+        let ergebnis =
+            binnen_einer_sekunde(move || kuerzen(&instanz(&pfad), &c(), tag_29(), "x.bin"));
+
+        assert!(
+            ergebnis
+                .expect("kein Thread hängt (Zeitgrenze 1 s)")
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn reguelaere_dateien_oeffnen_und_kuerzen_wie_zuvor() {
+        let (wurzel, _fremd) = aufbau();
+        let fd = instanz(wurzel.path());
+
+        let mut gelesen = String::new();
+        std::io::Read::read_to_string(
+            &mut zum_lesen(&fd, &c(), tag_29(), "x.bin").expect("regulär"),
+            &mut gelesen,
+        )
+        .expect("lesbar");
+        assert_eq!(gelesen, "eigene");
+        kuerzen(&fd, &c(), tag_29(), "x.bin").expect("gekürzt");
+        assert_eq!(
+            std::fs::read(wurzel.path().join("channels/c/anhaenge/2026-10-29/x.bin")).expect("da"),
+            b""
+        );
     }
 
     fn fremd_unveraendert(fremd: &Path) {
