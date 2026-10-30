@@ -594,3 +594,14 @@ Nie vom User erfragen.
 | 2026-10-30 | R00029 Anhänge über die API | B0586 Puffer und Kopfgrenze (ohne QS4) | Standard | 0,4h | 0,05h | 0,05h | autonom (entw2) |
 | 2026-10-30 | R00029 Anhänge über die API | Gate und Anpassungen Teil B | Konsolidierung | — | 0,75h | 0,75h | autonom (entw2) |
 | 2026-10-30 | R00038 Protokoll Kontext der Quelle, frist, reguläre Anhangdateien | B0588–B0593 (6 Bubbles, Wanduhr gesamt) | Standard | 2,4h | 0,27h | 0,27h | autonom (entw3) |
+| 2026-10-30 | R00039 Eigene Nachricht über die API bearbeiten | B0594 Logformat | Standard | 0,4h | 0,08h | 0,08h | autonom (entw2) |
+| 2026-10-30 | R00039 Eigene Nachricht über die API bearbeiten | B0595 Index getrennt | Standard | 0,4h | 0,03h | 0,03h | autonom (entw2) |
+| 2026-10-30 | R00039 Eigene Nachricht über die API bearbeiten | B0596 Fassung, Laden, Entfallen | Standard | 0,4h | 0,07h | 0,07h | autonom (entw2) |
+| 2026-10-30 | R00039 Eigene Nachricht über die API bearbeiten | B0597 Antwortform | Standard | 0,4h | 0,07h | 0,07h | autonom (entw2) |
+| 2026-10-30 | R00039 Eigene Nachricht über die API bearbeiten | B0598 Bearbeiten unter den Sperren | Standard | 0,4h | 0,03h | 0,03h | autonom (entw2) |
+| 2026-10-30 | R00039 Eigene Nachricht über die API bearbeiten | B0599 Route | Standard | 0,4h | 0,07h | 0,07h | autonom (entw2) |
+| 2026-10-30 | R00039 Eigene Nachricht über die API bearbeiten | B0600 Wiederholschlüssel | Standard | 0,4h | 0,05h | 0,05h | autonom (entw2) |
+| 2026-10-30 | R00039 Eigene Nachricht über die API bearbeiten | B0601 Protokoll | Standard | 0,4h | 0,07h | 0,07h | autonom (entw2) |
+| 2026-10-30 | R00039 Eigene Nachricht über die API bearbeiten | B0602 Ereignis aenderung | Standard | 0,4h | 0,03h | 0,03h | autonom (entw2) |
+| 2026-10-30 | R00039 Eigene Nachricht über die API bearbeiten | B0603 Veröffentlichen unter der Sperre | Standard | 0,4h | 0,03h | 0,03h | autonom (entw2) |
+| 2026-10-30 | R00039 Eigene Nachricht über die API bearbeiten | Gate und Nacharbeit | Konsolidierung | — | 0,30h | 0,30h | autonom (entw2) |
