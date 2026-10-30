@@ -19,6 +19,7 @@ import { eingabeAnlegen } from './eingabe.js';
 import { sendenEinrichten, neuerSchluessel } from './senden.js';
 import { hochladungenAnlegen, ablegenAbfangen } from './anhaenge.js';
 import { entwurfAnlegen } from './entwurf.js';
+import { unterbrochenAnlegen } from './unterbrochen.js';
 import { tippenAnlegen } from './tippen.js';
 import { aktivitaetsanzeigeAnlegen } from './aktivitaetsanzeige.js';
 import { fokusTaste } from './fokus.js';
@@ -85,6 +86,7 @@ export function zeichnen(wurzel, teilnehmer, optionen) {
     ansagen: ansagen.melden,
     fokusVerloren: () => eingabe.fokussieren(),
   });
+  const unterbrochen = hochladenUnterbrechbar(hochladen, vorigeAnsichtAbmelden.signal);
   const verlauf = verlaufAnlegen({
     hochladungen: hochladen.element,
     abrufen: optionen.verlaufAbrufen,
@@ -134,6 +136,7 @@ export function zeichnen(wurzel, teilnehmer, optionen) {
       verlauf.zumEndeFuerSenden();
     },
     entwurf: entwurfAnlegen({ speicher: window.sessionStorage }),
+    unterbrochen,
     ansagen: ansagen.melden,
     tippen,
     tippzeile: tippanzeige.zeile,
@@ -188,9 +191,28 @@ export function zeichnen(wurzel, teilnehmer, optionen) {
     },
     // Ein vollständiger Stand der Teilnehmer: am Anfang jedes Stroms und nach NeuerStand (ADR-0028 Regel 6).
     standEmpfangen: () => wieder.melden({ art: 'stand' }),
-    // Vor dem Wechsel zum Beitreten-Bildschirm.
-    entwurfSichern: () => eingabe.entwurfSichern(),
+    // Vor dem Wechsel zum Beitreten-Bildschirm: Entwurf und offene Hochladungen wie beim Neuladen (R00030 F0119 B0519).
+    vorDemWeichenSichern: () => {
+      eingabe.entwurfSichern();
+      unterbrochen.sichern(hochladen.offene());
+      hochladen.alleAnhalten();
+    },
   };
+}
+
+// Solange ein Eintrag „wird hochgeladen …“ offen ist, fragt der Browser vor dem Neuladen oder Schließen nach; wird
+// trotzdem neu geladen oder geschlossen, merkt sich der Tab Text und Dateinamen (R00030 F0119 B0519). Ohne offenen
+// Eintrag keine Rückfrage.
+function hochladenUnterbrechbar(hochladen, signal) {
+  const unterbrochen = unterbrochenAnlegen({ speicher: window.sessionStorage });
+  window.addEventListener('beforeunload', (ereignis) => {
+    if (hochladen.offene().length > 0) {
+      ereignis.preventDefault();
+      ereignis.returnValue = '';
+    }
+  }, { signal });
+  window.addEventListener('pagehide', () => unterbrochen.sichern(hochladen.offene()), { signal });
+  return unterbrochen;
 }
 
 // Getrennt heißt Strom unterbrochen oder Netz des Tabs aus (wiederverbinden.js): die Leiste oben im Verlauf sagt es,

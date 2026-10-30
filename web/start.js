@@ -99,7 +99,7 @@ function hauptansichtZeigen(teilnehmer, token, nachEingabe) {
     },
     gescheitert: (zustand, abgelehntesToken) => {
       zustellung.zustand = zustellen(zustellung.zustand, { art: 'beitrittGescheitert' }).zustand;
-      ansicht.entwurfSichern();
+      ansicht.vorDemWeichenSichern();
       stromBeenden();
       zeigen(zustand, false, abgelehntesToken);
     },

@@ -353,6 +353,22 @@ export function hochladungenAnlegen({
     eintrag.artikel.remove();
   }
 
+  // Die Hauptansicht weicht dem Beitreten-Bildschirm (R00030 F0119 B0519): jede Hochladung hält an, ohne die Anmeldung
+  // freizugeben — das alte Token gilt nicht mehr, die Anmeldungen verfallen am Server von selbst.
+  function alleAnhalten() {
+    for (const eintrag of [...eintraege]) {
+      const dateien = eintrag.dateien;
+      eintrag.dateien = [];
+      for (const datei of dateien) {
+        zeitgeber.loeschen(datei.zeitgeber);
+        if (datei.laufend !== null) {
+          datei.laufend.abbrechen();
+        }
+      }
+      eintragBeenden(eintrag);
+    }
+  }
+
   return {
     element: bereich,
     beginnen,
@@ -360,6 +376,11 @@ export function hochladungenAnlegen({
       offenerChannel = name;
       zeigen();
     },
+    // Was der Tab sich beim Verlassen merkt (B0519): je offenem Eintrag nur Channel, Text und Dateinamen.
+    offene: () => eintraege.map((eintrag) => ({
+      channel: eintrag.channel, text: eintrag.text, namen: eintrag.dateien.map((datei) => datei.name),
+    })),
+    alleAnhalten,
   };
 }
 

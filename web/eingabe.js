@@ -1,6 +1,7 @@
 // Eingabe unter dem Verlauf (ADR-0038 Regeln 1–4, 7, Designsystem Eingabe).
 import { textPruefen, nurLeerraum, steuerzeichenEntfernen } from './textregel.js';
 import { hinweis, hinweisAnsagen } from './hinweis.js';
+import { unterbrochenHinweis, feldNachNeuladen } from './unterbrochen.js';
 import { zuEigenerLetzten } from './fokus.js';
 import { bezugAusNachricht, zitatText, bezugNachfuehren } from './zitat.js';
 import { uhrzeit } from './gliederung.js';
@@ -49,6 +50,7 @@ export function taste(ereignis, text, zeiger, dateien = 0) {
 // Antwortzeile (antwortzeileAnlegen).
 export function eingabeAnlegen({
   senden, entwurf, ansagen, tippen, tippzeile, eigeneLetzteFokussieren = () => {}, signal = new AbortController().signal,
+  unterbrochen = KEIN_UNTERBROCHENES_HOCHLADEN,
 }) {
   const feld = document.createElement('textarea');
   feld.rows = 1;
@@ -74,7 +76,10 @@ export function eingabeAnlegen({
       textBewerten();
     },
   });
-  anhang.auswahl.addEventListener('change', () => dateien.hinzufuegen([...anhang.auswahl.files]));
+  anhang.auswahl.addEventListener('change', () => {
+    unterbrochenHinweise.delete(channel);
+    dateien.hinzufuegen([...anhang.auswahl.files]);
+  });
   const rahmen = element('div', { className: 'lc-comp' }, [antwort.zeile, dateien.element, kasten, hinweisReihe]);
   sichthoeheFolgen(rahmen, signal);
   // Tab aus dem Verlauf landet im Feld, nicht in der Antwortzeile oder im ersten „Entfernen“ (UX V6); Shift Tab aus dem
@@ -88,6 +93,8 @@ export function eingabeAnlegen({
     });
   }
   let channel = null;
+  // Hinweis „Hochladen unterbrochen …“ je Channel (R00030 F0119 B0519): bis zum Anhängen oder Senden dort.
+  const unterbrochenHinweise = new Map();
   let gezeigt = hinweis(textPruefen(''));
   const MELDUNG_STEHT_MS = 6000;
   let meldungEnde = null;
@@ -105,6 +112,10 @@ export function eingabeAnlegen({
     zeile.textContent = neu.text;
     if (neu.stufe === 'leer') {
       zeile.textContent = zusatzHinweis;
+    }
+    const unterbrochenZeigen = neu.stufe === 'leer' && zusatzHinweis === '' && unterbrochenHinweise.has(channel);
+    if (unterbrochenZeigen) {
+      zeile.textContent = unterbrochenHinweise.get(channel);
     }
     zeile.classList.toggle('lc-fehler', neu.stufe === 'fehler');
     if (neu.stufe === 'fehler') {
@@ -213,6 +224,7 @@ export function eingabeAnlegen({
     }
     const text = feld.value;
     feld.value = '';
+    unterbrochenHinweise.delete(channel);
     hoeheAnpassen(feld);
     textBewerten();
     entwurf.gesendet(channel);
@@ -237,6 +249,21 @@ export function eingabeAnlegen({
     zeile.classList.add('lc-fehler');
     ansagen({ art: 'sofort', text: grund });
   }
+  // Nach dem Neuladen (R00030 F0119 B0519): der gesicherte Text geht nie verloren — im leeren Feld allein, sonst vor dem
+  // Entwurf —, Hinweiszeile und Ansage nennen die Dateien; der Fokus bleibt, wo er ist.
+  function gesichertZurueckholen(name) {
+    const gesichert = unterbrochen.nehmen(name);
+    if (gesichert === null) {
+      return;
+    }
+    const danach = feldNachNeuladen(gesichert.text, feld.value);
+    feld.value = danach.text;
+    entwurf.weggehen(name, feld.value);
+    const meldung = unterbrochenHinweis(gesichert.namen, danach.textOben);
+    unterbrochenHinweise.set(name, meldung.hinweis);
+    ansagen({ art: 'sofort', text: meldung.ansage });
+  }
+
   function entwurfSichern() {
     if (channel !== null) {
       entwurf.weggehen(channel, feld.value);
@@ -258,6 +285,7 @@ export function eingabeAnlegen({
       feld.setAttribute('aria-label', beschriftung);
       feld.placeholder = beschriftung;
       feld.value = entwurf.oeffnen(name);
+      gesichertZurueckholen(name);
       hoeheAnpassen(feld);
       textBewerten();
       if (verworfen !== null) {
@@ -300,6 +328,8 @@ export function eingabeAnlegen({
     entwurfSichern,
   };
 }
+
+const KEIN_UNTERBROCHENES_HOCHLADEN = { nehmen: () => null };
 
 // Die Antwortzeile über dem Feld (R00047 B0714, ADR-0053 Regel 7, Vorprüfung `ux-reviewer`): role="group" mit dem
 // Namen „Antwort an <Kennung>“, darin „Antwort an <Kennung>:“, der Textanfang einzeilig und „Abbrechen“. Höchstens ein
