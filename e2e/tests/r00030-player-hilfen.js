@@ -1,7 +1,10 @@
 'use strict';
 // Hilfen der Specs zu R00030 F0165 „Video und Audio im Player“: den Player eines Anhangs finden, stumm abspielen (ohne
 // Geste spielt Chromium nur stumm von selbst) und seinen Zustand lesen; Anfragen an /anhaenge/ mitschreiben.
+const path = require('path');
+const { execFileSync } = require('child_process');
 const { expect } = require('./rahmen');
+const { JETZT, senden } = require('./senden-hilfen');
 
 /// Der Player des Anhangs `name` in der Nachricht.
 const player = (knoten, name) => knoten.locator(`video[aria-label="${name}"], audio[aria-label="${name}"]`);
@@ -49,4 +52,29 @@ function anhangAnfragenMitschreiben(page) {
   return anfragen;
 }
 
-module.exports = { player, abspielen, wiedergabe, elementMerken, istDasselbe, anhangAnfragenMitschreiben };
+/// `vorbereiten` für anzeigeStarten: `anzahl` ältere Nachrichten in `allgemein` (Testdaten-Erzeuger aus R00007, bis zur
+/// Uhr der Instanz) — der Verlauf ist dann höher als das Fenster und steht beim Öffnen am Ende.
+function aeltereNachrichten(anzahl) {
+  const erzeuger = path.resolve(__dirname, '../../target/debug/examples/verlauf-erzeugen');
+  return (ordner) => {
+    execFileSync(erzeuger, [ordner, 'allgemein', String(anzahl), '1'], {
+      stdio: 'ignore',
+      env: { ...process.env, TZ: 'Europe/Berlin', LOCALCHATA_JETZT: JETZT },
+    });
+  };
+}
+
+/// `beta` sendet `text` über die API; → die Zeit der Nachricht.
+async function betaSchreibt(lauf, text) {
+  const antwort = await senden(lauf.instanz.adresse, lauf.beta.token, 'allgemein', text, '127.0.0.2');
+  expect(antwort.status, JSON.stringify(antwort.daten)).toBe(201);
+  return antwort.daten.nachricht.zeit;
+}
+
+const scrollStand = (page) => page.getByRole('log').evaluate((log) => ({
+  oben: log.scrollTop, untenAbstand: log.scrollHeight - log.scrollTop - log.clientHeight,
+}));
+
+module.exports = {
+  player, abspielen, wiedergabe, elementMerken, istDasselbe, anhangAnfragenMitschreiben, aeltereNachrichten, betaSchreibt, scrollStand,
+};

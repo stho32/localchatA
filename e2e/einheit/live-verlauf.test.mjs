@@ -125,11 +125,20 @@ test('nach einem Frame sammelt der nächste von vorn', () => {
 
 // B0225 „Folgen oder zählen“ (Zeilenhöhe 20 px).
 test('am Ende (höchstens eine Zeile Abstand) folgen, sonst anfügen und zählen, ohne neuesten Block nur zählen', () => {
-  assert.equal(folgenOderZaehlen(0, 20, true), 'folgen');
-  assert.equal(folgenOderZaehlen(20, 20, true), 'folgen');
-  assert.equal(folgenOderZaehlen(21, 20, true), 'zaehlen');
-  assert.equal(folgenOderZaehlen(0, 20, false), 'nurZaehlen');
-  assert.equal(folgenOderZaehlen(5000, 20, false), 'nurZaehlen');
+  assert.equal(folgenOderZaehlen(0, 20, true, false), 'folgen');
+  assert.equal(folgenOderZaehlen(20, 20, true, false), 'folgen');
+  assert.equal(folgenOderZaehlen(21, 20, true, false), 'zaehlen');
+  assert.equal(folgenOderZaehlen(0, 20, false, false), 'nurZaehlen');
+  assert.equal(folgenOderZaehlen(5000, 20, false, false), 'nurZaehlen');
+});
+
+// B0733 (R00030 F0165, product-owner Zeile 81, U1): solange ein Medium spielt, folgt der Verlauf neuen fremden
+// Nachrichten nicht — angefügt und gezählt wie beim Lesen weiter oben; ohne neuesten Block bleibt es beim Zählen.
+test('mit spielendem Medium wird am Ende nicht gefolgt, sondern angefügt und gezählt', () => {
+  assert.equal(folgenOderZaehlen(0, 20, true, true), 'zaehlen');
+  assert.equal(folgenOderZaehlen(20, 20, true, true), 'zaehlen');
+  assert.equal(folgenOderZaehlen(21, 20, true, true), 'zaehlen');
+  assert.equal(folgenOderZaehlen(0, 20, false, true), 'nurZaehlen');
 });
 
 test('die Pille nennt die Zahl in Einzahl und Mehrzahl', () => {

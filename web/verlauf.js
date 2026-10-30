@@ -16,6 +16,7 @@ import { kopieren, rueckmeldungFuer, RUECKMELDUNG_LEER, MENUE_OFFEN_MS } from '.
 import { menueLage, schalterGanzSichtbar } from './menuelage.js';
 import { zitatNachfuehren } from './zitat.js';
 import { zeigerart } from './eingabe.js';
+import { mediumSpielt } from './player.js';
 import {
   einordnen, zusammenfuehren, fassungUebernehmen, buendlerAnlegen, folgenOderZaehlen, pillenText, auslaufNach, nichtGeladenText, hinweisTextNachziehen,
   sprungZiel as sprungZielBerechnen, scrollTopNachHoehe, fensterNeuLesen, zeitDanach, zeitDavor,
@@ -1108,7 +1109,7 @@ export function verlaufAnlegen({
     eingeordnetMerken(eintraege.map((eintrag) => eintrag.nachricht));
     const fremde = eintraege.filter((eintrag) => !eintrag.eigen).length;
     const neuesterImFenster = fenster === null || !fenster.neuer;
-    const lage = folgenOderZaehlen(abstandUnten(), zeilenhoehe(), neuesterImFenster);
+    const lage = folgenOderZaehlen(abstandUnten(), zeilenhoehe(), neuesterImFenster, fremde > 0 && mediumSpielt(inhalt));
     if (lage === 'nurZaehlen') {
       neueGezaehlt += fremde;
       nurGezaehlte.push(...eintraege.map((eintrag) => eintrag.nachricht));
@@ -1129,6 +1130,7 @@ export function verlaufAnlegen({
       amEnde = true;
       return;
     }
+    amEnde = false;
     neueGezaehlt += neueFremde.length;
   }
 

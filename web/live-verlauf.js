@@ -54,13 +54,13 @@ export function buendlerAnlegen({ einfuegen, naechsterFrame = (rueckruf) => glob
 }
 
 // Wohin eine neue fremde Nachricht kommt: steht der neueste Block nicht im Fenster, wird nur gezählt; steht der Blick
-// höchstens eine Zeile vor dem Ende, folgt er; sonst wird angefügt und gezählt, nichts scrollt.
-// → 'folgen' | 'zaehlen' | 'nurZaehlen'
-export function folgenOderZaehlen(abstandUnten, zeilenhoehe, neuesterImFenster) {
+// höchstens eine Zeile vor dem Ende, folgt er — außer solange ein Medium spielt (R00030 B0733, U1); sonst wird angefügt
+// und gezählt, nichts scrollt. → 'folgen' | 'zaehlen' | 'nurZaehlen'
+export function folgenOderZaehlen(abstandUnten, zeilenhoehe, neuesterImFenster, mediumSpielt) {
   if (!neuesterImFenster) {
     return 'nurZaehlen';
   }
-  if (abstandUnten <= zeilenhoehe) {
+  if (abstandUnten <= zeilenhoehe && !mediumSpielt) {
     return 'folgen';
   }
   return 'zaehlen';

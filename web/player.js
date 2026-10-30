@@ -24,3 +24,9 @@ export function playerZeichnen(anhang, form, rahmen) {
   medium.src = anhang.url;
   return player;
 }
+
+// Spielt ein Video oder Audio unter `wurzel`? (B0733: solange folgt der Verlauf neuen fremden Nachrichten nicht.) Bis
+// Pause oder Ende gilt die Wiedergabe — am Ende setzt der Browser `paused` selbst; ein entferntes Element zählt nicht mehr.
+export function mediumSpielt(wurzel) {
+  return Array.from(wurzel.querySelectorAll('video, audio')).some((medium) => !medium.paused);
+}
