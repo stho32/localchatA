@@ -397,6 +397,13 @@ pub struct Block {
     pub neuer: bool,
 }
 
+// Zähler der Probe „Arbeit ≤ k × Buchung“ (R00049, Karte #17): die Bytes, die `Verlauf::kopie` auf diesem Thread
+// kopiert hat — am einzigen Kopierort, unabhängig davon, was das Nachholen bucht.
+#[cfg(test)]
+thread_local! {
+    pub(super) static KOPIERT: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
 impl Verlauf {
     /// Höchstens `n` Sätze des Abschnitts über beliebig viele Tage, älteste zuerst (ADR-0025 Regeln 2–4), und
     /// höchstens `budget` Satzbytes (ADR-0039 Regel 2): in Cursor-Richtung Satz für Satz, solange die Summe der
@@ -501,11 +508,36 @@ impl Verlauf {
             geaendert: fassung.geaendert,
             satz: self.aenderungssatz(&fassung),
         });
-        Kopie {
+        let kopie = Kopie {
             satz: tag.satz(index),
             aenderung,
             zitat,
+        };
+        #[cfg(test)]
+        KOPIERT.with(|kopiert| kopiert.set(kopiert.get() + kopie.kopierte_bytes()));
+        kopie
+    }
+
+    /// Zeit und Lesebytes der ersten Nachricht echt nach `ab` — ohne Kopie: was die Trefferregel für sie liest, das
+    /// Größere aus Satz und Änderungssatz (auch eine gelöschte liest ihr Original). Das Nachholen bemisst daran,
+    /// was es kopieren darf, bevor es kopiert.
+    pub fn naechste_nach(&self, ab: &Zeit) -> Option<(Zeit, usize)> {
+        for tag in self
+            .tage
+            .range(tag_mit_abstand(*ab, -2)..)
+            .map(|(_, tag)| tag)
+        {
+            let index = grenze_im_tag(&tag.rohtext, &tag.nachrichten, ab, Seite::Nach);
+            if index < tag.nachrichten.len() {
+                let zeit = logformat::kopfzeit(&tag.rohtext[tag.nachrichten[index]..])?;
+                let aenderung = self
+                    .fassung_im_tag(tag, index)
+                    .and_then(|fassung| self.aenderungsspanne(&fassung))
+                    .map_or(0, |(_, spanne)| spanne.len());
+                return Some((zeit, tag.satzlaenge(index).max(aenderung)));
+            }
         }
+        None
     }
 
     /// Die Fassung der Nachricht `index` des Tages — ohne Fassungen im Gespräch ohne Nachschlagen (O(log m) sonst).
@@ -548,6 +580,19 @@ pub struct Kopie {
     pub aenderung: Option<Kopierte>,
     /// Das Zitat einer Antwort, aufgelöst unter der Sperre des Gesprächs (ADR-0053 Regel 3).
     pub zitat: Option<Box<Zitat>>,
+}
+
+impl Kopie {
+    /// Wie viele Bytes diese Kopie aus dem Verlauf gekopiert hat: Satz und Änderungssatz.
+    #[cfg(test)]
+    fn kopierte_bytes(&self) -> usize {
+        let aenderungssatz = self
+            .aenderung
+            .as_ref()
+            .and_then(|aenderung| aenderung.satz.as_ref())
+            .map_or(0, Vec::len);
+        self.satz.len() + aenderungssatz
+    }
 }
 
 /// Die Fassung einer kopierten Nachricht: Zeit der Änderung und der kopierte Bearbeitungssatz, gelöscht keiner.

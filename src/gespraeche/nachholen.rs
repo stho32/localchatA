@@ -2,19 +2,19 @@
 //! allen Gesprächen, die der Filter berühren kann, in Zeitfolge zusammengeführt, mit der Trefferregel gefiltert, in
 //! der aktuellen Fassung — begrenzt durch ein Budget an Treffern, Bytes und geprüften Sätzen.
 //!
-//! Gelesen wird je Gespräch blockweise über den Verlaufsindex (ADR-0025 `nach`), die Sperre eines Gesprächs nur zum
-//! Herauskopieren eines Blocks; alles mit einer Zeit über der Marke kommt über den Bus, nicht von hier.
+//! Gelesen wird nur, was gebucht ist (ADR-0054 Ergänzung „Kosten-Einheit des Nachholens“): jedes Gespräch kennt von
+//! seiner nächsten Nachricht nur Zeit und Lesebytes (`Verlauf::naechste_nach`, ohne Kopie); das Budget wird an diesen
+//! Lesebytes geprüft, und erst die Nachricht, die an der Reihe ist, wird kopiert — eine je Schritt, die Sperre eines
+//! Gesprächs nur dafür. Alles mit einer Zeit über der Marke kommt über den Bus, nicht von hier.
 
-use super::abfrage::{Abfrage, Abschnitt, BLOCK_HOECHSTENS, Blockgroesse};
+use super::abfrage::{Abfrage, Abschnitt, Blockgroesse};
 use super::treffer::{Filter, Treffer, treffer};
-use super::verlaufsindex::{Kopie, Verlauf};
+use super::verlaufsindex::Verlauf;
 use super::{Gespraech, Gespraeche, Kennung, Nachricht, lesend, nachricht_in_fassung, sperren};
 use crate::uhr::Zeit;
-use std::collections::VecDeque;
+use std::cmp::Reverse;
+use std::collections::BinaryHeap;
 use std::sync::{Arc, Mutex};
-
-/// Höchstens so viele Satzbytes je gelesenem Block — wie ein Verlaufsblock (ADR-0039 Regel 1).
-const BLOCKBYTES: usize = 262_144;
 
 /// Wie viel ein Aufruf liefern und prüfen darf (Regel 4).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -96,25 +96,38 @@ impl Gespraeche {
             saetze: 0,
         };
         let mut bytes = 0;
-        while let Some(naechster) = naechster_strang(&mut straenge) {
-            let Some(Gelesen { nachricht, kosten }) = straenge[naechster].puffer.front() else {
-                break;
+        let mut reihe: BinaryHeap<Reverse<(Zeit, usize)>> = straenge
+            .iter()
+            .enumerate()
+            .filter_map(|(index, strang)| strang.kopf.map(|(zeit, _)| Reverse((zeit, index))))
+            .collect();
+        while let Some(Reverse((_, naechster))) = reihe.pop() {
+            let strang = &mut straenge[naechster];
+            let Some((_, lesebytes)) = strang.kopf else {
+                continue;
             };
-            let kosten = *kosten;
+            let kosten = kosten_eines_satzes(lesebytes);
             let budget_erschoepft = ergebnis.treffer.len() == budget.nachrichten
                 || (ergebnis.saetze > 0 && ergebnis.kosten + kosten > budget.kosten);
-            let anlass = treffer(&straenge[naechster].gespraech, nachricht, wartender, filter);
-            let zu_gross = anlass.is_some()
-                && !ergebnis.treffer.is_empty()
-                && bytes + lieferbytes(nachricht) > budget.bytes;
-            if budget_erschoepft || zu_gross {
+            if budget_erschoepft {
                 ergebnis.weitere = true;
                 return ergebnis;
             }
-            let strang = &mut straenge[naechster];
-            let Some(Gelesen { nachricht, .. }) = strang.puffer.pop_front() else {
-                break;
+            let entnommen = strang.entnehmen();
+            if let Some((zeit, _)) = strang.kopf {
+                reihe.push(Reverse((zeit, naechster)));
+            }
+            let Some(nachricht) = entnommen else {
+                continue;
             };
+            let anlass = treffer(&strang.gespraech, &nachricht, wartender, filter);
+            let zu_gross = anlass.is_some()
+                && !ergebnis.treffer.is_empty()
+                && bytes + lieferbytes(&nachricht) > budget.bytes;
+            if zu_gross {
+                ergebnis.weitere = true;
+                return ergebnis;
+            }
             ergebnis.kosten += kosten;
             ergebnis.saetze += 1;
             ergebnis.stand = nachricht.zeit;
@@ -142,105 +155,64 @@ impl Gespraeche {
                 Gespraech::Channel(name) => alle || filter.channels.contains(name),
                 Gespraech::Direkt(_) => false,
             })
-            .map(|(gespraech, verlauf)| Strang {
-                gespraeche: self,
-                gespraech: gespraech.clone(),
-                verlauf: Arc::clone(verlauf),
-                puffer: VecDeque::new(),
-                ab: seit,
-                marke,
-                erschoepft: false,
+            .map(|(gespraech, verlauf)| {
+                let mut strang = Strang {
+                    gespraeche: self,
+                    gespraech: gespraech.clone(),
+                    verlauf: Arc::clone(verlauf),
+                    kopf: None,
+                    ab: seit,
+                    marke,
+                };
+                strang.vorschauen();
+                strang
             })
             .collect()
     }
 }
 
-/// Der Strang mit der ältesten nächsten Nachricht, nachdem jeder leere Strang nachgeladen hat; keiner, wenn alle
-/// erschöpft sind. Zeiten sind über alle Gespräche verschieden (ADR-0035).
-fn naechster_strang(straenge: &mut [Strang<'_>]) -> Option<usize> {
-    for strang in straenge.iter_mut() {
-        strang.nachladen();
-    }
-    straenge
-        .iter()
-        .enumerate()
-        .filter_map(|(index, strang)| {
-            strang
-                .puffer
-                .front()
-                .map(|kopf| (index, kopf.nachricht.zeit))
-        })
-        .min_by_key(|(_, zeit)| *zeit)
-        .map(|(index, _)| index)
-}
-
-/// Wie viele Satzbytes das Nachholen für eine Kopie auswertet (Nacharbeit security-reviewer #17 Befund 1): den Satz
-/// selbst, der immer gelesen wird — auch gelöscht —, und bei einer bearbeiteten Nachricht den Änderungssatz, dessen
-/// Text die Trefferregel prüft; das Größere zählt.
-fn ausgewertete_satzbytes(kopie: &Kopie) -> usize {
-    let aenderungssatz = kopie
-        .aenderung
-        .as_ref()
-        .and_then(|aenderung| aenderung.satz.as_ref())
-        .map_or(0, Vec::len);
-    kopie.satz.len().max(aenderungssatz)
-}
-
-/// Eine gelesene Nachricht samt den Kosten ihres Satzes.
-struct Gelesen {
-    nachricht: Nachricht,
-    kosten: usize,
-}
-
-/// Die Nachrichten eines Gesprächs mit `ab < zeit ≤ marke`, blockweise aus dem Index gelesen.
+/// Die Nachrichten eines Gesprächs mit `ab < zeit ≤ marke`. Gelesen wird eine Nachricht erst, wenn sie an der Reihe
+/// ist; bis dahin kennt der Strang nur Zeit und Lesebytes seiner nächsten (`kopf`) — das Größere aus Satz und
+/// Änderungssatz, was die Trefferregel auswertet und `kosten_eines_satzes` bucht. Zeiten sind über alle Gespräche
+/// verschieden (ADR-0035), die Reihenfolge der Stränge also eindeutig.
 struct Strang<'a> {
     gespraeche: &'a Gespraeche,
     gespraech: Gespraech,
     verlauf: Arc<Mutex<Verlauf>>,
-    puffer: VecDeque<Gelesen>,
-    /// Zeit der zuletzt gelesenen Nachricht (exklusiver Cursor des nächsten Blocks).
+    /// Zeit und Lesebytes der nächsten Nachricht bis zur Marke; keine, wenn der Strang erschöpft ist.
+    kopf: Option<(Zeit, usize)>,
+    /// Zeit der zuletzt entnommenen Nachricht (exklusiver Cursor).
     ab: Zeit,
     marke: Zeit,
-    erschoepft: bool,
 }
 
 impl Strang<'_> {
-    /// Liest den nächsten Block, wenn der Puffer leer ist und noch etwas bis zur Marke kommen kann.
-    fn nachladen(&mut self) {
-        if !self.puffer.is_empty() || self.erschoepft {
-            return;
-        }
+    /// Merkt Zeit und Lesebytes der nächsten Nachricht bis zur Marke, ohne sie zu kopieren.
+    fn vorschauen(&mut self) {
+        self.kopf = sperren(&self.verlauf)
+            .naechste_nach(&self.ab)
+            .filter(|(zeit, _)| *zeit <= self.marke);
+    }
+
+    /// Kopiert die Nachricht des Kopfs — genau eine — in der aktuellen Fassung und schaut die folgende an. Der
+    /// Cursor rückt auch vor, wenn der Satz sich nicht lesen lässt.
+    fn entnehmen(&mut self) -> Option<Nachricht> {
+        let (zeit, _) = self.kopf?;
         let abfrage = Abfrage {
             abschnitt: Abschnitt::Nach(self.ab),
-            n: Blockgroesse::bilden(BLOCK_HOECHSTENS).unwrap_or_else(Blockgroesse::standard),
+            n: Blockgroesse::bilden(1)?,
         };
-        let block = sperren(&self.verlauf).block(&abfrage, BLOCKBYTES);
-        let nachrichten: Vec<Gelesen> = block
-            .saetze
-            .iter()
-            .filter_map(|kopie| {
-                nachricht_in_fassung(kopie).map(|nachricht| Gelesen {
-                    nachricht: self.gespraeche.zustand_eintragen(nachricht),
-                    kosten: kosten_eines_satzes(ausgewertete_satzbytes(kopie)),
-                })
-            })
-            .collect();
-        let Some(letzte) = nachrichten.last().map(|gelesen| gelesen.nachricht.zeit) else {
-            self.erschoepft = true;
-            return;
-        };
-        self.ab = letzte;
-        self.erschoepft = !block.neuer || letzte >= self.marke;
-        self.puffer.extend(
-            nachrichten
-                .into_iter()
-                .filter(|gelesen| gelesen.nachricht.zeit <= self.marke),
-        );
+        let block = sperren(&self.verlauf).block(&abfrage, usize::MAX);
+        self.ab = zeit;
+        self.vorschauen();
+        let nachricht = nachricht_in_fassung(block.saetze.first()?)?;
+        Some(self.gespraeche.zustand_eintragen(nachricht))
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use super::super::verlaufsindex::KOPIERT;
     use super::super::{Art, Speicherablage};
     use super::*;
     use crate::uhr::GestellteUhr;
@@ -712,6 +684,193 @@ mod tests {
                 (66, 1_122, t[300], false),
             ]
         );
+    }
+
+    /// Wie die Nachrichten der Probe „Arbeit ≤ k × Buchung“ nachträglich verändert werden.
+    #[derive(Debug, Clone, Copy)]
+    enum Zustand {
+        /// V1: unverändert, 16.384 Bytes.
+        Unbearbeitet,
+        /// V2: jede auf „y“ bearbeitet.
+        KurzBearbeitet,
+        /// V3: jede gelöscht.
+        Geloescht,
+        /// V4: als 1 Byte gesendet, danach auf 16.384 Bytes bearbeitet.
+        Gewachsen,
+        /// V5 (eigene Variante): 16.384 Bytes, danach auf 16.384 andere Bytes bearbeitet — Satz und Änderungssatz
+        /// sind beide lang.
+        Umgeschrieben,
+    }
+
+    const DIE_VIER: [Zustand; 4] = [
+        Zustand::Unbearbeitet,
+        Zustand::KurzBearbeitet,
+        Zustand::Geloescht,
+        Zustand::Gewachsen,
+    ];
+
+    /// `kanaele` Channels, reihum je 200 Nachrichten von `anna` (Erwähnung des Wartenden kommt nirgends vor), danach
+    /// im `zustand`. Liefert die Gespräche, `t0` (vor der ersten Nachricht) und die Marke (die letzte gesendete).
+    fn viele_kanaele(kanaele: usize, zustand: Zustand) -> (Gespraeche, Zeit, Zeit) {
+        let ablage = Arc::new(Speicherablage::neu());
+        let channels: Vec<Gespraech> = (0..kanaele)
+            .map(|nummer| Gespraech::channel(&format!("k{nummer}")))
+            .collect();
+        for channel in &channels {
+            ablage.gespraech_anlegen(channel);
+        }
+        let beginn = zeit("2026-10-30T12:00:00.000+01:00");
+        let gespraeche =
+            Gespraeche::laden(ablage, Arc::new(GestellteUhr::neu(beginn))).expect("geladen");
+        let anfangstext = match zustand {
+            Zustand::Gewachsen => "x".to_string(),
+            _ => "x".repeat(16_384),
+        };
+        let mut gesendet = Vec::new();
+        for _ in 0..200 {
+            for channel in &channels {
+                let nachricht = gespraeche
+                    .senden(channel, &anna(), Art::Mensch, &anfangstext)
+                    .expect("gesendet");
+                gesendet.push((channel, nachricht.zeit));
+            }
+        }
+        for (channel, zeit) in &gesendet {
+            match zustand {
+                Zustand::Unbearbeitet => {}
+                Zustand::KurzBearbeitet => {
+                    gespraeche
+                        .bearbeiten(channel, &anna(), *zeit, "y")
+                        .expect("bearbeitet");
+                }
+                Zustand::Gewachsen | Zustand::Umgeschrieben => {
+                    gespraeche
+                        .bearbeiten(channel, &anna(), *zeit, &"y".repeat(16_384))
+                        .expect("bearbeitet");
+                }
+                Zustand::Geloescht => {
+                    gespraeche
+                        .nachricht_loeschen(channel, &anna(), *zeit)
+                        .expect("gelöscht");
+                }
+            }
+        }
+        let marke = gesendet.last().expect("Nachrichten").1;
+        (gespraeche, beginn - chrono::Duration::seconds(1), marke)
+    }
+
+    /// Ein Nachholen mit dem Standardbudget; liefert es und die Bytes, die der Verlauf dabei kopiert hat.
+    fn nachholen_und_kopiertes(
+        gespraeche: &Gespraeche,
+        t0: Zeit,
+        marke: Zeit,
+    ) -> (Nachgeholt, usize) {
+        KOPIERT.with(|kopiert| kopiert.set(0));
+        let nachgeholt = gespraeche.nachholen(t0, marke, &claude(), &erwaehnung(), NACHHOLBUDGET);
+        (nachgeholt, KOPIERT.with(std::cell::Cell::get))
+    }
+
+    /// Teil 1 der Abnahme-Probe (security-reviewer #17 Befund 3, realist-consultant #17 Schleifenbremse): am
+    /// einzigen Kopierort wird gezählt, was kopiert wird — unabhängig von der Buchung. In allen zwölf Zellen
+    /// (C ∈ {1, 10, 30} × V1–V4) gilt: (a) kopiert ≤ 1.024 × Kosten + 49.152, (b) 117 Sätze für 1.989 Kosten,
+    /// (c) bei C = 30 absolut ≤ 2.100.000 Bytes. Gelesen wird nur, was gebucht ist.
+    #[test]
+    fn gelesen_wird_nur_was_gebucht_ist_in_zwoelf_zellen() {
+        let mut verletzt = Vec::new();
+        for kanaele in [1, 10, 30] {
+            for zustand in DIE_VIER {
+                let (gespraeche, t0, marke) = viele_kanaele(kanaele, zustand);
+
+                let (nachgeholt, kopiert) = nachholen_und_kopiertes(&gespraeche, t0, marke);
+
+                let zelle = format!(
+                    "C={kanaele} {zustand:?}: {} Sätze, {} Kosten, kopiert {kopiert} B",
+                    nachgeholt.saetze, nachgeholt.kosten
+                );
+                let (a, b, c) = (
+                    kopiert <= BYTE_JE_KOSTENEINHEIT * nachgeholt.kosten + 49_152,
+                    (nachgeholt.saetze, nachgeholt.kosten) == (117, 1_989),
+                    kanaele != 30 || kopiert <= 2_100_000,
+                );
+                if !(a && b && c) {
+                    verletzt.push(format!("{zelle} (a {a}, b {b}, c {c})"));
+                }
+            }
+        }
+        assert!(
+            verletzt.is_empty(),
+            "verletzte Zellen:\n{}",
+            verletzt.join("\n")
+        );
+    }
+
+    /// Eigene Variante V5 zu Teil 1: sind Satz und Änderungssatz beide 16 KiB lang, bucht das Nachholen das Größere,
+    /// der Verlauf kopiert beide — die Arbeit bleibt bei höchstens dem Doppelten der Buchung.
+    #[test]
+    fn umgeschriebene_saetze_kopieren_hoechstens_das_doppelte_der_buchung() {
+        let (gespraeche, t0, marke) = viele_kanaele(30, Zustand::Umgeschrieben);
+
+        let (nachgeholt, kopiert) = nachholen_und_kopiertes(&gespraeche, t0, marke);
+
+        assert_eq!((nachgeholt.saetze, nachgeholt.kosten), (117, 1_989));
+        assert!(
+            kopiert <= 2 * (BYTE_JE_KOSTENEINHEIT * nachgeholt.kosten + 49_152),
+            "kopiert {kopiert} B für {} Kosten",
+            nachgeholt.kosten
+        );
+    }
+
+    /// Teil 2 der Abnahme-Probe, Spiegelung: für je eine Nachricht V1–V4 sind Zeit und Lesebytes von
+    /// `naechste_nach` genau das, was `block(Nach, n = 1)` über die Kopie auswertet — das Größere aus Satz und
+    /// Änderungssatz, den die Trefferregel auswertet —, und die kopierte Summe (am Zähler) ist Satz plus Änderungssatz.
+    #[test]
+    fn die_vorschau_spiegelt_den_block_mit_einem_satz() {
+        for zustand in DIE_VIER {
+            let (gespraeche, t0, _) = viele_kanaele(1, zustand);
+            let verlauf =
+                lesend(&gespraeche.verzeichnis).verlaeufe[&Gespraech::channel("k0")].clone();
+            let abfrage = Abfrage {
+                abschnitt: Abschnitt::Nach(t0),
+                n: Blockgroesse::bilden(1).expect("n"),
+            };
+            KOPIERT.with(|kopiert| kopiert.set(0));
+            let block = sperren(&verlauf).block(&abfrage, usize::MAX);
+            let kopiert = KOPIERT.with(std::cell::Cell::get);
+            let kopie = &block.saetze[0];
+
+            let vorschau = sperren(&verlauf).naechste_nach(&t0);
+
+            let zelle = format!("{zustand:?}");
+            let aenderungssatz = kopie
+                .aenderung
+                .as_ref()
+                .and_then(|aenderung| aenderung.satz.as_ref())
+                .map_or(0, Vec::len);
+            let erste = nachricht_in_fassung(kopie).expect("Nachricht").zeit;
+            assert_eq!(
+                vorschau,
+                Some((erste, kopie.satz.len().max(aenderungssatz))),
+                "{zelle}: Zeit und Lesebytes"
+            );
+            assert_eq!(
+                kopiert,
+                kopie.satz.len() + aenderungssatz,
+                "{zelle}: kopierte Summe"
+            );
+        }
+    }
+
+    /// Wie die Vorschau endet: hinter der letzten Nachricht ist keine nächste.
+    #[test]
+    fn hinter_der_letzten_nachricht_gibt_es_keine_vorschau() {
+        let (gespraeche, t) = lange_reihe(3, 5);
+        let verlauf = lesend(&gespraeche.verzeichnis).verlaeufe[&Gespraech::channel("a")].clone();
+
+        let nach_der_zweiten = sperren(&verlauf).naechste_nach(&t[2]).map(|(zeit, _)| zeit);
+        let nach_der_letzten = sperren(&verlauf).naechste_nach(&t[3]);
+
+        assert_eq!(nach_der_zweiten, Some(t[3]));
+        assert_eq!(nach_der_letzten, None);
     }
 
     /// Lieferbytes: der Text zählt mit seiner Länge in Bytes.
