@@ -129,14 +129,13 @@ test('Zu groß: 10.485.761 Bytes → ⚠ mit dem Text der 422 `zu_gross`, kein P
   expect(fehler).toEqual([]);
 });
 
-test('Wartet: 507 `hochladungen` → „wartet · neuer Versuch in 30 s“, kein ⚠; nach Retry-After meldet der Browser selbst neu an', async ({ browser }) => {
+test('Wartet: 507 `hochladungen` → „wartet · neuer Versuch in 30 s“, kein ⚠; nach Retry-After meldet der Browser selbst neu an, lädt hoch und sendet', async ({ browser }) => {
   test.setTimeout(90000);
   instanz = await anhangStarten();
   const beta = await betaBeitreten(instanz.adresse);
   const gehalten = await perApiAnmelden(instanz.adresse, beta, 'gross.bin', 10485760);
   const { page, fehler } = await seiteAuf(browser);
   const anfragen = anfragenMitschreiben(page);
-  await hochladenAnhalten(page);
 
   await waehlen(page, [fotoPng()]);
   await knopf(page).click();
@@ -149,7 +148,9 @@ test('Wartet: 507 `hochladungen` → „wartet · neuer Versuch in 30 s“, kein
 
   const anmeldungen = () => anfragen.filter((anfrage) => anfrage.methode === 'POST' && anfrage.pfad === '/api/anhaenge').length;
   await expect.poll(anmeldungen, { timeout: 45000 }).toBe(2);
-  await expect(datei).not.toContainText('wartet', { timeout: 5000 });
+  await expect.poll(() => anfragen.filter((anfrage) => anfrage.pfad.endsWith('/nachrichten')).length, { timeout: 10000 }).toBe(1);
   expect(Date.now() - ersteAbweisung).toBeLessThanOrEqual(40000);
+  expect(anfragen.filter((anfrage) => anfrage.methode === 'PUT')).toHaveLength(1);
+  await expect(eintrag(page)).toHaveCount(0);
   expect(fehler).toEqual([]);
 });

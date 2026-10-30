@@ -26,7 +26,7 @@ const bestaetigte = (ausgaben) => ausgaben.filter((a) => a.bestaetigt !== null).
 test('(a) senden legt eine vorläufige an und vergibt den Auftrag; 201 bestätigt mit der Zeit', () => {
   const { zustand, ausgaben } = ablauf(senden('x'), antwort('k-x', 201, { channel: 'allgemein', nachricht: nachricht('5', 'x') }));
 
-  assert.deepEqual(ausgaben[0].auftrag, { schluessel: 'k-x', channel: 'allgemein', text: 'x', antwortAuf: null });
+  assert.deepEqual(ausgaben[0].auftrag, { schluessel: 'k-x', channel: 'allgemein', text: 'x', antwortAuf: null, anhaenge: [] });
   assert.equal(ausgaben[0].zustand.vorlaeufige.length, 1);
   assert.equal(ausgaben[0].zustand.vorlaeufige[0].zustand, 'wird gesendet');
   assert.deepEqual(zustand.vorlaeufige, []);
@@ -53,9 +53,9 @@ test('(c) ein Sendeauftrag zugleich: y wartet auf die Antwort für x', () => {
     antwort('k-x', 201, { channel: 'allgemein', nachricht: nachricht('5', 'x') }),
   );
 
-  assert.deepEqual(ausgaben[0].auftrag, { schluessel: 'k-x', channel: 'allgemein', text: 'x', antwortAuf: null });
+  assert.deepEqual(ausgaben[0].auftrag, { schluessel: 'k-x', channel: 'allgemein', text: 'x', antwortAuf: null, anhaenge: [] });
   assert.equal(ausgaben[1].auftrag, null);
-  assert.deepEqual(ausgaben[2].auftrag, { schluessel: 'k-y', channel: 'allgemein', text: 'y', antwortAuf: null });
+  assert.deepEqual(ausgaben[2].auftrag, { schluessel: 'k-y', channel: 'allgemein', text: 'y', antwortAuf: null, anhaenge: [] });
 });
 
 test('(d) eigene Kennung mit anderem Text bestätigt nicht und geht als fremde weiter', () => {
@@ -108,7 +108,7 @@ test('der Schlüssel eines Auftrags bleibt derselbe; vorläufige gehören zu ihr
 
   assert.equal(ausgaben[0].auftrag.schluessel, 'u-1');
   assert.equal(ausgaben[0].auftrag.channel, 'technik');
-  assert.deepEqual(ausgaben[2].auftrag, { schluessel: 'u-2', channel: 'allgemein', text: 'y', antwortAuf: null });
+  assert.deepEqual(ausgaben[2].auftrag, { schluessel: 'u-2', channel: 'allgemein', text: 'y', antwortAuf: null, anhaenge: [] });
 });
 
 test('ein Ereignis eines anderen Absenders ist fremd; eine schon bestätigte Zeit kommt nicht noch einmal', () => {
@@ -142,7 +142,7 @@ test('(a) bei getrenntem Strom kein Auftrag, die Nachricht bleibt vorläufig; wi
 
   assert.equal(ausgaben[1].auftrag, null);
   assert.equal(ausgaben[1].zustand.vorlaeufige[0].zustand, 'wird gesendet');
-  assert.deepEqual(ausgaben[2].auftrag, { schluessel: 'k-x', channel: 'allgemein', text: 'x', antwortAuf: null });
+  assert.deepEqual(ausgaben[2].auftrag, { schluessel: 'k-x', channel: 'allgemein', text: 'x', antwortAuf: null, anhaenge: [] });
   assert.equal(zustand.laufend, 'k-x');
 });
 
@@ -182,7 +182,7 @@ test('(d) 401 → Wiederbeitritt und ein Versuch mit demselben Schlüssel; die z
   const { zustand, ausgaben } = ablauf(senden('x'), antwort('k-x', 401, abgelehnt), antwort('k-x', 401, abgelehnt));
 
   assert.equal(ausgaben[1].wiederbeitreten, true);
-  assert.deepEqual(ausgaben[1].auftrag, { schluessel: 'k-x', channel: 'allgemein', text: 'x', antwortAuf: null });
+  assert.deepEqual(ausgaben[1].auftrag, { schluessel: 'k-x', channel: 'allgemein', text: 'x', antwortAuf: null, anhaenge: [] });
   assert.equal(ausgaben[1].zustand.vorlaeufige[0].zustand, 'wird gesendet');
   assert.equal(ausgaben[2].wiederbeitreten, false);
   assert.equal(ausgaben[2].auftrag, null);
@@ -210,7 +210,7 @@ test('(e) „Erneut senden“ stellt ans Ende der Warteschlange mit demselben Sc
   assert.equal(ausgaben[5].auftrag, null, 'c läuft noch');
   assert.deepEqual(ausgaben[5].zustand.vorlaeufige.map((v) => [v.text, v.zustand]), [['b', 'fehlgeschlagen'], ['c', 'wird gesendet'], ['a', 'wird gesendet']]);
   assert.deepEqual(ausgaben[6].zustand.vorlaeufige.map((v) => [v.text, v.zustand]), [['b', 'verworfen'], ['c', 'wird gesendet'], ['a', 'wird gesendet']]);
-  assert.deepEqual(ausgaben[7].auftrag, { schluessel: 'k-a', channel: 'allgemein', text: 'a', antwortAuf: null });
+  assert.deepEqual(ausgaben[7].auftrag, { schluessel: 'k-a', channel: 'allgemein', text: 'a', antwortAuf: null, anhaenge: [] });
   assert.deepEqual(zustand.vorlaeufige.map((v) => [v.text, v.zustand]), [['b', 'verworfen'], ['a', 'wird gesendet']]);
 });
 
@@ -219,7 +219,7 @@ test('(e) „Erneut senden“ ohne laufenden Auftrag sendet sofort; nach einer 4
     senden('x'), antwort('k-x', 401, {}), antwort('k-x', 401, { fehler: 'nein' }), { art: 'erneut', schluessel: 'k-x' }, antwort('k-x', 401, {}),
   );
 
-  assert.deepEqual(ausgaben[3].auftrag, { schluessel: 'k-x', channel: 'allgemein', text: 'x', antwortAuf: null });
+  assert.deepEqual(ausgaben[3].auftrag, { schluessel: 'k-x', channel: 'allgemein', text: 'x', antwortAuf: null, anhaenge: [] });
   assert.equal(ausgaben[4].wiederbeitreten, true);
 });
 
@@ -309,9 +309,9 @@ const mitBezug = (text, schluessel = `k-${text}`) => ({ ...senden(text, schluess
 
 test('Antwort: die vorläufige trägt den Bezug, der Auftrag antwortAuf = Zeit des Originals; ohne Bezug antwortAuf null', () => {
   const { ausgaben } = ablauf(mitBezug('Ja'), antwort('k-Ja', 201, { channel: 'allgemein', nachricht: nachricht('5', 'Ja') }), senden('ohne'));
-  assert.deepEqual(ausgaben[0].auftrag, { schluessel: 'k-Ja', channel: 'allgemein', text: 'Ja', antwortAuf: BEZUG.zeit });
+  assert.deepEqual(ausgaben[0].auftrag, { schluessel: 'k-Ja', channel: 'allgemein', text: 'Ja', antwortAuf: BEZUG.zeit, anhaenge: [] });
   assert.deepEqual(ausgaben[0].zustand.vorlaeufige[0].bezug, BEZUG);
-  assert.deepEqual(ausgaben[2].auftrag, { schluessel: 'k-ohne', channel: 'allgemein', text: 'ohne', antwortAuf: null });
+  assert.deepEqual(ausgaben[2].auftrag, { schluessel: 'k-ohne', channel: 'allgemein', text: 'ohne', antwortAuf: null, anhaenge: [] });
   assert.equal(ausgaben[2].zustand.vorlaeufige[0].bezug, null);
 });
 
@@ -319,13 +319,13 @@ test('Antwort: fehlgeschlagen behält den Bezug, „Erneut senden“ sendet mit 
   const { zustand, ausgaben } = ablauf(mitBezug('Ja'), { art: 'netzfehler', schluessel: 'k-Ja' }, { art: 'erneut', schluessel: 'k-Ja' });
   assert.equal(ausgaben[1].zustand.vorlaeufige[0].zustand, 'fehlgeschlagen');
   assert.deepEqual(ausgaben[1].zustand.vorlaeufige[0].bezug, BEZUG);
-  assert.deepEqual(ausgaben[2].auftrag, { schluessel: 'k-Ja', channel: 'allgemein', text: 'Ja', antwortAuf: BEZUG.zeit });
+  assert.deepEqual(ausgaben[2].auftrag, { schluessel: 'k-Ja', channel: 'allgemein', text: 'Ja', antwortAuf: BEZUG.zeit, anhaenge: [] });
   assert.deepEqual(zustand.vorlaeufige[0].bezug, BEZUG);
 });
 
 test('Antwort: nach einer 401 geht der eine neue Versuch mit demselben Bezug hinaus', () => {
   const { ausgaben } = ablauf(mitBezug('Ja'), antwort('k-Ja', 401, { fehler: 'Sitzung unbekannt.' }));
-  assert.deepEqual(ausgaben[1].auftrag, { schluessel: 'k-Ja', channel: 'allgemein', text: 'Ja', antwortAuf: BEZUG.zeit });
+  assert.deepEqual(ausgaben[1].auftrag, { schluessel: 'k-Ja', channel: 'allgemein', text: 'Ja', antwortAuf: BEZUG.zeit, anhaenge: [] });
   assert.equal(ausgaben[1].wiederbeitreten, true);
 });
 
@@ -337,7 +337,7 @@ test('Antwort: 422 regel antwort_auf nimmt die vorläufige weg und gibt Text, Ch
   assert.deepEqual(ausgaben[2].bezugAbgewiesen, { channel: 'allgemein', text: 'Ja', grund: 'Die Nachricht, auf die geantwortet wird, ist gelöscht.' });
   assert.equal(ausgaben[2].fehlschlag, null);
   assert.deepEqual(zustand.vorlaeufige.map((vorlaeufig) => vorlaeufig.text), ['danach']);
-  assert.deepEqual(ausgaben[2].auftrag, { schluessel: 'k-danach', channel: 'allgemein', text: 'danach', antwortAuf: null });
+  assert.deepEqual(ausgaben[2].auftrag, { schluessel: 'k-danach', channel: 'allgemein', text: 'danach', antwortAuf: null, anhaenge: [] });
 });
 
 test('Antwort: ein anderes 422 (Länge) bleibt ein Fehlschlag mit Bezug, nicht abgewiesen', () => {
@@ -345,4 +345,18 @@ test('Antwort: ein anderes 422 (Länge) bleibt ein Fehlschlag mit Bezug, nicht a
   assert.equal(ausgaben[1].bezugAbgewiesen, null);
   assert.deepEqual(ausgaben[1].fehlschlag, { grund: 'Zu lang.' });
   assert.deepEqual(ausgaben[1].zustand.vorlaeufige[0].bezug, BEZUG);
+});
+
+// R00030 F0101 B0453 (ADR-0037, N1): eine Nachricht nach dem Hochladen tritt mit ihren Anhang-IDs in die Schlange; der
+// Auftrag trägt sie, „Erneut senden“ behält sie; ohne Anhänge ist die Liste leer.
+test('senden mit Anhängen: der Auftrag trägt die IDs, „Erneut senden“ behält sie', () => {
+  const mitAnhaengen = { art: 'senden', channel: 'allgemein', text: '', schluessel: 'k-a', anhaenge: ['id1', 'id2'] };
+  const { ausgaben } = ablauf(
+    mitAnhaengen,
+    antwort('k-a', 500, null),
+    { art: 'erneut', schluessel: 'k-a' },
+  );
+  assert.deepEqual(ausgaben[0].auftrag, { schluessel: 'k-a', channel: 'allgemein', text: '', antwortAuf: null, anhaenge: ['id1', 'id2'] });
+  assert.deepEqual(ausgaben[2].auftrag.anhaenge, ['id1', 'id2']);
+  assert.deepEqual(ablauf(senden('x')).ausgaben[0].auftrag.anhaenge, []);
 });

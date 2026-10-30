@@ -173,10 +173,13 @@ export async function verlaufNachholen(name, cursor, { token, signal, n, zeitgeb
 }
 
 // Eine Nachricht senden (ADR-0034, ADR-0037 Regeln 2, 4): POST {text} mit Sitzung und Wiederholschlüssel, eine Antwort
-// mit `antwort_auf` (Zeit des Originals, R00047 B0715); ohne Antwort bricht der Abruf 10 s nach Beginn ab.
+// mit `antwort_auf` (Zeit des Originals, R00047 B0715), mit Dateien `anhaenge` (IDs, R00030 B0453); ohne Antwort bricht
+// der Abruf 10 s nach Beginn ab.
 // zeitgeber: { stellen(ms, rueckruf) → id, loeschen(id) }.
 // → { art: 'antwort', status, daten } | { art: 'zeitueberschreitung' } | { art: 'netzfehler' }
-export async function nachrichtSenden(channel, text, schluessel, { token, antwortAuf = null, zeitgeber = ECHTE_ZEITGEBER }, holen = holenImBrowser) {
+export async function nachrichtSenden(channel, text, schluessel, {
+  token, antwortAuf = null, anhaenge = [], zeitgeber = ECHTE_ZEITGEBER,
+}, holen = holenImBrowser) {
   const ZEITGRENZE_MS = 10000;
   const pfad = `/api/channels/${encodeURIComponent(channel)}/nachrichten`;
   const headers = { [SITZUNGS_HEADER]: token, 'Content-Type': 'application/json', 'Idempotency-Key': schluessel };
@@ -186,6 +189,9 @@ export async function nachrichtSenden(channel, text, schluessel, { token, antwor
     const koerper = { text };
     if (antwortAuf !== null) {
       koerper.antwort_auf = antwortAuf;
+    }
+    if (anhaenge.length > 0) {
+      koerper.anhaenge = anhaenge;
     }
     const antwort = await holen(pfad, { method: 'POST', headers, body: JSON.stringify(koerper), signal: abbruch.signal });
     const inhalt = await antwort.text();

@@ -70,6 +70,14 @@ export function hochladenBewerten(antwort) {
   return { art: 'fehlgeschlagen', grund: `Nicht hochgeladen (Status ${status}).` };
 }
 
+// Die Ansage beim Einreihen (UX S8): einmal je Nachricht, nicht je Datei.
+export function hochgeladenAnsage(anzahl) {
+  if (anzahl === 1) {
+    return '1 Datei hochgeladen, Nachricht wird gesendet.';
+  }
+  return `${anzahl} Dateien hochgeladen, Nachricht wird gesendet.`;
+}
+
 // Die Ansage einer Abweisung (UX-Antwort auf Frage 4): „Nicht hochgeladen: <name> — <Grund>“; beginnt der Text der
 // Instanz selbst mit „Nicht hochgeladen: “, steht das nur einmal.
 export function abweisungAnsage(name, grund) {
@@ -201,6 +209,7 @@ export function hochladungenAnlegen({
         datei.zustand = 'fertig';
         datei.neuAngemeldet = false;
         dateiZeigen(eintrag, datei);
+        sendenWennFertig(eintrag);
         return;
       }
       if (ergebnis.art === 'neuAnmelden' && !datei.neuAngemeldet) {
@@ -317,9 +326,26 @@ export function hochladungenAnlegen({
     const schalterDort = eintrag.liste.querySelectorAll('button');
     if (schalterDort.length === 0) {
       fokusVerloren();
+    } else {
+      schalterDort[Math.min(stelle, schalterDort.length - 1)].focus();
+    }
+    sendenWennFertig(eintrag);
+  }
+
+  // Sind alle Dateien oben, tritt die Nachricht mit ihren IDs in die Sendeschlange (B0453, N1) — einmal angesagt. Lag
+  // der Fokus im Eintrag, geht er ins Feld.
+  function sendenWennFertig(eintrag) {
+    const alleOben = eintrag.dateien.length > 0 && eintrag.dateien.every((datei) => datei.zustand === 'fertig');
+    if (!alleOben || !eintraege.includes(eintrag)) {
       return;
     }
-    schalterDort[Math.min(stelle, schalterDort.length - 1)].focus();
+    const fokusImEintrag = eintrag.artikel.contains(document.activeElement);
+    eintragBeenden(eintrag);
+    ansagen({ art: 'sofort', text: hochgeladenAnsage(eintrag.dateien.length) });
+    senden(eintrag.text, eintrag.bezug, { channel: eintrag.channel, anhaenge: eintrag.dateien.map((datei) => datei.id) });
+    if (fokusImEintrag) {
+      fokusVerloren();
+    }
   }
 
   function eintragBeenden(eintrag) {

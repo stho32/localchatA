@@ -108,3 +108,14 @@ test('sendbar ohne Angabe der Dateien bleibt die Regel aus R00027', () => {
   assert.equal(sendbar(''), false);
   assert.equal(sendbar('a'), true);
 });
+
+// R00030 F0101 „Taste ohne Text“ (B0453): `taste` erhält die Zahl der Dateien — Enter (Desktop) bzw. Strg Enter (Tablet)
+// sendet auch nur mit Dateien. Die Mutante „Leer-Prüfung ohne Dateien“ wird rot.
+test('Taste mit Dateien: leeres Feld sendet mit Enter (fein) und Strg Enter (grob)', () => {
+  assert.equal(taste(ohne, '', 'fein', 1), 'senden');
+  assert.equal(taste(ohne, '  ', 'fein', 2), 'senden');
+  assert.equal(taste(mit({ ctrlKey: true }), '', 'grob', 1), 'senden');
+  assert.equal(taste(ohne, '', 'grob', 1), 'zeile');
+  assert.equal(taste(ohne, '', 'fein', 0), null);
+  assert.equal(taste(ohne, ''), null);
+});

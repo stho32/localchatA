@@ -7,7 +7,7 @@
 const { test, expect } = require('./rahmen');
 const { imBrowserBeitreten, eingabe } = require('./senden-hilfen');
 const { geraetOeffnen, knopf } = require('./r00027-hilfen');
-const { anhangStarten, anfragenMitschreiben, waehlen, fotoPng, berichtPdf } = require('./r00030-hilfen');
+const { anhangStarten, perApi, anfragenMitschreiben, waehlen, fotoPng, berichtPdf } = require('./r00030-hilfen');
 
 let instanz;
 test.afterEach(async () => {
@@ -68,6 +68,12 @@ test('Abbrechen (Telefon, gedrosselt): an bericht.pdf → DELETE für dessen ID,
   await expect(abbrechen(page, 'foto.png')).toBeFocused();
   await expect.poll(() => anfragen.filter((anfrage) => anfrage.methode === 'DELETE').map((anfrage) => anfrage.pfad)).toEqual([`/api/anhaenge/${id}`]);
   expect(await page.evaluate(() => document.activeElement !== document.body)).toBe(true);
+
+  await expect.poll(() => anfragen.filter((anfrage) => anfrage.pfad.endsWith('/nachrichten')).length, { timeout: 15000 }).toBe(1);
+  const gesendet = anfragen.find((anfrage) => anfrage.pfad.endsWith('/nachrichten')).koerper;
+  const fotoId = [...namen.entries()].find(([, name]) => name === 'foto.png')[0];
+  expect(gesendet).toEqual({ text: '', anhaenge: [fotoId] });
+  await expect.poll(async () => (await perApi(instanz.adresse, { methode: 'GET', pfad: 'api/gesundheit' })).daten.reserviert).toBe(0);
   expect(fehler).toEqual([]);
 });
 
@@ -139,6 +145,8 @@ test('Fehlschlag und Erneut (Desktop): erster PUT abgebrochen → „Erneut hoch
   const puts = anfragen.filter((anfrage) => anfrage.methode === 'PUT').map((anfrage) => anfrage.pfad);
   expect(puts[1]).toBe(puts[0]);
   expect(anfragen.filter((anfrage) => anfrage.methode === 'POST' && anfrage.pfad === '/api/anhaenge')).toHaveLength(1);
+  await expect.poll(() => anfragen.filter((anfrage) => anfrage.pfad.endsWith('/nachrichten')).map((anfrage) => anfrage.koerper), { timeout: 20000 })
+    .toEqual([{ text: '', anhaenge: [puts[0].split('/').at(-1)] }]);
 });
 
 test('Abgelaufen (Desktop): der PUT antwortet 404 `abgelaufen` → der Browser meldet neu an und lädt hoch', async ({ browser }) => {

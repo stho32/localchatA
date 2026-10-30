@@ -17,9 +17,10 @@ export function sendbar(text, dateien = 0) {
 }
 
 // Was eine Taste im Feld bewirkt (Regel 2, Ergänzung Karte #41 K5): 'senden' | 'zeile' | null. Während einer
-// IME-Komposition und bei Text nur aus Leerraum nie senden; Alt Enter tut nichts. Mit grobem Zeiger (Touch-Gerät,
-// `zeiger` 'grob') macht Enter eine Zeile, Strg und Meta Enter senden; sonst sendet Enter.
-export function taste(ereignis, text, zeiger) {
+// IME-Komposition und bei Text nur aus Leerraum ohne gewählte Datei nie senden (R00030 B0453: mit `dateien` > 0 auch
+// ohne Text); Alt Enter tut nichts. Mit grobem Zeiger (Touch-Gerät, `zeiger` 'grob') macht Enter eine Zeile, Strg und
+// Meta Enter senden; sonst sendet Enter.
+export function taste(ereignis, text, zeiger, dateien = 0) {
   const komponiert = ereignis.isComposing || ereignis.keyCode === IME_TASTENCODE;
   if (ereignis.key !== 'Enter' || komponiert || ereignis.altKey) {
     return null;
@@ -28,7 +29,7 @@ export function taste(ereignis, text, zeiger) {
   if (!mitSendetaste && (ereignis.shiftKey || zeiger === 'grob')) {
     return 'zeile';
   }
-  if (nurLeerraum(text)) {
+  if (nurLeerraum(text) && dateien === 0) {
     return null;
   }
   return 'senden';
@@ -160,7 +161,7 @@ export function eingabeAnlegen({
       eigeneLetzteFokussieren(() => document.activeElement === feld && feld.value === '');
       return;
     }
-    const wirkung = taste(ereignis, feld.value, zeigerart());
+    const wirkung = taste(ereignis, feld.value, zeigerart(), dateien.anzahl());
     const enterOhneZeile = ereignis.key === 'Enter' && wirkung !== 'zeile' && !komponiert(ereignis);
     if (enterOhneZeile) {
       ereignis.preventDefault();

@@ -112,9 +112,9 @@ function hauptansichtZeigen(teilnehmer, token, nachEingabe) {
     verlaufAbrufen: (name, cursor, signal) => verlaufAbrufen(name, cursor, { token: speicher.getItem(sitzung.SITZUNG), signal }),
     verlaufNachholen: (name, cursor, signal, n) => verlaufNachholen(name, cursor, { token: speicher.getItem(sitzung.SITZUNG), signal, n }),
     fristSetzen: (name, tage, bestaetigt) => fristSetzen(name, tage, bestaetigt, { token: speicher.getItem(sitzung.SITZUNG) }),
-    nachrichtSenden: async (channel, text, schluessel, antwortAuf) => {
+    nachrichtSenden: async (channel, text, schluessel, antwortAuf, anhaenge) => {
       const token = speicher.getItem(sitzung.SITZUNG);
-      return { ...await nachrichtSenden(channel, text, schluessel, { token, antwortAuf }), token };
+      return { ...await nachrichtSenden(channel, text, schluessel, { token, antwortAuf, anhaenge }), token };
     },
     nachrichtBearbeiten: (channel, zeit, text, schluessel) => nachrichtBearbeiten(channel, zeit, text, schluessel, {
       token: speicher.getItem(sitzung.SITZUNG),
