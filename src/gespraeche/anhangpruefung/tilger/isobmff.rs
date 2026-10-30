@@ -1584,7 +1584,7 @@ mod tests {
             assert_eq!(
                 getilgt
                     .windows(4)
-                    .filter(|f| *f == &(ZEIT as u32).to_be_bytes())
+                    .filter(|f| *f == (ZEIT as u32).to_be_bytes())
                     .count(),
                 2,
                 "nur tfdt und mehd tragen die Zahl noch"
