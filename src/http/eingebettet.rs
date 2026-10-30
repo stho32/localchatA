@@ -57,6 +57,7 @@ pub fn nachschlagen(name: &str) -> Option<EingebetteteDatei> {
         "loeschen.js" => (include_bytes!("../../web/loeschen.js"), JS),
         "tippen.js" => (include_bytes!("../../web/tippen.js"), JS),
         "aktivitaetsanzeige.js" => (include_bytes!("../../web/aktivitaetsanzeige.js"), JS),
+        "kopieren.js" => (include_bytes!("../../web/kopieren.js"), JS),
         _ => return None,
     };
     Some(EingebetteteDatei { inhalt, typ })
