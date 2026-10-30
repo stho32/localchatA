@@ -880,6 +880,38 @@ mod tests {
         indizes.map(|index| satzzeit(datum, index)).collect()
     }
 
+    /// Welle 2 Sollte 2 (Mutante `.take(1)`): liegt am jüngsten Tag erst nach der Grenze etwas, zählt die letzte
+    /// Nachricht des Vortags; eine Grenze vor allem liefert nichts.
+    #[test]
+    fn die_letzte_nachrichtenzeit_bis_springt_ueber_den_tageswechsel() {
+        let mut verlauf = Verlauf::default();
+        for (datum, zeiten) in [
+            ("2026-10-29", vec!["2026-10-29T23:59:00.000+01:00"]),
+            ("2026-10-30", vec!["2026-10-30T00:00:05.000+01:00"]),
+        ] {
+            let (rohtext, anfaenge) = tag_mit(&zeiten);
+            verlauf.tag_aufnehmen(tag(datum), rohtext, anfaenge);
+        }
+
+        let bis = |grenze: &str| verlauf.letzte_nachrichtenzeit_bis(&zeit(grenze));
+
+        assert_eq!(
+            bis("2026-10-30T00:00:01.000+01:00"),
+            Some(zeit("2026-10-29T23:59:00.000+01:00")),
+            "heute noch nichts bis zur Grenze: die letzte des Vortags"
+        );
+        assert_eq!(
+            bis("2026-10-30T00:00:05.000+01:00"),
+            Some(zeit("2026-10-30T00:00:05.000+01:00")),
+            "die Grenze selbst zählt"
+        );
+        assert_eq!(
+            bis("2026-10-29T23:00:00.000+01:00"),
+            None,
+            "vor allem nichts"
+        );
+    }
+
     #[test]
     fn die_neuesten_sind_die_letzten_des_juengsten_tages_aelteste_zuerst() {
         let block = drei_tage().block_ohne_grenze(&abfrage(Abschnitt::Neueste, 100));
