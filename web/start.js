@@ -126,6 +126,7 @@ function hauptansichtZeigen(teilnehmer, token, nachEingabe) {
     }),
     nachrichtLoeschen: (channel, zeit) => nachrichtLoeschen(channel, zeit, { token: speicher.getItem(sitzung.SITZUNG) }),
     aktivitaetMelden: (aufruf) => aktivitaetMelden(aufruf, { token: speicher.getItem(sitzung.SITZUNG) }),
+    direktgespraecheAbrufen: () => rufen('/api/direkt', { token: speicher.getItem(sitzung.SITZUNG) }),
     anhangAnmelden: (name, bytes) => anhangAnmelden(name, bytes, { token: speicher.getItem(sitzung.SITZUNG) }),
     anhangVerwerfen: (id) => anhangVerwerfen(id, { token: speicher.getItem(sitzung.SITZUNG) }),
     anhangHochladen: (id, datei, fortschritt) => anhangHochladen(id, datei, { token: speicher.getItem(sitzung.SITZUNG), fortschritt }),
@@ -175,6 +176,7 @@ function hauptansichtZeigen(teilnehmer, token, nachEingabe) {
       liste = teilnehmerliste.zusammenfuehren(liste, ereignis);
       const gruppen = teilnehmerliste.ordnen(liste, teilnehmer.kennung);
       teilnehmerliste.zeichnen(ansicht.region, gruppen, { versatz });
+      ansicht.anwesendeZeigen(liste.eintraege, versatz);
       takten({
         zeilen: alleZeilen(gruppen),
         uhr: () => ({ versatz, jetzt: Date.now() }),

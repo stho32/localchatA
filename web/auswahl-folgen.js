@@ -31,15 +31,16 @@ export function auswahlEinrichten({
     verlaufSchliessen(verlauf, eingabe, seitenleiste);
   }
   function direktFolgen({ gegenueber }) {
-    seitenleiste.auswahlZeigen(null);
     beiAuswahl(null);
     mitte.classList.toggle('lc-privat', gegenueber !== null);
     if (gegenueber === null) {
+      seitenleiste.auswahlZeigen(null);
       kopf.ortZeigen(null);
       schliessen();
       mitteFuellen(mitte, ...keinGespraech(rueckwegChannel(liste)));
       return;
     }
+    seitenleiste.auswahlZeigen(direktgespraech(gegenueber));
     kopf.direktZeigen(gegenueber);
     oeffnen(direktgespraech(gegenueber));
   }
@@ -68,10 +69,10 @@ export function auswahlEinrichten({
     oeffnen(bekannt.name);
   }
   window.addEventListener('hashchange', folgen, { signal });
-  // Die Wahl des schon gewählten Channels ändert die Adresse nicht, es kommt kein hashchange (R00007, US-13).
-  seitenleiste.nav.addEventListener('click', (ereignis) => {
-    const verweis = ereignis.target.closest('a[data-channel]');
-    if (verweis !== null && verweis.dataset.channel === offen) {
+  // Die Wahl des schon gewählten Gesprächs ändert die Adresse nicht, es kommt kein hashchange (R00007, US-13).
+  seitenleiste.leiste.addEventListener('click', (ereignis) => {
+    const verweis = ereignis.target.closest('a[data-gespraech]');
+    if (verweis !== null && verweis.dataset.gespraech === offen) {
       erneutWaehlen();
     }
   }, { signal });

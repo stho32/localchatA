@@ -13,6 +13,7 @@ import { direktHash, gegenueberIn } from './gespraech.js';
 import { auswahlEinrichten } from './auswahl-folgen.js';
 import { verlaufAnlegen } from './verlauf.js';
 import * as seitenleiste from './seitenleiste.js';
+import { direktleisteEinrichten } from './seitenleiste-direkt.js';
 import { dialogEinrichten } from './channel-anlegen.js';
 import { einstellungenEinrichten } from './channel-einstellungen.js';
 import { onlineBenennen } from './teilnehmerliste.js';
@@ -57,7 +58,7 @@ export function zeichnen(wurzel, teilnehmer, optionen) {
   region.setAttribute('aria-label', 'Teilnehmer');
   const channels = seitenleiste.anlegen();
   const mitte = element('main', { className: 'lc-center' });
-  const haupt = element('div', { className: 'lc-main' }, [channels.nav, mitte, region]);
+  const haupt = element('div', { className: 'lc-main' }, [channels.leiste, mitte, region]);
   // Die Statuszeile hat keine eigene Rolle: ihr Text geht zugleich an die eine Ansage-Region (R00025 F0084).
   const statuszeile = element('p', { className: 'lc-statuszeile', hidden: true });
   const ansagen = ansageEinrichten();
@@ -78,6 +79,7 @@ export function zeichnen(wurzel, teilnehmer, optionen) {
   const teilnehmerPanel = einAusblendenBedienen({ schalter, region, haupt }, vorigeAnsichtAbmelden.signal);
   let letzterZustand = 'verbunden';
   channels.channelsZeigen([]);
+  const direktleiste = direktleisteEinrichten({ seitenleiste: channels, abrufen: optionen.direktgespraecheAbrufen });
   const hochladen = hochladungenAnlegen({
     kennung: teilnehmer.kennung,
     anmelden: optionen.anhangAnmelden,
@@ -189,6 +191,7 @@ export function zeichnen(wurzel, teilnehmer, optionen) {
     // Serverzeit aus einem Ereignis (RFC 3339 mit Versatz): ihr Datum ist das heutige des Servers.
     serverzeitZeigen: (jetzt) => verlauf.heuteSetzen(jetzt.slice(0, 10)),
     nachrichtEmpfangen: (ereignis) => {
+      direktleiste.nachricht(ereignis);
       tippanzeige.nachricht(ereignis);
       senden.empfangen(ereignis);
     },
@@ -198,6 +201,8 @@ export function zeichnen(wurzel, teilnehmer, optionen) {
       eingabe.zitatNachfuehren(ereignis);
     },
     anhaengeEmpfangen: (ereignis) => senden.anhaengeEmpfangen(ereignis),
+    // Die Einträge der Teilnehmerliste nach jedem Stand und Wechsel: Statuspunkt der Direktnachrichten (V8).
+    anwesendeZeigen: (eintraege, versatz) => direktleiste.anwesendeZeigen(eintraege, versatz),
     anzahlZeigen: (wieViele) => {
       anzahl.textContent = String(wieViele);
     },
@@ -207,10 +212,15 @@ export function zeichnen(wurzel, teilnehmer, optionen) {
       tippanzeige.leeren();
       tippen.verbindung(zustand === 'verbunden');
       letzterZustand = verbindungZeigen({ region, standUnbekannt }, letzterZustand, zustand);
+      direktleiste.standUnbekannt(letzterZustand === 'unterbrochen');
       wieder.melden({ art: 'strom', zustand, naechsterVersuchUm });
     },
     // Ein vollständiger Stand der Teilnehmer: am Anfang jedes Stroms und nach NeuerStand (ADR-0028 Regel 6).
-    standEmpfangen: () => wieder.melden({ art: 'stand' }),
+    // Dazu die Direktnachrichten neu laden: was während einer Trennung begann, steht danach in der Seitenleiste.
+    standEmpfangen: () => {
+      wieder.melden({ art: 'stand' });
+      direktleiste.laden();
+    },
     // Vor dem Wechsel zum Beitreten-Bildschirm: Entwurf und offene Hochladungen wie beim Neuladen (R00030 F0119 B0519).
     vorDemWeichenSichern: () => {
       eingabe.entwurfSichern();

@@ -93,7 +93,7 @@ for (const [fall, kennung] of [
     const { anna } = await starten(browser);
     const direktAufrufe = [];
     anna.page.on('request', (anfrage) => {
-      if (new URL(anfrage.url()).pathname.startsWith('/api/direkt')) {
+      if (new URL(anfrage.url()).pathname.startsWith('/api/direkt/')) {
         direktAufrufe.push(anfrage.url());
       }
     });

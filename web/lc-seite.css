@@ -299,6 +299,24 @@ body { background: var(--kd-bg); color: var(--kd-ink); font-family: var(--font-s
 .lc-link[aria-current="page"]:focus-visible { outline-color: var(--kd-on-accent); }
 .lc-item .hash { font-family: var(--font-mono); width: 12px; flex: none; text-align: center; }
 .lc-item .n { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+/* Direktnachrichten (R00050 F0180 V8): nach den Channels, statt „#“ der Statuspunkt des Gegenübers, die volle Kennung in
+   Mono, offline/„gleich weg“/weg als Wort; das Kürzel trägt den Eintrag erst in der schmalen Leiste */
+.lc-side-abschnitt + .lc-side-abschnitt { margin-top: var(--kd-space-12); }
+.lc-direkt .lc-dot { margin: 0 2px; }
+.lc-direkt-kuerzel { display: none; font-family: var(--font-mono); }
+.lc-link[aria-current="page"] .lc-status { color: inherit; }
+.lc-link[aria-current="page"] .lc-dot.on { background: var(--kd-on-accent); }
+.lc-link[aria-current="page"] .lc-dot.off, .lc-link[aria-current="page"] .lc-dot.gleich { border-color: var(--kd-on-accent); }
+@media (pointer: coarse) {
+  .lc-item.lc-direkt { height: 44px; }
+}
+/* Unter erzwungenen Farben verlöre der volle Punkt seine Fläche — er nimmt die Textfarbe, damit online von offline
+   unterscheidbar bleibt (V7) */
+@media (forced-colors: active) {
+  .lc-dot { forced-color-adjust: none; }
+  .lc-dot.on { background: CanvasText; }
+  .lc-dot.off, .lc-dot.gleich { border-color: CanvasText; }
+}
 
 /* Statuszeile (ADR-0024 Regel 5): unten links über allem, verschwindet nach einigen Sekunden */
 .lc-statuszeile[hidden] { display: none; }
@@ -372,6 +390,10 @@ body { background: var(--kd-bg); color: var(--kd-ink); font-family: var(--font-s
   .lc-main, .lc-main.ohne-teilnehmer { position: relative; grid-template-columns: 48px minmax(0, 1fr); }
   .lc-side-kopf { justify-content: center; padding: 0 0 var(--kd-space-4); }
   .lc-item .n { display: none; }
+  .lc-item.lc-direkt { height: 44px; }
+  .lc-direkt .lc-status { display: none; }
+  .lc-direkt-kuerzel { display: inline; }
+  .lc-direkt .lc-link { gap: var(--kd-space-4); }
   .lc-side-titel, .lc-side-leer { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
   .lc-link { justify-content: center; padding: 0; }
   .lc-main .lc-members { position: absolute; inset: 0; border-left: 0; z-index: 1; }
