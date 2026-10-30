@@ -110,3 +110,130 @@ test('Nur eigene (B0609): an Nachrichten von anna und beta weder Aktionen noch L
   expect(a.fehler).toEqual([]);
   expect(b.fehler).toEqual([]);
 });
+
+const feld = (page) => page.getByRole('log').getByRole('textbox', { name: 'Nachricht bearbeiten' });
+
+/// Zählt die Anfragen `POST …/nachrichten/bearbeiten` (Körper und Idempotency-Key).
+function bearbeitungenMitschreiben(page) {
+  const liste = [];
+  page.on('request', (anfrage) => {
+    if (anfrage.method() === 'POST' && anfrage.url().endsWith('/nachrichten/bearbeiten')) {
+      liste.push({ koerper: anfrage.postDataJSON(), schluessel: anfrage.headers()['idempotency-key'] });
+    }
+  });
+  return liste;
+}
+
+test('Feld an Ort und Stelle (B0610): Klick auf „Bearbeiten“ öffnet das Feld mit dem Text, Fokus darin synchron, Schreibmarke am Ende; Knöpfe „Abbrechen“ · „Speichern“', async ({ browser }) => {
+  instanz = await sendenStarten();
+  const a = await browserOeffnen(browser, { streng: true });
+  await imBrowserBeitreten(a.page, instanz.adresse, 'shoff');
+  const zeit = await imBrowserSenden(a.page, 'Hallo');
+  await nachrichtMitZeit(a.page, zeit).hover();
+
+  const fokusImKlick = await knopf(a.page, zeit, 'Bearbeiten').evaluate((bearbeitenKnopf) => {
+    bearbeitenKnopf.click();
+    return document.activeElement.getAttribute('aria-label');
+  });
+  expect(fokusImKlick).toBe('Nachricht bearbeiten');
+  await expect(feld(a.page)).toHaveValue('Hallo');
+  await expect(feld(a.page)).toBeFocused();
+  expect(await feld(a.page).evaluate((textfeld) => [textfeld.selectionStart, textfeld.selectionEnd])).toEqual([5, 5]);
+  await expect(nachrichtMitZeit(a.page, zeit).locator('.lc-body')).toBeHidden();
+
+  const reihe = nachrichtMitZeit(a.page, zeit).locator('.lc-bearbeiten').getByRole('button');
+  await expect(reihe).toHaveText(['Abbrechen', 'Speichern']);
+  const links = await reihe.evaluateAll((knoepfe) => knoepfe.map((einzeln) => einzeln.getBoundingClientRect().left));
+  expect(links[0]).toBeLessThan(links[1]);
+  expect(a.fehler).toEqual([]);
+});
+
+test('Leer (B0610, UX S4): ohne Anhang leer → „Speichern“ aria-disabled, Klick und Enter senden nichts, Hinweis am Feld', async ({ browser }) => {
+  instanz = await sendenStarten();
+  const a = await browserOeffnen(browser, { streng: true });
+  const bearbeitungen = bearbeitungenMitschreiben(a.page);
+  await imBrowserBeitreten(a.page, instanz.adresse, 'shoff');
+  const zeit = await imBrowserSenden(a.page, 'Hallo');
+  await nachrichtMitZeit(a.page, zeit).hover();
+  await knopf(a.page, zeit, 'Bearbeiten').click();
+
+  await feld(a.page).fill('');
+  const speichern = nachrichtMitZeit(a.page, zeit).getByRole('button', { name: 'Speichern' });
+  await expect(speichern).toHaveAttribute('aria-disabled', 'true');
+  await expect(nachrichtMitZeit(a.page, zeit).getByText('Leer geht nicht — zum Entfernen „Löschen“ wählen.', { exact: true })).toBeVisible();
+  await expect(feld(a.page)).toHaveAccessibleDescription(/Leer geht nicht — zum Entfernen „Löschen“ wählen\./);
+  // aria-disabled gilt Playwright als gesperrt — der Klick wird erzwungen, wie ein Mensch ihn trotzdem tut.
+  await speichern.click({ force: true });
+  await feld(a.page).press('Enter');
+  await a.page.waitForTimeout(300);
+  expect(bearbeitungen).toEqual([]);
+  await expect(feld(a.page)).toBeVisible();
+  expect(a.fehler).toEqual([]);
+});
+
+test('Tastatur (B0609, B0610): ↑ in leerer Eingabe, E öffnet das Feld, Umschalt Enter macht eine Zeile; Esc schließt ohne POST, Fokus auf der Nachricht, zweites Esc in die Eingabe; E mit Umschaltern und an fremden nicht', async ({ browser }) => {
+  instanz = await sendenStarten();
+  const a = await browserOeffnen(browser, { streng: true });
+  const bearbeitungen = bearbeitungenMitschreiben(a.page);
+  await imBrowserBeitreten(a.page, instanz.adresse, 'shoff');
+  const zeit = await imBrowserSenden(a.page, 'Hallo');
+
+  await eingabe(a.page).focus();
+  await a.page.keyboard.press('ArrowUp');
+  await expect(nachrichtMitZeit(a.page, zeit)).toBeFocused();
+  for (const mitUmschalter of ['Control+e', 'Alt+e', 'Meta+e']) {
+    await a.page.keyboard.press(mitUmschalter);
+    await expect(feld(a.page)).toHaveCount(0);
+  }
+  await expect(nachrichtMitZeit(a.page, zeit)).toBeFocused();
+  await a.page.keyboard.press('e');
+  await expect(feld(a.page)).toBeFocused();
+  await expect(feld(a.page)).toHaveValue('Hallo');
+  await a.page.keyboard.press('Shift+Enter');
+  await a.page.keyboard.type('Welt');
+  await expect(feld(a.page)).toHaveValue('Hallo\nWelt');
+
+  await a.page.keyboard.press('Escape');
+  await expect(feld(a.page)).toHaveCount(0);
+  await expect(nachrichtMitZeit(a.page, zeit)).toBeFocused();
+  await expect(nachrichtMitZeit(a.page, zeit).locator('.lc-body')).toHaveText('Hallo');
+  await a.page.keyboard.press('Escape');
+  await expect(eingabe(a.page)).toBeFocused();
+  expect(bearbeitungen).toEqual([]);
+
+  const beta = await betaSendet(instanz.adresse, ['Fremd']);
+  await nachrichtMitZeit(a.page, beta.zeiten[0]).focus();
+  await a.page.keyboard.press('e');
+  await expect(feld(a.page)).toHaveCount(0);
+  expect(a.fehler).toEqual([]);
+});
+
+test('Bildschirmleser (B0610): das Feld heißt „Nachricht bearbeiten“, beschreibt am Desktop seine Tasten; der Rand hat ≥ 3 : 1 gegen die Fläche', async ({ browser }) => {
+  instanz = await sendenStarten();
+  const a = await browserOeffnen(browser, { streng: true });
+  await imBrowserBeitreten(a.page, instanz.adresse, 'shoff');
+  const zeit = await imBrowserSenden(a.page, 'Hallo');
+  await nachrichtMitZeit(a.page, zeit).hover();
+  await knopf(a.page, zeit, 'Bearbeiten').click();
+  await expect(feld(a.page)).toHaveAccessibleDescription(/Enter speichert/);
+  const kontrast = await feld(a.page).evaluate((textfeld) => {
+    const anteile = (farbe) => farbe.match(/\d+(\.\d+)?/g).slice(0, 3).map(Number);
+    const leuchtdichte = (farbe) => {
+      const [r, g, b] = anteile(farbe).map((wert) => {
+        const kanal = wert / 255;
+        if (kanal <= 0.03928) {
+          return kanal / 12.92;
+        }
+        return ((kanal + 0.055) / 1.055) ** 2.4;
+      });
+      return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+    };
+    const verhaeltnis = (eins, zwei) => (Math.max(eins, zwei) + 0.05) / (Math.min(eins, zwei) + 0.05);
+    const rand = leuchtdichte(getComputedStyle(textfeld).borderTopColor);
+    const innen = leuchtdichte(getComputedStyle(textfeld).backgroundColor);
+    const aussen = leuchtdichte(getComputedStyle(textfeld.closest('.lc-msg')).backgroundColor);
+    return Math.min(verhaeltnis(rand, innen), verhaeltnis(rand, aussen));
+  });
+  expect(kontrast).toBeGreaterThanOrEqual(3);
+  expect(a.fehler).toEqual([]);
+});

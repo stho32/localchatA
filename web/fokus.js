@@ -75,3 +75,19 @@ export function eigeneLetzte(nachrichten, kennung, suchtiefe = SUCHTIEFE_EIGENE_
   }
   return null;
 }
+
+// Tasten auf der fokussierten Nachricht (R00041 F0135, F0139; PO 127): `E` beginnt das Bearbeiten, `Entf` das Löschen —
+// nur ohne Strg, Alt und Meta; Umschalt und Feststelltaste zählen nicht. Ob die Aktion an der Nachricht gilt, prüft der
+// Aufrufer. → 'bearbeiten' | 'loeschen' | null
+export function nachrichtTaste(ereignis) {
+  if (ereignis.ctrlKey || ereignis.altKey || ereignis.metaKey) {
+    return null;
+  }
+  if (ereignis.key === 'e' || ereignis.key === 'E') {
+    return 'bearbeiten';
+  }
+  if (ereignis.key === 'Delete') {
+    return 'loeschen';
+  }
+  return null;
+}

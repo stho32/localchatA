@@ -9,7 +9,9 @@
 import { nachrichtZeichnen, kopfSetzen, trennerZeichnen, langeEinklappen, langeUmschalten, markeUmschalten } from './nachricht.js';
 import { gliederung, folgeGliedern, datumBenennen } from './gliederung.js';
 import { nachladen, einfuegen } from './fenster.js';
-import { pfeilRichtung, pfeilZiel, tabStopp, eigeneLetzte } from './fokus.js';
+import { pfeilRichtung, pfeilZiel, tabStopp, eigeneLetzte, nachrichtTaste } from './fokus.js';
+import { bearbeitenAnlegen } from './bearbeiten.js';
+import { zeigerart } from './eingabe.js';
 import { einordnen, zusammenfuehren, fassungUebernehmen, buendlerAnlegen, folgenOderZaehlen, pillenText, auslaufNach, nichtGeladenText, hinweisTextNachziehen, sprungZiel as sprungZielBerechnen, scrollTopNachHoehe } from './live-verlauf.js';
 
 // abrufen: async (name, cursor, signal) → { art: 'block' | 'fehler' | 'abgebrochen', … } (api.js verlaufAbrufen);
@@ -133,6 +135,11 @@ export function verlaufAnlegen({ abrufen, schalter = () => {}, fokusRueckgaengig
       markeUmschalten(marke);
       return;
     }
+    const aktion = ereignis.target.closest('.lc-aktion');
+    if (aktion !== null) {
+      aktionAusfuehren(aktion.dataset.aktion, aktion.closest('.lc-msg'));
+      return;
+    }
     const schalter = ereignis.target.closest('.lc-foldbar button');
     if (schalter === null) {
       return;
@@ -251,8 +258,59 @@ export function verlaufAnlegen({ abrufen, schalter = () => {}, fokusRueckgaengig
     }
     if (ereignis.target.classList.contains('lc-msg')) {
       pfeilBedienen(ereignis);
+      tasteAufNachricht(ereignis);
     }
   });
+
+  // Aktionen an der eigenen Nachricht (R00041 F0135, F0139): aus der Leiste, dem Menü „⋯“ oder per Taste (E, Entf) auf
+  // der fokussierten Nachricht — nur, wenn die Nachricht die Aktion trägt.
+  const bearbeiten = bearbeitenAnlegen({
+    zeiger: zeigerart,
+    fokusAufNachricht: (zeit) => {
+      const knoten = nachrichtKnoten(zeit);
+      if (knoten !== null) {
+        nachrichtFokussieren(knoten);
+      }
+    },
+  });
+
+  function tasteAufNachricht(ereignis) {
+    const aktion = nachrichtTaste(ereignis);
+    if (aktion === null || ereignis.target.querySelector(`.lc-aktion[data-aktion="${aktion}"]`) === null) {
+      return;
+    }
+    ereignis.preventDefault();
+    aktionAusfuehren(aktion, ereignis.target);
+  }
+
+  function aktionAusfuehren(aktion, artikel) {
+    const bekannt = bekannteNachricht(artikel.dataset.zeit);
+    if (bekannt === null) {
+      return;
+    }
+    if (aktion === 'bearbeiten') {
+      bearbeiten.beginnen(offenerName, artikel, bekannt.nachricht);
+    }
+  }
+
+  function nachrichtKnoten(zeit) {
+    return inhalt.querySelector(`:scope > .lc-msg[data-zeit="${CSS.escape(zeit)}"]`);
+  }
+
+  // Wo eine Nachricht im Fenster steht: { blockStelle, stelle, nachricht } oder null.
+  function bekannteNachricht(zeit) {
+    if (fenster === null) {
+      return null;
+    }
+    const zeitpunkt = Date.parse(zeit);
+    for (let blockStelle = 0; blockStelle < fenster.bloecke.length; blockStelle += 1) {
+      const stelle = fenster.bloecke[blockStelle].findIndex((bekannt) => Date.parse(bekannt.zeit) === zeitpunkt);
+      if (stelle >= 0) {
+        return { blockStelle, stelle, nachricht: fenster.bloecke[blockStelle][stelle] };
+      }
+    }
+    return null;
+  }
 
   // Rollfokus (R00041 F0141): genau eine Nachricht des Verlaufs ist Tab-Stopp (tabindex 0, alle anderen -1) — die
   // zuletzt fokussierte, sonst die neueste; solange der Verlauf Nachrichten hat, ist er selbst keiner (leer bleibt er
@@ -644,18 +702,17 @@ export function verlaufAnlegen({ abrufen, schalter = () => {}, fokusRueckgaengig
   }
 
   function fassungErsetzen(fassung) {
-    const zeitpunkt = Date.parse(fassung.zeit);
-    const blockStelle = fenster.bloecke.findIndex((block) => block.some((bekannt) => Date.parse(bekannt.zeit) === zeitpunkt));
-    if (blockStelle < 0) {
+    const bekannt = bekannteNachricht(fassung.zeit);
+    if (bekannt === null) {
       return;
     }
-    const block = fenster.bloecke[blockStelle];
-    const stelle = block.findIndex((bekannt) => Date.parse(bekannt.zeit) === zeitpunkt);
-    const uebernommen = fassungUebernehmen(block[stelle], fassung);
+    const { blockStelle, stelle } = bekannt;
+    const zeitpunkt = Date.parse(fassung.zeit);
+    const uebernommen = fassungUebernehmen(bekannt.nachricht, fassung);
     if (uebernommen === null) {
       return;
     }
-    block[stelle] = uebernommen;
+    fenster.bloecke[blockStelle][stelle] = uebernommen;
     const knoten = bloeckeKnoten[blockStelle];
     const knotenStelle = knoten.findIndex((einzeln) => einzeln.classList.contains('lc-msg') && Date.parse(einzeln.dataset.zeit) === zeitpunkt);
     const alt = knoten[knotenStelle];

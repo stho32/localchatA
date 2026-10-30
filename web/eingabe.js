@@ -192,7 +192,8 @@ function entferntText(anzahl) {
   return `${anzahl} Steuerzeichen entfernt`;
 }
 
-function zeigerart() {
+// Die Zeigerart des Geräts: 'grob' auf Touch-Geräten, sonst 'fein' — auch das Bearbeiten-Feld folgt ihr.
+export function zeigerart() {
   if (window.matchMedia('(pointer: coarse)').matches) {
     return 'grob';
   }

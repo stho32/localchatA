@@ -53,6 +53,7 @@ pub fn nachschlagen(name: &str) -> Option<EingebetteteDatei> {
         "wiederverbinden.js" => (include_bytes!("../../web/wiederverbinden.js"), JS),
         "wiederbeitritt.js" => (include_bytes!("../../web/wiederbeitritt.js"), JS),
         "bildschirmlauf.js" => (include_bytes!("../../web/bildschirmlauf.js"), JS),
+        "bearbeiten.js" => (include_bytes!("../../web/bearbeiten.js"), JS),
         _ => return None,
     };
     Some(EingebetteteDatei { inhalt, typ })
