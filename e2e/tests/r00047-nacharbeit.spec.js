@@ -2,8 +2,8 @@
 // R00047 I0044 Nacharbeit Karte #79 (Browserteil): Abnahme-Proben aus ux-reviewer und code-reviewer.
 const { test, expect } = require('./rahmen');
 const { sendenStarten, eingabe } = require('./senden-hilfen');
-const { nachrichtMitZeit, ansagenMitschreiben } = require('./r00041-hilfen');
-const { annaSchreibt, benOeffnen, antwortzeile, ueberHoverAntworten } = require('./r00047-hilfen');
+const { nachrichtMitZeit, ansagenMitschreiben, loeschenPerApi } = require('./r00041-hilfen');
+const { annaSchreibt, benOeffnen, antwortzeile, ueberHoverAntworten, tippenUndSenden, zitatVon } = require('./r00047-hilfen');
 
 let instanz;
 test.afterEach(async () => {
@@ -85,5 +85,50 @@ test('UX S1: die Meldung „… wurde beim Wechsel verworfen.“ geht nach 6 s v
   await eingabe(b.page).press('x');
   await expect(hinweisZeile).toHaveText('');
   await expect(hinweisZeile).not.toHaveClass(/lc-fehler/);
+  expect(b.fehler).toEqual([]);
+});
+
+const BEARBEITEN = '/api/channels/allgemein/nachrichten/bearbeiten';
+const bearbeitenFeld = (page) => page.getByRole('log').getByRole('textbox', { name: 'Nachricht bearbeiten' });
+
+/// ben antwortet anna im Browser mit „Ja“ und öffnet das Bearbeiten-Feld dieser Antwort; → { anna, antwort }.
+async function eigeneAntwortBearbeiten(page) {
+  const anna = await annaSchreibt(instanz.adresse, ['Frage?']);
+  await expect(nachrichtMitZeit(page, anna.zeiten[0])).toHaveCount(1);
+  await ueberHoverAntworten(page, anna.zeiten[0]);
+  const antwort = await tippenUndSenden(page, 'Ja');
+  await expect(zitatVon(page, antwort)).toHaveCount(1);
+  await nachrichtMitZeit(page, antwort).hover();
+  await nachrichtMitZeit(page, antwort).getByRole('button', { name: 'Bearbeiten', exact: true }).click();
+  await expect(bearbeitenFeld(page)).toBeFocused();
+  await bearbeitenFeld(page).fill('Doch nein');
+  return { anna, antwort };
+}
+
+test('code-reviewer S3: Speichern einer Antwort mit 409 (Route) → kein Zitat über „Nachricht gelöscht“', async ({ browser }) => {
+  instanz = await sendenStarten();
+  const b = await benOeffnen(browser, instanz.adresse, { streng: false, zusaetzlich: { [BEARBEITEN]: [409] } });
+  await b.page.route(`**${BEARBEITEN}`, (route) => route.fulfill({
+    status: 409, contentType: 'application/json', body: JSON.stringify({ fehler: 'Nachricht gelöscht' }),
+  }));
+  const { antwort } = await eigeneAntwortBearbeiten(b.page);
+
+  await nachrichtMitZeit(b.page, antwort).getByRole('button', { name: 'Speichern' }).click();
+  await expect(bearbeitenFeld(b.page)).toHaveCount(0);
+  await expect(nachrichtMitZeit(b.page, antwort).locator('.lc-body')).toHaveText('Nachricht gelöscht');
+  await expect(nachrichtMitZeit(b.page, antwort).locator('.lc-zitat')).toHaveCount(0);
+  expect(b.fehler).toEqual([]);
+});
+
+test('code-reviewer S3, Ereignisweg: die Antwort wird während des Bearbeitens per API gelöscht → das Feld schließt, „Nachricht gelöscht“ ohne Zitat', async ({ browser }) => {
+  instanz = await sendenStarten();
+  const b = await benOeffnen(browser, instanz.adresse);
+  const { antwort } = await eigeneAntwortBearbeiten(b.page);
+  const token = await b.page.evaluate(() => localStorage.getItem('localchatA.sitzung'));
+  expect((await loeschenPerApi(instanz.adresse, token, antwort, '127.0.0.1')).status).toBe(200);
+
+  await expect(bearbeitenFeld(b.page)).toHaveCount(0);
+  await expect(nachrichtMitZeit(b.page, antwort).locator('.lc-body')).toHaveText('Nachricht gelöscht');
+  await expect(nachrichtMitZeit(b.page, antwort).locator('.lc-zitat')).toHaveCount(0);
   expect(b.fehler).toEqual([]);
 });

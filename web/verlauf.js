@@ -1240,7 +1240,7 @@ export function verlaufAnlegen({
   function geloeschtSetzen(zeit) {
     const bekannt = bekannteNachricht(zeit);
     if (bekannt !== null) {
-      knotenErsetzen(bekannt, { ...bekannt.nachricht, text: '', anhaenge: [], zustand: 'geloescht' });
+      knotenErsetzen(bekannt, { ...bekannt.nachricht, text: '', anhaenge: [], zustand: 'geloescht', antwort_auf: null });
     }
   }
 
