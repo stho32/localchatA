@@ -84,7 +84,7 @@ export function eingabeAnlegen({
   });
   const rahmen = element('div', { className: 'lc-comp' }, [antwort.zeile, dateien.element, kasten, hinweisReihe]);
   sichthoeheFolgen(rahmen, signal);
-  // Tab aus dem Verlauf landet im Feld, nicht in der Antwortzeile oder im ersten „Entfernen“ (UX V6); Shift Tab aus dem
+  // Tab aus dem Verlauf landet im Feld, nicht in der Antwortzeile oder im ersten „Entfernen“ (UX V6); Umschalt Tab aus dem
   // Feld erreicht sie wie gewohnt.
   for (const darueber of [antwort.zeile, dateien.element]) {
     darueber.addEventListener('focusin', (ereignis) => {
@@ -447,7 +447,7 @@ function sichthoeheFolgen(rahmen, signal) {
   sicht.addEventListener('resize', setzen, { signal });
 }
 
-// Strg Shift U im Feld öffnet die Dateiauswahl (R00030 B0448).
+// Strg Umschalt U im Feld öffnet die Dateiauswahl (R00030 B0448).
 function anhangTaste(ereignis) {
   const mitStrg = ereignis.ctrlKey || ereignis.metaKey;
   return mitStrg && ereignis.shiftKey && !ereignis.altKey && ereignis.key.toLowerCase() === 'u';
