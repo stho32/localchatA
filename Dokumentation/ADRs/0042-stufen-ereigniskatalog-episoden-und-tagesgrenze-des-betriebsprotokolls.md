@@ -458,11 +458,11 @@ Regeln:
   | `schreibkonto` | Senden gebremst · Frist gebremst · Anhänge gebremst · Löschen gebremst | WARNING | `kennung` | `grenze` | Zählung je Grenze `(herkunft <h>; kennung <k>)` |
   | `zeit` | Nachrichtenzeit läuft der Systemuhr voraus | WARNING | — (Instanz) | `dauer_ms` des ersten Auftretens | `dauer_ms` des **letzten** Auftretens (fortlaufend) |
   | `live` | Ereignisstrom überholt, neuer Stand gesendet | WARNING | `kennung` | `anzahl` (verpasste Ereignisse) | — (n = Zahl der Überholungen) |
-  | `quote` | Senden abgewiesen: Quote erreicht | WARNING | `kennung`, `hoechstens` | `channel`, `belegt`; beim Bearbeiten `route=bearbeiten` | — |
+  | `quote` | Senden abgewiesen: Quote erreicht | WARNING | `kennung`, `hoechstens` | `channel`, `belegt`; Einzelwert `route=bearbeiten` oder `route=loeschen` (ADR-0048 Regel 13 nennt beide; der Katalogtest prüft beide) | — |
   | `anhang` | Hochladen abgewiesen: Platz für Anhänge voll | WARNING | `kennung`, `hoechstens` | `bytes`, `belegt` | — |
   | `anhang` | Hochladen abgewiesen: laufende Hochladungen belegen den Platz | WARNING | `kennung`, `hoechstens` | `reserviert` | — |
   | `anhang` | Hochladen abgewiesen: Platte fast voll | WARNING | `herkunft` | `bytes`, `frei` | — |
-  | `anhang` | Hochladen abgewiesen: Metadaten nicht tilgbar | WARNING | `herkunft` | `grund`; `art` (Z. 354) ist nicht gebaut (`src/http/anhaenge/hochladen.rs:609–620`) — kommt sie, ist sie Einzelwert | — |
+  | `anhang` | Hochladen abgewiesen: Metadaten nicht tilgbar | WARNING | `herkunft`, `art` (Inhaltstyp des Erkenners, `.einzeln`) | `grund` | — |
   | `anhang` | Hochladen zu langsam abgebrochen | WARNING | `herkunft` | — | — |
   | `anhang` | Reservierung verfallen ohne Hochladen | WARNING | `herkunft` | `kennung`, `bytes` | — |
   | `anhang` | Großer Anspruch | INFORMATION | `kennung`, `herkunft` | `bytes`, `hochladen_bis` | — |
