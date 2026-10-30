@@ -606,3 +606,4 @@ Nie vom User erfragen.
 | 2026-10-30 | R00039 Eigene Nachricht über die API bearbeiten | B0603 Veröffentlichen unter der Sperre | Standard | 0,4h | 0,03h | 0,03h | autonom (entw2) |
 | 2026-10-30 | R00039 Eigene Nachricht über die API bearbeiten | Gate und Nacharbeit | Konsolidierung | — | 0,30h | 0,30h | autonom (entw2) |
 | 2026-10-30 | R00029 Anhänge über die API | Nacharbeit Teil C B0637–B0648 (12 Bubbles, Wanduhr gesamt) | Nacharbeit | 7,2h | 1,30h | 1,30h | autonom (entw2) |
+| 2026-10-30 | R00039 Eigene Nachricht über die API bearbeiten | Nacharbeit B1, B2, A2 (Wanduhr gesamt) | Nacharbeit | — | 0,75h | 0,75h | autonom (entw2) |
