@@ -4,7 +4,7 @@
 const { test, expect } = require('./rahmen');
 const { imBrowserBeitreten, eingabe } = require('./senden-hilfen');
 const { geraetOeffnen, knopf } = require('./r00027-hilfen');
-const { anhangStarten, perApi, anfragenMitschreiben, waehlen, berichtPdf } = require('./r00030-hilfen');
+const { anhangStarten, perApi, anfragenMitschreiben, waehlen, berichtPdf, textDatei } = require('./r00030-hilfen');
 
 let instanz;
 test.afterEach(async () => {
@@ -117,4 +117,58 @@ test('A2 Erneut nach gescheiterter Anmeldung: kein PUT auf null, eine neue Anmel
   expect(anfragen.filter((anfrage) => anfrage.methode === 'POST' && anfrage.pfad === '/api/anhaenge')).toHaveLength(2);
   expect(anfragen.find((anfrage) => anfrage.pfad.endsWith('/nachrichten')).koerper).toEqual({ text: '', anhaenge: [ids[0]] });
   expect(fehler.filter((zeile) => !zeile.includes('net::ERR_FAILED'))).toEqual([]);
+});
+
+/// Zählt gleichzeitig laufende PUT-Hochladungen im Browser: +1 beim send, −1 wenn der Körper oben ist (`upload`
+/// loadend) — der loadend der Antwort käme erst nach den Mikroaufgaben des load-Handlers der Seite, die den nächsten
+/// PUT schon gestartet haben, und täuschte einen dritten vor; ohne
+/// `ohneSperren` bleiben die Web Locks, mit ihm fehlt `navigator.locks` (kein sicherer Kontext).
+async function hochladungenZaehlen(page, { ohneSperren }) {
+  await page.addInitScript((sperrenEntfernen) => {
+    if (sperrenEntfernen) {
+      delete Navigator.prototype.locks;
+    }
+    window.hochladenZaehler = { laufend: 0, hoechstens: 0, fertig: 0 };
+    const oeffnen = XMLHttpRequest.prototype.open;
+    const senden = XMLHttpRequest.prototype.send;
+    XMLHttpRequest.prototype.open = function oeffnenMitMethode(methode, ...rest) {
+      this.methodeR00030 = methode;
+      return oeffnen.call(this, methode, ...rest);
+    };
+    XMLHttpRequest.prototype.send = function sendenGezaehlt(...rest) {
+      if (this.methodeR00030 === 'PUT') {
+        const zaehler = window.hochladenZaehler;
+        zaehler.laufend += 1;
+        zaehler.hoechstens = Math.max(zaehler.hoechstens, zaehler.laufend);
+        this.upload.addEventListener('loadend', () => {
+          zaehler.laufend -= 1;
+          zaehler.fertig += 1;
+        });
+      }
+      return senden.apply(this, rest);
+    };
+  }, ohneSperren);
+}
+
+// A3: „addInitScript setzt Navigator.prototype.locks undefined, 5 Dateien, XHR-Zähler im load-Handler → höchstens 2“.
+test('A3 ohne Web Locks (Grenze je Tab): 5 Dateien → nie mehr als 2 PUT zugleich, alle 5 oben, gesendet', async ({ browser }) => {
+  instanz = await anhangStarten();
+  const { page, fehler } = await geraetOeffnen(browser, 'desktop');
+  await hochladungenZaehlen(page, { ohneSperren: true });
+  await imBrowserBeitreten(page, instanz.adresse, 'shoff');
+  expect(await page.evaluate(() => navigator.locks)).toBeUndefined();
+  const cdp = await page.context().newCDPSession(page);
+  await cdp.send('Network.enable');
+  await cdp.send('Network.emulateNetworkConditions', { offline: false, latency: 0, downloadThroughput: -1, uploadThroughput: 400 * 1024 });
+  const anfragen = anfragenMitschreiben(page);
+
+  await waehlen(page, ['a', 'b', 'c', 'd', 'e'].map((name) => textDatei(`${name}.txt`, 200 * 1024)));
+  await knopf(page).click();
+
+  await expect.poll(() => anfragen.filter((anfrage) => anfrage.pfad.endsWith('/nachrichten')).length, { timeout: 20000 }).toBe(1);
+  const zaehler = await page.evaluate(() => window.hochladenZaehler);
+  expect(zaehler.fertig).toBe(5);
+  expect(zaehler.hoechstens).toBe(2);
+  expect(anfragen.find((anfrage) => anfrage.pfad.endsWith('/nachrichten')).koerper.anhaenge).toHaveLength(5);
+  expect(fehler).toEqual([]);
 });
