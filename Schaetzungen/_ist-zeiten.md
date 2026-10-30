@@ -638,3 +638,4 @@ Nie vom User erfragen.
 | 2026-10-30 | R00030 Video und Audio im Player | F0165 (B0460, B0733, B0734, B0754) + Nacharbeit F0102 (Wanduhr gesamt) | Entwicklung/Nacharbeit | — | 1,6h | 1,6h | autonom (entw) |
 | 2026-10-30 | R00049 Nacharbeit security-reviewer #17 | F0171 Befund 1 (Kosten aus ausgewertetem Text) + Befund 2 (Erwähnungsregel ohne Allokation) (Wanduhr gesamt) | Nacharbeit | — | 1,4h | 1,4h | autonom (entw2) |
 | 2026-10-30 | R00030 Hochladen übersteht Neuladen | F0119 (B0519, B0520) + Nacharbeit F0101 (Wanduhr gesamt) | Entwicklung/Nacharbeit | — | 2,9h | 2,9h | autonom (entw3) |
+| 2026-10-30 | R00049 Nacharbeit Befund 3 (security-reviewer #17) | Nachholen liest nur, was gebucht ist (Option 1 realist-consultant) (Wanduhr gesamt) | Nacharbeit | — | 0,6h | 0,6h | autonom (entw3) |
