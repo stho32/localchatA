@@ -82,6 +82,14 @@ pub enum Loeschen {
     Geloescht(Geloescht),
 }
 
+/// Was mit einem Anhang geschieht, dessen Kürzen scheitert: im Laufwerk zurück nach `vorhanden` (F1′ Regel 5 c), beim
+/// Löschen seiner Nachricht bleibt er `geloescht` (ADR-0048 Regel 9 c).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum BeiFehler {
+    ZurueckNachVorhanden,
+    BleibtGeloescht,
+}
+
 /// Rest-Buchung am Schreibkonto: ⌈n / 100⌉ Einheiten.
 pub fn rest_einheiten(ids: usize) -> u32 {
     u32::try_from(ids.div_ceil(100)).unwrap_or(u32::MAX)
@@ -142,21 +150,80 @@ impl Gespraeche {
                 })
                 .collect()
         };
-        let gekuerzt: Vec<(usize, Arc<Eintrag>, Result<(), String>)> = gewonnen
+        let (stellen, eintraege): (Vec<usize>, Vec<Arc<Eintrag>>) = gewonnen.into_iter().unzip();
+        let mut erfolge = Vec::new();
+        let mut dateien = Vec::new();
+        for (stelle, (eintrag, datei)) in stellen
             .into_iter()
-            .map(|(stelle, eintrag)| {
+            .zip(self.kuerzen_und_abziehen(eintraege, BeiFehler::ZurueckNachVorhanden))
+        {
+            ergebnisse[stelle].1 = match datei.grund {
+                None => {
+                    erfolge.push(eintrag);
+                    Einzelergebnis::Geloescht
+                }
+                Some(_) => Einzelergebnis::Fehler,
+            };
+            dateien.push(datei);
+        }
+        self.anhangschwelle_pruefen("geloescht");
+        let mut bericht = self.bericht(ergebnisse, Vec::new(), dateien);
+        bericht.umfang = umfang(aufrufer, erfolge.iter());
+        bericht.je_gespraech = je_gespraech(&erfolge);
+        Loeschen::Geloescht(bericht)
+    }
+
+    /// Die gewonnenen Anhänge einer gelöschten Nachricht kürzen und abziehen (ADR-0048 Regel 9 b, c): wie im
+    /// Laufwerk, nur bleibt ein Anhang, dessen Kürzen scheitert, `geloescht` (410) und gezählt — die Nachricht ist
+    /// gelöscht, ihr Anhang darf nicht wieder abrufbar werden; der nächste Start kürzt ihn. Aufrufen ohne Sperre,
+    /// außerhalb des Laufzeit-Threads.
+    pub(super) fn anhaenge_der_nachricht_kuerzen(
+        &self,
+        absender: &Kennung,
+        gewonnen: Vec<Arc<Eintrag>>,
+    ) -> Geloescht {
+        let mut ergebnisse = Vec::new();
+        let mut erfolge = Vec::new();
+        let mut dateien = Vec::new();
+        for (eintrag, datei) in self.kuerzen_und_abziehen(gewonnen, BeiFehler::BleibtGeloescht) {
+            let ergebnis = match datei.grund {
+                None => Einzelergebnis::Geloescht,
+                Some(_) => Einzelergebnis::Fehler,
+            };
+            ergebnisse.push((eintrag.id.clone(), ergebnis));
+            if ergebnis == Einzelergebnis::Geloescht {
+                erfolge.push(eintrag);
+            }
+            dateien.push(datei);
+        }
+        self.anhangschwelle_pruefen("geloescht");
+        let mut bericht = self.bericht(ergebnisse, je_gespraech(&erfolge), dateien);
+        bericht.umfang = umfang(absender, erfolge.iter());
+        bericht
+    }
+
+    /// Schritte (b) und (c) für gewonnene Einträge (Zustand schon `geloescht`): (b) ohne Sperre je Datei auf 0 Bytes
+    /// kürzen, (c) unter der Schreibsperre je Erfolg `G −= z` und den Zähler `geloescht` erhöhen; je Fehler nach
+    /// `bei_fehler`. Liefert je Eintrag die Datei mit Grund des Fehlers (ohne Grund: gekürzt).
+    fn kuerzen_und_abziehen(
+        &self,
+        gewonnen: Vec<Arc<Eintrag>>,
+        bei_fehler: BeiFehler,
+    ) -> Vec<(Arc<Eintrag>, Gekuerzt)> {
+        let gekuerzt: Vec<(Arc<Eintrag>, Result<(), String>)> = gewonnen
+            .into_iter()
+            .map(|eintrag| {
                 let ergebnis = self
                     .anhangablage
                     .kuerzen(&eintrag.gespraech, eintrag.tag, &eintrag.datei)
                     .map_err(|fehler| fehler.to_string());
-                (stelle, eintrag, ergebnis)
+                (eintrag, ergebnis)
             })
             .collect();
-        let mut erfolge = Vec::new();
-        let mut dateien = Vec::new();
-        {
-            let _stand = sperren(&self.schreiben);
-            for (stelle, eintrag, ergebnis) in gekuerzt {
+        let _stand = sperren(&self.schreiben);
+        gekuerzt
+            .into_iter()
+            .map(|(eintrag, ergebnis)| {
                 let grund = match ergebnis {
                     Ok(()) => {
                         let _ = self.anhangzaehler.gebunden.fetch_update(
@@ -165,30 +232,25 @@ impl Gespraeche {
                             |g| Some(g.saturating_sub(eintrag.z())),
                         );
                         self.anhangzaehler.geloescht.fetch_add(1, Ordering::SeqCst);
-                        ergebnisse[stelle].1 = Einzelergebnis::Geloescht;
-                        erfolge.push(Arc::clone(&eintrag));
                         None
                     }
                     Err(grund) => {
-                        eintrag.tauschen(Zustand::Geloescht, Zustand::Vorhanden);
-                        ergebnisse[stelle].1 = Einzelergebnis::Fehler;
+                        if bei_fehler == BeiFehler::ZurueckNachVorhanden {
+                            eintrag.tauschen(Zustand::Geloescht, Zustand::Vorhanden);
+                        }
                         Some(grund)
                     }
                 };
-                dateien.push(Gekuerzt {
+                let datei = Gekuerzt {
                     gespraech: eintrag.gespraech.clone(),
                     tag: eintrag.tag,
                     datei: praefix(&eintrag.datei),
                     bytes: eintrag.bytes,
                     grund,
-                });
-            }
-        }
-        self.anhangschwelle_pruefen("geloescht");
-        let mut bericht = self.bericht(ergebnisse, Vec::new(), dateien);
-        bericht.umfang = umfang(aufrufer, erfolge.iter());
-        bericht.je_gespraech = je_gespraech(&erfolge);
-        Loeschen::Geloescht(bericht)
+                };
+                (eintrag, datei)
+            })
+            .collect()
     }
 
     fn bericht(

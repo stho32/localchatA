@@ -8,6 +8,7 @@
 
 use super::Zustand;
 use super::anfrageprotokoll::mit_regel;
+use super::anhaenge::loeschen::{Anlass, protokollieren, veroeffentlichen};
 use super::bearbeiten::{
     fremd_abgewiesen, fremd_auftreten, nachricht_fehlt, quote_erreicht, schreibfehler_auftreten,
     zeit_abgewiesen, zeit_lesen,
@@ -17,6 +18,7 @@ use super::koerper::{Koerperfehler, Koerperort, json_lesen, koerperfehler_beantw
 use super::nachrichten::NachrichtAntwort;
 use super::senden::{nicht_gespeichert_antwort, quote_auftreten, unbekannt};
 use super::teilnehmer::Teilnehmer;
+use crate::gespraeche::loeschen::Geloescht;
 use crate::gespraeche::nachricht_loeschen::{Loeschfehler, NachrichtGeloescht};
 use crate::gespraeche::{Gespraech, Nachricht};
 use crate::protokoll::vorlauf;
@@ -78,22 +80,39 @@ pub async fn loeschen(
     let Some(ziel) = zeit_lesen(&wert) else {
         return mit_regel(zeit_abgewiesen(), "zeit", Some(&wer));
     };
+    let Ok(erlaubnis) = Arc::clone(&zustand.hochladebank).acquire_owned().await else {
+        return super::abbruch::interner_fehler("Löschen");
+    };
     let gespraeche = Arc::clone(&zustand.gespraeche);
     let gespraech = Gespraech::channel(&name);
     let von = teilnehmer.kennung.clone();
-    let ergebnis =
-        tokio::task::spawn_blocking(move || gespraeche.nachricht_loeschen(&gespraech, &von, ziel))
-            .await;
-    let melden = |grund| geloescht_melden(&zustand.protokoll, &name, &wer, 0, eintritt, grund);
+    let ergebnis = tokio::task::spawn_blocking(move || {
+        let _erlaubnis = erlaubnis;
+        gespraeche.nachricht_loeschen(&gespraech, &von, ziel)
+    })
+    .await;
+    let melden = |anhaenge, grund| {
+        geloescht_melden(&zustand.protokoll, &name, &wer, anhaenge, eintritt, grund);
+    };
     match ergebnis {
-        Ok(Ok(NachrichtGeloescht::Neu(nachricht))) => {
+        Ok(Ok(NachrichtGeloescht::Neu {
+            nachricht,
+            anhaenge,
+        })) => {
             vorlauf::eintragen(&zustand.protokoll, zustand.gespraeche.zeit_vorlauf_ms());
-            melden(None);
-            geloescht(&name, &nachricht, "geloescht")
+            melden(anhaenge.umfang.anhaenge, None);
+            protokollieren(
+                &zustand.protokoll,
+                &teilnehmer,
+                &anhaenge,
+                Anlass::Nachricht,
+            );
+            veroeffentlichen(&zustand.bus, &anhaenge);
+            geloescht(&name, &nachricht, "geloescht", Some(&anhaenge))
         }
         Ok(Ok(NachrichtGeloescht::Schon(nachricht))) => {
-            melden(Some("schon_geloescht"));
-            geloescht(&name, &nachricht, "schon_geloescht")
+            melden(0, Some("schon_geloescht"));
+            geloescht(&name, &nachricht, "schon_geloescht", None)
         }
         Ok(Err(fehler)) => {
             abweisung_melden(&zustand.protokoll, &fehler, &name, &wer);
@@ -166,12 +185,26 @@ fn abgewiesen(fehler: Loeschfehler, channel: &str, wer: &str) -> Response {
     }
 }
 
-fn geloescht(channel: &str, nachricht: &Nachricht, ergebnis: &str) -> Response {
+/// 200 mit der gelöschten Fassung und der Bilanz der mitgelöschten Anhänge `{geloescht, bytes, fehler}` — schon
+/// gelöscht: nichts mitgelöscht.
+fn geloescht(
+    channel: &str,
+    nachricht: &Nachricht,
+    ergebnis: &str,
+    anhaenge: Option<&Geloescht>,
+) -> Response {
+    let (zahl, bytes, fehler) = anhaenge.map_or((0, 0, 0), |anhaenge| {
+        (
+            anhaenge.umfang.anhaenge,
+            anhaenge.umfang.bytes,
+            anhaenge.fehler,
+        )
+    });
     let antwort = json!({
         "channel": channel,
         "nachricht": NachrichtAntwort::aus(nachricht),
         "ergebnis": ergebnis,
-        "anhaenge": {"geloescht": 0, "bytes": 0, "fehler": 0},
+        "anhaenge": {"geloescht": zahl, "bytes": bytes, "fehler": fehler},
     });
     (StatusCode::OK, Json(antwort)).into_response()
 }

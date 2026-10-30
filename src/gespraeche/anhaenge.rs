@@ -1579,4 +1579,74 @@ mod tests {
         }
         assert_eq!(zustand(&gespraeche, &andere), Zustand::Vorhanden);
     }
+
+    /// R00040 B0618 „Löschen mit Anhängen“ (ADR-0048 „Erster Unit-Test Löschen mit Anhängen“, Teil ohne Neuladen):
+    /// Nachricht mit drei vorhandenen Anhängen und einem vierten, den `gamma` vorher im Laufwerk gelöscht hat;
+    /// Kürzen-Schranke und Kürzen-Fehler für den dritten → während des Kürzens sind alle `geloescht` (410 sofort), G
+    /// unverändert; danach sinkt G um zwei, der dritte bleibt `geloescht` und gezählt; der Bericht nennt 2 gelöscht,
+    /// 1 Fehler, keine fremden, die Ereignis-Liste die zwei; der vierte wird nicht noch einmal abgezogen (Mutante
+    /// „Fehler setzt zurück auf `vorhanden`“ rot, Pre-Mortem 3).
+    #[test]
+    fn das_loeschen_der_nachricht_kuerzt_ihre_anhaenge_und_gibt_platz_frei() {
+        use crate::gespraeche::anhangverzeichnis::Zustand;
+        use crate::gespraeche::nachricht_loeschen::NachrichtGeloescht;
+        let (gespraeche, speicher, ids, zeit) = bericht_mit_vier_anhaengen();
+        let dritte = gespraeche
+            .anhangverzeichnis
+            .finden(&ids[2])
+            .expect("dritte")
+            .datei
+            .clone();
+        speicher.kuerzen_scheitert(&dritte);
+        let schranke = Arc::new(std::sync::Barrier::new(2));
+        speicher.vor_kuerzen_warten(Arc::clone(&schranke));
+        let geloescht_vorher = gespraeche.anhangkennzahlen().geloescht;
+
+        let faden = {
+            let gespraeche = Arc::clone(&gespraeche);
+            std::thread::spawn(move || {
+                gespraeche.nachricht_loeschen(
+                    &Gespraech::channel("allgemein"),
+                    &kennung("beta@127.0.0.1"),
+                    zeit,
+                )
+            })
+        };
+        schranke.wait();
+        let waehrend: Vec<Zustand> = ids.iter().map(|id| zustand(&gespraeche, id)).collect();
+        let g_waehrend = gespraeche.anhangkennzahlen().gebunden;
+        schranke.wait();
+        let ergebnis = faden.join().expect("Faden");
+
+        assert_eq!(waehrend, vec![Zustand::Geloescht; 4]);
+        assert_eq!(g_waehrend, 3 * MIB, "Platz erst nach dem Kürzen frei");
+        let Ok(NachrichtGeloescht::Neu { anhaenge, .. }) = ergebnis else {
+            panic!("gelöscht: {ergebnis:?}")
+        };
+        assert_eq!(
+            (
+                anhaenge.umfang.anhaenge,
+                anhaenge.umfang.bytes,
+                anhaenge.umfang.fremde,
+                anhaenge.fehler
+            ),
+            (2, 2 * MIB, 0, 1)
+        );
+        assert_eq!(
+            anhaenge.je_gespraech,
+            vec![(
+                Gespraech::channel("allgemein"),
+                vec![(ids[0].clone(), zeit), (ids[1].clone(), zeit)]
+            )]
+        );
+        assert_eq!(anhaenge.dateien.len(), 3);
+        assert_eq!(zustand(&gespraeche, &ids[2]), Zustand::Geloescht);
+        assert_eq!(gespraeche.anhangkennzahlen().gebunden, MIB);
+        assert_eq!(
+            gespraeche.anhangkennzahlen().geloescht,
+            geloescht_vorher + 2
+        );
+        let gekuerzt: Vec<usize> = speicher.anhaenge().values().map(Vec::len).collect();
+        assert_eq!(gekuerzt.iter().filter(|laenge| **laenge == 0).count(), 3);
+    }
 }

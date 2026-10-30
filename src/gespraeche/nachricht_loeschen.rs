@@ -5,8 +5,8 @@
 
 use super::anhangverzeichnis::{Eintrag, Zustand};
 use super::{
-    Aenderungszustand, Geaendert, Gespraech, Gespraeche, Kennung, Nachricht, lesend, logformat,
-    nachricht_in_fassung, sperren,
+    Aenderungszustand, Geaendert, Gespraech, Gespraeche, Kennung, Nachricht, lesend, loeschen,
+    logformat, nachricht_in_fassung, sperren,
 };
 use crate::uhr::Zeit;
 use std::sync::Arc;
@@ -15,9 +15,18 @@ use std::sync::atomic::Ordering;
 /// Was `nachricht_loeschen` getan hat — beides mit der Nachricht in ihrer Fassung `geloescht`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum NachrichtGeloescht {
-    /// Der Löschsatz steht im Log.
-    Neu(Nachricht),
+    /// Der Löschsatz steht im Log; `anhaenge` ist der Bericht über die mitgelöschten Anhänge (ADR-0048 Regel 9).
+    Neu {
+        nachricht: Nachricht,
+        anhaenge: loeschen::Geloescht,
+    },
     /// Schon gelöscht: nichts geschrieben, nichts veröffentlicht.
+    Schon(Nachricht),
+}
+
+/// Ergebnis des Abschnitts unter den Sperren: die gelöschte Nachricht mit den gewonnenen Anhängen, oder schon gelöscht.
+enum UnterSperre {
+    Neu(Nachricht, Vec<Arc<Eintrag>>),
     Schon(Nachricht),
 }
 
@@ -37,13 +46,29 @@ pub enum Loeschfehler {
 }
 
 impl Gespraeche {
-    /// Löscht die Nachricht `ziel` des Absenders `von` (ADR-0048 Regel 9 a).
+    /// Löscht die Nachricht `ziel` des Absenders `von` samt ihren Anhängen (ADR-0048 Regel 9): (a) unter den Sperren,
+    /// dann (b) und (c) ohne Gesprächssperre. Aufrufen außerhalb des Laufzeit-Threads (Schritt b berührt die Platte).
     pub fn nachricht_loeschen(
         &self,
         gespraech: &Gespraech,
         von: &Kennung,
         ziel: Zeit,
     ) -> Result<NachrichtGeloescht, Loeschfehler> {
+        Ok(match self.loeschen_unter_sperre(gespraech, von, ziel)? {
+            UnterSperre::Schon(nachricht) => NachrichtGeloescht::Schon(nachricht),
+            UnterSperre::Neu(nachricht, gewonnen) => NachrichtGeloescht::Neu {
+                nachricht,
+                anhaenge: self.anhaenge_der_nachricht_kuerzen(von, gewonnen),
+            },
+        })
+    }
+
+    fn loeschen_unter_sperre(
+        &self,
+        gespraech: &Gespraech,
+        von: &Kennung,
+        ziel: Zeit,
+    ) -> Result<UnterSperre, Loeschfehler> {
         let verlauf = lesend(&self.verzeichnis)
             .verlaeufe
             .get(gespraech)
@@ -66,7 +91,7 @@ impl Gespraeche {
             .geaendert
             .is_some_and(|geaendert| geaendert.zustand == Aenderungszustand::Geloescht);
         if schon_geloescht {
-            return Ok(NachrichtGeloescht::Schon(nachricht));
+            return Ok(UnterSperre::Schon(nachricht));
         }
         let zeit = crate::uhr::naechste_zeit(jetzt, stand.letzte);
         let satz = logformat::loeschsatz(zeit, von, nachricht.zeit);
@@ -100,7 +125,7 @@ impl Gespraeche {
         let dazu = satzbytes + u64::from(angehaengt.zeilenende_ergaenzt);
         let vorher = self.belegung.dazu(dazu);
         self.ueber_90_melden(vorher, vorher.saturating_add(dazu));
-        let _gewonnen = self.anhaenge_markieren(gespraech, &nachricht);
+        let gewonnen = self.anhaenge_markieren(gespraech, &nachricht);
         let geloescht = Nachricht {
             text: String::new(),
             anhaenge: Vec::new(),
@@ -111,7 +136,7 @@ impl Gespraeche {
             ..nachricht
         };
         (self.aenderung_veroeffentlichen)(gespraech, &geloescht);
-        Ok(NachrichtGeloescht::Neu(geloescht))
+        Ok(UnterSperre::Neu(geloescht, gewonnen))
     }
 }
 
@@ -262,7 +287,11 @@ mod tests {
         let Ok(Bearbeitet::Neu(bearbeitet)) = zweite else {
             panic!("zweite: {zweite:?}")
         };
-        let Ok(NachrichtGeloescht::Neu(t2_geloescht)) = geloescht else {
+        let Ok(NachrichtGeloescht::Neu {
+            nachricht: t2_geloescht,
+            ..
+        }) = geloescht
+        else {
             panic!("löschen: {geloescht:?}")
         };
         assert_eq!(
@@ -406,7 +435,7 @@ mod tests {
         let utc = loeschen(&allgemein(), &beta, "2026-10-28T09:00:00.000Z");
 
         assert!(
-            matches!(utc, Ok(NachrichtGeloescht::Neu(_))),
+            matches!(utc, Ok(NachrichtGeloescht::Neu { .. })),
             "dieselbe Zeit in UTC: {utc:?}"
         );
         assert_eq!(sperren(&aufgezeichnet).len(), 1);
@@ -473,7 +502,7 @@ mod tests {
         let bearbeiten = gespraeche.bearbeiten(&allgemein(), &beta, zeit(t2), "c");
 
         assert!(
-            matches!(erstes, Ok(NachrichtGeloescht::Neu(_))),
+            matches!(erstes, Ok(NachrichtGeloescht::Neu { .. })),
             "{erstes:?}"
         );
         assert_eq!(gespraeche.belegt(), 2_097_152);
@@ -492,7 +521,7 @@ mod tests {
         let ohne_quote = laden().mit_quote(None);
         assert!(matches!(
             ohne_quote.nachricht_loeschen(&allgemein(), &beta, zeit(t2)),
-            Ok(NachrichtGeloescht::Neu(_))
+            Ok(NachrichtGeloescht::Neu { .. })
         ));
     }
 
@@ -529,7 +558,7 @@ mod tests {
         assert!(
             geloescht
                 .iter()
-                .all(|ergebnis| matches!(ergebnis, Ok(NachrichtGeloescht::Neu(_)))),
+                .all(|ergebnis| matches!(ergebnis, Ok(NachrichtGeloescht::Neu { .. }))),
             "{geloescht:?}"
         );
         assert!(
