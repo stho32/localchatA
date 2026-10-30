@@ -71,6 +71,13 @@ test('IPv4-gemappte Kennungen führen zu keinem Gespräch, ::7f00:1 bleibt gült
   assert.deepEqual(direktAuswahl('#/d/ben%40%3A%3A7f00%3A1', ICH), { gegenueber: 'ben@::7f00:1' });
 });
 
+// Code-Review #13 F0178 S2: IPv4 nur in kürzester Schreibweise — führende Nullen und der Schlusspunkt sind Aliase.
+test('IPv4-Aliase mit führenden Nullen oder Schlusspunkt führen zu keinem Gespräch (S2)', () => {
+  for (const hash of ['#/d/ben%40127.0.0.03', '#/d/ben%40127.0.0.003', '#/d/ben%400127.0.0.3', '#/d/ben%40127.0.0.3.']) {
+    assert.deepEqual(direktAuswahl(hash, ICH), { gegenueber: null }, hash);
+  }
+});
+
 function holenMit(status, text = '{}') {
   const aufrufe = [];
   const holen = async (pfad, optionen) => {
