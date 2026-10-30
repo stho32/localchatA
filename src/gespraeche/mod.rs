@@ -1891,6 +1891,49 @@ mod tests {
         assert_eq!(ohne_tag_1.kennzahlen().nachrichten, 0);
     }
 
+    /// Code-Review #48 A1 (mit R00040): eine teilweise gescheiterte Pflege entfernt den Tag des Änderungssatzes, der
+    /// Tag der Nachricht bleibt (sein Entfernen scheitert). Die Nachricht zeigt dann ihren Text wie nach einem
+    /// Neustart — nie „gelöscht“ —, und Bearbeiten geht weiter; eine gelöschte Nachricht bleibt gelöscht.
+    #[test]
+    fn verliert_die_bearbeitung_ihren_tag_gilt_wieder_der_text_der_nachricht() {
+        let (gespraeche, ablage, uhr) = im_speicher("2026-10-27T14:00:00.000+01:00");
+        let allgemein = Gespraech::channel("allgemein");
+        let alice = kennung("alice@127.0.0.2");
+        let t1 = gespraeche
+            .senden(&allgemein, &alice, Art::Agent, "eins")
+            .expect("t1")
+            .zeit;
+        let t2 = gespraeche
+            .senden(&allgemein, &alice, Art::Agent, "zwei")
+            .expect("t2")
+            .zeit;
+        uhr.stellen(zeit("2026-10-28T09:00:00.000+01:00"));
+        gespraeche
+            .bearbeiten(&allgemein, &alice, t1, "eins, korrigiert")
+            .expect("bearbeitet");
+        gespraeche
+            .nachricht_loeschen(&allgemein, &alice, t2)
+            .expect("gelöscht");
+        ablage.entfernen_scheitern(&allgemein, tag("2026-10-27"));
+
+        gespraeche.pflegen(tag("2026-11-04"), Pflegeanlass::Tageswechsel);
+
+        let block = neueste(&gespraeche);
+        assert_eq!(block.len(), 2, "{block:?}");
+        assert_eq!((block[0].text.as_str(), block[0].geaendert), ("eins", None));
+        assert_eq!(
+            block[1].geaendert.map(|geaendert| geaendert.zustand),
+            Some(Aenderungszustand::Geloescht)
+        );
+        assert!(
+            matches!(
+                gespraeche.bearbeiten(&allgemein, &alice, t1, "eins, wieder"),
+                Ok(Bearbeitet::Neu(_))
+            ),
+            "Bearbeiten gesperrt"
+        );
+    }
+
     /// B0598 Abweisungen unter der Sperre: Zeit ohne Nachricht, dieselbe Zeit in einem anderen Channel und ein
     /// unbekanntes Gespräch → `Nachricht`/`Unbekannt`; gelöschte Nachricht → `Geloescht`; nur Leerraum ohne Anhang →
     /// `Leer`; jedes Mal nichts geschrieben.

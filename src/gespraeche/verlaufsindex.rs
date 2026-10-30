@@ -273,8 +273,8 @@ impl Verlauf {
     /// Nimmt den Tag aus dem Index (ADR-0006: Eintrag fallen lassen, kein Umbau) und nennt seine Nachrichten und
     /// Bytes; stand er nicht darin, nichts.
     /// Die Fassungen der Nachrichten des Tages gehen mit (ADR-0048 Regel 2).
-    pub fn tag_entfernen(&mut self, tag: NaiveDate) -> Option<(usize, u64)> {
-        let tag = self.tage.remove(&tag)?;
+    pub fn tag_entfernen(&mut self, datum: NaiveDate) -> Option<(usize, u64)> {
+        let tag = self.tage.remove(&datum)?;
         let kopfzeit = |anfang: Option<&usize>| {
             anfang.and_then(|anfang| logformat::kopfzeit(&tag.rohtext[*anfang..]))
         };
@@ -292,6 +292,11 @@ impl Verlauf {
                 self.fassungen.remove(&zeit);
             }
         }
+        // Eine Bearbeitung, deren Satz mit diesem Tag geht, gilt nicht mehr — wie nach einem Neustart (Code-Review #48
+        // A1: sonst sähe die Nachricht gelöscht aus, wenn ihr eigener Tag beim Entfernen scheiterte).
+        self.fassungen.retain(|_, fassung| {
+            !matches!(fassung.zustand, Fassungszustand::Bearbeitet { tag: ort, .. } if ort == datum)
+        });
         Some((tag.nachrichten.len(), tag.rohtext.len() as u64))
     }
 
