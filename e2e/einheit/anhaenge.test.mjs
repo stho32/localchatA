@@ -2,7 +2,7 @@
 // Abweisung angesagt wird.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { anmeldungBewerten, abweisungAnsage } from '../../web/anhaenge.js';
+import { anmeldungBewerten, abweisungAnsage, prozentAus, hochladenBewerten } from '../../web/anhaenge.js';
 
 const antwort = (status, daten, wartenS = null) => ({ art: 'antwort', status, daten, wartenS });
 
@@ -36,4 +36,23 @@ test('Ansage der Abweisung: „Nicht hochgeladen: <name> — <Grund>“, das Pr�
     'Nicht hochgeladen: foto.png — der Platz für Anhänge ist voll.',
   );
   assert.equal(abweisungAnsage('a.txt', 'Der Name ist ungültig.'), 'Nicht hochgeladen: a.txt — Der Name ist ungültig.');
+});
+
+// R00030 „Fortschritt“ (B0451): die Fortschrittsrechnung, falls die Drosselung im E2E nicht greift.
+test('Fortschritt in ganzen Prozent: abgerundet, ohne Länge 0, höchstens 100', () => {
+  assert.equal(prozentAus(0, 2457600), 0);
+  assert.equal(prozentAus(1228800, 2457600), 50);
+  assert.equal(prozentAus(2457599, 2457600), 99);
+  assert.equal(prozentAus(2457600, 2457600), 100);
+  assert.equal(prozentAus(10, 0), 0);
+  assert.equal(prozentAus(20, 10), 100);
+});
+
+test('Hochladen: 200 fertig, 422 `metadaten` abgewiesen, sonst fehlgeschlagen mit Grund; Abbruch bleibt Abbruch', () => {
+  assert.deepEqual(hochladenBewerten(antwort(200, null)), { art: 'fertig' });
+  assert.deepEqual(hochladenBewerten(antwort(422, { fehler: 'kaputt', regel: 'metadaten' })), { art: 'abgewiesen', grund: 'kaputt' });
+  assert.deepEqual(hochladenBewerten(antwort(408, { fehler: 'Frist' })), { art: 'fehlgeschlagen', grund: 'Frist' });
+  assert.deepEqual(hochladenBewerten(antwort(500, null)), { art: 'fehlgeschlagen', grund: 'Nicht hochgeladen (Status 500).' });
+  assert.deepEqual(hochladenBewerten({ art: 'netzfehler' }), { art: 'fehlgeschlagen', grund: 'Keine Antwort vom Server.' });
+  assert.deepEqual(hochladenBewerten({ art: 'abgebrochen' }), { art: 'abgebrochen' });
 });

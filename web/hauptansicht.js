@@ -77,6 +77,7 @@ export function zeichnen(wurzel, teilnehmer, optionen) {
   const hochladen = hochladungenAnlegen({
     kennung: teilnehmer.kennung,
     anmelden: optionen.anhangAnmelden,
+    hochladen: optionen.anhangHochladen,
     senden: (text, bezug, weiteres) => senden.senden(text, bezug, weiteres),
     ansagen: ansagen.melden,
     fokusVerloren: () => eingabe.fokussieren(),

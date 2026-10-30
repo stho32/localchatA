@@ -91,6 +91,25 @@ export async function anhangVerwerfen(id, { token }, holen = holenImBrowser) {
   }
 }
 
+// Eine angemeldete Datei hochladen (R00029 F0097, ADR-0046 Regel 2): PUT als application/octet-stream mit Sitzung über
+// XMLHttpRequest — nur er meldet den Fortschritt des Hochladens. fortschritt(geladen, gesamt) je Ereignis.
+// → { abbrechen(), ergebnis: Promise<{ art: 'antwort', status, daten } | { art: 'netzfehler' } | { art: 'abgebrochen' }> }
+export function anhangHochladen(id, datei, { token, fortschritt }, Anfrage = globalThis.XMLHttpRequest) {
+  const anfrage = new Anfrage();
+  const ergebnis = new Promise((fertig) => {
+    anfrage.upload.addEventListener('progress', (ereignis) => fortschritt(ereignis.loaded, ereignis.total));
+    anfrage.addEventListener('load', () => fertig({ art: 'antwort', status: anfrage.status, daten: alsJson(anfrage.responseText) }));
+    anfrage.addEventListener('error', () => fertig({ art: 'netzfehler' }));
+    anfrage.addEventListener('timeout', () => fertig({ art: 'netzfehler' }));
+    anfrage.addEventListener('abort', () => fertig({ art: 'abgebrochen' }));
+  });
+  anfrage.open('PUT', `/api/anhaenge/${encodeURIComponent(id)}`);
+  anfrage.setRequestHeader(SITZUNGS_HEADER, token);
+  anfrage.setRequestHeader('Content-Type', 'application/octet-stream');
+  anfrage.send(datei);
+  return { abbrechen: () => anfrage.abort(), ergebnis };
+}
+
 function sekundenAusRetryAfter(kopf) {
   const sekunden = Number(kopf);
   if (kopf === null || !Number.isInteger(sekunden) || sekunden < 1) {

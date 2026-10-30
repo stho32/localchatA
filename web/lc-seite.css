@@ -222,6 +222,11 @@ body { background: var(--kd-bg); color: var(--kd-ink); font-family: var(--font-s
 .lc-hochladung-zustand { flex: none; color: var(--kd-ink-muted); }
 .lc-hochladung-grund { margin: 0; font-size: 12px; line-height: 20px; color: var(--kd-danger); font-weight: 600; overflow-wrap: anywhere; }
 .lc-hochladung-schalter:empty { display: none; }
+/* Balken 4 px in kd-accent auf der Spur kd-line-strong (≥ 3 : 1), daneben das Prozent */
+.lc-hochladung-fortschritt { display: flex; align-items: center; column-gap: var(--kd-space-8); font-size: 12px; line-height: 20px; color: var(--kd-ink-muted); font-variant-numeric: tabular-nums; }
+.lc-hochladung-fortschritt[hidden] { display: none; }
+.lc-balken { flex: 1 1 auto; max-width: 240px; height: 4px; background: var(--kd-line); overflow: hidden; }
+.lc-balken-fuellung { display: block; height: 100%; width: 0; background: var(--kd-accent); }
 /* Verworfen auf Zeit (R00025 F0085): eine Zeile an der Stelle der Nachricht, gedämpft auf kd-surface */
 .lc-verworfen { display: flex; flex-wrap: wrap; align-items: center; column-gap: var(--kd-space-8); padding: var(--kd-space-4) var(--kd-space-12); background: var(--kd-surface); }
 .lc-verworfen-text { font-size: 12px; line-height: 20px; color: var(--kd-ink-muted); }

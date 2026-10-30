@@ -8,6 +8,7 @@ import { nachrichtZeichnen } from './nachricht.js';
 import { nurLeerraum } from './textregel.js';
 
 const ZU_VIELE_ANFRAGEN = 429;
+const KEINE_ANTWORT = 'Keine Antwort vom Server.';
 const KEIN_PLATZ = 507;
 
 // Wie eine Anmeldung ausging (B0450), rein: angenommen (201 mit ID), warten (429 oder 507 `hochladungen` mit
@@ -32,6 +33,38 @@ export function anmeldungBewerten(antwort) {
   return { art: 'abgewiesen', grund: `Nicht hochgeladen (Status ${status}).` };
 }
 
+// Der Fortschritt in ganzen Prozent (B0451), rein: abgerundet, 0 ohne bekannte Länge, höchstens 100.
+export function prozentAus(geladen, gesamt) {
+  if (!(gesamt > 0)) {
+    return 0;
+  }
+  return Math.min(100, Math.max(0, Math.floor((geladen * 100) / gesamt)));
+}
+
+// Wie ein Hochladen ausging (B0451), rein: 200 fertig; 422 `metadaten` (nach dem letzten Byte, F4) eine Abweisung mit dem
+// Text der Instanz; jeder andere Status und „ohne Antwort“ ein Fehlschlag mit Grund, der „Erneut hochladen“ anbietet.
+// → { art: 'fertig' } | { art: 'abgewiesen', grund } | { art: 'fehlgeschlagen', grund } | { art: 'abgebrochen' }
+export function hochladenBewerten(antwort) {
+  if (antwort.art === 'abgebrochen') {
+    return { art: 'abgebrochen' };
+  }
+  if (antwort.art !== 'antwort') {
+    return { art: 'fehlgeschlagen', grund: KEINE_ANTWORT };
+  }
+  const { status, daten } = antwort;
+  if (status === 200) {
+    return { art: 'fertig' };
+  }
+  const mitText = daten !== null && typeof daten.fehler === 'string';
+  if (status === 422 && mitText && daten.regel === 'metadaten') {
+    return { art: 'abgewiesen', grund: daten.fehler };
+  }
+  if (mitText) {
+    return { art: 'fehlgeschlagen', grund: daten.fehler };
+  }
+  return { art: 'fehlgeschlagen', grund: `Nicht hochgeladen (Status ${status}).` };
+}
+
 // Die Ansage einer Abweisung (UX-Antwort auf Frage 4): „Nicht hochgeladen: <name> — <Grund>“; beginnt der Text der
 // Instanz selbst mit „Nicht hochgeladen: “, steht das nur einmal.
 export function abweisungAnsage(name, grund) {
@@ -43,10 +76,14 @@ export function abweisungAnsage(name, grund) {
   return `${PRAEFIX}${name} — ${ohnePraefix}`;
 }
 
-// Die Einträge des Tabs. kennung: die eigene; anmelden(name, bytes) → Antwort (api.js anhangAnmelden); senden(text,
+// Die Einträge des Tabs. kennung: die eigene; anmelden(name, bytes) → Antwort (api.js anhangAnmelden); hochladen(id, datei,
+// fortschritt) → { abbrechen, ergebnis } (api.js anhangHochladen); plaetze: höchstens 2 Hochladungen zugleich je Browser
+// (Web Locks, ohne sie je Tab); senden(text,
 // bezug, { channel, anhaenge }): die Sendeschlange (senden.js); ansagen: die eine Ansage-Region; fokusVerloren(): der
 // Fokus geht ins Feld; zeitgeber: { stellen(ms, rueckruf) → id, loeschen(id) }.
-export function hochladungenAnlegen({ kennung, anmelden, senden, ansagen, fokusVerloren, zeitgeber = ECHTE_ZEITGEBER }) {
+export function hochladungenAnlegen({
+  kennung, anmelden, hochladen, senden, ansagen, fokusVerloren, zeitgeber = ECHTE_ZEITGEBER, plaetze = plaetzeImBrowser(),
+}) {
   const bereich = element('div', { className: 'lc-hochladungen' });
   const eintraege = [];
   let offenerChannel = null;
@@ -81,13 +118,14 @@ export function hochladungenAnlegen({ kennung, anmelden, senden, ansagen, fokusV
   function dateiAnlegen(eintrag, datei) {
     const eintragDatei = {
       datei, name: datei.name, bytes: datei.size, zustand: 'anmelden', id: null, grund: '', sekunden: 0, zeitgeber: null,
-      knoten: null, zustandText: null, grundText: null, schalter: null,
+      prozent: 0, laufend: null, knoten: null, zustandText: null, grundText: null, schalter: null, balken: null,
     };
     const kuerzel = element('span', { className: 'lc-datei-kuerzel', textContent: typkuerzel(datei.name) });
     kuerzel.setAttribute('aria-hidden', 'true');
     eintragDatei.zustandText = element('span', { className: 'lc-hochladung-zustand' });
     eintragDatei.grundText = element('p', { className: 'lc-hochladung-grund', hidden: true });
     eintragDatei.schalter = element('div', { className: 'lc-send-schalter lc-hochladung-schalter' });
+    eintragDatei.balken = balkenAnlegen(datei.name);
     eintragDatei.knoten = element('li', { className: 'lc-hochladung-datei' }, [
       element('div', { className: 'lc-hochladung-kopf' }, [
         kuerzel,
@@ -95,6 +133,7 @@ export function hochladungenAnlegen({ kennung, anmelden, senden, ansagen, fokusV
         element('span', { className: 'lc-datei-groesse', textContent: groesseInWorten(datei.size) }),
         eintragDatei.zustandText,
       ]),
+      eintragDatei.balken.element,
       eintragDatei.grundText,
       eintragDatei.schalter,
     ]);
@@ -111,37 +150,81 @@ export function hochladungenAnlegen({ kennung, anmelden, senden, ansagen, fokusV
     }
     if (ergebnis.art === 'angemeldet') {
       datei.id = ergebnis.id;
-      datei.zustand = 'angemeldet';
-    } else if (ergebnis.art === 'warten') {
+      dateiHochladen(eintrag, datei);
+      return;
+    }
+    if (ergebnis.art === 'warten') {
       datei.zustand = 'wartet';
       datei.sekunden = ergebnis.sekunden;
       datei.zeitgeber = zeitgeber.stellen(ergebnis.sekunden * 1000, () => dateiAnmelden(eintrag, datei));
     } else if (ergebnis.art === 'abgewiesen') {
-      datei.zustand = 'abgewiesen';
-      datei.grund = ergebnis.grund;
-      ansagen({ art: 'sofort', text: abweisungAnsage(datei.name, ergebnis.grund) });
+      dateiScheitert(eintrag, datei, 'abgewiesen', ergebnis.grund);
+      return;
     } else {
-      datei.zustand = 'abgewiesen';
-      datei.grund = 'Keine Antwort vom Server.';
-      ansagen({ art: 'sofort', text: abweisungAnsage(datei.name, datei.grund) });
+      dateiScheitert(eintrag, datei, 'fehlgeschlagen', KEINE_ANTWORT);
+      return;
     }
     dateiZeigen(eintrag, datei);
   }
 
+  // Unter einem Platz (höchstens 2 je Browser) der PUT mit Balken; bis zum Platz „wartet“.
+  function dateiHochladen(eintrag, datei) {
+    datei.zustand = 'wartetAufPlatz';
+    datei.prozent = 0;
+    dateiZeigen(eintrag, datei);
+    plaetze(async () => {
+      if (!eintrag.dateien.includes(datei)) {
+        return;
+      }
+      datei.zustand = 'laedt';
+      dateiZeigen(eintrag, datei);
+      datei.laufend = hochladen(datei.id, datei.datei, (geladen, gesamt) => {
+        datei.prozent = prozentAus(geladen, gesamt);
+        balkenZeigen(datei);
+      });
+      const ergebnis = hochladenBewerten(await datei.laufend.ergebnis);
+      datei.laufend = null;
+      if (!eintrag.dateien.includes(datei) || ergebnis.art === 'abgebrochen') {
+        return;
+      }
+      if (ergebnis.art === 'fertig') {
+        datei.zustand = 'fertig';
+        dateiZeigen(eintrag, datei);
+        return;
+      }
+      dateiScheitert(eintrag, datei, ergebnis.art, ergebnis.grund);
+    });
+  }
+
+  // Abgewiesen (nur „Entfernen“) oder fehlgeschlagen („Erneut hochladen“): ⚠ mit dem Grund an der Datei, sofort angesagt.
+  function dateiScheitert(eintrag, datei, zustand, grund) {
+    datei.zustand = zustand;
+    datei.grund = grund;
+    dateiZeigen(eintrag, datei);
+    ansagen({ art: 'sofort', text: abweisungAnsage(datei.name, grund) });
+  }
+
   function dateiZeigen(eintrag, datei) {
     datei.zustandText.textContent = zustandBeschriftung(datei);
-    const mitGrund = datei.zustand === 'abgewiesen';
+    balkenZeigen(datei);
+    const mitGrund = datei.zustand === 'abgewiesen' || datei.zustand === 'fehlgeschlagen';
     datei.grundText.hidden = !mitGrund;
     datei.grundText.textContent = '';
     if (mitGrund) {
       datei.grundText.textContent = `⚠ ${datei.grund}`;
     }
-    datei.knoten.classList.toggle('lc-fehlgeschlagen', datei.zustand === 'abgewiesen');
+    datei.knoten.classList.toggle('lc-fehlgeschlagen', mitGrund);
     if (datei.zustand === 'abgewiesen') {
       datei.schalter.replaceChildren(schalterZeichnen('Entfernen', `${datei.name} entfernen`, () => dateiEntfernen(eintrag, datei)));
+    } else if (datei.zustand === 'fehlgeschlagen') {
+      datei.schalter.replaceChildren(schalterZeichnen('Erneut hochladen', `${datei.name} erneut hochladen`, () => dateiHochladen(eintrag, datei)));
     } else {
       datei.schalter.replaceChildren();
     }
+  }
+
+  function balkenZeigen(datei) {
+    datei.balken.zeigen(datei.zustand === 'laedt', datei.prozent);
   }
 
   // Eine Datei verlässt den Eintrag; der Fokus geht auf einen Schalter des Eintrags, sonst ins Feld (nie auf body).
@@ -186,7 +269,95 @@ function zustandBeschriftung(datei) {
   if (datei.zustand === 'wartet') {
     return `wartet · neuer Versuch in ${datei.sekunden} s`;
   }
+  if (datei.zustand === 'wartetAufPlatz') {
+    return 'wartet';
+  }
+  if (datei.zustand === 'fertig') {
+    return 'hochgeladen';
+  }
   return '';
+}
+
+// Der Balken einer Datei (Baustein Anhang): 4 px in kd-accent auf seiner Spur, progressbar „<name> wird hochgeladen“ mit
+// aria-valuenow 0–100, daneben das Prozent; nur solange die Datei lädt.
+function balkenAnlegen(name) {
+  const fuellung = element('span', { className: 'lc-balken-fuellung' });
+  const balken = element('span', { className: 'lc-balken' }, [fuellung]);
+  balken.setAttribute('role', 'progressbar');
+  balken.setAttribute('aria-label', `${name} wird hochgeladen`);
+  balken.setAttribute('aria-valuemin', '0');
+  balken.setAttribute('aria-valuemax', '100');
+  const prozent = element('span', { className: 'lc-balken-prozent' });
+  const zeile = element('div', { className: 'lc-hochladung-fortschritt', hidden: true }, [balken, prozent]);
+  return {
+    element: zeile,
+    zeigen: (sichtbar, wert) => {
+      zeile.hidden = !sichtbar;
+      if (!sichtbar) {
+        balken.removeAttribute('aria-valuenow');
+        return;
+      }
+      balken.setAttribute('aria-valuenow', String(wert));
+      fuellung.style.width = `${wert}%`;
+      prozent.textContent = `${wert} %`;
+    },
+  };
+}
+
+// Höchstens 2 Hochladungen zugleich je Browser über alle Tabs (B0451): zwei Web Locks als Plätze, wer zuerst einen
+// bekommt, lädt, die andere Anfrage wird zurückgezogen. Ohne Web Locks (kein sicherer Kontext, etwa über eine
+// LAN-Adresse per http) gilt die Grenze je Tab.
+function plaetzeImBrowser() {
+  const PLAETZE = ['localchata-hochladen-1', 'localchata-hochladen-2'];
+  const sperren = globalThis.navigator === undefined ? undefined : globalThis.navigator.locks;
+  if (sperren === undefined) {
+    return plaetzeImTab(PLAETZE.length);
+  }
+  return (arbeit) => new Promise((fertig) => {
+    const zurueckziehen = new AbortController();
+    let begonnen = false;
+    for (const platz of PLAETZE) {
+      sperren.request(platz, { signal: zurueckziehen.signal }, async () => {
+        if (begonnen) {
+          return;
+        }
+        begonnen = true;
+        zurueckziehen.abort();
+        try {
+          await arbeit();
+        } finally {
+          fertig();
+        }
+      }).catch(() => {});
+    }
+  });
+}
+
+function plaetzeImTab(anzahl) {
+  let frei = anzahl;
+  const wartende = [];
+  async function laufen(arbeit) {
+    try {
+      await arbeit();
+    } finally {
+      frei += 1;
+      const naechste = wartende.shift();
+      if (naechste !== undefined) {
+        naechste();
+      }
+    }
+  }
+  return (arbeit) => new Promise((fertig) => {
+    const starten = () => {
+      frei -= 1;
+      laufen(arbeit).then(fertig);
+    };
+    if (frei > 0) {
+      starten();
+      return;
+    }
+    wartende.push(starten);
+  });
 }
 
 function schalterZeichnen(beschriftung, name, aktion) {
