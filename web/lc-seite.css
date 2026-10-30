@@ -169,13 +169,14 @@ body { background: var(--kd-bg); color: var(--kd-ink); font-family: var(--font-s
   .lc-antwort-an { flex: 0 1 auto; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 }
 /* Gewählte Dateien über dem Feld (R00030 B0449, Baustein Anhang): Zeile 28 px mit Maus, 44 px auf Touch mit 8 px
-   Abstand zwischen den Schaltern; die Liste ist min(3½ Zeilen, 25 % des sichtbaren Bereichs) hoch, mindestens 1½
+   Abstand zwischen den Schaltern; der Name kürzt mit Ellipse und bleibt mindestens 96 px breit — passen Größe und
+   „Entfernen“ dann nicht mehr daneben, brechen sie in die nächste Zeile (UX-Review #43 F0101 M1); die Liste ist min(3½ Zeilen, 25 % des sichtbaren Bereichs) hoch, mindestens 1½
    Zeilen, und scrollt in sich (UX V6; --lc-sichthoehe setzt die Eingabe aus visualViewport) */
-.lc-dateien { --lc-dateizeile: 28px; --lc-dateiabstand: 0px; display: grid; row-gap: var(--lc-dateiabstand); margin: 0 0 var(--kd-space-4); padding: 0 var(--kd-space-2); list-style: none; max-height: max(calc(1.5 * var(--lc-dateizeile) + var(--lc-dateiabstand)), min(calc(3.5 * var(--lc-dateizeile) + 3 * var(--lc-dateiabstand)), calc(0.25 * var(--lc-sichthoehe, 100vh)))); overflow-y: auto; overscroll-behavior: contain; }
+.lc-dateien { --lc-dateizeile: 28px; --lc-dateiabstand: 0px; display: grid; grid-template-columns: minmax(0, 1fr); row-gap: var(--lc-dateiabstand); margin: 0 0 var(--kd-space-4); padding: 0 var(--kd-space-2); list-style: none; max-height: max(calc(1.5 * var(--lc-dateizeile) + var(--lc-dateiabstand)), min(calc(3.5 * var(--lc-dateizeile) + 3 * var(--lc-dateiabstand)), calc(0.25 * var(--lc-sichthoehe, 100vh)))); overflow-y: auto; overscroll-behavior: contain; }
 .lc-dateien[hidden] { display: none; }
-.lc-datei { display: flex; align-items: center; column-gap: var(--kd-space-8); min-height: var(--lc-dateizeile); font-size: 12px; line-height: 20px; }
+.lc-datei { display: flex; flex-wrap: wrap; align-items: center; column-gap: var(--kd-space-8); min-width: 0; min-height: var(--lc-dateizeile); font-size: 12px; line-height: 20px; }
 .lc-datei-kuerzel { flex: none; min-width: 4em; font-family: var(--font-mono); font-size: 11px; font-weight: 600; color: var(--kd-ink-muted); }
-.lc-datei-name { flex: 1 1 auto; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--kd-ink); }
+.lc-datei-name { flex: 1 1 96px; min-width: 96px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--kd-ink); }
 .lc-datei-groesse { flex: none; color: var(--kd-ink-muted); font-variant-numeric: tabular-nums; }
 .lc-datei-entfernen { flex: none; min-width: 24px; min-height: 24px; padding: 0 var(--kd-space-8); border: 1px solid var(--kd-line-strong); background: var(--kd-surface); color: var(--kd-ink); font: inherit; font-weight: 600; cursor: pointer; touch-action: manipulation; }
 .lc .lc-datei-entfernen:focus-visible { outline: 2px solid var(--kd-focus); outline-offset: 0; }
@@ -217,8 +218,8 @@ body { background: var(--kd-bg); color: var(--kd-ink); font-family: var(--font-s
 .lc-send-schalter button { height: var(--kd-row); padding: 0 var(--kd-space-8); border: 1px solid var(--kd-line-strong); background: var(--kd-surface); color: var(--kd-ink); font-weight: 600; cursor: pointer; touch-action: manipulation; }
 /* Eintrag „wird hochgeladen …“ (R00030 B0450, Baustein Anhang): je Datei Kürzel, Name, Größe und Zustand, darunter
    ⚠ mit dem Text der Instanz und die Schalter der Datei */
-.lc-hochladung-dateien { margin: var(--kd-space-4) 0 0; padding: 0; list-style: none; display: grid; row-gap: var(--kd-space-4); }
-.lc-hochladung-kopf { display: flex; align-items: baseline; column-gap: var(--kd-space-8); min-width: 0; font-size: 12px; line-height: 20px; }
+.lc-hochladung-dateien { margin: var(--kd-space-4) 0 0; padding: 0; list-style: none; display: grid; grid-template-columns: minmax(0, 1fr); row-gap: var(--kd-space-4); }
+.lc-hochladung-kopf { display: flex; flex-wrap: wrap; align-items: baseline; column-gap: var(--kd-space-8); min-width: 0; font-size: 12px; line-height: 20px; }
 .lc-hochladung-zustand { flex: none; color: var(--kd-ink-muted); }
 .lc-hochladung-grund { margin: 0; font-size: 12px; line-height: 20px; color: var(--kd-danger); font-weight: 600; overflow-wrap: anywhere; }
 .lc-hochladung-schalter:empty { display: none; }
