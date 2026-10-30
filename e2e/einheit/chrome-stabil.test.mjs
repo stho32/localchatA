@@ -27,6 +27,7 @@ test('neben chromium läuft das Projekt chrome-stabil mit Google Chrome stable �
   assert.equal(chromeStabil.use.channel, 'chrome');
   for (const spec of DIREKTLINK_SPECS) {
     assert.ok(chromeStabil.testMatch.includes(spec), spec);
+    assert.ok(fs.existsSync(path.join(E2E, 'tests', spec)), `${spec} fehlt — umbenannt, ohne testMatch nachzuziehen?`);
   }
 });
 
