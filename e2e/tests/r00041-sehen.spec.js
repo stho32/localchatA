@@ -3,6 +3,7 @@
 // B0621), nach dem Neuladen und nach dem Nachholen (B0607), Lesestelle, Reihenfolge, außerhalb des Fensters.
 const { test, expect } = require('./rahmen');
 const { sichtbarNach } = require('./hilfen');
+const { netzAus, netzAn, leiste } = require('./r00012-hilfen');
 const { sendenStarten, imBrowserBeitreten, nachrichten } = require('./senden-hilfen');
 const {
   betaSendet, betaVerlauf, bearbeitenPerApi, browserOeffnen, nachrichtMitZeit, zeigtBearbeitet, textknotenMit,
@@ -171,4 +172,47 @@ test('Vor dem Block (B0606): eine Änderung, die vor dem ersten Block ankommt, g
   await expect(nachrichtMitZeit(a.page, zeit).locator('.lc-body')).toHaveText('Hallo zusammen');
   await expect(nachrichtMitZeit(a.page, zeit).locator('.lc-marke', { hasText: 'bearbeitet' })).toHaveCount(1);
   expect(a.fehler).toEqual([]);
+});
+
+const ohneNetzfehler = (fehler) => fehler.filter((zeile) => !/ERR_INTERNET_DISCONNECTED/.test(zeile));
+
+test('Nachholen bearbeitet (B0607): B offline, beta bearbeitet, B online → nach „Wieder verbunden“ zeigt B den neuen Text mit „bearbeitet“, ohne Neuladen', async ({ browser }) => {
+  instanz = await sendenStarten();
+  const beta = await betaSendet(instanz.adresse, ['Hallo']);
+  const zeit = beta.zeiten[0];
+  const b = await browserOeffnen(browser);
+  await imBrowserBeitreten(b.page, instanz.adresse, 'anna');
+  await expect(nachrichtMitZeit(b.page, zeit)).toHaveCount(1);
+  await b.page.evaluate(() => { window.nichtNeuGeladen = true; });
+
+  await netzAus(b);
+  expect((await bearbeitenPerApi(instanz.adresse, beta.token, zeit, 'Hallo zusammen')).status).toBe(200);
+  await netzAn(b);
+  await expect(leiste(b.page)).toHaveText(/Wieder verbunden/);
+  await expect(nachrichtMitZeit(b.page, zeit).locator('.lc-body')).toHaveText('Hallo zusammen');
+  await expect(nachrichtMitZeit(b.page, zeit).locator('.lc-marke', { hasText: 'bearbeitet' })).toHaveCount(1);
+  expect(await b.page.evaluate(() => window.nichtNeuGeladen)).toBe(true);
+  expect(ohneNetzfehler(b.fehler)).toEqual([]);
+});
+
+test('Außerhalb des Fensters (B0604): 600 Nachrichten, B am Ende; beta bearbeitet die erste → kein Fehler; am Anfang zeigt sie den neuen Text', async ({ browser }) => {
+  const verlauf = betaVerlauf(600);
+  instanz = await sendenStarten({ vorbereiten: verlauf.vorbereiten });
+  const token = (await betaSendet(instanz.adresse, [])).token;
+  const b = await browserOeffnen(browser);
+  await imBrowserBeitreten(b.page, instanz.adresse, 'anna');
+  await expect(nachrichten(b.page)).toHaveCount(100);
+  const erste = verlauf.zeiten[0];
+  await expect(nachrichtMitZeit(b.page, erste)).toHaveCount(0);
+
+  expect((await bearbeitenPerApi(instanz.adresse, token, erste, 'Ganz am Anfang')).status).toBe(200);
+  await b.page.waitForTimeout(300);
+  await b.page.getByRole('log').focus();
+  for (let versuch = 0; versuch < 40 && await nachrichtMitZeit(b.page, erste).count() === 0; versuch += 1) {
+    await b.page.getByRole('log').evaluate((log) => { log.scrollTop = 0; });
+    await b.page.waitForTimeout(150);
+  }
+  await expect(nachrichtMitZeit(b.page, erste).locator('.lc-body')).toHaveText('Ganz am Anfang');
+  await expect(nachrichtMitZeit(b.page, erste).locator('.lc-marke', { hasText: 'bearbeitet' })).toHaveCount(1);
+  expect(b.fehler).toEqual([]);
 });

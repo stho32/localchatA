@@ -126,8 +126,7 @@ export function zeichnen(wurzel, teilnehmer, optionen) {
     // Serverzeit aus einem Ereignis (RFC 3339 mit Versatz): ihr Datum ist das heutige des Servers.
     serverzeitZeigen: (jetzt) => verlauf.heuteSetzen(jetzt.slice(0, 10)),
     nachrichtEmpfangen: (ereignis) => senden.empfangen(ereignis),
-    // Eine geänderte Fassung (ADR-0048 Regel 11) geht an den Verlauf, wenn ihr Channel offen ist.
-    aenderungEmpfangen: ({ channel, nachricht }) => verlauf.fassungAnnehmen(channel, nachricht),
+    aenderungEmpfangen: (ereignis) => senden.fassungEmpfangen(ereignis),
     anzahlZeigen: (wieViele) => {
       anzahl.textContent = String(wieViele);
     },
@@ -146,6 +145,7 @@ export function zeichnen(wurzel, teilnehmer, optionen) {
 // die Warteschlange ruht. Wieder verbunden → Ereignisse wieder annehmen, für den offenen Channel nachholen — oder,
 // war er nie geladen, ihn laden (nachhollauf.js) —, erst nach dem Gelingen 4 s melden und weitersenden — so stehen fremde Nachrichten aus der Trennung
 // vor den eigenen gepufferten (ADR-0037 Regel 7). Scheitert das Nachholen, bleibt die Leiste „Verbindung verloren“.
+// Nach jedem Nachholen liest der Verlauf die Fassungen seines Fensters neu (ADR-0048 Regel 11).
 // Die Leiste liegt über der Mitte, nicht im Verlauf — mit und ohne offenen Channel, einmal je Hauptansicht; Ein- und
 // Ausblenden verschiebt nichts (ADR-0038 Ergänzung Karte #36).
 function wiederverbindenEinrichten({ mitte, verlauf, senden, abrufen, ansagen }, signal) {
@@ -211,6 +211,9 @@ function wiederverbindenEinrichten({ mitte, verlauf, senden, abrufen, ansagen },
       leisteZeigen();
     },
     fertig: (ergebnis, mitLeiste) => {
+      if (ergebnis.art === 'nachgeholt') {
+        verlauf.fassungenAuffrischen();
+      }
       if (!mitLeiste) {
         return;
       }

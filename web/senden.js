@@ -88,6 +88,14 @@ export function sendenEinrichten({
       }
       anwenden(zustellen(zustellung.zustand, { art: 'ereignis', kennung, channel, nachricht }));
     },
+    // Eine geänderte Fassung (ADR-0048 Regel 11) ruht mit den Ereignissen; was in der Trennung geschah, bringt das
+    // Nachholen.
+    fassungEmpfangen: ({ channel, nachricht }) => {
+      if (ereignisseRuhen) {
+        return;
+      }
+      verlauf.fassungAnnehmen(channel, nachricht);
+    },
     channelGeoeffnet: (channel) => {
       offenerChannel = channel;
       verlauf.vorlaeufigeZeigen(zustellung.zustand.vorlaeufige);
