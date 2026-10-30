@@ -3,6 +3,7 @@
 //! Schreibpuffer ist größer als 1 MiB, und die Länge der Datei ändert sich nie.
 
 use crate::gespraeche::anhangablage::Teildatei;
+use std::cell::Cell;
 use std::io;
 
 /// Größter Lese- und Schreibpuffer des Tilgers.
@@ -23,16 +24,40 @@ impl From<io::Error> for Abbruch {
 
 pub type Ergebnis<T> = Result<T, Abbruch>;
 
-/// Die Datei des Tilgers: Länge fest, Lesen und Schreiben nur innerhalb.
+/// Fester Anteil des Arbeitsbudgets für Kopf-Lesungen und Vorauslesen an Bereichsgrenzen.
+const BUDGET_SOCKEL: u64 = 8 * STUECK as u64;
+
+/// Die Datei des Tilgers: Länge fest, Lesen und Schreiben nur innerhalb, jedes Byte gegen das Arbeitsbudget gezählt
+/// (ADR-0047 Ergänzung „Karte #9 Security-Review B1“ Regel 4).
 pub struct Port<'a> {
     datei: &'a dyn Teildatei,
     laenge: u64,
+    budget: u64,
+    verbraucht: Cell<u64>,
+    erschoepft: Cell<bool>,
 }
 
 impl<'a> Port<'a> {
+    /// Port mit dem Budget B = 2 × Länge + 8 MiB.
     pub fn neu(datei: &'a dyn Teildatei) -> io::Result<Port<'a>> {
         let laenge = datei.laenge()?;
-        Ok(Port { datei, laenge })
+        let budget = laenge.saturating_mul(2).saturating_add(BUDGET_SOCKEL);
+        Ok(Port::mit_budget(datei, laenge, budget))
+    }
+
+    fn mit_budget(datei: &'a dyn Teildatei, laenge: u64, budget: u64) -> Port<'a> {
+        Port {
+            datei,
+            laenge,
+            budget,
+            verbraucht: Cell::new(0),
+            erschoepft: Cell::new(false),
+        }
+    }
+
+    /// Gelesene und geschriebene Bytes bis jetzt.
+    pub fn verbraucht(&self) -> u64 {
+        self.verbraucht.get()
     }
 
     pub fn laenge(&self) -> u64 {
@@ -65,6 +90,7 @@ impl<'a> Port<'a> {
         if !self.enthaelt(pos, bytes.len() as u64) {
             return Err(Abbruch::Metadaten("Längen widersprechen sich"));
         }
+        self.buchen(bytes.len() as u64)?;
         self.datei.schreiben_an(pos, bytes)?;
         Ok(())
     }
@@ -74,6 +100,7 @@ impl<'a> Port<'a> {
         if !self.enthaelt(pos, n) {
             return Err(Abbruch::Metadaten("Längen widersprechen sich"));
         }
+        self.buchen(n)?;
         let nullen = vec![0u8; STUECK.min(usize::try_from(n).unwrap_or(STUECK))];
         let mut erledigt = 0u64;
         while erledigt < n {
@@ -94,14 +121,27 @@ impl<'a> Port<'a> {
         }
     }
 
-    fn voll_lesen(&self, pos: u64, puffer: &mut [u8]) -> io::Result<()> {
+    /// Bucht `n` Bytes Arbeit vor dem Zugriff; wer das Budget überschreiten würde, bricht ab, und danach gibt es
+    /// keinen Zugriff mehr.
+    fn buchen(&self, n: u64) -> Ergebnis<()> {
+        let verbraucht = self.verbraucht.get().saturating_add(n);
+        if self.erschoepft.get() || verbraucht > self.budget {
+            self.erschoepft.set(true);
+            return Err(Abbruch::Metadaten("Arbeit über dem Budget"));
+        }
+        self.verbraucht.set(verbraucht);
+        Ok(())
+    }
+
+    fn voll_lesen(&self, pos: u64, puffer: &mut [u8]) -> Ergebnis<()> {
+        self.buchen(puffer.len() as u64)?;
         let mut gelesen = 0;
         while gelesen < puffer.len() {
             let n = self
                 .datei
                 .lesen_an(pos + gelesen as u64, &mut puffer[gelesen..])?;
             if n == 0 {
-                return Err(io::Error::from(io::ErrorKind::UnexpectedEof));
+                return Err(io::Error::from(io::ErrorKind::UnexpectedEof).into());
             }
             gelesen += n;
         }
@@ -311,6 +351,56 @@ mod tests {
         ));
         assert_eq!(datei.anzahl_lesungen(), 0);
         assert_eq!(port.lesen(0, MIB as u64).expect("1 MiB").len(), MIB);
+    }
+
+    fn ueber_dem_budget(ergebnis: Ergebnis<()>) -> bool {
+        matches!(ergebnis, Err(Abbruch::Metadaten("Arbeit über dem Budget")))
+    }
+
+    /// ADR-0047 B1 P4 (B0637): Budget 100 Bytes, Leser fordert 101 → „Arbeit über dem Budget“, kein Zugriff danach.
+    #[test]
+    fn ein_leser_ueber_dem_budget_bricht_vor_dem_zugriff_ab_und_greift_danach_nie_mehr_zu() {
+        let datei = Datei::mit(vec![3; 1_000]);
+        let port = Port::mit_budget(&datei, 1_000, 100);
+
+        assert!(ueber_dem_budget(port.lesen(0, 101).map(drop)));
+        assert!(ueber_dem_budget(port.lesen(0, 1).map(drop)));
+        assert!(ueber_dem_budget(port.schreiben(0, &[1])));
+        assert!(ueber_dem_budget(port.nullen(0, 1)));
+        assert!(ueber_dem_budget(port.kette().bytes(0, 1).map(drop)));
+
+        assert_eq!(datei.anzahl_lesungen(), 0);
+        assert_eq!(datei.groesste_schreibung(), 0);
+        assert_eq!(datei.inhalt(), vec![3; 1_000]);
+    }
+
+    /// Lesen, Schreiben und Nullen zählen gemeinsam; genau am Budget geht es noch, ein Byte darüber nicht.
+    #[test]
+    fn lesen_schreiben_und_nullen_zaehlen_gemeinsam_bis_genau_zum_budget() {
+        let datei = Datei::mit(vec![3; 1_000]);
+        let port = Port::mit_budget(&datei, 1_000, 100);
+
+        assert_eq!(port.lesen(0, 40).expect("40").len(), 40);
+        port.schreiben(0, &[1; 30]).expect("30");
+        port.nullen(500, 30).expect("30");
+        assert_eq!(port.verbraucht(), 100);
+        assert!(ueber_dem_budget(port.nullen(600, 1)));
+
+        assert_eq!(datei.anzahl_lesungen(), 1);
+        assert_eq!(datei.inhalt()[600], 3);
+    }
+
+    /// Das Budget eines Ports ist 2 × Länge + 8 MiB: eine Datei von 1 MiB darf zehnmal ganz gelesen werden.
+    #[test]
+    fn das_budget_ist_zweimal_die_laenge_und_8_mib() {
+        let datei = Datei::mit(vec![0; MIB]);
+        let port = Port::neu(&datei).expect("Port");
+
+        for _ in 0..10 {
+            port.lesen(0, MIB as u64).expect("im Budget");
+        }
+        assert!(ueber_dem_budget(port.lesen(0, 1).map(drop)));
+        assert_eq!(datei.anzahl_lesungen(), 10);
     }
 
     #[test]
