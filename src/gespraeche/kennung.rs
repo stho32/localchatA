@@ -7,7 +7,7 @@ use std::net::IpAddr;
 
 /// Name nach der Namensregel (ADR-0013), genau ein `@`, Herkunft als Textform einer IP-Adresse
 /// (`[0-9a-f.:]`, 1 bis 45 Zeichen).
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct Kennung(String);
 
 impl Kennung {

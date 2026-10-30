@@ -11,6 +11,7 @@ pub mod anhangquote;
 #[cfg(test)]
 pub mod anhangspeicher;
 pub mod anhangverzeichnis;
+mod direktpaar;
 pub mod einstellungen;
 pub mod erwaehnung;
 mod frist;
@@ -40,6 +41,7 @@ pub use crate::anwesenheit::Art;
 pub use anhaenge::{
     Anhangkennzahlen, Anhangschwelle, AnhangschwelleMelden, Anmeldefehler, STANDARD_ANHANGQUOTE,
 };
+pub use direktpaar::{Direktpaar, Selbst};
 pub use frist::{FRIST_MAX, FRIST_MIN, Frist, STANDARD_FRIST_TAGE, frist_in_spanne};
 pub use kennung::Kennung;
 pub use logablage::{Angehaengt, Dateiablage, Gespraech, Logablage};
