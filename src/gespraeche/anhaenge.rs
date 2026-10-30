@@ -1760,4 +1760,84 @@ mod tests {
         assert!(zweites_mal.is_empty());
         assert!(speicher.anhaenge().values().all(Vec::is_empty));
     }
+
+    /// R00040 „Wettlauf mit dem Entfallen“ (M6; ADR-0048 Regel 9 „Wettläufe“): Uhr 23:59:59.900, Frist 1 in
+    /// `allgemein`, Nachricht A mit Anhang (1 MiB) dort, Nachricht B mit Anhang (1 MiB) in `technik` (Frist 7); kurz nach
+    /// Mitternacht Entfallen und Löschen von A gleichzeitig — zehnmal → entweder `Nachricht` (404) oder gelöscht mit
+    /// einem Anhang; je Anhang genau ein Abzug: G ist danach genau z(B), die Invarianten aus F1′ Regel 1 gelten.
+    #[test]
+    fn loeschen_und_entfallen_gleichzeitig_ziehen_je_anhang_einmal_ab() {
+        use crate::gespraeche::nachricht_loeschen::{Loeschfehler, NachrichtGeloescht};
+        let tag = NaiveDate::from_ymd_opt(2026, 10, 29).expect("Tag");
+        let (beta, alpha) = (kennung("beta@127.0.0.1"), kennung("alpha@127.0.0.1"));
+        for _ in 0..10 {
+            let ablage = Arc::new(Speicherablage::neu());
+            ablage.gespraech_anlegen(&Gespraech::channel("allgemein"));
+            ablage.gespraech_anlegen(&Gespraech::channel("technik"));
+            let uhr = Arc::new(GestellteUhr::neu(
+                chrono::DateTime::parse_from_rfc3339("2026-10-29T23:59:59.900+01:00")
+                    .expect("Zeit"),
+            ));
+            let gespraeche = Arc::new(
+                Gespraeche::laden(ablage.clone(), uhr.clone())
+                    .expect("geladen")
+                    .mit_anhangquote(Some(10 * MIB))
+                    .mit_anhangablage(Arc::new(
+                        crate::gespraeche::anhangspeicher::Anhangspeicher::neu(),
+                    ))
+                    .mit_zufall(Arc::new(FesteFolge::neu(1..=100))),
+            );
+            let senden = |channel: &str, name: &str| {
+                let id = fertig(&gespraeche, "beta@127.0.0.1", name, &vec![1; MIB as usize]);
+                let Ok(crate::gespraeche::Gesendet::Neu(nachricht)) = gespraeche
+                    .senden_mit_anhaengen(
+                        &Gespraech::channel(channel),
+                        &beta,
+                        Art::Agent,
+                        "x",
+                        &[id],
+                        None,
+                    )
+                else {
+                    panic!("gesendet")
+                };
+                nachricht.zeit
+            };
+            let a = senden("allgemein", "a.bin");
+            senden("technik", "b.bin");
+            gespraeche
+                .frist_setzen("allgemein", 1, true, &alpha)
+                .expect("Frist 1");
+            uhr.stellen(
+                chrono::DateTime::parse_from_rfc3339("2026-10-30T00:00:00.100+01:00")
+                    .expect("Zeit"),
+            );
+
+            let (geloescht, _) = std::thread::scope(|scope| {
+                let loeschen = scope.spawn(|| {
+                    gespraeche.nachricht_loeschen(&Gespraech::channel("allgemein"), &beta, a)
+                });
+                let entfallen = scope.spawn(|| {
+                    gespraeche.pflegen(
+                        NaiveDate::from_ymd_opt(2026, 10, 30).expect("Tag"),
+                        crate::gespraeche::Pflegeanlass::Tageswechsel,
+                    )
+                });
+                (
+                    loeschen.join().expect("löschen"),
+                    entfallen.join().expect("entfallen"),
+                )
+            });
+
+            match &geloescht {
+                Err(Loeschfehler::Nachricht) => {}
+                Ok(NachrichtGeloescht::Neu { anhaenge, .. }) => {
+                    assert_eq!(anhaenge.umfang.anhaenge, 1, "{geloescht:?}");
+                }
+                anderes => panic!("{anderes:?}"),
+            }
+            assert_eq!(gespraeche.anhangkennzahlen().gebunden, MIB, "{geloescht:?}");
+            invarianten(&gespraeche, &[("allgemein", tag), ("technik", tag)]);
+        }
+    }
 }
