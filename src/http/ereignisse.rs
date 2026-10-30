@@ -14,8 +14,8 @@ use crate::anwesenheit::status::Status;
 use crate::anwesenheit::{Anwesenheit, Halter, Stand, Wechsel};
 use crate::gespraeche::{ChannelStand, ChannelWechsel, Nachricht};
 use crate::live::bus::{Abonnement, Empfang, Ereignis};
-use crate::protokoll::episoden::Auftreten;
-use crate::protokoll::{Bereich, Kontext, Protokoll, Schluessel, Stufe, episodentexte};
+use crate::protokoll::episoden::{Auftreten, Quelle};
+use crate::protokoll::{Bereich, Protokoll, Schluessel, Stufe, episodentexte};
 use crate::start::ende::Ende;
 use axum::extract::{ConnectInfo, State};
 use axum::http::HeaderMap;
@@ -230,23 +230,24 @@ fn herzschlag_ereignis(anwesenheit: &Anwesenheit) -> Event {
     Event::default().event("herzschlag").data(jetzt.to_string())
 }
 
+/// Das Auftreten „Ereignisstrom überholt“: Quelle ist die Kennung; wie viele Ereignisse der Anlauf verpasst hat,
+/// gehört dem einzelnen Auftreten und steht nur in der Beginn-Zeile.
+pub(crate) fn ueberholt_auftreten(kennung: &str, verpasst: u64) -> Auftreten {
+    Auftreten::neu(
+        Stufe::Warning,
+        Bereich::Live,
+        episodentexte::EREIGNISSTROM_UEBERHOLT,
+        Quelle::neu().mit(Schluessel::Kennung, kennung),
+    )
+    .einzeln(Schluessel::Anzahl, verpasst)
+}
+
 impl Strom {
     /// `WARNING live` als Episode je Kennung: die Beginn-Zeile trägt, wie viele Ereignisse der erste Anlauf verpasst
     /// hat; das Ende zählt die Überholungen (R00022 F0073, ADR-0042 Ergänzung Karte #31 Punkt 7).
     fn ueberholt_melden(&self, verpasst: u64) {
-        self.protokoll.episode(Auftreten {
-            stufe: Stufe::Warning,
-            bereich: Bereich::Live,
-            text: episodentexte::EREIGNISSTROM_UEBERHOLT,
-            quelle: self.kennung.clone(),
-            kontext: Kontext::neu()
-                .mit(Schluessel::Kennung, &self.kennung)
-                .mit_nur_beginn(Schluessel::Anzahl, verpasst),
-            art: None,
-            verworfen: None,
-            bytes: None,
-            anzeige: None,
-        });
+        self.protokoll
+            .episode(ueberholt_auftreten(&self.kennung, verpasst));
     }
 
     fn ist_eigenes_weg(&self, wechsel: &Wechsel) -> bool {

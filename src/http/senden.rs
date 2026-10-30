@@ -17,7 +17,7 @@ use super::teilnehmer::Teilnehmer;
 use crate::gespraeche::anhangid::Anhangid;
 use crate::gespraeche::textregel::{TEXT_HOECHSTENS_BYTES, Textfehler, text_pruefen};
 use crate::gespraeche::{Gesendet, Gespraech, Nachricht, Sendefehler};
-use crate::protokoll::episoden::Auftreten;
+use crate::protokoll::episoden::{Auftreten, Quelle};
 use crate::protokoll::vorlauf;
 use crate::protokoll::{Bereich, Kontext, Schluessel, Stufe};
 use crate::schreibkonto::eimer::kosten_senden;
@@ -276,22 +276,22 @@ fn nicht_gespeichert(
 }
 
 /// Das Auftreten eines Schreibfehlers: die Quelle ist Datei und Grund, die Kennung gehört dem einzelnen Auftreten.
-fn schreibfehler_auftreten(channel: &str, wer: &str, datei: &str, grund: &str) -> Auftreten {
-    Auftreten {
-        stufe: Stufe::Error,
-        bereich: Bereich::Senden,
-        text: crate::protokoll::episodentexte::NICHT_GESPEICHERT,
-        quelle: format!("{datei} {grund}"),
-        kontext: Kontext::neu()
+pub(super) fn schreibfehler_auftreten(
+    channel: &str,
+    wer: &str,
+    datei: &str,
+    grund: &str,
+) -> Auftreten {
+    Auftreten::neu(
+        Stufe::Error,
+        Bereich::Senden,
+        crate::protokoll::episodentexte::NICHT_GESPEICHERT,
+        Quelle::neu()
             .mit(Schluessel::Channel, channel)
-            .mit_nur_beginn(Schluessel::Kennung, wer)
             .mit(Schluessel::Datei, datei)
             .mit(Schluessel::Grund, grund),
-        art: None,
-        verworfen: None,
-        bytes: None,
-        anzeige: None,
-    }
+    )
+    .einzeln(Schluessel::Kennung, wer)
 }
 
 /// 500 nach gescheitertem Binden (ADR-0046 Regel 6): `ERROR senden` mit Gespräch, Tag und Datei nur als Präfix;
@@ -348,21 +348,16 @@ fn quote_melden(zustand: &Zustand, channel: &str, wer: &str, belegt: u64, hoechs
 /// Quelle der Quote-Episode ist die Kennung (mit der Grenze); Channel und Belegung sind Werte der einzelnen
 /// Abweisung und stehen nur in der Beginn-Zeile (ADR-0044 Ergänzung Karte #66).
 pub(super) fn quote_auftreten(channel: &str, wer: &str, belegt: u64, hoechstens: u64) -> Auftreten {
-    Auftreten {
-        stufe: Stufe::Warning,
-        bereich: Bereich::Quote,
-        text: crate::protokoll::episodentexte::QUOTE_ERREICHT,
-        quelle: wer.to_string(),
-        kontext: Kontext::neu()
+    Auftreten::neu(
+        Stufe::Warning,
+        Bereich::Quote,
+        crate::protokoll::episodentexte::QUOTE_ERREICHT,
+        Quelle::neu()
             .mit(Schluessel::Kennung, wer)
-            .mit_nur_beginn(Schluessel::Channel, channel)
-            .mit_nur_beginn(Schluessel::Belegt, belegt)
             .mit(Schluessel::Hoechstens, hoechstens),
-        art: None,
-        verworfen: None,
-        bytes: None,
-        anzeige: None,
-    }
+    )
+    .einzeln(Schluessel::Channel, channel)
+    .einzeln(Schluessel::Belegt, belegt)
 }
 
 /// Bytes in Worten für den 507-Text.
@@ -688,7 +683,7 @@ mod tests {
             .collect();
         assert_eq!(zeilen.len(), 2, "{zeilen:#?}");
         assert!(
-            zeilen[0].ends_with("| kennung=alpha@10.0.0.9 channel=a belegt=100 hoechstens=1000"),
+            zeilen[0].ends_with("| kennung=alpha@10.0.0.9 hoechstens=1000 channel=a belegt=100"),
             "{zeilen:#?}"
         );
         assert!(zeilen[1].contains("Episode endet: 2 in "), "{zeilen:#?}");

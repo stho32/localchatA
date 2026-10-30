@@ -443,7 +443,7 @@ async fn ohne_quote_wird_ueber_1_mib_angenommen() {
 
 // ---- F0076 Abweisungen als Episode (B0363) ----
 
-const BEGINN: &str = "WARNING quote Senden abgewiesen: Quote erreicht — Episode beginnt | kennung=beta@127.0.0.1 channel=allgemein belegt=1048519 hoechstens=1048576";
+const BEGINN: &str = "WARNING quote Senden abgewiesen: Quote erreicht — Episode beginnt | kennung=beta@127.0.0.1 hoechstens=1048576 channel=allgemein belegt=1048519";
 
 /// F0076 „Episode je Kennung“ (US-8): an der Quote sendet `beta` dreimal → drei 507, genau eine Beginn-Zeile (auch
 /// auf stderr), drei DEBUG-Zeilen; nach 2 s Ruhe die Ende-Zeile mit 3. Mutante „je 507 eine WARNING“ wird rot.

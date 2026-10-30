@@ -15,7 +15,7 @@ use crate::gespraeche::Anmeldefehler;
 use crate::gespraeche::anhangeingang::{Anmeldung, Offen};
 use crate::gespraeche::anhangpruefung::Namensfehler;
 use crate::gespraeche::anhangquote::{Platzfehler, Quotestand, zaehlmass};
-use crate::protokoll::episoden::Auftreten;
+use crate::protokoll::episoden::{Auftreten, Quelle};
 use crate::protokoll::episodentexte;
 use crate::protokoll::{Bereich, Kontext, Schluessel, Stufe};
 use axum::Json;
@@ -205,27 +205,22 @@ fn anspruch_melden(zustand: &Zustand, teilnehmer: &Teilnehmer, bytes: u64, anmel
 
 /// Quelle der Episode „Großer Anspruch“ ist die Kennung (mit ihrer Herkunft); Bytes und Frist sind Werte der
 /// einzelnen Anmeldung und stehen nur in der Beginn-Zeile (ADR-0042 Ergänzung Karte #66).
-fn anspruch_auftreten(
+pub(crate) fn anspruch_auftreten(
     wer: &str,
     herkunft: std::net::IpAddr,
     bytes: u64,
     hochladen_bis: &str,
 ) -> Auftreten {
-    Auftreten {
-        stufe: Stufe::Information,
-        bereich: Bereich::Anhang,
-        text: episodentexte::GROSSER_ANSPRUCH,
-        quelle: wer.to_string(),
-        kontext: Kontext::neu()
+    Auftreten::neu(
+        Stufe::Information,
+        Bereich::Anhang,
+        episodentexte::GROSSER_ANSPRUCH,
+        Quelle::neu()
             .mit(Schluessel::Kennung, wer)
-            .mit(Schluessel::Herkunft, herkunft)
-            .mit_nur_beginn(Schluessel::Bytes, bytes)
-            .mit_nur_beginn(Schluessel::HochladenBis, hochladen_bis),
-        art: None,
-        verworfen: None,
-        bytes: None,
-        anzeige: None,
-    }
+            .mit(Schluessel::Herkunft, herkunft),
+    )
+    .einzeln(Schluessel::Bytes, bytes)
+    .einzeln(Schluessel::HochladenBis, hochladen_bis)
 }
 
 /// 201 `{anhang: {id, name, bytes, hochladen, anlauf_bis, hochladen_bis}}`.
@@ -263,51 +258,45 @@ fn abweisung_melden(
 /// Das Auftreten einer Abweisung am Platz. Quelle ist bei `voll` und `hochladungen` die Kennung (mit der Grenze),
 /// bei `platte` die Herkunft; `bytes`, `belegt`, `reserviert` und `frei` sind Werte der einzelnen Anmeldung und
 /// stehen nur in der Beginn-Zeile (ADR-0042 Ergänzung Karte #66).
-fn abweisung_auftreten(
+pub(crate) fn abweisung_auftreten(
     teilnehmer: &Teilnehmer,
     fehler: &Anmeldefehler,
     bytes: u64,
 ) -> Option<Auftreten> {
     let wer = teilnehmer.kennung.als_text();
-    let (text, quelle, kontext) = match fehler {
+    let (text, quelle, einzeln) = match fehler {
         Anmeldefehler::Platz(Platzfehler::Voll(stand)) => (
             episodentexte::ANHAENGE_VOLL,
-            wer.to_string(),
-            Kontext::neu()
+            Quelle::neu()
                 .mit(Schluessel::Kennung, wer)
-                .mit_nur_beginn(Schluessel::Bytes, bytes)
-                .mit_nur_beginn(Schluessel::Belegt, stand.belegt)
                 .mit(Schluessel::Hoechstens, stand.hoechstens),
+            vec![
+                (Schluessel::Bytes, bytes),
+                (Schluessel::Belegt, stand.belegt),
+            ],
         ),
         Anmeldefehler::Platz(Platzfehler::Hochladungen(stand)) => (
             episodentexte::HOCHLADUNGEN_BELEGEN,
-            wer.to_string(),
-            Kontext::neu()
+            Quelle::neu()
                 .mit(Schluessel::Kennung, wer)
-                .mit_nur_beginn(Schluessel::Reserviert, stand.reserviert)
                 .mit(Schluessel::Hoechstens, stand.hoechstens),
+            vec![(Schluessel::Reserviert, stand.reserviert)],
         ),
         Anmeldefehler::Platz(Platzfehler::Platte { frei }) => (
             episodentexte::PLATTE_FAST_VOLL,
-            teilnehmer.herkunft.to_string(),
-            Kontext::neu()
-                .mit(Schluessel::Herkunft, teilnehmer.herkunft)
-                .mit_nur_beginn(Schluessel::Bytes, bytes)
-                .mit_nur_beginn(Schluessel::Frei, *frei),
+            Quelle::neu().mit(Schluessel::Herkunft, teilnehmer.herkunft),
+            vec![(Schluessel::Bytes, bytes), (Schluessel::Frei, *frei)],
         ),
         _ => return None,
     };
-    Some(Auftreten {
-        stufe: Stufe::Warning,
-        bereich: Bereich::Anhang,
-        text,
-        quelle,
-        kontext,
-        art: None,
-        verworfen: None,
-        bytes: None,
-        anzeige: None,
-    })
+    let auftreten = Auftreten::neu(Stufe::Warning, Bereich::Anhang, text, quelle);
+    Some(
+        einzeln
+            .into_iter()
+            .fold(auftreten, |auftreten, (schluessel, wert)| {
+                auftreten.einzeln(schluessel, wert)
+            }),
+    )
 }
 
 /// Die Antwort auf eine abgewiesene Anmeldung und ihr Regelschlüssel.
@@ -543,13 +532,13 @@ mod tests {
             (
                 "Platz für Anhänge voll",
                 |n| Anmeldefehler::Platz(Platzfehler::Voll(stand(n))),
-                "bytes=5 belegt=101 hoechstens=1000",
+                "| kennung=beta@10.0.0.9 hoechstens=1000 bytes=5 belegt=101",
                 "| kennung=beta@10.0.0.9 hoechstens=1000",
             ),
             (
                 "laufende Hochladungen belegen den Platz",
                 |n| Anmeldefehler::Platz(Platzfehler::Hochladungen(stand(n))),
-                "reserviert=11 hoechstens=1000",
+                "| kennung=beta@10.0.0.9 hoechstens=1000 reserviert=11",
                 "| kennung=beta@10.0.0.9 hoechstens=1000",
             ),
             (

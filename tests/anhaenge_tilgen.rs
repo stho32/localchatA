@@ -408,6 +408,12 @@ async fn drei_mal_metadaten_nicht_tilgbar_ist_eine_episode() {
         })
         .collect();
     assert_eq!(beginn.len(), 1, "{zeilen:#?}");
+    assert!(
+        beginn[0]
+            .ends_with("| herkunft=127.0.0.1 art=image/jpeg grund=\"Längen widersprechen sich\""),
+        "R00042: `art` und `grund` gehören dem einzelnen Auftreten und stehen im Beginn: {}",
+        beginn[0]
+    );
     let einzeln = zeilen
         .iter()
         .filter(|z| z.contains("Metadaten nicht tilgbar") && !z.contains("Episode"))

@@ -18,7 +18,7 @@ use crate::gespraeche::anhangpruefung::erkenner::Erkenner;
 use crate::gespraeche::anhangpruefung::tilger::port::Abbruch;
 use crate::gespraeche::anhangpruefung::tilger::{Getilgt, tilgen};
 use crate::gespraeche::hochladefristen::{Fristart, Fristen, STUECKFRIST, gesamtfrist};
-use crate::protokoll::episoden::Auftreten;
+use crate::protokoll::episoden::{Auftreten, Quelle};
 use crate::protokoll::{Bereich, Kontext, Schluessel, Stufe};
 use axum::Json;
 use axum::body::{Body, Bytes};
@@ -95,21 +95,15 @@ pub async fn hochladen(
             zustand
                 .protokoll
                 .abgewiesen(crate::protokoll::zaehler::Abweisungsart::ZuLangsam);
-            zustand.protokoll.episode(Auftreten {
-                stufe: Stufe::Warning,
-                bereich: Bereich::Anhang,
-                text: crate::protokoll::episodentexte::HOCHLADEN_ZU_LANGSAM,
-                quelle: teilnehmer.herkunft.to_string(),
-                kontext: Kontext::neu().mit(Schluessel::Herkunft, teilnehmer.herkunft),
-                art: None,
-                verworfen: None,
-                bytes: None,
-                anzeige: None,
-            });
+            zustand
+                .protokoll
+                .episode(zu_langsam_auftreten(teilnehmer.herkunft));
         }
-        Ergebnis::Metadaten(grund) => zustand
-            .protokoll
-            .episode(metadaten_auftreten(teilnehmer.herkunft, grund)),
+        Ergebnis::Metadaten { grund, art } => {
+            zustand
+                .protokoll
+                .episode(metadaten_auftreten(teilnehmer.herkunft, art, grund))
+        }
         _ => {}
     }
     if let Ergebnis::Fehler(grund) | Ergebnis::Platte { grund, .. } = &ergebnis {
@@ -193,7 +187,7 @@ fn ende_melden(
 fn abbruchgrund(ergebnis: &Ergebnis) -> &'static str {
     match ergebnis {
         Ergebnis::Fertig { .. } => "fertig",
-        Ergebnis::Metadaten(_) => "metadaten",
+        Ergebnis::Metadaten { .. } => "metadaten",
         Ergebnis::Frist(Fristart::Stueckfrist) => "stueckfrist",
         Ergebnis::Frist(Fristart::Gesamtfrist) => "gesamtfrist",
         Ergebnis::Lebensende => "lebensende",
@@ -216,7 +210,11 @@ pub enum Ergebnis {
         getilgt: Option<Getilgt>,
     },
     /// Nicht sicher tilgbar (422 `metadaten`): Teildatei gelöscht, Eintrag verworfen, Anspruch frei.
-    Metadaten(&'static str),
+    Metadaten {
+        grund: &'static str,
+        /// Inhaltstyp, den der Erkenner bis dahin sah (nie ein Wert aus der Datei).
+        art: &'static str,
+    },
     /// Stück- oder Gesamtfrist (408).
     Frist(Fristart),
     /// Das Lebensende kam während des Hochladens (408).
@@ -378,7 +376,11 @@ where
         Ok(getilgt) => getilgt,
         Err(Abbruch::Metadaten(grund)) => {
             raeumer.verwerfen();
-            return Ergebnis::Metadaten(grund);
+            let art = erkenner.map_or_else(Art::datei, |erkenner| erkenner.ergebnis());
+            return Ergebnis::Metadaten {
+                grund,
+                art: art.typ,
+            };
         }
         Err(Abbruch::Platte(fehler)) => {
             raeumer.abbrechen();
@@ -605,22 +607,28 @@ fn abgewiesen(fehler: Beginnfehler, wer: &str) -> Response {
     mit_regel(antwort, regel, Some(wer))
 }
 
-/// Quelle der Episode „Metadaten nicht tilgbar“ ist die Herkunft; der Grund (welche Prüfung scheiterte) gehört
-/// dem einzelnen Auftreten und steht nur in der Beginn-Zeile (ADR-0042 Ergänzung Karte #66).
-fn metadaten_auftreten(herkunft: std::net::IpAddr, grund: &str) -> Auftreten {
-    Auftreten {
-        stufe: Stufe::Warning,
-        bereich: Bereich::Anhang,
-        text: crate::protokoll::episodentexte::METADATEN_NICHT_TILGBAR,
-        quelle: herkunft.to_string(),
-        kontext: Kontext::neu()
-            .mit(Schluessel::Herkunft, herkunft)
-            .mit_nur_beginn(Schluessel::Grund, grund),
-        art: None,
-        verworfen: None,
-        bytes: None,
-        anzeige: None,
-    }
+/// Quelle der Episode „Hochladen zu langsam abgebrochen“ ist die Herkunft; es gibt keinen Einzelwert.
+pub(crate) fn zu_langsam_auftreten(herkunft: std::net::IpAddr) -> Auftreten {
+    Auftreten::neu(
+        Stufe::Warning,
+        Bereich::Anhang,
+        crate::protokoll::episodentexte::HOCHLADEN_ZU_LANGSAM,
+        Quelle::neu().mit(Schluessel::Herkunft, herkunft),
+    )
+}
+
+/// Quelle der Episode „Metadaten nicht tilgbar“ ist die Herkunft; die Art der Datei und der Grund (welche Prüfung
+/// scheiterte) gehören dem einzelnen Auftreten und stehen nur in der Beginn-Zeile (ADR-0042 Ergänzung Karte #66
+/// und Z. 354).
+pub(crate) fn metadaten_auftreten(herkunft: std::net::IpAddr, art: &str, grund: &str) -> Auftreten {
+    Auftreten::neu(
+        Stufe::Warning,
+        Bereich::Anhang,
+        crate::protokoll::episodentexte::METADATEN_NICHT_TILGBAR,
+        Quelle::neu().mit(Schluessel::Herkunft, herkunft),
+    )
+    .einzeln(Schluessel::Art, art)
+    .einzeln(Schluessel::Grund, grund)
 }
 
 fn beantworten(ergebnis: Ergebnis, wer: &str) -> Response {
@@ -648,7 +656,7 @@ fn beantworten(ergebnis: Ergebnis, wer: &str) -> Response {
             })),
         )
             .into_response(),
-        Ergebnis::Metadaten(grund) => (
+        Ergebnis::Metadaten { grund, .. } => (
             StatusCode::UNPROCESSABLE_ENTITY,
             Json(json!({
                 "fehler": "Nicht hochgeladen: die Datei ist beschädigt — Ortsangaben ließen sich nicht sicher entfernen.",
@@ -734,14 +742,14 @@ mod tests {
             im_speicher("2026-10-28T12:00:00+01:00", Stufe::Information);
         let herkunft = "10.0.0.9".parse().expect("IP");
         for grund in ["MPF-Index unlesbar", "über 100.000 Blöcke"] {
-            protokoll.episode(metadaten_auftreten(herkunft, grund));
+            protokoll.episode(metadaten_auftreten(herkunft, "image/jpeg", grund));
         }
         uhr.stellen(zeit("2026-10-28T12:01:00+01:00"));
         protokoll.episoden_schliessen();
 
         let zeilen = speicher.zeilen();
         assert_eq!(zeilen.len(), 2, "{zeilen:#?}");
-        assert!(zeilen[0].contains("grund="), "{zeilen:#?}");
+        assert!(zeilen[0].contains("art=image/jpeg grund="), "{zeilen:#?}");
         assert!(zeilen[1].contains("Episode endet: 2 in "), "{zeilen:#?}");
         assert!(zeilen[1].ends_with("| herkunft=10.0.0.9"), "{zeilen:#?}");
     }

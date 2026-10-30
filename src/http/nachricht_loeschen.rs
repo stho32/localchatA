@@ -158,11 +158,10 @@ fn abweisung_melden(protokoll: &Protokoll, fehler: &Loeschfehler, channel: &str,
             protokoll.episode(schreibfehler_auftreten(channel, wer, datei, grund));
         }
         Loeschfehler::Quote { belegt, hoechstens } => {
-            let mut auftreten = quote_auftreten(channel, wer, *belegt, *hoechstens);
-            auftreten.kontext = auftreten
-                .kontext
-                .mit_nur_beginn(Schluessel::Route, "loeschen");
-            protokoll.episode(auftreten);
+            protokoll.episode(
+                quote_auftreten(channel, wer, *belegt, *hoechstens)
+                    .einzeln(Schluessel::Route, "loeschen"),
+            );
         }
         Loeschfehler::Unbekannt | Loeschfehler::Nachricht => {}
     }

@@ -4,10 +4,10 @@
 
 use super::teilnehmer::Teilnehmer;
 use crate::gespraeche::Kennung;
-use crate::protokoll::episoden::Auftreten;
+use crate::protokoll::episoden::{Auftreten, Quelle};
 use crate::protokoll::episodentexte;
 use crate::protokoll::grenze::Grenzart;
-use crate::protokoll::{Bereich, Kontext, Protokoll, Schluessel, Stufe};
+use crate::protokoll::{Bereich, Protokoll, Schluessel, Stufe};
 use crate::schreibkonto::{Gebremst, Grenze};
 use axum::Json;
 use axum::http::StatusCode;
@@ -70,24 +70,19 @@ pub fn gebremst_melden(
 
 /// Das Auftreten einer 429 der Bremse: Quelle ist die Kennung; die Grenze zählt als Art, damit die Ende-Zeile je
 /// Grenze zählt (ADR-0042 Ergänzung Karte #31 Punkt 2), und steht als `grenze=` nur in der Beginn-Zeile (Punkt 4).
-fn gebremst_auftreten(wer: &str, grenze: Grenze, gegenstand: Gegenstand) -> Auftreten {
+pub(crate) fn gebremst_auftreten(wer: &str, grenze: Grenze, gegenstand: Gegenstand) -> Auftreten {
     let grenze = match grenze {
         Grenze::Kennung => Grenzart::Kennung,
         Grenze::Herkunft => Grenzart::Herkunft,
     };
-    Auftreten {
-        stufe: Stufe::Warning,
-        bereich: Bereich::Schreibkonto,
-        text: gegenstand.episodentext(),
-        quelle: wer.to_string(),
-        kontext: Kontext::neu()
-            .mit(Schluessel::Kennung, wer)
-            .mit_nur_beginn(Schluessel::Grenze, grenze),
-        art: Some(grenze.als_text()),
-        verworfen: None,
-        bytes: None,
-        anzeige: None,
-    }
+    Auftreten::neu(
+        Stufe::Warning,
+        Bereich::Schreibkonto,
+        gegenstand.episodentext(),
+        Quelle::neu().mit(Schluessel::Kennung, wer),
+    )
+    .einzeln(Schluessel::Grenze, grenze)
+    .art(grenze.als_text())
 }
 
 /// 429 mit `Retry-After` = ⌈`wieder_in_ms` / 1.000⌉, mindestens 1; die Sekunden im Text sind `Retry-After`.

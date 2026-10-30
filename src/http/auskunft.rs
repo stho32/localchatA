@@ -4,7 +4,7 @@
 //! des Grenzschutzes.
 
 use super::namensauskunft::Namensauskunft;
-use crate::protokoll::episoden::Auftreten;
+use crate::protokoll::episoden::{Auftreten, Quelle};
 use crate::protokoll::{Bereich, Kontext, Protokoll, Schluessel, Stufe};
 use crate::uhr::{Uhr, Zeit};
 use std::collections::{HashMap, HashSet};
@@ -587,20 +587,15 @@ impl Abfrage {
 /// Das Auftreten „Namensauflösung zu langsam“: die Quelle ist die Namensauskunft als Ganzes; Art und Schlüssel der
 /// einzelnen Abfrage gehören dem einzelnen Auftreten und stehen nur in der Beginn-Zeile (ADR-0042 Ergänzung
 /// Karte #66).
-fn zu_langsam_auftreten(abfrage: &Abfrage) -> Auftreten {
-    Auftreten {
-        stufe: Stufe::Warning,
-        bereich: Bereich::Grenzschutz,
-        text: crate::protokoll::episodentexte::NAMENSAUFLOESUNG_ZU_LANGSAM,
-        quelle: "namensauskunft".to_string(),
-        kontext: Kontext::neu()
-            .mit_nur_beginn(Schluessel::Art, abfrage.art())
-            .mit_nur_beginn(Schluessel::Schluessel, abfrage.schluessel()),
-        art: None,
-        verworfen: None,
-        bytes: None,
-        anzeige: None,
-    }
+pub(crate) fn zu_langsam_auftreten(abfrage: &Abfrage) -> Auftreten {
+    Auftreten::neu(
+        Stufe::Warning,
+        Bereich::Grenzschutz,
+        crate::protokoll::episodentexte::NAMENSAUFLOESUNG_ZU_LANGSAM,
+        Quelle::instanz(),
+    )
+    .einzeln(Schluessel::Art, abfrage.art())
+    .einzeln(Schluessel::Schluessel, abfrage.schluessel())
 }
 
 #[cfg(test)]

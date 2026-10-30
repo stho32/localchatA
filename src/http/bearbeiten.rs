@@ -21,7 +21,7 @@ use super::senden::{
 use super::teilnehmer::Teilnehmer;
 use crate::gespraeche::textregel::{Textfehler, laenge_und_zeichen_pruefen};
 use crate::gespraeche::{Bearbeitet, Bearbeitfehler, Gespraech, Kennung, Nachricht};
-use crate::protokoll::episoden::Auftreten;
+use crate::protokoll::episoden::{Auftreten, Quelle};
 use crate::protokoll::vorlauf;
 use crate::protokoll::{Bereich, Kontext, Protokoll, Schluessel, Stufe};
 use crate::schreibkonto::eimer::kosten_senden;
@@ -187,11 +187,10 @@ fn abweisung_melden(protokoll: &Protokoll, fehler: &Bearbeitfehler, channel: &st
             protokoll.episode(schreibfehler_auftreten(channel, wer, datei, grund));
         }
         Bearbeitfehler::Quote { belegt, hoechstens } => {
-            let mut auftreten = quote_auftreten(channel, wer, *belegt, *hoechstens);
-            auftreten.kontext = auftreten
-                .kontext
-                .mit_nur_beginn(Schluessel::Route, "bearbeiten");
-            protokoll.episode(auftreten);
+            protokoll.episode(
+                quote_auftreten(channel, wer, *belegt, *hoechstens)
+                    .einzeln(Schluessel::Route, "bearbeiten"),
+            );
         }
         _ => {}
     }
@@ -199,19 +198,13 @@ fn abweisung_melden(protokoll: &Protokoll, fehler: &Bearbeitfehler, channel: &st
 
 /// Quelle der Episode „fremd“ ist die Kennung (M16: je Kennung eine Episode); der Channel steht nur am Beginn.
 pub(super) fn fremd_auftreten(channel: &str, wer: &str) -> Auftreten {
-    Auftreten {
-        stufe: Stufe::Warning,
-        bereich: Bereich::Aendern,
-        text: crate::protokoll::episodentexte::FREMD_ABGEWIESEN,
-        quelle: wer.to_string(),
-        kontext: Kontext::neu()
-            .mit(Schluessel::Kennung, wer)
-            .mit_nur_beginn(Schluessel::Channel, channel),
-        art: None,
-        verworfen: None,
-        bytes: None,
-        anzeige: None,
-    }
+    Auftreten::neu(
+        Stufe::Warning,
+        Bereich::Aendern,
+        crate::protokoll::episodentexte::FREMD_ABGEWIESEN,
+        Quelle::neu().mit(Schluessel::Kennung, wer),
+    )
+    .einzeln(Schluessel::Channel, channel)
 }
 
 /// Quelle des Schreibfehlers sind Datei und Grund; die Kennung gehört dem einzelnen Auftreten.
@@ -221,21 +214,16 @@ pub(super) fn schreibfehler_auftreten(
     datei: &str,
     grund: &str,
 ) -> Auftreten {
-    Auftreten {
-        stufe: Stufe::Error,
-        bereich: Bereich::Aendern,
-        text: crate::protokoll::episodentexte::AENDERUNG_NICHT_GESCHRIEBEN,
-        quelle: format!("{datei} {grund}"),
-        kontext: Kontext::neu()
+    Auftreten::neu(
+        Stufe::Error,
+        Bereich::Aendern,
+        crate::protokoll::episodentexte::AENDERUNG_NICHT_GESCHRIEBEN,
+        Quelle::neu()
             .mit(Schluessel::Channel, channel)
-            .mit_nur_beginn(Schluessel::Kennung, wer)
             .mit(Schluessel::Datei, datei)
             .mit(Schluessel::Grund, grund),
-        art: None,
-        verworfen: None,
-        bytes: None,
-        anzeige: None,
-    }
+    )
+    .einzeln(Schluessel::Kennung, wer)
 }
 
 /// Die Antworten der Prüfungen unter der Sperre.

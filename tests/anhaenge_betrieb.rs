@@ -186,7 +186,7 @@ async fn episoden_der_abweisungen() {
     );
     assert_eq!(voll.len(), 1, "{voll:#?}");
     assert!(
-        voll[0].contains("kennung=beta@127.0.0.1 bytes=2097152 belegt=9437184 hoechstens=10485760"),
+        voll[0].contains("kennung=beta@127.0.0.1 hoechstens=10485760 bytes=2097152 belegt=9437184"),
         "{}",
         voll[0]
     );

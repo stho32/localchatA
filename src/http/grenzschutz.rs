@@ -7,8 +7,8 @@ use super::hostnamen::{
     FesteNamen, Grund, host_urteil, im_lokalen_namensraum, normalform, zeigt_auf_eigene,
 };
 use super::namensauskunft::Namensauskunft;
-use crate::protokoll::episoden::Auftreten;
-use crate::protokoll::{Bereich, Kontext, Protokoll, Schluessel, Stufe};
+use crate::protokoll::episoden::{Auftreten, Quelle};
+use crate::protokoll::{Bereich, Protokoll, Schluessel, Stufe};
 use crate::start::ausliefern::LokaleAdresse;
 use axum::Json;
 use axum::extract::{ConnectInfo, Request, State};
@@ -89,20 +89,18 @@ fn abweisung_eintragen(
 
 /// Quelle der Episode ist die Herkunft; der abgewiesene Kopf mit seinem Wert gehört dem einzelnen Auftreten und
 /// steht nur in der Beginn-Zeile (ADR-0042 Ergänzung Karte #66).
-fn abweisung_auftreten(ereignis: &'static str, herkunft: String, grund: &str) -> Auftreten {
-    Auftreten {
-        stufe: Stufe::Warning,
-        bereich: Bereich::Grenzschutz,
-        text: ereignis,
-        quelle: herkunft.clone(),
-        kontext: Kontext::neu()
-            .mit(Schluessel::Herkunft, herkunft)
-            .mit_nur_beginn(Schluessel::Grund, grund),
-        art: None,
-        verworfen: None,
-        bytes: None,
-        anzeige: None,
-    }
+pub(crate) fn abweisung_auftreten(
+    ereignis: &'static str,
+    herkunft: String,
+    grund: &str,
+) -> Auftreten {
+    Auftreten::neu(
+        Stufe::Warning,
+        Bereich::Grenzschutz,
+        ereignis,
+        Quelle::neu().mit(Schluessel::Herkunft, herkunft),
+    )
+    .einzeln(Schluessel::Grund, grund)
 }
 
 /// Die Antwort auf eine Abweisung, dazu Ereignis und Kopf, an dem sie hing.

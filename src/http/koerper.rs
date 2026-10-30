@@ -7,7 +7,7 @@
 use super::Werkbank;
 use super::abbruch::Abgebrochen;
 use super::anfrageprotokoll::{Eingetragen, mit_regel};
-use crate::protokoll::episoden::Auftreten;
+use crate::protokoll::episoden::{Auftreten, Quelle};
 use crate::protokoll::zaehler::Abweisungsart;
 use crate::protokoll::{Bereich, Kontext, Protokoll, Schluessel, Stufe};
 use axum::Json;
@@ -195,17 +195,12 @@ fn abweisung_eintragen<T>(
         crate::protokoll::episodentexte::KOERPER_ABGEWIESEN,
         kontext,
     );
-    let auftreten = Auftreten {
-        stufe: Stufe::Warning,
-        bereich: Bereich::Koerper,
-        text: crate::protokoll::episodentexte::KOERPER_ABGEWIESEN,
-        quelle: format!("{} {}", ort.herkunft, ort.route),
-        kontext: koerper_kontext(ort),
-        art: Some(art),
-        verworfen: gelesen.verworfen.map(Verworfen::als_text),
-        bytes: Some(gelesen.bytes as u64),
-        anzeige: None,
-    };
+    let auftreten = koerper_auftreten(
+        ort,
+        art,
+        gelesen.verworfen.map(Verworfen::als_text),
+        gelesen.bytes as u64,
+    );
     match fehler {
         Koerperfehler::ZuGross | Koerperfehler::Kaputt | Koerperfehler::ZuLangsam => {
             ort.protokoll.episode(auftreten);
@@ -215,15 +210,32 @@ fn abweisung_eintragen<T>(
     }
 }
 
-/// Kontext der Körper-Episode: Herkunft und Route sind die Quelle; die Kennung gehört dem einzelnen Auftreten
-/// und steht nur in der Beginn-Zeile (ADR-0042 Ergänzung Karte #31 Punkt 4).
-fn koerper_kontext(ort: &Koerperort<'_>) -> Kontext {
-    let kontext = Kontext::neu()
-        .mit(Schluessel::Herkunft, ort.herkunft)
-        .mit(Schluessel::Route, ort.route);
-    match ort.kennung {
-        Some(kennung) => kontext.mit_nur_beginn(Schluessel::Kennung, kennung),
-        None => kontext,
+/// Das Auftreten der Körper-Episode: Herkunft und Route sind die Quelle; die Kennung gehört dem einzelnen
+/// Auftreten und steht nur in der Beginn-Zeile (ADR-0042 Ergänzung Karte #31 Punkt 4). Art, Verwerfen und gelesene
+/// Bytes zählt die Episode.
+pub(crate) fn koerper_auftreten(
+    ort: &Koerperort<'_>,
+    art: &'static str,
+    verworfen: Option<&'static str>,
+    bytes: u64,
+) -> Auftreten {
+    let auftreten = Auftreten::neu(
+        Stufe::Warning,
+        Bereich::Koerper,
+        crate::protokoll::episodentexte::KOERPER_ABGEWIESEN,
+        Quelle::neu()
+            .mit(Schluessel::Herkunft, ort.herkunft)
+            .mit(Schluessel::Route, ort.route),
+    )
+    .art(art)
+    .bytes(bytes);
+    let auftreten = match ort.kennung {
+        Some(kennung) => auftreten.einzeln(Schluessel::Kennung, kennung),
+        None => auftreten,
+    };
+    match verworfen {
+        Some(verworfen) => auftreten.verworfen(verworfen),
+        None => auftreten,
     }
 }
 
