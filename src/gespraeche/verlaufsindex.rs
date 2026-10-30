@@ -18,7 +18,10 @@ pub struct Verlauf {
 #[derive(Debug, Default)]
 struct Tag {
     rohtext: Vec<u8>,
+    /// Anfänge aller gültigen Sätze — Nachrichten und Änderungssätze; begrenzen die Spanne einer Nachricht.
     satzanfaenge: Vec<usize>,
+    /// Anfänge der Sätze, die Nachrichten sind (ADR-0048 Regel 3): nur über sie zählt, sucht und kopiert der Block.
+    nachrichten: Vec<usize>,
     /// Ob ein Satz des Tages eine Metazeile `+ anhang:` trägt — beim Laden mitgezählt, nicht ein zweites Mal gesucht.
     traegt_anhang: bool,
 }
@@ -42,11 +45,24 @@ impl Verlauf {
         satzanfaenge: Vec<usize>,
         traegt_anhang: bool,
     ) {
+        let nachrichten = satzanfaenge
+            .iter()
+            .enumerate()
+            .filter(|(index, anfang)| {
+                let ende = satzanfaenge
+                    .get(index + 1)
+                    .copied()
+                    .unwrap_or(rohtext.len());
+                ist_nachricht(&rohtext[**anfang..ende])
+            })
+            .map(|(_, anfang)| *anfang)
+            .collect();
         self.tage.insert(
             tag,
             Tag {
                 rohtext,
                 satzanfaenge,
+                nachrichten,
                 traegt_anhang,
             },
         );
@@ -59,15 +75,20 @@ impl Verlauf {
         if zeilenende_ergaenzt {
             tag.rohtext.push(b'\n');
         }
-        tag.satzanfaenge.push(tag.rohtext.len());
+        let anfang = tag.rohtext.len();
+        tag.satzanfaenge.push(anfang);
+        if ist_nachricht(satz.as_bytes()) {
+            tag.nachrichten.push(anfang);
+        }
         tag.traegt_anhang |= satz_traegt_anhang(satz.as_bytes());
         tag.rohtext.extend_from_slice(satz.as_bytes());
     }
 
+    /// Wie viele Nachrichten der Index hält — Änderungssätze zählen nicht (ADR-0048 Regel 1).
     pub fn nachrichten(&self) -> u64 {
         self.tage
             .values()
-            .map(|tag| tag.satzanfaenge.len() as u64)
+            .map(|tag| tag.nachrichten.len() as u64)
             .sum()
     }
 
@@ -89,24 +110,28 @@ impl Verlauf {
         self.tage.values().map(|tag| tag.rohtext.len() as u64).sum()
     }
 
-    /// Nimmt den Tag aus dem Index (ADR-0006: Eintrag fallen lassen, kein Umbau) und nennt seine Sätze und Bytes;
-    /// stand er nicht darin, nichts.
+    /// Nimmt den Tag aus dem Index (ADR-0006: Eintrag fallen lassen, kein Umbau) und nennt seine Nachrichten und
+    /// Bytes; stand er nicht darin, nichts.
     pub fn tag_entfernen(&mut self, tag: NaiveDate) -> Option<(usize, u64)> {
         self.tage
             .remove(&tag)
-            .map(|tag| (tag.satzanfaenge.len(), tag.rohtext.len() as u64))
+            .map(|tag| (tag.nachrichten.len(), tag.rohtext.len() as u64))
     }
 
-    /// Wie viele Sätze die Tage echt vor `grenze` im Index haben.
+    /// Wie viele Nachrichten die Tage echt vor `grenze` im Index haben.
     pub fn saetze_vor(&self, grenze: NaiveDate) -> usize {
         self.tage
             .range(..grenze)
-            .map(|(_, tag)| tag.satzanfaenge.len())
+            .map(|(_, tag)| tag.nachrichten.len())
             .sum()
     }
 }
 
-/// Ein Block des Verlaufs: Kopien der Sätze, älteste zuerst, und ob es davor bzw. danach noch Sätze gibt.
+/// Ob ein Satz eine Nachricht ist — ein Satz mit Bezugs-Metazeile ist es nie, auch defekt nicht (ADR-0048 Regel 1).
+fn ist_nachricht(satz: &[u8]) -> bool {
+    logformat::satzart(satz) == logformat::Satzart::Nachricht
+}
+
 /// Ob ein Satz (ab seinem Kopf) unter den Metazeilen `+ …` eine `+ anhang:` trägt.
 fn satz_traegt_anhang(satz: &[u8]) -> bool {
     satz.split(|byte| *byte == b'\n')
@@ -115,6 +140,7 @@ fn satz_traegt_anhang(satz: &[u8]) -> bool {
         .any(|zeile| zeile.starts_with(b"+ anhang:"))
 }
 
+/// Ein Block des Verlaufs: Kopien der Nachrichten, älteste zuerst, und ob es davor bzw. danach noch welche gibt.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Block {
     pub saetze: Vec<Vec<u8>>,
@@ -144,8 +170,8 @@ impl Verlauf {
         let mut aelter = false;
         for tag in self.tage.range(..=letzter_tag).rev().map(|(_, tag)| tag) {
             let mut index = match bis {
-                Some(zeit) => grenze_im_tag(&tag.rohtext, &tag.satzanfaenge, &zeit, Seite::Vor),
-                None => tag.satzanfaenge.len(),
+                Some(zeit) => grenze_im_tag(&tag.rohtext, &tag.nachrichten, &zeit, Seite::Vor),
+                None => tag.nachrichten.len(),
             };
             while index > 0 && sammler.nimmt(tag.satzlaenge(index - 1)) {
                 index -= 1;
@@ -174,8 +200,8 @@ impl Verlauf {
         let mut gesammelt = Vec::new();
         let mut neuer = false;
         for tag in self.tage.range(erster_tag..).map(|(_, tag)| tag) {
-            let mut index = grenze_im_tag(&tag.rohtext, &tag.satzanfaenge, &ab, Seite::Nach);
-            let laenge = tag.satzanfaenge.len();
+            let mut index = grenze_im_tag(&tag.rohtext, &tag.nachrichten, &ab, Seite::Nach);
+            let laenge = tag.nachrichten.len();
             while index < laenge && sammler.nimmt(tag.satzlaenge(index)) {
                 gesammelt.push(tag.satz(index));
                 index += 1;
@@ -200,35 +226,34 @@ impl Verlauf {
             .tage
             .values()
             .rev()
-            .find(|tag| !tag.satzanfaenge.is_empty())?;
-        logformat::kopfzeit(&tag.satz(tag.satzanfaenge.len() - 1))
+            .find(|tag| !tag.nachrichten.is_empty())?;
+        logformat::kopfzeit(&tag.satz(tag.nachrichten.len() - 1))
     }
 
     fn aelteste_kopfzeit(&self) -> Option<Zeit> {
-        let tag = self
-            .tage
-            .values()
-            .find(|tag| !tag.satzanfaenge.is_empty())?;
+        let tag = self.tage.values().find(|tag| !tag.nachrichten.is_empty())?;
         logformat::kopfzeit(&tag.satz(0))
     }
 }
 
 impl Tag {
-    /// Kopie des Satzes `index`: von seinem Anfang bis vor den nächsten Satz bzw. bis zum Ende des Tages.
+    /// Kopie der Nachricht `index`: von ihrem Anfang bis vor den nächsten Satz gleich welcher Art bzw. bis zum Ende
+    /// des Tages.
     fn satz(&self, index: usize) -> Vec<u8> {
         self.rohtext[self.spanne(index)].to_vec()
     }
 
-    /// Länge des Satzes `index` in Bytes, ohne ihn zu kopieren.
+    /// Länge der Nachricht `index` in Bytes, ohne sie zu kopieren.
     fn satzlaenge(&self, index: usize) -> usize {
         self.spanne(index).len()
     }
 
     fn spanne(&self, index: usize) -> std::ops::Range<usize> {
-        let anfang = self.satzanfaenge[index];
+        let anfang = self.nachrichten[index];
+        let naechster = self.satzanfaenge.partition_point(|satz| *satz <= anfang);
         let ende = self
             .satzanfaenge
-            .get(index + 1)
+            .get(naechster)
             .copied()
             .unwrap_or(self.rohtext.len());
         anfang..ende
@@ -730,5 +755,88 @@ mod tests {
         assert_eq!(verlauf.saetze_vor(tag("2026-10-21")), 2);
         assert_eq!(verlauf.saetze_vor(tag("2026-10-20")), 0);
         assert_eq!(verlauf.saetze_vor(tag("2026-10-29")), 6);
+    }
+
+    const BEARBEITET_UM_10_00_01: &str = "@ 2026-10-28T10:00:01.500+01:00 a@127.0.0.2\n+ bearbeitet: 2026-10-28T10:00:00.000+01:00\n  neu und länger als der alte Text\n\n";
+
+    /// Ein Tag 28.10. mit Nachrichten um 10:00:00, 10:00:01, 10:00:02 und Änderungssätzen nach der ersten und nach
+    /// der letzten — geladen oder angehängt.
+    fn mit_aenderungssaetzen(angehaengt: bool) -> Verlauf {
+        let saetze = [
+            "@ 2026-10-28T10:00:00.000+01:00 a@127.0.0.2\n  x\n\n",
+            "@ 2026-10-28T10:00:01.000+01:00 a@127.0.0.2\n  y\n\n",
+            BEARBEITET_UM_10_00_01,
+            "@ 2026-10-28T10:00:02.000+01:00 a@127.0.0.2\n  z\n\n",
+            "@ 2026-10-28T10:00:03.000+01:00 a@127.0.0.2\n+ geloescht: 2026-10-28T10:00:02.000+01:00\n\n",
+        ];
+        let mut verlauf = Verlauf::default();
+        if angehaengt {
+            for satz in saetze {
+                verlauf.anhaengen(tag("2026-10-28"), satz, false);
+            }
+        } else {
+            let mut rohtext = Vec::new();
+            let mut anfaenge = Vec::new();
+            for satz in saetze {
+                anfaenge.push(rohtext.len());
+                rohtext.extend_from_slice(satz.as_bytes());
+            }
+            verlauf.tag_aufnehmen(tag("2026-10-28"), rohtext, anfaenge);
+        }
+        verlauf
+    }
+
+    /// R00039 B0595 (ADR-0048 Regel 3): Änderungssätze stehen im Rohtext (Bytes, `belegt`), aber der Block zählt,
+    /// sucht und kopiert nur Nachrichten; die Spanne einer Nachricht endet vor dem nächsten Satz gleich welcher
+    /// Art. Mutante „Änderungssatz im Block als Nachricht“ rot.
+    #[test]
+    fn aenderungssaetze_sind_im_rohtext_aber_nie_im_block() {
+        for angehaengt in [false, true] {
+            let verlauf = mit_aenderungssaetzen(angehaengt);
+            let nach = |zeit_text: &str, n| {
+                verlauf.block_ohne_grenze(&abfrage(Abschnitt::Nach(zeit(zeit_text)), n))
+            };
+
+            let neueste = verlauf.block_ohne_grenze(&abfrage(Abschnitt::Neueste, 100));
+            let nach_erster = nach("2026-10-28T10:00:00.000+01:00", 1);
+            let vor_letzter = verlauf.block_ohne_grenze(&abfrage(
+                Abschnitt::Vor(zeit("2026-10-28T10:00:02.000+01:00")),
+                1,
+            ));
+
+            assert_eq!(
+                zeiten_im(&neueste),
+                erwartet("2026-10-28", 0..3),
+                "angehängt {angehaengt}"
+            );
+            assert_eq!(
+                neueste.saetze[1],
+                b"@ 2026-10-28T10:00:01.000+01:00 a@127.0.0.2\n  y\n\n".to_vec(),
+                "die Spanne endet vor dem Änderungssatz"
+            );
+            assert_eq!(zeiten_im(&nach_erster), erwartet("2026-10-28", 1..2));
+            assert!(nach_erster.neuer);
+            assert_eq!(zeiten_im(&vor_letzter), erwartet("2026-10-28", 1..2));
+            assert!(nach("2026-10-28T10:00:02.000+01:00", 100).saetze.is_empty());
+            assert!(!nach("2026-10-28T10:00:02.000+01:00", 100).neuer);
+            assert_eq!(verlauf.nachrichten(), 3);
+            let alle: usize = verlauf.tage.values().map(|tag| tag.rohtext.len()).sum();
+            assert_eq!(verlauf.bytes(), alle as u64);
+            assert_eq!(verlauf.saetze_vor(tag("2026-10-29")), 3);
+        }
+        let mut verlauf = mit_aenderungssaetzen(true);
+        let bytes = verlauf.bytes();
+        assert_eq!(verlauf.tag_entfernen(tag("2026-10-28")), Some((3, bytes)));
+    }
+
+    /// Das Budget zählt nur Nachrichten: zwei Nachrichten passen genau, der Änderungssatz dazwischen zählt nicht.
+    #[test]
+    fn das_budget_zaehlt_keine_aenderungssaetze() {
+        let verlauf = mit_aenderungssaetzen(false);
+        let zwei = 2 * "@ 2026-10-28T10:00:01.000+01:00 a@127.0.0.2\n  y\n\n".len();
+
+        let block = verlauf.block(&abfrage(Abschnitt::Neueste, 100), zwei);
+
+        assert_eq!(zeiten_im(&block), erwartet("2026-10-28", 1..3));
     }
 }
