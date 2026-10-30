@@ -24,7 +24,7 @@ const GRENZE_Q6_MS: u64 = 2_000;
 
 /// Nachricht `nummer` (über alle Tage): jede zehnte dreimal bearbeitet, jede zwanzigste ab der fünften gelöscht.
 fn bearbeitet(nummer: usize) -> bool {
-    nummer % 10 == 0
+    nummer.is_multiple_of(10)
 }
 
 fn geloescht(nummer: usize) -> bool {

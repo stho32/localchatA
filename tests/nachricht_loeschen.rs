@@ -377,6 +377,15 @@ async fn das_loeschen_kommt_live_an() {
     assert_eq!(nachrichten_im(&nach_neustart)[0], antwort.json["nachricht"]);
 }
 
+/// Ein Fall der Körper-Probe: mit Sitzung?, Typ, Körper, weitere Köpfe, erwarteter Status.
+type Fall = (
+    bool,
+    &'static str,
+    String,
+    Vec<(&'static str, &'static str)>,
+    u16,
+);
+
 /// R00040 „Körper“ (M10, M12): doppeltes `zeit` → 422 `feld`/`doppelt`; `bestaetigt` → 422 `feld`; 1.025 Bytes → 413
 /// vor dem Parse; `text/plain` → 415; fremder `Origin` → 403; ohne Sitzung → 401; `"zeit":"gestern"` → 422 `zeit`;
 /// jeweils Tageslog unverändert.
@@ -394,7 +403,7 @@ async fn falsche_koerper_werden_abgewiesen_ohne_zu_schreiben() {
     );
     assert_eq!(gross.len(), 1_025);
     let ok = format!(r#"{{"zeit":"{t1}"}}"#);
-    let faelle: Vec<(bool, &str, String, Vec<(&str, &str)>, u16)> = vec![
+    let faelle: Vec<Fall> = vec![
         (
             true,
             "application/json",
