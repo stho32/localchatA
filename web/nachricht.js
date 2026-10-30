@@ -24,7 +24,7 @@ export function nachrichtZeichnen(nachricht) {
   }
   const inhalt = element('div', { className: 'lc-msg-inhalt' }, [text]);
   if (darstellung.marke === 'bearbeitet') {
-    inhalt.append(markeBearbeitetZeichnen(darstellung.zuletztBearbeitet));
+    inhalt.append(markeBearbeitetZeichnen(nachricht.zeit, darstellung.zuletztBearbeitet));
   }
   artikel.append(element('div', { className: 'g' }), inhalt);
   kopfSetzen(artikel, true);
@@ -53,10 +53,22 @@ function textZeichnen(darstellung) {
   return element('div', { className: 'lc-body lc-fold', textContent: darstellung.text });
 }
 
-// Die Marke „bearbeitet“ unter dem Text, auch an eingeklappten und gruppierten Nachrichten (Designsystem Nachricht).
-function markeBearbeitetZeichnen(zuletztBearbeitet) {
-  const marke = element('span', { className: 'lc-marke', textContent: 'bearbeitet', title: zuletztBearbeitet });
-  return element('div', { className: 'lc-zusatz' }, [marke]);
+// Die Marke „bearbeitet“ unter dem Text, auch an eingeklappten und gruppierten Nachrichten (Designsystem Nachricht): ein
+// Schalter (UX M8, PO 128), der „Zuletzt bearbeitet: …“ ein- und ausblendet — mit der Maus steht derselbe Text als title,
+// der Bildschirmleser hört ihn als Beschreibung.
+function markeBearbeitetZeichnen(zeit, zuletztBearbeitet) {
+  const zuletzt = element('span', { className: 'lc-zuletzt', id: `lc-zuletzt-${zeit}`, textContent: zuletztBearbeitet, hidden: true });
+  const marke = element('button', { type: 'button', className: 'lc-marke', textContent: 'bearbeitet', title: zuletztBearbeitet });
+  marke.setAttribute('aria-expanded', 'false');
+  marke.setAttribute('aria-describedby', zuletzt.id);
+  return element('div', { className: 'lc-zusatz' }, [marke, zuletzt]);
+}
+
+// Blendet die Zeit der letzten Änderung an der Marke ein oder aus.
+export function markeUmschalten(marke) {
+  const offen = marke.getAttribute('aria-expanded') !== 'true';
+  marke.setAttribute('aria-expanded', String(offen));
+  document.getElementById(marke.getAttribute('aria-describedby')).hidden = !offen;
 }
 
 const NAME_TEXTANFANG_ZEICHEN = 120;

@@ -6,7 +6,7 @@
 // Abrufe ab, eine Antwort für einen nicht mehr gewählten Channel wird verworfen, Daten des vorigen Channels fallen
 // weg. Der Verlauf ist die einzige scrollende Fläche der Mitte: role="log", aria-live="off", mit der Tastatur
 // fokussierbar; Nachladen wird nie angesagt.
-import { nachrichtZeichnen, kopfSetzen, trennerZeichnen, langeEinklappen, langeUmschalten } from './nachricht.js';
+import { nachrichtZeichnen, kopfSetzen, trennerZeichnen, langeEinklappen, langeUmschalten, markeUmschalten } from './nachricht.js';
 import { gliederung, folgeGliedern, datumBenennen } from './gliederung.js';
 import { nachladen, einfuegen } from './fenster.js';
 import { pfeilRichtung, pfeilZiel, tabStopp, eigeneLetzte } from './fokus.js';
@@ -125,8 +125,14 @@ export function verlaufAnlegen({ abrufen, schalter = () => {}, fokusRueckgaengig
   hoehen.observe(ausstehend);
   hoehen.observe(log);
 
-  // Aufklappen erweitert an Ort und Stelle; der Kopf der Nachricht bleibt an seiner Bildschirmstelle.
+  // Aufklappen erweitert an Ort und Stelle; der Kopf der Nachricht bleibt an seiner Bildschirmstelle. Die Marke
+  // „bearbeitet“ blendet die Zeit der letzten Änderung ein und aus.
   inhalt.addEventListener('click', (ereignis) => {
+    const marke = ereignis.target.closest('.lc-marke');
+    if (marke !== null) {
+      markeUmschalten(marke);
+      return;
+    }
     const schalter = ereignis.target.closest('.lc-foldbar button');
     if (schalter === null) {
       return;
@@ -276,9 +282,10 @@ export function verlaufAnlegen({ abrufen, schalter = () => {}, fokusRueckgaengig
     schalterRollen(liste[stelle]);
   }
 
-  // Auch die Leiste „Ganze Nachricht anzeigen“ einer Nachricht ist nur Stopp, solange ihre Nachricht der Stopp ist.
+  // Auch die Knöpfe einer Nachricht („Ganze Nachricht anzeigen“, die Marke „bearbeitet“) sind nur Stopp, solange ihre
+  // Nachricht der Stopp ist.
   function schalterRollen(stoppNachricht) {
-    for (const schalterEinzeln of inhalt.querySelectorAll('.lc-foldbar button')) {
+    for (const schalterEinzeln of inhalt.querySelectorAll('.lc-msg button')) {
       let soll = '-1';
       if (schalterEinzeln.closest('.lc-msg') === stoppNachricht) {
         soll = '0';

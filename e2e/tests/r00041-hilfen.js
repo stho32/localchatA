@@ -135,6 +135,32 @@ function zeigtGeloescht({ zeit }) {
   return knoten !== null && knoten.querySelector('.lc-body').textContent === 'Nachricht gelöscht';
 }
 
+/// Kontrast (WCAG 2.x) der Schrift eines Elements gegen die Fläche darunter, im Browser gerechnet.
+const schriftKontrast = (locator) => locator.evaluate((element) => {
+  const anteile = (farbe) => farbe.match(/\d+(\.\d+)?/g).slice(0, 3).map(Number);
+  const leuchtdichte = (farbe) => {
+    const [r, g, b] = anteile(farbe).map((wert) => {
+      const kanal = wert / 255;
+      if (kanal <= 0.03928) {
+        return kanal / 12.92;
+      }
+      return ((kanal + 0.055) / 1.055) ** 2.4;
+    });
+    return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+  };
+  let flaeche = 'rgb(255, 255, 255)';
+  for (let knoten = element; knoten !== null; knoten = knoten.parentElement) {
+    const farbe = getComputedStyle(knoten).backgroundColor;
+    if (farbe !== 'rgba(0, 0, 0, 0)' && farbe !== 'transparent') {
+      flaeche = farbe;
+      break;
+    }
+  }
+  const vorn = leuchtdichte(getComputedStyle(element).color);
+  const hinten = leuchtdichte(flaeche);
+  return (Math.max(vorn, hinten) + 0.05) / (Math.min(vorn, hinten) + 0.05);
+});
+
 /// Alle Textknoten des Verlaufs, deren Text genau `text` ist (getrimmt).
 const textknotenMit = (page, text) => page.evaluate((gesucht) => {
   const laeufer = document.createTreeWalker(document.querySelector('[role="log"]'), NodeFilter.SHOW_TEXT);
@@ -149,5 +175,5 @@ const textknotenMit = (page, text) => page.evaluate((gesucht) => {
 
 module.exports = {
   BETA, betaVerlauf, mitAnhaengenSenden, PNG, webm, betaSendet, bearbeitenPerApi, loeschenPerApi, browserOeffnen, imBrowserSenden, nachrichtMitZeit, zeigtBearbeitet,
-  zeigtGeloescht, textknotenMit,
+  zeigtGeloescht, textknotenMit, schriftKontrast,
 };
