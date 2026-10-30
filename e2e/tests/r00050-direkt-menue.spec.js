@@ -171,3 +171,33 @@ test('Sekundentakt (B0785, V6 a, e): Fokus und Menü an der Zeile „weg in …�
   await expect(menue(anna.page)).toHaveCount(0);
   expect(anna.fehler).toEqual([]);
 });
+
+// Code-Review #13 F0178 S4 (Abnahme-Probe wörtlich): ein neuer Teilnehmer zeichnet die Liste ganz neu — der Fokus auf
+// dem Knopf von ben bleibt, genau ein Tab-Stopp; ein offenes Menü bleibt offen an seiner Zeile, der Fokus im Menü, und
+// Escape führt auf den Knopf von ben zurück.
+test('Volles Neuzeichnen (S4): dora tritt bei → Fokus auf ben bleibt; emil tritt bei offenem Menü bei → Menü bleibt', async ({ browser }) => {
+  const { anna } = await dreiTeilnehmer(browser);
+  await listeOffen(anna.page);
+  await knopfVon(anna.page, BEN).focus();
+
+  await beitreten(instanz.adresse, 'dora', { art: 'mensch', herkunft: '127.0.0.4' });
+  await expect(zeileVon(anna.page, 'dora@127.0.0.4')).toHaveCount(1);
+  await expect(knopfVon(anna.page, BEN)).toBeFocused();
+  expect(await anna.page.evaluate(tabStoppsIn, '#lc-teilnehmer')).toEqual([BEN]);
+
+  await anna.page.keyboard.press('Enter');
+  await expect(direktnachricht(anna.page)).toBeFocused();
+  await beitreten(instanz.adresse, 'emil', { art: 'mensch', herkunft: '127.0.0.5' });
+  await expect(zeileVon(anna.page, 'emil@127.0.0.5')).toHaveCount(1);
+
+  await expect(menue(anna.page)).toBeVisible();
+  await expect(knopfVon(anna.page, BEN)).toHaveAttribute('aria-expanded', 'true');
+  const menueOben = (await menue(anna.page).boundingBox()).y;
+  const zeileUnten = await zeileVon(anna.page, BEN).boundingBox().then((kasten) => kasten.y + kasten.height);
+  expect(Math.abs(menueOben - zeileUnten)).toBeLessThanOrEqual(3);
+  await expect(direktnachricht(anna.page)).toBeFocused();
+  await anna.page.keyboard.press('Escape');
+  await expect(menue(anna.page)).toHaveCount(0);
+  await expect(knopfVon(anna.page, BEN)).toBeFocused();
+  expect(anna.fehler).toEqual([]);
+});
