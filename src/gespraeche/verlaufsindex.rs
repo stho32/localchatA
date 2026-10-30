@@ -422,6 +422,13 @@ thread_local! {
     pub(super) static KOPIERT: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
 }
 
+// Zähler der Aufrufe von `Verlauf::lieferung` auf diesem Thread — Probe „Zitat-Auflösung ≤ Sätze + C“ (R00049,
+// Karte #17, Befund 4): aufgelöst wird nur, was auch genommen werden kann.
+#[cfg(test)]
+thread_local! {
+    pub(super) static LIEFERUNGEN: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
 impl Verlauf {
     /// Höchstens `n` Sätze des Abschnitts über beliebig viele Tage, älteste zuerst (ADR-0025 Regeln 2–4), und
     /// höchstens `budget` Satzbytes (ADR-0039 Regel 2): in Cursor-Richtung Satz für Satz, solange die Summe der
@@ -447,7 +454,7 @@ impl Verlauf {
                 Some(zeit) => grenze_im_tag(&tag.rohtext, &tag.nachrichten, &zeit, Seite::Vor),
                 None => tag.nachrichten.len(),
             };
-            while index > 0 {
+            while index > 0 && !sammler.voll() {
                 let (laenge, zitat) = self.lieferung(tag, index - 1);
                 if !sammler.nimmt(laenge) {
                     break;
@@ -480,7 +487,7 @@ impl Verlauf {
         for tag in self.tage.range(erster_tag..).map(|(_, tag)| tag) {
             let mut index = grenze_im_tag(&tag.rohtext, &tag.nachrichten, &ab, Seite::Nach);
             let laenge = tag.nachrichten.len();
-            while index < laenge {
+            while index < laenge && !sammler.voll() {
                 let (bytes, zitat) = self.lieferung(tag, index);
                 if !sammler.nimmt(bytes) {
                     break;
@@ -507,6 +514,8 @@ impl Verlauf {
     /// bearbeitet der Änderungssatz, gelöscht nur die Kopfzeile (Text, Anhänge und Bezug werden nicht geliefert), sonst
     /// die Nachricht — eine Antwort zusätzlich mit den Bytes ihres Zitats.
     fn lieferung(&self, tag: &Tag, index: usize) -> (usize, Option<Box<Zitat>>) {
+        #[cfg(test)]
+        LIEFERUNGEN.with(|aufrufe| aufrufe.set(aufrufe.get() + 1));
         let fassung = self.fassung_im_tag(tag, index);
         let zitat = self.zitat_der_antwort(&tag.rohtext[tag.spanne(index)], fassung);
         let zitatbytes = zitat.as_ref().map_or(0, |zitat| zitat.lieferbytes());
@@ -715,6 +724,11 @@ impl Sammler {
             genommen: 0,
             summe: 0,
         }
+    }
+
+    /// Ob schon `n` Sätze genommen sind: weiter wird nicht einmal geschaut, auch nicht für das Zitat des Folgesatzes.
+    fn voll(&self) -> bool {
+        self.genommen >= self.n
     }
 
     /// Nimmt einen Satz dieser Länge, wenn er noch passt.

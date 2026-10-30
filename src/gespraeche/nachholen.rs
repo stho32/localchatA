@@ -230,8 +230,8 @@ impl Strang<'_> {
 
 #[cfg(test)]
 mod tests {
-    use super::super::verlaufsindex::KOPIERT;
-    use super::super::{Art, Speicherablage};
+    use super::super::verlaufsindex::{KOPIERT, LIEFERUNGEN};
+    use super::super::{Art, Gesendet, Sendung, Speicherablage};
     use super::*;
     use crate::uhr::GestellteUhr;
     use std::sync::Arc;
@@ -879,6 +879,60 @@ mod tests {
         assert_eq!(nachgeholt.saetze, 117);
         assert!(nachgeholt.weitere);
         assert_eq!(kopiert, 117 * satzlaenge);
+    }
+
+    /// Ein Channel `a`: ein Original mit einer 16-KiB-Zeile, danach `antworten` Antworten „x“ darauf. Liefert die
+    /// Gespräche, `t0` (vor dem Original) und die Marke (die letzte Antwort).
+    fn original_mit_antworten(antworten: usize) -> (Gespraeche, Zeit, Zeit) {
+        let ablage = Arc::new(Speicherablage::neu());
+        ablage.gespraech_anlegen(&Gespraech::channel("a"));
+        let beginn = zeit("2026-10-30T12:00:00.000+01:00");
+        let gespraeche =
+            Gespraeche::laden(ablage, Arc::new(GestellteUhr::neu(beginn))).expect("geladen");
+        let original = gespraeche
+            .senden(
+                &Gespraech::channel("a"),
+                &anna(),
+                Art::Mensch,
+                &"x".repeat(16_384),
+            )
+            .expect("Original")
+            .zeit;
+        let mut marke = original;
+        for _ in 0..antworten {
+            let antwort = Sendung {
+                text: "x",
+                anhaenge: &[],
+                schluessel: None,
+                antwort_auf: Some(original),
+            };
+            marke = match gespraeche
+                .senden_sendung(&Gespraech::channel("a"), &anna(), Art::Mensch, antwort)
+                .expect("Antwort")
+            {
+                Gesendet::Neu(nachricht) | Gesendet::Wiederholt(nachricht) => nachricht.zeit,
+            };
+        }
+        (gespraeche, beginn - chrono::Duration::seconds(1), marke)
+    }
+
+    /// Befund 4 (a) (security-reviewer #17): das Zitat einer Antwort wird nur für einen Satz aufgelöst, der auch
+    /// genommen wird — kein Vorausschauen auf den Folgesatz, den der Sammler dann ablehnt. Ein Original mit
+    /// 16-KiB-Zeile, 2.000 Antworten „x“: `lieferung`-Aufrufe ≤ Sätze + C (C = 1; heute 3.968 für 1.984 Sätze).
+    #[test]
+    fn das_zitat_wird_nur_fuer_genommene_saetze_aufgeloest() {
+        let (gespraeche, t0, marke) = original_mit_antworten(2_000);
+        LIEFERUNGEN.with(|aufrufe| aufrufe.set(0));
+
+        let nachgeholt = gespraeche.nachholen(t0, marke, &claude(), &erwaehnung(), NACHHOLBUDGET);
+
+        let aufrufe = LIEFERUNGEN.with(std::cell::Cell::get);
+        assert!(nachgeholt.saetze > 1_900, "{} Sätze", nachgeholt.saetze);
+        assert!(
+            aufrufe <= nachgeholt.saetze + 1,
+            "{aufrufe} lieferung-Aufrufe für {} Sätze",
+            nachgeholt.saetze
+        );
     }
 
     /// Eigene Variante V5 zu Teil 1: sind Satz und Änderungssatz beide 16 KiB lang, bucht das Nachholen das Größere,
