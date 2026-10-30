@@ -22,9 +22,9 @@ Gewohnte Konventionen (Slack/Discord, Browser), auf macOS `Strg` = `⌘`. Kürze
 | `@` | Erwähnungs-Vorschlag; `↑ ↓` wählen, `Enter`/`Tab` einsetzen | Eingabe |
 | `Strg Shift U` | Datei anhängen | Eingabe |
 | `↑` / `↓` | vorherige / nächste Nachricht fokussieren | Verlauf |
-| `R` | auf fokussierte Nachricht antworten | Verlauf |
+| `R` | auf fokussierte Nachricht antworten — Regeln wie `C` (Ausschlüsse, `key`) | Verlauf |
 | `Leertaste` | fokussierte lange Nachricht auf-/zuklappen | Verlauf |
-| `C` | fokussierten Codeblock kopieren | Verlauf |
+| `C` | fokussierte Nachricht kopieren (Quelltext; PO 153). Nur Abkürzung — ausgewertet wird `event.key` (nicht `code`), `c` und `C` bei Feststelltaste ohne Umschalt; ohne Strg, Alt, Meta, Umschalt. Wirkungslos bei offenem `dialog[open]`, bei Fokus auf einem Knopf oder einem Zitat, im Eingabe- und im Bearbeiten-Feld und bei markiertem Text. Der Codeblock hat keine Taste, nur seinen Knopf „Code kopieren“ | Verlauf |
 | `Ende` | zum Neuesten springen (bzw. zur ersten neuen Nachricht) | Verlauf |
 | `Pos1` | an den Anfang des Channels | Verlauf |
 | `Strg G` | Sprung an ein Datum | Verlauf |
