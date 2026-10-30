@@ -540,6 +540,18 @@ async fn an_der_vollen_quote_loescht_es_bis_zur_reserve() {
     );
     assert!(fehler.contains("--plattenquote"), "{fehler}");
     assert_eq!(channels_stand(wurzel.path()), vorher);
+    let protokoll = std::fs::read_to_string(wurzel.path().join(format!("logs/{HEUTE}.log")))
+        .expect("Protokoll");
+    let quote: Vec<&str> = protokoll
+        .lines()
+        .filter(|zeile| zeile.contains(" WARNING quote ") && zeile.contains("Episode beginnt"))
+        .collect();
+    assert!(
+        quote
+            .last()
+            .is_some_and(|zeile| zeile.contains("route=loeschen")),
+        "{quote:#?}"
+    );
 }
 
 /// R00040 „Wettlauf Bearbeiten und Löschen“ (M5, Integration): fünf Paare gleichzeitig → jede Nachricht endet

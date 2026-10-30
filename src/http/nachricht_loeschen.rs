@@ -9,15 +9,18 @@
 use super::Zustand;
 use super::anfrageprotokoll::mit_regel;
 use super::bearbeiten::{
-    fremd_abgewiesen, nachricht_fehlt, quote_erreicht, zeit_abgewiesen, zeit_lesen,
+    fremd_abgewiesen, fremd_auftreten, nachricht_fehlt, quote_erreicht, schreibfehler_auftreten,
+    zeit_abgewiesen, zeit_lesen,
 };
 use super::bremse::{Gegenstand, gebremst_melden};
 use super::koerper::{Koerperfehler, Koerperort, json_lesen, koerperfehler_beantworten};
 use super::nachrichten::NachrichtAntwort;
-use super::senden::{nicht_gespeichert_antwort, unbekannt};
+use super::senden::{nicht_gespeichert_antwort, quote_auftreten, unbekannt};
 use super::teilnehmer::Teilnehmer;
 use crate::gespraeche::nachricht_loeschen::{Loeschfehler, NachrichtGeloescht};
 use crate::gespraeche::{Gespraech, Nachricht};
+use crate::protokoll::vorlauf;
+use crate::protokoll::{Bereich, Kontext, Protokoll, Schluessel, Stufe};
 use axum::Json;
 use axum::body::Body;
 use axum::extract::{Path, State};
@@ -25,6 +28,7 @@ use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use serde_json::{Value, json};
 use std::sync::Arc;
+use std::time::Instant;
 
 const ROUTE: &str = "POST /api/channels/{name}/nachrichten/loeschen";
 
@@ -41,6 +45,7 @@ pub async fn loeschen(
     kopf: HeaderMap,
     koerper: Body,
 ) -> Response {
+    let eintritt = Instant::now();
     if let Err(gebremst) =
         zustand
             .schreibkonto
@@ -79,13 +84,68 @@ pub async fn loeschen(
     let ergebnis =
         tokio::task::spawn_blocking(move || gespraeche.nachricht_loeschen(&gespraech, &von, ziel))
             .await;
+    let melden = |grund| geloescht_melden(&zustand.protokoll, &name, &wer, 0, eintritt, grund);
     match ergebnis {
-        Ok(Ok(NachrichtGeloescht::Neu(nachricht))) => geloescht(&name, &nachricht, "geloescht"),
+        Ok(Ok(NachrichtGeloescht::Neu(nachricht))) => {
+            vorlauf::eintragen(&zustand.protokoll, zustand.gespraeche.zeit_vorlauf_ms());
+            melden(None);
+            geloescht(&name, &nachricht, "geloescht")
+        }
         Ok(Ok(NachrichtGeloescht::Schon(nachricht))) => {
+            melden(Some("schon_geloescht"));
             geloescht(&name, &nachricht, "schon_geloescht")
         }
-        Ok(Err(fehler)) => abgewiesen(fehler, &name, &wer),
+        Ok(Err(fehler)) => {
+            abweisung_melden(&zustand.protokoll, &fehler, &name, &wer);
+            abgewiesen(fehler, &name, &wer)
+        }
         Err(_) => super::abbruch::interner_fehler("Löschen"),
+    }
+}
+
+/// `DEBUG aendern Nachricht gelöscht` (ADR-0048 Regel 13): Channel, Kennung, Zahl der mitgelöschten Anhänge, die Zeit
+/// vom Eintritt in den Handler bis zum Ende; ohne Satz `grund=schon_geloescht` — nie Text.
+fn geloescht_melden(
+    protokoll: &Protokoll,
+    channel: &str,
+    wer: &str,
+    anhaenge: u64,
+    eintritt: Instant,
+    grund: Option<&str>,
+) {
+    let kontext = Kontext::neu()
+        .mit(Schluessel::Channel, channel)
+        .mit(Schluessel::Kennung, wer)
+        .mit(Schluessel::Anhaenge, anhaenge)
+        .mit(Schluessel::DauerMs, eintritt.elapsed().as_millis());
+    let kontext = match grund {
+        Some(grund) => kontext.mit(Schluessel::Grund, grund),
+        None => kontext,
+    };
+    protokoll.eintragen(
+        Stufe::Debug,
+        Bereich::Aendern,
+        "Nachricht gelöscht",
+        kontext,
+    );
+}
+
+/// Abweisungen unter der Sperre mit eigener Episode wie beim Bearbeiten: 403 `fremd` je Kennung, 500 je Datei und
+/// Grund, 507 in der Quote-Episode der Kennung mit `route=loeschen`.
+fn abweisung_melden(protokoll: &Protokoll, fehler: &Loeschfehler, channel: &str, wer: &str) {
+    match fehler {
+        Loeschfehler::Fremd { .. } => protokoll.episode(fremd_auftreten(channel, wer)),
+        Loeschfehler::Ablage { datei, grund } => {
+            protokoll.episode(schreibfehler_auftreten(channel, wer, datei, grund));
+        }
+        Loeschfehler::Quote { belegt, hoechstens } => {
+            let mut auftreten = quote_auftreten(channel, wer, *belegt, *hoechstens);
+            auftreten.kontext = auftreten
+                .kontext
+                .mit_nur_beginn(Schluessel::Route, "loeschen");
+            protokoll.episode(auftreten);
+        }
+        Loeschfehler::Unbekannt | Loeschfehler::Nachricht => {}
     }
 }
 
