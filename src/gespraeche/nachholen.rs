@@ -166,18 +166,24 @@ impl Gespraeche {
     /// ohne Angabe und mit `erwaehnung` alle Channels; Direktgespräche erst mit I0012.
     fn straenge(&self, seit: Zeit, marke: Zeit, filter: &Filter) -> Vec<Strang<'_>> {
         let alle = filter.ohne_angabe() || filter.erwaehnung;
-        lesend(&self.verzeichnis)
+        // Die Verzeichnissperre gilt nur für die Auswahl; `vorschauen` nimmt die Sperre des Gesprächs, und die beiden
+        // werden nicht ineinander gehalten.
+        let verlaeufe: Vec<(Gespraech, Arc<Mutex<Verlauf>>)> = lesend(&self.verzeichnis)
             .verlaeufe
             .iter()
             .filter(|(gespraech, _)| match gespraech {
                 Gespraech::Channel(name) => alle || filter.channels.contains(name),
                 Gespraech::Direkt(_) => false,
             })
+            .map(|(gespraech, verlauf)| (gespraech.clone(), Arc::clone(verlauf)))
+            .collect();
+        verlaeufe
+            .into_iter()
             .map(|(gespraech, verlauf)| {
                 let mut strang = Strang {
                     gespraeche: self,
-                    gespraech: gespraech.clone(),
-                    verlauf: Arc::clone(verlauf),
+                    gespraech,
+                    verlauf,
                     kopf: None,
                     ab: seit,
                     marke,
