@@ -163,7 +163,7 @@ for (const breite of [320, 375, 414]) {
 
 // „Fokus unter der Leiste“ (V7, wörtlich: „Getrennt, Fokus per Tastatur auf die oberste Nachricht → ihr Rechteck liegt
 // nicht vollständig unter der Leiste.“ Mutante „ohne `scroll-padding-top`“ rot). Lesart: fokussierbar in einer
-// Nachricht ist der Schalter „Ganze Nachricht anzeigen“; Tab aus dem Verlauf führt auf den der obersten Nachricht. Der
+// Nachricht ist der Schalter „Ganze Nachricht anzeigen“; Tab von der obersten Nachricht führt auf ihren Schalter. Der
 // Schalter liegt vorher im Scrollbereich, aber unter der Leiste — liegt er ganz außerhalb, scrollt Chromium ihn ohnehin
 // mittig, und die Probe sähe `scroll-padding-top` nicht (überlebende Mutante). Eigene Variante dazu: der fokussierte
 // Schalter liegt ganz unter der Leiste, nicht nur teilweise.
@@ -183,7 +183,9 @@ test('Fokus unter der Leiste: der per Tastatur fokussierte Schalter der obersten
     const versatz = schalter.getBoundingClientRect().top - log.getBoundingClientRect().top;
     log.scrollTop += versatz - 5;
   });
-  await b.page.locator('.lc-log').focus();
+  // Seit R00041 F0141 ist die Nachricht der Rollfokus, nicht mehr der Verlauf: der Fokus beginnt auf der obersten
+  // Nachricht (ohne zu scrollen), Tab führt auf ihren Schalter.
+  await b.page.locator('.lc-log .lc-msg').first().evaluate((nachricht) => nachricht.focus({ preventScroll: true }));
   await b.page.keyboard.press('Tab');
 
   const lage = await b.page.evaluate(() => {
