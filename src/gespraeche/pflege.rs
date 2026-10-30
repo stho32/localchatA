@@ -1,8 +1,9 @@
 //! Frist setzen und pflegen (ADR-0030, ADR-0031 Regel 2, A00006 und A00012 Ergänzung I0018): Setzen unter der
 //! Sperre des Verzeichnisses; Pflegen je Tag unter der Sperre des Gesprächs — erst die Datei, dann der Index.
 
+use super::Direktpaar;
 use super::einstellungen::{self, Einstellungen};
-use super::frist::{self, Frist};
+use super::frist::{self, DIREKT_FRIST_TAGE, Frist};
 use super::logablage::Gespraech;
 use super::verlaufsindex::Verlauf;
 use super::verzeichnis::{Channel, ChannelWechsel};
@@ -18,12 +19,25 @@ pub enum Pflegeanlass {
     FristGesetzt { von: Kennung },
 }
 
-/// Was eine Pflege in einem Channel tat; nichts zu tun ergibt keinen Bericht.
+/// Was gepflegt wurde: ein Channel oder ein Direktgespräch (ADR-0055 Regel 10).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Pflegegespraech {
+    Channel(Channelname),
+    Direkt(Direktpaar),
+}
+
+impl From<Channelname> for Pflegegespraech {
+    fn from(name: Channelname) -> Pflegegespraech {
+        Pflegegespraech::Channel(name)
+    }
+}
+
+/// Was eine Pflege in einem Gespräch tat; nichts zu tun ergibt keinen Bericht.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Pflegebericht {
     /// Tagesdateien entfielen: ihre Tage aufsteigend, ihre Nachrichten im Index, die Frist und der Anlass.
     Entfallen {
-        channel: Channelname,
+        gespraech: Pflegegespraech,
         tage: Vec<NaiveDate>,
         nachrichten: usize,
         frist: u32,
@@ -32,7 +46,7 @@ pub enum Pflegebericht {
     /// Ein Tag ließ sich nicht entfernen; er bleibt in Datei und Index bis zum nächsten Anlass. `ursache` ist der
     /// Text des Plattenfehlers.
     NichtEntfallen {
-        channel: Channelname,
+        gespraech: Pflegegespraech,
         datei: String,
         anlass: Pflegeanlass,
         ursache: String,
@@ -40,7 +54,7 @@ pub enum Pflegebericht {
     /// Die Anhänge eines Tags ließen sich nicht entfernen (seine Tagesdatei ist weg oder gab es nie); sie bleiben als
     /// Waisen gezählt, jede nächste Pflege versucht es erneut (ADR-0046 Ergänzung „Review #53 B1“ Regel 4).
     AnhaengeNichtEntfernt {
-        channel: Channelname,
+        gespraech: Pflegegespraech,
         tag: NaiveDate,
         anlass: Pflegeanlass,
         ursache: String,
@@ -48,7 +62,7 @@ pub enum Pflegebericht {
     /// Der Ordner des Channels ließ sich nicht auflisten; nichts entfällt bis zum nächsten Anlass (ADR-0042
     /// Ergänzung R00019 Punkt 1). `ordner` ist `channels/<name>`, `ursache` der Text des Plattenfehlers.
     TageNichtErmittelt {
-        channel: Channelname,
+        gespraech: Pflegegespraech,
         ordner: String,
         anlass: Pflegeanlass,
         ursache: String,
@@ -57,13 +71,13 @@ pub enum Pflegebericht {
     /// er bleibt in Datei und Index bis zum nächsten Anlass, damit Gelöschtes gelöscht bleibt (ADR-0048 Ergänzung
     /// „Karte #73“ K6). `ziel` ist der ältere Tag, der ihn hält.
     Zurueckgestellt {
-        channel: Channelname,
+        gespraech: Pflegegespraech,
         datei: String,
         ziel: NaiveDate,
     },
     /// Die Einstellungen sind defekt — in diesem Channel entfällt nichts (ADR-0032 Regel 5).
     Gesperrt {
-        channel: Channelname,
+        gespraech: Pflegegespraech,
         datei: String,
         zeile: Option<usize>,
     },
@@ -95,18 +109,58 @@ fn vorschau(
 }
 
 impl Gespraeche {
-    /// Pflegt jeden Channel nach seiner Frist mit `heute` (ADR-0030 Regel 1): Direktgespräche nie.
+    /// Pflegt jeden Channel nach seiner Frist und jedes Direktgespräch nach der festen Frist von 7 Tagen mit `heute`
+    /// (ADR-0030 Regel 1, ADR-0055 Regel 10).
     pub fn pflegen(&self, heute: NaiveDate, anlass: Pflegeanlass) -> Vec<Pflegebericht> {
-        let namen: Vec<Channelname> = lesend(&self.verzeichnis).channels.keys().cloned().collect();
-        namen
+        let (namen, paare): (Vec<Channelname>, Vec<Direktpaar>) = {
+            let verzeichnis = lesend(&self.verzeichnis);
+            (
+                verzeichnis.channels.keys().cloned().collect(),
+                verzeichnis
+                    .verlaeufe
+                    .keys()
+                    .filter_map(|gespraech| match gespraech {
+                        Gespraech::Direkt(paar) => Some(paar.clone()),
+                        Gespraech::Channel(_) => None,
+                    })
+                    .collect(),
+            )
+        };
+        let channels = namen
             .iter()
-            .flat_map(|name| self.channel_pflegen(name, heute, &anlass))
-            .collect()
+            .flat_map(|name| self.channel_pflegen(name, heute, &anlass));
+        let direkt = paare
+            .iter()
+            .flat_map(|paar| self.direkt_pflegen(paar, heute, &anlass));
+        channels.chain(direkt).collect()
     }
 
-    /// Ein Channel: Frist und Verlauf lesend nachschlagen → Tage der Platte teilen (ADR-0030 Regel 3) → je
-    /// entfallendem Tag unter der Sperre des Gesprächs: zurückstellen, solange er Änderungssätze zu einem Tag im Index
-    /// trägt (ADR-0048 Ergänzung „Karte #73“ K6), sonst Datei entfernen, nur bei Erfolg aus dem Index (Regel 4).
+    /// Ein Direktgespräch: die feste Frist (PO 166, bis zur Ausbaustufe „Frist wählen“), sonst wie ein Channel.
+    fn direkt_pflegen(
+        &self,
+        paar: &Direktpaar,
+        heute: NaiveDate,
+        anlass: &Pflegeanlass,
+    ) -> Vec<Pflegebericht> {
+        let gespraech = Gespraech::Direkt(paar.clone());
+        let Some(verlauf) = lesend(&self.verzeichnis)
+            .verlaeufe
+            .get(&gespraech)
+            .map(std::sync::Arc::clone)
+        else {
+            return Vec::new();
+        };
+        self.gespraech_pflegen(
+            &gespraech,
+            Pflegegespraech::Direkt(paar.clone()),
+            &verlauf,
+            DIREKT_FRIST_TAGE,
+            heute,
+            anlass,
+        )
+    }
+
+    /// Ein Channel: Frist und Verlauf lesend nachschlagen, dann wie jedes Gespräch.
     fn channel_pflegen(
         &self,
         name: &Channelname,
@@ -128,24 +182,46 @@ impl Gespraeche {
             Frist::Tage(tage) => tage,
             Frist::Gesperrt { datei, zeile } => {
                 return vec![Pflegebericht::Gesperrt {
-                    channel: name.clone(),
+                    gespraech: name.clone().into(),
                     datei,
                     zeile,
                 }];
             }
         };
-        let auf_der_platte = match self.ablage.tage(&gespraech) {
+        self.gespraech_pflegen(
+            &gespraech,
+            name.clone().into(),
+            &verlauf,
+            frist_tage,
+            heute,
+            anlass,
+        )
+    }
+
+    /// Tage der Platte teilen (ADR-0030 Regel 3) → je entfallendem Tag unter der Sperre des Gesprächs:
+    /// zurückstellen, solange er Änderungssätze zu einem Tag im Index trägt (ADR-0048 Ergänzung „Karte #73“ K6),
+    /// sonst Datei entfernen, nur bei Erfolg aus dem Index (Regel 4).
+    fn gespraech_pflegen(
+        &self,
+        gespraech: &Gespraech,
+        pflegeort: Pflegegespraech,
+        verlauf: &std::sync::Arc<std::sync::Mutex<Verlauf>>,
+        frist_tage: u32,
+        heute: NaiveDate,
+        anlass: &Pflegeanlass,
+    ) -> Vec<Pflegebericht> {
+        let auf_der_platte = match self.ablage.tage(gespraech) {
             Ok(tage) => tage,
             Err(fehler) => {
                 return vec![Pflegebericht::TageNichtErmittelt {
-                    channel: name.clone(),
+                    gespraech: pflegeort,
                     ordner: gespraech.pfad(),
                     anlass: anlass.clone(),
                     ursache: fehler.to_string(),
                 }];
             }
         };
-        let mit_anhangtagen = self.mit_anhangtagen(&gespraech, &auf_der_platte);
+        let mit_anhangtagen = self.mit_anhangtagen(gespraech, &auf_der_platte);
         let (_, entfallend) = frist::teilen(&mit_anhangtagen, heute, frist_tage);
         let mut entfallen = Vec::new();
         let mut nachrichten = 0;
@@ -153,25 +229,25 @@ impl Gespraeche {
         for tag in entfallend {
             #[cfg(test)]
             self.schranken.passieren(super::schranke::Vorgang::Pflegen);
-            let mut verlauf = sperren(&verlauf);
+            let mut verlauf = sperren(verlauf);
             if let Some(ziel) = verlauf.tag_haelt_aenderungen_fuer_bestehende_tage(tag) {
                 je_tag.push(Pflegebericht::Zurueckgestellt {
-                    channel: name.clone(),
+                    gespraech: pflegeort.clone(),
                     datei: gespraech.tagesdatei(tag),
                     ziel,
                 });
                 continue;
             }
-            match self.ablage.tag_entfernen(&gespraech, tag) {
+            match self.ablage.tag_entfernen(gespraech, tag) {
                 Ok(()) => {
                     if let Some((saetze, bytes)) = verlauf.tag_entfernen(tag) {
                         nachrichten += saetze;
                         let vorher = self.belegung.weg(bytes);
                         self.unter_90_melden(vorher, vorher.saturating_sub(bytes), anlass);
                     }
-                    if let Err(ursache) = self.anhaenge_entfallen(&gespraech, tag, anlass) {
+                    if let Err(ursache) = self.anhaenge_entfallen(gespraech, tag, anlass) {
                         je_tag.push(Pflegebericht::AnhaengeNichtEntfernt {
-                            channel: name.clone(),
+                            gespraech: pflegeort.clone(),
                             tag,
                             anlass: anlass.clone(),
                             ursache: ursache.to_string(),
@@ -182,7 +258,7 @@ impl Gespraeche {
                     }
                 }
                 Err(ursache) => je_tag.push(Pflegebericht::NichtEntfallen {
-                    channel: name.clone(),
+                    gespraech: pflegeort.clone(),
                     datei: gespraech.tagesdatei(tag),
                     anlass: anlass.clone(),
                     ursache: ursache.to_string(),
@@ -192,7 +268,7 @@ impl Gespraeche {
         let mut berichte = Vec::new();
         if !entfallen.is_empty() {
             berichte.push(Pflegebericht::Entfallen {
-                channel: name.clone(),
+                gespraech: pflegeort.clone(),
                 tage: entfallen,
                 nachrichten,
                 frist: frist_tage,
@@ -522,11 +598,6 @@ mod tests {
         for tag_text in ["2026-10-20", "2026-10-21", "2026-10-22", "2026-10-28"] {
             ablage.tag_setzen(&gespraech, tag(tag_text), &satz(tag_text));
         }
-        let direkt = Gespraech::Direkt(crate::gespraeche::Direktpaar::fuer_test(
-            "a@10.0.0.1",
-            "b@10.0.0.2",
-        ));
-        ablage.tag_setzen(&direkt, tag("2026-01-01"), &satz("2026-01-01"));
         let gespraeche = geladen(&ablage);
         assert_eq!(gespraeche.kennzahlen().nachrichten, 2);
 
@@ -535,7 +606,7 @@ mod tests {
         assert_eq!(
             beim_start,
             vec![Pflegebericht::Entfallen {
-                channel: allgemein(),
+                gespraech: allgemein().into(),
                 tage: vec![tag("2026-10-20"), tag("2026-10-21")],
                 nachrichten: 0,
                 frist: 7,
@@ -553,7 +624,7 @@ mod tests {
         assert_eq!(
             am_naechsten_tag,
             vec![Pflegebericht::Entfallen {
-                channel: allgemein(),
+                gespraech: allgemein().into(),
                 tage: vec![tag("2026-10-22")],
                 nachrichten: 1,
                 frist: 7,
@@ -564,10 +635,6 @@ mod tests {
         assert_eq!(
             crate::gespraeche::Logablage::tage(ablage.as_ref(), &gespraech).expect("Tage"),
             vec![tag("2026-10-28")]
-        );
-        assert_eq!(
-            crate::gespraeche::Logablage::tage(ablage.as_ref(), &direkt).expect("Tage"),
-            vec![tag("2026-01-01")]
         );
         let davor = gespraeche
             .verlauf(
@@ -603,7 +670,7 @@ mod tests {
         assert_eq!(
             berichte,
             vec![Pflegebericht::Gesperrt {
-                channel: Channelname::bilden("kaputt").expect("Name"),
+                gespraech: Channelname::bilden("kaputt").expect("Name").into(),
                 datei: "channels/kaputt/einstellungen.toml".into(),
                 zeile: Some(1),
             }]
@@ -722,7 +789,7 @@ mod tests {
         assert_eq!(
             gesetzt.berichte,
             vec![Pflegebericht::Entfallen {
-                channel: allgemein(),
+                gespraech: allgemein().into(),
                 tage: vec![tag("2026-10-20"), tag("2026-10-21")],
                 nachrichten: 5,
                 frist: 7,
@@ -843,14 +910,14 @@ mod tests {
             gesetzt.berichte,
             vec![
                 Pflegebericht::Entfallen {
-                    channel: allgemein(),
+                    gespraech: allgemein().into(),
                     tage: vec![tag("2026-10-20")],
                     nachrichten: 2,
                     frist: 7,
                     anlass: Pflegeanlass::FristGesetzt { von: beta() },
                 },
                 Pflegebericht::NichtEntfallen {
-                    channel: allgemein(),
+                    gespraech: allgemein().into(),
                     datei: "channels/allgemein/2026-10-21.log".into(),
                     anlass: Pflegeanlass::FristGesetzt { von: beta() },
                     ursache: "Entfernen scheitert (Speicher-Logablage)".into(),
@@ -934,7 +1001,7 @@ mod tests {
         assert_eq!(
             berichte[0],
             Pflegebericht::TageNichtErmittelt {
-                channel: allgemein(),
+                gespraech: allgemein().into(),
                 ordner: "channels/allgemein".into(),
                 anlass: Pflegeanlass::Tageswechsel,
                 ursache: "Auflisten scheitert (Speicher-Logablage)".into(),
@@ -943,8 +1010,8 @@ mod tests {
         assert!(
             matches!(
                 &berichte[1],
-                Pflegebericht::Entfallen { channel, tage, anlass: Pflegeanlass::Tageswechsel, .. }
-                    if channel.als_text() == "zweiter"
+                Pflegebericht::Entfallen { gespraech, tage, anlass: Pflegeanlass::Tageswechsel, .. }
+                    if *gespraech == Pflegegespraech::Channel(Channelname::bilden("zweiter").expect("Name"))
                         && *tage == vec![tag("2026-10-20"), tag("2026-10-22")]
             ),
             "{berichte:?}"
@@ -952,6 +1019,37 @@ mod tests {
         assert_eq!(
             crate::gespraeche::Logablage::tage(ablage.as_ref(), &zweiter).expect("Tage"),
             Vec::<NaiveDate>::new()
+        );
+    }
+
+    /// R00050 B0777 (ADR-0055 Regel 10, ändert ADR-0032 Regel 1 „Nur Channels“): ein Direktgespräch entfällt nach der
+    /// festen Frist von 7 Tagen — Datei und Index —, der Bericht nennt das Paar, nicht einen Channel; der Tag am Rand
+    /// der Frist (heute − 6) bleibt, der davor geht.
+    #[test]
+    fn ein_direktgespraech_entfaellt_nach_sieben_tagen_aus_ablage_und_index() {
+        let ablage = Arc::new(Speicherablage::neu());
+        let paar = crate::gespraeche::Direktpaar::fuer_test("a@10.0.0.1", "b@10.0.0.2");
+        let direkt = Gespraech::Direkt(paar.clone());
+        for tag_text in ["2026-10-23", "2026-10-24", "2026-10-30"] {
+            ablage.tag_setzen(&direkt, tag(tag_text), &satz(tag_text));
+        }
+        let gespraeche = geladen(&ablage);
+
+        let berichte = gespraeche.pflegen(tag("2026-10-30"), Pflegeanlass::Tageswechsel);
+
+        assert_eq!(
+            berichte,
+            vec![Pflegebericht::Entfallen {
+                gespraech: Pflegegespraech::Direkt(paar),
+                tage: vec![tag("2026-10-23")],
+                nachrichten: 1,
+                frist: 7,
+                anlass: Pflegeanlass::Tageswechsel,
+            }]
+        );
+        assert_eq!(
+            crate::gespraeche::Logablage::tage(ablage.as_ref(), &direkt).expect("Tage"),
+            vec![tag("2026-10-24"), tag("2026-10-30")]
         );
     }
 

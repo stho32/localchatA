@@ -2557,20 +2557,20 @@ mod tests {
             berichte,
             vec![
                 Pflegebericht::Entfallen {
-                    channel: channel.clone(),
+                    gespraech: channel.clone().into(),
                     tage: vec![tag_c],
                     nachrichten: 1,
                     frist: 7,
                     anlass: Pflegeanlass::Tageswechsel,
                 },
                 Pflegebericht::NichtEntfallen {
-                    channel: channel.clone(),
+                    gespraech: channel.clone().into(),
                     datei: "channels/allgemein/2026-10-26.log".into(),
                     anlass: Pflegeanlass::Tageswechsel,
                     ursache: "Entfernen scheitert (Speicher-Logablage)".into(),
                 },
                 Pflegebericht::Zurueckgestellt {
-                    channel: channel.clone(),
+                    gespraech: channel.clone().into(),
                     datei: "channels/allgemein/2026-10-27.log".into(),
                     ziel: tag_a,
                 },

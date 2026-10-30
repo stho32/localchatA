@@ -2,7 +2,8 @@
 //! Betriebsprotokoll anbindet“): rein, ohne Uhr und Protokoll. Kennungen nur im Kontext (ADR-0040 Regel 3).
 
 use super::Kennung;
-use super::pflege::{Pflegeanlass, Pflegebericht};
+use super::direktgespraeche::ordner_fuer_protokoll;
+use super::pflege::{Pflegeanlass, Pflegebericht, Pflegegespraech};
 use crate::protokoll::{Bereich, Eintrag, Kontext, Schluessel, Stufe};
 use chrono::NaiveDate;
 
@@ -19,16 +20,14 @@ pub const TAG_ZURUECKGESTELLT: &str = "Tag zurückgestellt — erneuter Versuch 
 pub fn pflege_eintrag(bericht: &Pflegebericht) -> Eintrag {
     match bericht {
         Pflegebericht::Entfallen {
-            channel,
+            gespraech,
             tage,
             frist,
             anlass,
             ..
         } => {
             let kontext = mit_anlass(
-                Kontext::neu()
-                    .mit(Schluessel::Channel, channel)
-                    .mit(Schluessel::Anzahl, tage.len()),
+                bezug(Kontext::neu(), gespraech).mit(Schluessel::Anzahl, tage.len()),
                 anlass,
             );
             Eintrag::neu(
@@ -44,7 +43,7 @@ pub fn pflege_eintrag(bericht: &Pflegebericht) -> Eintrag {
             )
         }
         Pflegebericht::NichtEntfallen {
-            channel,
+            gespraech,
             datei,
             anlass,
             ursache,
@@ -53,28 +52,25 @@ pub fn pflege_eintrag(bericht: &Pflegebericht) -> Eintrag {
             Bereich::Frist,
             "Tag nicht entfallen — erneuter Versuch beim nächsten Anlass",
             mit_anlass(
-                Kontext::neu()
-                    .mit(Schluessel::Channel, channel)
-                    .mit(Schluessel::Datei, datei),
+                bezug(Kontext::neu(), gespraech).mit(Schluessel::Datei, datei),
                 anlass,
             )
             .mit(Schluessel::Ursache, ursache),
         ),
         Pflegebericht::Zurueckgestellt {
-            channel,
+            gespraech,
             datei,
             ziel,
         } => Eintrag::neu(
             Stufe::Debug,
             Bereich::Frist,
             TAG_ZURUECKGESTELLT,
-            Kontext::neu()
-                .mit(Schluessel::Channel, channel)
+            bezug(Kontext::neu(), gespraech)
                 .mit(Schluessel::Datei, datei)
                 .mit(Schluessel::Ziel, ziel.format("%Y-%m-%d")),
         ),
         Pflegebericht::AnhaengeNichtEntfernt {
-            channel,
+            gespraech,
             tag,
             anlass,
             ursache,
@@ -83,15 +79,13 @@ pub fn pflege_eintrag(bericht: &Pflegebericht) -> Eintrag {
             Bereich::Frist,
             ANHAENGE_NICHT_ENTFERNT,
             mit_anlass(
-                Kontext::neu()
-                    .mit(Schluessel::Channel, channel)
-                    .mit(Schluessel::Tag, tag.format("%Y-%m-%d")),
+                bezug(Kontext::neu(), gespraech).mit(Schluessel::Tag, tag.format("%Y-%m-%d")),
                 anlass,
             )
             .mit(Schluessel::Ursache, ursache),
         ),
         Pflegebericht::TageNichtErmittelt {
-            channel,
+            gespraech,
             ordner,
             anlass,
             ursache,
@@ -100,21 +94,17 @@ pub fn pflege_eintrag(bericht: &Pflegebericht) -> Eintrag {
             Bereich::Frist,
             "Tage nicht ermittelt — Ordner nicht lesbar; erneuter Versuch beim nächsten Anlass",
             mit_anlass(
-                Kontext::neu()
-                    .mit(Schluessel::Channel, channel)
-                    .mit(Schluessel::Datei, ordner),
+                bezug(Kontext::neu(), gespraech).mit(Schluessel::Datei, ordner),
                 anlass,
             )
             .mit(Schluessel::Ursache, ursache),
         ),
         Pflegebericht::Gesperrt {
-            channel,
+            gespraech,
             datei,
             zeile,
         } => {
-            let kontext = Kontext::neu()
-                .mit(Schluessel::Channel, channel)
-                .mit(Schluessel::Datei, datei);
+            let kontext = bezug(Kontext::neu(), gespraech).mit(Schluessel::Datei, datei);
             let kontext = match zeile {
                 Some(zeile) => kontext.mit(Schluessel::Zeile, zeile),
                 None => kontext,
@@ -189,6 +179,18 @@ fn nicht_gesetzt(text: &str, channel: &str, von: &Kennung, datei: &str, ursache:
     )
 }
 
+/// Das Gespräch einer Pflegezeile: `channel=` für einen Channel, `ordner=direkt/<paar>` für ein Direktgespräch
+/// (ADR-0055 Regel 11; der Ordnername ist gekürzt und ohne Steuerzeichen).
+fn bezug(kontext: Kontext, gespraech: &Pflegegespraech) -> Kontext {
+    match gespraech {
+        Pflegegespraech::Channel(name) => kontext.mit(Schluessel::Channel, name),
+        Pflegegespraech::Direkt(paar) => kontext.mit(
+            Schluessel::Ordner,
+            ordner_fuer_protokoll(&paar.ordnername()),
+        ),
+    }
+}
+
 /// Der Anlass in `grund`, beim Setzen dazu die Kennung dessen, der gesetzt hat (ADR-0040 Ergänzung R00019).
 fn mit_anlass(kontext: Kontext, anlass: &Pflegeanlass) -> Kontext {
     let kontext = kontext.mit(Schluessel::Grund, grund(anlass));
@@ -260,7 +262,7 @@ mod tests {
 
     fn entfallen(tage: &[&str], frist: u32, anlass: Pflegeanlass) -> Pflegebericht {
         Pflegebericht::Entfallen {
-            channel: channel("allgemein"),
+            gespraech: channel("allgemein").into(),
             tage: tage.iter().map(|text| tag(text)).collect(),
             nachrichten: 5,
             frist,
@@ -310,9 +312,30 @@ mod tests {
         );
     }
 
+    /// ADR-0055 Regel 11: eine Pflegezeile eines Direktgesprächs nennt den Ordner, nie `channel=`.
+    #[test]
+    fn ein_direktgespraech_steht_mit_ordner_statt_channel_im_kontext() {
+        let anna = Kennung::bilden("anna@10.0.0.7").expect("Kennung");
+        let paar = crate::gespraeche::Direktpaar::bilden(&anna, &beta()).expect("Paar");
+        let bericht = Pflegebericht::NichtEntfallen {
+            gespraech: Pflegegespraech::Direkt(paar),
+            datei: "direkt/anna@10.0.0.7+beta@127.0.0.1/2026-10-21.log".into(),
+            anlass: Pflegeanlass::Start,
+            ursache: "Permission denied (os error 13)".into(),
+        };
+
+        let zeile = ab_der_stufe(&pflege_eintrag(&bericht));
+
+        assert!(
+            zeile.contains(" | ordner=direkt/anna@10.0.0.7+beta@127.0.0.1 datei="),
+            "{zeile}"
+        );
+        assert!(!zeile.contains("channel="), "{zeile}");
+    }
+
     fn nicht_entfallen(anlass: Pflegeanlass) -> Pflegebericht {
         Pflegebericht::NichtEntfallen {
-            channel: channel("allgemein"),
+            gespraech: channel("allgemein").into(),
             datei: "channels/allgemein/2026-10-21.log".into(),
             anlass,
             ursache: "Permission denied (os error 13)".into(),
@@ -345,7 +368,7 @@ mod tests {
     #[test]
     fn zurueckgestellt_ist_debug_mit_channel_datei_und_ziel() {
         let bericht = Pflegebericht::Zurueckgestellt {
-            channel: channel("allgemein"),
+            gespraech: channel("allgemein").into(),
             datei: "channels/allgemein/2026-10-27.log".into(),
             ziel: NaiveDate::from_ymd_opt(2026, 10, 26).expect("Tag"),
         };
@@ -371,7 +394,7 @@ mod tests {
             ),
         ] {
             let bericht = Pflegebericht::TageNichtErmittelt {
-                channel: channel("allgemein"),
+                gespraech: channel("allgemein").into(),
                 ordner: "channels/allgemein".into(),
                 anlass,
                 ursache: "Permission denied (os error 13)".into(),
@@ -389,12 +412,12 @@ mod tests {
     #[test]
     fn gesperrt_ist_warning_mit_datei_und_zeile() {
         let mit_zeile = Pflegebericht::Gesperrt {
-            channel: channel("kaputt"),
+            gespraech: channel("kaputt").into(),
             datei: "channels/kaputt/einstellungen.toml".into(),
             zeile: Some(1),
         };
         let ohne_zeile = Pflegebericht::Gesperrt {
-            channel: channel("zu"),
+            gespraech: channel("zu").into(),
             datei: "channels/zu/einstellungen.toml".into(),
             zeile: None,
         };

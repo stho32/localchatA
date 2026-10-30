@@ -45,10 +45,14 @@ pub use anhaenge::{
 };
 pub use direktgespraeche::DirektUebersicht;
 pub use direktpaar::{Direktpaar, Selbst};
-pub use frist::{FRIST_MAX, FRIST_MIN, Frist, STANDARD_FRIST_TAGE, frist_in_spanne};
+pub use frist::{
+    DIREKT_FRIST_TAGE, FRIST_MAX, FRIST_MIN, Frist, STANDARD_FRIST_TAGE, frist_in_spanne,
+};
 pub use kennung::Kennung;
 pub use logablage::{Angehaengt, Dateiablage, Gespraech, Logablage};
-pub use pflege::{Entfaellt, FristGesetzt, Fristfehler, Pflegeanlass, Pflegebericht};
+pub use pflege::{
+    Entfaellt, FristGesetzt, Fristfehler, Pflegeanlass, Pflegebericht, Pflegegespraech,
+};
 pub use sichtbarkeit::sichtbar_fuer;
 pub use speicherablage::Speicherablage;
 pub use verzeichnis::{
@@ -432,7 +436,7 @@ impl Gespraeche {
             let channel = geladen.channel_lesen(ablage.as_ref(), &gespraech);
             let frist_tage = channel
                 .as_ref()
-                .map_or(frist::STANDARD_FRIST_TAGE, |channel| {
+                .map_or(frist::DIREKT_FRIST_TAGE, |channel| {
                     channel.frist.zum_laden()
                 });
             let tage = ablage.tage(&gespraech).map_err(|fehler| {

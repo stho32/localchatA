@@ -7,7 +7,7 @@
 use super::Zustand;
 use super::teilnehmer::Teilnehmer;
 use super::teilnehmerliste::zeit_als_text;
-use crate::gespraeche::STANDARD_FRIST_TAGE;
+use crate::gespraeche::DIREKT_FRIST_TAGE;
 use axum::Json;
 use axum::extract::State;
 use serde_json::{Value, json};
@@ -22,7 +22,7 @@ pub async fn auflisten(teilnehmer: Teilnehmer, State(zustand): State<Arc<Zustand
             json!({
                 "kennung": uebersicht.gegenueber.als_text(),
                 "letzte": zeit_als_text(&uebersicht.letzte),
-                "frist_tage": STANDARD_FRIST_TAGE,
+                "frist_tage": DIREKT_FRIST_TAGE,
             })
         })
         .collect();

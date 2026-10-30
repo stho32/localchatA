@@ -5,6 +5,9 @@ use chrono::NaiveDate;
 
 /// Standardfrist, wenn `einstellungen.toml` oder darin `frist_tage` fehlt (ADR-0029 Regel 1).
 pub const STANDARD_FRIST_TAGE: u32 = 7;
+/// Frist der Direktgespräche: fest 7 Kalendertage (PO 166, ADR-0055 Regel 10) bis zur Ausbaustufe „Frist wählen“ —
+/// eine eigene Zahl, damit eine Änderung der Channel-Standardfrist sie nicht mitzieht.
+pub const DIREKT_FRIST_TAGE: u32 = 7;
 /// Kürzeste Frist: nur heute (ADR-0029 Regel 1).
 pub const FRIST_MIN: u32 = 1;
 /// Längste Frist, etwa zehn Jahre — „praktisch unbegrenzt“ (ADR-0029 Regel 1).
