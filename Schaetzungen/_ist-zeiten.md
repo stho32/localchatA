@@ -645,3 +645,4 @@ Nie vom User erfragen.
 | 2026-10-30 | R00050 Strom, Aktivität und Warten im Direktgespräch | F0173 (B0772–B0774) (Wanduhr gesamt) | Entwicklung | 4,4–8,4h | 0,8h | 0,8h | autonom (entw2) |
 | 2026-10-30 | R00049 Härtung nach Reviews #17 | Befund 4 (Zitat), 5/S1 (Tag::kopieren), S2, O1–O3 (Wanduhr gesamt) | Nacharbeit | — | 0,6h | 0,6h | autonom (entw) |
 | 2026-10-30 | R00050 Architekturtest Sichtbarkeit | F0176 (B0781) (Wanduhr gesamt) | Entwicklung | 0,4h | 0,3h | 0,3h | autonom (entw) |
+| 2026-10-30 | R00049 Direktnachricht weckt + Nacharbeit F0172 | F0168 (B0747–B0749), Sollte 2–5 (Wanduhr gesamt) | Entwicklung/Nacharbeit | — | 0,7h | 0,7h | autonom (entw2) |
