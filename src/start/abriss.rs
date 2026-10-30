@@ -4,8 +4,8 @@
 //! `Ok(())`. Deshalb beobachtet `Beobachtet` den Strom selbst und merkt sich den ersten Ein-/Ausgabefehler;
 //! eingeordnet wird er wie ein Fehler aus `serve_connection` (die Einordnung folgt der Probe).
 
-use crate::protokoll::episoden::Auftreten;
-use crate::protokoll::{Bereich, Kontext, Protokoll, Schluessel, Stufe};
+use crate::protokoll::episoden::{Auftreten, Quelle};
+use crate::protokoll::{Bereich, Protokoll, Schluessel, Stufe};
 use std::error::Error;
 use std::io;
 use std::net::IpAddr;
@@ -114,22 +114,25 @@ impl Abrissspur<'_> {
             return;
         }
         self.protokoll.abriss_zaehlen();
-        let mut kontext = Kontext::neu().mit(Schluessel::Herkunft, self.herkunft);
-        if let Some(grenze) = self.grenze {
-            kontext = kontext.mit(Schluessel::Hoechstens, grenze.as_millis());
-        }
-        self.protokoll.episode(Auftreten {
-            stufe: Stufe::Warning,
-            bereich: Bereich::Verbindung,
-            text: crate::protokoll::episodentexte::ABRISSGRENZE,
-            quelle: self.herkunft.to_string(),
-            kontext,
-            art: None,
-            verworfen: None,
-            bytes: None,
-            anzeige: None,
-        });
+        self.protokoll
+            .episode(abriss_auftreten(self.herkunft, self.grenze));
     }
+}
+
+/// Das Auftreten „Verbindung an der Abrissgrenze geschlossen“: Quelle sind Herkunft und Abrissgrenze (im Lauf
+/// fest); es gibt nur eine Art und keinen Einzelwert.
+pub(crate) fn abriss_auftreten(herkunft: IpAddr, grenze: Option<Duration>) -> Auftreten {
+    let quelle = Quelle::neu().mit(Schluessel::Herkunft, herkunft);
+    let quelle = match grenze {
+        Some(grenze) => quelle.mit(Schluessel::Hoechstens, grenze.as_millis()),
+        None => quelle,
+    };
+    Auftreten::neu(
+        Stufe::Warning,
+        Bereich::Verbindung,
+        crate::protokoll::episodentexte::ABRISSGRENZE,
+        quelle,
+    )
 }
 
 /// Wahr, wenn in der Quellenkette ein `io::Error` der Art `TimedOut` steht (rein).

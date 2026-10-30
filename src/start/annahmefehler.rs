@@ -2,7 +2,7 @@
 //! nicht herein — eine ERROR-Episode je Fehlernummer. Nur die Fehler, die eine einzelne Fremdverbindung betreffen
 //! (`ECONNABORTED`, `EPROTO`, `EINTR`), sind DEBUG ohne Episode.
 
-use crate::protokoll::episoden::Auftreten;
+use crate::protokoll::episoden::{Auftreten, Quelle};
 use crate::protokoll::{Bereich, Kontext, Protokoll, Schluessel, Stufe};
 use std::io;
 
@@ -46,23 +46,24 @@ fn ist_eproto(_fehler: &io::Error) -> bool {
 /// Trägt einen Fehler der Annahme ein: Episode je Fehlernummer oder eine DEBUG-Zeile; `grund` ist der Text des
 /// Fehlers mit Nummer (ADR-0042 Ergänzung #24 Punkt 2).
 pub fn annahmefehler_eintragen(protokoll: &Protokoll, fehler: &io::Error) {
-    let kontext = Kontext::neu().mit(Schluessel::Grund, fehler);
     match annahmefehler_einordnen(fehler) {
-        Annahmefehler::Episode { quelle } => protokoll.episode(Auftreten {
-            stufe: Stufe::Error,
-            bereich: Bereich::Verbindung,
-            text: TEXT,
-            quelle,
-            kontext,
-            art: None,
-            verworfen: None,
-            bytes: None,
-            anzeige: None,
-        }),
+        Annahmefehler::Episode { .. } => protokoll.episode(annahmefehler_auftreten(fehler)),
         Annahmefehler::Debug => {
+            let kontext = Kontext::neu().mit(Schluessel::Grund, fehler);
             protokoll.eintragen(Stufe::Debug, Bereich::Verbindung, TEXT, kontext);
         }
     }
+}
+
+/// Das Auftreten „Verbindung nicht angenommen“: Quelle ist der Text des Fehlers mit seiner Nummer (ADR-0050
+/// Regel 2); es gibt keinen Einzelwert.
+pub(crate) fn annahmefehler_auftreten(fehler: &io::Error) -> Auftreten {
+    Auftreten::neu(
+        Stufe::Error,
+        Bereich::Verbindung,
+        TEXT,
+        Quelle::neu().mit(Schluessel::Grund, fehler),
+    )
 }
 
 #[cfg(all(test, unix))]

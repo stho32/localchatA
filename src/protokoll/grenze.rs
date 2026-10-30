@@ -1,8 +1,8 @@
 //! Welche Grenze griff (ADR-0042 Ergänzung Karte #26 Punkt 1): im Betriebsprotokoll ist `grenze` immer ein Wort
 //! dieser Aufzählung, nie eine Zahl oder Freitext; die Zahl der gegriffenen Grenze heißt `hoechstens`.
 
-use super::episoden::Auftreten;
-use super::{Bereich, Kontext, Schluessel, Stufe};
+use super::episoden::{Auftreten, Quelle};
+use super::{Bereich, Schluessel, Stufe};
 use std::fmt;
 use std::net::IpAddr;
 
@@ -47,20 +47,15 @@ pub fn grenzauftreten(
     herkunft: IpAddr,
     gegriffen: Gegriffen,
 ) -> Auftreten {
-    Auftreten {
-        stufe: Stufe::Warning,
+    Auftreten::neu(
+        Stufe::Warning,
         bereich,
         text,
-        quelle: herkunft.to_string(),
-        kontext: Kontext::neu()
-            .mit(Schluessel::Herkunft, herkunft)
-            .mit_nur_beginn(Schluessel::Grenze, gegriffen.art)
-            .mit_nur_beginn(Schluessel::Hoechstens, gegriffen.hoechstens),
-        art: Some(gegriffen.art.als_text()),
-        verworfen: None,
-        bytes: None,
-        anzeige: None,
-    }
+        Quelle::neu().mit(Schluessel::Herkunft, herkunft),
+    )
+    .einzeln(Schluessel::Grenze, gegriffen.art)
+    .einzeln(Schluessel::Hoechstens, gegriffen.hoechstens)
+    .art(gegriffen.art.als_text())
 }
 
 #[cfg(test)]

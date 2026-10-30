@@ -37,7 +37,7 @@ use crate::http::{self, Auskunft, Echt, Grenzschutz, Namensauskunft, Tabelle, Zu
 use crate::live::bus::{self, Bus};
 use crate::live::{self, herzschlag, takt};
 use crate::protokoll::bereinigung::Anlass;
-use crate::protokoll::episoden::Auftreten;
+use crate::protokoll::episoden::{Auftreten, Quelle};
 use crate::protokoll::episodenruhe;
 use crate::protokoll::tagestakt::{self, Tagestakt};
 use crate::protokoll::testpanik::Testpanik;
@@ -671,24 +671,26 @@ fn verdraengt_melden(protokoll: &Arc<Protokoll>) -> crate::gespraeche::Verdraeng
     let protokoll = Arc::clone(protokoll);
     Arc::new(
         move |verdraengt: &crate::gespraeche::wiederholung::Verdraengt| {
-            let kennung = verdraengt.kennung.als_text();
-            protokoll.episode(Auftreten {
-                stufe: Stufe::Warning,
-                bereich: Bereich::Senden,
-                text: crate::protokoll::episodentexte::SCHLUESSEL_VERDRAENGT,
-                quelle: kennung.to_string(),
-                kontext: Kontext::neu()
-                    .mit(Schluessel::Kennung, kennung)
-                    .mit_nur_beginn(Schluessel::Grenze, verdraengt.grenze.als_wert())
-                    .mit_nur_beginn(Schluessel::Hoechstens, verdraengt.hoechstens)
-                    .mit_nur_beginn(Schluessel::AlterMs, verdraengt.alter_ms),
-                art: Some(verdraengt.grenze.als_wert()),
-                verworfen: None,
-                bytes: None,
-                anzeige: None,
-            });
+            protokoll.episode(verdraengt_auftreten(verdraengt));
         },
     )
+}
+
+/// Das Auftreten „Wiederholschlüssel vor Ablauf verdrängt“: Quelle ist die Kennung der verdrängten; Grenze,
+/// Zahl und Alter gehören dem einzelnen Auftreten, die Grenze ist zugleich die Art für die Zählung im Ende.
+pub(crate) fn verdraengt_auftreten(
+    verdraengt: &crate::gespraeche::wiederholung::Verdraengt,
+) -> Auftreten {
+    Auftreten::neu(
+        Stufe::Warning,
+        Bereich::Senden,
+        crate::protokoll::episodentexte::SCHLUESSEL_VERDRAENGT,
+        Quelle::neu().mit(Schluessel::Kennung, verdraengt.kennung.als_text()),
+    )
+    .einzeln(Schluessel::Grenze, verdraengt.grenze.als_wert())
+    .einzeln(Schluessel::Hoechstens, verdraengt.hoechstens)
+    .einzeln(Schluessel::AlterMs, verdraengt.alter_ms)
+    .art(verdraengt.grenze.als_wert())
 }
 
 /// Nach dem Laden einmal: über der Quote bzw. über 90 % steht eine WARNING; geladen ist trotzdem alles.
@@ -706,21 +708,17 @@ fn quote_beim_start_melden(gespraeche: &Gespraeche, protokoll: &Protokoll) {
 
 /// Quelle der Episode „Reservierung verfallen“ ist die Herkunft; Kennung und Bytes sind Werte der einzelnen
 /// verfallenen Anmeldung und stehen nur in der Beginn-Zeile (ADR-0046 Ergänzung Karte #66).
-fn verfall_auftreten(verfallen: &crate::gespraeche::anhangeingang::Verfallen) -> Auftreten {
-    Auftreten {
-        stufe: Stufe::Warning,
-        bereich: Bereich::Anhang,
-        text: crate::protokoll::episodentexte::RESERVIERUNG_VERFALLEN,
-        quelle: verfallen.herkunft.to_string(),
-        kontext: Kontext::neu()
-            .mit_nur_beginn(Schluessel::Kennung, verfallen.kennung.als_text())
-            .mit(Schluessel::Herkunft, verfallen.herkunft)
-            .mit_nur_beginn(Schluessel::Bytes, verfallen.bytes),
-        art: None,
-        verworfen: None,
-        bytes: None,
-        anzeige: None,
-    }
+pub(crate) fn verfall_auftreten(
+    verfallen: &crate::gespraeche::anhangeingang::Verfallen,
+) -> Auftreten {
+    Auftreten::neu(
+        Stufe::Warning,
+        Bereich::Anhang,
+        crate::protokoll::episodentexte::RESERVIERUNG_VERFALLEN,
+        Quelle::neu().mit(Schluessel::Herkunft, verfallen.herkunft),
+    )
+    .einzeln(Schluessel::Kennung, verfallen.kennung.als_text())
+    .einzeln(Schluessel::Bytes, verfallen.bytes)
 }
 
 /// Eine Anmeldung, die verfiel, ohne je fertig geworden zu sein → Episode je Herkunft `WARNING anhang Reservierung
@@ -1030,7 +1028,7 @@ mod tests {
             .collect();
         assert_eq!(episode.len(), 2, "{zeilen:#?}");
         assert!(
-            episode[0].ends_with("| kennung=alpha@10.0.0.9 herkunft=10.0.0.9 bytes=5"),
+            episode[0].ends_with("| herkunft=10.0.0.9 kennung=alpha@10.0.0.9 bytes=5"),
             "{episode:#?}"
         );
         assert!(episode[1].contains("Episode endet: 2 in "), "{episode:#?}");
