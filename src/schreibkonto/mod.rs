@@ -81,35 +81,99 @@ impl Schreibkonto {
     ) -> Result<(), Gebremst> {
         let jetzt = self.uhr.jetzt();
         let mut tabellen = self.tabellen.lock().unwrap_or_else(PoisonError::into_inner);
-        let je_kennung = nachgefuellt(&tabellen.kennungen, kennung, JE_KENNUNG, jetzt);
-        let je_herkunft = nachgefuellt(&tabellen.herkuenfte, &herkunft, JE_HERKUNFT, jetzt);
-        let reichen = je_kennung.reicht(einheiten) && je_herkunft.reicht(einheiten);
+        let gebucht = tabellen.buchen(
+            SCHREIBEN,
+            kennung,
+            herkunft,
+            Buchung {
+                einheiten,
+                volle_kosten,
+            },
+            jetzt,
+        );
+        if gebucht.is_err() {
+            self.gebremst.fetch_add(1, Ordering::Relaxed);
+        }
+        gebucht
+    }
+}
+
+/// Vorrat und Nachschub der beiden Eimer eines Kontos.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct Kontoarten {
+    kennung: Eimerart,
+    herkunft: Eimerart,
+}
+
+/// Die Eimer des Schreibkontos (ADR-0036 Regel 2).
+const SCHREIBEN: Kontoarten = Kontoarten {
+    kennung: JE_KENNUNG,
+    herkunft: JE_HERKUNFT,
+};
+
+/// Was abgebucht wird und welche Kosten `wieder_in` tragen muss.
+#[derive(Debug, Clone, Copy)]
+struct Buchung {
+    einheiten: u64,
+    volle_kosten: u64,
+}
+
+impl Tabellen {
+    /// Bucht `einheiten` an beiden Eimern oder an keinem (alles oder nichts); reicht einer nicht, die Bremse.
+    fn buchen(
+        &mut self,
+        arten: Kontoarten,
+        kennung: &Kennung,
+        herkunft: IpAddr,
+        buchung: Buchung,
+        jetzt: crate::uhr::Zeit,
+    ) -> Result<(), Gebremst> {
+        let je_kennung = nachgefuellt(&self.kennungen, kennung, arten.kennung, jetzt);
+        let je_herkunft = nachgefuellt(&self.herkuenfte, &herkunft, arten.herkunft, jetzt);
+        let reichen = je_kennung.reicht(buchung.einheiten) && je_herkunft.reicht(buchung.einheiten);
         let (nach_kennung, nach_herkunft) = if reichen {
             (
-                je_kennung.abgebucht(einheiten),
-                je_herkunft.abgebucht(einheiten),
+                je_kennung.abgebucht(buchung.einheiten),
+                je_herkunft.abgebucht(buchung.einheiten),
             )
         } else {
             (je_kennung, je_herkunft)
         };
-        ablegen(
-            &mut tabellen.kennungen,
-            kennung.clone(),
-            nach_kennung,
-            JE_KENNUNG,
-        );
-        ablegen(
-            &mut tabellen.herkuenfte,
+        self.ablegen(
+            arten,
+            kennung,
             herkunft,
-            nach_herkunft,
-            JE_HERKUNFT,
+            (nach_kennung, nach_herkunft),
+            jetzt,
         );
-        aufraeumen(&mut tabellen, jetzt);
         if !reichen {
-            self.gebremst.fetch_add(1, Ordering::Relaxed);
-            return Err(bremsen(&je_kennung, &je_herkunft, volle_kosten));
+            return Err(bremsen(
+                arten,
+                &je_kennung,
+                &je_herkunft,
+                buchung.volle_kosten,
+            ));
         }
         Ok(())
+    }
+
+    /// Legt die Eimer nach einer Buchung ab und räumt bei vielen Einträgen auf.
+    fn ablegen(
+        &mut self,
+        arten: Kontoarten,
+        kennung: &Kennung,
+        herkunft: IpAddr,
+        (je_kennung, je_herkunft): (Eimer, Eimer),
+        jetzt: crate::uhr::Zeit,
+    ) {
+        ablegen(
+            &mut self.kennungen,
+            kennung.clone(),
+            je_kennung,
+            arten.kennung,
+        );
+        ablegen(&mut self.herkuenfte, herkunft, je_herkunft, arten.herkunft);
+        aufraeumen(self, arten, jetzt);
     }
 }
 
@@ -131,16 +195,20 @@ fn ablegen<S: std::hash::Hash + Eq>(
 }
 
 /// Bei mehr als 1.024 Einträgen fallen alle Eimer weg, die bis `jetzt` wieder voll sind.
-fn aufraeumen(tabellen: &mut Tabellen, jetzt: crate::uhr::Zeit) {
+fn aufraeumen(tabellen: &mut Tabellen, arten: Kontoarten, jetzt: crate::uhr::Zeit) {
     if tabellen.kennungen.len() > DURCHGANG_AB {
-        tabellen
-            .kennungen
-            .retain(|_, eimer| !eimer.nachgefuellt(JE_KENNUNG, jetzt).ist_voll(JE_KENNUNG));
+        tabellen.kennungen.retain(|_, eimer| {
+            !eimer
+                .nachgefuellt(arten.kennung, jetzt)
+                .ist_voll(arten.kennung)
+        });
     }
     if tabellen.herkuenfte.len() > DURCHGANG_AB {
-        tabellen
-            .herkuenfte
-            .retain(|_, eimer| !eimer.nachgefuellt(JE_HERKUNFT, jetzt).ist_voll(JE_HERKUNFT));
+        tabellen.herkuenfte.retain(|_, eimer| {
+            !eimer
+                .nachgefuellt(arten.herkunft, jetzt)
+                .ist_voll(arten.herkunft)
+        });
     }
 }
 
@@ -159,9 +227,14 @@ fn nachgefuellt<S: std::hash::Hash + Eq>(
 }
 
 /// Die Zeit, bis beide Eimer die vollen Kosten tragen; die Grenze ist der Eimer, der länger braucht.
-fn bremsen(je_kennung: &Eimer, je_herkunft: &Eimer, volle_kosten: u64) -> Gebremst {
-    let kennung_ms = je_kennung.wartezeit_ms(JE_KENNUNG, volle_kosten);
-    let herkunft_ms = je_herkunft.wartezeit_ms(JE_HERKUNFT, volle_kosten);
+fn bremsen(
+    arten: Kontoarten,
+    je_kennung: &Eimer,
+    je_herkunft: &Eimer,
+    volle_kosten: u64,
+) -> Gebremst {
+    let kennung_ms = je_kennung.wartezeit_ms(arten.kennung, volle_kosten);
+    let herkunft_ms = je_herkunft.wartezeit_ms(arten.herkunft, volle_kosten);
     let (grenze, ms) = if kennung_ms >= herkunft_ms {
         (Grenze::Kennung, kennung_ms)
     } else {
