@@ -652,3 +652,4 @@ Nie vom User erfragen.
 | 2026-10-30 | R00050 Direktnachricht im Browser beginnen und schreiben | F0178 (B0784, B0785, B0787–B0789) + Designsystem (Wanduhr gesamt) | Entwicklung | 10–20h | 1,0h | 1,0h | autonom (entw2) |
 | 2026-10-30 | R00050 Härtung F0175 | Herkunftsgrenze atomar, still bei Links, Halter beim Zurückbauen (Wanduhr gesamt) | Nacharbeit | — | 0,4h | 0,4h | autonom (entw3) |
 | 2026-10-30 | R00050 Direktnachricht finden und ansagen | F0180 (B0786, B0790–B0792) + Nacharbeit F0178 S1–S6, O1, O4 (Wanduhr gesamt) | Entwicklung/Nacharbeit | 6,4–12,4h | 1,1h | 1,1h | autonom (entw2) |
+| 2026-10-31 | R00050 Nacharbeit F0180 | Sollte 1–3, Optional 2–4 aus code-reviewer F0180 + Nacharbeit F0175 (entw3) (Wanduhr gesamt) | Nacharbeit | — | 0,9h | 0,9h | autonom (entw2, entw3) |
