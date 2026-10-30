@@ -181,6 +181,7 @@ pub fn satz_als_nachricht(satz: &[u8]) -> Option<Nachricht> {
             .into_iter()
             .filter_map(|(_, gelesen)| gelesen.ok())
             .collect(),
+        geaendert: None,
     })
 }
 
@@ -837,6 +838,7 @@ mod tests {
             art: None,
             text: text.to_string(),
             anhaenge: Vec::new(),
+            geaendert: None,
         }
     }
 
@@ -1029,6 +1031,7 @@ mod tests {
                 art: None,
                 text: "zwei\ndrei".to_string(),
                 anhaenge: Vec::new(),
+                geaendert: None,
             })
         );
     }

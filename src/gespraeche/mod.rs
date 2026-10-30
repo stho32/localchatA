@@ -64,6 +64,22 @@ pub struct Nachricht {
     pub text: String,
     /// Anhänge aus den Metazeilen `+ anhang:`, in Sendefolge (ADR-0046 Regel 7).
     pub anhaenge: Vec<logformat::Anhangzeile>,
+    /// Wann und wie die Nachricht zuletzt geändert wurde; ungeändert keine (ADR-0048 Regel 4).
+    pub geaendert: Option<Geaendert>,
+}
+
+/// Die letzte Änderung einer Nachricht: Zeit des Änderungssatzes und Zustand.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Geaendert {
+    pub zeit: Zeit,
+    pub zustand: Aenderungszustand,
+}
+
+/// `bearbeitet` (neuer Text) oder `geloescht` (Text und Anhänge leer).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Aenderungszustand {
+    Bearbeitet,
+    Geloescht,
 }
 
 /// Ein Block des Verlaufs als Nachrichten, älteste zuerst (ADR-0025 Regel 3).
@@ -844,7 +860,7 @@ impl Gespraeche {
             nachrichten: block
                 .saetze
                 .iter()
-                .filter_map(|satz| logformat::satz_als_nachricht(satz))
+                .filter_map(nachricht_in_fassung)
                 .map(|nachricht| self.zustand_eintragen(nachricht))
                 .collect(),
             aelter: block.aelter,
@@ -988,6 +1004,30 @@ impl Geladen {
     }
 }
 
+/// Eine kopierte Nachricht in ihrer Fassung (ADR-0048 Regeln 3, 4): bearbeitet mit dem Text des Änderungssatzes,
+/// gelöscht mit leerem Text und ohne Anhänge.
+fn nachricht_in_fassung(kopie: &verlaufsindex::Kopie) -> Option<Nachricht> {
+    let mut nachricht = logformat::satz_als_nachricht(&kopie.satz)?;
+    if let Some(aenderung) = &kopie.aenderung {
+        let zustand = match &aenderung.satz {
+            Some(satz) => {
+                nachricht.text = logformat::text(&String::from_utf8_lossy(satz));
+                Aenderungszustand::Bearbeitet
+            }
+            None => {
+                nachricht.text.clear();
+                nachricht.anhaenge.clear();
+                Aenderungszustand::Geloescht
+            }
+        };
+        nachricht.geaendert = Some(Geaendert {
+            zeit: aenderung.geaendert,
+            zustand,
+        });
+    }
+    Some(nachricht)
+}
+
 /// Lesend: wie `sperren` — das Verzeichnis wird erst nach erfolgreichem Schreiben verändert.
 fn lesend<T>(sperre: &RwLock<T>) -> std::sync::RwLockReadGuard<'_, T> {
     sperre
@@ -1009,6 +1049,7 @@ fn nachricht_bilden(
         art: Some(art),
         text: text.to_string(),
         anhaenge,
+        geaendert: None,
     };
     let satz = logformat::satz(&nachricht);
     nachricht.text = logformat::text(&satz);
@@ -1499,6 +1540,44 @@ mod tests {
             .fassung(&zeit("2026-10-27T10:00:00.000+01:00"))
             .expect("bearbeitet");
         assert_eq!(fassung.geaendert, zeit("2026-10-28T09:00:00.000+01:00"));
+    }
+
+    /// R00039 B0597: der Verlauf liefert eine bearbeitete Nachricht mit dem neuen Text, `Bearbeitet` und der Zeit
+    /// der Änderung; Art, Absender und Zeit bleiben die der Nachricht, der Änderungssatz ist kein Eintrag.
+    #[test]
+    fn der_verlauf_liefert_die_nachricht_in_ihrer_fassung() {
+        let wurzel = tempfile::tempdir().expect("Wegwerf-Ordner");
+        let tag_28 = "@ 2026-10-28T10:00:00.000+01:00 beta@127.0.0.1\n+ art: agent\n  Hallo\n\n\
+                      @ 2026-10-28T10:05:00.000+01:00 beta@127.0.0.1\n+ bearbeitet: 2026-10-28T10:00:00.000+01:00\n  Hallo zusammen\n\n";
+        datei(
+            wurzel.path(),
+            "channels/allgemein/2026-10-28.log",
+            tag_28.as_bytes(),
+        );
+        let gespraeche = laden_um(wurzel.path(), "2026-10-28T12:00:00+01:00");
+
+        let block = gespraeche
+            .verlauf(
+                "allgemein",
+                &abfrage(abfrage::Abschnitt::Neueste, 100),
+                usize::MAX,
+            )
+            .expect("bekannt");
+
+        assert_eq!(
+            block.nachrichten,
+            vec![Nachricht {
+                zeit: zeit("2026-10-28T10:00:00.000+01:00"),
+                von: Kennung::bilden("beta@127.0.0.1").expect("Kennung"),
+                art: Some(Art::Agent),
+                text: "Hallo zusammen".to_string(),
+                anhaenge: Vec::new(),
+                geaendert: Some(Geaendert {
+                    zeit: zeit("2026-10-28T10:05:00.000+01:00"),
+                    zustand: Aenderungszustand::Bearbeitet,
+                }),
+            }]
+        );
     }
 
     #[test]

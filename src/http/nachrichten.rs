@@ -8,7 +8,7 @@ use super::anfrageprotokoll::mit_regel;
 use super::teilnehmer::Teilnehmer;
 use super::teilnehmerliste::zeit_als_text;
 use crate::gespraeche::abfrage::{Abfrage, Abschnitt, Blockgroesse};
-use crate::gespraeche::{Art, Nachricht, Nachrichtenblock, Unbekannt};
+use crate::gespraeche::{Aenderungszustand, Art, Nachricht, Nachrichtenblock, Unbekannt};
 use crate::name::Channelname;
 use crate::protokoll::{Bereich, Kontext, Schluessel, Stufe};
 use crate::uhr::Zeit;
@@ -137,6 +137,10 @@ pub struct NachrichtAntwort<'a> {
     art: Option<Art>,
     text: &'a str,
     anhaenge: Vec<AnhangAntwort<'a>>,
+    /// `null` | `bearbeitet` | `geloescht` (ADR-0048 Regel 4).
+    zustand: Option<&'static str>,
+    /// Zeit des letzten Änderungssatzes oder `null`.
+    geaendert: Option<String>,
 }
 
 /// `{id, name, bytes, art, breite, hoehe, url, zustand}` — Maße nur bei Bildern, sonst `null`; `url` relativ.
@@ -178,6 +182,15 @@ impl<'a> NachrichtAntwort<'a> {
                     },
                 })
                 .collect(),
+            zustand: nachricht
+                .geaendert
+                .map(|geaendert| match geaendert.zustand {
+                    Aenderungszustand::Bearbeitet => "bearbeitet",
+                    Aenderungszustand::Geloescht => "geloescht",
+                }),
+            geaendert: nachricht
+                .geaendert
+                .map(|geaendert| zeit_als_text(&geaendert.zeit)),
         }
     }
 }
@@ -437,6 +450,7 @@ mod tests {
             art: Some(Art::Agent),
             text: "Hallo\nWelt".into(),
             anhaenge: Vec::new(),
+            geaendert: None,
         };
 
         let agent = serde_json::to_value(NachrichtAntwort::aus(&nachricht)).expect("JSON");
@@ -445,9 +459,42 @@ mod tests {
 
         assert_eq!(
             agent,
-            json!({"zeit": "2026-10-28T12:00:00.001+01:00", "von": "beta@127.0.0.1", "art": "agent", "text": "Hallo\nWelt", "anhaenge": []})
+            json!({"zeit": "2026-10-28T12:00:00.001+01:00", "von": "beta@127.0.0.1", "art": "agent", "text": "Hallo\nWelt", "anhaenge": [], "zustand": null, "geaendert": null})
         );
         assert_eq!(ohne["art"], serde_json::Value::Null);
+    }
+
+    /// R00039 B0597 (ADR-0048 Regel 4): eine geänderte Nachricht trägt `zustand` und `geaendert`; nur Felder kommen
+    /// hinzu.
+    #[test]
+    fn eine_geaenderte_nachricht_traegt_zustand_und_geaendert() {
+        use crate::gespraeche::{Aenderungszustand, Geaendert, Kennung};
+        let zeit = |text| crate::uhr::Zeit::parse_from_rfc3339(text).expect("Zeit");
+        let mut nachricht = Nachricht {
+            zeit: zeit("2026-10-28T12:00:00.001+01:00"),
+            von: Kennung::bilden("beta@127.0.0.1").expect("Kennung"),
+            art: Some(Art::Agent),
+            text: "Hallo zusammen".into(),
+            anhaenge: Vec::new(),
+            geaendert: Some(Geaendert {
+                zeit: zeit("2026-10-28T12:05:00.000+01:00"),
+                zustand: Aenderungszustand::Bearbeitet,
+            }),
+        };
+
+        let bearbeitet = serde_json::to_value(NachrichtAntwort::aus(&nachricht)).expect("JSON");
+        nachricht.geaendert = Some(Geaendert {
+            zeit: zeit("2026-10-28T12:06:00.000+01:00"),
+            zustand: Aenderungszustand::Geloescht,
+        });
+        let geloescht = serde_json::to_value(NachrichtAntwort::aus(&nachricht)).expect("JSON");
+
+        assert_eq!(
+            bearbeitet,
+            json!({"zeit": "2026-10-28T12:00:00.001+01:00", "von": "beta@127.0.0.1", "art": "agent", "text": "Hallo zusammen", "anhaenge": [], "zustand": "bearbeitet", "geaendert": "2026-10-28T12:05:00.000+01:00"})
+        );
+        assert_eq!(geloescht["zustand"], "geloescht");
+        assert_eq!(geloescht["geaendert"], "2026-10-28T12:06:00.000+01:00");
     }
 
     #[test]

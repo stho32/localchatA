@@ -48,7 +48,7 @@ async fn us1_senden_und_dieselbe_nachricht_wieder_lesen_auch_nach_dem_neustart()
         .to_string();
     assert_eq!(
         antwort.json,
-        json!({"channel": "allgemein", "nachricht": {"zeit": zeit, "von": "beta@127.0.0.1", "art": "agent", "text": "Hallo\nWelt", "anhaenge": []}})
+        json!({"channel": "allgemein", "nachricht": {"zeit": zeit, "von": "beta@127.0.0.1", "art": "agent", "text": "Hallo\nWelt", "anhaenge": [], "zustand": null, "geaendert": null}})
     );
     let datei = String::from_utf8(tagesinhalt(wurzel.path(), "allgemein")).expect("UTF-8");
     assert!(

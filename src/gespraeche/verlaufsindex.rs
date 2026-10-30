@@ -116,11 +116,8 @@ impl Verlauf {
 
     /// Der Änderungssatz einer bearbeiteten Fassung (Kopie); für Geloescht keiner.
     pub fn aenderungssatz(&self, fassung: &Fassung) -> Option<Vec<u8>> {
-        let Fassungszustand::Bearbeitet { tag, anfang } = fassung.zustand else {
-            return None;
-        };
-        let tag = self.tage.get(&tag)?;
-        Some(tag.rohtext[tag.satzspanne(anfang)].to_vec())
+        self.aenderungsspanne(fassung)
+            .map(|(tag, spanne)| tag.rohtext[spanne].to_vec())
     }
 
     /// Hängt einen Bearbeitungssatz an und setzt die Fassung der Nachricht `ziel` (nach erfolgreichem Schreiben).
@@ -289,7 +286,7 @@ fn satz_traegt_anhang(satz: &[u8]) -> bool {
 /// Ein Block des Verlaufs: Kopien der Nachrichten, älteste zuerst, und ob es davor bzw. danach noch welche gibt.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Block {
-    pub saetze: Vec<Vec<u8>>,
+    pub saetze: Vec<Kopie>,
     pub aelter: bool,
     pub neuer: bool,
 }
@@ -319,9 +316,9 @@ impl Verlauf {
                 Some(zeit) => grenze_im_tag(&tag.rohtext, &tag.nachrichten, &zeit, Seite::Vor),
                 None => tag.nachrichten.len(),
             };
-            while index > 0 && sammler.nimmt(tag.satzlaenge(index - 1)) {
+            while index > 0 && sammler.nimmt(self.lieferlaenge(tag, index - 1)) {
                 index -= 1;
-                gesammelt.push(tag.satz(index));
+                gesammelt.push(self.kopie(tag, index));
             }
             if index > 0 {
                 aelter = true;
@@ -348,8 +345,8 @@ impl Verlauf {
         for tag in self.tage.range(erster_tag..).map(|(_, tag)| tag) {
             let mut index = grenze_im_tag(&tag.rohtext, &tag.nachrichten, &ab, Seite::Nach);
             let laenge = tag.nachrichten.len();
-            while index < laenge && sammler.nimmt(tag.satzlaenge(index)) {
-                gesammelt.push(tag.satz(index));
+            while index < laenge && sammler.nimmt(self.lieferlaenge(tag, index)) {
+                gesammelt.push(self.kopie(tag, index));
                 index += 1;
             }
             if index < laenge {
@@ -367,6 +364,48 @@ impl Verlauf {
         }
     }
 
+    /// Wie viele Bytes die Nachricht `index` im Budget zählt (ADR-0048 Regel 3): bearbeitet der Änderungssatz,
+    /// sonst die Nachricht.
+    fn lieferlaenge(&self, tag: &Tag, index: usize) -> usize {
+        match self
+            .fassung_im_tag(tag, index)
+            .and_then(|fassung| self.aenderungsspanne(&fassung))
+        {
+            Some((_, spanne)) => spanne.len(),
+            None => tag.satzlaenge(index),
+        }
+    }
+
+    /// Kopie der Nachricht `index` mit ihrer Fassung.
+    fn kopie(&self, tag: &Tag, index: usize) -> Kopie {
+        let aenderung = self.fassung_im_tag(tag, index).map(|fassung| Kopierte {
+            geaendert: fassung.geaendert,
+            satz: self.aenderungssatz(&fassung),
+        });
+        Kopie {
+            satz: tag.satz(index),
+            aenderung,
+        }
+    }
+
+    /// Die Fassung der Nachricht `index` des Tages — ohne Fassungen im Gespräch ohne Nachschlagen (O(log m) sonst).
+    fn fassung_im_tag(&self, tag: &Tag, index: usize) -> Option<Fassung> {
+        if self.fassungen.is_empty() {
+            return None;
+        }
+        let zeit = logformat::kopfzeit(&tag.rohtext[tag.nachrichten[index]..])?;
+        self.fassung(&zeit)
+    }
+
+    /// Tag und Spanne des Änderungssatzes einer bearbeiteten Fassung.
+    fn aenderungsspanne(&self, fassung: &Fassung) -> Option<(&Tag, std::ops::Range<usize>)> {
+        let Fassungszustand::Bearbeitet { tag, anfang } = fassung.zustand else {
+            return None;
+        };
+        let tag = self.tage.get(&tag)?;
+        Some((tag, tag.satzspanne(anfang)))
+    }
+
     fn juengste_kopfzeit(&self) -> Option<Zeit> {
         let tag = self
             .tage
@@ -380,6 +419,20 @@ impl Verlauf {
         let tag = self.tage.values().find(|tag| !tag.nachrichten.is_empty())?;
         logformat::kopfzeit(&tag.satz(0))
     }
+}
+
+/// Eine kopierte Nachricht und, wenn sie geändert ist, ihre Fassung (ADR-0048 Regel 3).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Kopie {
+    pub satz: Vec<u8>,
+    pub aenderung: Option<Kopierte>,
+}
+
+/// Die Fassung einer kopierten Nachricht: Zeit der Änderung und der kopierte Bearbeitungssatz, gelöscht keiner.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Kopierte {
+    pub geaendert: Zeit,
+    pub satz: Option<Vec<u8>>,
 }
 
 impl Tag {
@@ -550,8 +603,8 @@ mod tests {
         block
             .saetze
             .iter()
-            .map(|satz| {
-                logformat::kopfzeit(satz)
+            .map(|kopie| {
+                logformat::kopfzeit(&kopie.satz)
                     .expect("Kopf")
                     .to_rfc3339_opts(chrono::SecondsFormat::Millis, false)
             })
@@ -666,7 +719,11 @@ mod tests {
         let block = verlauf.block_ohne_grenze(&abfrage(Abschnitt::Neueste, 100));
 
         assert_eq!(
-            block.saetze,
+            block
+                .saetze
+                .into_iter()
+                .map(|kopie| kopie.satz)
+                .collect::<Vec<_>>(),
             vec![
                 b"@ 2026-10-28T10:00:00.000+01:00 a@b\n  eins\n\n".to_vec(),
                 b"@ 2026-10-28T10:00:01.000+01:00 a@b\n  zwei\n\n".to_vec()
@@ -988,7 +1045,7 @@ mod tests {
                 "angehängt {angehaengt}"
             );
             assert_eq!(
-                neueste.saetze[1],
+                neueste.saetze[1].satz,
                 b"@ 2026-10-28T10:00:01.000+01:00 a@127.0.0.2\n  y\n\n".to_vec(),
                 "die Spanne endet vor dem Änderungssatz"
             );
@@ -1150,5 +1207,45 @@ mod tests {
             Some(satz.as_bytes().to_vec())
         );
         assert_eq!(verlauf.nachrichten(), 1);
+    }
+
+    /// R00039 B0597 (ADR-0048 Regel 3): eine bearbeitete Nachricht kommt mit ihrem Änderungssatz in den Block, eine
+    /// gelöschte ohne; das Budget zählt bei Bearbeitet den Änderungssatz statt der Nachricht.
+    #[test]
+    fn der_block_liefert_die_fassung_und_zaehlt_den_aenderungssatz() {
+        let mut verlauf = Verlauf::default();
+        let erste = "@ 2026-10-28T10:00:00.000+01:00 a@127.0.0.2\n  x\n\n";
+        let zweite = "@ 2026-10-28T10:00:01.000+01:00 a@127.0.0.2\n  y\n\n";
+        let bearbeitung = "@ 2026-10-28T10:00:02.000+01:00 a@127.0.0.2\n+ bearbeitet: 2026-10-28T10:00:00.000+01:00\n  ein deutlich längerer neuer Text\n\n";
+        verlauf.anhaengen(tag("2026-10-28"), erste, false);
+        verlauf.anhaengen(tag("2026-10-28"), zweite, false);
+        verlauf.bearbeitung_anhaengen(
+            tag("2026-10-28"),
+            bearbeitung,
+            false,
+            zeit("2026-10-28T10:00:00.000+01:00"),
+            zeit("2026-10-28T10:00:02.000+01:00"),
+        );
+
+        let alle = verlauf.block_ohne_grenze(&abfrage(Abschnitt::Neueste, 100));
+        let knapp = verlauf.block(
+            &abfrage(Abschnitt::Neueste, 100),
+            erste.len() + zweite.len(),
+        );
+
+        assert_eq!(
+            alle.saetze[0].aenderung,
+            Some(Kopierte {
+                geaendert: zeit("2026-10-28T10:00:02.000+01:00"),
+                satz: Some(bearbeitung.as_bytes().to_vec()),
+            })
+        );
+        assert_eq!(alle.saetze[0].satz, erste.as_bytes().to_vec());
+        assert_eq!(alle.saetze[1].aenderung, None);
+        assert_eq!(
+            zeiten_im(&knapp),
+            vec!["2026-10-28T10:00:01.000+01:00".to_string()]
+        );
+        assert!(knapp.aelter);
     }
 }
