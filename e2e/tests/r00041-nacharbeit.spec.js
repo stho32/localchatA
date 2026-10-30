@@ -10,6 +10,7 @@ const {
 const { channelAnlegen } = require('./hilfen');
 const {
   betaVerlauf, betaSendet, bearbeitenPerApi, loeschenPerApi, browserOeffnen, imBrowserSenden, nachrichtMitZeit,
+  ansagenMitschreiben,
 } = require('./r00041-hilfen');
 
 let instanz;
@@ -346,3 +347,41 @@ test('A3 Sperre beim Löschen: POST gehalten, zweites Entf und „Löschen“ �
   expect(loeschungen).toEqual([JSON.stringify({ zeit })]);
   expect(a.fehler).toEqual([]);
 });
+
+// UX S3 / Code-Review A4: wer die eigene Nachricht mit offenem Feld selbst löscht (Umschalt+Tab auf die Nachricht, Entf), hört nur „Nachricht gelöscht.“ — keine
+// Hinweiszeile „inzwischen gelöscht“, auch wenn das Ereignis des Stroms vor der Antwort des POST ankommt. Die Gegenprobe
+// (gelöscht von anderswo) steht in r00041-erhalten.spec.js „Live gelöscht (B0636, UX M3)“.
+for (const { titel, antwortVerzoegert } of [{ titel: 'Antwort sofort', antwortVerzoegert: false }, { titel: 'Ereignis vor der Antwort', antwortVerzoegert: true }]) {
+  test(`S3 eigenes Löschen bei offenem Feld (${titel}): nur „Nachricht gelöscht.“, keine Hinweiszeile, Feld zu, Fokus auf der Nachricht`, async ({ browser }) => {
+    instanz = await sendenStarten();
+    const a = await browserOeffnen(browser, { streng: true });
+    await imBrowserBeitreten(a.page, instanz.adresse, 'shoff');
+    const zeit = await imBrowserSenden(a.page, 'Hallo');
+    await a.page.waitForTimeout(300);
+    if (antwortVerzoegert) {
+      await a.page.route(`**${LOESCHEN}`, async (route) => {
+        const antwort = await route.fetch();
+        await expect(nachrichtMitZeit(a.page, zeit).locator('.lc-body')).toHaveText('Nachricht gelöscht');
+        await route.fulfill({ response: antwort });
+      });
+    }
+    const angesagt = await ansagenMitschreiben(a.page);
+    await feldOeffnen(a.page, zeit);
+    await a.page.keyboard.type(' getippt');
+
+    await a.page.keyboard.press('Shift+Tab');
+    await expect(nachrichtMitZeit(a.page, zeit)).toBeFocused();
+    await expect(feld(a.page)).toHaveValue('Hallo getippt');
+    await a.page.keyboard.press('Delete');
+    await imDialog(a.page, 'Löschen').click();
+
+    await expect(nachrichtMitZeit(a.page, zeit).locator('.lc-body')).toHaveText('Nachricht gelöscht');
+    await expect(feld(a.page)).toHaveCount(0);
+    await expect.poll(angesagt).toEqual(['Nachricht gelöscht.']);
+    await a.page.waitForTimeout(300);
+    expect(await angesagt()).toEqual(['Nachricht gelöscht.']);
+    await expect(a.page.locator('.lc-statuszeile')).not.toHaveText(/inzwischen/);
+    await expect(nachrichtMitZeit(a.page, zeit)).toBeFocused();
+    expect(a.fehler).toEqual([]);
+  });
+}

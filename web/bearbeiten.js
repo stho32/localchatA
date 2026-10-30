@@ -150,6 +150,11 @@ export function bearbeitenAnlegen({
     hinweisen('Die Nachricht wurde inzwischen gelöscht.');
   }
 
+  // Die eigene Nachricht ist gelöscht (UX S3): das Feld schließt ohne Hinweis — das Löschen sagt es selbst an.
+  function weilSelbstGeloeschtSchliessen() {
+    schliessen();
+  }
+
   // Wächst das Feld oder schrumpft das Fenster (Bildschirmtastatur), bleiben Feld und Knöpfe im Blick.
   function imBlickHalten() {
     if (offen !== null && offen.rahmen.isConnected) {
@@ -256,6 +261,7 @@ export function bearbeitenAnlegen({
     beginnen,
     einsetzen,
     weilWegSchliessen,
+    weilSelbstGeloeschtSchliessen,
     // Die Zeit der Nachricht mit dem offenen Feld, wenn es zu `channel` gehört, sonst null.
     offeneZeitIn: (channel) => {
       if (offen === null || offen.channel !== channel) {

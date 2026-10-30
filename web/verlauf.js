@@ -408,8 +408,9 @@ export function verlaufAnlegen({
 
   // Löschen nach genau einer Rückfrage (F0139), höchstens ein Aufruf zugleich: gelöscht → die Fassung der Antwort, Fokus
   // auf der Nachricht, Ansage „Nachricht gelöscht.“; abgewiesen → Hinweiszeile, die Nachricht bleibt und lässt sich
-  // erneut löschen. Ein Wechsel des Channels verwirft die Antwort nicht — die Fassung trifft nur den offenen.
-  let loeschenLaeuft = false;
+  // erneut löschen. Ein Wechsel des Channels verwirft die Antwort nicht — die Fassung trifft nur den offenen. Solange es
+  // läuft, kennt der Verlauf { channel, zeit } — ein offenes Feld an dieser Nachricht schließt dann ohne „inzwischen“.
+  let loeschenLaeuftFuer = null;
   function loeschenFragen(nachricht) {
     const channel = offenerName;
     const zurueckZurNachricht = () => {
@@ -420,13 +421,13 @@ export function verlaufAnlegen({
     };
     const bestaetigt = async () => {
       zurueckZurNachricht();
-      if (loeschenLaeuft) {
+      if (loeschenLaeuftFuer !== null) {
         return;
       }
-      loeschenLaeuft = true;
+      loeschenLaeuftFuer = { channel, zeit: nachricht.zeit };
       const ergebnis = loeschenAuswerten(await loeschen(channel, nachricht.zeit));
-      loeschenLaeuft = false;
       if (ergebnis.art === 'abgewiesen') {
+        loeschenLaeuftFuer = null;
         hinweisen(ergebnis.text);
         return;
       }
@@ -434,6 +435,7 @@ export function verlaufAnlegen({
         fassungenErsetzen([ergebnis.nachricht]);
         zurueckZurNachricht();
       }
+      loeschenLaeuftFuer = null;
       ansagen('Nachricht gelöscht.');
     };
     rueckfrageOeffnen(rahmen, nachricht, { bestaetigt, abgebrochen: zurueckZurNachricht });
@@ -846,9 +848,9 @@ export function verlaufAnlegen({
     ankerHalten(log, anker);
   }
 
-  // Steht an der Nachricht das offene Feld (UX M3): gelöscht schließt es mit Hinweis und einer Ansage, der Fokus geht
-  // auf die Nachricht; bearbeitet merkt sich nur die neue Fassung — Feld, Text und Schreibmarke bleiben, gezeigt wird sie
-  // nach dem Schließen.
+  // Steht an der Nachricht das offene Feld (UX M3): gelöscht schließt es mit Hinweis und einer Ansage — beim eigenen
+  // Löschen ohne beides (UX S3), die Ansage „Nachricht gelöscht.“ kommt vom Löschen —, der Fokus geht auf die Nachricht;
+  // bearbeitet merkt sich nur die neue Fassung — Feld, Text und Schreibmarke bleiben, gezeigt wird sie nach dem Schließen.
   function fassungErsetzen(fassung) {
     const bekannt = bekannteNachricht(fassung.zeit);
     if (bekannt === null) {
@@ -865,12 +867,22 @@ export function verlaufAnlegen({
       return;
     }
     if (feldDaran) {
-      bearbeiten.weilWegSchliessen();
+      feldSchliessenWeilGeloescht(fassung.zeit);
     }
     knotenErsetzen(bekannt, uebernommen);
     if (feldDaran) {
       nachrichtFokussieren(nachrichtKnoten(uebernommen.zeit));
     }
+  }
+
+  function feldSchliessenWeilGeloescht(zeit) {
+    const selbstGeloescht = loeschenLaeuftFuer !== null && loeschenLaeuftFuer.channel === offenerName
+      && Date.parse(loeschenLaeuftFuer.zeit) === Date.parse(zeit);
+    if (selbstGeloescht) {
+      bearbeiten.weilSelbstGeloeschtSchliessen();
+      return;
+    }
+    bearbeiten.weilWegSchliessen();
   }
 
   // Schließt das Feld, zeigt die Nachricht wieder die Fassung, die der Verlauf kennt — auch eine, die während des
