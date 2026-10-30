@@ -30,6 +30,83 @@ pub struct Auftreten {
     pub anzeige: Option<String>,
 }
 
+/// Die Schlüssel, aus denen eine Episode gebildet ist (ADR-0050 Regel 2): Wer dieselben Werte trägt, gehört zur
+/// selben Episode; die Werte stehen in jeder Zeile der Episode. Alles, was je Auftreten wechseln kann, gehört
+/// nicht hierher, sondern in `Auftreten::einzeln`.
+#[derive(Debug, Clone, Default)]
+pub struct Quelle(Kontext);
+
+impl Quelle {
+    /// Eine Quelle ohne Werte; `mit` fügt die Schlüssel hinzu.
+    pub fn neu() -> Quelle {
+        Quelle(Kontext::neu())
+    }
+
+    /// Die Quelle der Episode, die es nur einmal je Instanz gibt: eine Episode je Bereich und Text.
+    pub fn instanz() -> Quelle {
+        Quelle::neu()
+    }
+
+    pub fn mit(self, schluessel: Schluessel, wert: impl ToString) -> Quelle {
+        Quelle(self.0.mit(schluessel, wert))
+    }
+
+    /// Der Schlüssel der Episode: die Werte der Quelle in ihrer Reihenfolge, durch `\u{1f}` getrennt.
+    fn schluessel(&self) -> String {
+        self.0.werte().collect::<Vec<_>>().join("\u{1f}")
+    }
+}
+
+impl Auftreten {
+    /// Ein Auftreten, gebaut aus der Quelle der Episode (ADR-0050 Regel 1); alles Weitere ist Einzelwert.
+    pub fn neu(stufe: Stufe, bereich: Bereich, text: &'static str, quelle: Quelle) -> Auftreten {
+        Auftreten {
+            stufe,
+            bereich,
+            text,
+            quelle: quelle.schluessel(),
+            kontext: quelle.0,
+            art: None,
+            verworfen: None,
+            bytes: None,
+            anzeige: None,
+        }
+    }
+
+    /// Ein Wert dieses Auftretens: steht nur in der Beginn-Zeile.
+    pub fn einzeln(mut self, schluessel: Schluessel, wert: impl ToString) -> Auftreten {
+        self.kontext = self.kontext.mit_nur_beginn(schluessel, wert);
+        self
+    }
+
+    /// Ein Wert, dessen letzter Stand in Zwischen- und Ende-Zeile kommt.
+    pub fn fortlaufend(mut self, schluessel: Schluessel, wert: impl ToString) -> Auftreten {
+        self.kontext = self.kontext.mit_fortlaufend(schluessel, wert);
+        self
+    }
+
+    pub fn art(mut self, art: &'static str) -> Auftreten {
+        self.art = Some(art);
+        self
+    }
+
+    pub fn verworfen(mut self, verworfen: &'static str) -> Auftreten {
+        self.verworfen = Some(verworfen);
+        self
+    }
+
+    pub fn bytes(mut self, bytes: u64) -> Auftreten {
+        self.bytes = Some(bytes);
+        self
+    }
+
+    /// Text der Zeilen statt `text`, wenn er einen Wert trägt; der Schlüssel der Episode bleibt `text`.
+    pub fn anzeige(mut self, text: impl Into<String>) -> Auftreten {
+        self.anzeige = Some(text.into());
+        self
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 struct Schluessel3 {
     bereich: Bereich,
@@ -552,6 +629,56 @@ mod tests {
         episoden.auftreten(mit_bytes(9), t(1.0));
         let zwischen = episoden.auftreten(mit_bytes(3), t(601.0));
         assert_eq!(zwischen[0].kontext.wert(Schluessel::Bytes), Some("9"));
+    }
+
+    /// ADR-0050 B1 (R00042 US-1): Quelle in jeder Zeile, Einzelwerte nur im Beginn, Fortlaufendes mit dem letzten
+    /// Wert; eine andere Quelle ist eine zweite Episode.
+    #[test]
+    fn auftreten_aus_quelle_einzelwerten_und_fortlaufendem_ergibt_beginn_zwischen_und_ende_ohne_einzelwerte()
+     {
+        let (protokoll, speicher, uhr, _) =
+            im_speicher("2026-10-28T12:00:00+01:00", Stufe::Warning);
+        let auftreten = |herkunft: &str, grund: &str, dauer: u64| {
+            Auftreten::neu(
+                Stufe::Warning,
+                Bereich::Grenzschutz,
+                "Probe",
+                Quelle::neu().mit(Schluessel::Herkunft, herkunft),
+            )
+            .einzeln(Schluessel::Grund, grund)
+            .fortlaufend(Schluessel::DauerMs, dauer)
+        };
+
+        protokoll.episode(auftreten("10.0.0.9", "a", 1));
+        uhr.stellen(t(601.0));
+        protokoll.episode(auftreten("10.0.0.9", "b", 2));
+        uhr.stellen(t(601.0 + 60.0));
+        protokoll.episoden_schliessen();
+        protokoll.episode(auftreten("10.0.0.8", "c", 3));
+
+        let zeilen = speicher.zeilen();
+        assert_eq!(zeilen.len(), 4, "{zeilen:#?}");
+        assert!(
+            zeilen[0].ends_with("Probe — Episode beginnt | herkunft=10.0.0.9 grund=a dauer_ms=1"),
+            "{}",
+            zeilen[0]
+        );
+        assert!(
+            zeilen[1]
+                .ends_with("Probe — läuft weiter — 2 seit Beginn | herkunft=10.0.0.9 dauer_ms=2"),
+            "{}",
+            zeilen[1]
+        );
+        assert!(
+            zeilen[2].ends_with("Probe — Episode endet: 2 in 601 s | herkunft=10.0.0.9 dauer_ms=2"),
+            "{}",
+            zeilen[2]
+        );
+        assert!(
+            zeilen[3].ends_with("Probe — Episode beginnt | herkunft=10.0.0.8 grund=c dauer_ms=3"),
+            "{}",
+            zeilen[3]
+        );
     }
 
     #[test]

@@ -279,6 +279,11 @@ impl Kontext {
         Kontext(werte, Vec::new(), Vec::new())
     }
 
+    /// Die Werte in der Reihenfolge, in der sie gesetzt wurden (roh, an der Quelle gekürzt).
+    pub(super) fn werte(&self) -> impl Iterator<Item = &str> {
+        self.0.iter().map(|(_, wert)| wert.as_str())
+    }
+
     /// Der Wert zu einem Schlüssel, falls gesetzt (roh, an der Quelle gekürzt).
     pub fn wert(&self, schluessel: Schluessel) -> Option<&str> {
         self.0
