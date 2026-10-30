@@ -229,7 +229,6 @@ impl Aktivitaet {
     }
 
     /// Die gültigen Zustände des Gesprächs ohne den des Lesenden, nach Kennung sortiert.
-    #[cfg_attr(not(test), expect(dead_code, reason = "gelesen erst über GET (B0696)"))]
     pub fn lesen(&self, gespraech: &Gespraech, ohne: &Kennung) -> Gelesen {
         let inneres = self.sperre();
         let jetzt = self.uhr.jetzt();

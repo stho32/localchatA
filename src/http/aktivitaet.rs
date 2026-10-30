@@ -1,4 +1,4 @@
-//! Aktivität setzen und löschen (R00045 F0161, I0041; ADR-0051 Regel 4): `PUT /api/channels/{name}/aktivitaet
+//! Aktivität setzen, löschen und lesen (R00045 F0161, I0041; ADR-0051 Regel 4): `PUT /api/channels/{name}/aktivitaet
 //! {"zustand":"tippt"|"denkt_nach","gueltig_s"?:1..120}` → 200 `{zustand, bis, jetzt}`, `DELETE` → 204 (auch ohne
 //! aktiven Zustand). Die Kennung kommt nur aus der Sitzung. Prüfreihenfolge: Grenzschutz 403 → Sitzung 401 → Körper
 //! 415/413/400 → Gespräch 404 (nicht sichtbar wie unbekannt) → Wert 422 (`zustand`, `gueltigkeit`, `feld`,
@@ -85,6 +85,36 @@ pub async fn loeschen(
     };
     zustand.aktivitaet.beenden(&teilnehmer.kennung, &gespraech);
     StatusCode::NO_CONTENT.into_response()
+}
+
+/// `GET`: die gültigen Zustände des Gesprächs ohne den des Lesenden, nach Kennung sortiert, mit `jetzt` (Regel 4);
+/// kostet nichts an der Bremse und erzeugt kein Signal.
+pub async fn lesen(
+    teilnehmer: Teilnehmer,
+    State(zustand): State<Arc<Zustand>>,
+    Path(name): Path<String>,
+) -> Response {
+    let Some(gespraech) = sichtbares_gespraech(&zustand, &name, &teilnehmer) else {
+        return mit_regel(
+            unbekannt(&name),
+            "channel_unbekannt",
+            Some(teilnehmer.kennung.als_text()),
+        );
+    };
+    let gelesen = zustand.aktivitaet.lesen(&gespraech, &teilnehmer.kennung);
+    let aktivitaeten: Vec<Value> = gelesen
+        .aktivitaeten
+        .iter()
+        .map(|aktiv| {
+            json!({
+                "kennung": aktiv.kennung.als_text(),
+                "zustand": aktiv.zustand.als_text(),
+                "bis": zeit_als_text(&aktiv.bis),
+            })
+        })
+        .collect();
+    Json(json!({ "jetzt": zeit_als_text(&gelesen.jetzt), "aktivitaeten": aktivitaeten }))
+        .into_response()
 }
 
 /// Das Gespräch des Pfads, wenn es bekannt und für den Aufrufer sichtbar ist — sonst keines (404 wie unbekannt, kein

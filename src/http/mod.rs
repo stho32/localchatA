@@ -133,7 +133,9 @@ pub fn router(zustand: Zustand) -> Router {
         .route("/api/channels/{name}/frist", put(frist::setzen))
         .route(
             "/api/channels/{name}/aktivitaet",
-            put(aktivitaet::setzen).delete(aktivitaet::loeschen),
+            put(aktivitaet::setzen)
+                .delete(aktivitaet::loeschen)
+                .get(aktivitaet::lesen),
         )
         .route("/api/ich", get(ich::beantworten))
         .route("/api/teilnehmer", get(teilnehmerliste::beantworten))

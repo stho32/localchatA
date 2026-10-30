@@ -1,6 +1,6 @@
-//! R00045 F0161 „Tippen sehen“, Serverteil (ADR-0051 P4, P5, P6, P8 ohne `gueltig_s`) — über das echte Programm:
-//! `PUT`/`DELETE /api/channels/{name}/aktivitaet`, Ereignis `aktivitaet` im Strom der anderen, nie im eigenen.
-//! Bis zum Lesen (B0696) prüft `ben` über seinen Strom, ob etwas gewirkt hat.
+//! R00045 Serverteil (ADR-0051 P4–P9, I0041) über das echte Programm: `PUT`/`DELETE`/`GET
+//! /api/channels/{name}/aktivitaet`, Ereignis `aktivitaet` im Strom der anderen, nie im eigenen; Bremse, Ende bei
+//! offline und weg, `denkt_nach` und Gültigkeit, Lesen.
 #![cfg(target_os = "linux")]
 
 mod gemeinsam;
@@ -1026,4 +1026,120 @@ async fn ein_siebzehntes_gespraech_ist_422_aktivitaeten() {
 
     assert!(status[..16].iter().all(|(s, _)| *s == 200), "{status:?}");
     assert_eq!(status[16], (422, json!("aktivitaeten")));
+}
+
+async fn lesen(
+    absender: &Absender,
+    instanz: &Instanz,
+    token: Option<&str>,
+    channel: &str,
+) -> ApiAntwort {
+    aufrufen(
+        absender,
+        instanz,
+        reqwest::Method::GET,
+        token,
+        channel,
+        None,
+        &[],
+    )
+    .await
+}
+
+/// Die Kennungen und Zustände einer Antwort auf das Lesen.
+fn gelesen(antwort: &ApiAntwort) -> Vec<(String, String)> {
+    antwort.json["aktivitaeten"]
+        .as_array()
+        .expect("aktivitaeten")
+        .iter()
+        .map(|a| {
+            (
+                a["kennung"].as_str().expect("kennung").to_string(),
+                a["zustand"].as_str().expect("zustand").to_string(),
+            )
+        })
+        .collect()
+}
+
+/// B0696 Lesen (ADR-0051 Regeln 3, 4, 10; R00045 I0041 „Lesen“, US-7; P5 Rest; Mutante M2): `anna` tippt, `claude`
+/// denkt nach, `cora` tippt und löscht wieder → `codex` liest `anna` und `claude` nach Kennung sortiert, je mit `bis`,
+/// dazu `jetzt`; `claude` liest nur `anna`; `ben` liest beide und nie `cora`; ein abgelaufener Eintrag (`gueltig_s` 1)
+/// fehlt; unbekannter Channel 404 wie beim Setzen, ohne Sitzung 401; Lesen bucht keine Bremse und erzeugt kein Signal.
+#[tokio::test]
+async fn i0041_lesen_nennt_die_gueltigen_zustaende_ohne_die_eigene_kennung() {
+    let mut r = runde().await;
+    let claude = beitreten(&r.absender, &r.instanz.adresse, "claude", Some("agent")).await;
+    let codex = beitreten(&r.absender, &r.instanz.adresse, "codex", Some("agent")).await;
+    let dora = beitreten(&r.absender, &r.instanz.adresse, "dora", None).await;
+    let setzen_als = async |token: &str, koerper: Value| {
+        let antwort = setzen(&r.absender, &r.instanz, Some(token), "allgemein", koerper).await;
+        assert_eq!(antwort.status, 200, "{}", antwort.json);
+        antwort
+    };
+    setzen_als(&dora, json!({"zustand": "tippt", "gueltig_s": 1})).await;
+    let anna = setzen_als(&r.anna, json!({"zustand": "tippt"})).await;
+    let claude_gesetzt = setzen_als(&claude, json!({"zustand": "denkt_nach"})).await;
+    setzen_als(&r.cora, json!({"zustand": "tippt"})).await;
+    assert_eq!(
+        loeschen(&r.absender, &r.instanz, &r.cora, "allgemein")
+            .await
+            .status,
+        204
+    );
+    tokio::time::sleep(Duration::from_millis(1_100)).await;
+    while r.strom_ben.bis(STILLE, ist_aktivitaet).await.is_some() {}
+
+    let von_codex = lesen(&r.absender, &r.instanz, Some(&codex), "allgemein").await;
+    let von_claude = lesen(&r.absender, &r.instanz, Some(&claude), "allgemein").await;
+    let von_ben: Vec<ApiAntwort> = {
+        let mut alle = Vec::new();
+        for _ in 0..12 {
+            alle.push(lesen(&r.absender, &r.instanz, Some(&r.ben), "allgemein").await);
+        }
+        alle
+    };
+    let in_technik = lesen(&r.absender, &r.instanz, Some(&r.ben), "technik").await;
+    let unbekannt = lesen(&r.absender, &r.instanz, Some(&r.ben), "gibt-es-nicht").await;
+    let ohne_sitzung = lesen(&r.absender, &r.instanz, None, "allgemein").await;
+    let signal_durch_lesen = r.strom_ben.bis(STILLE, ist_aktivitaet).await;
+
+    assert_eq!(von_codex.status, 200, "{}", von_codex.json);
+    let paar = |k: &str, z: &str| (k.to_string(), z.to_string());
+    assert_eq!(
+        gelesen(&von_codex),
+        [
+            paar("anna@127.0.0.1", "tippt"),
+            paar("claude@127.0.0.1", "denkt_nach")
+        ]
+    );
+    assert_eq!(von_codex.json["aktivitaeten"][0]["bis"], anna.json["bis"]);
+    assert_eq!(
+        von_codex.json["aktivitaeten"][1]["bis"],
+        claude_gesetzt.json["bis"]
+    );
+    assert_eq!(
+        von_codex.json["aktivitaeten"][0]
+            .as_object()
+            .map(|o| o.len()),
+        Some(3),
+        "nur kennung, zustand, bis"
+    );
+    assert!(
+        chrono::DateTime::parse_from_rfc3339(von_codex.json["jetzt"].as_str().expect("jetzt"))
+            .is_ok()
+    );
+    assert_eq!(gelesen(&von_claude), [paar("anna@127.0.0.1", "tippt")]);
+    assert!(
+        von_ben
+            .iter()
+            .all(|a| a.status == 200 && gelesen(a).len() == 2),
+        "zwölfmal lesen, nie gebremst, nie cora oder dora"
+    );
+    assert_eq!(gelesen(&in_technik), Vec::<(String, String)>::new());
+    assert_eq!(
+        (unbekannt.status, &unbekannt.json["fehler"]),
+        (404, &json!("# gibt-es-nicht gibt es nicht."))
+    );
+    assert_eq!(ohne_sitzung.status, 401);
+    assert!(signal_durch_lesen.is_none(), "{signal_durch_lesen:?}");
 }
