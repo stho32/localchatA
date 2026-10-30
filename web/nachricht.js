@@ -71,6 +71,19 @@ export function markeUmschalten(marke) {
   document.getElementById(marke.getAttribute('aria-describedby')).hidden = !offen;
 }
 
+// Eigene Nachricht (R00041 F0135, B0608): `von` ist die eigene Kennung — auch aus einer früheren Sitzung —, bestätigt
+// (nur bestätigte tragen eine Zeit; „wird gesendet …“ und fehlgeschlagene nicht) und nicht gelöscht.
+export function bearbeitbar({ zeit, von, zustand }, eigeneKennung) {
+  return eigeneKennung !== '' && von === eigeneKennung && zeit !== undefined && zustand !== 'geloescht';
+}
+
+// Die Aktionen einer Nachricht in der Reihenfolge der Leiste (Designsystem Nachricht: Antworten · Kopieren · Bearbeiten
+// · Löschen); jede Aktion trägt ihre eigene Bedingung (PO 145) — heute gelten nur Bearbeiten und Löschen, an der eigenen.
+export function aktionenFuer(nachricht, eigeneKennung) {
+  const eigen = bearbeitbar(nachricht, eigeneKennung);
+  return [['bearbeiten', eigen], ['loeschen', eigen]].filter(([, gilt]) => gilt).map(([aktion]) => aktion);
+}
+
 const NAME_TEXTANFANG_ZEICHEN = 120;
 
 // Der zugängliche Name einer Nachricht im Verlauf (F0141, B0632): „<Kennung>, <HH:MM>[, bearbeitet | , Nachricht
