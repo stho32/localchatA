@@ -73,6 +73,10 @@ impl Gespraeche {
         let mut versuche = 0;
         loop {
             let neu = self.direkt_bereitstellen(&gespraech)?;
+            #[cfg(test)]
+            if self.schranken.verschwindet() {
+                schreibend(&self.verzeichnis).verlaeufe.remove(&gespraech);
+            }
             let ergebnis = self.senden_sendung(&gespraech, von, art, sendung);
             if neu && ergebnis.is_err() {
                 self.direkt_zurueckbauen(&gespraech);

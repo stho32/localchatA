@@ -8,6 +8,7 @@
 use super::Zustand;
 use super::abbruch::{Abgebrochen, Grenzort, abbruch_beantworten};
 use super::anfrageprotokoll::mit_regel;
+use super::bearbeiten::{unbekannt_regel, unbekannt_wie};
 use super::bremse::{Gegenstand, gebremst_melden};
 use super::koerper::{
     Koerperfehler, Koerperort, json_lesen_auf_werkbank, koerperfehler_beantworten,
@@ -213,8 +214,10 @@ async fn senden_in(
             "schluessel_anders",
             Some(&wer),
         ),
+        // Ein Direktgespräch, das zwischen Bereitstellen und Senden verschwand, antwortet wie eine nie vergebene
+        // Nachricht — ohne Ordnername und ohne Channel-Regel (ADR-0048 M3).
         Ok(Err(Sendefehler::Unbekannt)) => {
-            mit_regel(unbekannt(&name), "channel_unbekannt", Some(&wer))
+            mit_regel(unbekannt_wie(&ziel), unbekannt_regel(&ziel), Some(&wer))
         }
         Ok(Err(Sendefehler::Ablage { datei, grund })) => {
             nicht_gespeichert(&zustand, &name, &wer, &datei, &grund)
@@ -774,6 +777,62 @@ mod tests {
         assert!(!zeilen[1].contains("kennung="), "{zeilen:#?}");
         assert!(zeilen[1].contains(&format!("datei={datei}")), "{zeilen:#?}");
         assert!(zeilen[1].contains("channel=allgemein"), "{zeilen:#?}");
+    }
+
+    /// Nacharbeit code-reviewer #13 F0172, Sollte 4 (wörtlich): verschwindet das eben bereitgestellte Direktgespräch
+    /// zweimal (ein Ablage-Stumpf, dessen Verlauf weg ist), endet das Senden mit `Unbekannt` — die Antwort nennt
+    /// weder `channel_unbekannt` noch den Ordnernamen, sie ist dieselbe wie für eine nie vergebene Nachricht (gleiche
+    /// Wahl wie bei Bearbeiten, ADR-0048 M3).
+    #[tokio::test]
+    async fn ein_verschwundenes_direktgespraech_nennt_weder_channel_noch_ordner() {
+        use crate::anwesenheit::Beitrittswunsch;
+        let wurzel = tempfile::tempdir().expect("Wegwerf-Ordner");
+        let mut zustand = super::super::testserver::zustand(wurzel.path());
+        zustand.gespraeche = Arc::new(
+            crate::gespraeche::Gespraeche::laden(
+                Arc::new(crate::gespraeche::Dateiablage::neu(
+                    wurzel.path(),
+                    Arc::new(crate::protokoll::Protokoll::ohne_ablage()),
+                )),
+                Arc::new(crate::uhr::Systemuhr),
+            )
+            .expect("geladen"),
+        );
+        let herkunft = "127.0.0.1".parse().expect("IP");
+        let beitreten = |name: &str| {
+            let wunsch = Beitrittswunsch::pruefen(&json!({"name": name})).expect("Wunsch");
+            zustand
+                .anwesenheit
+                .beitreten(&wunsch, herkunft)
+                .expect("beigetreten")
+                .sitzung
+                .token
+                .als_text()
+                .to_string()
+        };
+        let token = beitreten("anna");
+        beitreten("ben");
+        zustand.gespraeche.direkt_verschwinden_lassen(2);
+        let basis = super::super::testserver::app_starten(super::super::router(zustand)).await;
+
+        let antwort = reqwest::Client::new()
+            .post(format!("{basis}api/direkt/ben@127.0.0.1/nachrichten"))
+            .header("X-LocalchatA-Sitzung", token)
+            .json(&json!({"text": "hallo"}))
+            .send()
+            .await
+            .expect("HTTP");
+
+        let status = antwort.status();
+        let koerper: serde_json::Value = antwort.json().await.expect("JSON");
+        assert_eq!(status, 404, "{koerper}");
+        let text = koerper.to_string();
+        assert!(!text.contains("channel_unbekannt"), "{text}");
+        assert!(
+            !text.contains("direkt/") && !text.contains("ben@") && !text.contains("anna@"),
+            "{text}"
+        );
+        assert_eq!(koerper["regel"], "nachricht", "{text}");
     }
 
     /// R00022 B0345 (zweiter Test, wörtlich): `zeit` mit 61.001 ms, dann 7.410.002 ms → Ende mit
