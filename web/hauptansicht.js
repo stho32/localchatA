@@ -178,6 +178,7 @@ export function zeichnen(wurzel, teilnehmer, optionen) {
       senden.fassungEmpfangen(ereignis);
       eingabe.zitatNachfuehren(ereignis);
     },
+    anhaengeEmpfangen: (ereignis) => senden.anhaengeEmpfangen(ereignis),
     anzahlZeigen: (wieViele) => {
       anzahl.textContent = String(wieViele);
     },

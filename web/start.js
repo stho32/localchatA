@@ -150,6 +150,10 @@ function hauptansichtZeigen(teilnehmer, token, nachEingabe) {
         ansicht.aenderungEmpfangen(ereignis);
         return;
       }
+      if (ereignis.art === 'anhaenge') {
+        ansicht.anhaengeEmpfangen(ereignis);
+        return;
+      }
       if (ereignis.art === 'aktivitaet' || ereignis.art === 'aktivitaet_luecke') {
         ansicht.aktivitaetEmpfangen(ereignis);
         return;

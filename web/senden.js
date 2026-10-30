@@ -105,6 +105,14 @@ export function sendenEinrichten({
         verlauf.zitatAnnehmen(channel, zitat);
       }
     },
+    // Gelöschte Anhänge (R00030 B0518) ruhen wie die Fassungen mit den Ereignissen; das Nachholen bringt, was in der
+    // Trennung geschah.
+    anhaengeEmpfangen: ({ channel, geloescht }) => {
+      if (ereignisseRuhen) {
+        return;
+      }
+      verlauf.anhaengeAnnehmen(channel, geloescht);
+    },
     channelGeoeffnet: (channel) => {
       offenerChannel = channel;
       verlauf.vorlaeufigeZeigen(zustellung.zustand.vorlaeufige);

@@ -19,7 +19,7 @@ import { zeigerart } from './eingabe.js';
 import { mediumSpielt, medienUebernehmen, medienAufbewahren } from './player.js';
 import {
   einordnen, zusammenfuehren, fassungUebernehmen, buendlerAnlegen, folgenOderZaehlen, pillenText, auslaufNach, nichtGeladenText, hinweisTextNachziehen,
-  sprungZiel as sprungZielBerechnen, scrollTopNachHoehe, fensterNeuLesen, zeitDanach, zeitDavor,
+  sprungZiel as sprungZielBerechnen, scrollTopNachHoehe, fensterNeuLesen, zeitDanach, zeitDavor, anhaengeAlsGeloescht, geloeschteAnhaenge,
 } from './live-verlauf.js';
 
 // abrufen: async (name, cursor, signal) → { art: 'block' | 'fehler' | 'abgebrochen', … } (api.js verlaufAbrufen);
@@ -35,7 +35,7 @@ import {
 // Region der Seite (R00041 F0135, F0139). antworten(nachricht): die Aktion „Antworten“ an einer Nachricht des Fensters
 // (R00047 B0713), synchron in der Geste. signal: Abbau der Ansicht — Listener an document und window enden mit ihr.
 export function verlaufAnlegen({
-  abrufen, schalter = () => {}, fokusRueckgaengig = () => {}, fokusVerloren = () => {}, bearbeitenSpeichern = async () => ({ art: 'netzfehler' }),
+  abrufen: abrufenRoh, schalter = () => {}, fokusRueckgaengig = () => {}, fokusVerloren = () => {}, bearbeitenSpeichern = async () => ({ art: 'netzfehler' }),
   loeschen = async () => ({ art: 'netzfehler' }), hinweisen = () => {}, ansagen = () => {}, antworten = () => {}, signal = new AbortController().signal,
   hochladungen = element('div'),
 }) {
@@ -81,6 +81,18 @@ export function verlaufAnlegen({
   // Lädt der Tab von selbst (Strom getrennt oder Laden-Lauf)? Die Hauptansicht setzt die Auskunft (R00037 Regel 1).
   let selbstversuchend = () => false;
   const buendler = buendlerAnlegen({ einfuegen: jeFrameEinfuegen });
+  // IDs aller Anhänge, deren Löschen der Tab erfahren hat (R00030 B0518): eine Antwort, die vor dem Löschen begann und
+  // erst danach ankommt, zeigt sie sonst als vorhanden.
+  const geloeschteIds = new Set();
+
+  async function abrufen(name, cursor, abbruch) {
+    const ergebnis = await abrufenRoh(name, cursor, abbruch);
+    if (ergebnis.art !== 'block' || geloeschteIds.size === 0) {
+      return ergebnis;
+    }
+    const nachrichten = ergebnis.block.nachrichten.map((nachricht) => anhaengeAlsGeloescht(nachricht, geloeschteIds));
+    return { ...ergebnis, block: { ...ergebnis.block, nachrichten } };
+  }
 
   function abstandUnten() {
     return log.scrollHeight - log.scrollTop - log.clientHeight;
@@ -1034,6 +1046,18 @@ export function verlaufAnlegen({
     buendler.annehmen({ channel, nachricht: null, fassung, eigen: false });
   }
 
+  // Anhänge, die gelöscht wurden (Ereignis `anhaenge`, R00030 B0518): der Tab vermerkt ihre IDs, auch für Channels und
+  // Nachrichten, die nicht im Fenster stehen; im offenen Verlauf ersetzt die Zeile „Gelöscht“ im nächsten Frame Vorschau
+  // oder Player. geloescht: [{ id, zeit }] (Zeit der Nachricht)
+  function anhaengeAnnehmen(channel, geloescht) {
+    geloescht.forEach(({ id }) => geloeschteIds.add(id));
+    const nichtOffen = channel !== offenerName || offenerName === null || gescheitert || !geladen;
+    if (nichtOffen || geloescht.length === 0) {
+      return;
+    }
+    buendler.annehmen({ channel, nachricht: null, geloescht, eigen: false });
+  }
+
   // Das neue Zitat einer geänderten Nachricht (R00047 B0721, ADR-0053 Regel 5) geht denselben Weg wie ihre Fassung: vor dem
   // ersten Block gepuffert, während eines Sprungs gemerkt, sonst im nächsten Frame übernommen.
   function zitatAnnehmen(channel, zitat) {
@@ -1113,6 +1137,10 @@ export function verlaufAnlegen({
     if (zitate.length > 0 && !gescheitert) {
       zitateNachfuehren(zitate.map((eintrag) => eintrag.zitat));
     }
+    const loeschungen = gesammelt.filter((eintrag) => eintrag.channel === offenerName && eintrag.geloescht !== undefined);
+    if (loeschungen.length > 0 && !gescheitert) {
+      anhaengeErsetzen(loeschungen.flatMap((eintrag) => eintrag.geloescht));
+    }
     ausstehendZeichnen();
     auslaufAbbauen(sichtbar, inhaltsHoehe() - inhaltVorher);
     if (amEnde) {
@@ -1181,6 +1209,7 @@ export function verlaufAnlegen({
       juengste: juengsteImFenster(),
       uebernehmen: (nachricht) => {
         fassungAnnehmen(channel, nachricht);
+        anhaengeAnnehmen(channel, geloeschteAnhaenge(nachricht));
         if (nachricht.antwort_auf !== undefined && nachricht.antwort_auf !== null) {
           zitatAnnehmen(channel, nachricht.antwort_auf);
         }
@@ -1227,6 +1256,61 @@ export function verlaufAnlegen({
     if (feldDaran) {
       nachrichtFokussieren(nachrichtKnoten(uebernommen.zeit));
     }
+  }
+
+  // Die Zeile „Gelöscht“ ersetzt Vorschau und Player; die Lesestelle bleibt (Anker). Hatte ein ersetztes Element den Fokus,
+  // liegt er danach auf der Nachricht und die Ansage nennt den Anhang einmal. Steht an der Nachricht das Bearbeiten-Feld,
+  // merkt sich das Fenster nur den neuen Stand, gezeichnet wird nach dem Schließen.
+  function anhaengeErsetzen(geloescht) {
+    const idsJeZeit = new Map();
+    for (const { id, zeit } of geloescht) {
+      const bekannt = bekannteNachricht(zeit);
+      if (bekannt === null) {
+        continue;
+      }
+      if (!idsJeZeit.has(bekannt.nachricht.zeit)) {
+        idsJeZeit.set(bekannt.nachricht.zeit, new Set());
+      }
+      idsJeZeit.get(bekannt.nachricht.zeit).add(id);
+    }
+    const anker = ankerMerken(log, inhalt);
+    idsJeZeit.forEach((ids, zeit) => nachrichtOhneAnhaengeZeigen(zeit, ids));
+    ankerHalten(log, anker);
+  }
+
+  function nachrichtOhneAnhaengeZeigen(zeit, ids) {
+    const bekannt = bekannteNachricht(zeit);
+    const neu = anhaengeAlsGeloescht(bekannt.nachricht, ids);
+    if (neu === bekannt.nachricht) {
+      return;
+    }
+    const feldZeit = bearbeiten.offeneZeitIn(offenerName);
+    if (feldZeit !== null && Date.parse(feldZeit) === Date.parse(zeit)) {
+      fenster.bloecke[bekannt.blockStelle][bekannt.stelle] = neu;
+      return;
+    }
+    const verlorenerName = nameDesAnhangsMitFokus(bekannt.nachricht, ids);
+    knotenErsetzen(bekannt, neu);
+    if (verlorenerName !== null) {
+      nachrichtFokussieren(nachrichtKnoten(zeit));
+      ansagen(`Anhang gelöscht: ${verlorenerName}`);
+    }
+  }
+
+  function nameDesAnhangsMitFokus(nachricht, ids) {
+    const knoten = nachrichtKnoten(nachricht.zeit);
+    if (knoten === null) {
+      return null;
+    }
+    const betroffen = nachricht.anhaenge.filter((anhang) => ids.has(anhang.id) && anhang.zustand !== 'geloescht');
+    const mitFokus = betroffen.find((anhang) => {
+      const anhangKnoten = knoten.querySelector(`.lc-anhang[data-anhang="${CSS.escape(anhang.id)}"]`);
+      return anhangKnoten !== null && anhangKnoten.contains(document.activeElement);
+    });
+    if (mitFokus === undefined) {
+      return null;
+    }
+    return mitFokus.name;
   }
 
   // Jede Antwort im Fenster auf die geänderte Nachricht zeigt ihr neues Zitat (zitatNachfuehren); die Lesestelle bleibt.
@@ -1587,6 +1671,7 @@ export function verlaufAnlegen({
     nachrichtAnnehmen,
     fassungAnnehmen,
     zitatAnnehmen,
+    anhaengeAnnehmen,
     fassungenAuffrischen,
     nachgeholtAnnehmen,
     vorlaeufigeZeigen,

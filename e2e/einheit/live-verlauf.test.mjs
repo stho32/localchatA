@@ -4,7 +4,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   einordnen, zusammenfuehren, buendlerAnlegen, folgenOderZaehlen, pillenText, auslaufNach, nichtGeladenText, hinweisTextNachziehen, sprungZiel, scrollTopNachHoehe,
-  zeitDavor,
+  zeitDavor, anhaengeAlsGeloescht, geloeschteAnhaenge,
 } from '../../web/live-verlauf.js';
 
 const t = (sekunde) => `2026-10-28T12:00:${String(sekunde).padStart(2, '0')}.000+01:00`;
@@ -251,4 +251,36 @@ test('zeitDavor: eine Millisekunde vor der Zeit, als RFC 3339 in UTC, auch über
   assert.equal(zeitDavor('2026-10-28T14:03:00.123+01:00'), '2026-10-28T13:03:00.122+00:00');
   assert.equal(zeitDavor('2026-10-28T00:00:00.000+01:00'), '2026-10-27T22:59:59.999+00:00');
   assert.equal(Date.parse(zeitDavor('2026-10-28T14:03:00.123+01:00')), Date.parse('2026-10-28T14:03:00.123+01:00') - 1);
+});
+
+// B0518 (R00030 F0118, ADR-0047 Ergänzung „F1′“ Regel 3): ein gelöschter Anhang ändert nur seinen `zustand`.
+const anh = (id, zustand = 'vorhanden') => ({ id, name: `${id}.png`, bytes: 100, art: 'image/png', breite: 4, hoehe: 3, url: `/anhaenge/${id}`, zustand });
+const mitAnhaengen = (...anhaenge) => ({ ...n(5), zustand: null, geaendert: null, anhaenge });
+
+test('anhaengeAlsGeloescht setzt nur den Zustand der genannten Anhänge und lässt das Original unberührt', () => {
+  const nachricht = mitAnhaengen(anh('a'), anh('b'));
+
+  const neu = anhaengeAlsGeloescht(nachricht, new Set(['a']));
+
+  assert.deepEqual(neu.anhaenge, [anh('a', 'geloescht'), anh('b')]);
+  assert.deepEqual({ ...neu, anhaenge: null }, { ...nachricht, anhaenge: null });
+  assert.equal(nachricht.anhaenge[0].zustand, 'vorhanden');
+});
+
+test('anhaengeAlsGeloescht gibt dieselbe Nachricht zurück, wenn nichts zu ändern ist', () => {
+  const nachricht = mitAnhaengen(anh('a', 'geloescht'), anh('b'));
+
+  assert.equal(anhaengeAlsGeloescht(nachricht, new Set(['a'])), nachricht);
+  assert.equal(anhaengeAlsGeloescht(nachricht, new Set(['x'])), nachricht);
+  assert.equal(anhaengeAlsGeloescht(nachricht, new Set()), nachricht);
+  const ohne = n(6);
+  assert.equal(anhaengeAlsGeloescht(ohne, new Set(['a'])), ohne);
+});
+
+test('geloeschteAnhaenge nennt je gelöschtem Anhang ID und Satzzeit der Nachricht', () => {
+  const nachricht = mitAnhaengen(anh('a', 'geloescht'), anh('b'), anh('c', 'geloescht'));
+
+  assert.deepEqual(geloeschteAnhaenge(nachricht), [{ id: 'a', zeit: nachricht.zeit }, { id: 'c', zeit: nachricht.zeit }]);
+  assert.deepEqual(geloeschteAnhaenge(n(6)), []);
+  assert.deepEqual(geloeschteAnhaenge(mitAnhaengen(anh('a'))), []);
 });

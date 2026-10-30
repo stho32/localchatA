@@ -144,15 +144,33 @@ function bildGrossZeigen(anhang, vorschau) {
       schliessen.focus();
     }
   });
+  const nachricht = vorschau.closest('.lc-msg');
   dialog.addEventListener('close', () => {
     dialog.remove();
-    if (vorschau.isConnected) {
-      vorschau.focus();
-    }
+    fokusNachDemDialog(vorschau, nachricht.dataset.zeit, anhang.id);
   });
   document.body.append(dialog);
   dialog.showModal();
   schliessen.focus();
+}
+
+// Nach dem Dialog steht der Fokus auf der Vorschau. Wurde die Nachricht währenddessen neu gezeichnet, auf der neuen
+// Vorschau desselben Anhangs; gibt es keine mehr (der Anhang ist gelöscht), auf der Nachricht — nie auf body.
+function fokusNachDemDialog(vorschau, nachrichtZeit, anhangId) {
+  if (vorschau.isConnected) {
+    vorschau.focus();
+    return;
+  }
+  const nachricht = document.querySelector(`.lc-msg[data-zeit="${CSS.escape(nachrichtZeit)}"]`);
+  if (nachricht === null) {
+    return;
+  }
+  const neueVorschau = nachricht.querySelector(`.lc-anhang[data-anhang="${CSS.escape(anhangId)}"] .lc-vorschau`);
+  if (neueVorschau === null) {
+    nachricht.focus();
+    return;
+  }
+  neueVorschau.focus();
 }
 
 // Datei-Zeile (B0457, Designsystem Anhang): Kürzel (nur für die Augen), Name mit Ellipse, Größe in Worten, „Öffnen“ in

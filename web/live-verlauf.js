@@ -173,3 +173,33 @@ export function zeitDanach(zeit) {
 export function zeitDavor(zeit) {
   return new Date(Date.parse(zeit) - 1).toISOString().replace('Z', '+00:00');
 }
+
+// Ein gelöschter Anhang ändert nur seinen `zustand` (R00030 B0518, ADR-0047 Ergänzung „F1′“ Regel 3: Name, Größe, Art und
+// Adresse bleiben); die Nachricht behält ihre Fassung. ids: Set der Anhang-IDs. → die Nachricht mit den Anhängen als
+// `geloescht` — dieselbe, wenn keiner der Anhänge zu ändern ist
+export function anhaengeAlsGeloescht(nachricht, ids) {
+  const anhaenge = anhaengeVon(nachricht);
+  const betroffen = anhaenge.some((anhang) => ids.has(anhang.id) && anhang.zustand !== 'geloescht');
+  if (!betroffen) {
+    return nachricht;
+  }
+  const neue = anhaenge.map((anhang) => {
+    if (ids.has(anhang.id)) {
+      return { ...anhang, zustand: 'geloescht' };
+    }
+    return anhang;
+  });
+  return { ...nachricht, anhaenge: neue };
+}
+
+// Die Anhänge einer Nachricht, die schon `geloescht` sind, als Einträge des Ereignisses `anhaenge`. → [{ id, zeit }]
+export function geloeschteAnhaenge(nachricht) {
+  return anhaengeVon(nachricht).filter((anhang) => anhang.zustand === 'geloescht').map((anhang) => ({ id: anhang.id, zeit: nachricht.zeit }));
+}
+
+function anhaengeVon(nachricht) {
+  if (nachricht.anhaenge === undefined) {
+    return [];
+  }
+  return nachricht.anhaenge;
+}
