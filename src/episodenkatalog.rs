@@ -110,7 +110,7 @@ struct Zeile {
     name: &'static str,
     /// Die Bauweise-Funktion; gleiche Funktion in mehreren Zeilen zählt für die Vollständigkeit einmal.
     bauweise: &'static str,
-    /// Wie viele Texte die Bauweise hat (Grenzschutz 2, Schreibkonto 4); jeder wird geprüft.
+    /// Wie viele Texte die Bauweise hat (Grenzschutz 2, Schreibkonto 5); jeder wird geprüft.
     texte: usize,
     /// Spalte „Quelle“: die Schlüssel, aus denen die Episode gebildet ist. Leer: eine Episode der Instanz.
     quelle: &'static [Schluessel],
@@ -344,9 +344,9 @@ fn katalog() -> Vec<Zeile> {
             bauen: |a, _| verdraengt_auftreten(&verdraengt(a)),
         },
         Zeile {
-            name: "schreibkonto · Senden gebremst · Frist gebremst · Anhänge gebremst · Löschen gebremst",
+            name: "schreibkonto · Senden gebremst · Bearbeiten gebremst · Frist gebremst · Anhänge gebremst · Löschen gebremst",
             bauweise: "http::bremse::gebremst_auftreten",
-            texte: 4,
+            texte: 5,
             quelle: &[S::Kennung],
             beginn: &[S::Grenze],
             ende: &[],
@@ -354,6 +354,7 @@ fn katalog() -> Vec<Zeile> {
             bauen: |a, t| {
                 let gegenstand = [
                     Gegenstand::Nachrichten,
+                    Gegenstand::Bearbeitungen,
                     Gegenstand::Aenderungen,
                     Gegenstand::Anmeldungen,
                     Gegenstand::Loeschungen,

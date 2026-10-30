@@ -16,14 +16,18 @@ use axum::response::{IntoResponse, Response};
 use serde_json::json;
 use std::net::IpAddr;
 
-/// Wovon eine Kennung zu viele schickte: Nachrichten (Senden) oder Änderungen (Frist).
+/// Wovon eine Kennung zu viele schickte: Nachrichten (Senden), Bearbeitungen (Bearbeiten), Änderungen (Frist) oder
+/// Löschanfragen (Anhänge, Nachricht). Das Konto bleibt eines; der Gegenstand benennt nur, was abgewiesen wurde
+/// (ADR-0048 K4).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Gegenstand {
     Nachrichten,
+    /// Bearbeiten einer Nachricht (1 Einheit vorab, der Rest nach der Länge des Textes).
+    Bearbeitungen,
     Aenderungen,
     /// Anmeldungen von Anhängen (ADR-0036 Ergänzung Karte #9: 1 Einheit je Anmeldung).
     Anmeldungen,
-    /// Löschanfragen für Anhänge (1 Einheit vorab, ⌈n / 100⌉ als Rest).
+    /// Löschanfragen: Anhänge im Laufwerk (1 Einheit vorab, ⌈n / 100⌉ als Rest) und eine Nachricht (1 Einheit).
     Loeschungen,
 }
 
@@ -31,6 +35,7 @@ impl Gegenstand {
     fn als_text(self) -> &'static str {
         match self {
             Gegenstand::Nachrichten => "Nachrichten",
+            Gegenstand::Bearbeitungen => "Bearbeitungen",
             Gegenstand::Aenderungen => "Änderungen",
             Gegenstand::Anmeldungen => "Anmeldungen",
             Gegenstand::Loeschungen => "Löschanfragen",
@@ -41,6 +46,7 @@ impl Gegenstand {
     fn episodentext(self) -> &'static str {
         match self {
             Gegenstand::Nachrichten => episodentexte::GEBREMST,
+            Gegenstand::Bearbeitungen => episodentexte::BEARBEITEN_GEBREMST,
             Gegenstand::Aenderungen => episodentexte::FRIST_GEBREMST,
             Gegenstand::Anmeldungen => episodentexte::ANHAENGE_GEBREMST,
             Gegenstand::Loeschungen => episodentexte::LOESCHEN_GEBREMST,
@@ -251,6 +257,64 @@ mod tests {
         );
         assert_eq!(genau.1.as_deref(), Some("3"));
         assert_eq!(null.1.as_deref(), Some("1"));
+    }
+
+    /// R00043 B0668 (ADR-0048 K4, ADR-0042 Ergänzung „Karte #73“ (1)): dieselbe Kennung wird nacheinander beim Senden,
+    /// Bearbeiten und Löschen gebremst → drei 429 mit „Zu viele Nachrichten/Bearbeitungen/Löschanfragen von …“, drei
+    /// Beginn-Zeilen mit je eigenem Text, keine zweite Beginn-Zeile bei weiteren 429 desselben Gegenstands (auch
+    /// nicht beim Löschen im Laufwerk, das die Löschen-Episode teilt); `Retry-After` und `wieder_in_ms` gleich, das
+    /// Konto bleibt eines.
+    #[tokio::test]
+    async fn senden_bearbeiten_und_loeschen_sagen_je_ihren_gegenstand_und_haben_je_eine_episode() {
+        use crate::http::loeschaufbau::aufbau;
+        let aufbau = aufbau();
+        let wer = "beta@127.0.0.1";
+        let (zeit, id) = aufbau.nachricht_mit_anhang(wer);
+        aufbau.eimer_leeren(wer);
+
+        let senden = teile(aufbau.senden(wer).await).await;
+        let bearbeiten = teile(aufbau.bearbeiten(wer, zeit).await).await;
+        let loeschen = teile(aufbau.nachricht_loeschen(wer, zeit).await).await;
+        let weitere = [
+            teile(aufbau.senden(wer).await).await,
+            teile(aufbau.bearbeiten(wer, zeit).await).await,
+            teile(aufbau.nachricht_loeschen(wer, zeit).await).await,
+            teile(aufbau.anhaenge_loeschen(wer, &[&id]).await).await,
+        ];
+
+        for (antwort, text) in [
+            (&senden, "Zu viele Nachrichten von beta@127.0.0.1"),
+            (&bearbeiten, "Zu viele Bearbeitungen von beta@127.0.0.1"),
+            (&loeschen, "Zu viele Löschanfragen von beta@127.0.0.1"),
+        ] {
+            assert_eq!(antwort.0, 429, "{text}: {antwort:?}");
+            let fehler = antwort.2["fehler"].as_str().expect("fehler");
+            assert!(fehler.starts_with(text), "{text}: {fehler}");
+            assert_eq!(antwort.2["grenze"], "kennung");
+            assert_eq!(antwort.1, senden.1, "Retry-After unverändert");
+            assert_eq!(antwort.2["wieder_in_ms"], senden.2["wieder_in_ms"]);
+        }
+        assert!(
+            weitere.iter().all(|antwort| antwort.0 == 429),
+            "{weitere:?}"
+        );
+        let beginne: Vec<String> = aufbau
+            .zeilen_mit(" WARNING schreibkonto ")
+            .into_iter()
+            .filter(|zeile| zeile.contains("Episode beginnt"))
+            .collect();
+        assert_eq!(beginne.len(), 3, "{beginne:#?}");
+        for text in [
+            "Senden gebremst: zu viele Nachrichten — Episode beginnt",
+            "Bearbeiten gebremst: zu viele Bearbeitungen — Episode beginnt",
+            "Löschen gebremst: zu viele Löschanfragen — Episode beginnt",
+        ] {
+            assert_eq!(
+                beginne.iter().filter(|zeile| zeile.contains(text)).count(),
+                1,
+                "{text}: {beginne:#?}"
+            );
+        }
     }
 
     /// R00021 F0072 „Text je Grenze“: `Gebremst { kennung, 10.000 ms }` der Frist → „Zu viele Änderungen von

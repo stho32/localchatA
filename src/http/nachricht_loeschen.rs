@@ -60,7 +60,7 @@ pub async fn loeschen(
         return gebremst_melden(
             &zustand.protokoll,
             gebremst,
-            Gegenstand::Nachrichten,
+            Gegenstand::Loeschungen,
             &teilnehmer,
         );
     }

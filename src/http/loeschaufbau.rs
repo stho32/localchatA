@@ -3,7 +3,7 @@
 //! als Aufruf ohne HTTP — so lässt sich die Zukunft eines Handlers an jedem `await` fallen lassen.
 
 use super::testserver;
-use super::{Zustand, anhaenge, nachricht_loeschen};
+use super::{Zustand, anhaenge, bearbeiten, nachricht_loeschen, senden};
 use crate::anwesenheit::Art;
 use crate::gespraeche::anhangeingang::Kopf;
 use crate::gespraeche::anhangid::Anhangid;
@@ -16,6 +16,7 @@ use crate::protokoll::Stufe;
 use crate::protokoll::senke::Speicher;
 use crate::protokoll::testhilfe::{im_speicher, zeit};
 use crate::protokoll::testpanik::Testpanik;
+use crate::schreibkonto::Schreibkonto;
 use crate::uhr::{GestellteUhr, Zeit};
 use crate::zufall::{FesteFolge, Zufall};
 use axum::body::Body;
@@ -57,6 +58,9 @@ pub fn aufbau_mit(zufall: Arc<dyn Zufall>, testpanik: Testpanik) -> Aufbau {
     let (protokoll, zeilen, _, _) = im_speicher("2026-10-29T12:00:00+01:00", Stufe::Debug);
     zustand.protokoll = protokoll;
     zustand.testpanik = testpanik;
+    zustand.schreibkonto = Arc::new(Schreibkonto::neu(Arc::new(GestellteUhr::neu(zeit(
+        "2026-10-29T12:00:00.000+01:00",
+    )))));
     Aufbau {
         zustand: Arc::new(zustand),
         zeilen,
@@ -167,6 +171,47 @@ impl Aufbau {
         tokio::task::spawn_blocking(move || schranke.wait())
             .await
             .expect("Schranke freigegeben");
+    }
+
+    /// Leert den Eimer der Kennung (gestellte Uhr: er füllt sich nicht wieder).
+    pub fn eimer_leeren(&self, wer: &str) {
+        let teilnehmer = teilnehmer(wer);
+        while self
+            .zustand
+            .schreibkonto
+            .vorab(&teilnehmer.kennung, teilnehmer.herkunft, 1)
+            .is_ok()
+        {}
+    }
+
+    /// Der Handler `POST …/nachrichten` mit `{"text":"hallo"}`.
+    pub fn senden(&self, wer: &str) -> impl Future<Output = Response> + Send + use<> {
+        senden::senden(
+            teilnehmer(wer),
+            State(Arc::clone(&self.zustand)),
+            Path("allgemein".to_string()),
+            json_kopf(),
+            Body::from(r#"{"text":"hallo"}"#),
+        )
+    }
+
+    /// Der Handler `POST …/nachrichten/bearbeiten` mit `{"zeit":…,"text":"neu"}`.
+    pub fn bearbeiten(
+        &self,
+        wer: &str,
+        zeit: Zeit,
+    ) -> impl Future<Output = Response> + Send + use<> {
+        let koerper = serde_json::json!({
+            "zeit": zeit.to_rfc3339_opts(chrono::SecondsFormat::Millis, false),
+            "text": "neu",
+        });
+        bearbeiten::bearbeiten(
+            teilnehmer(wer),
+            State(Arc::clone(&self.zustand)),
+            Path("allgemein".to_string()),
+            json_kopf(),
+            Body::from(koerper.to_string()),
+        )
     }
 
     /// Der Handler `POST …/nachrichten/loeschen` als Aufruf mit JSON-Körper `{"zeit": …}`.

@@ -60,7 +60,7 @@ pub async fn bearbeiten(
         return gebremst_melden(
             &zustand.protokoll,
             gebremst,
-            Gegenstand::Nachrichten,
+            Gegenstand::Bearbeitungen,
             &teilnehmer,
         );
     }
@@ -113,7 +113,7 @@ pub async fn bearbeiten(
         return gebremst_melden(
             &zustand.protokoll,
             gebremst,
-            Gegenstand::Nachrichten,
+            Gegenstand::Bearbeitungen,
             &teilnehmer,
         );
     }

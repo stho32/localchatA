@@ -15,6 +15,7 @@ pub const NAMENSAUFLOESUNG_ZU_LANGSAM: &str = "Namensauflösung zu langsam";
 pub const NICHT_GESPEICHERT: &str = "Nachricht nicht gespeichert";
 pub const QUOTE_ERREICHT: &str = "Senden abgewiesen: Quote erreicht";
 pub const GEBREMST: &str = "Senden gebremst: zu viele Nachrichten";
+pub const BEARBEITEN_GEBREMST: &str = "Bearbeiten gebremst: zu viele Bearbeitungen";
 pub const FRIST_GEBREMST: &str = "Frist gebremst: zu viele Änderungen";
 pub const ANHAENGE_GEBREMST: &str = "Anhänge gebremst: zu viele Anmeldungen";
 pub const METADATEN_NICHT_TILGBAR: &str = "Hochladen abgewiesen: Metadaten nicht tilgbar";
@@ -68,6 +69,7 @@ mod tests {
         nicht_gespeichert: NICHT_GESPEICHERT = "Nachricht nicht gespeichert";
         quote_erreicht: QUOTE_ERREICHT = "Senden abgewiesen: Quote erreicht";
         gebremst: GEBREMST = "Senden gebremst: zu viele Nachrichten";
+        bearbeiten_gebremst: BEARBEITEN_GEBREMST = "Bearbeiten gebremst: zu viele Bearbeitungen";
         frist_gebremst: FRIST_GEBREMST = "Frist gebremst: zu viele Änderungen";
         anhaenge_gebremst: ANHAENGE_GEBREMST = "Anhänge gebremst: zu viele Anmeldungen";
         metadaten_nicht_tilgbar: METADATEN_NICHT_TILGBAR = "Hochladen abgewiesen: Metadaten nicht tilgbar";
