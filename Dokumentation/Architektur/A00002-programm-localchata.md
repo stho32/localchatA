@@ -44,6 +44,7 @@ Kinder:
 - [Live-Kanal](A00011-live-kanal.md) (geplant)
 - [Schreibkonto](A00014-schreibkonto.md) (geplant, I0009)
 - [Betriebsprotokoll](A00015-betriebsprotokoll.md) (geplant, Vorlauf „Betriebsprotokoll“)
+- [Aktivität](A00019-aktivitaet.md) (geplant, I0040/I0041)
 
 Crates (ADR-0001): `axum` 0.8 (mit `multipart`), `tokio`, `tokio-stream`, `futures-util`, `serde`, `serde_json`, `chrono` (Lokalzeit mit Versatz), `toml` (Einstellungen je Gespräch), `utoipa`/`utoipa-axum` (API-Beschreibung für Agenten); Test: `tempfile`, `reqwest`.
 
