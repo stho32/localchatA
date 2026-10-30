@@ -76,7 +76,11 @@ export function anzeigeTeile(aktive) {
 }
 
 export function anzeigeText(aktive) {
-  return anzeigeTeile(aktive).map((teil) => teil.text).join('');
+  return alsText(anzeigeTeile(aktive));
+}
+
+function alsText(teile) {
+  return teile.map((teil) => teil.text).join('');
 }
 
 const GRUPPEN = [
@@ -164,10 +168,11 @@ export function aktivitaetsanzeigeAnlegen({ kennung }) {
     bildBestellt = false;
     const aktive = aktiveIn(tabelle, channel, kennung, Date.now());
     const teile = anzeigeTeile(aktive);
-    if (zeile.textContent !== teile.map((teil) => teil.text).join('')) {
+    const text = alsText(teile);
+    if (zeile.textContent !== text) {
       zeile.replaceChildren(...teile.map(teilAlsKnoten));
     }
-    ansagen(teile.slice(0, -1).map((teil) => teil.text).join(''));
+    ansagen(text.replace(/ …$/u, ''));
     zumAblaufWecken(aktive);
   }
 
