@@ -872,3 +872,50 @@ test('Touch mit Tastatur: Menü offen, Taste E auf der Nachricht öffnet das Fel
   await expect(nachrichtMitZeit(a.page, zeit).locator('.lc-aktionen')).toBeHidden();
   expect(a.fehler).toEqual([]);
 });
+
+// Nacharbeit #78 (code-reviewer A1): Kopieren lässt die Markierung des Lesenden stehen — im Verlauf wie im Eingabefeld.
+test('Markierung bleibt: „Wort“ markiert, „Kopieren“ an einer anderen Nachricht — die Markierung ist wieder „Wort“, die Ablage „Zweite“ (A1)', async ({ browser }) => {
+  instanz = await sendenStarten();
+  const fremd = await claudeSendet(instanz.adresse, ['Ein Wort steht hier', 'Zweite']);
+  const a = await seiteOeffnen(browser, instanz.adresse);
+  await expect(nachrichtMitZeit(a.page, fremd.zeiten[1])).toHaveCount(1);
+  await ablageBelegen(a.page);
+  await nachrichtMitZeit(a.page, fremd.zeiten[0]).locator('.lc-body').evaluate((body) => {
+    const textknoten = document.createTreeWalker(body, NodeFilter.SHOW_TEXT);
+    let knoten = textknoten.nextNode();
+    while (knoten !== null && !knoten.textContent.includes('Wort')) {
+      knoten = textknoten.nextNode();
+    }
+    const anfang = knoten.textContent.indexOf('Wort');
+    const bereich = document.createRange();
+    bereich.setStart(knoten, anfang);
+    bereich.setEnd(knoten, anfang + 'Wort'.length);
+    document.getSelection().removeAllRanges();
+    document.getSelection().addRange(bereich);
+  });
+  expect(await a.page.evaluate(() => document.getSelection().toString())).toBe('Wort');
+
+  await ueberHoverKopieren(a.page, fremd.zeiten[1]);
+
+  await expect(kopierKnopf(a.page, fremd.zeiten[1]).locator('.lc-aktion-anzeige')).toHaveText('✓ Kopiert.');
+  expect(await a.page.evaluate(() => document.getSelection().toString())).toBe('Wort');
+  expect(await ablageLesen(a.page)).toBe('Zweite');
+  expect(a.fehler).toEqual([]);
+});
+
+test('Markierung im Eingabefeld bleibt: „Welt“ markiert, „Kopieren“ an einer Nachricht — Feld und Markierung unverändert (A1 Variante)', async ({ browser }) => {
+  instanz = await sendenStarten();
+  const fremd = await claudeSendet(instanz.adresse, ['Zweite']);
+  const a = await seiteOeffnen(browser, instanz.adresse);
+  await expect(nachrichtMitZeit(a.page, fremd.zeiten[0])).toHaveCount(1);
+  await ablageBelegen(a.page);
+  await eingabe(a.page).fill('Hallo Welt');
+  await eingabe(a.page).evaluate((feld) => feld.setSelectionRange(6, 10));
+
+  await ueberHoverKopieren(a.page, fremd.zeiten[0]);
+
+  await expect(kopierKnopf(a.page, fremd.zeiten[0]).locator('.lc-aktion-anzeige')).toHaveText('✓ Kopiert.');
+  expect(await eingabe(a.page).evaluate((feld) => [feld.value, feld.selectionStart, feld.selectionEnd])).toEqual(['Hallo Welt', 6, 10]);
+  expect(await ablageLesen(a.page)).toBe('Zweite');
+  expect(a.fehler).toEqual([]);
+});
