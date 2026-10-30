@@ -45,6 +45,40 @@ function stromTrennbarMachen(kontext) {
   });
 }
 
+/// Unterdrückt am Ereignisstrom des Tabs (ohne SharedWorker) jedes Ende-Ereignis der Aktivität (`zustand: null`): der
+/// Tab erfährt ein Ende nur noch aus einer Nachricht (ADR-0051 Regel 7 c). Ereignisse sind durch Leerzeilen getrennt.
+function endeEreignisseUnterdruecken(kontext) {
+  return kontext.addInitScript(() => {
+    const echt = window.fetch.bind(window);
+    const istEnde = (ereignis) => ereignis.includes('"art":"aktivitaet"') && ereignis.includes('"zustand":null');
+    window.fetch = async (pfad, optionen) => {
+      const antwort = await echt(pfad, optionen);
+      if (!String(pfad).endsWith('/api/ereignisse') || antwort.body === null) {
+        return antwort;
+      }
+      const leser = antwort.body.getReader();
+      const lesen = new TextDecoder();
+      const schreiben = new TextEncoder();
+      let rest = '';
+      const koerper = new ReadableStream({
+        pull: async (zugriff) => {
+          const { value: stueck, done: zuEnde } = await leser.read();
+          if (zuEnde) {
+            zugriff.close();
+            return;
+          }
+          const bloecke = (rest + lesen.decode(stueck, { stream: true })).split('\n\n');
+          rest = bloecke.pop();
+          const behalten = bloecke.filter((ereignis) => !istEnde(ereignis));
+          zugriff.enqueue(schreiben.encode(behalten.map((ereignis) => `${ereignis}\n\n`).join('')));
+        },
+        cancel: () => leser.cancel(),
+      });
+      return new Response(koerper, { status: antwort.status, headers: antwort.headers });
+    };
+  });
+}
+
 /// Startet eine Instanz und öffnet `anna` und `ben` in `# allgemein`; anna hat den Fokus im Feld. Ohne Worker hält der
 /// Tab den Strom selbst und ist trennbar. → { instanz, anna, ben } (der Aufrufer stoppt die Instanz).
 async function zweiBrowserStarten(browser, { annaOhneWorker = false, benOhneWorker = false } = {}) {
@@ -62,4 +96,4 @@ async function zweiBrowserStarten(browser, { annaOhneWorker = false, benOhneWork
   return { instanz, anna, ben };
 }
 
-module.exports = { ANNA_TIPPT, zeigtTipp, stromTrennbarMachen, zweiBrowserStarten };
+module.exports = { ANNA_TIPPT, zeigtTipp, stromTrennbarMachen, endeEreignisseUnterdruecken, zweiBrowserStarten };
