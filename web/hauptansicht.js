@@ -167,7 +167,7 @@ export function zeichnen(wurzel, teilnehmer, optionen) {
   };
   const auswahlFolgen = auswahlEinrichten({
     seitenleiste: channels, kopf, mitte, verlauf, eingabe, beiAuswahl, beiOeffnen, erneutWaehlen: wieder.erneutWaehlen,
-    eigeneKennung: teilnehmer.kennung,
+    eigeneKennung: teilnehmer.kennung, direktKennungen: direktleiste.kennungen,
   }, vorigeAnsichtAbmelden.signal);
   // Ein Direktgespräch beginnt nur hier (R00050 P5): die Adresse wählt es, das Panel geht unter 1100 px zu, der Fokus in
   // die Eingabe (V6). Ist es schon offen, ist die Wahl ein neuer Versuch wie beim Channel (R00007).

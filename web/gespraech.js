@@ -50,6 +50,15 @@ export function direktHash(kennung) {
   return DIREKT_ADRESSE + encodeURIComponent(kennung);
 }
 
+// Die Adresse eines Gesprächs: `#/c/<name>` bzw. `#/d/<kennung>`.
+export function adresseVon(schluessel) {
+  const gegenueber = gegenueberIn(schluessel);
+  if (gegenueber === null) {
+    return `#/c/${schluessel}`;
+  }
+  return direktHash(gegenueber);
+}
+
 // Wo man ist: „# name“ bzw. „Direktnachricht mit <Kennung>“ — das Wort trägt den Privat-Modus, nicht nur die Farbe (V7).
 export function ortText(schluessel) {
   const gegenueber = gegenueberIn(schluessel);

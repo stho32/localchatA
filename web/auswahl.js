@@ -1,7 +1,7 @@
 // Channel-Auswahl (ADR-0027): die Auswahl ist eine Ableitung aus Adresse und Channel-Liste, kein eigener Zustand.
 // Nur `#/c/<name>` mit einem gültigen Channelnamen wählt; ist der Name nicht in der Liste, ist er unbekannt.
 import { pruefen } from './namensregel.js';
-import { DIREKT_ADRESSE } from './gespraech.js';
+import { DIREKT_ADRESSE, direktgespraech } from './gespraech.js';
 
 const PRAEFIX = '#/c/';
 
@@ -113,6 +113,12 @@ function erster(namen, richtung) {
     return namen[0];
   }
   return namen[namen.length - 1];
+}
+
+// Die Folge, durch die Alt ↓/↑ geht (R00050 V12): die Channels, danach die Direktnachrichten — beide in der Reihenfolge der
+// Seitenleiste, als Gesprächsschlüssel.
+export function gespraechsfolge(channelNamen, direktKennungen) {
+  return [...channelNamen, ...direktKennungen.map(direktgespraech)];
 }
 
 // Nur Alt mit ↓ bzw. ↑ — ohne Strg, Umschalt, Meta und AltGraph. → 'ab' | 'auf' | null

@@ -1,13 +1,15 @@
 // Auswahl folgen (ADR-0027, R00050 F0178): Adresse und Channel-Liste bestimmen, welches Gespräch Seitenleiste, Kopfzeile
 // und Mitte zeigen — Start, hashchange, jede neue Liste und Alt ↓/↑ leiten es neu ab.
-import { auswahl, direktAuswahl, auswahlMerken, startadresse, MERKER, nachbarChannel, kuerzelRichtung } from './auswahl.js';
-import { direktgespraech } from './gespraech.js';
+import {
+  auswahl, direktAuswahl, auswahlMerken, startadresse, MERKER, nachbarChannel, kuerzelRichtung, gespraechsfolge,
+} from './auswahl.js';
+import { direktgespraech, adresseVon } from './gespraech.js';
 
 // Liefert { folgen, listeZeigen(liste) }: die Liste ist erst mit dem ersten Stand bekannt — bis dahin bleibt ein
 // gewählter Name ohne Urteil, damit „gibt es nicht“ nie vor dem Stand erscheint. Ein Direktgespräch (`#/d/<kennung>`)
 // braucht die Liste nicht: es öffnet sofort, im Privat-Modus (R00050 F0178).
 export function auswahlEinrichten({
-  seitenleiste, kopf, mitte, verlauf, eingabe, beiAuswahl, beiOeffnen, erneutWaehlen, eigeneKennung,
+  seitenleiste, kopf, mitte, verlauf, eingabe, beiAuswahl, beiOeffnen, erneutWaehlen, eigeneKennung, direktKennungen,
 }, signal) {
   const adresse = startadresse(window.location.hash, window.sessionStorage.getItem(MERKER));
   if (adresse !== null) {
@@ -76,7 +78,8 @@ export function auswahlEinrichten({
       erneutWaehlen();
     }
   }, { signal });
-  // Alt ↓ / Alt ↑ wählt wie ein Klick über die Adresse; der Fokus bleibt, wo er ist (ADR-0027 Regel 4).
+  // Alt ↓ / Alt ↑ wählt wie ein Klick über die Adresse — durch die Channels, danach die Direktnachrichten (R00050 V12);
+  // der Fokus bleibt, wo er ist (ADR-0027 Regel 4).
   document.addEventListener('keydown', (ereignis) => {
     const richtung = kuerzelRichtung(ereignis);
     const dialogOffen = document.querySelector('dialog[open]') !== null;
@@ -84,11 +87,11 @@ export function auswahlEinrichten({
       return;
     }
     ereignis.preventDefault();
-    const namen = liste.map((channel) => channel.name);
-    const nachbar = nachbarChannel(namen, offen, richtung);
+    const folge = gespraechsfolge(liste.map((channel) => channel.name), direktKennungen());
+    const nachbar = nachbarChannel(folge, offen, richtung);
     if (nachbar !== null) {
       fokusRettenInEingabe(verlauf, eingabe);
-      window.location.hash = `#/c/${nachbar}`;
+      window.location.hash = adresseVon(nachbar);
     }
   }, { signal });
   folgen();

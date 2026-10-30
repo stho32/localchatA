@@ -1,7 +1,10 @@
 // Unit-Tests der Channel-Auswahl (R00007 F0028 B0148, B0149; F0032 B0168, B0169; ADR-0027; node --test).
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { auswahl, startadresse, auswahlMerken, MERKER, nachbarChannel, kuerzelRichtung } from '../../web/auswahl.js';
+import {
+  auswahl, startadresse, auswahlMerken, MERKER, nachbarChannel, kuerzelRichtung, gespraechsfolge,
+} from '../../web/auswahl.js';
+import { adresseVon } from '../../web/gespraech.js';
 
 const LISTE = ['allgemein', 'test'];
 
@@ -71,4 +74,33 @@ test('Kürzel: Alt ↓ und Alt ↑ wechseln, mit Strg, Umschalt, Meta oder AltGr
   assert.equal(kuerzelRichtung(taste('ArrowDown', {}, true)), null);
   assert.equal(kuerzelRichtung(taste('ArrowDown', { altKey: false })), null);
   assert.equal(kuerzelRichtung(taste('ArrowLeft')), null);
+});
+
+// Am Rand gibt nachbarChannel null — dann bleibt die Auswahl, wie sie ist.
+function naechstesOderStehen(folge, offen, richtung) {
+  const nachbar = nachbarChannel(folge, offen, richtung);
+  if (nachbar === null) {
+    return offen;
+  }
+  return nachbar;
+}
+
+// R00050 F0180 B0791 (V12, US-27): Alt ↓/↑ geht durch die Channels und danach durch die Direktnachrichten — eine Folge
+// von Gesprächsschlüsseln, deren Adresse gespraech.js bildet.
+test('Alt ↓/↑ über Channels und Direktnachrichten: allgemein → technik → ben → cora, am Rand stehen; zurück denselben Weg', () => {
+  const folge = gespraechsfolge(['allgemein', 'technik'], ['ben@127.0.0.3', 'cora@127.0.0.1']);
+  assert.deepEqual(folge, ['allgemein', 'technik', 'direkt:ben@127.0.0.3', 'direkt:cora@127.0.0.1']);
+  const ab = [];
+  let offen = 'allgemein';
+  for (let mal = 0; mal < 4; mal += 1) {
+    offen = naechstesOderStehen(folge, offen, 'ab');
+    ab.push(adresseVon(offen));
+  }
+  assert.deepEqual(ab, ['#/c/technik', '#/d/ben%40127.0.0.3', '#/d/cora%40127.0.0.1', '#/d/cora%40127.0.0.1']);
+  const auf = [];
+  for (let mal = 0; mal < 3; mal += 1) {
+    offen = naechstesOderStehen(folge, offen, 'auf');
+    auf.push(offen);
+  }
+  assert.deepEqual(auf, ['direkt:ben@127.0.0.3', 'technik', 'allgemein']);
 });
