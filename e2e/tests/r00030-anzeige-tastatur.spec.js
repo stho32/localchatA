@@ -7,6 +7,7 @@ const { nachrichtMitZeit, bearbeitenPerApi, zeigtBearbeitet } = require('./r0004
 const { sichtbarNach } = require('./hilfen');
 const { eingabe } = require('./senden-hilfen');
 const { anzeigeStarten } = require('./r00030-anzeige-hilfen');
+const { aeltereNachrichten } = require('./r00030-player-hilfen');
 
 let instanz;
 test.afterEach(async () => {
@@ -128,10 +129,11 @@ const verhinderteMitschreiben = (page) => page.evaluate(() => {
   window.addEventListener('keydown', (ereignis) => window.verhindert.push(`${ereignis.key}:${ereignis.defaultPrevented}`));
 });
 
-test('Tasten gehören dem Element im Fokus (B0752, V2): auf „foto.png öffnen“, „foto.png groß anzeigen“ und im Bild-Dialog lassen Ende, Pos1, Leertaste und Pfeile den Verlauf stehen, ohne preventDefault des Verlaufs', async ({ browser }) => {
-  // Der Verlauf passt ins Fenster: was der Browser selbst auf einem Link oder Knopf scrollt (Pos1, Leertaste, Pfeile in
-  // einem scrollbaren Verlauf), bleibt außen vor — geprüft wird, dass der Verlauf die Taste nicht nimmt.
-  const lauf = await anzeigeStarten(browser, [{ text: 'Bild', namen: ['foto.png'] }]);
+test('Tasten gehören dem Element im Fokus (B0752, V2): auf „foto.png öffnen“, „foto.png groß anzeigen“ und im Bild-Dialog nimmt der Verlauf Ende, Pos1, Leertaste und Pfeile nicht — kein preventDefault, der Fokus bleibt am Element', async ({ browser }) => {
+  // Der Verlauf ist höher als das Fenster (60 ältere Nachrichten, code-reviewer #43 F0102 S5): nähme er Ende, öffnete er
+  // neu oder holte den Fokus. Auf Link und Vorschau darf der Browser selbst scrollen (ux-reviewer #43 F0102, Antwort 3);
+  // geprüft wird, dass der Verlauf die Taste nicht nimmt. Im Player wirken die Tasten am Element (r00030-player.spec.js).
+  const lauf = await anzeigeStarten(browser, [{ text: 'Bild', namen: ['foto.png'] }], { vorbereiten: aeltereNachrichten(60) });
   instanz = lauf.instanz;
   const { page } = lauf.a;
   const log = page.getByRole('log');
@@ -145,11 +147,14 @@ test('Tasten gehören dem Element im Fokus (B0752, V2): auf „foto.png öffnen�
   for (const ziel of ziele) {
     for (const taste of ['End', 'Home', 'Space', 'ArrowDown', 'ArrowUp']) {
       await ziel.focus();
-      const stand = await log.evaluate((element) => element.scrollTop);
+      const name = await ziel.getAttribute('aria-label');
+      await ziel.evaluate((element) => { window.zielImFokus = element; });
       await page.keyboard.press(taste);
       await page.waitForTimeout(100);
-      expect(await log.evaluate((element) => element.scrollTop), `${taste} auf ${await ziel.getAttribute('aria-label')}`).toBe(stand);
-      expect(await page.evaluate(() => window.verhindert.at(-1)), `${taste} auf ${await ziel.getAttribute('aria-label')}`).toMatch(/:false$/);
+      expect(await page.evaluate(() => window.verhindert.at(-1)), `${taste} auf ${name}`).toMatch(/:false$/);
+      if (taste !== 'Space') {
+        expect(await page.evaluate(() => window.zielImFokus.isConnected && document.activeElement === window.zielImFokus), `${taste} auf ${name}`).toBe(true);
+      }
       if (await page.locator('dialog[open]').count() > 0) {
         await page.keyboard.press('Escape');
       }
