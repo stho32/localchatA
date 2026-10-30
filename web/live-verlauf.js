@@ -167,3 +167,9 @@ export async function fensterNeuLesen({ abrufen, anfang, juengste, uebernehmen, 
 export function zeitDanach(zeit) {
   return new Date(Date.parse(zeit) + 1).toISOString().replace('Z', '+00:00');
 }
+
+// Eine Millisekunde vor `zeit`, als RFC 3339 in UTC — der Cursor `nach` ist exklusiv: der Block ab ihm beginnt mit der
+// Nachricht dieser Zeit (Sprung zum Original, R00047 B0718, ADR-0053 Regel 8 b).
+export function zeitDavor(zeit) {
+  return new Date(Date.parse(zeit) - 1).toISOString().replace('Z', '+00:00');
+}

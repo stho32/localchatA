@@ -1,11 +1,13 @@
 'use strict';
-// R00047 I0044 F0159: der Sprung vom Zitat zum Original (ADR-0053 Regel 8, P10) — im Fenster (B0717): zentriert,
-// 2000 ms hervorgehoben, Fokus.
+// R00047 I0044 F0159: der Sprung vom Zitat zum Original (ADR-0053 Regel 8, P10, Mutant Z14) — im Fenster (B0717):
+// zentriert, 2000 ms hervorgehoben, Fokus; außerhalb (B0718): erst holen, dann ersetzen, auch im Verlauf mit 100.000
+// Nachrichten; entfallen ohne Abruf; Fehlschlag mit Wiederholen.
+const fs = require('fs');
 const { test, expect } = require('./rahmen');
-const { channelAnlegen, sichtbarNach } = require('./hilfen');
-const { sendenStarten, beitreten, imBrowserBeitreten } = require('./senden-hilfen');
+const { instanzStarten, channelAnlegen, grossAnlegen, sichtbarNach } = require('./hilfen');
+const { JETZT, sendenStarten, anfragen, beitreten, imBrowserBeitreten } = require('./senden-hilfen');
 const { geraetOeffnen } = require('./r00027-hilfen');
-const { nachrichtMitZeit, loeschenPerApi, ansagenMitschreiben } = require('./r00041-hilfen');
+const { browserOeffnen, nachrichtMitZeit, loeschenPerApi, ansagenMitschreiben } = require('./r00041-hilfen');
 const {
   ANNA, CLAUDE, claudeSchreibt, mitBezugSenden, benOeffnen, zitatVon,
 } = require('./r00047-hilfen');
@@ -19,6 +21,8 @@ test.afterEach(async () => {
 });
 
 const HERVORHEBUNG_MS = 2000;
+const NICHT_GELADEN = '⚠ Original nicht geladen: keine Antwort vom Server. Zum Wiederholen erneut anklicken.';
+const ENTFALLEN = 'Die ältere Nachricht gibt es nicht mehr (Aufbewahrungsfrist abgelaufen).';
 
 /// Erste und letzte Zeit des Fensters.
 const fensterRand = (page) => page.getByRole('log').locator('.lc-msg[data-zeit]').evaluateAll((alle) => [alle[0].dataset.zeit, alle[alle.length - 1].dataset.zeit]);
@@ -135,3 +139,115 @@ test('Gelöschtes Original (Z4, B0717): das Zitat bleibt ein Knopf und springt z
   expect(b.fehler).toEqual([]);
 });
 
+// Außerhalb des Fensters (B0718, ADR-0053 Regel 8 b und c).
+
+/// `allgemein` mit 300 erzeugten Nachrichten; `claude` antwortet auf die älteste — sie liegt vor dem Fenster der neuesten 100.
+async function antwortAufDieAelteste() {
+  instanz = await sendenStarten({ anzahl: 300 });
+  const claude = await claudeSchreibt(instanz.adresse, []);
+  const aelteste = await anfragen(instanz.adresse, { methode: 'GET', pfad: 'api/channels/allgemein/nachrichten?nach=2000-01-01T00%3A00%3A00.000%2B00%3A00&n=1', token: claude.token, herkunft: CLAUDE });
+  const original = aelteste.daten.nachrichten[0].zeit;
+  const antwort = await mitBezugSenden(instanz.adresse, claude.token, 'Darauf', original, CLAUDE);
+  return { original, antwort };
+}
+
+/// Sammelt ab jetzt die Long Tasks der Seite (Dauer in ms).
+const longTasksMitschreiben = (page) => page.evaluate(() => {
+  window.longTasks = [];
+  new PerformanceObserver((liste) => liste.getEntries().forEach((eintrag) => window.longTasks.push(eintrag.duration))).observe({ type: 'longtask' });
+});
+
+test('Sprung im Verlauf mit 100.000 Nachrichten (P10, B0718): die älteste ist binnen 1000 ms sichtbar und hervorgehoben, kein Long Task über 200 ms', async ({ browser }) => {
+  instanz = await instanzStarten({ umgebung: { LOCALCHATA_JETZT: JETZT }, vorbereiten: (ordner) => grossAnlegen(ordner) });
+  const token = await beitreten(instanz.adresse, 'claude', { herkunft: CLAUDE });
+  const aelteste = await anfragen(instanz.adresse, { methode: 'GET', pfad: 'api/channels/gross/nachrichten?nach=2000-01-01T00%3A00%3A00.000%2B00%3A00&n=1', token, herkunft: CLAUDE });
+  const original = aelteste.daten.nachrichten[0].zeit;
+  const gesendet = await anfragen(instanz.adresse, { methode: 'POST', pfad: 'api/channels/gross/nachrichten', koerper: { text: 'Auf die Älteste', antwort_auf: original }, token, herkunft: CLAUDE });
+  expect(gesendet.status, JSON.stringify(gesendet.daten)).toBe(201);
+  const antwort = gesendet.daten.nachricht.zeit;
+  const b = await browserOeffnen(browser, { streng: true });
+  await imBrowserBeitreten(b.page, instanz.adresse, 'ben', 'gross');
+  await expect(nachrichtMitZeit(b.page, antwort)).toHaveCount(1, { timeout: 10000 });
+  await longTasksMitschreiben(b.page);
+
+  const ab = Date.now();
+  await zitatVon(b.page, antwort).click();
+  const ms = await sichtbarNach(b.page, hervorgehobenImBild, { argument: { zeit: original }, ab, timeout: 10000 });
+
+  await b.page.waitForTimeout(1000);
+  const laengste = await b.page.evaluate(() => Math.max(0, ...window.longTasks));
+  console.log(`Messwert Sprung 100.000: sichtbar nach ${ms} ms, längster Long Task ${laengste} ms`);
+  expect(ms, 'Original sichtbar nach dem Klick (ms)').toBeLessThanOrEqual(1000);
+  expect(laengste, 'längster Long Task (ms)').toBeLessThanOrEqual(200);
+  expect(b.fehler).toEqual([]);
+});
+
+test('Antwortet die Route für nach= 2 s verzögert, bleibt der alte Inhalt bis zur Antwort stehen (P10, Mutant Z14, B0718)', async ({ browser }) => {
+  const { original, antwort } = await antwortAufDieAelteste();
+  const b = await benOeffnen(browser, instanz.adresse);
+  await expect(nachrichtMitZeit(b.page, antwort)).toHaveCount(1);
+  await b.page.route(/\/nachrichten\?nach=/, async (route) => {
+    await new Promise((weiter) => setTimeout(weiter, 2000));
+    await route.continue();
+  });
+  const vorher = await fensterRand(b.page);
+
+  const geklickt = Date.now();
+  await zitatVon(b.page, antwort).click();
+  for (const nach of [200, 1000, 1700]) {
+    await b.page.waitForTimeout(Math.max(0, geklickt + nach - Date.now()));
+    expect(await fensterRand(b.page), `${nach} ms`).toEqual(vorher);
+    await expect(nachrichtMitZeit(b.page, antwort)).toHaveCount(1);
+  }
+  await sichtbarNach(b.page, hervorgehobenImBild, { argument: { zeit: original }, ab: Date.now(), timeout: 5000 });
+  expect(b.fehler).toEqual([]);
+});
+
+test('Scheitert der Abruf, steht der Hinweis am Zitat, das Fenster bleibt; der nächste Klick springt (Z4, US-28, B0718)', async ({ browser }) => {
+  const { original, antwort } = await antwortAufDieAelteste();
+  const b = await benOeffnen(browser, instanz.adresse, { serverWegErwartet: true });
+  await expect(nachrichtMitZeit(b.page, antwort)).toHaveCount(1);
+  await b.page.route(/\/nachrichten\?nach=/, (route) => route.abort('connectionrefused'));
+  const vorher = await fensterRand(b.page);
+
+  await zitatVon(b.page, antwort).click();
+  await expect(nachrichtMitZeit(b.page, antwort).locator('.lc-zitat-hinweis')).toHaveText(NICHT_GELADEN);
+  expect(await fensterRand(b.page)).toEqual(vorher);
+
+  await b.page.unroute(/\/nachrichten\?nach=/);
+  await zitatVon(b.page, antwort).click();
+  await sichtbarNach(b.page, hervorgehobenImBild, { argument: { zeit: original }, ab: Date.now(), timeout: 5000 });
+  expect(b.fehler.filter((fehler) => !fehler.includes('nach='))).toEqual([]);
+});
+
+test('Entfallenes Original (Z4, B0718): kein Abruf, Hinweis am Zitat und in der Region, der Verlauf bleibt, wo er ist', async ({ browser }) => {
+  const entfallenAuf = '2026-10-20T10:00:00.000+01:00';
+  const antwort = '2026-10-28T14:05:00.000+01:00';
+  instanz = await sendenStarten({
+    vorbereiten: (ordner) => {
+      fs.writeFileSync(`${ordner}/channels/allgemein/2026-10-28.log`,
+        `@ ${antwort} anna@127.0.0.2\n+ art: mensch\n+ antwort_auf: ${entfallenAuf} claude@127.0.0.3\n  Weiß ich nicht\n\n`);
+    },
+  });
+  const b = await benOeffnen(browser, instanz.adresse);
+  await expect(nachrichtMitZeit(b.page, antwort)).toHaveCount(1);
+  const abrufe = [];
+  b.page.on('request', (anfrage) => {
+    if (anfrage.url().includes('nach=')) {
+      abrufe.push(anfrage.url());
+    }
+  });
+  const angesagt = await ansagenMitschreiben(b.page);
+  const vorher = await fensterRand(b.page);
+  const scrollTop = () => b.page.getByRole('log').evaluate((log) => log.scrollTop);
+  const stand = await scrollTop();
+
+  await zitatVon(b.page, antwort).click();
+
+  await expect(nachrichtMitZeit(b.page, antwort).locator('.lc-zitat-hinweis')).toHaveText(ENTFALLEN);
+  await expect.poll(angesagt).toEqual([ENTFALLEN]);
+  expect(abrufe).toEqual([]);
+  expect(await fensterRand(b.page)).toEqual(vorher);
+  expect(await scrollTop()).toBe(stand);
+  expect(b.fehler).toEqual([]);
+});

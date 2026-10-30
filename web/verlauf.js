@@ -17,7 +17,7 @@ import { menueLage, schalterGanzSichtbar } from './menuelage.js';
 import { zeigerart } from './eingabe.js';
 import {
   einordnen, zusammenfuehren, fassungUebernehmen, buendlerAnlegen, folgenOderZaehlen, pillenText, auslaufNach, nichtGeladenText, hinweisTextNachziehen,
-  sprungZiel as sprungZielBerechnen, scrollTopNachHoehe, fensterNeuLesen, zeitDanach,
+  sprungZiel as sprungZielBerechnen, scrollTopNachHoehe, fensterNeuLesen, zeitDanach, zeitDavor,
 } from './live-verlauf.js';
 
 // abrufen: async (name, cursor, signal) → { art: 'block' | 'fehler' | 'abgebrochen', … } (api.js verlaufAbrufen);
@@ -732,19 +732,104 @@ export function verlaufAnlegen({
     }
   }
 
-  // Das Zitat einer Antwort führt zu ihrem Original (R00047 B0717, ADR-0053 Regel 8); Klick, Antippen und Enter kommen als
-  // Klick an. Der Sprung wird nicht angesagt.
-  function zitatBedienen(zitat) {
-    springen(zitat.dataset.zeit);
+  // Das Zitat einer Antwort führt zu ihrem Original (R00047 B0717, B0718, ADR-0053 Regel 8, Vorprüfung `ux-reviewer` Z4);
+  // Klick, Antippen und Enter kommen als Klick an. Der Sprung wird nicht angesagt. Ein entfallenes Original holt der Tab
+  // gar nicht erst: der Hinweis steht am Zitat und wird angesagt; scheitert der Abruf, steht dort der Fehler, und der
+  // nächste Klick versucht es neu.
+  const ENTFALLEN = 'Die ältere Nachricht gibt es nicht mehr (Aufbewahrungsfrist abgelaufen).';
+  const NICHT_GELADEN = '⚠ Original nicht geladen: keine Antwort vom Server. Zum Wiederholen erneut anklicken.';
+  async function zitatBedienen(zitat) {
+    zitatHinweisSetzen(zitat, null);
+    if (zitat.dataset.zustand === 'entfallen') {
+      zitatHinweisSetzen(zitat, ENTFALLEN);
+      ansagen(ENTFALLEN);
+      return;
+    }
+    const ergebnis = await springen(zitat.dataset.zeit);
+    if (ergebnis === 'nicht-geladen') {
+      zitatHinweisSetzen(zitat, NICHT_GELADEN);
+    }
+    if (ergebnis === 'nicht-da') {
+      zitatHinweisSetzen(zitat, ENTFALLEN);
+      ansagen(ENTFALLEN);
+    }
+  }
+
+  // Der Hinweis steht unter dem Zitat; null nimmt ihn weg. Ist das Zitat inzwischen neu gezeichnet, gibt es nichts zu zeigen.
+  function zitatHinweisSetzen(zitat, text) {
+    const vorhanden = zitat.nextElementSibling;
+    if (vorhanden !== null && vorhanden.classList.contains('lc-zitat-hinweis')) {
+      vorhanden.remove();
+    }
+    if (text === null || !zitat.isConnected) {
+      return;
+    }
+    const hinweisZeile = hinweis(text, 'lc-zitat-hinweis');
+    hinweisZeile.classList.toggle('lc-fehler', text === NICHT_GELADEN);
+    zitat.after(hinweisZeile);
   }
 
   // Der Sprung zu einer Nachricht über ihre Zeit (ADR-0053 Regel 8), der gemeinsame Baustein für Zitat und Suche (I0011):
-  // steht sie im Fenster, kommt sie zentriert ins Bild, wird hervorgehoben und bekommt den Fokus.
-  function springen(zeit) {
+  // (a) steht sie im Fenster, kommt sie zentriert ins Bild, wird hervorgehoben und bekommt den Fokus; (b) sonst holt ein
+  // eigener Abruf den Block ab ihr — erst nach seinem Erfolg ersetzt er das Fenster, dann wie (a); (c) scheitert der Abruf
+  // oder fehlt sie im Block, bleibt das Fenster, wie es ist. Ein Wechsel des Channels oder ein neuer Sprung bricht ab.
+  // → 'gesprungen' | 'nicht-geladen' | 'nicht-da' | 'abgebrochen'
+  let sprungLauf = new AbortController();
+  let sprungFassungen = null;
+  async function springen(zeit) {
     const knoten = nachrichtKnoten(zeit);
     if (knoten !== null) {
       hervorheben(knoten);
+      return 'gesprungen';
     }
+    sprungLauf.abort();
+    sprungLauf = new AbortController();
+    const dieser = sprungLauf;
+    const kanal = laufend;
+    kanal.signal.addEventListener('abort', () => dieser.abort(), { once: true });
+    sprungFassungen = [];
+    const ergebnis = await abrufen(offenerName, { nach: zeitDavor(zeit) }, dieser.signal);
+    if (dieser !== sprungLauf || kanal !== laufend) {
+      return 'abgebrochen';
+    }
+    const waehrendDesAbrufs = sprungFassungen;
+    sprungFassungen = null;
+    if (ergebnis.art !== 'block') {
+      return 'nicht-geladen';
+    }
+    const zeitpunkt = Date.parse(zeit);
+    if (!ergebnis.block.nachrichten.some((nachricht) => Date.parse(nachricht.zeit) === zeitpunkt)) {
+      return 'nicht-da';
+    }
+    fensterDurchBlockErsetzen(ergebnis.block);
+    fassungenErsetzen(waehrendDesAbrufs);
+    hervorheben(nachrichtKnoten(zeit));
+    lageMerken();
+    pruefen();
+    return 'gesprungen';
+  }
+
+  // Das Fenster ist danach genau der geholte Block wie beim Öffnen, aber ohne „ans Ende“ (ADR-0053 Regel 8 b); laufende
+  // Abrufe des alten Fensters (Nachladen, Neu-Lesen) gelten nicht mehr. Das Nachladen oben und unten übernimmt danach
+  // ADR-0026 Regel 2, „Zum Neuesten“ führt zurück.
+  function fensterDurchBlockErsetzen(block) {
+    laufend.abort();
+    laufend = new AbortController();
+    ladenBeendet();
+    neueGezaehlt = 0;
+    ersteNeue = null;
+    nurGezaehlte = [];
+    eingeordnet = new Set();
+    angenommenMerken(block.nachrichten);
+    eingeordnetMerken(block.nachrichten);
+    fenster = { bloecke: [block.nachrichten], aelter: block.aelter, neuer: block.neuer };
+    juengste = block.nachrichten[block.nachrichten.length - 1].zeit;
+    auslauf.style.height = '';
+    const knoten = gegliedertZeichnen(block.nachrichten, null, { heute, kennung: eigeneKennung });
+    bloeckeKnoten = [knoten];
+    inhalt.replaceChildren(...knoten);
+    langeEinklappen(nurNachrichten(knoten));
+    amEnde = false;
   }
 
   // Hervorhebung (Vorprüfung `ux-reviewer`): 2000 ms Grund, Balken und Fokusring per CSS-Klasse — nicht nur durch Farbe —,
@@ -759,6 +844,9 @@ export function verlaufAnlegen({
     clearTimeout(hervorhebungEnde);
     knoten.scrollIntoView({ block: 'center', behavior: 'instant' });
     knoten.classList.add('lc-hervorgehoben');
+    // Frisch gezeichnete Nachrichten sind erst nach dem Rollfokus fokussierbar (tabindex); er wird hier sofort gepflegt.
+    rollZeit = knoten.dataset.zeit;
+    rollfokusPflegen();
     knoten.focus({ preventScroll: true });
     hervorhebungEnde = setTimeout(() => knoten.classList.remove('lc-hervorgehoben'), HERVORHEBUNG_MS);
   }
@@ -774,6 +862,7 @@ export function verlaufAnlegen({
     const dieser = laufend;
     rollZeit = null;
     fokusZeit = null;
+    sprungFassungen = null;
     signal.addEventListener('abort', () => dieser.abort());
     const hinweisBleibt = name === offenerName && nichtGeladenSteht();
     offenerName = name;
@@ -872,6 +961,9 @@ export function verlaufAnlegen({
   function fassungAnnehmen(channel, fassung) {
     if (channel !== offenerName || offenerName === null || gescheitert) {
       return;
+    }
+    if (sprungFassungen !== null) {
+      sprungFassungen.push(fassung);
     }
     if (!geladen) {
       puffer.push({ fassung });

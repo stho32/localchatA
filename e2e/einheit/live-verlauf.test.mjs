@@ -4,6 +4,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   einordnen, zusammenfuehren, buendlerAnlegen, folgenOderZaehlen, pillenText, auslaufNach, nichtGeladenText, hinweisTextNachziehen, sprungZiel, scrollTopNachHoehe,
+  zeitDavor,
 } from '../../web/live-verlauf.js';
 
 const t = (sekunde) => `2026-10-28T12:00:${String(sekunde).padStart(2, '0')}.000+01:00`;
@@ -233,4 +234,12 @@ test('das Ergebnis liegt nie unter 0 und nie über Inhalt minus Sichthöhe', () 
   assert.equal(zuWeitOben, 0);
   assert.equal(zuWeitUnten, 2500);
   assert.equal(inhaltKuerzerAlsSicht, 0);
+});
+
+// Der Sprung zum Original (R00047 B0718, ADR-0053 Regel 8 b): der Abruf beginnt eine Millisekunde vor seiner Zeit — `nach`
+// ist exklusiv, Zeiten sind Millisekunden und eindeutig, also steht das Original vorn im Block.
+test('zeitDavor: eine Millisekunde vor der Zeit, als RFC 3339 in UTC, auch über eine Sekunden- und Tagesgrenze', () => {
+  assert.equal(zeitDavor('2026-10-28T14:03:00.123+01:00'), '2026-10-28T13:03:00.122+00:00');
+  assert.equal(zeitDavor('2026-10-28T00:00:00.000+01:00'), '2026-10-27T22:59:59.999+00:00');
+  assert.equal(Date.parse(zeitDavor('2026-10-28T14:03:00.123+01:00')), Date.parse('2026-10-28T14:03:00.123+01:00') - 1);
 });
