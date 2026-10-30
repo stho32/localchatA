@@ -76,21 +76,53 @@ export function geloeschtBeschriftung({ name, bytes }) {
 
 // Die Anhänge einer Nachricht in Sendefolge, gestapelt unter dem Text.
 export function anhaengeZeichnen(anhaenge) {
-  return element('div', { className: 'lc-anhaenge' }, anhaenge.map(anhangZeichnen));
+  const inhaltsbreite = inhaltsbreiteMessen();
+  return element('div', { className: 'lc-anhaenge' }, anhaenge.map((anhang) => anhangZeichnen(anhang, inhaltsbreite)));
 }
 
-function anhangZeichnen(anhang) {
-  const darstellung = darstellungWaehlen(anhang);
+function anhangZeichnen(anhang, inhaltsbreite) {
+  const darstellung = darstellungWaehlen(anhang, inhaltsbreite);
   const teile = [dateiZeileZeichnen(anhang, darstellung)];
   if (darstellung.form === 'vorschau') {
     teile.unshift(vorschauZeichnen(anhang, darstellung));
   }
   if (['video', 'audio'].includes(darstellung.form)) {
-    teile.unshift(playerZeichnen(anhang, darstellung.form, rahmenMasse(RAHMEN_HOECHSTENS)));
+    teile.unshift(playerZeichnen(anhang, darstellung.form, rahmenMasse(inhaltsbreite)));
   }
   const anhangKnoten = element('div', { className: 'lc-anhang' }, teile);
   anhangKnoten.dataset.anhang = anhang.id;
   return anhangKnoten;
+}
+
+// Die Breite, die ein Anhang neben Gutter und Reserve wirklich hat (UX V1): gemessen an einer unsichtbaren Probe-Nachricht im
+// Verlauf (mit dem Schalter „Aktionen“, den jede Nachricht mit Anhängen trägt), damit CSS (Seitenleiste, Gutter, Touch-Reserve) die einzige Quelle bleibt. Sie hängt nur von der Breite des
+// Verlaufs ab und wird je Breite einmal gemessen. Ohne Verlauf im Dokument gilt der Höchstwert.
+const gemessen = { verlaufBreite: null, wert: RAHMEN_HOECHSTENS };
+
+function inhaltsbreiteMessen() {
+  const verlauf = document.querySelector('.lc-log-inhalt');
+  if (verlauf === null || verlauf.clientWidth === 0) {
+    return RAHMEN_HOECHSTENS;
+  }
+  if (gemessen.verlaufBreite === verlauf.clientWidth) {
+    return gemessen.wert;
+  }
+  const anhaenge = element('div', { className: 'lc-anhaenge' });
+  const schalter = element('button', { type: 'button', className: 'lc-aktionen-schalter' });
+  const probe = element('div', { className: 'lc-msg' }, [element('div', { className: 'g' }), element('div', { className: 'lc-msg-inhalt' }, [anhaenge]), schalter]);
+  probe.style.visibility = 'hidden';
+  probe.style.height = '0';
+  probe.style.overflow = 'hidden';
+  verlauf.append(probe);
+  const gemesseneBreite = Math.floor(anhaenge.getBoundingClientRect().width);
+  probe.remove();
+  let breite = gemesseneBreite;
+  if (gemesseneBreite < 1) {
+    breite = RAHMEN_HOECHSTENS;
+  }
+  gemessen.verlaufBreite = verlauf.clientWidth;
+  gemessen.wert = breite;
+  return breite;
 }
 
 // Bildvorschau (B0458): der Platz steht aus `width`/`height`, bevor ein Byte lädt — bis dahin mit Name und Maßen auf
