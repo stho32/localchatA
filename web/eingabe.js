@@ -2,7 +2,7 @@
 import { textPruefen, nurLeerraum, steuerzeichenEntfernen } from './textregel.js';
 import { hinweis, hinweisAnsagen } from './hinweis.js';
 import { zuEigenerLetzten } from './fokus.js';
-import { bezugAusNachricht, zitatText } from './zitat.js';
+import { bezugAusNachricht, zitatText, bezugNachfuehren } from './zitat.js';
 import { uhrzeit } from './gliederung.js';
 
 const IME_TASTENCODE = 229;
@@ -216,6 +216,13 @@ export function eingabeAnlegen({ senden, entwurf, ansagen, tippen, tippzeile, hi
     },
     fokussieren: () => feld.focus(),
     bezugAbgewiesen,
+    // Ein Ereignis `aenderung` führt die offene Zeile des Channels nach (R00047 B0722, ADR-0053 Regel 5): bearbeitet zeigt
+    // den neuen Textanfang, gelöscht „Nachricht gelöscht“; der Text im Feld bleibt.
+    zitatNachfuehren: (ereignis) => {
+      if (ereignis.channel === channel) {
+        antwort.nachfuehren(ereignis);
+      }
+    },
     // „Antworten“ an einer Nachricht des Fensters (R00047 B0714): die Zeile über dem Feld, der Fokus im Feld — synchron in
     // der Geste, damit auf Touch die Bildschirmtastatur aufgeht.
     antwortBeginnen: (nachricht) => {
@@ -287,7 +294,13 @@ function antwortzeileAnlegen(feld, ansagen) {
       abbrechen();
     }
   });
-  return { zeile, beginnen, verwerfen, abbrechen, steht: () => bezug !== null };
+  function nachfuehren(ereignis) {
+    const neu = bezugNachfuehren(bezug, ereignis);
+    if (neu !== bezug) {
+      zeigen(neu);
+    }
+  }
+  return { zeile, beginnen, verwerfen, abbrechen, nachfuehren, steht: () => bezug !== null };
 }
 
 function zusammen(zurueck, inzwischen) {

@@ -149,7 +149,10 @@ export function zeichnen(wurzel, teilnehmer, optionen) {
       senden.empfangen(ereignis);
     },
     aktivitaetEmpfangen: (ereignis) => tippanzeige.ereignis(ereignis),
-    aenderungEmpfangen: (ereignis) => senden.fassungEmpfangen(ereignis),
+    aenderungEmpfangen: (ereignis) => {
+      senden.fassungEmpfangen(ereignis);
+      eingabe.zitatNachfuehren(ereignis);
+    },
     anzahlZeigen: (wieViele) => {
       anzahl.textContent = String(wieViele);
     },

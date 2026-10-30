@@ -3,10 +3,10 @@
 // (B0721), in der offenen Antwortzeile (B0722).
 const { test, expect } = require('./rahmen');
 const { sichtbarNach, fristPerApi } = require('./hilfen');
-const { sendenStarten, beitreten, imBrowserBeitreten } = require('./senden-hilfen');
+const { sendenStarten, beitreten, imBrowserBeitreten, eingabe } = require('./senden-hilfen');
 const { browserOeffnen, nachrichtMitZeit, bearbeitenPerApi, loeschenPerApi } = require('./r00041-hilfen');
 const {
-  ANNA, CLAUDE, annaSchreibt, claudeSchreibt, mitBezugSenden, benOeffnen, zitatVon,
+  ANNA, CLAUDE, annaSchreibt, claudeSchreibt, mitBezugSenden, benOeffnen, zitatVon, antwortzeile, ueberHoverAntworten,
 } = require('./r00047-hilfen');
 
 let instanz;
@@ -101,5 +101,24 @@ test('Entfallen (B0721): nach dem Verkürzen der Frist zeigt das Zitat beim näc
   await b.page.reload();
   await expect(zitatVon(b.page, antwort).locator('.lc-zitat-text')).toHaveText('Ältere Nachricht, nicht mehr vorhanden');
   await expect(nachrichtMitZeit(b.page, original)).toHaveCount(0);
+  expect(b.fehler).toEqual([]);
+});
+
+test('Offene Zeile lebt (B0722): die Zeile „Antwort an anna: Frage?“ zeigt nach dem Bearbeiten Frage!, nach dem Löschen „Nachricht gelöscht“; der Text im Feld bleibt', async ({ browser }) => {
+  instanz = await sendenStarten();
+  const anna = await annaSchreibt(instanz.adresse, ['Frage?']);
+  const b = await benOeffnen(browser, instanz.adresse);
+  await expect(nachrichtMitZeit(b.page, anna.zeiten[0])).toHaveCount(1);
+  await ueberHoverAntworten(b.page, anna.zeiten[0]);
+  await eingabe(b.page).fill('Ja');
+  const zeilentext = antwortzeile(b.page).locator('.lc-antwort-text');
+  await expect(zeilentext).toHaveText('Frage?');
+
+  expect((await bearbeitenPerApi(instanz.adresse, anna.token, anna.zeiten[0], 'Frage!', ANNA)).status).toBe(200);
+  await expect(zeilentext).toHaveText('Frage!');
+  expect((await loeschenPerApi(instanz.adresse, anna.token, anna.zeiten[0], ANNA)).status).toBe(200);
+  await expect(zeilentext).toHaveText('Nachricht gelöscht');
+  await expect(antwortzeile(b.page)).not.toContainText('Frage');
+  await expect(eingabe(b.page)).toHaveValue('Ja');
   expect(b.fehler).toEqual([]);
 });
