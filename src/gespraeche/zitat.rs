@@ -2,7 +2,7 @@
 //! Index des eigenen Gesprächs — ein lebender Verweis, keine Kopie. Rein.
 
 use super::logformat::{self, Antwortbezug};
-use super::textanfang::textanfang_aus;
+use super::textanfang::{LESEGRENZE_ZEICHEN, textanfang_aus};
 use super::{Aenderungszustand, Kennung, Nachricht};
 use crate::uhr::Zeit;
 
@@ -138,10 +138,36 @@ pub fn zitat_der_nachricht(nachricht: &Nachricht) -> Zitat {
     }
 }
 
+/// So viele Bytes einer Zeile genügen für `LESEGRENZE_ZEICHEN` Zeichen: höchstens vier Bytes je Zeichen, dazu drei
+/// Bytes für ein hinter der Kürzung angeschnittenes Zeichen — das dann höchstens ein Ersatzzeichen hinter der
+/// Lesegrenze wird und nie mitgelesen wird.
+const LESEBYTES_JE_ZEILE: usize = 4 * LESEGRENZE_ZEICHEN + 3;
+
+/// Die Zeilen eines Satzes wie `split(b'\n')`, aber nie über `LESEBYTES_JE_ZEILE` Bytes hinaus gesucht, gekürzt oder
+/// auf UTF-8 geprüft: ist eine Zeile länger, kommt ihr Anfang, und der Satz endet dort — hinter ihr liest das Zitat
+/// ohnehin nichts mehr (ADR-0053 Regel 3: die Arbeit hängt an der Lesegrenze, nicht an der Länge einer Zeile).
+fn zeilen(satz: &[u8]) -> impl Iterator<Item = &[u8]> {
+    let mut rest = Some(satz);
+    std::iter::from_fn(move || {
+        let uebrig = rest?;
+        let fenster = &uebrig[..uebrig.len().min(LESEBYTES_JE_ZEILE + 1)];
+        match fenster.iter().position(|byte| *byte == b'\n') {
+            Some(ende) => {
+                rest = Some(&uebrig[ende + 1..]);
+                Some(&uebrig[..ende])
+            }
+            None => {
+                rest = None;
+                Some(&uebrig[..uebrig.len().min(LESEBYTES_JE_ZEILE)])
+            }
+        }
+    })
+}
+
 /// Die Zeichen des Texts eines Satzes, ohne Kopf, Metazeilen und Einrückung, Zeilen getrennt durch `\n` — faul,
 /// ohne den Satz zu kopieren; ungültiges UTF-8 als Ersatzzeichen (wie `logformat::text`).
 fn textzeichen(satz: &[u8]) -> impl Iterator<Item = char> + '_ {
-    satz.split(|byte| *byte == b'\n')
+    zeilen(satz)
         .skip(1)
         .filter_map(|zeile| {
             if zeile.is_empty() {
@@ -444,6 +470,112 @@ mod tests {
             assert_eq!(
                 gelesen.textanfang,
                 super::super::textanfang::textanfang(&logformat::text(&satz))
+            );
+        }
+    }
+
+    /// Befund 4 (b) (security-reviewer #17): die Zeilen sind wie `split` am Zeilenende, aber nie länger als die
+    /// Lesegrenze — eine längere Zeile kommt gekürzt, und hinter ihr kommt nichts mehr (sie wird weder auf ihr Ende
+    /// durchsucht noch auf UTF-8 geprüft).
+    #[test]
+    fn die_zeilen_sind_wie_split_aber_nie_laenger_als_die_lesegrenze() {
+        let kurz = b"kopf\n  a\n\n  b\n";
+        assert_eq!(
+            zeilen(kurz).collect::<Vec<_>>(),
+            kurz.split(|byte| *byte == b'\n').collect::<Vec<_>>()
+        );
+        let genau = [b"k\n".as_slice(), &[b'x'; LESEBYTES_JE_ZEILE], b"\nz"].concat();
+        assert_eq!(
+            zeilen(&genau).map(<[u8]>::len).collect::<Vec<_>>(),
+            vec![1, LESEBYTES_JE_ZEILE, 1]
+        );
+        let lang = [b"k\n".as_slice(), &vec![b'x'; 100_000], b"\nz"].concat();
+        assert_eq!(
+            zeilen(&lang).map(<[u8]>::len).collect::<Vec<_>>(),
+            vec![1, LESEBYTES_JE_ZEILE]
+        );
+    }
+
+    /// Die Kürzung ändert nie, was das Zitat liest: Zeilen aus ein-, zwei-, drei- und vierbytigen Zeichen, aus
+    /// Leerraum und mit ungültigen Bytes, jeweils um die Lesegrenze (256 Zeichen) und weit darüber, ergeben den
+    /// Textanfang des ungekürzten Texts.
+    #[test]
+    fn die_kuerzung_aendert_den_textanfang_nie() {
+        let bausteine = ["x", "ä", "€", "😀", " ", "\u{fffd}"];
+        for baustein in bausteine {
+            for anzahl in [1, 119, 120, 121, 255, 256, 257, 258, 300, 1_000, 5_000] {
+                for vorlauf in ["", " ", "a "] {
+                    let text = format!("{vorlauf}{}", baustein.repeat(anzahl));
+                    let satz = format!("@ {T1} claude@127.0.0.1\n  {text}\n").into_bytes();
+                    let gelesen = zitat(
+                        &bezug("claude@127.0.0.1"),
+                        Some(Fund {
+                            satz: &satz,
+                            aenderung: None,
+                        }),
+                    );
+                    assert_eq!(
+                        gelesen.textanfang,
+                        super::super::textanfang::textanfang(&text),
+                        "{baustein:?} × {anzahl}, Vorlauf {vorlauf:?}"
+                    );
+                }
+            }
+        }
+    }
+
+    /// Ungültige Bytes zählen je Byte ein Ersatzzeichen, auch hinter der Kürzung — der Textanfang bleibt der des
+    /// ungekürzten Satzes.
+    #[test]
+    fn ungueltige_bytes_ergeben_dasselbe_vor_und_nach_der_kuerzung() {
+        let mut satz = format!("@ {T1} claude@127.0.0.1\n  ").into_bytes();
+        satz.extend(std::iter::repeat_n(0xff_u8, 3_000));
+        satz.push(b'\n');
+
+        let gelesen = zitat(
+            &bezug("claude@127.0.0.1"),
+            Some(Fund {
+                satz: &satz,
+                aenderung: None,
+            }),
+        );
+
+        assert_eq!(gelesen.textanfang, "\u{fffd}".repeat(119) + "…");
+    }
+
+    /// Mehrzeilige Texte mit Leerzeilen, Metazeilen und langen Zeilen dazwischen ergeben denselben Textanfang wie
+    /// der ungekürzte Text.
+    #[test]
+    fn mehrzeilige_texte_ergeben_den_textanfang_des_ungekuerzten_texts() {
+        let lange = "ü".repeat(2_000);
+        for text in [
+            "a\n\nb\n\n\nc",
+            &format!("a\n{lange}\nb"),
+            &format!("{lange}\nb"),
+            &format!("a\n\n{}\n\nb", "x".repeat(300)),
+            &format!("{}\n{}", "x".repeat(100), "y ".repeat(500)),
+        ] {
+            let satz = logformat::satz(&Nachricht {
+                zeit: t(T1),
+                von: Kennung::bilden("claude@127.0.0.1").expect("Kennung"),
+                art: None,
+                text: text.to_string(),
+                anhaenge: Vec::new(),
+                geaendert: None,
+                bezug: None,
+                antwort_auf: None,
+            });
+            let gelesen = zitat(
+                &bezug("claude@127.0.0.1"),
+                Some(Fund {
+                    satz: satz.as_bytes(),
+                    aenderung: None,
+                }),
+            );
+            assert_eq!(
+                gelesen.textanfang,
+                super::super::textanfang::textanfang(&logformat::text(&satz)),
+                "{text:.40}"
             );
         }
     }

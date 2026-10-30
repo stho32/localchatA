@@ -18,7 +18,7 @@ pub fn textanfang(text: &str) -> String {
 /// Der Textanfang aus den Zeichen eines Texts; liest nur so weit, bis feststeht, ob gekürzt wird, und nie mehr als
 /// `LESEGRENZE_ZEICHEN` Zeichen.
 pub fn textanfang_aus(zeichen: impl Iterator<Item = char>) -> String {
-    let mut anfang = String::new();
+    let mut anfang = String::with_capacity(TEXTANFANG_ZEICHEN);
     let mut anzahl = 0;
     let mut leerraum_davor = false;
     for zeichen in zeichen.take(LESEGRENZE_ZEICHEN) {

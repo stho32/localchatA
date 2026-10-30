@@ -553,7 +553,7 @@ mod tests {
                     &Gespraech::channel("a"),
                     &anna(),
                     Art::Mensch,
-                    &"x".repeat(laenge),
+                    &"x".repeat(16_384),
                 )
                 .expect("gesendet");
             zeiten.push(gesendet.zeit);
@@ -932,6 +932,40 @@ mod tests {
             aufrufe <= nachgeholt.saetze + 1,
             "{aufrufe} lieferung-Aufrufe für {} Sätze",
             nachgeholt.saetze
+        );
+    }
+
+    /// Mikrosekunden je Kosteneinheit eines Nachholens, Median aus sieben Läufen.
+    fn mikrosekunden_je_einheit(gespraeche: &Gespraeche, t0: Zeit, marke: Zeit) -> f64 {
+        let mut dauern: Vec<f64> = (0..7)
+            .map(|_| {
+                let beginn = std::time::Instant::now();
+                let nachgeholt =
+                    gespraeche.nachholen(t0, marke, &claude(), &erwaehnung(), NACHHOLBUDGET);
+                beginn.elapsed().as_secs_f64() * 1e6 / nachgeholt.kosten as f64
+            })
+            .collect();
+        dauern.sort_by(f64::total_cmp);
+        dauern[3]
+    }
+
+    /// Befund 4 (b) (security-reviewer #17), Abnahme-Probe 2: die Zitat-Auflösung auf eine 16-KiB-Zeile kostet je
+    /// Einheit höchstens das Dreifache der Kontrolle ohne Zitat im selben Lauf (vor der Härtung ≈ 11×, nach Befund 4a ≈ 6×). Eine Lastbeobachtung im
+    /// Release, kein Gate: die Wanduhr schwankt; den Vertrag hält `die_zeile_wird_vor_dem_pruefen_gekuerzt` in
+    /// `zitat.rs`. Gefahren mit `cargo test --release --lib zitat_auf_lange_zeile -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "Lastbeobachtung (Wanduhr): cargo test --release --lib zitat_auf_lange_zeile -- --ignored --nocapture"]
+    fn zitat_auf_lange_zeile_kostet_hoechstens_das_dreifache_der_kontrolle() {
+        let (mit_zitat, t0, marke) = original_mit_antworten(2_000);
+        let (kontrolle, k0, kmarke) = lange_erste_dann_kurze(2_000);
+
+        let zitat_us = mikrosekunden_je_einheit(&mit_zitat, t0, marke);
+        let kontrolle_us = mikrosekunden_je_einheit(&kontrolle, k0, kmarke);
+        println!("mit Zitat {zitat_us:.2} µs/Einheit, Kontrolle {kontrolle_us:.2} µs/Einheit");
+
+        assert!(
+            zitat_us <= 3.0 * kontrolle_us,
+            "mit Zitat {zitat_us:.2} µs, Kontrolle {kontrolle_us:.2} µs je Einheit"
         );
     }
 
