@@ -222,6 +222,10 @@ body { background: var(--kd-bg); color: var(--kd-ink); font-family: var(--font-s
 .lc-hochladung-zustand { flex: none; color: var(--kd-ink-muted); }
 .lc-hochladung-grund { margin: 0; font-size: 12px; line-height: 20px; color: var(--kd-danger); font-weight: 600; overflow-wrap: anywhere; }
 .lc-hochladung-schalter:empty { display: none; }
+/* „Verwerfen“ steht 8 px unter dem letzten Schalter einer Datei (Abstand der Zielflächen) */
+.lc-hochladung-verwerfen { margin-top: var(--kd-space-8); }
+/* Eigener Ring außen an „Abbrechen“, „Erneut hochladen“, „Entfernen“ und „Verwerfen“ (UX M3) */
+.lc .lc-hochladung button:focus-visible { outline: 2px solid var(--kd-focus); outline-offset: 2px; }
 /* Balken 4 px in kd-accent auf der Spur kd-line-strong (≥ 3 : 1), daneben das Prozent */
 .lc-hochladung-fortschritt { display: flex; align-items: center; column-gap: var(--kd-space-8); font-size: 12px; line-height: 20px; color: var(--kd-ink-muted); font-variant-numeric: tabular-nums; }
 .lc-hochladung-fortschritt[hidden] { display: none; }

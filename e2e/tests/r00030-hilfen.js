@@ -166,7 +166,7 @@ function archivZip(name = 'archiv.zip', bytes = 1024 * 1024) {
   return { name, mimeType: 'application/zip', buffer: crypto.randomBytes(bytes) };
 }
 
-/// Ring des Elements und sein Kontrast gegen kd-surface (Fläche der Eingabe .lc-comp).
+/// Ring des Elements und sein Kontrast gegen kd-surface (die Fläche der Eingabe .lc-comp).
 function ringGegenFlaeche(element) {
   function leuchtdichte(farbe) {
     const [r, g, b] = farbe.match(/[\d.]+/g).slice(0, 3).map(Number).map((wert) => {
@@ -180,7 +180,7 @@ function ringGegenFlaeche(element) {
   }
   const stil = getComputedStyle(element);
   const ring = leuchtdichte(stil.outlineColor);
-  const flaeche = leuchtdichte(getComputedStyle(element.closest('.lc-comp')).backgroundColor);
+  const flaeche = leuchtdichte(getComputedStyle(document.querySelector('.lc-comp')).backgroundColor);
   return {
     sichtbar: element.matches(':focus-visible'),
     stil: stil.outlineStyle,

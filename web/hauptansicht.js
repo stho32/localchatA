@@ -17,7 +17,7 @@ import { einstellungenEinrichten } from './channel-einstellungen.js';
 import { onlineBenennen } from './teilnehmerliste.js';
 import { eingabeAnlegen } from './eingabe.js';
 import { sendenEinrichten, neuerSchluessel } from './senden.js';
-import { hochladungenAnlegen } from './anhaenge.js';
+import { hochladungenAnlegen, ablegenAbfangen } from './anhaenge.js';
 import { entwurfAnlegen } from './entwurf.js';
 import { tippenAnlegen } from './tippen.js';
 import { aktivitaetsanzeigeAnlegen } from './aktivitaetsanzeige.js';
@@ -64,6 +64,7 @@ export function zeichnen(wurzel, teilnehmer, optionen) {
   }
   wurzel.classList.add('lc-app');
   wurzel.append(haupt, statuszeile, ansagen.region);
+  ablegenAbfangen(wurzel, vorigeAnsichtAbmelden.signal);
   dialogEinrichten({
     wurzel,
     plus: channels.plus,

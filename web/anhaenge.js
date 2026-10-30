@@ -128,7 +128,7 @@ export function hochladungenAnlegen({
     eintrag.liste = element('ul', { className: 'lc-hochladung-dateien' });
     const verwerfenSchalter = element('button', { type: 'button', textContent: 'Verwerfen' });
     verwerfenSchalter.addEventListener('click', () => eintragVerwerfen(eintrag));
-    artikel.querySelector('.lc-msg-inhalt').append(zeile, eintrag.liste, element('div', { className: 'lc-send-schalter' }, [verwerfenSchalter]));
+    artikel.querySelector('.lc-msg-inhalt').append(zeile, eintrag.liste, element('div', { className: 'lc-send-schalter lc-hochladung-verwerfen' }, [verwerfenSchalter]));
     return artikel;
   }
 
@@ -463,6 +463,19 @@ function schalterZeichnen(beschriftung, name, aktion) {
   schalter.setAttribute('aria-label', name);
   schalter.addEventListener('click', aktion);
   return schalter;
+}
+
+// Eine auf die Seite gezogene Datei lässt die Seite unverändert, bis Ablegen gebaut ist (R00030 „Abgelegte Datei“,
+// F0104): dragover und drop mit Dateien verhindern die Standardaktion — keine Navigation; angehängt wird über „Anhang“.
+export function ablegenAbfangen(wurzel, signal) {
+  for (const art of ['dragover', 'drop']) {
+    wurzel.addEventListener(art, (ereignis) => {
+      const mitDateien = ereignis.dataTransfer !== null && [...ereignis.dataTransfer.types].includes('Files');
+      if (mitDateien) {
+        ereignis.preventDefault();
+      }
+    }, { signal });
+  }
 }
 
 const ECHTE_ZEITGEBER = {
