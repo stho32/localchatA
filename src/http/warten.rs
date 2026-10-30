@@ -163,6 +163,7 @@ pub async fn beantworten(
             direkt: parameter.direkt,
             erwaehnung: parameter.erwaehnung,
         },
+        programmende: zustand.ende.clone(),
     };
     let ergebnis = warten(
         Arc::clone(&zustand.gespraeche),
@@ -242,6 +243,8 @@ fn beantwortet(ergebnis: &Warteergebnis) -> Response {
             Ende::Treffer => "treffer",
             Ende::Frist => "frist",
             Ende::Weitere => "weitere",
+            Ende::Programmende => "programmende",
+            Ende::Verlassen => "verlassen",
         },
     };
     ([(CACHE_CONTROL, "no-store")], Json(antwort)).into_response()

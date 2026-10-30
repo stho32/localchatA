@@ -3,12 +3,14 @@
 //! im Index; was danach kommt, hat eine Zeit über `H` und liegt im Abonnement. Vom Bus zählt nur, was über dem
 //! verarbeiteten Stand liegt (Dublettenregel); verliert das Abonnement Ereignisse, wird ab dem Stand nachgeholt.
 
+use crate::anwesenheit::status::Status;
 use crate::gespraeche::nachholen::{NACHHOLBUDGET, Nachgeholt, Nachholbudget, lieferbytes};
 use crate::gespraeche::treffer::{Filter, Treffer, treffer};
 use crate::gespraeche::{Gespraech, Gespraeche, Kennung, Nachricht};
 use crate::http::Werkbank;
 use crate::http::abbruch::Abgebrochen;
 use crate::live::bus::{Abonnement, Bus, Empfang, Ereignis};
+use crate::start::ende::Ende as Programmende;
 use crate::uhr::Zeit;
 use std::sync::Arc;
 use std::time::Duration;
@@ -20,6 +22,8 @@ pub struct Warteauftrag {
     pub bis: Duration,
     pub wartender: Kennung,
     pub filter: Filter,
+    /// Das Ende des Programms: der Aufruf endet sofort mit `Ende::Programmende` (Regel 9).
+    pub programmende: Programmende,
 }
 
 /// Warum der Aufruf endet (Regel 4).
@@ -31,6 +35,10 @@ pub enum Ende {
     Frist,
     /// Ein Budget ist erschöpft — sofort wieder rufen.
     Weitere,
+    /// Das Programm endet (SIGTERM, Strg+C) — kein Treffer, nicht mehr rufen, bis es wieder läuft.
+    Programmende,
+    /// Der Wartende hat verlassen (`weg` der eigenen Sitzung) — das Token gilt nicht mehr.
+    Verlassen,
 }
 
 /// Was der Aufruf liefert: Treffer in Zeitfolge, den verarbeiteten Stand (`None` nur, solange es noch keine
@@ -75,6 +83,7 @@ pub async fn warten(
     let nachgeholt = nachholen(&gespraeche, werkbank, &auftrag, &sammlung, &beobachter).await?;
     beobachter(Schritt::Nachgeholt);
     let mut ende = sammlung.aufnehmen(nachgeholt);
+    let mut programmende = auftrag.programmende.clone();
     loop {
         match ende {
             Some(Ende::Treffer) => {
@@ -86,6 +95,7 @@ pub async fn warten(
         }
         let empfang = tokio::select! {
             biased;
+            () = programmende.abwarten() => return Ok(sammlung.ergebnis(Ende::Programmende)),
             () = tokio::time::sleep_until(frist) => return Ok(sammlung.ergebnis(Ende::Frist)),
             empfang = abonnement.naechstes() => empfang,
         };
@@ -94,6 +104,11 @@ pub async fn warten(
             Some(Empfang::Ereignis(Ereignis::Nachricht { channel, nachricht })) => sammlung
                 .pruefen(&Gespraech::Channel(channel), nachricht, &auftrag)
                 .or_else(|| (!sammlung.treffer.is_empty()).then_some(Ende::Treffer)),
+            Some(Empfang::Ereignis(Ereignis::Anwesenheit(wechsel))) => {
+                let verlassen = wechsel.teilnehmer.status == Status::Weg
+                    && wechsel.teilnehmer.kennung == auftrag.wartender;
+                verlassen.then_some(Ende::Verlassen)
+            }
             Some(Empfang::Ereignis(_)) => None,
             Some(Empfang::NeuerStand { .. }) => {
                 let nachgeholt =
@@ -280,6 +295,7 @@ mod tests {
             bis,
             wartender: agent(),
             filter: Filter::default(),
+            programmende: Programmende::nie(),
         }
     }
 
@@ -398,6 +414,78 @@ mod tests {
         let t2 = t2.lock().expect("t2").expect("gesendet");
         assert_eq!(zeiten(&ergebnis), vec![t2]);
         assert_eq!((ergebnis.seit, ergebnis.ende), (Some(t2), Ende::Treffer));
+    }
+
+    fn weg_von(kennung: &str, name: &str) -> Ereignis {
+        let jetzt = zeit("2026-10-30T12:00:05.000+01:00");
+        Ereignis::Anwesenheit(crate::anwesenheit::Wechsel {
+            stand: 7,
+            jetzt,
+            teilnehmer: crate::anwesenheit::Teilnehmerzeile {
+                kennung: Kennung::bilden(kennung).expect("Kennung"),
+                name: crate::name::Name::bilden(name).expect("Name"),
+                herkunft: "127.0.0.1".parse().expect("IP"),
+                art: crate::anwesenheit::Art::Agent,
+                status: Status::Weg,
+                seit: jetzt,
+                weg_um: None,
+            },
+        })
+    }
+
+    /// W6b: das Ende des Programms beendet den wartenden Aufruf sofort — ohne Treffer, mit leerer Liste.
+    #[tokio::test]
+    async fn das_ende_des_programms_beendet_den_aufruf_sofort() {
+        let bus = Arc::new(Bus::neu(crate::live::KAPAZITAET));
+        let gespraeche = gespraeche_mit(speicher(), &bus);
+        let (melden, programmende) = Programmende::neu();
+        let mut warte = auftrag(None, LANG);
+        warte.programmende = programmende;
+
+        let aufruf = tokio::spawn({
+            let gespraeche = Arc::clone(&gespraeche);
+            let bus = Arc::clone(&bus);
+            async move { warten(gespraeche, &bus, &Werkbank::aus_kernen(), warte, still()).await }
+        });
+        tokio::time::sleep(Duration::from_millis(200)).await;
+        assert!(!aufruf.is_finished(), "der Aufruf wartet");
+        let beginn = tokio::time::Instant::now();
+        melden.melden();
+        let ergebnis = aufruf.await.expect("Aufruf").expect("gewartet");
+
+        assert!(ergebnis.treffer.is_empty());
+        assert_eq!(ergebnis.ende, Ende::Programmende);
+        assert!(beginn.elapsed() < Duration::from_secs(1));
+    }
+
+    /// W6b: das `weg` der eigenen Kennung beendet den Aufruf mit `Verlassen`; das `weg` einer anderen Kennung nicht.
+    #[tokio::test]
+    async fn das_weg_der_eigenen_sitzung_beendet_den_aufruf_ein_fremdes_nicht() {
+        let bus = Arc::new(Bus::neu(crate::live::KAPAZITAET));
+        let gespraeche = gespraeche_mit(speicher(), &bus);
+        let aufruf = tokio::spawn({
+            let gespraeche = Arc::clone(&gespraeche);
+            let bus = Arc::clone(&bus);
+            async move {
+                warten(
+                    gespraeche,
+                    &bus,
+                    &Werkbank::aus_kernen(),
+                    auftrag(None, KURZ),
+                    still(),
+                )
+                .await
+            }
+        });
+        tokio::time::sleep(Duration::from_millis(200)).await;
+        bus.veroeffentlichen(weg_von("anna@127.0.0.1", "anna"));
+        tokio::time::sleep(Duration::from_millis(200)).await;
+        assert!(!aufruf.is_finished(), "ein fremdes weg beendet nichts");
+        bus.veroeffentlichen(weg_von("agent@127.0.0.1", "agent"));
+        let ergebnis = aufruf.await.expect("Aufruf").expect("gewartet");
+
+        assert!(ergebnis.treffer.is_empty());
+        assert_eq!(ergebnis.ende, Ende::Verlassen);
     }
 
     /// Wartet in Schleife mit dem jeweils gelieferten `seit`, bis `anzahl` Treffer da sind oder eine Frist ohne
