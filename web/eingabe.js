@@ -68,6 +68,8 @@ export function eingabeAnlegen({
   const hinweisReihe = element('div', { className: 'lc-comp-hinweisreihe' }, [zeile, tippzeile, bereinigenGruppe]);
   const antwort = antwortzeileAnlegen(feld, ansagen);
   let zusatzHinweis = '';
+  // „Verworfen: <Anfang>“ steht bis zur nächsten Eingabe (Code-Review #43 F0101 A5).
+  let verworfenHinweis = '';
   const dateien = dateilisteAnlegen({
     feld,
     ansagen,
@@ -111,9 +113,9 @@ export function eingabeAnlegen({
     bereinigenGruppe.hidden = ergebnis.art !== 'zeichen';
     zeile.textContent = neu.text;
     if (neu.stufe === 'leer') {
-      zeile.textContent = zusatzHinweis;
+      zeile.textContent = zusatzHinweis || verworfenHinweis;
     }
-    const unterbrochenZeigen = neu.stufe === 'leer' && zusatzHinweis === '' && unterbrochenHinweise.has(channel);
+    const unterbrochenZeigen = neu.stufe === 'leer' && zeile.textContent === '' && unterbrochenHinweise.has(channel);
     if (unterbrochenZeigen) {
       zeile.textContent = unterbrochenHinweise.get(channel);
     }
@@ -149,6 +151,7 @@ export function eingabeAnlegen({
   }
 
   feld.addEventListener('input', () => {
+    verworfenHinweis = '';
     hoeheAnpassen(feld);
     textBewerten();
     entwurf.eingabe(channel, feld.value);
@@ -305,8 +308,8 @@ export function eingabeAnlegen({
           antwort.beginnen(bezug);
         }
       } else if (text !== '') {
-        zusatzHinweis = `Verworfen: ${textAnfang(text)}`;
-        ansagen({ art: 'sofort', text: zusatzHinweis });
+        verworfenHinweis = `Verworfen: ${textAnfang(text)}`;
+        ansagen({ art: 'sofort', text: verworfenHinweis });
       }
       textBewerten();
       feld.focus();

@@ -213,3 +213,22 @@ for (const ohneSperren of [false, true]) {
     expect(fehler).toEqual([]);
   });
 }
+
+// A5: „nach Verwerfen mit „Neu“ im Feld und weiteren Zeichen ist die Hinweiszeile leer.“
+test('A5 Hinweis „Verworfen: …“ verschwindet mit der nächsten Eingabe', async ({ browser }) => {
+  const { page, fehler } = await seiteAuf(browser);
+
+  await waehlen(page, [berichtPdf()]);
+  await eingabe(page).fill('Hallo');
+  await eingabe(page).press('Enter');
+  await expect(eintrag(page)).toHaveCount(1);
+  await eingabe(page).fill('Neu');
+  await eintrag(page).getByRole('button', { name: 'Verwerfen', exact: true }).click();
+  await expect(page.locator('#lc-comp-hinweis')).toHaveText('Verworfen: Hallo');
+  await eingabe(page).press('End');
+  await page.keyboard.type(' und mehr');
+
+  await expect(eingabe(page)).toHaveValue('Neu und mehr');
+  await expect(page.locator('#lc-comp-hinweis')).toHaveText('');
+  expect(fehler).toEqual([]);
+});
