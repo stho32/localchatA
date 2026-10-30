@@ -1,13 +1,14 @@
 'use strict';
 // R00047 I0044 F0159 Im Browser mit Zitat antworten (ADR-0053 Regeln 6–8): die Aktion „Antworten“ in Leiste, Menü „⋯“,
-// Tab-Weg und Taste R (B0713).
+// Tab-Weg und Taste R (B0713); die Antwortzeile über dem Eingabefeld (B0714).
 const { test, expect } = require('./rahmen');
+const { channelAnlegen } = require('./hilfen');
 const { sendenStarten, eingabe } = require('./senden-hilfen');
 const { geraetOeffnen } = require('./r00027-hilfen');
 const { imBrowserBeitreten } = require('./senden-hilfen');
 const { nachrichtMitZeit, loeschenPerApi, mitAnhaengenSenden, PNG } = require('./r00041-hilfen');
 const {
-  ANNA, annaSchreibt, claudeSchreibt, benOeffnen, antwortenKnopf, ueberHoverAntworten, tippenUndSenden,
+  ANNA, annaSchreibt, claudeSchreibt, benOeffnen, antwortenKnopf, ueberHoverAntworten, tippenUndSenden, sendeaufrufeZaehlen,
 } = require('./r00047-hilfen');
 
 let instanz;
@@ -19,17 +20,6 @@ test.afterEach(async () => {
 });
 
 const FENSTER_TELEFON = { width: 375, height: 667 };
-
-/// Zählt die POST-Aufrufe der Seite an `…/nachrichten`.
-function sendeaufrufeZaehlen(page) {
-  const aufrufe = [];
-  page.on('request', (anfrage) => {
-    if (anfrage.method() === 'POST' && anfrage.url().includes('/nachrichten')) {
-      aufrufe.push(anfrage.url());
-    }
-  });
-  return aufrufe;
-}
 
 test('Leiste: „Antworten“ steht zuerst — an der fremden Antworten · Kopieren, an der eigenen Antworten · Kopieren · Bearbeiten · Löschen; Klick setzt den Fokus ins Feld ohne Netzaufruf (B0713)', async ({ browser }) => {
   instanz = await sendenStarten();

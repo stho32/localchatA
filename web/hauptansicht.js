@@ -81,7 +81,10 @@ export function zeichnen(wurzel, teilnehmer, optionen) {
     ansagen: (text) => ansagen.melden({ art: 'sofort', text }),
     fokusRueckgaengig: (schluessel) => senden.rueckgaengigFokussiert(schluessel),
     fokusVerloren: () => eingabe.fokussieren(),
-    antworten: () => eingabe.fokussieren(),
+    antworten: (nachricht) => {
+      eingabe.antwortBeginnen(nachricht);
+      verlauf.originalSichtbarHalten(nachricht.zeit);
+    },
     signal: vorigeAnsichtAbmelden.signal,
     schalter: (aktion, schluessel) => {
       if (aktion === 'rueckgaengig') {
@@ -112,6 +115,7 @@ export function zeichnen(wurzel, teilnehmer, optionen) {
     ansagen: ansagen.melden,
     tippen,
     tippzeile: tippanzeige.zeile,
+    hinweisen: statusMelden,
     eigeneLetzteFokussieren: verlauf.eigeneLetzteFokussieren,
   });
   const wieder = wiederverbindenEinrichten({

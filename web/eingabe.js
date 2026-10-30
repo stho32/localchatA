@@ -2,6 +2,7 @@
 import { textPruefen, nurLeerraum, steuerzeichenEntfernen } from './textregel.js';
 import { hinweis, hinweisAnsagen } from './hinweis.js';
 import { zuEigenerLetzten } from './fokus.js';
+import { bezugAusNachricht, zitatText } from './zitat.js';
 
 const IME_TASTENCODE = 229;
 
@@ -39,8 +40,9 @@ export function taste(ereignis, text, zeiger) {
 // Fokus auf die eigene letzte Nachricht im Verlauf (R00041 F0141, 1-tastatur.md); im leeren Feld hat ↑ sonst keine
 // Wirkung, darum wird die Taste dort immer verbraucht. `tippen` (tippen.js) erfährt jede Eingabe, das Senden und den
 // Wechsel des Channels — nie das Wiederherstellen des Entwurfs (R00045 F0161). `tippzeile` (aktivitaetsanzeige.js)
-// steht in der Hinweisreihe hinter der Hinweiszeile, nie in ihr und nie in aria-describedby.
-export function eingabeAnlegen({ senden, entwurf, ansagen, tippen, tippzeile, eigeneLetzteFokussieren = () => {} }) {
+// steht in der Hinweisreihe hinter der Hinweiszeile, nie in ihr und nie in aria-describedby. Über dem Feld steht die
+// Antwortzeile (antwortzeileAnlegen); `hinweisen(text)` ist die Hinweiszeile der Seite.
+export function eingabeAnlegen({ senden, entwurf, ansagen, tippen, tippzeile, hinweisen = () => {}, eigeneLetzteFokussieren = () => {} }) {
   const feld = document.createElement('textarea');
   feld.rows = 1;
   feld.className = 'lc-comp-feld';
@@ -54,7 +56,8 @@ export function eingabeAnlegen({ senden, entwurf, ansagen, tippen, tippzeile, ei
   const bereinigen = element('button', { type: 'button', textContent: 'Steuerzeichen entfernen' });
   const bereinigenGruppe = element('div', { className: 'lc-send-schalter lc-comp-bereinigen', hidden: true }, [bereinigen]);
   const hinweisReihe = element('div', { className: 'lc-comp-hinweisreihe' }, [zeile, tippzeile, bereinigenGruppe]);
-  const rahmen = element('div', { className: 'lc-comp' }, [kasten, hinweisReihe]);
+  const antwort = antwortzeileAnlegen(feld);
+  const rahmen = element('div', { className: 'lc-comp' }, [antwort.zeile, kasten, hinweisReihe]);
   let channel = null;
   let gezeigt = hinweis(textPruefen(''));
 
@@ -98,6 +101,11 @@ export function eingabeAnlegen({ senden, entwurf, ansagen, tippen, tippzeile, ei
   // Die Zeigerart wird je Tastendruck gefragt: steckt jemand eine Maus ans Tablet, gilt sofort die neue Regel (K5).
   // Bei 'zeile' und während einer Komposition schreibt der Browser bzw. die Bildschirmtastatur die Zeile selbst.
   feld.addEventListener('keydown', (ereignis) => {
+    if (ereignis.key === 'Escape' && antwort.steht()) {
+      ereignis.preventDefault();
+      antwort.verwerfen();
+      return;
+    }
     if (zuEigenerLetzten(ereignis, feld.value)) {
       ereignis.preventDefault();
       eigeneLetzteFokussieren();
@@ -176,6 +184,10 @@ export function eingabeAnlegen({ senden, entwurf, ansagen, tippen, tippzeile, ei
         entwurf.weggehen(channel, feld.value);
         tippen.gewechselt(channel);
       }
+      const verworfen = antwort.verwerfen();
+      if (verworfen !== null) {
+        hinweisen(`Die Antwort an ${verworfen.von} wurde beim Wechsel verworfen.`);
+      }
       channel = name;
       const beschriftung = `Nachricht an # ${name}`;
       feld.setAttribute('aria-label', beschriftung);
@@ -185,9 +197,65 @@ export function eingabeAnlegen({ senden, entwurf, ansagen, tippen, tippzeile, ei
       textBewerten();
     },
     fokussieren: () => feld.focus(),
+    // „Antworten“ an einer Nachricht des Fensters (R00047 B0714): die Zeile über dem Feld, der Fokus im Feld — synchron in
+    // der Geste, damit auf Touch die Bildschirmtastatur aufgeht.
+    antwortBeginnen: (nachricht) => {
+      antwort.zeigen(bezugAusNachricht(nachricht));
+      feld.focus();
+    },
     // Die Hauptansicht weicht dem Beitreten-Bildschirm: der Entwurf wird sofort geschrieben (R00025 F0088).
     entwurfSichern,
   };
+}
+
+// Die Antwortzeile über dem Feld (R00047 B0714, ADR-0053 Regel 7, Vorprüfung `ux-reviewer`): role="group" mit dem
+// Namen „Antwort an <Kennung>“, darin „Antwort an <Kennung>:“, der Textanfang einzeilig und „Abbrechen“. Höchstens ein
+// Bezug, gehalten hier im Zustand der Eingabe, nie im Entwurf; „Abbrechen“ und `Esc` verwerfen ihn, der Fokus geht ins
+// Feld, der Text bleibt. Kein aria-describedby auf das Feld.
+function antwortzeileAnlegen(feld) {
+  const kennung = element('span', { className: 'lc-antwort-kennung' });
+  const text = element('span', { className: 'lc-antwort-text' });
+  const abbrechen = element('button', { type: 'button', className: 'lc-antwort-abbrechen', textContent: 'Abbrechen' });
+  const zeile = element('div', { className: 'lc-antwortzeile', hidden: true }, [
+    element('span', { className: 'lc-antwort-an' }, ['Antwort an ', kennung, ':']), text, abbrechen,
+  ]);
+  zeile.setAttribute('role', 'group');
+  let bezug = null;
+
+  function zeigen(neuerBezug) {
+    bezug = neuerBezug;
+    zeile.setAttribute('aria-label', `Antwort an ${bezug.von}`);
+    kennung.textContent = bezug.von;
+    text.textContent = zitatText(bezug);
+    zeile.hidden = false;
+  }
+
+  // → der verworfene Bezug oder null, wenn keiner stand
+  function verwerfen() {
+    const verworfen = bezug;
+    bezug = null;
+    zeile.hidden = true;
+    return verworfen;
+  }
+
+  // Ein Tippen auf „Abbrechen“ nimmt dem Feld den Fokus nicht: die Bildschirmtastatur bleibt offen.
+  abbrechen.addEventListener('pointerdown', (ereignis) => {
+    if (document.activeElement === feld) {
+      ereignis.preventDefault();
+    }
+  });
+  abbrechen.addEventListener('click', () => {
+    verwerfen();
+    feld.focus();
+  });
+  zeile.addEventListener('keydown', (ereignis) => {
+    if (ereignis.key === 'Escape' && bezug !== null) {
+      ereignis.preventDefault();
+      verwerfen();
+      feld.focus();
+    }
+  });
+  return { zeile, zeigen, verwerfen, steht: () => bezug !== null };
 }
 
 function entferntText(anzahl) {

@@ -122,7 +122,12 @@ export function verlaufAnlegen({
   }, { passive: true });
   // Ändert sich die Sichthöhe (Feld wächst oder schrumpft, Tippanzeige, Antwortzeile, Tastatur), bleibt die Lesestelle
   // im Verlauf: am Ende folgt der Blick dem Ende, sonst bleibt der Abstand zur Unterkante gleich.
-  const hoehen = new ResizeObserver(() => {
+  const hoehen = new ResizeObserver(hoehenNachfuehren);
+  hoehen.observe(inhalt);
+  hoehen.observe(ausstehend);
+  hoehen.observe(log);
+
+  function hoehenNachfuehren() {
     if (amEnde) {
       ansEnde();
     } else if (sichtGeaendert() && sichtVorher > 0) {
@@ -135,10 +140,17 @@ export function verlaufAnlegen({
     }
     sichtVorher = log.clientHeight;
     lageMerken();
-  });
-  hoehen.observe(inhalt);
-  hoehen.observe(ausstehend);
-  hoehen.observe(log);
+  }
+
+  // Erscheint die Antwortzeile über dem Feld (R00047 B0714, Z2), führt der Verlauf die geänderte Sichthöhe sofort nach
+  // (R00048) und bringt das beantwortete Original danach ganz ins Bild — liegt es schon dort, bewegt sich nichts weiter.
+  function originalSichtbarHalten(zeit) {
+    hoehenNachfuehren();
+    const knoten = nachrichtKnoten(zeit);
+    if (knoten !== null) {
+      inSichtBringen(knoten);
+    }
+  }
 
   // Aufklappen erweitert an Ort und Stelle; der Kopf der Nachricht bleibt an seiner Bildschirmstelle. Die Marke
   // „bearbeitet“ blendet die Zeit der letzten Änderung ein und aus.
@@ -1331,6 +1343,7 @@ export function verlaufAnlegen({
     zumEndeFuerSenden,
     kennungSetzen: (kennung) => { eigeneKennung = kennung; },
     eigeneLetzteFokussieren,
+    originalSichtbarHalten,
     // Woran das Nachholen ansetzt (ADR-0037 Regel 7, 7g): der offene Channel, ob sein Verlauf steht oder das Laden
     // gescheitert ist, die jüngste bekannte Zeit und ob der neueste Block im Fenster ist.
     stand: () => ({

@@ -60,6 +60,17 @@ async function tippenUndSenden(page, text) {
   return bestaetigt.getAttribute('data-zeit');
 }
 
+/// Zählt die POST-Aufrufe der Seite an `…/nachrichten`.
+function sendeaufrufeZaehlen(page) {
+  const aufrufe = [];
+  page.on('request', (anfrage) => {
+    if (anfrage.method() === 'POST' && anfrage.url().includes('/nachrichten')) {
+      aufrufe.push(anfrage.url());
+    }
+  });
+  return aufrufe;
+}
+
 /// Liest die Nachricht `zeit` per API (`GET …?n=200`).
 async function perApiLesen(adresse, token, zeit, herkunft) {
   const antwort = await anfragen(adresse, { methode: 'GET', pfad: 'api/channels/allgemein/nachrichten?n=200', token, herkunft });
@@ -68,5 +79,5 @@ async function perApiLesen(adresse, token, zeit, herkunft) {
 
 module.exports = {
   ANNA, CLAUDE, annaSchreibt, claudeSchreibt, perApiSchreiben, mitBezugSenden, benOeffnen, antwortenKnopf, antwortzeile, zitatVon,
-  ueberHoverAntworten, tippenUndSenden, perApiLesen,
+  ueberHoverAntworten, tippenUndSenden, perApiLesen, sendeaufrufeZaehlen,
 };
