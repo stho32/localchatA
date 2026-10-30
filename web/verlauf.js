@@ -16,7 +16,7 @@ import { kopieren, rueckmeldungFuer, RUECKMELDUNG_LEER, MENUE_OFFEN_MS } from '.
 import { menueLage, schalterGanzSichtbar } from './menuelage.js';
 import { zitatNachfuehren } from './zitat.js';
 import { zeigerart } from './eingabe.js';
-import { mediumSpielt } from './player.js';
+import { mediumSpielt, medienUebernehmen } from './player.js';
 import {
   einordnen, zusammenfuehren, fassungUebernehmen, buendlerAnlegen, folgenOderZaehlen, pillenText, auslaufNach, nichtGeladenText, hinweisTextNachziehen,
   sprungZiel as sprungZielBerechnen, scrollTopNachHoehe, fensterNeuLesen, zeitDanach, zeitDavor,
@@ -1268,6 +1268,7 @@ export function verlaufAnlegen({
     const alt = knoten[knotenStelle];
     const neu = nachrichtZeichnen(uebernommen, eigeneKennung);
     kopfSetzen(neu, alt.classList.contains('first'));
+    medienUebernehmen(alt, neu);
     alt.replaceWith(neu);
     knoten[knotenStelle] = neu;
     langeEinklappen([neu]);

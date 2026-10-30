@@ -1,6 +1,8 @@
 'use strict';
 // Hilfen der Specs zu R00030 F0165 „Video und Audio im Player“: den Player eines Anhangs finden, stumm abspielen (ohne
 // Geste spielt Chromium nur stumm von selbst) und seinen Zustand lesen; Anfragen an /anhaenge/ mitschreiben.
+const fs = require('fs');
+const os = require('os');
 const path = require('path');
 const { execFileSync } = require('child_process');
 const { expect } = require('./rahmen');
@@ -64,6 +66,24 @@ function aeltereNachrichten(anzahl) {
   };
 }
 
+let langesVideoVorrat = null;
+
+/// Ein Video von 30 s ({ name: 'film.webm', inhalt }) für Proben, die während der Wiedergabe länger handeln (Bearbeiten,
+/// Channelwechsel, Scrollen) — die 6 s der Testdatei wären vorher zu Ende.
+function langesVideo() {
+  if (langesVideoVorrat === null) {
+    const ordner = fs.mkdtempSync(path.join(os.tmpdir(), 'localchata-e2e-r00030-lang-'));
+    const pfad = path.join(ordner, 'film.webm');
+    try {
+      execFileSync('ffmpeg', ['-v', 'error', '-y', '-f', 'lavfi', '-i', 'testsrc=d=30:s=64x48:r=5', '-f', 'lavfi', '-i', 'sine=d=30', '-c:v', 'libvpx', '-c:a', 'libopus', pfad]);
+      langesVideoVorrat = fs.readFileSync(pfad);
+    } finally {
+      fs.rmSync(ordner, { recursive: true, force: true });
+    }
+  }
+  return { name: 'film.webm', inhalt: langesVideoVorrat };
+}
+
 /// `beta` sendet `text` über die API; → die Zeit der Nachricht.
 async function betaSchreibt(lauf, text) {
   const antwort = await senden(lauf.instanz.adresse, lauf.beta.token, 'allgemein', text, '127.0.0.2');
@@ -76,5 +96,5 @@ const scrollStand = (page) => page.getByRole('log').evaluate((log) => ({
 }));
 
 module.exports = {
-  player, abspielen, wiedergabe, elementMerken, istDasselbe, anhangAnfragenMitschreiben, aeltereNachrichten, betaSchreibt, scrollStand,
+  player, abspielen, wiedergabe, elementMerken, istDasselbe, anhangAnfragenMitschreiben, aeltereNachrichten, betaSchreibt, scrollStand, langesVideo,
 };
