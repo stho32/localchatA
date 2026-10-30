@@ -458,3 +458,36 @@ async fn mp4_traeger_oben_und_in_trak_ohne_ort_leser_grenzen() {
     let ueber = mp4_mit(&[], &[kiste(b"udta", &zu_lang), kiste(b"free", b"x")]);
     lauf.abgewiesen("ueber.mp4", &ueber).await;
 }
+
+/// ADR-0047 B2 P5 (B0645): GPS nur in `moov/udta/meta/ilst/©xyz` („+52.5200+013.4050/“), dazu Hersteller und Titel
+/// → ausgeliefert ohne Ort und ohne die anderen Werte, `mdat` byte-gleich.
+#[tokio::test]
+async fn mp4_ilst_verliert_alle_werte() {
+    let lauf = Lauf::neu().await;
+    let wert = |typ: &[u8], text: &[u8]| {
+        kiste(
+            typ,
+            &kiste(b"data", &[&[0u8, 0, 0, 1, 0, 0, 0, 0][..], text].concat()),
+        )
+    };
+    let ilst = kiste(
+        b"ilst",
+        &[
+            wert(&[0xa9, b'x', b'y', b'z'], b"+52.5200+013.4050/"),
+            wert(&[0xa9, b'm', b'a', b'k'], b"Telefonbauer"),
+            wert(&[0xa9, b'n', b'a', b'm'], b"Urlaubsfilm"),
+        ]
+        .concat(),
+    );
+    let hdlr = kiste(b"hdlr", &[&[0u8; 8][..], b"mdir", &[0; 13]].concat());
+    let meta = kiste(b"meta", &[&[0u8; 4][..], &hdlr, &ilst].concat());
+    let original = mp4_mit(&[], &[kiste(b"udta", &meta)]);
+
+    let geliefert = lauf.ausliefern("p5.mp4", &original).await;
+
+    ohne_ort("p5.mp4", &geliefert.bytes);
+    assert!(
+        !enthaelt(&geliefert.bytes, b"Telefonbauer") && !enthaelt(&geliefert.bytes, b"Urlaubsfilm")
+    );
+    assert_eq!(mdat(&geliefert.bytes), mdat(&original));
+}

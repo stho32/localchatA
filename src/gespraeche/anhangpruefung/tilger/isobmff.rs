@@ -95,7 +95,10 @@ pub fn isobmff(port: &Port<'_>, zaehler: &mut Zaehler) -> Ergebnis<()> {
         zaehler.block()?;
         match &kiste.typ {
             b"moov" => moov(port, kiste, zaehler)?,
-            b"meta" => oberstes_meta(port, kiste, zaehler)?,
+            b"meta" => match handler(port, kiste)? {
+                Some(handler) if &handler != b"pict" => nutzer_meta(port, kiste, zaehler)?,
+                _ => oberstes_meta(port, kiste, zaehler)?,
+            },
             typ if OBEN_ERLAUBT.contains(&typ) => {}
             _ => unkenntlich(port, kiste, zaehler)?,
         }
@@ -129,7 +132,7 @@ fn moov(port: &Port<'_>, moov: Kiste, zaehler: &mut Zaehler) -> Ergebnis<()> {
             b"cmov" => return metadaten("cmov nicht prüfbar"),
             b"trak" => trak(port, kind, zaehler)?,
             b"udta" => udta(port, kind, zaehler)?,
-            b"meta" => moov_meta(port, kind, zaehler)?,
+            b"meta" => nutzer_meta(port, kind, zaehler)?,
             typ if MOOV_ERLAUBT.contains(&typ) => {}
             _ => unkenntlich(port, kind, zaehler)?,
         }
@@ -142,7 +145,7 @@ fn trak(port: &Port<'_>, trak: Kiste, zaehler: &mut Zaehler) -> Ergebnis<()> {
     for kind in kinder(port, trak.inhalt, trak.ende, zaehler)? {
         match &kind.typ {
             b"udta" => udta(port, kind, zaehler)?,
-            b"meta" => moov_meta(port, kind, zaehler)?,
+            b"meta" => nutzer_meta(port, kind, zaehler)?,
             _ => {}
         }
     }
@@ -153,7 +156,7 @@ fn trak(port: &Port<'_>, trak: Kiste, zaehler: &mut Zaehler) -> Ergebnis<()> {
 fn udta(port: &Port<'_>, udta: Kiste, zaehler: &mut Zaehler) -> Ergebnis<()> {
     for kind in kinder(port, udta.inhalt, udta.ende, zaehler)? {
         match &kind.typ {
-            b"meta" => moov_meta(port, kind, zaehler)?,
+            b"meta" => nutzer_meta(port, kind, zaehler)?,
             typ if UDTA_ERLAUBT.contains(&typ) => {}
             _ => unkenntlich(port, kind, zaehler)?,
         }
@@ -171,56 +174,59 @@ fn meta_kinder_ab(port: &Port<'_>, meta: Kiste) -> Ergebnis<u64> {
     }
 }
 
-/// `moov/meta`: `keys` lesen (Leseziel ≤ 1 MiB), in `ilst` die `data`-Werte der Schlüssel mit `location` nullen.
-fn moov_meta(port: &Port<'_>, meta: Kiste, zaehler: &mut Zaehler) -> Ergebnis<()> {
+/// Erlaubnisliste eines `meta` mit Nutzerdaten (Regel 5d); `keys` bleibt und wird nicht gelesen.
+const NUTZER_META_ERLAUBT: &[&[u8; 4]] = &[b"hdlr", b"keys", b"ilst", b"free", b"skip"];
+
+/// Ein `meta` unter `moov`, `trak`, `udta` oder ein oberstes `meta` mit Handler ungleich `pict` (ADR-0047 B2 Regel
+/// 5d): Erlaubnisliste; in `ilst` je Eintrag die Werte (`data`, `mean`, `name`) hinter ihrem Kopf genullt — alle
+/// Werte, nicht nur Orte —, jede andere Box im Eintrag `free`.
+fn nutzer_meta(port: &Port<'_>, meta: Kiste, zaehler: &mut Zaehler) -> Ergebnis<()> {
     if zu_gross(meta) {
         return metadaten("meta über 64 MiB");
     }
     let anfang = meta_kinder_ab(port, meta)?.min(meta.ende);
-    let kinder = kinder(port, anfang, meta.ende, zaehler)?;
-    let mut orte = HashSet::new();
-    if let Some(keys) = kinder.iter().find(|kind| &kind.typ == b"keys") {
-        orte = ortsschluessel(port, *keys)?;
-    }
-    for kind in kinder.iter().filter(|kind| &kind.typ == b"ilst") {
-        for eintrag in self::kinder(port, kind.inhalt, kind.ende, zaehler)? {
-            if !orte.contains(&u32::from_be_bytes(eintrag.typ)) {
-                continue;
-            }
-            for wert in self::kinder(port, eintrag.inhalt, eintrag.ende, zaehler)? {
-                if &wert.typ == b"data" && wert.ende - wert.inhalt >= 8 {
-                    zaehler.ort = true;
-                    port.nullen(wert.inhalt + 8, wert.ende - wert.inhalt - 8)?;
+    for kind in kinder(port, anfang, meta.ende, zaehler)? {
+        match &kind.typ {
+            b"ilst" => {
+                for eintrag in kinder(port, kind.inhalt, kind.ende, zaehler)? {
+                    werte_nullen(port, eintrag, zaehler)?;
                 }
             }
+            typ if NUTZER_META_ERLAUBT.contains(&typ) => {}
+            _ => unkenntlich(port, kind, zaehler)?,
         }
     }
     Ok(())
 }
 
-/// Die Nummern (ab 1) der Schlüssel in `keys`, die `location` enthalten.
-fn ortsschluessel(port: &Port<'_>, keys: Kiste) -> Ergebnis<HashSet<u32>> {
-    let bytes = port.lesen(keys.inhalt, keys.ende - keys.inhalt)?;
-    let anzahl = lies_u32(&bytes, 4)?;
-    let mut stelle = 8usize;
-    let mut orte = HashSet::new();
-    for nummer in 1..=anzahl {
-        let groesse = lies_u32(&bytes, stelle)? as usize;
-        if groesse < 8
-            || stelle
-                .checked_add(groesse)
-                .is_none_or(|ende| ende > bytes.len())
-        {
-            return metadaten("Längen widersprechen sich");
-        }
-        let schluessel =
-            String::from_utf8_lossy(&bytes[stelle + 8..stelle + groesse]).to_lowercase();
-        if schluessel.contains("location") {
-            orte.insert(nummer);
-        }
-        stelle += groesse;
+/// Ein `ilst`-Eintrag: `data` behält Kopf, Typ und Sprache (8 Bytes), `mean` und `name` Version und Flaggen
+/// (4 Bytes); der Inhalt dahinter wird genullt, nie gelesen.
+fn werte_nullen(port: &Port<'_>, eintrag: Kiste, zaehler: &mut Zaehler) -> Ergebnis<()> {
+    zaehler.ort |= eintrag.typ == [0xA9, b'x', b'y', b'z'];
+    for wert in kinder(port, eintrag.inhalt, eintrag.ende, zaehler)? {
+        let kopf = match &wert.typ {
+            b"data" => 8,
+            b"mean" | b"name" => 4,
+            _ => {
+                unkenntlich(port, wert, zaehler)?;
+                continue;
+            }
+        };
+        let ab = (wert.inhalt + kopf).min(wert.ende);
+        port.nullen(ab, wert.ende - ab)?;
     }
-    Ok(orte)
+    Ok(())
+}
+
+/// Der Handler eines `meta` (`hdlr` an erster Stelle, `handler_type` hinter Version, Flaggen und `pre_defined`);
+/// ohne `hdlr` vorn gilt das oberste `meta` als HEIF (Regel 5e, eigene Erlaubnisliste).
+fn handler(port: &Port<'_>, meta: Kiste) -> Ergebnis<Option<[u8; 4]>> {
+    let anfang = meta_kinder_ab(port, meta)?;
+    if meta.ende.saturating_sub(anfang) < 20 || port.lesen(anfang + 4, 4)? != b"hdlr" {
+        return Ok(None);
+    }
+    let typ = port.lesen(anfang + 16, 4)?;
+    Ok(Some([typ[0], typ[1], typ[2], typ[3]]))
 }
 
 fn lies_u32(bytes: &[u8], stelle: usize) -> Ergebnis<u32> {
@@ -476,6 +482,11 @@ mod tests {
         bytes
     }
 
+    /// `hdlr` mit Handler `pict` (HEIF), 25 Bytes Inhalt.
+    fn hdlr_pict() -> Vec<u8> {
+        kiste(b"hdlr", &[&[0u8; 8][..], b"pict", &[0; 13]].concat())
+    }
+
     fn ftyp() -> Vec<u8> {
         kiste(b"ftyp", b"isom\0\0\x02\0isommp41")
     }
@@ -598,18 +609,19 @@ mod tests {
         assert!(!enthaelt(&datei.inhalt(), b"+52.5200"));
     }
 
+    /// ADR-0047 B2 Regel 5d, Vermerk „Überholt“: `keys` wird nicht mehr gelesen — auch eines von 1 MiB + 1 bleibt
+    /// unberührt, statt die Datei abzuweisen.
     #[test]
-    fn keys_von_1_mib_und_einem_byte_ist_nicht_tilgbar() {
+    fn keys_von_1_mib_und_einem_byte_wird_nicht_gelesen() {
         let keys = kiste(b"keys", &vec![0u8; MIB + 1]);
         let meta = kiste(b"meta", &[kiste(b"hdlr", &[0; 25]), keys].concat());
         let original = [ftyp(), kiste(b"moov", &meta)].concat();
 
-        let (ergebnis, _) = tilgen(original);
+        let (ergebnis, datei) = tilgen(original.clone());
 
-        assert!(matches!(
-            ergebnis,
-            Err(Abbruch::Metadaten("Leseziel über 1 MiB"))
-        ));
+        ergebnis.expect("getilgt");
+        assert!(datei.groesste_lesung() <= 16, "{}", datei.groesste_lesung());
+        assert_eq!(datei.inhalt(), original);
     }
 
     #[test]
@@ -643,9 +655,10 @@ mod tests {
 
         let (ergebnis, datei) = tilgen(original);
 
-        assert!(ergebnis.expect("getilgt").ort);
+        // Seit ADR-0047 B2 Regel 5d: alle Werte in `ilst`, nicht nur die Orte.
+        ergebnis.expect("getilgt");
         let getilgt = datei.inhalt();
-        assert!(!enthaelt(&getilgt, b"+52.5200") && enthaelt(&getilgt, b"Apple"));
+        assert!(!enthaelt(&getilgt, b"+52.5200") && !enthaelt(&getilgt, b"Apple"));
     }
 
     /// HEIC: oberstes `meta` mit `iinf` (Exif-Item 2, XMP-Item 3), `iloc` (Version `methode`), Daten in `mdat`.
@@ -678,7 +691,7 @@ mod tests {
         );
         let mdat_inhalt = [exif.clone(), xmp.clone()].concat();
         let iloc_laenge = 8 + 4 + 2 + 2 + 2 * (2 + 2 + 2 + 2 + 4 + 4);
-        let meta_ohne_iloc = 8 + 4 + kiste(b"hdlr", &[0; 25]).len() + iinf.len();
+        let meta_ohne_iloc = 8 + 4 + hdlr_pict().len() + iinf.len();
         let mdat_anfang = (ftyp().len() + meta_ohne_iloc + iloc_laenge + 8) as u64;
         let eintrag = |id: u16, ab: u64, lang: usize| {
             [
@@ -704,7 +717,7 @@ mod tests {
         assert_eq!(iloc.len(), iloc_laenge);
         let meta = kiste(
             b"meta",
-            &[&[0u8, 0, 0, 0][..], &kiste(b"hdlr", &[0; 25]), &iinf, &iloc].concat(),
+            &[&[0u8, 0, 0, 0][..], &hdlr_pict(), &iinf, &iloc].concat(),
         );
         [ftyp(), meta, kiste(b"mdat", &mdat_inhalt)].concat()
     }
@@ -736,13 +749,7 @@ mod tests {
         let bauen = |mdat_anfang: u64| {
             let meta = kiste(
                 b"meta",
-                &[
-                    &[0u8, 0, 0, 0][..],
-                    &kiste(b"hdlr", &[0; 25]),
-                    &iinf,
-                    &iloc(mdat_anfang),
-                ]
-                .concat(),
+                &[&[0u8, 0, 0, 0][..], &hdlr_pict(), &iinf, &iloc(mdat_anfang)].concat(),
             );
             [kiste(b"ftyp", b"heic\0\0\0\0mif1heic"), meta].concat()
         };
@@ -980,7 +987,8 @@ mod tests {
         let getilgt = datei.inhalt();
         assert_eq!(getilgt.len(), original.len());
         assert!(!enthaelt(&getilgt, b"+52.5200") && !enthaelt(&getilgt, b"+48.1371"));
-        assert!(enthaelt(&getilgt, b"Apple") && enthaelt(&getilgt, b"Mediendaten"));
+        // Seit ADR-0047 B2 Regel 5d gehen alle Werte in `ilst`, auch der Hersteller.
+        assert!(!enthaelt(&getilgt, b"Apple") && enthaelt(&getilgt, b"Mediendaten"));
     }
 
     #[test]
@@ -1204,5 +1212,90 @@ mod tests {
             matches!(ergebnis, Err(Abbruch::Metadaten(_))),
             "{ergebnis:?}"
         );
+    }
+
+    /// `meta` mit `hdlr` (Handler `mdir`), `keys`, `ilst` aus den Einträgen und einer unbekannten Box.
+    fn nutzer_meta(eintraege: &[Vec<u8>], volle_box: bool) -> Vec<u8> {
+        let hdlr = kiste(b"hdlr", &[&[0u8; 8][..], b"mdir", &[0; 13]].concat());
+        let keys = kiste(b"keys", b"\0\0\0\0\0\0\0\x01\0\0\0\x0cmdtamake");
+        let fremd = kiste(b"abcd", ORT);
+        let kopf: &[u8] = if volle_box { &[0, 0, 0, 0] } else { &[] };
+        kiste(
+            b"meta",
+            &[
+                kopf,
+                &hdlr,
+                &keys,
+                &kiste(b"ilst", &eintraege.concat()),
+                &fremd,
+            ]
+            .concat(),
+        )
+    }
+
+    fn wert(typ: &[u8], text: &[u8]) -> Vec<u8> {
+        kiste(
+            typ,
+            &kiste(b"data", &[&[0u8, 0, 0, 1, 0, 0, 0, 0][..], text].concat()),
+        )
+    }
+
+    /// ADR-0047 B2 P5 und Regel 5d (B0645): Ort nur in `moov/udta/meta/ilst/©xyz`, dazu Hersteller, Titel, ein
+    /// `----`-Eintrag mit `mean`/`name` → jeder Wert genullt (Köpfe bleiben), `keys` und `hdlr` byte-gleich, eine
+    /// unbekannte Box im `meta` → `free`; dasselbe für `meta` in `trak` und ein oberstes `meta` mit Handler `mdir`.
+    #[test]
+    fn in_ilst_werden_alle_werte_getilgt() {
+        let freiform = kiste(
+            b"----",
+            &[
+                kiste(b"mean", b"\0\0\0\0com.apple.iTunes"),
+                kiste(b"name", b"\0\0\0\0Aufnahmeort"),
+                kiste(b"data", b"\0\0\0\x01\0\0\0\0Berlin Mitte"),
+            ]
+            .concat(),
+        );
+        let eintraege = vec![
+            wert(&[0xA9, b'x', b'y', b'z'], b"+52.5200+013.4050/"),
+            wert(&[0xA9, b'm', b'a', b'k'], b"Telefonbauer"),
+            wert(&[0xA9, b'n', b'a', b'm'], b"Urlaubsfilm"),
+            wert(&1u32.to_be_bytes(), b"Kamera X"),
+            freiform,
+        ];
+        let im_udta = kiste(b"udta", &nutzer_meta(&eintraege, true));
+        let im_trak = kiste(b"trak", &nutzer_meta(&eintraege, false));
+        let original = [
+            ftyp(),
+            nutzer_meta(&eintraege, true),
+            kiste(b"moov", &[im_trak, im_udta].concat()),
+            kiste(b"mdat", b"Mediendaten"),
+        ]
+        .concat();
+
+        let (ergebnis, datei) = tilgen(original.clone());
+
+        ergebnis.expect("getilgt");
+        let getilgt = datei.inhalt();
+        assert_eq!(getilgt.len(), original.len());
+        for spur in [
+            &b"+52.5200"[..],
+            b"52.52",
+            b"Telefonbauer",
+            b"Urlaubsfilm",
+            b"Kamera X",
+            b"Berlin",
+            b"Aufnahmeort",
+            b"com.apple.iTunes",
+            b"GPS",
+        ] {
+            assert!(
+                !enthaelt(&getilgt, spur),
+                "{}",
+                String::from_utf8_lossy(spur)
+            );
+        }
+        assert!(enthaelt(&getilgt, b"mdtamake") && enthaelt(&getilgt, b"mdir"));
+        assert_eq!(getilgt.windows(4).filter(|f| f == b"abcd").count(), 0);
+        assert_eq!(getilgt.windows(4).filter(|f| f == b"data").count(), 15);
+        assert!(enthaelt(&getilgt, b"Mediendaten"));
     }
 }
