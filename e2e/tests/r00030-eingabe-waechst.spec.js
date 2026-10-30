@@ -174,3 +174,24 @@ test('Hinweiszeile höchstens 2 Zeilen, dann Ellipse; Tippanzeige in der 20-px-R
   const tipp = await page.locator('.lc-comp-tipp').evaluate((element) => element.getBoundingClientRect().height);
   expect(tipp).toBe(20);
 });
+
+// Die Grenze von V6 („bei visualViewport.height < 500 einzeilig“): bei 499 px eine Zeile mit Ellipse, bei 500 px darf
+// die Antwortzeile wie sonst umbrechen (Telefon 320 px breit, sonst passte sie auch ohne Grenze in eine Zeile).
+for (const [hoehe, einzeilig] of [[499, true], [500, false]]) {
+  test(`Antwortzeile an der 500-px-Grenze (Telefon 320 × ${hoehe}): ${einzeilig ? 'einzeilig mit Ellipse' : 'bricht um'}`, async ({ browser }) => {
+    const { page, hallo } = await aufbauen(browser, 'telefon', { width: 320, height: hoehe });
+    await antwortenAuf(page, hallo);
+
+    // Eine Zeile: alle Teile überlappen senkrecht (sie stehen mittig zueinander, „Abbrechen“ ist höher als der Text).
+    const eineZeile = await antwortzeile(page).evaluate((zeile) => {
+      const raender = [...zeile.children].map((kind) => kind.getBoundingClientRect());
+      return Math.max(...raender.map((rand) => rand.top)) < Math.min(...raender.map((rand) => rand.bottom));
+    });
+    if (einzeilig) {
+      expect(eineZeile).toBe(true);
+      await expect(page.locator('.lc-antwort-an')).toHaveCSS('text-overflow', 'ellipsis');
+    } else {
+      expect(eineZeile).toBe(false);
+    }
+  });
+}
