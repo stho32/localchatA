@@ -501,11 +501,19 @@ impl Gespraeche {
         match pruefung {
             Some(Pruefung::Anders) => return Err(Sendefehler::SchluesselAnders),
             Some(Pruefung::Wiederholt { zeit }) => {
-                let zeilen = self.anhangzeilen_der_ids(ids);
-                return Ok((
-                    Gesendet::Wiederholt(nachricht_bilden(zeit, von, art, text, zeilen).0),
-                    None,
-                ));
+                // Frühere Fassungen liefert keine Antwort (ADR-0048 Regel 3): ist die Nachricht inzwischen
+                // geändert, kommt die aktuelle Fassung aus dem Verlauf.
+                let geaendert = verlauf
+                    .nachricht(&zeit)
+                    .filter(|kopie| kopie.aenderung.is_some())
+                    .as_ref()
+                    .and_then(nachricht_in_fassung)
+                    .map(|nachricht| self.zustand_eintragen(nachricht));
+                let nachricht = geaendert.unwrap_or_else(|| {
+                    let zeilen = self.anhangzeilen_der_ids(ids);
+                    nachricht_bilden(zeit, von, art, text, zeilen).0
+                });
+                return Ok((Gesendet::Wiederholt(nachricht), None));
             }
             Some(Pruefung::Neu) | None => {}
         }

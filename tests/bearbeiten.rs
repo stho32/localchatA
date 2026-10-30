@@ -794,3 +794,71 @@ async fn ein_wiederholschluessel_aendert_nichts_doppelt() {
         "{log}"
     );
 }
+
+/// `POST …/nachrichten` in `# allgemein` mit Wiederholschlüssel.
+async fn senden_mit_schluessel(
+    absender: &Absender,
+    basis: &str,
+    token: &str,
+    text: &str,
+    schluessel: &str,
+) -> ApiAntwort {
+    api_antwort(
+        absender
+            .anfrage(
+                reqwest::Method::POST,
+                format!("{basis}api/channels/allgemein/nachrichten"),
+            )
+            .header("X-LocalchatA-Sitzung", token)
+            .header("Idempotency-Key", schluessel)
+            .json(&json!({ "text": text })),
+    )
+    .await
+}
+
+/// R00039 B1 (code-reviewer #48; ADR-0048 Regel 3, „frühere Fassungen liefert keine Antwort“): (a) `Hallo` mit `k1`
+/// senden, bearbeiten, `Hallo` mit `k1` wiederholen → 200 mit der bearbeiteten Fassung, `zustand` und `geaendert`
+/// wie in der Bearbeiten-Antwort; (b) nach zweiter Bearbeitung die jüngste; (c) ohne Bearbeitung unverändert
+/// (`zustand` null, kein `geaendert`), nichts doppelt im Log. (d) nach dem Löschen: siehe `#[ignore]`-Test.
+#[tokio::test]
+async fn wiederholtes_senden_liefert_die_aktuelle_fassung() {
+    let wurzel = ordner();
+    let instanz = starten(wurzel.path());
+    let basis = instanz.adresse.as_str();
+    let beta = Absender::von("127.0.0.1");
+    let token = beitreten(&beta, basis, "beta", Some("agent")).await;
+    let erste = senden_mit_schluessel(&beta, basis, &token, "Hallo", "k1").await;
+    assert_eq!(erste.status, 201, "{}", erste.json);
+    let t1 = erste.json["nachricht"]["zeit"].as_str().expect("zeit");
+    let unbearbeitet = senden_mit_schluessel(&beta, basis, &token, "Hallo", "k1").await;
+    assert_eq!(unbearbeitet.status, 200, "{}", unbearbeitet.json);
+    assert_eq!(unbearbeitet.json["nachricht"], erste.json["nachricht"]);
+
+    let einmal = bearbeiten(&beta, basis, &token, t1, "Hallo zusammen").await;
+    let nach_einmal = senden_mit_schluessel(&beta, basis, &token, "Hallo", "k1").await;
+    let zweimal = bearbeiten(&beta, basis, &token, t1, "Hallo zusammen alle").await;
+    let nach_zweimal = senden_mit_schluessel(&beta, basis, &token, "Hallo", "k1").await;
+
+    assert_eq!(nach_einmal.status, 200, "{}", nach_einmal.json);
+    assert_eq!(nach_einmal.json["nachricht"], einmal.json["nachricht"]);
+    assert_eq!(nach_einmal.json["nachricht"]["text"], "Hallo zusammen");
+    assert_eq!(nach_einmal.json["nachricht"]["zustand"], "bearbeitet");
+    assert_eq!(nach_zweimal.status, 200, "{}", nach_zweimal.json);
+    assert_eq!(nach_zweimal.json["nachricht"], zweimal.json["nachricht"]);
+    assert_eq!(
+        nach_zweimal.json["nachricht"]["text"],
+        "Hallo zusammen alle"
+    );
+    let log = tagesdatei(wurzel.path(), HEUTE);
+    assert_eq!(log.matches("beta@127.0.0.1\n+ art:").count(), 1, "{log}");
+}
+
+/// R00039 B1 (d), vorgemerkt für #67 (Löschen, R00040): nach dem Löschen liefert die Wiederholung `text ""`,
+/// `anhaenge []`, `zustand geloescht`. Die Löschroute gibt es erst mit #67.
+#[tokio::test]
+#[ignore = "braucht die Löschroute aus #67 (R00040)"]
+async fn wiederholtes_senden_nach_dem_loeschen_liefert_geloescht() {
+    unimplemented!(
+        "#67: Senden k1 → Löschen → Senden k1: text \"\", anhaenge [], zustand geloescht"
+    );
+}
