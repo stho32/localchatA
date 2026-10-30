@@ -861,6 +861,26 @@ mod tests {
         );
     }
 
+    /// S2 (code-reviewer #17): „Budget vor dem Lesen“ ist festgenagelt, nicht nur begrenzt. Ein Channel, 200
+    /// Nachrichten zu 16.384 Bytes (je 17 Kosten): kopiert wird genau, was gebucht ist — 117 Sätze, nicht ein
+    /// 118. (die M6-Mutante, `entnehmen` vor der Budgetprüfung, kopiert ihn und verwirft ihn dann).
+    #[test]
+    fn das_budget_wird_vor_dem_lesen_geprueft_kopiert_wird_genau_die_buchung() {
+        let (gespraeche, t0, marke) = viele_kanaele(1, Zustand::Unbearbeitet);
+        let satzlaenge = {
+            let verlauf =
+                lesend(&gespraeche.verzeichnis).verlaeufe[&Gespraech::channel("k0")].clone();
+            let (_, lesebytes) = sperren(&verlauf).naechste_nach(&t0).expect("erste Nachricht");
+            lesebytes
+        };
+
+        let (nachgeholt, kopiert) = nachholen_und_kopiertes(&gespraeche, t0, marke);
+
+        assert_eq!(nachgeholt.saetze, 117);
+        assert!(nachgeholt.weitere);
+        assert_eq!(kopiert, 117 * satzlaenge);
+    }
+
     /// Eigene Variante V5 zu Teil 1: sind Satz und Änderungssatz beide 16 KiB lang, bucht das Nachholen das Größere,
     /// der Verlauf kopiert beide — die Arbeit bleibt bei höchstens dem Doppelten der Buchung.
     #[test]
