@@ -8,7 +8,7 @@ mod gemeinsam;
 use gemeinsam::protokoll::zeilen;
 use gemeinsam::senden::{HEUTE, beitreten, ordner, senden, starten};
 use gemeinsam::strom::{Empfangen, Strom};
-use gemeinsam::{Absender, ApiAntwort, Instanz, api_antwort};
+use gemeinsam::{Absender, ApiAntwort, Instanz, api_antwort, gesundheit};
 use serde_json::{Value, json};
 use std::time::Duration;
 use tokio::time::Instant;
@@ -525,4 +525,172 @@ async fn p6_nichts_bleibt_zurueck_und_ein_neuer_strom_holt_nichts_nach() {
     assert!(mit_aktivitaet.is_empty(), "{mit_aktivitaet:#?}");
     assert_eq!(erstes.data["art"], "teilnehmer");
     assert!(vor_dem_setzen.is_none(), "{vor_dem_setzen:?}");
+}
+
+/// B0693, P9 Bremse an der Route (ADR-0051 Regeln 9, 11; Mutanten M9, M10): 11 × `PUT` von `anna` in `# allgemein` in
+/// unter 1 s → zehnmal 200, einmal 429 `grenze: "gespraech"` mit `Retry-After: 1` und dem Satz der ADR; die Anzeige
+/// bei `ben` bleibt (kein Ende); nach 1 s wieder 200; zehn Meldungen in `# technik` gehen durch; die Plattenquote ist
+/// unberührt; danach 30 Nachrichten von `anna` in einem Zug → alle 201 (Schreibkonto unberührt, Vorrat 30); im
+/// Protokoll genau eine Beginn-Zeile `WARNING aktivitaet` mit `kennung`, `channel`, `grenze`.
+#[tokio::test]
+async fn p9_die_elfte_meldung_ist_429_die_anzeige_bleibt_senden_bleibt_frei() {
+    let mut r = runde().await;
+    let quote_vorher = gesundheit(&r.instanz.adresse).await.1["plattenquote"].clone();
+    let tippt = || json!({"zustand": "tippt"});
+
+    let mut zehn = Vec::new();
+    for _ in 0..10 {
+        zehn.push(setzen(&r.absender, &r.instanz, Some(&r.anna), "allgemein", tippt()).await);
+    }
+    let elfte = setzen(&r.absender, &r.instanz, Some(&r.anna), "allgemein", tippt()).await;
+    let gebremst_um = Instant::now();
+    r.strom_ben
+        .bis(Duration::from_secs(5), aktivitaet_von("anna@127.0.0.1"))
+        .await
+        .expect("gesetzt bei ben");
+    while r.strom_ben.bis(STILLE, ist_aktivitaet).await.is_some() {}
+    let ende_bei_ben: Vec<_> = r
+        .strom_ben
+        .ereignisse
+        .iter()
+        .filter(|e| ist_aktivitaet(e) && e.data["zustand"].is_null())
+        .map(|e| e.data.clone())
+        .collect();
+    tokio::time::sleep_until(gebremst_um + Duration::from_secs(1)).await;
+    let nach_einer_sekunde =
+        setzen(&r.absender, &r.instanz, Some(&r.anna), "allgemein", tippt()).await;
+    let mut in_technik = Vec::new();
+    for _ in 0..10 {
+        in_technik.push(
+            setzen(&r.absender, &r.instanz, Some(&r.anna), "technik", tippt())
+                .await
+                .status,
+        );
+    }
+    let quote_nachher = gesundheit(&r.instanz.adresse).await.1["plattenquote"].clone();
+    let mut gesendet = Vec::new();
+    for n in 0..30 {
+        gesendet.push(
+            senden(
+                &r.absender,
+                &r.instanz.adresse,
+                &r.anna,
+                "allgemein",
+                &format!("n{n}"),
+            )
+            .await
+            .status,
+        );
+    }
+    let beginn: Vec<String> = zeilen(&r.instanz.ordner, HEUTE)
+        .into_iter()
+        .filter(|zeile| zeile.contains(" WARNING aktivitaet ") && zeile.contains("Episode beginnt"))
+        .collect();
+
+    assert!(zehn.iter().all(|a| a.status == 200), "{zehn:?}");
+    assert_eq!(elfte.status, 429, "{}", elfte.json);
+    assert_eq!(
+        elfte
+            .kopf
+            .get("retry-after")
+            .and_then(|wert| wert.to_str().ok()),
+        Some("1")
+    );
+    assert_eq!(
+        elfte.json,
+        json!({
+            "fehler": "Zu viele Aktivitätsmeldungen von anna@127.0.0.1 in # allgemein — wieder möglich in 1 s.",
+            "grenze": "gespraech",
+            "wieder_in_ms": elfte.json["wieder_in_ms"]
+        })
+    );
+    let wieder_in_ms = elfte.json["wieder_in_ms"].as_u64().expect("wieder_in_ms");
+    assert!((1..=1_000).contains(&wieder_in_ms), "{wieder_in_ms}");
+    assert!(ende_bei_ben.is_empty(), "Anzeige bleibt: {ende_bei_ben:?}");
+    assert_eq!(
+        nach_einer_sekunde.status, 200,
+        "{}",
+        nach_einer_sekunde.json
+    );
+    assert_eq!(in_technik, [200; 10]);
+    assert_eq!(quote_nachher, quote_vorher, "Plattenquote unberührt");
+    assert_eq!(gesendet, [201; 30], "Schreibkonto unberührt");
+    assert_eq!(beginn.len(), 1, "{beginn:#?}");
+    assert!(
+        beginn[0].ends_with(
+            "Aktivität gebremst: zu viele Meldungen — Episode beginnt | kennung=anna@127.0.0.1 channel=allgemein grenze=gespraech"
+        ),
+        "{beginn:#?}"
+    );
+}
+
+/// B0693, R00045 „Bremse“ zweiter Satz (Mutante M9 „Eimer je Herkunft aus“): 120 Meldungen einer Adresse über 12
+/// Kennungen × 10 Gespräche gehen; die nächste wird spätestens kurz danach mit `grenze: "herkunft"` und dem Satz für
+/// die Adresse abgewiesen (während der Folge fließen 12 je Sekunde nach — gezählt wird bis zur ersten 429).
+#[tokio::test]
+async fn bremse_je_herkunft_nach_120_meldungen_einer_adresse() {
+    let wurzel = ordner();
+    let gespraeche: Vec<String> = (0..10).map(|n| format!("c{n}")).collect();
+    for name in &gespraeche {
+        std::fs::create_dir_all(wurzel.path().join("channels").join(name)).expect("Channel");
+    }
+    let instanz = starten(wurzel.path(), &[]);
+    let absender = Absender::von("127.0.0.1");
+    let mut kennungen = Vec::new();
+    for n in 0..13 {
+        kennungen.push(beitreten(&absender, &instanz.adresse, &format!("k{n}"), None).await);
+    }
+    let tippt = || json!({"zustand": "tippt"});
+
+    let mut erste = Vec::new();
+    for token in &kennungen[..12] {
+        for gespraech in &gespraeche {
+            erste.push(
+                setzen(&absender, &instanz, Some(token), gespraech, tippt())
+                    .await
+                    .status,
+            );
+        }
+    }
+    let mut weitere = Vec::new();
+    let gebremst = loop {
+        let antwort = setzen(
+            &absender,
+            &instanz,
+            Some(&kennungen[12]),
+            &gespraeche[weitere.len() % 10],
+            tippt(),
+        )
+        .await;
+        if antwort.status != 200 || weitere.len() >= 40 {
+            break antwort;
+        }
+        weitere.push(antwort.status);
+    };
+
+    assert_eq!(erste, [200; 120]);
+    assert_eq!(
+        gebremst.status,
+        429,
+        "nach {} weiteren: {}",
+        weitere.len(),
+        gebremst.json
+    );
+    assert!(
+        weitere.len() < 12,
+        "höchstens der Nachschub einer Sekunde: {}",
+        weitere.len()
+    );
+    assert_eq!(gebremst.json["grenze"], "herkunft");
+    let gespraech = &gespraeche[weitere.len() % 10];
+    let wieder_in_ms = gebremst.json["wieder_in_ms"]
+        .as_u64()
+        .expect("wieder_in_ms");
+    assert!((1..=84).contains(&wieder_in_ms), "{wieder_in_ms}");
+    assert_eq!(
+        gebremst.json["fehler"],
+        format!(
+            "Zu viele Aktivitätsmeldungen von 127.0.0.1 (alle Teilnehmer dieser Adresse zusammen) in # {gespraech} — wieder möglich in 1 s."
+        )
+    );
 }

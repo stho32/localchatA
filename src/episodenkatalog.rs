@@ -13,11 +13,13 @@
 //! Dazu die Vollständigkeit: die Zahl der Stellen `Auftreten::neu(` im Quelltext ist gleich der Zahl der
 //! verschiedenen Bauweise-Funktionen in diesem Katalog.
 
+use crate::aktivitaet::Grenze as AktivitaetGrenze;
 use crate::gespraeche::anhangeingang::Verfallen;
 use crate::gespraeche::anhangid::Anhangid;
 use crate::gespraeche::anhangquote::{Platzfehler, Quotestand};
 use crate::gespraeche::wiederholung::{Grenze as Wiederholgrenze, Verdraengt};
 use crate::gespraeche::{Anmeldefehler, Kennung};
+use crate::http::aktivitaet::gebremst_auftreten as aktivitaet_gebremst_auftreten;
 use crate::http::anhaenge::anmelden::{abweisung_auftreten, anspruch_auftreten};
 use crate::http::anhaenge::hochladen::{metadaten_auftreten, zu_langsam_auftreten};
 use crate::http::auskunft::{Abfrage, zu_langsam_auftreten as namensaufloesung_auftreten};
@@ -528,6 +530,23 @@ fn katalog() -> Vec<Zeile> {
                 )
             },
         },
+        Zeile {
+            name: "aktivitaet · Aktivität gebremst: zu viele Meldungen",
+            bauweise: "http::aktivitaet::gebremst_auftreten",
+            texte: 1,
+            quelle: &[S::Kennung],
+            beginn: &[S::Channel, S::Grenze],
+            ende: &[],
+            ende_wert: &[],
+            bauen: |a, _| {
+                let grenze = if a.einzeln() % 2 == 1 {
+                    AktivitaetGrenze::Gespraech
+                } else {
+                    AktivitaetGrenze::Herkunft
+                };
+                aktivitaet_gebremst_auftreten(&a.kennung_der_quelle(), &a.text("channel"), grenze)
+            },
+        },
     ]
 }
 
@@ -833,8 +852,8 @@ fn jede_stelle_im_quelltext_hat_eine_bauweise_im_katalog() {
     );
 }
 
-/// Die Zeilen der Tabelle in ADR-0042, Ergänzung „Karte #70“, in ihrer Reihenfolge.
-const ZEILEN_DER_TABELLE: [&str; 23] = [
+/// Die Zeilen der Tabelle in ADR-0042, Ergänzung „Karte #70“, in ihrer Reihenfolge, und die Zeile der Ergänzung „Karte #77“.
+const ZEILEN_DER_TABELLE: [&str; 24] = [
     "verbindung · Verbindung an der Platzgrenze abgewiesen",
     "verbindung · Verbindung an der Abrissgrenze geschlossen",
     "verbindung · Verbindung nicht angenommen",
@@ -858,6 +877,7 @@ const ZEILEN_DER_TABELLE: [&str; 23] = [
     "anhang · Großer Anspruch",
     "aendern · Ändern fremder Nachricht abgewiesen",
     "aendern · Änderung nicht geschrieben",
+    "aktivitaet · Aktivität gebremst: zu viele Meldungen",
 ];
 
 /// Jede Zeile der Tabelle hat ihre Katalogzeile und umgekehrt — auch wenn ihre Bauweise noch in einer anderen

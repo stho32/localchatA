@@ -2,7 +2,7 @@
 
 mod abbruch;
 mod abweisungsseite;
-mod aktivitaet;
+pub(crate) mod aktivitaet;
 mod anfrageprotokoll;
 pub(crate) mod anhaenge;
 pub(crate) mod auskunft;

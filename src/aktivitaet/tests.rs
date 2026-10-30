@@ -1,7 +1,6 @@
 //! B0684 (R00045 F0161, ADR-0051 P1, P2): Tabelle, Gültigkeit, Ablauf — mit gestellter Uhr und aufzeichnender
 //! Veröffentlichung.
 
-use super::bremse::Grenze;
 use super::*;
 use crate::uhr::GestellteUhr;
 

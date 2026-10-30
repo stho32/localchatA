@@ -6,7 +6,7 @@
 
 mod bremse;
 
-pub use bremse::Gebremst;
+pub use bremse::{Gebremst, Grenze};
 
 use crate::gespraeche::{Gespraech, Kennung};
 use crate::uhr::{Uhr, Zeit};

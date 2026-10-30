@@ -26,11 +26,20 @@ pub const JE_HERKUNFT: Eimerart = Eimerart {
 /// Mehr Einträge lösen einen Durchgang aus, der wieder volle Eimer entfernt.
 const DURCHGANG_AB: usize = 1_024;
 
-/// Welcher Eimer bremst.
+/// Welcher Eimer bremst; auf der Leitung und im Protokoll `gespraech` bzw. `herkunft`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Grenze {
     Gespraech,
     Herkunft,
+}
+
+impl Grenze {
+    pub fn als_text(self) -> &'static str {
+        match self {
+            Grenze::Gespraech => "gespraech",
+            Grenze::Herkunft => "herkunft",
+        }
+    }
 }
 
 /// Abgewiesen: der Eimer, der länger braucht, und die Zeit, bis beide wieder eine Einheit tragen.

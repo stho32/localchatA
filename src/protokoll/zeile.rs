@@ -63,6 +63,8 @@ pub enum Bereich {
     Live,
     /// Eigene Nachrichten ändern (ADR-0048 Regel 13).
     Aendern,
+    /// Tippt / denkt nach (ADR-0042 Ergänzung „Karte #77“, ADR-0051 Regel 11).
+    Aktivitaet,
 }
 
 impl Bereich {
@@ -87,6 +89,7 @@ impl Bereich {
             Bereich::Anhang => "anhang",
             Bereich::Live => "live",
             Bereich::Aendern => "aendern",
+            Bereich::Aktivitaet => "aktivitaet",
         }
     }
 }

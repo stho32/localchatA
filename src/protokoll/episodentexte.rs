@@ -32,6 +32,7 @@ pub const FREMD_ABGEWIESEN: &str = "Ändern fremder Nachricht abgewiesen";
 pub const AENDERUNG_NICHT_GESCHRIEBEN: &str = "Änderung nicht geschrieben";
 pub const SCHLUESSEL_VERDRAENGT: &str =
     "Wiederholschlüssel vor Ablauf verdrängt — eine Wiederholung kann doppelt ankommen";
+pub const AKTIVITAET_GEBREMST: &str = "Aktivität gebremst: zu viele Meldungen";
 
 /// Ein Episodentext endet ohne Satzzeichen und trägt höchstens einen Gedankenstrich (vor Folge oder Ausweg);
 /// gilt auch für den Vorlauftext aus `uhr`.
@@ -86,6 +87,7 @@ mod tests {
         aenderung_nicht_geschrieben: AENDERUNG_NICHT_GESCHRIEBEN = "Änderung nicht geschrieben";
         schluessel_verdraengt: SCHLUESSEL_VERDRAENGT =
             "Wiederholschlüssel vor Ablauf verdrängt — eine Wiederholung kann doppelt ankommen";
+        aktivitaet_gebremst: AKTIVITAET_GEBREMST = "Aktivität gebremst: zu viele Meldungen";
     }
 
     /// Die Regel selbst: jedes verbotene Satzzeichen am Ende und ein zweiter Gedankenstrich fallen auf.
