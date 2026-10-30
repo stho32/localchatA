@@ -365,7 +365,7 @@ export function verlaufAnlegen({
       menueSchliessen();
     }
   }, { signal });
-  log.addEventListener('scroll', menueSchliessen, { passive: true });
+  log.addEventListener('scroll', menueSchliessen, { passive: true, signal });
   log.addEventListener('keydown', (ereignis) => {
     const offenerSchalter = inhalt.querySelector('.lc-aktionen-schalter[aria-expanded="true"]');
     if (ereignis.key === 'Escape' && offenerSchalter !== null) {
