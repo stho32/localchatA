@@ -101,6 +101,12 @@ export function bearbeitbar({ zeit, von, zustand }, eigeneKennung) {
   return eigeneKennung !== '' && von === eigeneKennung && zeit !== undefined && zustand !== 'geloescht';
 }
 
+// Den Text einer Nachricht kopieren (R00046 I0042, ADR-0052 Regel 1): jede bestätigte, nicht gelöschte Nachricht mit
+// Text — eigene, fremde, von Agenten; je Aktion gebunden (PO 145), anders als bearbeitbar.
+export function kopierbar({ zeit, text = '', zustand }) {
+  return zeit !== undefined && zustand !== 'geloescht' && text !== '';
+}
+
 // Die Aktionen einer Nachricht in der Reihenfolge der Leiste (Designsystem Nachricht: Antworten · Kopieren · Bearbeiten
 // · Löschen); jede Aktion trägt ihre eigene Bedingung (PO 145) — heute gelten nur Bearbeiten und Löschen, an der eigenen.
 export function aktionenFuer(nachricht, eigeneKennung) {
