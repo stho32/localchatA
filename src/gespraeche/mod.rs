@@ -69,6 +69,8 @@ pub struct Nachricht {
     pub anhaenge: Vec<logformat::Anhangzeile>,
     /// Wann und wie die Nachricht zuletzt geändert wurde; ungeändert keine (ADR-0048 Regel 4).
     pub geaendert: Option<Geaendert>,
+    /// Bezug einer Antwort aus der Metazeile `+ antwort_auf:` (ADR-0053 Regel 1); ohne Bezug oder defekt keiner.
+    pub bezug: Option<logformat::Antwortbezug>,
 }
 
 /// Die letzte Änderung einer Nachricht: Zeit des Änderungssatzes und Zustand.
@@ -297,6 +299,12 @@ pub enum Defektart {
         zeile: usize,
         grund: &'static str,
     },
+    /// Eine Metazeile `+ antwort_auf:`, die nicht gilt (ADR-0053 Regel 1): Zeile der Kopfzeile und Grund als Wort
+    /// (`zwei_bezuege`, `zeit`, `kennung`, `reihenfolge`); die Nachricht bleibt, nur ohne Bezug.
+    Antwort {
+        zeile: usize,
+        grund: &'static str,
+    },
 }
 
 impl fmt::Display for Ladedefekt {
@@ -322,6 +330,13 @@ impl fmt::Display for Ladedefekt {
                 write!(
                     f,
                     "{}:{zeile}: Änderungssatz übergangen ({grund})",
+                    self.datei
+                )
+            }
+            Defektart::Antwort { zeile, grund } => {
+                write!(
+                    f,
+                    "{}:{zeile}: Bezug einer Antwort übergangen, Nachricht bleibt ({grund})",
                     self.datei
                 )
             }
@@ -1188,12 +1203,26 @@ impl Geladen {
             }
         };
         let mut satzanfaenge = Vec::new();
+        let mut nachrichten = Vec::new();
         let (saetze, traegt_anhang) = logformat::saetze_und_metazeilen(&rohtext);
         for gelesen in saetze {
             match gelesen {
                 Ok(satz) => {
                     satzanfaenge.push(satz.anfang);
                     self.juengste = self.juengste.max(Some(satz.zeit));
+                    let deutung = logformat::deuten(&rohtext[satz.anfang..satz.ende]);
+                    if deutung.art == logformat::Satzart::Nachricht {
+                        nachrichten.push(satz.anfang);
+                    }
+                    if let Err(defekt) = deutung.antwort {
+                        self.defekte.push(Ladedefekt {
+                            datei: datei.clone(),
+                            art: Defektart::Antwort {
+                                zeile: zeile_im_rohtext(&rohtext, satz.anfang),
+                                grund: antwortdefekt_als_wort(defekt),
+                            },
+                        });
+                    }
                 }
                 Err(defekt) => self.defekte.push(Ladedefekt {
                     datei: datei.clone(),
@@ -1201,7 +1230,26 @@ impl Geladen {
                 }),
             }
         }
-        verlauf.tag_mit_anhangflagge(tag, rohtext, satzanfaenge, traegt_anhang);
+        verlauf.tag_mit_nachrichten(tag, rohtext, satzanfaenge, nachrichten, traegt_anhang);
+    }
+}
+
+/// Die Zeile (1-basiert), in der der Satz ab `anfang` beginnt — nur für einen Defekt gezählt.
+fn zeile_im_rohtext(rohtext: &[u8], anfang: usize) -> usize {
+    rohtext[..anfang]
+        .iter()
+        .filter(|byte| **byte == b'\n')
+        .count()
+        + 1
+}
+
+/// Der Grund eines defekten Antwortbezugs als Wort für das Betriebsprotokoll.
+fn antwortdefekt_als_wort(defekt: logformat::Antwortdefekt) -> &'static str {
+    match defekt {
+        logformat::Antwortdefekt::ZweiBezuege => "zwei_bezuege",
+        logformat::Antwortdefekt::Zeit => "zeit",
+        logformat::Antwortdefekt::Kennung => "kennung",
+        logformat::Antwortdefekt::NichtVorher => "reihenfolge",
     }
 }
 
@@ -1275,6 +1323,7 @@ fn nachricht_bilden(
         text: text.to_string(),
         anhaenge,
         geaendert: None,
+        bezug: None,
     };
     let satz = logformat::satz(&nachricht);
     nachricht.text = logformat::text(&satz);
@@ -1670,6 +1719,42 @@ mod tests {
         assert_eq!(gespraeche.kennzahlen().nachrichten, 2);
     }
 
+    /// R00047 B0704 (ADR-0053 Regel 1, US-24): eine defekte Metazeile `+ antwort_auf:` ist beim Laden ein Defekt mit
+    /// Datei und Zeile der Kopfzeile; die Nachricht bleibt, nur ohne Bezug.
+    #[test]
+    fn ein_defekter_antwortbezug_ist_ein_ladedefekt_die_nachricht_bleibt_ohne_bezug() {
+        let wurzel = tempfile::tempdir().expect("Wegwerf-Ordner");
+        let ordner = wurzel.path();
+        datei(
+            ordner,
+            "channels/allgemein/2026-10-27.log",
+            b"@ 2026-10-27T10:00:00.000+01:00 claude@127.0.0.1\n  Frage?\n\n\
+              @ 2026-10-27T10:00:05.000+01:00 codex@127.0.0.1\n+ antwort_auf: 2026-10-27T10:00:00.000+01:00\n  Ja.\n\n\
+              @ 2026-10-27T10:00:06.000+01:00 codex@127.0.0.1\n+ antwort_auf: 2026-10-27T10:00:00.000+01:00 claude@127.0.0.1\n  Gut.\n\n",
+        );
+
+        let gespraeche = laden_um(ordner, "2026-10-27T12:00:00+01:00");
+
+        assert_eq!(
+            gespraeche
+                .defekte()
+                .iter()
+                .map(ToString::to_string)
+                .collect::<Vec<_>>(),
+            vec![
+                "channels/allgemein/2026-10-27.log:4: Bezug einer Antwort übergangen, Nachricht bleibt (kennung)"
+            ]
+        );
+        let block = neueste(&gespraeche);
+        assert_eq!(
+            block
+                .iter()
+                .map(|nachricht| (nachricht.text.as_str(), nachricht.bezug.is_some()))
+                .collect::<Vec<_>>(),
+            vec![("Frage?", false), ("Ja.", false), ("Gut.", true)]
+        );
+    }
+
     #[test]
     fn laedt_die_tage_in_der_frist_aller_gespraeche_mit_kennzahlen_defekten_und_juengster_zeit() {
         let wurzel = tempfile::tempdir().expect("Wegwerf-Ordner");
@@ -1801,6 +1886,7 @@ mod tests {
                     zeit: zeit("2026-10-28T10:05:00.000+01:00"),
                     zustand: Aenderungszustand::Bearbeitet,
                 }),
+                bezug: None,
             }]
         );
     }

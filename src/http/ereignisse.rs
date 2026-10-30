@@ -432,6 +432,7 @@ mod tests {
                 zeit: zeit("2026-10-28T12:05:00.000+01:00"),
                 zustand: Aenderungszustand::Bearbeitet,
             }),
+            bezug: None,
         };
 
         assert_eq!(
@@ -1001,6 +1002,7 @@ mod tests {
                     text: "fertig".into(),
                     anhaenge: Vec::new(),
                     geaendert: None,
+                    bezug: None,
                 },
             });
             let ben = alles_lesen(&mut zwei.ben, Duration::from_millis(50)).await;

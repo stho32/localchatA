@@ -205,6 +205,7 @@ impl Verlauf {
     }
 
     /// Wie `tag_aufnehmen`, mit dem beim Lesen schon bestimmten Merkmal, ob der Tag Metazeilen `+ anhang:` trägt.
+    #[cfg(test)]
     pub fn tag_mit_anhangflagge(
         &mut self,
         tag: NaiveDate,
@@ -224,6 +225,19 @@ impl Verlauf {
             })
             .map(|(_, anfang)| *anfang)
             .collect();
+        self.tag_mit_nachrichten(tag, rohtext, satzanfaenge, nachrichten, traegt_anhang);
+    }
+
+    /// Nimmt einen Tag auf, dessen Sätze das Laden schon gedeutet hat (ein Durchgang über die Metazeilen,
+    /// ADR-0053 Regel 1): Anfänge aller Sätze, Anfänge der Nachrichten darunter, Merkmal `+ anhang:`.
+    pub fn tag_mit_nachrichten(
+        &mut self,
+        tag: NaiveDate,
+        rohtext: Vec<u8>,
+        satzanfaenge: Vec<usize>,
+        nachrichten: Vec<usize>,
+        traegt_anhang: bool,
+    ) {
         self.tage.insert(
             tag,
             Tag {

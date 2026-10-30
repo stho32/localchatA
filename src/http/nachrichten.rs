@@ -451,6 +451,7 @@ mod tests {
             text: "Hallo\nWelt".into(),
             anhaenge: Vec::new(),
             geaendert: None,
+            bezug: None,
         };
 
         let agent = serde_json::to_value(NachrichtAntwort::aus(&nachricht)).expect("JSON");
@@ -480,6 +481,7 @@ mod tests {
                 zeit: zeit("2026-10-28T12:05:00.000+01:00"),
                 zustand: Aenderungszustand::Bearbeitet,
             }),
+            bezug: None,
         };
 
         let bearbeitet = serde_json::to_value(NachrichtAntwort::aus(&nachricht)).expect("JSON");

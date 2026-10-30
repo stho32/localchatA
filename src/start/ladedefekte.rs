@@ -72,6 +72,12 @@ fn eintrag(defekt: &Ladedefekt) -> Eintrag {
             "Einstellungen nicht lesbar, als unbekannt gelesen",
             datei.mit(Schluessel::Grund, grund),
         ),
+        Defektart::Antwort { zeile, grund } => warnung(
+            "Bezug einer Antwort übergangen, Nachricht bleibt",
+            datei
+                .mit(Schluessel::Zeile, zeile)
+                .mit(Schluessel::Grund, *grund),
+        ),
         Defektart::Aenderung { zeile, grund } => warnung(
             "Änderungssatz übergangen",
             datei

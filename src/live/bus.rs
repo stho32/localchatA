@@ -374,6 +374,7 @@ mod tests {
             text: "Hallo zusammen".into(),
             anhaenge: Vec::new(),
             geaendert: None,
+            bezug: None,
         };
         let veroeffentlichen = aenderungen_veroeffentlichen(&bus);
 

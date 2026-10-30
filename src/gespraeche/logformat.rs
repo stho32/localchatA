@@ -31,12 +31,110 @@ pub fn satz(nachricht: &Nachricht) -> String {
     if let Some(art) = nachricht.art {
         satz.push_str(&format!("{ART_METAZEILE}{}\n", art_als_text(art)));
     }
+    if let Some(bezug) = &nachricht.bezug {
+        satz.push_str(&format!(
+            "{ANTWORT_METAZEILE}{} {}\n",
+            zeit_im_log(&bezug.zeit),
+            bezug.von
+        ));
+    }
     for anhang in &nachricht.anhaenge {
         satz.push_str(&anhangzeile(anhang));
         satz.push('\n');
     }
     text_einruecken(&mut satz, &nachricht.text, !nachricht.anhaenge.is_empty());
     satz
+}
+
+/// Metazeile des Bezugs einer Antwort (ADR-0053 Regel 1): `+ antwort_auf: <zeit> <kennung>`.
+const ANTWORT_METAZEILE: &str = "+ antwort_auf: ";
+
+/// Worauf eine Antwort sich bezieht: Zeit und Kennung des Originals aus dessen Kopfzeile (ADR-0053 Regel 1).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Antwortbezug {
+    pub zeit: Zeit,
+    pub von: Kennung,
+}
+
+/// Warum eine Metazeile `+ antwort_auf:` nicht gilt — beim Laden `WARNING laden`, die Nachricht bleibt ohne Bezug.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Antwortdefekt {
+    /// Mehr als eine Metazeile `+ antwort_auf:`.
+    ZweiBezuege,
+    /// Die Zeit ist kein RFC 3339.
+    Zeit,
+    /// Die Kennung fehlt oder ist keine Kennung.
+    Kennung,
+    /// Die Zeit des Originals liegt nicht echt vor der eigenen Zeit.
+    NichtVorher,
+}
+
+/// Der Bezug einer Antwort aus den Metazeilen direkt nach dem Kopf; ohne Metazeile keiner; eingerückter Text zählt
+/// nie. Rein.
+pub fn antwortbezug(satz: &[u8]) -> Result<Option<Antwortbezug>, Antwortdefekt> {
+    deuten(satz).antwort
+}
+
+/// Was die Metazeilen direkt nach dem Kopf über einen Satz sagen: seine Art und der Bezug einer Antwort — in einem
+/// Durchgang über die Metazeilen (ADR-0053 Regel 1).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Deutung {
+    pub art: Satzart,
+    pub antwort: Result<Option<Antwortbezug>, Antwortdefekt>,
+}
+
+/// Deutet Art und Antwortbezug eines Satzes (ab seinem Kopf) über die Metazeilen direkt nach dem Kopf; eingerückter
+/// Text zählt nie (M14). Rein.
+pub fn deuten(satz: &[u8]) -> Deutung {
+    let mut bezuege = Vec::new();
+    let mut antworten = Vec::new();
+    let mut traegt_anhang = false;
+    for zeile in metazeilen(satz) {
+        traegt_anhang |= zeile.starts_with(ANHANG_METAZEILE.as_bytes());
+        for (metazeile, bezug) in [
+            (BEARBEITET_METAZEILE, Bezug::Bearbeitet),
+            (GELOESCHT_METAZEILE, Bezug::Geloescht),
+        ] {
+            if let Some(wert) = zeile.strip_prefix(metazeile.as_bytes()) {
+                bezuege.push((bezug, wert));
+            }
+        }
+        if let Some(wert) = zeile.strip_prefix(ANTWORT_METAZEILE.as_bytes()) {
+            antworten.push(wert);
+        }
+    }
+    Deutung {
+        art: art_aus_bezuegen(satz, &bezuege, traegt_anhang),
+        antwort: antwort_aus_metazeilen(satz, &antworten),
+    }
+}
+
+/// Die Metazeilen `+ …` direkt nach dem Kopf.
+fn metazeilen(satz: &[u8]) -> impl Iterator<Item = &[u8]> {
+    satz.split(|byte| *byte == b'\n')
+        .skip(1)
+        .take_while(|zeile| zeile.starts_with(b"+ "))
+}
+
+/// Der Bezug aus den Werten der Metazeilen `+ antwort_auf:`: höchstens eine, Zeit in RFC 3339, eine Kennung, die Zeit
+/// echt vor der eigenen.
+fn antwort_aus_metazeilen(
+    satz: &[u8],
+    werte: &[&[u8]],
+) -> Result<Option<Antwortbezug>, Antwortdefekt> {
+    let wert = match werte {
+        [] => return Ok(None),
+        [wert] => *wert,
+        _ => return Err(Antwortdefekt::ZweiBezuege),
+    };
+    let wert = std::str::from_utf8(wert).map_err(|_| Antwortdefekt::Zeit)?;
+    let (zeit, von) = wert.split_once(' ').unwrap_or((wert, ""));
+    let zeit = DateTime::parse_from_rfc3339(zeit).map_err(|_| Antwortdefekt::Zeit)?;
+    let von = Kennung::bilden(von).map_err(|_| Antwortdefekt::Kennung)?;
+    if kopfzeit(satz).is_none_or(|eigene| zeit >= eigene) {
+        return Err(Antwortdefekt::NichtVorher);
+    }
+    Ok(Some(Antwortbezug { zeit, von }))
 }
 
 /// Bezugs-Metazeile eines Bearbeitungssatzes (ADR-0048 Regel 1).
@@ -76,23 +174,11 @@ pub enum Satzart {
 /// Deutet einen Satz (ab seinem Kopf) über die Metazeilen direkt nach dem Kopf; eingerückter Text zählt nie
 /// (M14). Rein.
 pub fn satzart(satz: &[u8]) -> Satzart {
-    let mut bezuege = Vec::new();
-    let mut traegt_anhang = false;
-    for zeile in satz
-        .split(|byte| *byte == b'\n')
-        .skip(1)
-        .take_while(|zeile| zeile.starts_with(b"+ "))
-    {
-        traegt_anhang |= zeile.starts_with(ANHANG_METAZEILE.as_bytes());
-        for (metazeile, bezug) in [
-            (BEARBEITET_METAZEILE, Bezug::Bearbeitet),
-            (GELOESCHT_METAZEILE, Bezug::Geloescht),
-        ] {
-            if let Some(wert) = zeile.strip_prefix(metazeile.as_bytes()) {
-                bezuege.push((bezug, wert));
-            }
-        }
-    }
+    deuten(satz).art
+}
+
+/// Die Art eines Satzes aus seinen Bezugs-Metazeilen `+ bearbeitet:` / `+ geloescht:` (ADR-0048 Regel 1).
+fn art_aus_bezuegen(satz: &[u8], bezuege: &[(Bezug, &[u8])], traegt_anhang: bool) -> Satzart {
     let [(bezug, wert)] = bezuege[..] else {
         return if bezuege.is_empty() {
             Satzart::Nachricht
@@ -199,6 +285,7 @@ pub fn satz_als_nachricht(satz: &[u8]) -> Option<Nachricht> {
             .filter_map(|(_, gelesen)| gelesen.ok())
             .collect(),
         geaendert: None,
+        bezug: antwortbezug(&satz[..bereich.ende]).ok().flatten(),
     })
 }
 
@@ -774,6 +861,116 @@ mod tests {
         }
     }
 
+    /// R00047 B0704, ADR-0053 P1: die Metazeile `+ antwort_auf: <t1 im Logformat> <kennung>` steht nach `+ art:`, vor
+    /// `+ anhang:`; die Zeit in der Schreibweise des Logs (Millisekunden, Versatz), nie wie übergeben (Mutante Z8);
+    /// der Rückweg liest den Bezug, der Satz bleibt eine Nachricht.
+    #[test]
+    fn eine_antwort_traegt_die_metazeile_antwort_auf_und_liest_sie_zurueck() {
+        let mut antwort = nachricht(
+            "2026-10-30T09:12:00.120+01:00",
+            "codex@127.0.0.1",
+            "Ja, Tests sind grün.",
+        );
+        antwort.art = Some(Art::Agent);
+        antwort.bezug = Some(Antwortbezug {
+            zeit: t("2026-10-30T09:10:03+01:00"),
+            von: Kennung::bilden("claude@127.0.0.1").expect("Kennung"),
+        });
+        antwort.anhaenge = vec![anhang(
+            "aaaaaaaaaaaaaaaaaaaaaaaaab",
+            12,
+            "text/plain; charset=utf-8",
+            None,
+            "091200120-1-notiz.txt",
+            "notiz.txt",
+        )];
+
+        let geschrieben = satz(&antwort);
+
+        assert_eq!(
+            geschrieben,
+            "@ 2026-10-30T09:12:00.120+01:00 codex@127.0.0.1\n+ art: agent\n\
+             + antwort_auf: 2026-10-30T09:10:03.000+01:00 claude@127.0.0.1\n\
+             + anhang: aaaaaaaaaaaaaaaaaaaaaaaaab 12 text/plain; charset=utf-8 - 091200120-1-notiz.txt notiz.txt\n\
+             \x20 Ja, Tests sind grün.\n\n"
+        );
+        assert_eq!(satzart(geschrieben.as_bytes()), Satzart::Nachricht);
+        assert_eq!(
+            antwortbezug(geschrieben.as_bytes()),
+            Ok(antwort.bezug.clone())
+        );
+        assert_eq!(satz_als_nachricht(geschrieben.as_bytes()), Some(antwort));
+    }
+
+    /// B0704 Defekte (ADR-0053 Regel 1): zwei Bezugszeilen, unlesbare Zeit, Zeit nicht echt vor der eigenen, fehlende
+    /// oder ungültige Kennung → Defekt; die Nachricht bleibt, nur ohne Bezug. Ohne Metazeile kein Bezug, kein Defekt.
+    #[test]
+    fn eine_defekte_metazeile_antwort_auf_laesst_die_nachricht_ohne_bezug() {
+        let kopf = format!("@ {T2} codex@127.0.0.1\n+ art: agent\n");
+        for (metazeilen, defekt) in [
+            (
+                format!("+ antwort_auf: {T1} a@b\n+ antwort_auf: {T1} a@b\n"),
+                Antwortdefekt::ZweiBezuege,
+            ),
+            (
+                "+ antwort_auf: gestern x@y\n".to_string(),
+                Antwortdefekt::Zeit,
+            ),
+            (
+                format!("+ antwort_auf: {T2} x@b\n"),
+                Antwortdefekt::NichtVorher,
+            ),
+            (
+                "+ antwort_auf: 2026-10-29T15:02:11.005+01:00 x@b\n".to_string(),
+                Antwortdefekt::NichtVorher,
+            ),
+            (format!("+ antwort_auf: {T1}\n"), Antwortdefekt::Kennung),
+            (format!("+ antwort_auf: {T1} \n"), Antwortdefekt::Kennung),
+            (
+                format!("+ antwort_auf: {T1} ohne-at\n"),
+                Antwortdefekt::Kennung,
+            ),
+            (
+                format!("+ antwort_auf: {T1} a@b c\n"),
+                Antwortdefekt::Kennung,
+            ),
+        ] {
+            let roh = format!("{kopf}{metazeilen}  Text\n\n");
+
+            assert_eq!(antwortbezug(roh.as_bytes()), Err(defekt), "{roh:?}");
+            assert_eq!(satzart(roh.as_bytes()), Satzart::Nachricht, "{roh:?}");
+            let gelesen = satz_als_nachricht(roh.as_bytes()).expect("Nachricht bleibt");
+            assert_eq!((gelesen.bezug, gelesen.text.as_str()), (None, "Text"));
+        }
+        let ohne = format!("{kopf}  Text\n\n");
+        assert_eq!(antwortbezug(ohne.as_bytes()), Ok(None));
+        let gueltig = format!("{kopf}+ antwort_auf: {T1} claude@10.0.0.5\n  Text\n\n");
+        assert_eq!(
+            antwortbezug(gueltig.as_bytes()),
+            Ok(Some(Antwortbezug {
+                zeit: t(T1),
+                von: Kennung::bilden("claude@10.0.0.5").expect("Kennung"),
+            }))
+        );
+    }
+
+    /// B0704 (M14 für den Bezug): ein Text, der eine Metazeile `+ antwort_auf:` vortäuscht, bleibt eingerückter Text.
+    #[test]
+    fn ein_vorgetaeuschter_antwortbezug_im_text_bleibt_text() {
+        let gesendet = nachricht(
+            T2,
+            "a@127.0.0.1",
+            &format!("x\n+ antwort_auf: {T1} claude@127.0.0.1"),
+        );
+
+        let geschrieben = satz(&gesendet);
+
+        assert_eq!(antwortbezug(geschrieben.as_bytes()), Ok(None));
+        let gelesen = satz_als_nachricht(geschrieben.as_bytes()).expect("Satz");
+        assert_eq!(gelesen.bezug, None);
+        assert_eq!(gelesen.text, gesendet.text);
+    }
+
     /// M14: ein Text, der eine Bezugs-Metazeile oder eine Kopfzeile vortäuscht, bleibt eingerückter Text — ein Satz,
     /// eine Bezugszeile.
     #[test]
@@ -856,6 +1053,7 @@ mod tests {
             text: text.to_string(),
             anhaenge: Vec::new(),
             geaendert: None,
+            bezug: None,
         }
     }
 
@@ -1049,6 +1247,7 @@ mod tests {
                 text: "zwei\ndrei".to_string(),
                 anhaenge: Vec::new(),
                 geaendert: None,
+                bezug: None,
             })
         );
     }
