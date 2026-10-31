@@ -295,7 +295,11 @@ export function bearbeitenAnlegen({
     }
   }
 
+  // Läuft das Speichern, gilt Abbrechen nicht: das Ergebnis des POST bleibt maßgeblich und schließt das Feld.
   function abbrechen() {
+    if (offen.laeuft) {
+      return;
+    }
     const zeit = offen.zeit;
     schliessen();
     fokusAufNachricht(zeit);

@@ -73,3 +73,39 @@ for (const [wie, ausloesen] of [
     expect(a.fehler).toEqual([]);
   });
 }
+
+// code-reviewer #85 Slice B (abbrechen() während laufendem Speichern): Esc und „Abbrechen“ gelten nicht, solange das
+// Speichern läuft — das Ergebnis des POST bleibt maßgeblich: keine Ansage „Bearbeiten abgebrochen.“, die Nachricht zeigt
+// den gespeicherten Text, genau eine Ansage „Änderung gespeichert.“.
+const BEARBEITEN = '/api/channels/allgemein/nachrichten/bearbeiten';
+
+for (const [wie, ausloesen] of [
+  ['Esc', (page) => page.keyboard.press('Escape')],
+  ['Klick auf „Abbrechen“', (page, zeit) => knopfAm(page, zeit, 'Abbrechen').click()],
+]) {
+  test(`${wie} während das Speichern läuft (verzögerter POST): keine Meldung „Bearbeiten abgebrochen.“, das Ergebnis des POST gilt`, async ({ browser }) => {
+    const { a, zeit, bearbeitungen, angesagt } = await vorbereiten(browser);
+    await a.page.keyboard.type(' geändert');
+    let freigeben;
+    const gehalten = new Promise((fertig) => { freigeben = fertig; });
+    await a.page.route(`**${BEARBEITEN}`, async (route) => {
+      await gehalten;
+      await route.continue();
+    });
+    await knopfAm(a.page, zeit, 'Speichern').click();
+    await expect.poll(() => a.page.evaluate(() => document.querySelector('.lc-bearbeiten') !== null)).toBe(true);
+
+    await ausloesen(a.page, zeit);
+    await a.page.waitForTimeout(300);
+    expect(await angesagt(), 'keine Ansage, solange das Speichern läuft').toEqual([]);
+    freigeben();
+
+    await expect(feld(a.page)).toHaveCount(0);
+    await expect(nachrichtMitZeit(a.page, zeit).locator('.lc-body')).toHaveText('Hallo geändert');
+    await expect.poll(angesagt).toEqual(['Änderung gespeichert.']);
+    await a.page.waitForTimeout(300);
+    expect(await angesagt()).toEqual(['Änderung gespeichert.']);
+    expect(bearbeitungen).toHaveLength(1);
+    expect(a.fehler).toEqual([]);
+  });
+}
