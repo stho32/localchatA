@@ -97,6 +97,21 @@ test('Grund „selbst blockiert“ nennt den Platz, was frei bleibt, was die Dat
   assert.match(selbstBlockiertGrund({ hoechstens: MIB, gebunden: MIB, braucht: 2 * MIB }, MIB), /daneben bleiben 0 Byte,/);
 });
 
+// rechtschreib-reviewer #85 Sollte 1 (Abnahme-Probe wörtlich): die Selbstblockade ab 1 MiB widerspricht sich durch die
+// Rundung nicht — sagen „daneben“ und „braucht“ in Worten dasselbe, steht die Zahl genau, in Byte.
+test('Grund „selbst blockiert“ widerspricht sich durch Rundung nicht: gleich gerundete Größen werden genau in Byte genannt', () => {
+  const MIB = 1024 * 1024;
+  const frei = Math.round(2.86 * MIB);
+  const braucht = Math.round(2.89 * MIB);
+  const grund = selbstBlockiertGrund({ hoechstens: 10 * MIB, gebunden: 10 * MIB - frei, braucht }, 0);
+  assert.doesNotMatch(grund, /bleiben 2,9 MiB, die Datei braucht 2,9 MiB/);
+  assert.match(grund, /daneben bleiben 2\.998\.927 Byte, die Datei braucht 3\.030\.385 Byte\./);
+  const kib = selbstBlockiertGrund({ hoechstens: 10 * MIB, gebunden: 10 * MIB - 102500, braucht: 102700 }, 0);
+  assert.match(kib, /daneben bleiben 102\.500 Byte, die Datei braucht 102\.700 Byte\./);
+  const verschieden = selbstBlockiertGrund({ hoechstens: 10 * MIB, gebunden: 10 * MIB - 100 * 1024, braucht: 3 * MIB }, 0);
+  assert.match(verschieden, /daneben bleiben 100 KiB, die Datei braucht 3,0 MiB\./);
+});
+
 // UX-Review #43 F0101 S3: eine Nachricht, die an einer abgewiesenen Datei hängt, sagt nicht mehr „wird hochgeladen …“.
 test('Zustand des Eintrags: „wird hochgeladen …“, mit abgewiesenen Dateien der Weg über „Entfernen“', () => {
   assert.equal(eintragZustandText(0), ' wird hochgeladen …');

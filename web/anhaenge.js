@@ -2,7 +2,7 @@
 // Sendeschlange als Eintrag „wird hochgeladen …“ am Ende des eigenen Verlaufs, bis jede Datei angemeldet und oben ist;
 // Text, der in der Zwischenzeit gesendet wird, geht sofort hinaus (N1). Die Einträge gehören dem Tab — ein
 // Channelwechsel unterbricht nichts, gezeigt werden die des offenen Channels.
-import { groesseInWorten } from './groesse.js';
+import { groesseInWorten, groesseInByte } from './groesse.js';
 import { typkuerzel } from './dateiliste.js';
 import { nachrichtZeichnen } from './nachricht.js';
 import { nurLeerraum } from './textregel.js';
@@ -58,7 +58,18 @@ export function selbstBlockiert(platz, eigeneBytes) {
 }
 
 export function selbstBlockiertGrund(platz, eigeneBytes) {
-  return `Nicht hochgeladen: die übrigen Dateien dieser Nachricht belegen den Platz für Anhänge — daneben bleiben ${groesseInWorten(daneben(platz, eigeneBytes))}, die Datei braucht ${groesseInWorten(platz.braucht)}. Jede Datei belegt mindestens ${groesseInWorten(MINDESTMASS)}. „Entfernen“ sendet die übrigen; diese Datei danach einzeln senden.`;
+  const [frei, braucht] = zweiGroessen(daneben(platz, eigeneBytes), platz.braucht);
+  return `Nicht hochgeladen: die übrigen Dateien dieser Nachricht belegen den Platz für Anhänge — daneben bleiben ${frei}, die Datei braucht ${braucht}. Jede Datei belegt mindestens ${groesseInWorten(MINDESTMASS)}. „Entfernen“ sendet die übrigen; diese Datei danach einzeln senden.`;
+}
+
+// Zwei Größen für einen Satz, der sie vergleicht: lauten sie in Worten gleich, obwohl die eine kleiner ist, stehen beide
+// genau in Byte — sonst widerspräche sich der Satz durch die Rundung.
+function zweiGroessen(erste, zweite) {
+  const worte = [groesseInWorten(erste), groesseInWorten(zweite)];
+  if (worte[0] === worte[1] && erste !== zweite) {
+    return [groesseInByte(erste), groesseInByte(zweite)];
+  }
+  return worte;
 }
 
 // Wie die Instanz einen Anhang an der Anhang-Quote zählt (src/gespraeche/anhangquote.rs): mindestens 64 KiB, sonst auf
