@@ -323,11 +323,21 @@ function vorhandeneAnhaenge({ anhaenge = [] }) {
 }
 
 // Das Feld wächst mit dem Inhalt bis zur Höhe aus dem CSS (10 Zeilen) und scrollt dann in sich; der Rand zählt zur
-// Höhe (border-box).
+// Höhe (border-box). Zum Messen fällt das Feld kurz auf seine eigene Höhe zusammen: der Verlauf darunter klemmt dabei
+// seine Rollstellung, und das Feld am Ende des Verlaufs rutschte hinter die Eingabe (B0804) — die Stellung bleibt darum
+// erhalten.
 function hoeheAnpassen(feld) {
+  const verlauf = feld.closest('.lc-log');
+  let rollstellung = null;
+  if (verlauf !== null) {
+    rollstellung = verlauf.scrollTop;
+  }
   feld.style.height = '';
   const rand = feld.offsetHeight - feld.clientHeight;
   feld.style.height = `${feld.scrollHeight + rand}px`;
+  if (verlauf !== null) {
+    verlauf.scrollTop = rollstellung;
+  }
 }
 
 function element(tag, eigenschaften = {}, kinder = []) {
