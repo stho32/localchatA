@@ -85,6 +85,7 @@ body { background: var(--kd-bg); color: var(--kd-ink); font-family: var(--font-s
   .lc-head-bed { min-height: 36px; }
 }
 .lc-hbtn { height: 28px; padding: 0 var(--kd-space-8); background: transparent; border: 0; color: var(--kd-header-ink); cursor: pointer; font-weight: 600; }
+@media (pointer: coarse) { .lc-hbtn { height: 36px; } }
 .lc-hbtn:hover, .lc-hbtn[aria-expanded="true"] { background: var(--kd-header-surface); }
 .lc-hbtn .lc-count { font-family: var(--font-mono); font-size: 11px; color: var(--kd-header-muted); }
 .lc-tile { width: var(--lc-tile); height: var(--lc-tile); flex: none; display: inline-grid; place-items: center; font-family: var(--font-mono); font-size: 10px; font-weight: 600; text-transform: uppercase; }
