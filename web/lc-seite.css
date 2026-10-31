@@ -256,7 +256,7 @@ body { background: var(--kd-bg); color: var(--kd-ink); font-family: var(--font-s
 /* Hinweiszeile unter dem Feld (ADR-0038 Regel 4): 20 px, gedämpft; als Fehler in kd-danger */
 /* Höchstens 2 Zeilen, dann Ellipse — die Ansage nennt den vollen Text (UX V6) */
 .lc-comp-hinweis { margin: 0; min-height: 20px; font-size: 12px; line-height: 20px; color: var(--kd-ink-muted); overflow-wrap: anywhere; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow: hidden; }
-.lc-comp-hinweis.lc-hinweis-unterbrochen { display: block; overflow: visible; -webkit-line-clamp: unset; line-clamp: unset; }
+.lc-comp-hinweis.lc-hinweis-unterbrochen, .lc-comp-hinweis.lc-hinweis-ganz { display: block; overflow: visible; -webkit-line-clamp: unset; line-clamp: unset; }
 .lc-comp-hinweis.lc-fehler { color: var(--kd-danger); font-weight: 600; }
 /* Hinweiszeile mit dem Schalter „Steuerzeichen entfernen“ daneben; in der roten Zeile bleibt er neutral (R00025 F0086) */
 .lc-comp-hinweisreihe { position: relative; display: flex; flex-wrap: wrap; align-items: flex-start; column-gap: var(--kd-space-8); }

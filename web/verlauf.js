@@ -33,12 +33,13 @@ import { geloeschtFolgeAnlegen } from './geloescht-folge.js';
 // Nachrichten unterwegs oder fehlgeschlagen unter allen bestätigten; an fehlgeschlagenen rufen „Erneut senden“ und
 // „Verwerfen“ schalter('erneut' | 'verwerfen', schluessel) (ADR-0038 Regel 5).
 // bearbeitenSpeichern: async (channel, zeit, text) → Antwort (api.js nachrichtBearbeiten); loeschen: async (channel, zeit) →
-// Antwort (api.js nachrichtLoeschen); hinweisen(text): die Hinweiszeile der Seite; ansagen(text): eine Ansage über die
+// Antwort (api.js nachrichtLoeschen); hinweisen(text): die Statuszeile der Seite; ortMelden(text): der Ort des offenen
+// Bearbeiten-Felds in der Hinweiszeile der Eingabe (R00041 F0186 B0801); ansagen(text): eine Ansage über die
 // Region der Seite (R00041 F0135, F0139). antworten(nachricht): die Aktion „Antworten“ an einer Nachricht des Fensters
 // (R00047 B0713), synchron in der Geste. signal: Abbau der Ansicht — Listener an document und window enden mit ihr.
 export function verlaufAnlegen({
   abrufen: abrufenRoh, schalter = () => {}, fokusRueckgaengig = () => {}, fokusVerloren = () => {}, bearbeitenSpeichern = async () => ({ art: 'netzfehler' }),
-  loeschen = async () => ({ art: 'netzfehler' }), hinweisen = () => {}, ansagen = () => {}, antworten = () => {}, signal = new AbortController().signal,
+  loeschen = async () => ({ art: 'netzfehler' }), hinweisen = () => {}, ortMelden = () => {}, ansagen = () => {}, antworten = () => {}, signal = new AbortController().signal,
   hochladungen = element('div'),
 }) {
   const inhalt = element('div', { className: 'lc-log-inhalt' });
@@ -389,6 +390,7 @@ export function verlaufAnlegen({
     alsGeloeschtZeigen: geloeschtSetzen,
     geschlossen: nachFeldNeuZeichnen,
     hinweisen,
+    ortMelden,
     ansagen,
     signal,
   });

@@ -122,6 +122,7 @@ export function eingabeAnlegen({
       zeile.textContent = unterbrochenHinweise.get(channel);
     }
     zeile.classList.toggle('lc-hinweis-unterbrochen', unterbrochenZeigen);
+    zeile.classList.remove('lc-hinweis-ganz');
     zeile.classList.toggle('lc-fehler', neu.stufe === 'fehler');
     if (neu.stufe === 'fehler') {
       feld.setAttribute('aria-invalid', 'true');
@@ -136,11 +137,14 @@ export function eingabeAnlegen({
 
   // Eine Meldung ohne Fehler steht in der Hinweiszeile statt über Feld und „Senden“ (UX S1, Karte #79) und wird einmal
   // angesagt; nach einigen Sekunden oder mit der nächsten Eingabe zeigt die Zeile wieder den Hinweis zum Text.
-  function meldungZeigen(text) {
+  function meldungZeigen(text, { angesagt = true, ganz = false } = {}) {
     clearTimeout(meldungEnde);
     zeile.textContent = text;
     zeile.classList.remove('lc-fehler');
-    ansagen({ art: 'sofort', text });
+    zeile.classList.toggle('lc-hinweis-ganz', ganz);
+    if (angesagt) {
+      ansagen({ art: 'sofort', text });
+    }
     meldungEnde = setTimeout(hinweisZeigen, MELDUNG_STEHT_MS);
   }
 
@@ -319,6 +323,9 @@ export function eingabeAnlegen({
       }
     },
     fokussieren: () => feld.focus(),
+    // Eine Meldung, die schon anderswo angesagt wird (der Ort des offenen Bearbeiten-Felds, R00041 B0801): nur sichtbar, in
+    // ganzer Länge statt auf zwei Zeilen gekürzt.
+    hinweisMelden: (text) => meldungZeigen(text, { angesagt: false, ganz: true }),
     bezugAbgewiesen,
     // „Verwerfen“ am Eintrag „wird hochgeladen …“ (R00030 B0452, U2): Text und Bezug zurück ins leere Feld, sonst nennt
     // die Hinweiszeile den Anfang des Texts; der Fokus geht ins Feld.

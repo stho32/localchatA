@@ -3,6 +3,8 @@
 // wie die Eingabe; leer nur mit Anhang. Höchstens ein Feld je Tab.
 import { textPruefen } from './textregel.js';
 import { hinweis } from './hinweis.js';
+import { gegenueberIn } from './gespraech.js';
+import { uhrzeit } from './gliederung.js';
 
 const IME_TASTENCODE = 229;
 
@@ -44,6 +46,30 @@ export function speicherHinweis(text, anhangZahl) {
   return hinweis(ergebnis).text;
 }
 
+// Der Hinweis des zweiten „Bearbeiten“ bei offenem Feld (B0801), rein: wo das Feld offen ist — im selben Channel bei welcher
+// Nachricht, sonst in welchem Channel oder Gespräch — und die Uhrzeit der Nachricht. Namen über 16 Zeichen enden auf „…“.
+export function zweitesBearbeitenHinweis({ feldChannel, offenerChannel, zeit }) {
+  const kopf = 'Erst speichern oder abbrechen: offenes Feld';
+  const nachricht = `Nachricht von ${uhrzeit(zeit)}`;
+  if (feldChannel === offenerChannel) {
+    return `${kopf} bei der ${nachricht}.`;
+  }
+  const gegenueber = gegenueberIn(feldChannel);
+  if (gegenueber !== null) {
+    return `${kopf} im Gespräch mit ${ortNameKuerzen(gegenueber)}, ${nachricht}.`;
+  }
+  return `${kopf} in # ${ortNameKuerzen(feldChannel)}, ${nachricht}.`;
+}
+
+const ORT_NAME_ZEICHEN_MAX = 16;
+
+function ortNameKuerzen(name) {
+  if (name.length <= ORT_NAME_ZEICHEN_MAX) {
+    return name;
+  }
+  return `${name.slice(0, ORT_NAME_ZEICHEN_MAX - 1)}…`;
+}
+
 // Was die Antwort des Speicherns bedeutet (R00041 F0135, UX S5, PO 122), rein. bekanntGeaendert: `geaendert` der
 // Fassung, die das Feld geöffnet hat. → { art: 'gespeichert' | 'unveraendert', nachricht } | { art: 'geloescht' }
 // | { art: 'abgewiesen', text, pruefFehler }
@@ -74,6 +100,7 @@ function fehlerText({ status, daten }) {
 // Das eine Feld des Tabs. zeiger: () → 'fein' | 'grob' · fokusAufNachricht(zeit): Fokus auf die Nachricht im Verlauf ·
 // speichern: async (channel, zeit, text) → Antwort wie api.js nachrichtBearbeiten · uebernehmen(nachricht): die
 // gespeicherte Fassung in den Verlauf · alsGeloeschtZeigen(zeit) · hinweisen(text): die Hinweiszeile der Seite ·
+// ortMelden(text): die Hinweiszeile der Eingabe zeigt den Ort des offenen Felds, ohne Ansage (B0801) ·
 // ansagen(text): genau eine Ansage über die Region der Seite (UX S2); beim Öffnen keine (S3) · inSicht(element): das
 // Element ganz in den sichtbaren Teil des Verlaufs (UX M7, auch bei offener Bildschirmtastatur) · platz(element): wie hoch
 // das Feld samt Hinweis und Knöpfen höchstens sein darf, damit es im sichtbaren Verlauf Platz hat (B0803) · geschlossen(zeit): das
@@ -84,7 +111,7 @@ function fehlerText({ status, daten }) {
 // Das Feld gehört dem Tab, nicht dem Knoten (F0142, PO 124): zeichnet der Verlauf die Nachricht neu oder wechselt der
 // Channel, bleibt es samt Text und Schreibmarke im Speicher; einsetzen(artikel, mitFokus) hängt es wieder ein.
 export function bearbeitenAnlegen({
-  zeiger, fokusAufNachricht, inSicht, platz, feldHolen, speichern, uebernehmen, alsGeloeschtZeigen, hinweisen, ansagen, geschlossen, signal,
+  zeiger, fokusAufNachricht, inSicht, platz, ortMelden, feldHolen, speichern, uebernehmen, alsGeloeschtZeigen, hinweisen, ansagen, geschlossen, signal,
 }) {
   let offen = null;
 
@@ -118,6 +145,7 @@ export function bearbeitenAnlegen({
   // offene — steht es nicht im Verlauf, holt der Verlauf es zurück —, in einem anderen bleibt der Channel.
   function zweitesBeginnen(channel) {
     ansagen('Erst speichern oder abbrechen.');
+    ortMelden(zweitesBearbeitenHinweis({ feldChannel: offen.channel, offenerChannel: channel, zeit: offen.zeit }));
     if (offen.channel !== channel) {
       return;
     }

@@ -2,7 +2,8 @@
 // Touch-Geräten neue Zeile, Strg Enter speichert überall, Esc bricht ab) und die Bereit-Regel (leer nur mit Anhang).
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { feldTaste, speicherHinweis } from '../../web/bearbeiten.js';
+import { feldTaste, speicherHinweis, zweitesBearbeitenHinweis } from '../../web/bearbeiten.js';
+import { direktgespraech } from '../../web/gespraech.js';
 import { nachrichtTaste } from '../../web/fokus.js';
 
 const taste = (key, extra = {}) => ({ key, ctrlKey: false, altKey: false, metaKey: false, shiftKey: false, isComposing: false, keyCode: 0, ...extra });
@@ -80,4 +81,38 @@ test('keine Antwort (Netzfehler, Zeitgrenze) → „⚠ Nicht gespeichert: keine
   for (const art of ['netzfehler', 'zeitueberschreitung']) {
     assert.deepEqual(speichernAuswerten({ art }, null), { art: 'abgewiesen', text: '⚠ Nicht gespeichert: keine Antwort vom Server.', pruefFehler: false });
   }
+});
+
+const ZEIT = '2026-10-28T14:07:30.000+01:00';
+
+test('zweites Bearbeiten im selben Channel: der Hinweis nennt die Nachricht von 14:07 (B0801)', () => {
+  assert.equal(
+    zweitesBearbeitenHinweis({ feldChannel: 'allgemein', offenerChannel: 'allgemein', zeit: ZEIT }),
+    'Erst speichern oder abbrechen: offenes Feld bei der Nachricht von 14:07.',
+  );
+});
+
+test('zweites Bearbeiten in einem anderen Channel: der Hinweis nennt den Ort des Felds und die Uhrzeit (B0801)', () => {
+  assert.equal(
+    zweitesBearbeitenHinweis({ feldChannel: 'technik', offenerChannel: 'allgemein', zeit: ZEIT }),
+    'Erst speichern oder abbrechen: offenes Feld in # technik, Nachricht von 14:07.',
+  );
+});
+
+test('Channelnamen über 16 Zeichen werden mit „…“ auf 16 gekürzt, 16 Zeichen bleiben ganz (B0801)', () => {
+  assert.equal(
+    zweitesBearbeitenHinweis({ feldChannel: 'abcdefghijklmnop', offenerChannel: 'allgemein', zeit: ZEIT }),
+    'Erst speichern oder abbrechen: offenes Feld in # abcdefghijklmnop, Nachricht von 14:07.',
+  );
+  assert.equal(
+    zweitesBearbeitenHinweis({ feldChannel: 'abcdefghijklmnopq', offenerChannel: 'allgemein', zeit: ZEIT }),
+    'Erst speichern oder abbrechen: offenes Feld in # abcdefghijklmno…, Nachricht von 14:07.',
+  );
+});
+
+test('Feld in einem Direktgespräch, zweites Bearbeiten im Channel: der Hinweis nennt das Gespräch (B0801)', () => {
+  assert.equal(
+    zweitesBearbeitenHinweis({ feldChannel: direktgespraech('ben@127.0.0.3'), offenerChannel: 'allgemein', zeit: ZEIT }),
+    'Erst speichern oder abbrechen: offenes Feld im Gespräch mit ben@127.0.0.3, Nachricht von 14:07.',
+  );
 });
