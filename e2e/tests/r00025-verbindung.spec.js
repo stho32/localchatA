@@ -7,6 +7,7 @@ const { sendenStarten, kontextOeffnen, imBrowserBeitreten, beitreten, senden, ei
 const { leiste, netzAus, netzAn, bestaetigt, vorlaeufige } = require('./r00012-hilfen');
 const { freierPort, sichtbarNach } = require('./hilfen');
 const { GERAETE, geraetOeffnen } = require('./r00027-hilfen');
+const { normal } = require('../normal');
 
 let instanz;
 test.afterEach(async () => {
@@ -27,7 +28,7 @@ test('Countdown im Tab: getrennt zählt die Warnung bis zum nächsten Versuch he
 
   await instanz.stoppen();
   instanz = null;
-  await expect(leiste(b.page)).toHaveText(/^⚠ Verbindung verloren · neuer Versuch in ([1-9]|10) s$/, { timeout: 20000 });
+  await expect.poll(async () => normal(await leiste(b.page).textContent()), { timeout: 20000 }).toMatch(/^⚠ Verbindung verloren · neuer Versuch in ([1-9]|10) s$/);
   const erste = await leiste(b.page).textContent();
   await b.page.waitForTimeout(1000);
   const zweite = await leiste(b.page).textContent();
@@ -150,7 +151,7 @@ for (const breite of [320, 375, 414]) {
       });
     });
 
-    expect(messungen.map((messung) => messung.text)).toEqual([
+    expect(messungen.map((messung) => normal(messung.text))).toEqual([
       '⚠ Verbindung verloren · neuer Versuch in 10 s', '⚠ Verbindung verloren · neuer Versuch in 1 s',
       '⚠ Verbindung verloren · wird verbunden …', '⚠ Verbindung verloren',
     ]);
@@ -305,7 +306,7 @@ test('Gescheitertes Nachholen: keine Ansage „Wieder verbunden“, solange der 
   await b.page.route((adresse) => adresse.searchParams.has('nach'), (route) => route.fulfill({ status: 500, body: '' }));
 
   await netzAn(b);
-  await expect(leiste(b.page)).toHaveText(/^⚠ Verbindung verloren · (neuer Versuch in \d+ s|wird verbunden …)$/, { timeout: 5000 });
+  await expect.poll(async () => normal(await leiste(b.page).textContent()), { timeout: 5000 }).toMatch(/^⚠ Verbindung verloren · (neuer Versuch in \d+ s|wird verbunden …)$/);
   await b.page.waitForTimeout(3500);
 
   expect((await angesagt()).some((text) => text.includes('Wieder verbunden'))).toBe(false);

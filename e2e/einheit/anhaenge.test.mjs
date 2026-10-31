@@ -3,8 +3,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  anmeldungBewerten, abweisungAnsage, prozentAus, hochladenBewerten, wartetText, selbstBlockiert, selbstBlockiertGrund, eintragZustandText, zaehlmass,
+  anmeldungBewerten, abweisungAnsage, prozentAus, hochladenBewerten, wartetText as wartetTextRoh, selbstBlockiert, selbstBlockiertGrund as selbstBlockiertGrundRoh, eintragZustandText, zaehlmass,
 } from '../../web/anhaenge.js';
+import normalModul from '../normal.js';
+const { normalisiert } = normalModul;
+const wartetText = normalisiert(wartetTextRoh);
+const selbstBlockiertGrund = normalisiert(selbstBlockiertGrundRoh);
 
 const antwort = (status, daten, wartenS = null) => ({ art: 'antwort', status, daten, wartenS });
 
@@ -149,4 +153,12 @@ test('selbstBlockiert: Gegenproben — drei kleine Dateien bei 10.000.000 gebund
   assert.equal(selbstBlockiert({ hoechstens: 10485760, gebunden: 10280960, braucht: 65536 }, zaehlmass(100 * 1024)), false);
   assert.equal(selbstBlockiert({ hoechstens: 10485760, gebunden: 10280960, braucht: 65536 }, 2 * zaehlmass(100 * 1024)), true);
   assert.equal(selbstBlockiert({ hoechstens: 10485760, gebunden: 10280960, braucht: 65536 }, 0), false);
+});
+
+test('Oberfläche: Zahl und Einheit trennt U+00A0 — Wartetext „in 5 s“ und Selbstblockade „64 KiB“ (product-owner #85 Zeile 186)', () => {
+  assert.equal(wartetTextRoh(5, false), 'wartet · neuer Versuch in 5\u00a0s');
+  const grund = selbstBlockiertGrundRoh({ hoechstens: 1048576, gebunden: 0, braucht: 2097152 }, 0);
+  assert.match(grund, /mindestens 64\u00a0KiB\./);
+  assert.match(grund, /braucht 2,0\u00a0MiB\./);
+  assert.doesNotMatch(grund, /\d (KiB|MiB|Byte)/);
 });

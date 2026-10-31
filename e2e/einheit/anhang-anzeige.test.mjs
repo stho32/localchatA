@@ -1,7 +1,10 @@
 // Unit-Tests der Darstellung eines Anhangs im Verlauf (R00030 F0102 B0455, „Darstellung wählen“ und „Breiten“; node --test).
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { darstellungWaehlen, rahmenMasse, geloeschtBeschriftung } from '../../web/anhang-anzeige.js';
+import { darstellungWaehlen, rahmenMasse, geloeschtBeschriftung as geloeschtBeschriftungRoh } from '../../web/anhang-anzeige.js';
+import normalModul from '../normal.js';
+const { normalisiert } = normalModul;
+const geloeschtBeschriftung = normalisiert(geloeschtBeschriftungRoh);
 
 const MIB = 1024 * 1024;
 const anhang = (art, extra = {}) => ({ id: 'a', name: 'datei', bytes: 307200, art, breite: null, hoehe: null, zustand: 'vorhanden', ...extra });

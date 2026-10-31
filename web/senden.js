@@ -6,6 +6,7 @@
 // F0088). Die Zustellung gehört dem Tab (`zustellung`), nicht der Hauptansicht: sie übersteht den Beitreten-Bildschirm.
 // Fehlschläge und fremde Nachrichten gehen an die Ansage.
 import { LEER, zustellen, naechsterVerfall } from './zustellung.js';
+import { zahlMitEinheit } from './groesse.js';
 
 // abschicken: async (channel, text, schluessel, antwortAuf, anhaenge) → { art: 'antwort', status, daten, token } | { art: 'zeitueberschreitung'
 // | 'netzfehler' } · bezugAbgewiesen({ channel, text, grund }): die Instanz hat den Bezug einer Antwort abgewiesen, ihr Text
@@ -129,7 +130,7 @@ export function sendenEinrichten({
     schalter: (aktion, schluessel) => {
       anwenden(zustellen(zustellung.zustand, { art: aktion, schluessel, jetzt: jetzt() }));
       if (aktion === 'verwerfen') {
-        ansagen({ art: 'sofort', text: 'Verworfen · Rückgängig ist 5 Sekunden lang möglich' });
+        ansagen({ art: 'sofort', text: `Verworfen · Rückgängig ist ${zahlMitEinheit(5, 'Sekunden')} lang möglich` });
       }
     },
     // Fokus auf „Rückgängig“ setzt die 5 s neu (R00025 F0085, V2).

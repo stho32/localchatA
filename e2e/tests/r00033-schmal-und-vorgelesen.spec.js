@@ -6,6 +6,7 @@ const { test, expect } = require('./rahmen');
 const { JETZT, kontextOeffnen, imBrowserBeitreten, beitreten, eingabe } = require('./senden-hilfen');
 const { leiste } = require('./r00012-hilfen');
 const { instanzStarten, freierPort, channelAnlegen, fehlerSammeln } = require('./hilfen');
+const { normal } = require('../normal');
 
 let instanz;
 let kontexte = [];
@@ -78,7 +79,7 @@ function leisteMessen() {
 }
 
 async function imRaster(page, text) {
-  await page.waitForFunction((muster) => new RegExp(muster).test(document.querySelector('.lc-center > .lc-leiste')?.textContent ?? ''),
+  await page.waitForFunction((muster) => new RegExp(muster).test((document.querySelector('.lc-center > .lc-leiste')?.textContent ?? '').replace(/\u00a0/g, ' ')),
     text, { polling: 'raf', timeout: 60000 });
   return page.evaluate(leisteMessen);
 }
@@ -105,7 +106,7 @@ for (const breite of [320, 375, 414]) {
     const verbindet = await page.evaluate(leisteMessen);
 
     for (const messung of [countdown, verbindet]) {
-      expect(messung.text).toMatch(/^⚠ Verbindung verloren · (neuer Versuch in 10 s|wird verbunden …)$/);
+      expect(normal(messung.text)).toMatch(/^⚠ Verbindung verloren · (neuer Versuch in 10 s|wird verbunden …)$/);
       expect(messung.standGekuerzt).toBe(false);
       expect(messung.standBreite).toBeLessThanOrEqual(messung.verfuegbar - messung.anlassSichtbar);
       expect(messung.hoehe).toBe(countdown.hoehe);

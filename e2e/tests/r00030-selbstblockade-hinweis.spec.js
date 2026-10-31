@@ -8,6 +8,7 @@ const { test, expect } = require('./rahmen');
 const { imBrowserBeitreten } = require('./senden-hilfen');
 const { geraetOeffnen, knopf } = require('./r00027-hilfen');
 const { anhangStarten, waehlen, perApi, betaBeitreten, perApiAblegen } = require('./r00030-hilfen');
+const { normal } = require('../normal');
 
 let instanz;
 test.afterEach(async () => {
@@ -33,6 +34,12 @@ for (const fenster of FENSTER) {
     await perApiAblegen(instanz.adresse, token, [...Array.from({ length: 9 }, () => MIB), 843776]);
     expect((await perApi(instanz.adresse, { methode: 'GET', pfad: 'api/gesundheit' })).daten.anhang_belegt).toBe(10280960);
     const { page, fehler } = await geraetOeffnen(browser, fenster.geraet, { fenster: fenster.fenster });
+    const antworten507 = [];
+    page.on('response', async (antwort) => {
+      if (antwort.status() === 507) {
+        antworten507.push(await antwort.text());
+      }
+    });
     await imBrowserBeitreten(page, instanz.adresse, 'shoff');
 
     await page.getByRole('textbox', { name: /^Nachricht an # / }).fill('viele');
@@ -44,9 +51,28 @@ for (const fenster of FENSTER) {
     await page.waitForTimeout(500);
 
     const text = await grund.textContent();
-    expect(text, '(a) Größe in Worten').toMatch(/\d+(,\d)? (KiB|MiB)/);
+    expect(normal(text), '(a) Größe in Worten').toMatch(/\d+(,\d)? (KiB|MiB)/);
     expect(text, '(a) bleiben').toMatch(/bleiben|frei/);
-    expect(text, '(c) Mindestverbrauch').toContain('mindestens 64 KiB');
+    expect(normal(text), '(c) Mindestverbrauch').toContain('mindestens 64 KiB');
+    // product-owner #85 Zeile 186 / ux O1: Zahl und Einheit trennt in der Oberfläche U+00A0, und bei keiner Fensterbreite
+    // endet eine Zeile mit einer nackten Zahl; die Antwort der Instanz behält das normale Leerzeichen.
+    expect(text, '(e) „64 KiB“ mit U+00A0').toContain('64\u00a0KiB');
+    expect(text, '(e) kein normales Leerzeichen zwischen Zahl und Einheit').not.toMatch(/\d (KiB|MiB|Byte)/);
+    const zeilenenden = await grund.evaluate((element) => {
+      const knoten = document.createTreeWalker(element, NodeFilter.SHOW_TEXT).nextNode();
+      const zeilen = new Map();
+      for (const treffer of knoten.data.matchAll(/\S+/g)) {
+        const bereich = document.createRange();
+        bereich.setStart(knoten, treffer.index);
+        bereich.setEnd(knoten, treffer.index + treffer[0].length);
+        const oben = Math.round(bereich.getClientRects()[0].top);
+        zeilen.set(oben, treffer[0]);
+      }
+      return [...zeilen.values()];
+    });
+    expect(zeilenenden.filter((wort) => /^[\d.,]+$/.test(wort)), `(e) keine Zeile endet mit einer nackten Zahl: ${zeilenenden}`).toEqual([]);
+    expect(antworten507.length, 'eine 507-Antwort der Instanz').toBeGreaterThan(0);
+    expect(antworten507.join(''), 'Texte der Instanz ohne U+00A0').not.toContain('\u00a0');
     // Welche der vier Dateien die 507 trifft, hängt von der Ankunftsreihenfolge ab: der Schalter kommt aus der abgewiesenen Zeile.
     const entfernen = abgewiesen.locator('.lc-hochladung-schalter button');
     await expect(entfernen, 'Entfernen der abgewiesenen Datei').toHaveAttribute('aria-label', /^k[1-4]\.bin entfernen$/);

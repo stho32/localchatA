@@ -1,5 +1,6 @@
 // Leiste oben im Verlauf (Designsystem VerlaufsMarken „Verbindung“, ADR-0037 Regel 7), rein: getrennt → „Verbindung
 // verloren“ als Fehler; nach dem Nachholen 4 s lang „✓ Wieder verbunden · n nachgeladen“ bzw. „· Verlauf geladen“.
+import { zahlMitEinheit } from './groesse.js';
 
 // ergebnis des Nachholens: { art: 'nachgeholt', zahl } | { art: 'neu' } | { art: 'geladen' } (ein nie geladener
 // Channel, ADR-0037 Ergänzung „Karte #61“, 7k)
@@ -46,7 +47,7 @@ export function warnungText(naechsterVersuchUm, jetztMs, versuchLaeuft = false) 
   if (restMs === 0) {
     return '⚠ Verbindung verloren · wird verbunden …';
   }
-  return `⚠ Verbindung verloren · neuer Versuch in ${Math.ceil(restMs / 1000)} s`;
+  return `⚠ Verbindung verloren · neuer Versuch in ${zahlMitEinheit(Math.ceil(restMs / 1000), 's')}`;
 }
 
 // Welcher Zeitpunkt den Countdown trägt (ADR-0015 Ergänzung Karte #36 Regel 5): ist der Strom unterbrochen, der des

@@ -5,6 +5,7 @@
 const { test, expect } = require('./rahmen');
 const { nachrichtMitZeit, pngMitBytes, schriftKontrast } = require('./r00041-hilfen');
 const { anzeigeStarten, anhaengeLoeschen, testdateien } = require('./r00030-anzeige-hilfen');
+const { normal } = require('../normal');
 
 let instanz;
 test.afterEach(async () => {
@@ -38,7 +39,7 @@ test('Wortlaut (UX V4): die Zeile lautet „foto.png · 300 KiB · Gelöscht“,
   const zeile = knoten.getByRole('group', { name: 'foto.png, 300 KiB, Gelöscht', exact: true });
   await expect(zeile).toBeVisible();
   await expect(zeile).toHaveAccessibleName('foto.png, 300 KiB, Gelöscht');
-  expect(await sichtbarerText(zeile)).toBe('foto.png · 300 KiB · Gelöscht');
+  expect(normal(await sichtbarerText(zeile))).toBe('foto.png · 300 KiB · Gelöscht');
   await expect(zeile.locator('.lc-datei-kuerzel')).toHaveText('PNG');
   await expect(zeile.locator('.lc-datei-kuerzel')).toHaveAttribute('aria-hidden', 'true');
   expect(lauf.a.fehler).toEqual([]);

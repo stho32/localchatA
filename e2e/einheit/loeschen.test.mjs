@@ -1,7 +1,10 @@
 // Unit-Tests der Rückfrage vor dem Löschen (R00041 F0139 B0622, UX S1; node --test).
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { rueckfrageText } from '../../web/loeschen.js';
+import { rueckfrageText as rueckfrageTextRoh } from '../../web/loeschen.js';
+import normalModul from '../normal.js';
+
+const rueckfrageText = normalModul.normalisiert(rueckfrageTextRoh);
 
 const ZEIT = '2026-10-30T14:09:12.345+01:00';
 const nachricht = (extra) => ({ zeit: ZEIT, von: 'shoff@127.0.0.1', text: 'Bericht', zustand: null, geaendert: null, anhaenge: [], ...extra });

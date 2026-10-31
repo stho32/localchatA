@@ -13,6 +13,7 @@ const { sendenStarten, kontextOeffnen, imBrowserBeitreten, beitreten, senden } =
 const { leiste, netzAus, netzAn } = require('./r00012-hilfen');
 const { freierPort, sichtbarNach } = require('./hilfen');
 const { geraetOeffnen } = require('./r00027-hilfen');
+const { normal } = require('../normal');
 
 const VERLAUF = '/api/channels/allgemein/nachrichten';
 const GELADEN = '⚠ Verlauf nicht geladen — wird geladen, sobald die Verbindung zurück ist.';
@@ -193,7 +194,7 @@ for (const [ohneSharedWorker, weg] of [[false, 'mit'], [true, 'ohne']]) {
     await expect(a.page.getByRole('alert')).toHaveText(GELADEN);
 
     const countdownNach = await sichtbarNach(a.page, () => /^⚠ Verbindung verloren · neuer Versuch in \d+ s$/.test(
-      document.querySelector('.lc-center > .lc-leiste').textContent,
+      document.querySelector('.lc-center > .lc-leiste').textContent.replace(/\u00a0/g, ' '),
     ), { ab: beginn, timeout: 10000 });
     test.info().annotations.push({ type: 'Countdown nach ms', description: String(countdownNach) });
     expect(countdownNach).toBeGreaterThanOrEqual(9000);
@@ -203,7 +204,7 @@ for (const [ohneSharedWorker, weg] of [[false, 'mit'], [true, 'ohne']]) {
     const proben = await a.page.evaluate(() => window.proben);
     const hoehen = (muster) => proben.filter((probe) => muster.test(probe.text)).map((probe) => probe.hoehe);
     const verbindend = hoehen(/wird verbunden …$/);
-    const zaehlend = hoehen(/neuer Versuch in \d+ s$/);
+    const zaehlend = hoehen(/neuer Versuch in \d+[ \u00a0]s$/);
     const abschluss = hoehen(/^✓ Wieder verbunden/);
     expect(verbindend.length, 'Stand „wird verbunden …“ gesehen').toBeGreaterThan(0);
     expect(zaehlend.length, 'Countdown gesehen').toBeGreaterThan(0);
@@ -234,7 +235,7 @@ for (const breite of [320, 375, 414]) {
       });
     });
 
-    expect(messungen.map((messung) => messung.text)).toEqual([
+    expect(messungen.map((messung) => normal(messung.text))).toEqual([
       '⚠ Verbindung verloren', '⚠ Verbindung verloren · neuer Versuch in 10 s',
       '⚠ Verbindung verloren · neuer Versuch in 1 s', WIRD_VERBUNDEN,
     ]);

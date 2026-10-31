@@ -1,7 +1,12 @@
 // Unit-Tests der Leiste oben im Verlauf (R00012 F0047 „Meldung“, B0244; Designsystem VerlaufsMarken; node --test).
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { wiederVerbundenText, leisteInhalt, warnungText, geltenderZeitpunkt, leisteTeile, leisteFuellen } from '../../web/verbindungsleiste.js';
+import { wiederVerbundenText, leisteInhalt as leisteInhaltRoh, warnungText as warnungTextRoh, geltenderZeitpunkt, leisteTeile as leisteTeileRoh, leisteFuellen } from '../../web/verbindungsleiste.js';
+import normalModul from '../normal.js';
+const { normalisiert } = normalModul;
+const warnungText = normalisiert(warnungTextRoh);
+const leisteInhalt = normalisiert(leisteInhaltRoh);
+const leisteTeile = normalisiert(leisteTeileRoh);
 
 test('Text nach dem Nachholen: Zahl mit Tausenderpunkt, ohne Zahl bei 0, „neueste geladen“ nach Neu-Öffnen', () => {
   assert.equal(wiederVerbundenText({ art: 'nachgeholt', zahl: 3 }), '✓ Wieder verbunden · 3 nachgeladen');
@@ -127,4 +132,9 @@ test('die Leiste setzt Anlass und Stand als zwei Teile, deren Text genau dem Tex
   } finally {
     globalThis.document = vorher;
   }
+});
+
+test('Oberfläche: „neuer Versuch in n s“ trennt Zahl und Einheit mit U+00A0 (product-owner #85 Zeile 186)', () => {
+  const jetzt = Date.parse('2026-10-28T15:00:00.000+01:00');
+  assert.equal(warnungTextRoh(jetzt + 3000, jetzt, false), '⚠ Verbindung verloren · neuer Versuch in 3\u00a0s');
 });

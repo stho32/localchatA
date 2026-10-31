@@ -2,12 +2,13 @@
 // der Text — unter 15.000 Bytes nichts, ab da „noch n Zeichen“ (n = 16.384 − Bytes), bei einem Verstoß der Fehler mit ⚠.
 // Ein Text nur aus Leerraum hat keinen Hinweis, gleich wie lang (R00025 F0086).
 import { TEXT_HOECHSTENS_BYTES } from './textregel.js';
+import { zahlMitEinheit } from './groesse.js';
 
 // → { stufe: 'leer' | 'zaehlen' | 'fehler', text }
 export function hinweis(ergebnis) {
   const ZAEHLEN_AB_BYTES = 15000;
   if (ergebnis.art === 'laenge') {
-    return { stufe: 'fehler', text: `⚠ Zu lang: ${zahl(ergebnis.bytes)} von höchstens ${zahl(TEXT_HOECHSTENS_BYTES)} Byte — bitte teilen.` };
+    return { stufe: 'fehler', text: `⚠ Zu lang: ${zahl(ergebnis.bytes)} von höchstens ${zahlMitEinheit(zahl(TEXT_HOECHSTENS_BYTES), 'Byte')} — bitte teilen.` };
   }
   if (ergebnis.art === 'zeichen') {
     return { stufe: 'fehler', text: `⚠ Steuerzeichen ${ergebnis.zeichen} an Stelle ${ergebnis.stelle + 1} — bitte entfernen.` };

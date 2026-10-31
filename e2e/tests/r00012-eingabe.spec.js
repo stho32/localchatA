@@ -4,6 +4,7 @@
 const { test, expect } = require('./rahmen');
 const { sendenStarten, kontextOeffnen, imBrowserBeitreten, eingabe } = require('./senden-hilfen');
 const { bestaetigt, sendungenMitschreiben } = require('./r00012-hilfen');
+const { normal } = require('../normal');
 
 /// Z12 aus R00012: letzte Taste → Eintrag in sessionStorage.
 const Z12_MS = 1000;
@@ -104,7 +105,7 @@ test('Ansagen der Hinweiszeile: nur an der Schwelle und beim Wechsel in einen Fe
   }
 
   await expect(hinweiszeile(a.page)).toHaveText('⚠ Zu lang: 16.390 von höchstens 16.384 Byte — bitte teilen.');
-  await expect.poll(() => a.page.evaluate(() => window.angesagt)).toEqual([
+  await expect.poll(async () => (await a.page.evaluate(() => window.angesagt)).map(normal)).toEqual([
     'noch 1.384 Zeichen',
     'Zu lang: 16.390 von höchstens 16.384 Byte — bitte teilen.',
   ]);

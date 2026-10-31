@@ -1,8 +1,11 @@
 // Unit-Tests der Hinweiszeile unter dem Feld (R00012 F0048 „Hinweis“, B0247; ADR-0038 Regel 4; node --test).
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { hinweis, hinweisAnsagen } from '../../web/hinweis.js';
+import { hinweis as hinweisRoh, hinweisAnsagen } from '../../web/hinweis.js';
 import { textPruefen } from '../../web/textregel.js';
+import normalModul from '../normal.js';
+const { normalisiert } = normalModul;
+const hinweis = normalisiert(hinweisRoh);
 
 const fuer = (text) => hinweis(textPruefen(text));
 
@@ -46,4 +49,9 @@ test('Leerraum zeigt keinen Hinweis und nie eine negative Zahl', () => {
   assert.deepEqual(fuer(`${' '.repeat(17000)}a`), { stufe: 'fehler', text: '⚠ Zu lang: 17.001 von höchstens 16.384 Byte — bitte teilen.' });
   assert.deepEqual(fuer(`${' '.repeat(15000)}a`), { stufe: 'zaehlen', text: 'noch 1.383 Zeichen' });
   assert.deepEqual(fuer('\n　'.repeat(8000)), { stufe: 'leer', text: '' });
+});
+
+test('Oberfläche: „… höchstens 16.384 Byte“ trennt Zahl und Einheit mit U+00A0 (product-owner #85 Zeile 186)', () => {
+  const ergebnis = textPruefen('a'.repeat(16385));
+  assert.match(hinweisRoh(ergebnis).text, /von höchstens 16\.384\u00a0Byte — bitte teilen\./);
 });

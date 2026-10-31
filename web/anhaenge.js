@@ -2,7 +2,7 @@
 // Sendeschlange als Eintrag „wird hochgeladen …“ am Ende des eigenen Verlaufs, bis jede Datei angemeldet und oben ist;
 // Text, der in der Zwischenzeit gesendet wird, geht sofort hinaus (N1). Die Einträge gehören dem Tab — ein
 // Channelwechsel unterbricht nichts, gezeigt werden die des offenen Channels.
-import { groesseInWorten, groesseInByte } from './groesse.js';
+import { groesseInWorten, groesseInByte, zahlMitEinheit } from './groesse.js';
 import { typkuerzel } from './dateiliste.js';
 import { nachrichtZeichnen } from './nachricht.js';
 import { nurLeerraum } from './textregel.js';
@@ -44,7 +44,7 @@ export function anmeldungBewerten(antwort) {
 // Der Wartezustand (UX-Review #43 F0101 S2), rein: zählt die Sekunden bis zum nächsten Versuch; belegen laufende
 // Hochladungen den Platz (507 `hochladungen`), sagt er es.
 export function wartetText(sekunden, platzBelegt) {
-  const text = `wartet · neuer Versuch in ${sekunden} s`;
+  const text = `wartet · neuer Versuch in ${zahlMitEinheit(sekunden, 's')}`;
   if (platzBelegt) {
     return `${text} · Platz für Anhänge belegt`;
   }

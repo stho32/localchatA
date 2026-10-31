@@ -7,6 +7,7 @@
 const { test, expect } = require('./rahmen');
 const { imBrowserBeitreten } = require('./senden-hilfen');
 const { geraetOeffnen, knopf } = require('./r00027-hilfen');
+const { normal } = require('../normal');
 const {
   anhangStarten, betaBeitreten, perApiAnmelden, perApiAblegen, anfragenMitschreiben, waehlen, archivZip,
 } = require('./r00030-hilfen');
@@ -35,7 +36,7 @@ test('S2 Wartezustand zählt herunter und nennt den Platz', async ({ browser }) 
   await knopf(page).click();
   const zustand = zeile(page, 'a.zip').locator('.lc-hochladung-zustand');
   await expect(zustand).toHaveText('wartet · neuer Versuch in 30 s · Platz für Anhänge belegt');
-  await expect(zustand).toHaveText(/^wartet · neuer Versuch in (2[0-7]) s · Platz für Anhänge belegt$/, { timeout: 10000 });
+  await expect.poll(async () => normal(await zustand.textContent()), { timeout: 10000 }).toMatch(/^wartet · neuer Versuch in (2[0-7]) s · Platz für Anhänge belegt$/);
   await expect(zeile(page, 'a.zip').locator('.lc-hochladung-grund')).toBeHidden();
   expect(fehler).toEqual([]);
 });
