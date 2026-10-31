@@ -88,6 +88,7 @@ export function verlaufAnlegen({
     bekannteNachricht: (zeit) => bekannteNachricht(zeit),
     ersetzen: nachrichtOhneAnhaengeZeigen,
     hatFokus: anhangHatFokus,
+    fokusMerken: anhangFokusMerken,
     ansagen: (text) => ansagen(text),
     gehalten: (arbeit) => {
       const anker = ankerMerken(log, inhalt);
@@ -1276,6 +1277,33 @@ export function verlaufAnlegen({
     }
     knotenErsetzen(bekannt, neu);
     return true;
+  }
+
+  // Liegt der Fokus in einem Anhang der Nachricht, holt die zurückgegebene Funktion ihn nach dem Ersetzen auf das gleichnamige
+  // Element desselben Anhangs zurück (B0811); sonst null.
+  function anhangFokusMerken(zeit) {
+    const knoten = nachrichtKnoten(zeit);
+    const aktiv = document.activeElement;
+    const anhang = aktiv.closest('.lc-anhang');
+    if (knoten === null || anhang === null || !knoten.contains(anhang)) {
+      return null;
+    }
+    const anhangId = anhang.dataset.anhang;
+    const name = aktiv.getAttribute('aria-label');
+    return () => {
+      const neu = nachrichtKnoten(zeit);
+      if (neu === null) {
+        return;
+      }
+      const dort = Array.from(neu.querySelectorAll('.lc-anhang')).find((einzeln) => einzeln.dataset.anhang === anhangId);
+      if (dort === undefined) {
+        return;
+      }
+      const ziel = Array.from(dort.querySelectorAll('[aria-label]')).find((einzeln) => einzeln.getAttribute('aria-label') === name);
+      if (ziel !== undefined) {
+        ziel.focus({ preventScroll: true });
+      }
+    };
   }
 
   function anhangHatFokus(zeit, anhangId) {

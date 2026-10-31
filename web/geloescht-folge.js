@@ -1,6 +1,6 @@
 // Die Folge eines gelöschten Anhangs im offenen Verlauf (R00030 F0118, B0518, B0517; Schnitt B0796 wie player.js): der Tab
 // vermerkt die IDs, spätere Abrufe zeigen sie schon als gelöscht, die Zeile „Gelöscht“ ersetzt Vorschau und Player, und hatte
-// ein ersetztes Element den Fokus, nennt die Ansage den Anhang einmal. Alles Zeichnen, das Fenster und die Ansage bleiben beim
+// ein ersetztes Element den Fokus, nennt die Ansage den Anhang einmal; liegt er in einem Anhang, der bleibt, bleibt er dort. Alles Zeichnen, das Fenster und die Ansage bleiben beim
 // Verlauf und kommen als Griffe herein.
 import { anhaengeAlsGeloescht } from './live-verlauf.js';
 
@@ -31,7 +31,8 @@ export function idsJeNachricht(geloescht, bekannteNachricht) {
   return jeZeit;
 }
 
-// griffe.bekannteNachricht(zeit) → { nachricht, … } | null · griffe.ersetzen(bekannt, neu) → true gezeichnet, false nur
+// griffe.fokusMerken(zeit) → null | eine Funktion, die den Fokus in einem bleibenden Anhang der ersetzten Nachricht
+// zurückholt (B0811) · griffe.bekannteNachricht(zeit) → { nachricht, … } | null · griffe.ersetzen(bekannt, neu) → true gezeichnet, false nur
 // gemerkt (Bearbeiten-Feld offen) · griffe.hatFokus(zeit, anhangId) · griffe.ansagen(text) · griffe.gehalten(arbeit): führt
 // die Arbeit aus und hält die Lesestelle (Anker).
 export function geloeschtFolgeAnlegen(griffe) {
@@ -44,8 +45,17 @@ export function geloeschtFolgeAnlegen(griffe) {
       return;
     }
     const verlorenerName = fokusNameVonGeloeschtem(bekannt.nachricht, jetzt, (id) => griffe.hatFokus(zeit, id));
-    if (griffe.ersetzen(bekannt, neu) && verlorenerName !== null) {
+    let fokusZurueck = null;
+    if (verlorenerName === null) {
+      fokusZurueck = griffe.fokusMerken(zeit);
+    }
+    if (!griffe.ersetzen(bekannt, neu)) {
+      return;
+    }
+    if (verlorenerName !== null) {
       griffe.ansagen(`Anhang gelöscht: ${verlorenerName}`);
+    } else if (fokusZurueck !== null) {
+      fokusZurueck();
     }
   }
 

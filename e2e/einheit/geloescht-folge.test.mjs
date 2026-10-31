@@ -36,13 +36,14 @@ test('Vermerk: nachrichtenFiltern zeigt vermerkte Anhänge als gelöscht, ohne V
   assert.equal(liste[0].anhaenge[0].zustand, 'vorhanden');
 });
 
-function folgeMit({ gezeichnet = true, fokus = null } = {}) {
+function folgeMit({ gezeichnet = true, fokus = null, fokusBleibt = false } = {}) {
   const ereignisse = [];
   const stand = { nachricht: nachricht('z1', anh('a'), anh('b')) };
   const folge = geloeschtFolgeAnlegen({
     bekannteNachricht: (zeit) => (zeit === 'z1' ? { nachricht: stand.nachricht } : null),
     ersetzen: (bekannt, neu) => { ereignisse.push(['ersetzt', neu.anhaenge.map((anhang) => anhang.zustand)]); return gezeichnet; },
     hatFokus: (zeit, id) => id === fokus,
+    fokusMerken: () => (fokusBleibt ? () => ereignisse.push(['fokus zurück']) : null),
     ansagen: (text) => ereignisse.push(['ansage', text]),
     gehalten: (arbeit) => { ereignisse.push(['anker']); arbeit(); },
   });
@@ -55,6 +56,30 @@ test('ersetzen: Fokus im gelöschten Anhang → einmal ersetzt und einmal angesa
   folge.ersetzen([{ id: 'a', zeit: 'z1' }]);
 
   assert.deepEqual(ereignisse, [['anker'], ['ersetzt', ['geloescht', 'vorhanden']], ['ansage', 'Anhang gelöscht: a.png']]);
+});
+
+test('ersetzen: Fokus in einem Anhang, der bleibt → ersetzt, danach der Fokus zurück, keine Ansage', () => {
+  const { folge, ereignisse } = folgeMit({ fokus: 'b', fokusBleibt: true });
+
+  folge.ersetzen([{ id: 'a', zeit: 'z1' }]);
+
+  assert.deepEqual(ereignisse.filter(([art]) => art !== 'anker'), [['ersetzt', ['geloescht', 'vorhanden']], ['fokus zurück']]);
+});
+
+test('ersetzen: Fokus im gelöschten Anhang → kein Zurückholen', () => {
+  const { folge, ereignisse } = folgeMit({ fokus: 'a', fokusBleibt: true });
+
+  folge.ersetzen([{ id: 'a', zeit: 'z1' }]);
+
+  assert.equal(ereignisse.some(([art]) => art === 'fokus zurück'), false);
+});
+
+test('ersetzen: nur gemerkt (Feld offen) → kein Zurückholen', () => {
+  const { folge, ereignisse } = folgeMit({ gezeichnet: false, fokus: 'b', fokusBleibt: true });
+
+  folge.ersetzen([{ id: 'a', zeit: 'z1' }]);
+
+  assert.equal(ereignisse.some(([art]) => art === 'fokus zurück'), false);
 });
 
 test('ersetzen: Fokus woanders → ersetzt, keine Ansage', () => {
