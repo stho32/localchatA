@@ -170,3 +170,57 @@ test('Abgelaufen (Desktop): der PUT antwortet 404 `abgelaufen` → der Browser m
   await expect(eintrag(page).locator('.lc-hochladung-grund')).toBeHidden();
   expect(fehler.filter((zeile) => !zeile.includes('/api/anhaenge/'))).toEqual([]);
 });
+
+// code-reviewer #85 A3 (Abnahme-Probe wörtlich): Datei hochladen, Fokus auf „Abbrechen“ oder „Entfernen“ im Eintrag, der Upload
+// endet → die Nachricht geht → document.activeElement ist das Eingabefeld (Mutante M14: ohne `fokusVerloren()` in
+// `sendenWennFertig` bleibt der Fokus auf dem entfernten Schalter, also body). Die erste Datei ist fertig und trägt
+// „Entfernen“ (ihr Schalter wechselt beim Ende, dabei ginge ein Fokus darauf ohnehin verloren); der Fokus liegt dort, der
+// PUT der zweiten Datei wird gehalten und erst danach freigegeben.
+test('Fokus ins Feld nach Senden (Desktop): lag der Fokus auf „Entfernen“ der fertigen Datei, steht er nach dem Ende der zweiten im Eingabefeld', async ({ browser }) => {
+  const { page, fehler } = await seiteAuf(browser, 'desktop', { bytesJeSekunde: -1 });
+  let freigeben;
+  const gehalten = new Promise((fertig) => { freigeben = fertig; });
+  let puts = 0;
+  await page.route('**/api/anhaenge/*', async (route) => {
+    if (route.request().method() === 'PUT') {
+      puts += 1;
+      if (puts === 2) {
+        await gehalten;
+      }
+    }
+    await route.continue();
+  });
+
+  await waehlen(page, [fotoPng(), berichtPdf()]);
+  await knopf(page).click();
+  const entfernen = eintrag(page).getByRole('button', { name: / entfernen$/ });
+  await expect(entfernen).toHaveCount(1);
+  await entfernen.focus();
+  await expect(entfernen).toBeFocused();
+  freigeben();
+
+  await expect(eintrag(page)).toHaveCount(0, { timeout: 15000 });
+  await expect(eingabe(page), 'Fokus im Eingabefeld').toBeFocused();
+  expect(fehler).toEqual([]);
+});
+
+// code-reviewer #85 A3 (Mutante „!datei.neuAngemeldet-Wächter weg“): antwortet jeder PUT mit 404 `abgelaufen`, meldet der
+// Browser genau einmal neu an und scheitert dann mit dem Text der Instanz — er meldet nicht endlos neu an.
+test('Abgelaufen bleibt abgelaufen (Desktop): nach genau einer neuen Anmeldung scheitert die Datei sichtbar, keine Endlosschleife', async ({ browser }) => {
+  const { page, anfragen } = await seiteAuf(browser, 'desktop', { bytesJeSekunde: -1 });
+  await page.route('**/api/anhaenge/*', (route) => {
+    if (route.request().method() === 'PUT') {
+      return route.fulfill({ status: 404, contentType: 'application/json', body: JSON.stringify({ fehler: 'Diese Anmeldung ist abgelaufen — neu anmelden.', grund: 'abgelaufen' }) });
+    }
+    return route.continue();
+  });
+
+  await waehlen(page, [fotoPng()]);
+  await knopf(page).click();
+
+  await expect(eintrag(page).locator('.lc-hochladung-grund')).toContainText('abgelaufen', { timeout: 10000 });
+  await page.waitForTimeout(1500);
+  const anmeldungen = anfragen.filter((anfrage) => anfrage.methode === 'POST' && anfrage.pfad === '/api/anhaenge');
+  expect(anmeldungen, 'Anmeldungen: erste und genau eine neue').toHaveLength(2);
+  expect(anfragen.filter((anfrage) => anfrage.methode === 'PUT'), 'PUTs: je Anmeldung einer').toHaveLength(2);
+});
