@@ -655,3 +655,4 @@ Nie vom User erfragen.
 | 2026-10-31 | R00050 Nacharbeit F0180 | Sollte 1–3, Optional 2–4 aus code-reviewer F0180 + Nacharbeit F0175 (entw3) (Wanduhr gesamt) | Nacharbeit | — | 0,9h | 0,9h | autonom (entw2, entw3) |
 | 2026-10-31 | R00030 UX-Nachschliff Anhänge | F0183–F0185 (B0794–B0800, B0810, B0811) (Wanduhr gesamt) | Entwicklung | 7,6–13,6h | 1,4h | 1,4h | autonom (entw) |
 | 2026-10-31 | R00041/R00004/R00050 UX-Nachschliff Bearbeiten und Oberfläche | F0186, F0188, F0189 (B0801–B0809) (Wanduhr gesamt) | Entwicklung | 9,6–17,6h | 1,0h | 1,0h | autonom (entw2) |
+| 2026-10-31 | R00030/R00041 Nacharbeit #85 | B1 Wackler (+ App-Fehler Verlauf folgt Wachstum), A1, A3, Rundung, U+00A0 Oberfläche, feldHoehe, abbrechen während Speichern, DM-Wortlaut (Wanduhr gesamt) | Nacharbeit | — | 1,3h | 1,3h | autonom (entw) |
