@@ -16,7 +16,7 @@ Zahlt ein auf: [Vision](R00000-vision.md) — „Wer da ist, ist sichtbar“ (Li
 
 Lesart der Vision, angesprochen statt überschrieben: „sofort offline“ heißt hier „in weniger als 2 s“ (Qualitätsziel Q4 in A00001; Nachlauf 1 s gegen Flackern beim Neuladen, ADR-0016). Gilt nur für den sauberen Abbruch (Tab oder Browser zu, Strom geschlossen); der stille Abriss (WLAN weg, Rechner schläft) bleibt bei I0006.
 
-Slices (WBS `Dokumentation/Planung/localchata.md`, alle unter I0005 Teilnehmer mit Online-Status sehen): F0011 Teilnehmerliste über die API abfragen, F0012 Anwesenheit live im Ereignisstrom, F0013 Teilnehmerliste im Browser, F0014 Ein Strom je Browser, F0015 Teilnehmerliste ein- und ausblenden.
+Slices (WBS `Dokumentation/Planung/localchata.md`, alle unter I0005 Teilnehmer mit Online-Status sehen): F0011 Teilnehmerliste über die API abfragen, F0012 Anwesenheit live im Ereignisstrom, F0013 Teilnehmerliste im Browser, F0014 Ein Strom je Browser, F0015 Teilnehmerliste ein- und ausblenden; Nachschliff Karte #85 (2026-10-31): F0188 Teilnehmer-Schalter bei grobem Zeiger mindestens 36 px („Teilnehmerliste 2“).
 
 ## Geschäftlicher Nutzen
 
@@ -65,6 +65,10 @@ In einem Chat, in dem Menschen und Agenten zusammenarbeiten, ist die erste Frage
 
 - `Strg .` (überall) und ein Schalter „Teilnehmer“ in der Kopfzeile blenden die Liste ein und aus; der Schalter trägt `aria-expanded`.
 - Ohne Wunsch des Menschen ist die Liste ab 1100 px Fensterbreite sichtbar und darunter eingeklappt; der Wunsch gilt bis zum Neuladen.
+
+### Teilnehmer-Schalter bei grobem Zeiger mindestens 36 px (F0188, Karte #85)
+
+- Der Schalter „Teilnehmer n“ in der Kopfzeile (`.lc-hbtn`) ist bei grobem Zeiger (Telefon, Tablet) mindestens 36 px hoch (`@media (pointer: coarse)`), im Channel wie im Direktgespräch; die Kopfzeile wird dadurch nicht höher. Mit feinem Zeiger bleibt er 28 px (WCAG 2.5.8 AA erfüllt; 44 px sprengen die feste Kopfzeile, ADR-0033, ux-reviewer #13 F0180).
 
 ## Nicht-funktionale Anforderungen
 
@@ -126,6 +130,10 @@ Playwright mit Chromium gegen das echte Programm auf einem freien, festen Port.
 - [ ] Bei 1280 px ist die Liste sichtbar, bei 1024 px eingeklappt (Grenze 1100 px: 1099 eingeklappt, 1100 sichtbar — Node-Test).
 - [ ] `Strg .` blendet die Liste aus und wieder ein; der Schalter „Teilnehmer“ in der Kopfzeile tut dasselbe mit `Enter`; `aria-expanded` folgt; der Fokus bleibt sichtbar und springt nicht an den Seitenanfang.
 - [ ] Bei 320 px: Liste eingeklappt, Schalter erreichbar; eingeblendet ohne Querscrollen.
+
+### F0188 Teilnehmer-Schalter bei grobem Zeiger mindestens 36 px
+
+- [ ] **Schalterhöhe** (E2E; Probe wörtlich aus ux-reviewer #13 F0180): Bei grobem Zeiger (isMobile, hasTouch) und 320, 375, 414 und 768 px, im Channel und im DM, ist .lc-hbtn mindestens 36 px hoch. Die Kopfzeile ist unverändert 80, 80, 80 und 44 px hoch. scrollWidth <= clientWidth. elementFromPoint an der Mitte des Schalters liefert den Schalter. Heute rot (28 px).
 
 ## Betroffene Verzeichnisstruktur
 
@@ -232,6 +240,8 @@ Aus der WBS gezählt (`/planung zaehlen I0005`); Standard-Bubbles mit der Unterg
 - F0015 Teilnehmerliste ein- und ausblenden = 2 Bubbles: 2 Standard (0,4h). Rest: 0,8h klar · 2 von 2 Werten belegt.
 - I0005 gesamt = 24 Bubbles. Rest: 8,0h klar + 8–16h unklar · 20 von 24 Werten belegt, Rest Richtwerte (ungemessen).
 
+- **Nachschliff Karte #85 (2026-10-31)**: F0188 = 1 Bubble (B0806), klar zu 0,4 h. Die Zählung oben gilt unverändert.
+
 ## Warum löst diese Anforderung das Problem? (Pflicht)
 
 Auslöser: Nach R00003 kann man beitreten, sieht aber niemanden — weder ob die Gegenseite da ist noch ob ein Agent überhaupt verbunden ist; die Vision verspricht „Wer da ist, ist sichtbar“. Wenn jeder offene Strom ein Halter seiner Sitzung ist, dann ist „online“ eine beobachtbare Tatsache (dieser Browser hat localchatA offen) statt einer Vermutung aus Pings; wenn ein Nachlauf von 1 s und ein Takt von 250 ms die Wechsel erzeugen, dann sehen andere einen echten Abbruch in unter 2 s, ein Neuladen aber gar nicht; und wenn der Strom mit dem Stand beginnt und jeder Wechsel eine laufende Nummer trägt, dann stimmt die Liste in jedem Tab, auch wenn Ereignisse sich überholen. Der Hebel liegt beim Strom und nicht bei der Oberfläche, weil derselbe Strom später Nachrichten, Direktnachrichten und Erwähnungen trägt (I0009, I0012, I0013) — ein Strom je Browser mit Sitzungs-Header, einmal richtig gebaut, hält die Instanz auch mit vielen Tabs bedienbar und das Token aus jeder URL heraus.
@@ -262,3 +272,7 @@ Auslöser: Nach R00003 kann man beitreten, sieht aber niemanden — weder ob die
 ### Bewusst außerhalb
 
 Stiller Abriss, `POST /api/verlassen`, Restzeit „offline, gleich weg“ (`weg_um`) (I0006); längere Gnadenfrist für Agenten `gnadenfrist_s` (I0014); `GET /api/warten` (I0016); Nachrichten im Strom (I0009); Menü „Direktnachricht“ / „Erwähnen“ an der Zeile (I0012, I0013); Umformung `é` → `e` im Namensvorschlag (gehört zur Namensregel aus R00003, nicht zu R00004).
+
+### Nachtrag Karte #85 (2026-10-31, planer)
+
+F0188 ergänzt F0015 als Ausbaustufe „Teilnehmerliste 2“ (Weiche reifer; der Schalter funktioniert, nur das Ziel ist auf Touch klein). Keine Zusage von F0011–F0015 ändert sich. Herkunft: ux-reviewer #13 F0180, „Optionaler kleiner Zug“ nach der Rücknahme der 44 px (Entscheidung Optional 3).

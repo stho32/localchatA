@@ -76,6 +76,12 @@ Festgelegt in ADR-0055 (Nummern = Regeln der ADR). Die Wortlaute der deutschen F
 - **Ansage**: eine fremde Direktnachricht in einem nicht offenen Gespräch wird über die bestehende Live-Region angesagt („Neue Direktnachricht von ben@127.0.0.3“), im offenen Gespräch ohne „#“; es gibt weiterhin genau zwei Live-Regionen (V11).
 - **Alt ↓/↑** geht durch die Channels und danach durch die Direktnachrichten (V12).
 
+### F0189 Leerzustände in Seitenleiste und Gespräch stimmen (Karte #85)
+
+- Die Seitenleiste zeigt die Überschrift „Direktnachrichten“ und ihren Leerzustand (`Noch keine Direktnachrichten.` samt `Ein Gespräch beginnt in der Teilnehmerliste.`) im selben Augenblick — es gibt keinen Zustand „Überschrift ohne Inhalt“ (Entwicklertest #13: der Leerzustand erschien bis 300 ms später).
+- Endet das Senden im leeren Direktgespräch mit 404 (Gegenüber weg), steht im Verlauf die ⚠-Nachricht und nicht daneben der Leerzustand `Noch keine Nachrichten mit <kennung>.` (V9). Auslegung des planers (der product-owner kann sie bestätigen oder ändern, nicht blockierend): eine lokale, auch fehlgeschlagene Nachricht beendet den Leerzustand; „Verwerfen“ der ⚠-Nachricht bringt ihn zurück.
+- Die Messvorschriften fehlen auf der Karte; die Kriterien unten sind Entwürfe des planers und werden vom Entwicklertester bestätigt.
+
 ## Nicht-funktionale Anforderungen
 
 - **Sicherheit (QD1, QD3)**: nichts aus einem Direktgespräch erreicht einen Dritten auf irgendeinem Weg; eine Funktion (`sichtbar_fuer`) entscheidet für alle verteilenden Wege, und das Abschalten dieser Funktion macht mindestens zwei Proben rot (Mutationsprobe S17 der Matrix, elf Mutanten, je einzeln, die Suite muss rot werden — fährt der `security-reviewer` im Gate). Die Abweisungen sind **byte-gleich** (Status, Kopfzeilen außer `Date`, Körper identisch zur Antwort auf eine nie vergebene Kennung, Zeit oder ID).
@@ -185,6 +191,11 @@ Zu jeder Zeile gehört ihre **Abnahme-Probe samt Mutante**; die Mutante muss die
 - [ ] **Alt ↓/↑ (B0791; V12, Muss)**: V12 (Muss) Alt ↓/↑ geht durch die Channels und danach durch die Direktnachrichten. Probe: zwei Channels und zwei Direktnachrichten. Rechenbeispiel: Channels `allgemein`, `technik`; Direktnachrichten `ben@127.0.0.3`, `cora@127.0.0.1` → Alt ↓ geht von `allgemein` über `technik` und `ben@127.0.0.3` zu `cora@127.0.0.1` und dort nicht weiter; Alt ↑ geht denselben Weg zurück. Mutanten: die Direktnachrichten werden übersprungen; Reihenfolge nach Aktivität.
 - [ ] **Drei Kontexte (B0792; D12)**: `anna`, `ben`, `cora` → `ben` sieht den Eintrag und hört die Ansage binnen 2 s, `cora` sieht und hört nichts, auch nach Neuladen; Telefon 375 px: drei Einträge mit Kürzel, mindestens 44 px, voller Name. Mutanten: Seitenleiste listet fremde Gespräche; Sortierung nach Aktivität.
 - [ ] **Ohne Konsolenfehler** über die LAN-Adresse (Definition unter „Nicht-funktionale Anforderungen“).
+
+### F0189 Leerzustände in Seitenleiste und Gespräch stimmen
+
+- [ ] **Seitenleiste: Überschrift und Leerzustand im selben Frame** (E2E; Entwurf des planers zur Beobachtung des Entwicklertesters #13): frischer Beitritt ohne Gespräche, `/api/direkt` per `route` um 500 ms verzögert; ein `MutationObserver` auf die Seitenleiste meldet keinen Zeitpunkt, zu dem die Überschrift „Direktnachrichten“ im DOM steht und weder die beiden Hilfetexte noch ein Eintrag; mit einem Gespräch (ben) steht kein Leerzustand. Heute rot: der Leerzustand kommt < 300 ms nach der Überschrift. Gegenprobe: der Hinweis „Direktnachrichten nicht geladen.“ bei 500 auf `/api/direkt` bleibt sichtbar (Sollte 3 aus F0180).
+- [ ] **Gespräch nach 404 ohne Leerzustand neben der ⚠-Nachricht** (E2E; Entwurf des planers zur Beobachtung des Entwicklertesters #13): anna öffnet `#/d/ben%40127.0.0.3` ohne Gespräch (Leerzustand sichtbar), ben ist weg, anna sendet „Hallo“ → 404 `empfaenger`; danach enthält der Verlauf die ⚠-Nachricht und der Text „Noch keine Nachrichten mit ben@127.0.0.3.“ ist nicht im sichtbaren DOM; „Verwerfen“ der ⚠-Nachricht bringt ihn zurück. Heute rot.
 
 ## Betroffene Verzeichnisstruktur
 
@@ -318,3 +329,4 @@ Keine. Die Entscheidungen stehen in ADR-0055 und der Angriffsmatrix; für IPv6-L
 - **Bewusst ausgenommen**: Gruppen-Direktgespräche (P2: Vision „an einzelne Teilnehmer“, für Gruppen gibt es Channels); an sich selbst schreiben (P4: 422 `selbst`; `a+a` bliebe ungültig und wäre additiv nachrüstbar); Archivieren von Direktgesprächen (E14); Zusammenführen bei neuer Herkunft (E15); Frist wählbar (F0179, eigene ADR; Randbedingung: Ordner mit nur `einstellungen.toml`).
 - **Vorprüfung `ux-reviewer`** (2026-10-30, Karte #13, V1–V15) ist eingearbeitet: die Kriterien F0178 und F0180 tragen die Proben wörtlich. Zuschnitt: F0178 ist nach V6, V11 und V12 in zwei Slices geschnitten (F0178 beginnen und schreiben, 5 Bubbles; F0180 finden und ansagen, 4 Bubbles, braucht F0178), weil sonst sieben Bubbles mit zwei überladenen den Slice an die Grenze von etwa acht gebracht hätten. Der Hinweis „im Kopf des Gesprächs (Kopfzeile oder Streifen darunter)“ ersetzt „Kopfzeile nennt den Hinweis“.
 - **Bestandsbefunde** (latent, `security-reviewer`, nach I0012 „Wichtig“), mit dieser Anforderung behoben: `src/aktivitaet/mod.rs:285` (B0766), `src/gespraeche/logablage.rs:116` (B0767), `src/gespraeche/nachholen.rs:129` (B0774), `src/gespraeche/loeschen.rs:93` (B0776).
+- **Nachtrag 2026-10-31 (Karte #85, planer; Weiche reifer)**: F0189 („Seitenleiste 2“) trägt die beiden kosmetischen Anmerkungen des Entwicklertests #13 zu den Leerzuständen; F0180 und F0178 ändern ihre Zusagen nicht (V9 war „Sollte“). Zählung: 2 Bubbles (B0807, B0808), beide klar zu 0,4 h — 0,8 h.
