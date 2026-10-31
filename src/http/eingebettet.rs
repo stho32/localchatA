@@ -69,6 +69,7 @@ pub fn nachschlagen(name: &str) -> Option<EingebetteteDatei> {
         "dateiliste.js" => (include_bytes!("../../web/dateiliste.js"), JS),
         "anhaenge.js" => (include_bytes!("../../web/anhaenge.js"), JS),
         "anhang-anzeige.js" => (include_bytes!("../../web/anhang-anzeige.js"), JS),
+        "platzhalter.js" => (include_bytes!("../../web/platzhalter.js"), JS),
         "player.js" => (include_bytes!("../../web/player.js"), JS),
         "groesse.js" => (include_bytes!("../../web/groesse.js"), JS),
         "unterbrochen.js" => (include_bytes!("../../web/unterbrochen.js"), JS),

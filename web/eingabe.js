@@ -7,6 +7,7 @@ import { bezugAusNachricht, zitatText, bezugNachfuehren } from './zitat.js';
 import { uhrzeit } from './gliederung.js';
 import { dateilisteAnlegen } from './dateiliste.js';
 import { anredeText } from './gespraech.js';
+import { platzhalterWaehlen, passtInFeld } from './platzhalter.js';
 
 const IME_TASTENCODE = 229;
 
@@ -269,6 +270,25 @@ export function eingabeAnlegen({
     ansagen({ art: 'sofort', text: meldung.ansage });
   }
 
+  // Der Platzhalter passt sich der Breite des Felds an (R00030 B0798): gekürzt am Wort, nicht mitten im Wort; die Breite
+  // ändert sich mit dem Fenster und der Schriftgröße, darum folgt ihr ein Beobachter.
+  let anrede = null;
+  let platzhalterBreite = -1;
+  function platzhalterAnpassen() {
+    if (anrede === null) {
+      return;
+    }
+    platzhalterBreite = feld.clientWidth;
+    feld.placeholder = platzhalterWaehlen(anrede, passtInFeld(feld));
+  }
+  const platzhalterBeobachter = new ResizeObserver(() => {
+    if (feld.clientWidth !== platzhalterBreite) {
+      platzhalterAnpassen();
+    }
+  });
+  platzhalterBeobachter.observe(feld);
+  signal.addEventListener('abort', () => platzhalterBeobachter.disconnect());
+
   function entwurfSichern() {
     if (channel !== null) {
       entwurf.weggehen(channel, feld.value);
@@ -288,7 +308,8 @@ export function eingabeAnlegen({
       dateien.channelSetzen(name);
       const beschriftung = `Nachricht an ${anredeText(name)}`;
       feld.setAttribute('aria-label', beschriftung);
-      feld.placeholder = beschriftung;
+      anrede = anredeText(name);
+      platzhalterAnpassen();
       feld.value = entwurf.oeffnen(name);
       gesichertZurueckholen(name);
       hoeheAnpassen(feld);
