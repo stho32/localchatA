@@ -75,3 +75,22 @@ for (const fenster of FENSTER) {
     });
   }
 }
+
+// code-reviewer #85 A1 (Abnahme-Probe wörtlich): Desktop 1280 → setViewportSize(320×568) → der Platzhalter ist nicht mehr
+// „Nachricht an # allgemein“ (gekürzt), zurück auf 1280 → wieder der volle Text. Schützt den ResizeObserver am Feld.
+test('Platzhalter folgt der Fenstergröße: 1280 voll → 320×568 gekürzt → 1280 wieder voll', async ({ browser }) => {
+  const gestartet = await direktStarten(browser, { geraet: { ...GERAETE.desktop }, sammeln: { zusaetzlich: tippenOhneGespraech(GEGENUEBER) } });
+  instanz = gestartet.instanz;
+  const { page, fehler } = gestartet.anna;
+  const feld = page.getByRole('textbox', { name: 'Nachricht an # allgemein', exact: true });
+  await expect(feld).toBeVisible();
+  await expect(feld).toHaveAttribute('placeholder', 'Nachricht an # allgemein');
+
+  await page.setViewportSize({ width: 320, height: 568 });
+  await expect.poll(() => feld.getAttribute('placeholder'), { intervals: [25], timeout: 5000 }).not.toBe('Nachricht an # allgemein');
+  expect((await vermessen(feld)).breite, 'gekürzt passt').toBeLessThanOrEqual((await vermessen(feld)).verfuegbar);
+
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await expect.poll(() => feld.getAttribute('placeholder'), { intervals: [25], timeout: 5000 }).toBe('Nachricht an # allgemein');
+  expect(fehler).toEqual([]);
+});
