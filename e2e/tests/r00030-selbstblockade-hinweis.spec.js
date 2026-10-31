@@ -47,7 +47,9 @@ for (const fenster of FENSTER) {
     expect(text, '(a) Größe in Worten').toMatch(/\d+(,\d)? (KiB|MiB)/);
     expect(text, '(a) bleiben').toMatch(/bleiben|frei/);
     expect(text, '(c) Mindestverbrauch').toContain('mindestens 64 KiB');
-    const entfernen = abgewiesen.getByRole('button', { name: 'k4.bin entfernen' });
+    // Welche der vier Dateien die 507 trifft, hängt von der Ankunftsreihenfolge ab: der Schalter kommt aus der abgewiesenen Zeile.
+    const entfernen = abgewiesen.locator('.lc-hochladung-schalter button');
+    await expect(entfernen, 'Entfernen der abgewiesenen Datei').toHaveAttribute('aria-label', /^k[1-4]\.bin entfernen$/);
     const lage = await page.evaluate(() => {
       const grundBox = document.querySelector('.lc-hochladung-datei.lc-fehlgeschlagen .lc-hochladung-grund').getBoundingClientRect();
       const schalter = document.querySelector('.lc-hochladung-datei.lc-fehlgeschlagen .lc-hochladung-schalter button');
@@ -58,6 +60,8 @@ for (const fenster of FENSTER) {
         grundUnten: grundBox.bottom, schalterOben: box.top, hoehe: box.height, breite: box.width,
         seite: document.documentElement.scrollWidth, fenster: window.innerWidth,
         trifft: treffer === schalter || schalter.contains(treffer),
+        getroffen: treffer === null ? 'nichts' : `${treffer.tagName}.${treffer.className}`,
+        schalterBox: [box.top, box.bottom].map(Math.round), verlaufBox: [verlauf.getBoundingClientRect().top, verlauf.getBoundingClientRect().bottom].map(Math.round),
         abstandUnten: verlauf.scrollHeight - verlauf.scrollTop - verlauf.clientHeight,
       };
     });
@@ -67,7 +71,7 @@ for (const fenster of FENSTER) {
       expect(lage.hoehe, '(b) Ziel Höhe').toBeGreaterThanOrEqual(44);
       expect(lage.breite, '(b) Ziel Breite').toBeGreaterThanOrEqual(44);
     }
-    expect(lage.trifft, '(d) trifft elementFromPoint').toBe(true);
+    expect(lage.trifft, `(d) trifft elementFromPoint: ${lage.getroffen}, Schalter ${lage.schalterBox}, Verlauf ${lage.verlaufBox}`).toBe(true);
     expect(lage.abstandUnten, '(d) Verlauf am Ende').toBeLessThanOrEqual(2);
     await expect(entfernen).toBeVisible();
     expect(fehler.filter((zeile) => !/507/.test(zeile))).toEqual([]);
