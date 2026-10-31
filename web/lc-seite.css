@@ -452,6 +452,8 @@ button.lc-marke { min-width: 24px; min-height: 24px; padding: 0 var(--kd-space-4
 @media (pointer: coarse) {
   .lc-msg:has(> .lc-aktionen-schalter) { min-height: 44px; padding-right: calc(44px + var(--kd-space-4)); box-sizing: border-box; }
   .lc-aktionen-schalter { position: absolute; top: 0; right: 0; display: flex; align-items: center; justify-content: center; width: 44px; height: 44px; padding: 0; border: 0; background: none; color: var(--kd-ink); font: inherit; font-size: 20px; cursor: pointer; touch-action: manipulation; }
+  /* Im Bearbeiten-Feld trägt der Schalter nichts: der Platz rechts gehört dem Feld (B0803) */
+  .lc-msg.lc-im-bearbeiten:has(> .lc-aktionen-schalter) { padding-right: var(--kd-space-12); }
   .lc-msg:hover > .lc-aktionen, .lc-msg:focus-within > .lc-aktionen { display: none; }
   .lc-msg > .lc-aktionen-schalter[aria-expanded="true"] + .lc-aktionen { position: fixed; width: max-content; display: flex; flex-direction: column; gap: var(--kd-space-8); z-index: 3; padding: var(--kd-space-4); background: var(--kd-surface); border: 1px solid var(--kd-line-strong); }
   .lc-aktion { min-width: 44px; min-height: 44px; font-size: 14px; }

@@ -382,6 +382,7 @@ export function verlaufAnlegen({
       }
     },
     inSicht: inSichtBringen,
+    platz: platzImVerlauf,
     feldHolen: zumFeldOeffnen,
     speichern: bearbeitenSpeichern,
     uebernehmen: (nachricht) => fassungenErsetzen([nachricht]),
@@ -783,6 +784,12 @@ export function verlaufAnlegen({
   function nachrichtFokussieren(nachricht) {
     nachricht.focus({ preventScroll: true });
     inSichtBringen(nachricht);
+  }
+
+  // Wie hoch ein Element einer Nachricht höchstens sein darf, um ganz in den sichtbaren Verlauf zu passen: die Höhe des
+  // Verlaufs ohne den klebenden Tagestrenner darüber.
+  function platzImVerlauf(element) {
+    return log.clientHeight - klebenderTrennerUnterkante(element.closest('.lc-msg'));
   }
 
   // Ein Element einer Nachricht (sie selbst, ihr Bearbeiten-Feld) ganz in den sichtbaren Teil des Verlaufs.

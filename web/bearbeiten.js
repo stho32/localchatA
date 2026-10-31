@@ -75,7 +75,8 @@ function fehlerText({ status, daten }) {
 // speichern: async (channel, zeit, text) → Antwort wie api.js nachrichtBearbeiten · uebernehmen(nachricht): die
 // gespeicherte Fassung in den Verlauf · alsGeloeschtZeigen(zeit) · hinweisen(text): die Hinweiszeile der Seite ·
 // ansagen(text): genau eine Ansage über die Region der Seite (UX S2); beim Öffnen keine (S3) · inSicht(element): das
-// Element ganz in den sichtbaren Teil des Verlaufs (UX M7, auch bei offener Bildschirmtastatur) · geschlossen(zeit): das
+// Element ganz in den sichtbaren Teil des Verlaufs (UX M7, auch bei offener Bildschirmtastatur) · platz(element): wie hoch
+// das Feld samt Hinweis und Knöpfen höchstens sein darf, damit es im sichtbaren Verlauf Platz hat (B0803) · geschlossen(zeit): das
 // Feld ist zu, die Nachricht soll ihre bekannte Fassung zeigen · feldHolen(): der Verlauf holt die Nachricht des offenen
 // Felds wieder in den Blick und setzt es mit Fokus ein · signal: Abbau der Ansicht, beendet den Listener am Fenster.
 // beginnen(channel, artikel, nachricht) öffnet das Feld in `artikel`; offeneZeitIn(channel) sagt, an welcher Nachricht
@@ -83,7 +84,7 @@ function fehlerText({ status, daten }) {
 // Das Feld gehört dem Tab, nicht dem Knoten (F0142, PO 124): zeichnet der Verlauf die Nachricht neu oder wechselt der
 // Channel, bleibt es samt Text und Schreibmarke im Speicher; einsetzen(artikel, mitFokus) hängt es wieder ein.
 export function bearbeitenAnlegen({
-  zeiger, fokusAufNachricht, inSicht, feldHolen, speichern, uebernehmen, alsGeloeschtZeigen, hinweisen, ansagen, geschlossen, signal,
+  zeiger, fokusAufNachricht, inSicht, platz, feldHolen, speichern, uebernehmen, alsGeloeschtZeigen, hinweisen, ansagen, geschlossen, signal,
 }) {
   let offen = null;
 
@@ -162,12 +163,17 @@ export function bearbeitenAnlegen({
       inSicht(offen.rahmen);
     }
   }
-  window.addEventListener('resize', imBlickHalten, { signal });
+  window.addEventListener('resize', () => {
+    if (offen !== null && offen.rahmen.isConnected) {
+      hoeheAnpassen(offen.feld, platz(offen.rahmen));
+    }
+    imBlickHalten();
+  }, { signal });
 
   // Nicht verfügbar heißt aria-disabled, nie disabled: der Knopf bleibt fokussierbar und wird vorgelesen.
   function bereitZeigen() {
     const hoeheVorher = offen.feld.style.height;
-    hoeheAnpassen(offen.feld);
+    hoeheAnpassen(offen.feld, platz(offen.rahmen));
     if (offen.feld.style.height !== hoeheVorher) {
       imBlickHalten();
     }
@@ -322,11 +328,11 @@ function vorhandeneAnhaenge({ anhaenge = [] }) {
   return anhaenge.filter((anhang) => anhang.zustand !== 'geloescht');
 }
 
-// Das Feld wächst mit dem Inhalt bis zur Höhe aus dem CSS (10 Zeilen) und scrollt dann in sich; der Rand zählt zur
-// Höhe (border-box). Zum Messen fällt das Feld kurz auf seine eigene Höhe zusammen: der Verlauf darunter klemmt dabei
-// seine Rollstellung, und das Feld am Ende des Verlaufs rutschte hinter die Eingabe (B0804) — die Stellung bleibt darum
-// erhalten.
-function hoeheAnpassen(feld) {
+// Das Feld wächst mit dem Inhalt bis zur Höhe aus dem CSS (10 Zeilen), höchstens aber so weit, dass es samt Hinweis und
+// Knöpfen in `platz` Pixel passt (B0803), und scrollt dann in sich; der Rand zählt zur Höhe (border-box). Zum Messen fällt
+// das Feld kurz auf seine eigene Höhe zusammen: der Verlauf darunter klemmt dabei seine Rollstellung, und das Feld am Ende
+// des Verlaufs rutschte hinter die Eingabe (B0804) — die Stellung bleibt darum erhalten.
+function hoeheAnpassen(feld, platz) {
   const verlauf = feld.closest('.lc-log');
   let rollstellung = null;
   if (verlauf !== null) {
@@ -335,6 +341,14 @@ function hoeheAnpassen(feld) {
   feld.style.height = '';
   const rand = feld.offsetHeight - feld.clientHeight;
   feld.style.height = `${feld.scrollHeight + rand}px`;
+  const rahmen = feld.closest('.lc-bearbeiten');
+  if (rahmen !== null) {
+    const uebrig = platz - (rahmen.offsetHeight - feld.offsetHeight);
+    const mindestens = parseFloat(getComputedStyle(feld).minHeight);
+    if (uebrig < feld.offsetHeight) {
+      feld.style.height = `${Math.max(uebrig, mindestens)}px`;
+    }
+  }
   if (verlauf !== null) {
     verlauf.scrollTop = rollstellung;
   }
