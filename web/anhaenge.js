@@ -423,8 +423,9 @@ function hochladungAnlegen({ stand, teile, hochladen, plaetze, zeitgeber }) {
       hochladenAuswerten(eintrag, datei, ergebnis);
     }).catch((ausnahme) => {
       datei.laufend = null;
+      console.warn(`localchatA: Hochladen scheiterte unerwartet — ${ausnahme.message}`);
       if (eintrag.dateien.includes(datei)) {
-        teile.ansicht.dateiScheitert(eintrag, datei, 'fehlgeschlagen', `Nicht hochgeladen (${ausnahme.message}).`);
+        teile.ansicht.dateiScheitert(eintrag, datei, 'fehlgeschlagen', 'Nicht hochgeladen (unerwarteter Fehler im Browser).');
       }
     });
   }
@@ -462,7 +463,7 @@ function hochladungAnlegen({ stand, teile, hochladen, plaetze, zeitgeber }) {
     const VERSUCHE_HOECHSTENS = 8;
     datei.nochEinmalVersuche += 1;
     if (datei.nochEinmalVersuche > VERSUCHE_HOECHSTENS) {
-      teile.ansicht.dateiScheitert(eintrag, datei, 'fehlgeschlagen', 'Für diese Anmeldung läuft noch ein Hochladen.');
+      teile.ansicht.dateiScheitert(eintrag, datei, 'fehlgeschlagen', 'Für diese Anmeldung läuft noch ein Hochladevorgang.');
       return;
     }
     datei.zustand = 'wartetAufPlatz';
