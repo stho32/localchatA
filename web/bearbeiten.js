@@ -56,7 +56,7 @@ export function zweitesBearbeitenHinweis({ feldChannel, offenerChannel, zeit }) 
   }
   const gegenueber = gegenueberIn(feldChannel);
   if (gegenueber !== null) {
-    return `${kopf} im Gespräch mit ${ortNameKuerzen(gegenueber)}, ${nachricht}.`;
+    return `${kopf} in der Direktnachricht mit ${ortNameKuerzen(gegenueber)}, ${nachricht}.`;
   }
   return `${kopf} in # ${ortNameKuerzen(feldChannel)}, ${nachricht}.`;
 }

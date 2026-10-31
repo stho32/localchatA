@@ -113,7 +113,7 @@ test('Channelnamen über 16 Zeichen werden mit „…“ auf 16 gekürzt, 16 Zei
 test('Feld in einem Direktgespräch, zweites Bearbeiten im Channel: der Hinweis nennt das Gespräch (B0801)', () => {
   assert.equal(
     zweitesBearbeitenHinweis({ feldChannel: direktgespraech('ben@127.0.0.3'), offenerChannel: 'allgemein', zeit: ZEIT }),
-    'Erst speichern oder abbrechen: offenes Feld im Gespräch mit ben@127.0.0.3, Nachricht von 14:07.',
+    'Erst speichern oder abbrechen: offenes Feld in der Direktnachricht mit ben@127.0.0.3, Nachricht von 14:07.',
   );
 });
 
