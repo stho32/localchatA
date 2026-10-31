@@ -1,7 +1,8 @@
 // Seitenleiste (B0135, ADR-0024 Regeln 1–3, Designsystem components/Seitenleiste; R00050 F0180 V8): zwei `nav` —
 // „Channels“ mit dem Schalter „+“, darunter je Channel `# name` nach Name, leer „Noch keine Channels.“; danach
-// „Direktnachrichten“ ohne „+“, immer da, je Gespräch Statuspunkt, volle Kennung und offline/weg als Wort, alphabetisch
-// nach Kennung (direktliste.js), leer zwei Sätze. Unter 720 px zeigt ein Channel nur `#`, ein Direktgespräch Punkt und
+// „Direktnachrichten“ ohne „+“, erst mit der ersten Antwort auf „GET /api/direkt“ da (Überschrift und Inhalt im selben
+// Frame, B0807), je Gespräch Statuspunkt, volle Kennung und offline/weg als Wort, alphabetisch nach Kennung
+// (direktliste.js), leer zwei Sätze. Unter 720 px zeigt ein Channel nur `#`, ein Direktgespräch Punkt und
 // Kürzel; der Name bleibt Tooltip und zugänglicher Name. Jeder Eintrag ist ein Link, der gewählte trägt
 // aria-current="page" auf kd-accent (ADR-0027 Regel 2). Keine Zähler, kein @n, kein Marker (PO O20).
 import { direktgespraech, direktHash } from './gespraech.js';
