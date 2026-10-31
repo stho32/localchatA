@@ -1,6 +1,6 @@
 ---
 projekt: /home/shoff/Projekte/localchatA
-board-ordner: /home/shoff/Projekte/localchatA-kanbanD
+board-ordner: /home/shoff/Projekte/Kanban-Boards/localchatA-Kanbanboard
 board: entwicklung
 url: http://127.0.0.1:7421
 empfaenger: betreiber
