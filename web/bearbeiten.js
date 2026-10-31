@@ -172,14 +172,23 @@ export function bearbeitenAnlegen({
       imBlickHalten();
     }
     const grund = speicherHinweis(offen.feld.value, offen.anhangZahl);
-    offen.hinweis.textContent = '';
-    offen.hinweis.classList.remove('lc-fehler');
     offen.feld.removeAttribute('aria-invalid');
     offen.speichernKnopf.removeAttribute('aria-disabled');
     if (grund !== null) {
-      offen.hinweis.textContent = grund;
       offen.speichernKnopf.setAttribute('aria-disabled', 'true');
+      hinweisSetzen(grund, false);
+      return;
     }
+    hinweisSetzen('', false);
+  }
+
+  // Der Hinweis ist selbst die Live-Region (B0802): ein neuer Text wird einmal angesagt, derselbe Text nicht noch einmal
+  // bei jeder Eingabe; ein Hinweis, der nicht mehr zutrifft, wird leer.
+  function hinweisSetzen(text, fehler) {
+    if (offen.hinweis.textContent !== text) {
+      offen.hinweis.textContent = text;
+    }
+    offen.hinweis.classList.toggle('lc-fehler', fehler);
   }
 
   function tasteImFeld(ereignis) {
@@ -213,6 +222,7 @@ export function bearbeitenAnlegen({
     }
     const versuch = offen;
     versuch.laeuft = true;
+    hinweisSetzen('', false);
     const antwort = await speichern(versuch.channel, versuch.zeit, versuch.feld.value);
     versuch.laeuft = false;
     if (offen !== versuch) {
@@ -244,8 +254,7 @@ export function bearbeitenAnlegen({
 
   // Die Abweisung steht am Feld und beschreibt es (UX S5); aria-invalid nur bei Prüffehlern; das Getippte bleibt.
   function fehlerZeigen({ text, pruefFehler }) {
-    offen.hinweis.textContent = text;
-    offen.hinweis.classList.add('lc-fehler');
+    hinweisSetzen(text, true);
     offen.feld.removeAttribute('aria-invalid');
     if (pruefFehler) {
       offen.feld.setAttribute('aria-invalid', 'true');
@@ -291,6 +300,8 @@ function feldZeichnen(nachricht, zeigerJetzt) {
   const feld = element('textarea', { className: 'lc-bearbeiten-feld', value: nachricht.text, rows: 1 });
   feld.setAttribute('aria-label', 'Nachricht bearbeiten');
   const hinweisZeile = element('p', { id: 'lc-bearbeiten-hinweis', className: 'lc-bearbeiten-hinweis' });
+  hinweisZeile.setAttribute('aria-live', 'polite');
+  hinweisZeile.setAttribute('aria-atomic', 'true');
   const beschreibung = [hinweisZeile.id];
   const tasten = element('span', { id: 'lc-bearbeiten-tasten', hidden: true, textContent: 'Enter speichert, Umschalt+Enter macht eine neue Zeile, Esc bricht ab.' });
   if (zeigerJetzt === 'fein') {
