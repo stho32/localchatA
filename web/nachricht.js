@@ -39,7 +39,7 @@ export function nachrichtZeichnen(nachricht, eigeneKennung = '') {
   artikel.append(element('div', { className: 'g' }), inhalt);
   const aktionen = aktionenFuer(nachricht, eigeneKennung);
   if (aktionen.length > 0) {
-    artikel.append(...aktionenZeichnen(aktionen, nachricht.zeit));
+    artikel.append(...aktionenZeichnen(aktionen, nachricht.zeit, zugaenglicherName(nachricht)));
   }
   kopfSetzen(artikel, true);
   return artikel;
@@ -48,8 +48,9 @@ export function nachrichtZeichnen(nachricht, eigeneKennung = '') {
 // Die Leiste der Aktionen (Designsystem Nachricht): am Desktop rechts oben bei Hover und Fokus; auf Touch-Geräten statt
 // dessen der Schalter „⋯“ mit dem Namen „Aktionen“, der sie als Menü öffnet (UX M6, PO 125) — welcher Weg gilt,
 // entscheidet das CSS nach der Zeigerart. Die Knöpfe tragen ihre Aktion in data-aktion, der Verlauf führt sie aus.
-// → [Schalter, Leiste]
-function aktionenZeichnen(aktionen, zeit) {
+// Der Schalter nennt über aria-describedby den Namen seiner Nachricht (B0809), damit mehrere Schalter nicht gleich klingen.
+// → [Schalter, Leiste, Name der Nachricht]
+function aktionenZeichnen(aktionen, zeit, nachrichtName) {
   const BESCHRIFTUNG = { antworten: 'Antworten', kopieren: 'Kopieren', bearbeiten: 'Bearbeiten', loeschen: 'Löschen' };
   const knoepfe = aktionen.map((aktion) => {
     const knopf = element('button', { type: 'button', className: 'lc-aktion' });
@@ -67,7 +68,9 @@ function aktionenZeichnen(aktionen, zeit) {
   schalter.setAttribute('aria-label', 'Aktionen');
   schalter.setAttribute('aria-expanded', 'false');
   schalter.setAttribute('aria-controls', leiste.id);
-  return [schalter, leiste];
+  const name = element('span', { id: `lc-aktionen-name-${zeit}`, hidden: true, textContent: nachrichtName });
+  schalter.setAttribute('aria-describedby', name.id);
+  return [schalter, leiste, name];
 }
 
 const KOPIER_ANZEIGE = { kopiert: '✓ Kopiert.', nicht_moeglich: '⚠ Kopieren nicht möglich' };
