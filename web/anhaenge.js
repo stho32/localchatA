@@ -11,6 +11,7 @@ const ZU_VIELE_ANFRAGEN = 429;
 const KEINE_ANTWORT = 'Keine Antwort vom Server.';
 const KEIN_PLATZ = 507;
 const SEKUNDE_MS = 1000;
+const MINDESTMASS = 64 * 1024;
 
 // Wie eine Anmeldung ausging (B0450), rein: angenommen (201 mit ID), warten (429 oder 507 `hochladungen` mit
 // Retry-After; beim 507 mit dem Stand des Platzes), abgewiesen (jede andere Antwort, mit dem Text der Instanz) oder
@@ -57,13 +58,12 @@ export function selbstBlockiert(platz, eigeneBytes) {
 }
 
 export function selbstBlockiertGrund(platz, eigeneBytes) {
-  return `Nicht hochgeladen: die übrigen Dateien dieser Nachricht belegen den Platz für Anhänge — daneben bleiben ${groesseInWorten(daneben(platz, eigeneBytes))}, die Datei braucht ${groesseInWorten(platz.braucht)}. „Entfernen“ sendet die übrigen; diese Datei danach einzeln senden.`;
+  return `Nicht hochgeladen: die übrigen Dateien dieser Nachricht belegen den Platz für Anhänge — daneben bleiben ${groesseInWorten(daneben(platz, eigeneBytes))}, die Datei braucht ${groesseInWorten(platz.braucht)}. Jede Datei belegt mindestens ${groesseInWorten(MINDESTMASS)}. „Entfernen“ sendet die übrigen; diese Datei danach einzeln senden.`;
 }
 
 // Wie die Instanz einen Anhang an der Anhang-Quote zählt (src/gespraeche/anhangquote.rs): mindestens 64 KiB, sonst auf
 // 4 KiB aufgerundet. Die Rechnung der Selbstblockade läuft in diesem Maß.
 export function zaehlmass(bytes) {
-  const MINDESTMASS = 64 * 1024;
   const BLOCK = 4 * 1024;
   return Math.max(MINDESTMASS, Math.ceil(bytes / BLOCK) * BLOCK);
 }

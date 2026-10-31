@@ -92,7 +92,7 @@ test('Grund „selbst blockiert“ nennt den Platz, was frei bleibt, was die Dat
   const MIB = 1024 * 1024;
   assert.equal(
     selbstBlockiertGrund({ hoechstens: 10 * MIB, gebunden: 3.5 * MIB, braucht: 2.9 * MIB }, 5.8 * MIB),
-    'Nicht hochgeladen: die übrigen Dateien dieser Nachricht belegen den Platz für Anhänge — daneben bleiben 717 KiB, die Datei braucht 2,9 MiB. „Entfernen“ sendet die übrigen; diese Datei danach einzeln senden.',
+    'Nicht hochgeladen: die übrigen Dateien dieser Nachricht belegen den Platz für Anhänge — daneben bleiben 717 KiB, die Datei braucht 2,9 MiB. Jede Datei belegt mindestens 64 KiB. „Entfernen“ sendet die übrigen; diese Datei danach einzeln senden.',
   );
   assert.match(selbstBlockiertGrund({ hoechstens: MIB, gebunden: MIB, braucht: 2 * MIB }, MIB), /daneben bleiben 0 Byte,/);
 });
