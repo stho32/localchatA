@@ -1290,7 +1290,6 @@ export function verlaufAnlegen({
     const verlorenerName = nameDesAnhangsMitFokus(bekannt.nachricht, ids);
     knotenErsetzen(bekannt, neu);
     if (verlorenerName !== null) {
-      nachrichtFokussieren(nachrichtKnoten(zeit));
       ansagen(`Anhang gelöscht: ${verlorenerName}`);
     }
   }
