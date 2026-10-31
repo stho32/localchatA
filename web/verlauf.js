@@ -964,7 +964,8 @@ export function verlaufAnlegen({
     }
     geladen = true;
     if (ergebnis.block.nachrichten.length === 0) {
-      inhalt.replaceChildren(...leerHinweis(name));
+      inhalt.replaceChildren();
+      leerzustandAbgleichen();
       gepuffertesAnnehmen();
       feldNachOeffnen(rueckkehr);
       return { art: 'geladen' };
@@ -1452,10 +1453,27 @@ export function verlaufAnlegen({
     const fokussiert = fokussierterSchalter();
     const eigene = vorlaeufige.filter((vorlaeufig) => vorlaeufig.channel === offenerName);
     vorlaeufigeKnoten.replaceChildren(...eigene.map((vorlaeufig) => vorlaeufigZeichnen(vorlaeufig, eigeneKennung)));
+    leerzustandAbgleichen();
     if (fokussiert !== null) {
       fokusZurueck(fokussiert);
     }
     erneutSendenFokussieren();
+  }
+
+  // Der Leerzustand eines Channels ohne Nachrichten steht nur, solange auch nichts Eigenes unterwegs ist: eine lokale
+  // Nachricht — auch eine fehlgeschlagene ⚠ — beendet ihn, nach „Verwerfen“ kehrt er zurück (R00050 F0189 B0808).
+  function leerzustandAbgleichen() {
+    if (!geladen || gescheitert || fenster !== null) {
+      return;
+    }
+    const eigeneUnterwegs = vorlaeufige.some((vorlaeufig) => vorlaeufig.channel === offenerName && vorlaeufig.zustand !== 'verworfen');
+    if (eigeneUnterwegs) {
+      inhalt.replaceChildren();
+      return;
+    }
+    if (inhalt.childElementCount === 0) {
+      inhalt.replaceChildren(...leerHinweis(offenerName));
+    }
   }
 
   function fokussierterSchalter() {
