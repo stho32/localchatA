@@ -519,7 +519,7 @@ function verbindungAnlegen({ stand, teile }) {
   return { aufVerbindungWarten, getrennt, wiederVerbunden };
 }
 
-// Die Einträge selbst: beginnen, Datei oder Eintrag verlassen, senden, anhalten.
+// Die Einträge selbst: beginnen, Datei oder Eintrag abgeben, senden, anhalten.
 function eintraegeAnlegen({ stand, teile, bereich, senden, zurueckgeben, ansagen, fokusVerloren, zeitgeber }) {
   function zeigen() {
     bereich.replaceChildren(...stand.eintraege.filter((eintrag) => eintrag.channel === stand.offenerChannel).map((eintrag) => eintrag.artikel));
