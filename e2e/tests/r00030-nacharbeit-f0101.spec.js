@@ -206,7 +206,7 @@ for (const ohneSperren of [false, true]) {
 
     // Welche der beiden zuerst sendet, entscheidet der Platz — die Probe sucht die gescheiterte Zeile.
     const gescheitert = eintrag(page).locator('.lc-hochladung-datei')
-      .filter({ has: page.locator('.lc-hochladung-grund', { hasText: '⚠ Nicht hochgeladen (Probe A4).' }) });
+      .filter({ has: page.locator('.lc-hochladung-grund', { hasText: '⚠ Nicht hochgeladen (unerwarteter Fehler im Browser).' }) });
     await expect(gescheitert).toHaveCount(1);
     const name = (await gescheitert.locator('.lc-datei-name').textContent()).trim();
     const andere = ['a.txt', 'b.txt'].find((kandidat) => kandidat !== name);
