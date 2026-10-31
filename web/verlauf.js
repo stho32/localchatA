@@ -111,8 +111,11 @@ export function verlaufAnlegen({
     return log.scrollHeight - log.scrollTop - log.clientHeight;
   }
 
+  let endeGesetzt = null; // scrollTop, auf den ansEnde zuletzt gesetzt hat: das Scroll-Ereignis dazu ist keine Bewegung der Lesenden
+
   function ansEnde() {
     log.scrollTop = log.scrollHeight;
+    endeGesetzt = log.scrollTop;
     amEnde = true;
   }
 
@@ -158,7 +161,13 @@ export function verlaufAnlegen({
     if (log.scrollTop !== nachgefuehrtAuf) {
       schwelleSicht = log.clientHeight;
     }
+    // Wuchs der Inhalt nach dem Nachführen ans Ende, bevor dieses Ereignis ankam, steht der Verlauf nur scheinbar nicht
+    // mehr am Ende: der Beobachter führt das neue Wachstum nach (B1 #85, „Entfernen“ unter der Eingabe).
+    const eigenesEnde = amEnde && log.scrollTop === endeGesetzt;
     lageMerken();
+    if (eigenesEnde) {
+      amEnde = true;
+    }
     pruefen();
   }, { passive: true });
   // Ändert sich die Sichthöhe (Feld wächst oder schrumpft, Tippanzeige, Antwortzeile, Tastatur), bleibt die Lesestelle
