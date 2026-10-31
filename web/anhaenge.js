@@ -148,41 +148,49 @@ export function abweisungAnsage(name, grund) {
   return `${PRAEFIX}${name} — ${ohnePraefix}`;
 }
 
-// Die Einträge des Tabs. kennung: die eigene; anmelden(name, bytes) → Antwort (api.js anhangAnmelden); hochladen(id, datei,
-// fortschritt) → { abbrechen, ergebnis } (api.js anhangHochladen); plaetze: höchstens 2 Hochladungen zugleich je Browser
-// (Web Locks, ohne sie je Tab); verwerfen(id): die Anmeldung freigeben (api.js anhangVerwerfen); zurueckgeben({ text, bezug }):
-// „Verwerfen“ legt Text und Bezug zurück in die Eingabe; senden(text,
-// bezug, { channel, anhaenge }): die Sendeschlange (senden.js); ansagen: die eine Ansage-Region; fokusVerloren(): der
-// Fokus geht ins Feld; zeitgeber: { stellen(ms, rueckruf) → id, loeschen(id) }.
+// Die Einträge des Tabs, in fünf Teilen (Schnitt B0799, Verhalten unverändert): die Ansicht zeichnet und zeigt, die
+// Anmeldung holt die Annahme der Instanz, die Hochladung schickt den PUT, die Verbindung hält an und setzt fort, die
+// Einträge führen Nachricht und Datei zu Ende. Die Teile rufen einander über `teile` auf, erst zur Laufzeit gebunden;
+// `stand` ist der gemeinsame Zustand: { eintraege, offenerChannel, verbunden }.
+// kennung: die eigene; anmelden(name, bytes) → Antwort (api.js anhangAnmelden); hochladen(id, datei, fortschritt) →
+// { abbrechen, ergebnis } (api.js anhangHochladen); plaetze: höchstens 2 Hochladungen zugleich je Browser (Web Locks, ohne
+// sie je Tab); verwerfen(id): die Anmeldung freigeben (api.js anhangVerwerfen); zurueckgeben({ text, bezug }): „Verwerfen“
+// legt Text und Bezug zurück in die Eingabe; senden(text, bezug, { channel, anhaenge }): die Sendeschlange (senden.js);
+// ansagen: die eine Ansage-Region; fokusVerloren(): der Fokus geht ins Feld; zeitgeber: { stellen(ms, rueckruf) → id,
+// loeschen(id) }.
 export function hochladungenAnlegen({
   kennung, anmelden, hochladen, verwerfen, zurueckgeben, senden, ansagen, fokusVerloren, zeitgeber = ECHTE_ZEITGEBER,
   plaetze = plaetzeImBrowser(),
 }) {
   const bereich = element('div', { className: 'lc-hochladungen' });
-  const eintraege = [];
-  let offenerChannel = null;
   // Ohne Verbindung (R00030 F0119 B0520, Zustand aus dem Wiederverbinden der Hauptansicht) wartet jede Datei, statt
   // zu scheitern.
-  let verbunden = true;
+  const stand = { eintraege: [], offenerChannel: null, verbunden: true };
+  const teile = {};
+  teile.ansicht = ansichtAnlegen({ kennung, ansagen, teile });
+  teile.anmeldung = anmeldungAnlegen({ stand, teile, anmelden, verwerfen, zeitgeber });
+  teile.hochladung = hochladungAnlegen({ stand, teile, hochladen, plaetze, zeitgeber });
+  teile.verbindung = verbindungAnlegen({ stand, teile });
+  teile.eintraege = eintraegeAnlegen({ stand, teile, bereich, senden, zurueckgeben, ansagen, fokusVerloren, zeitgeber });
+  return {
+    element: bereich,
+    beginnen: teile.eintraege.beginnen,
+    channelGeoeffnet: (name) => {
+      stand.offenerChannel = name;
+      teile.eintraege.zeigen();
+    },
+    // Was der Tab sich beim Verlassen merkt (B0519): je offenem Eintrag nur Channel, Text und Dateinamen.
+    offene: () => stand.eintraege.map((eintrag) => ({
+      channel: eintrag.channel, text: eintrag.text, namen: eintrag.dateien.map((datei) => datei.name),
+    })),
+    alleAnhalten: teile.eintraege.alleAnhalten,
+    verbindungGetrennt: teile.verbindung.getrennt,
+    wiederVerbunden: teile.verbindung.wiederVerbunden,
+  };
+}
 
-  function zeigen() {
-    bereich.replaceChildren(...eintraege.filter((eintrag) => eintrag.channel === offenerChannel).map((eintrag) => eintrag.artikel));
-  }
-
-  // Ein Absenden mit Dateien: Leerraum allein wird zum leeren Text (B5).
-  function beginnen({ text, bezug, dateien }) {
-    let textFuerSenden = text;
-    if (nurLeerraum(text)) {
-      textFuerSenden = '';
-    }
-    const eintrag = { channel: offenerChannel, text: textFuerSenden, bezug, dateien: [], artikel: null, liste: null, zustandText: null };
-    eintrag.artikel = eintragZeichnen(eintrag);
-    eintrag.dateien = dateien.map((datei) => dateiAnlegen(eintrag, datei));
-    eintraege.push(eintrag);
-    zeigen();
-    eintrag.dateien.forEach((datei) => dateiAnmelden(eintrag, datei));
-  }
-
+// Zeichnen und Zeigen: der Eintrag „wird hochgeladen …“ mit seiner Liste, je Datei Kopf, Balken, Grund und Schalter.
+function ansichtAnlegen({ kennung, ansagen, teile }) {
   function eintragZeichnen(eintrag) {
     const artikel = nachrichtZeichnen({ von: kennung, art: 'mensch', text: eintrag.text, antwort_auf: eintrag.bezug });
     artikel.classList.add('lc-vorlaeufig', 'lc-hochladung');
@@ -190,7 +198,7 @@ export function hochladungenAnlegen({
     const zeile = element('div', { className: 'lc-send' }, [element('span', { textContent: '◌', ariaHidden: 'true' }), eintrag.zustandText]);
     eintrag.liste = element('ul', { className: 'lc-hochladung-dateien' });
     const verwerfenSchalter = element('button', { type: 'button', textContent: 'Verwerfen' });
-    verwerfenSchalter.addEventListener('click', () => eintragVerwerfen(eintrag));
+    verwerfenSchalter.addEventListener('click', () => teile.eintraege.verwerfen(eintrag));
     artikel.querySelector('.lc-msg-inhalt').append(zeile, eintrag.liste, element('div', { className: 'lc-send-schalter lc-hochladung-verwerfen' }, [verwerfenSchalter]));
     return artikel;
   }
@@ -222,242 +230,6 @@ export function hochladungenAnlegen({
     return eintragDatei;
   }
 
-  async function dateiAnmelden(eintrag, datei) {
-    if (!verbunden) {
-      aufVerbindungWarten(eintrag, datei);
-      return;
-    }
-    datei.zustand = 'anmelden';
-    dateiZeigen(eintrag, datei);
-    const ergebnis = anmeldungBewerten(await anmelden(datei.name, datei.bytes));
-    if (!eintrag.dateien.includes(datei)) {
-      anmeldungNachAbbruchFreigeben(datei, ergebnis);
-      return;
-    }
-    if (ergebnis.art === 'angemeldet') {
-      datei.id = ergebnis.id;
-      dateiHochladen(eintrag, datei);
-      return;
-    }
-    if (ergebnis.art === 'warten') {
-      const eigeneBytes = eigeneAngemeldeteBytes();
-      if (ergebnis.platz !== null && selbstBlockiert(ergebnis.platz, eigeneBytes)) {
-        dateiScheitert(eintrag, datei, 'abgewiesen', selbstBlockiertGrund(ergebnis.platz, eigeneBytes));
-        return;
-      }
-      datei.zustand = 'wartet';
-      datei.sekunden = ergebnis.sekunden;
-      datei.platzBelegt = ergebnis.platz !== null;
-      datei.zeitgeber = zeitgeber.stellen(SEKUNDE_MS, () => wartenZaehlen(eintrag, datei));
-    } else if (ergebnis.art === 'abgewiesen') {
-      dateiScheitert(eintrag, datei, 'abgewiesen', ergebnis.grund);
-      return;
-    } else if (!verbunden) {
-      aufVerbindungWarten(eintrag, datei);
-      return;
-    } else {
-      dateiScheitert(eintrag, datei, 'fehlgeschlagen', KEINE_ANTWORT);
-      return;
-    }
-    dateiZeigen(eintrag, datei);
-  }
-
-  // Der Wartezustand zählt im Sekundentakt herunter (UX-Review #43 F0101 S2); bei 0 meldet die Datei neu an.
-  function wartenZaehlen(eintrag, datei) {
-    datei.sekunden -= 1;
-    if (datei.sekunden <= 0) {
-      dateiAnmelden(eintrag, datei);
-      return;
-    }
-    dateiZeigen(eintrag, datei);
-    datei.zeitgeber = zeitgeber.stellen(SEKUNDE_MS, () => wartenZaehlen(eintrag, datei));
-  }
-
-  // Was die Anmeldungen des Tabs am Platz halten — sie geben ihn erst frei, wenn ihre Nachricht gesendet ist.
-  function eigeneAngemeldeteBytes() {
-    return eintraege.flatMap((eintrag) => eintrag.dateien).filter((datei) => datei.id !== null).reduce((summe, datei) => summe + zaehlmass(datei.bytes), 0);
-  }
-
-  // Kommt die Anmeldung erst nach „Abbrechen“ oder „Verwerfen“ an, wird sie sofort wieder freigegeben — außer die
-  // Hauptansicht ist dem Beitreten-Bildschirm gewichen (das alte Token gilt nicht mehr, sie verfällt am Server).
-  function anmeldungNachAbbruchFreigeben(datei, ergebnis) {
-    if (ergebnis.art === 'angemeldet' && datei.freigebenNachAbbruch) {
-      anmeldungFreigeben(ergebnis.id);
-    }
-  }
-
-  // Ohne Verbindung wartet die Freigabe (ein DELETE ginge ins Leere und die Anmeldung bliebe reserviert) und geht mit dem
-  // Wiederverbinden hinaus (Code-Review #43 F0119 Sollte 3).
-  const wartendeFreigaben = [];
-  function anmeldungFreigeben(id) {
-    if (verbunden) {
-      verwerfen(id);
-      return;
-    }
-    wartendeFreigaben.push(id);
-  }
-
-  // Unter einem Platz (höchstens 2 je Browser) der PUT mit Balken; bis zum Platz „wartet“. Eine Ausnahme beim Hochladen
-  // gibt den Platz frei und endet als Fehlschlag mit „Erneut hochladen“ (Code-Review #43 F0101 A4).
-  function dateiHochladen(eintrag, datei) {
-    datei.zustand = 'wartetAufPlatz';
-    datei.prozent = 0;
-    dateiZeigen(eintrag, datei);
-    plaetze(async () => {
-      if (!eintrag.dateien.includes(datei)) {
-        return;
-      }
-      if (!verbunden) {
-        aufVerbindungWarten(eintrag, datei);
-        return;
-      }
-      datei.zustand = 'laedt';
-      dateiZeigen(eintrag, datei);
-      datei.laufend = hochladen(datei.id, datei.datei, (geladen, gesamt) => {
-        datei.prozent = prozentAus(geladen, gesamt);
-        balkenZeigen(datei);
-      });
-      const antwort = await datei.laufend.ergebnis;
-      const ergebnis = hochladenBewerten(antwort);
-      datei.laufend = null;
-      if (!eintrag.dateien.includes(datei) || ergebnis.art === 'abgebrochen') {
-        return;
-      }
-      if (antwort.art === 'netzfehler' && !verbunden) {
-        aufVerbindungWarten(eintrag, datei);
-        return;
-      }
-      if (ergebnis.art === 'nochEinmal') {
-        nochEinmalHochladen(eintrag, datei);
-        return;
-      }
-      if (ergebnis.art === 'fertig') {
-        datei.zustand = 'fertig';
-        datei.neuAngemeldet = false;
-        datei.nochEinmalVersuche = 0;
-        dateiZeigen(eintrag, datei);
-        sendenWennFertig(eintrag);
-        return;
-      }
-      if (ergebnis.art === 'neuAnmelden' && !datei.neuAngemeldet) {
-        datei.neuAngemeldet = true;
-        datei.id = null;
-        dateiAnmelden(eintrag, datei);
-        return;
-      }
-      if (ergebnis.art === 'neuAnmelden') {
-        dateiScheitert(eintrag, datei, 'fehlgeschlagen', ergebnis.grund);
-        return;
-      }
-      dateiScheitert(eintrag, datei, ergebnis.art, ergebnis.grund);
-    }).catch((ausnahme) => {
-      datei.laufend = null;
-      if (eintrag.dateien.includes(datei)) {
-        dateiScheitert(eintrag, datei, 'fehlgeschlagen', `Nicht hochgeladen (${ausnahme.message}).`);
-      }
-    });
-  }
-
-  // Der Server hält den abgebrochenen PUT dieser Anmeldung noch fest (409 `laeuft`, längstens die Stückfrist von 10 s):
-  // die Datei wartet und lädt nach kurzer Zeit dieselbe Anmeldung neu; hält er sie länger, scheitert sie mit seinem Text.
-  function nochEinmalHochladen(eintrag, datei) {
-    const NOCH_EINMAL_MS = 2000;
-    const VERSUCHE_HOECHSTENS = 8;
-    datei.nochEinmalVersuche += 1;
-    if (datei.nochEinmalVersuche > VERSUCHE_HOECHSTENS) {
-      dateiScheitert(eintrag, datei, 'fehlgeschlagen', 'Für diese Anmeldung läuft noch ein Hochladen.');
-      return;
-    }
-    datei.zustand = 'wartetAufPlatz';
-    dateiZeigen(eintrag, datei);
-    datei.zeitgeber = zeitgeber.stellen(NOCH_EINMAL_MS, () => dateiHochladen(eintrag, datei));
-  }
-
-  function aufVerbindungWarten(eintrag, datei) {
-    datei.neuAngemeldet = false;
-    datei.zustand = 'wartetAufVerbindung';
-    dateiZeigen(eintrag, datei);
-  }
-
-  // Die Verbindung ist weg (B0520): ein laufender PUT bricht ab und wartet — sein Abbruch ist kein Fehlschlag —, ebenso
-  // eine Datei, die eben ohne Antwort scheiterte; „Erneut hochladen“ gibt es nur bei bestehender Verbindung.
-  function verbindungGetrennt() {
-    verbunden = false;
-    for (const eintrag of eintraege) {
-      for (const datei of eintrag.dateien) {
-        const ohneAntwortGescheitert = datei.zustand === 'fehlgeschlagen' && datei.grund === KEINE_ANTWORT;
-        if (datei.zustand === 'laedt' || ohneAntwortGescheitert) {
-          aufVerbindungWarten(eintrag, datei);
-        }
-        if (datei.laufend !== null) {
-          datei.laufend.abbrechen();
-        }
-      }
-    }
-  }
-
-  // „Wieder verbunden“: jede wartende Datei meldet sich neu an bzw. lädt dieselbe Anmeldung neu (nach `abgelaufen`
-  // meldet dateiHochladen neu an).
-  function wiederVerbunden() {
-    verbunden = true;
-    wartendeFreigaben.splice(0).forEach(verwerfen);
-    for (const eintrag of eintraege) {
-      for (const datei of eintrag.dateien.filter((wartend) => wartend.zustand === 'wartetAufVerbindung')) {
-        if (datei.id === null) {
-          dateiAnmelden(eintrag, datei);
-        } else {
-          dateiHochladen(eintrag, datei);
-        }
-      }
-    }
-  }
-
-  // „Erneut hochladen“: dieselbe Anmeldung neu — scheiterte schon die Anmeldung, eine neue —, der Fokus auf
-  // „Abbrechen“ derselben Datei.
-  function erneutHochladen(eintrag, datei) {
-    datei.neuAngemeldet = false;
-    datei.nochEinmalVersuche = 0;
-    if (datei.id === null) {
-      dateiAnmelden(eintrag, datei);
-    } else {
-      dateiHochladen(eintrag, datei);
-    }
-    datei.schalter.querySelector('button').focus();
-  }
-
-  // „Abbrechen“: der PUT bricht ab, die Anmeldung wird freigegeben, die Datei verlässt den Eintrag.
-  function dateiAbbrechen(eintrag, datei) {
-    dateiFreigeben(datei);
-    dateiEntfernen(eintrag, datei);
-  }
-
-  function dateiFreigeben(datei) {
-    zeitgeber.loeschen(datei.zeitgeber);
-    if (datei.laufend !== null) {
-      datei.laufend.abbrechen();
-    }
-    if (datei.id !== null) {
-      anmeldungFreigeben(datei.id);
-    }
-  }
-
-  // „Verwerfen“ (U2): alle Hochladungen brechen ab, Text und Bezug gehen zurück in die Eingabe.
-  function eintragVerwerfen(eintrag) {
-    const dateien = eintrag.dateien;
-    eintrag.dateien = [];
-    dateien.forEach(dateiFreigeben);
-    eintragBeenden(eintrag);
-    zurueckgeben({ text: eintrag.text, bezug: eintrag.bezug });
-  }
-
-  // Abgewiesen (nur „Entfernen“) oder fehlgeschlagen („Erneut hochladen“): ⚠ mit dem Grund an der Datei, sofort angesagt.
-  function dateiScheitert(eintrag, datei, zustand, grund) {
-    datei.zustand = zustand;
-    datei.grund = grund;
-    dateiZeigen(eintrag, datei);
-    ansagen({ art: 'sofort', text: abweisungAnsage(datei.name, grund) });
-  }
-
   function kopfZeigen(eintrag) {
     eintrag.zustandText.textContent = eintragZustandText(eintrag.dateien.filter((datei) => datei.zustand === 'abgewiesen').length);
   }
@@ -476,6 +248,14 @@ export function hochladungenAnlegen({
     schalterZeigen(eintrag, datei);
   }
 
+  // Abgewiesen (nur „Entfernen“) oder fehlgeschlagen („Erneut hochladen“): ⚠ mit dem Grund an der Datei, sofort angesagt.
+  function dateiScheitert(eintrag, datei, zustand, grund) {
+    datei.zustand = zustand;
+    datei.grund = grund;
+    dateiZeigen(eintrag, datei);
+    ansagen({ art: 'sofort', text: abweisungAnsage(datei.name, grund) });
+  }
+
   // Der Schalter der Datei wird nur neu gebaut, wenn seine Art wechselt — ein Fokus auf „Abbrechen“ übersteht den
   // Wechsel von „wartet“ zu „lädt“. Eine fertige Datei trägt „Entfernen“: sie gibt die Anmeldung frei und verlässt die
   // Nachricht (Code-Review #43 F0101 A7, UX O1).
@@ -489,25 +269,299 @@ export function hochladungenAnlegen({
     }
     datei.schalterArt = art;
     if (art === 'abgewiesen') {
-      datei.schalter.replaceChildren(schalterZeichnen('Entfernen', `${datei.name} entfernen`, () => dateiEntfernen(eintrag, datei)));
+      datei.schalter.replaceChildren(schalterZeichnen('Entfernen', `${datei.name} entfernen`, () => teile.eintraege.entfernen(eintrag, datei)));
       return;
     }
     if (art === 'fehlgeschlagen') {
       datei.schalter.replaceChildren(
-        schalterZeichnen('Erneut hochladen', `${datei.name} erneut hochladen`, () => erneutHochladen(eintrag, datei)),
-        schalterZeichnen('Entfernen', `${datei.name} entfernen`, () => dateiAbbrechen(eintrag, datei)),
+        schalterZeichnen('Erneut hochladen', `${datei.name} erneut hochladen`, () => teile.hochladung.erneut(eintrag, datei)),
+        schalterZeichnen('Entfernen', `${datei.name} entfernen`, () => teile.eintraege.abbrechen(eintrag, datei)),
       );
       return;
     }
     if (art === 'fertig') {
-      datei.schalter.replaceChildren(schalterZeichnen('Entfernen', `${datei.name} entfernen`, () => dateiAbbrechen(eintrag, datei)));
+      datei.schalter.replaceChildren(schalterZeichnen('Entfernen', `${datei.name} entfernen`, () => teile.eintraege.abbrechen(eintrag, datei)));
       return;
     }
-    datei.schalter.replaceChildren(schalterZeichnen('Abbrechen', `${datei.name}: Hochladen abbrechen`, () => dateiAbbrechen(eintrag, datei)));
+    datei.schalter.replaceChildren(schalterZeichnen('Abbrechen', `${datei.name}: Hochladen abbrechen`, () => teile.eintraege.abbrechen(eintrag, datei)));
   }
 
   function balkenZeigen(datei) {
     datei.balken.zeigen(datei.zustand === 'laedt', datei.prozent);
+  }
+
+  return { eintragZeichnen, dateiAnlegen, kopfZeigen, dateiZeigen, dateiScheitert, balkenZeigen };
+}
+
+// Die Anmeldung einer Datei bei der Instanz: Annahme, Warten (429, 507), Abweisung, Selbstblockade, Freigabe.
+function anmeldungAnlegen({ stand, teile, anmelden, verwerfen, zeitgeber }) {
+  async function dateiAnmelden(eintrag, datei) {
+    if (!stand.verbunden) {
+      teile.verbindung.aufVerbindungWarten(eintrag, datei);
+      return;
+    }
+    datei.zustand = 'anmelden';
+    teile.ansicht.dateiZeigen(eintrag, datei);
+    const ergebnis = anmeldungBewerten(await anmelden(datei.name, datei.bytes));
+    if (!eintrag.dateien.includes(datei)) {
+      anmeldungNachAbbruchFreigeben(datei, ergebnis);
+      return;
+    }
+    if (ergebnis.art === 'angemeldet') {
+      datei.id = ergebnis.id;
+      teile.hochladung.dateiHochladen(eintrag, datei);
+      return;
+    }
+    if (ergebnis.art === 'warten') {
+      const eigeneBytes = eigeneAngemeldeteBytes();
+      if (ergebnis.platz !== null && selbstBlockiert(ergebnis.platz, eigeneBytes)) {
+        teile.ansicht.dateiScheitert(eintrag, datei, 'abgewiesen', selbstBlockiertGrund(ergebnis.platz, eigeneBytes));
+        return;
+      }
+      datei.zustand = 'wartet';
+      datei.sekunden = ergebnis.sekunden;
+      datei.platzBelegt = ergebnis.platz !== null;
+      datei.zeitgeber = zeitgeber.stellen(SEKUNDE_MS, () => wartenZaehlen(eintrag, datei));
+    } else if (ergebnis.art === 'abgewiesen') {
+      teile.ansicht.dateiScheitert(eintrag, datei, 'abgewiesen', ergebnis.grund);
+      return;
+    } else if (!stand.verbunden) {
+      teile.verbindung.aufVerbindungWarten(eintrag, datei);
+      return;
+    } else {
+      teile.ansicht.dateiScheitert(eintrag, datei, 'fehlgeschlagen', KEINE_ANTWORT);
+      return;
+    }
+    teile.ansicht.dateiZeigen(eintrag, datei);
+  }
+
+  // Der Wartezustand zählt im Sekundentakt herunter (UX-Review #43 F0101 S2); bei 0 meldet die Datei neu an.
+  function wartenZaehlen(eintrag, datei) {
+    datei.sekunden -= 1;
+    if (datei.sekunden <= 0) {
+      dateiAnmelden(eintrag, datei);
+      return;
+    }
+    teile.ansicht.dateiZeigen(eintrag, datei);
+    datei.zeitgeber = zeitgeber.stellen(SEKUNDE_MS, () => wartenZaehlen(eintrag, datei));
+  }
+
+  // Was die Anmeldungen des Tabs am Platz halten — sie geben ihn erst frei, wenn ihre Nachricht gesendet ist.
+  function eigeneAngemeldeteBytes() {
+    return stand.eintraege.flatMap((eintrag) => eintrag.dateien).filter((datei) => datei.id !== null).reduce((summe, datei) => summe + zaehlmass(datei.bytes), 0);
+  }
+
+  // Kommt die Anmeldung erst nach „Abbrechen“ oder „Verwerfen“ an, wird sie sofort wieder freigegeben — außer die
+  // Hauptansicht ist dem Beitreten-Bildschirm gewichen (das alte Token gilt nicht mehr, sie verfällt am Server).
+  function anmeldungNachAbbruchFreigeben(datei, ergebnis) {
+    if (ergebnis.art === 'angemeldet' && datei.freigebenNachAbbruch) {
+      anmeldungFreigeben(ergebnis.id);
+    }
+  }
+
+  // Ohne Verbindung wartet die Freigabe (ein DELETE ginge ins Leere und die Anmeldung bliebe reserviert) und geht mit dem
+  // Wiederverbinden hinaus (Code-Review #43 F0119 Sollte 3).
+  const wartendeFreigaben = [];
+  function anmeldungFreigeben(id) {
+    if (stand.verbunden) {
+      verwerfen(id);
+      return;
+    }
+    wartendeFreigaben.push(id);
+  }
+
+  return {
+    dateiAnmelden,
+    anmeldungFreigeben,
+    wartendeFreigabenSenden: () => wartendeFreigaben.splice(0).forEach(verwerfen),
+  };
+}
+
+// Der PUT unter einem Platz mit Balken, sein Ausgang und „Erneut hochladen“.
+function hochladungAnlegen({ stand, teile, hochladen, plaetze, zeitgeber }) {
+  // Unter einem Platz (höchstens 2 je Browser) der PUT mit Balken; bis zum Platz „wartet“. Eine Ausnahme beim Hochladen
+  // gibt den Platz frei und endet als Fehlschlag mit „Erneut hochladen“ (Code-Review #43 F0101 A4).
+  function dateiHochladen(eintrag, datei) {
+    datei.zustand = 'wartetAufPlatz';
+    datei.prozent = 0;
+    teile.ansicht.dateiZeigen(eintrag, datei);
+    plaetze(async () => {
+      if (!eintrag.dateien.includes(datei)) {
+        return;
+      }
+      if (!stand.verbunden) {
+        teile.verbindung.aufVerbindungWarten(eintrag, datei);
+        return;
+      }
+      datei.zustand = 'laedt';
+      teile.ansicht.dateiZeigen(eintrag, datei);
+      datei.laufend = hochladen(datei.id, datei.datei, (geladen, gesamt) => {
+        datei.prozent = prozentAus(geladen, gesamt);
+        teile.ansicht.balkenZeigen(datei);
+      });
+      const antwort = await datei.laufend.ergebnis;
+      const ergebnis = hochladenBewerten(antwort);
+      datei.laufend = null;
+      if (!eintrag.dateien.includes(datei) || ergebnis.art === 'abgebrochen') {
+        return;
+      }
+      if (antwort.art === 'netzfehler' && !stand.verbunden) {
+        teile.verbindung.aufVerbindungWarten(eintrag, datei);
+        return;
+      }
+      hochladenAuswerten(eintrag, datei, ergebnis);
+    }).catch((ausnahme) => {
+      datei.laufend = null;
+      if (eintrag.dateien.includes(datei)) {
+        teile.ansicht.dateiScheitert(eintrag, datei, 'fehlgeschlagen', `Nicht hochgeladen (${ausnahme.message}).`);
+      }
+    });
+  }
+
+  function hochladenAuswerten(eintrag, datei, ergebnis) {
+    if (ergebnis.art === 'nochEinmal') {
+      nochEinmalHochladen(eintrag, datei);
+      return;
+    }
+    if (ergebnis.art === 'fertig') {
+      datei.zustand = 'fertig';
+      datei.neuAngemeldet = false;
+      datei.nochEinmalVersuche = 0;
+      teile.ansicht.dateiZeigen(eintrag, datei);
+      teile.eintraege.sendenWennFertig(eintrag);
+      return;
+    }
+    if (ergebnis.art === 'neuAnmelden' && !datei.neuAngemeldet) {
+      datei.neuAngemeldet = true;
+      datei.id = null;
+      teile.anmeldung.dateiAnmelden(eintrag, datei);
+      return;
+    }
+    if (ergebnis.art === 'neuAnmelden') {
+      teile.ansicht.dateiScheitert(eintrag, datei, 'fehlgeschlagen', ergebnis.grund);
+      return;
+    }
+    teile.ansicht.dateiScheitert(eintrag, datei, ergebnis.art, ergebnis.grund);
+  }
+
+  // Der Server hält den abgebrochenen PUT dieser Anmeldung noch fest (409 `laeuft`, längstens die Stückfrist von 10 s):
+  // die Datei wartet und lädt nach kurzer Zeit dieselbe Anmeldung neu; hält er sie länger, scheitert sie mit seinem Text.
+  function nochEinmalHochladen(eintrag, datei) {
+    const NOCH_EINMAL_MS = 2000;
+    const VERSUCHE_HOECHSTENS = 8;
+    datei.nochEinmalVersuche += 1;
+    if (datei.nochEinmalVersuche > VERSUCHE_HOECHSTENS) {
+      teile.ansicht.dateiScheitert(eintrag, datei, 'fehlgeschlagen', 'Für diese Anmeldung läuft noch ein Hochladen.');
+      return;
+    }
+    datei.zustand = 'wartetAufPlatz';
+    teile.ansicht.dateiZeigen(eintrag, datei);
+    datei.zeitgeber = zeitgeber.stellen(NOCH_EINMAL_MS, () => dateiHochladen(eintrag, datei));
+  }
+
+  // „Erneut hochladen“: dieselbe Anmeldung neu — scheiterte schon die Anmeldung, eine neue —, der Fokus auf
+  // „Abbrechen“ derselben Datei.
+  function erneut(eintrag, datei) {
+    datei.neuAngemeldet = false;
+    datei.nochEinmalVersuche = 0;
+    if (datei.id === null) {
+      teile.anmeldung.dateiAnmelden(eintrag, datei);
+    } else {
+      dateiHochladen(eintrag, datei);
+    }
+    datei.schalter.querySelector('button').focus();
+  }
+
+  return { dateiHochladen, erneut };
+}
+
+// Verbindung weg und wieder da (B0520).
+function verbindungAnlegen({ stand, teile }) {
+  function aufVerbindungWarten(eintrag, datei) {
+    datei.neuAngemeldet = false;
+    datei.zustand = 'wartetAufVerbindung';
+    teile.ansicht.dateiZeigen(eintrag, datei);
+  }
+
+  // Die Verbindung ist weg (B0520): ein laufender PUT bricht ab und wartet — sein Abbruch ist kein Fehlschlag —, ebenso
+  // eine Datei, die eben ohne Antwort scheiterte; „Erneut hochladen“ gibt es nur bei bestehender Verbindung.
+  function getrennt() {
+    stand.verbunden = false;
+    for (const eintrag of stand.eintraege) {
+      for (const datei of eintrag.dateien) {
+        const ohneAntwortGescheitert = datei.zustand === 'fehlgeschlagen' && datei.grund === KEINE_ANTWORT;
+        if (datei.zustand === 'laedt' || ohneAntwortGescheitert) {
+          aufVerbindungWarten(eintrag, datei);
+        }
+        if (datei.laufend !== null) {
+          datei.laufend.abbrechen();
+        }
+      }
+    }
+  }
+
+  // „Wieder verbunden“: jede wartende Datei meldet sich neu an bzw. lädt dieselbe Anmeldung neu (nach `abgelaufen`
+  // meldet dateiHochladen neu an).
+  function wiederVerbunden() {
+    stand.verbunden = true;
+    teile.anmeldung.wartendeFreigabenSenden();
+    for (const eintrag of stand.eintraege) {
+      for (const datei of eintrag.dateien.filter((wartend) => wartend.zustand === 'wartetAufVerbindung')) {
+        if (datei.id === null) {
+          teile.anmeldung.dateiAnmelden(eintrag, datei);
+        } else {
+          teile.hochladung.dateiHochladen(eintrag, datei);
+        }
+      }
+    }
+  }
+
+  return { aufVerbindungWarten, getrennt, wiederVerbunden };
+}
+
+// Die Einträge selbst: beginnen, Datei oder Eintrag verlassen, senden, anhalten.
+function eintraegeAnlegen({ stand, teile, bereich, senden, zurueckgeben, ansagen, fokusVerloren, zeitgeber }) {
+  function zeigen() {
+    bereich.replaceChildren(...stand.eintraege.filter((eintrag) => eintrag.channel === stand.offenerChannel).map((eintrag) => eintrag.artikel));
+  }
+
+  // Ein Absenden mit Dateien: Leerraum allein wird zum leeren Text (B5).
+  function beginnen({ text, bezug, dateien }) {
+    let textFuerSenden = text;
+    if (nurLeerraum(text)) {
+      textFuerSenden = '';
+    }
+    const eintrag = { channel: stand.offenerChannel, text: textFuerSenden, bezug, dateien: [], artikel: null, liste: null, zustandText: null };
+    eintrag.artikel = teile.ansicht.eintragZeichnen(eintrag);
+    eintrag.dateien = dateien.map((datei) => teile.ansicht.dateiAnlegen(eintrag, datei));
+    stand.eintraege.push(eintrag);
+    zeigen();
+    eintrag.dateien.forEach((datei) => teile.anmeldung.dateiAnmelden(eintrag, datei));
+  }
+
+  // „Abbrechen“: der PUT bricht ab, die Anmeldung wird freigegeben, die Datei verlässt den Eintrag.
+  function dateiAbbrechen(eintrag, datei) {
+    dateiFreigeben(datei);
+    dateiEntfernen(eintrag, datei);
+  }
+
+  function dateiFreigeben(datei) {
+    zeitgeber.loeschen(datei.zeitgeber);
+    if (datei.laufend !== null) {
+      datei.laufend.abbrechen();
+    }
+    if (datei.id !== null) {
+      teile.anmeldung.anmeldungFreigeben(datei.id);
+    }
+  }
+
+  // „Verwerfen“ (U2): alle Hochladungen brechen ab, Text und Bezug gehen zurück in die Eingabe.
+  function eintragVerwerfen(eintrag) {
+    const dateien = eintrag.dateien;
+    eintrag.dateien = [];
+    dateien.forEach(dateiFreigeben);
+    eintragBeenden(eintrag);
+    zurueckgeben({ text: eintrag.text, bezug: eintrag.bezug });
   }
 
   // Eine Datei verlässt den Eintrag; der Fokus geht auf einen Schalter des Eintrags, sonst ins Feld (nie auf body).
@@ -517,7 +571,7 @@ export function hochladungenAnlegen({
     const stelle = eintrag.dateien.indexOf(datei);
     eintrag.dateien = eintrag.dateien.filter((andere) => andere !== datei);
     datei.knoten.remove();
-    kopfZeigen(eintrag);
+    teile.ansicht.kopfZeigen(eintrag);
     if (eintrag.dateien.length === 0) {
       eintragBeenden(eintrag);
       if (eintrag.text !== '') {
@@ -539,7 +593,7 @@ export function hochladungenAnlegen({
   // der Fokus im Eintrag, geht er ins Feld.
   function sendenWennFertig(eintrag) {
     const alleOben = eintrag.dateien.length > 0 && eintrag.dateien.every((datei) => datei.zustand === 'fertig');
-    if (!alleOben || !eintraege.includes(eintrag)) {
+    if (!alleOben || !stand.eintraege.includes(eintrag)) {
       return;
     }
     const fokusImEintrag = eintrag.artikel.contains(document.activeElement);
@@ -552,14 +606,14 @@ export function hochladungenAnlegen({
   }
 
   function eintragBeenden(eintrag) {
-    eintraege.splice(eintraege.indexOf(eintrag), 1);
+    stand.eintraege.splice(stand.eintraege.indexOf(eintrag), 1);
     eintrag.artikel.remove();
   }
 
   // Die Hauptansicht weicht dem Beitreten-Bildschirm (R00030 F0119 B0519): jede Hochladung hält an, ohne die Anmeldung
   // freizugeben — das alte Token gilt nicht mehr, die Anmeldungen verfallen am Server von selbst.
   function alleAnhalten() {
-    for (const eintrag of [...eintraege]) {
+    for (const eintrag of [...stand.eintraege]) {
       const dateien = eintrag.dateien;
       eintrag.dateien = [];
       for (const datei of dateien) {
@@ -573,21 +627,7 @@ export function hochladungenAnlegen({
     }
   }
 
-  return {
-    element: bereich,
-    beginnen,
-    channelGeoeffnet: (name) => {
-      offenerChannel = name;
-      zeigen();
-    },
-    // Was der Tab sich beim Verlassen merkt (B0519): je offenem Eintrag nur Channel, Text und Dateinamen.
-    offene: () => eintraege.map((eintrag) => ({
-      channel: eintrag.channel, text: eintrag.text, namen: eintrag.dateien.map((datei) => datei.name),
-    })),
-    alleAnhalten,
-    verbindungGetrennt,
-    wiederVerbunden,
-  };
+  return { zeigen, beginnen, verwerfen: eintragVerwerfen, entfernen: dateiEntfernen, abbrechen: dateiAbbrechen, sendenWennFertig, alleAnhalten };
 }
 
 function zustandBeschriftung(datei) {
