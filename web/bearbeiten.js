@@ -103,6 +103,7 @@ export function bearbeitenAnlegen({
     }
     offen.feld.addEventListener('input', bereitZeigen);
     offen.feld.addEventListener('keydown', tasteImFeld);
+    offen.rahmen.addEventListener('keydown', escImFeldBereich);
     offen.abbrechenKnopf.addEventListener('click', abbrechen);
     offen.speichernKnopf.addEventListener('click', speichernVersuchen);
     artikel.classList.add('lc-im-bearbeiten');
@@ -191,6 +192,18 @@ export function bearbeitenAnlegen({
       ereignis.preventDefault();
       speichernVersuchen();
     }
+  }
+
+  // Esc gilt im ganzen Bereich des Felds, auch bei Fokus auf „Abbrechen“ oder „Speichern“ (B0805); das Feld selbst
+  // behandelt es in tasteImFeld.
+  function escImFeldBereich(ereignis) {
+    const komponiert = ereignis.isComposing || ereignis.keyCode === IME_TASTENCODE;
+    const schonBehandelt = offen === null || ereignis.defaultPrevented || komponiert;
+    if (ereignis.key !== 'Escape' || schonBehandelt) {
+      return;
+    }
+    ereignis.preventDefault();
+    abbrechen();
   }
 
   // Höchstens ein Aufruf zugleich (UX S7): ein Doppelklick sendet genau einen; jeder Versuch hat seinen Schlüssel.
