@@ -356,6 +356,16 @@ function vorhandeneAnhaenge({ anhaenge = [] }) {
   return anhaenge.filter((anhang) => anhang.zustand !== 'geloescht');
 }
 
+// Die Höhe des Felds, rein (B0803): die gewünschte, wenn sie mit dem Rahmen (Hinweis, Knöpfe) in `platz` passt, sonst was
+// der Rahmen übrig lässt — nie unter dem Minimum des Felds.
+export function feldHoehe({ gewuenscht, platz, rahmenOhneFeld, mindestens }) {
+  const uebrig = platz - rahmenOhneFeld;
+  if (uebrig < gewuenscht) {
+    return Math.max(uebrig, mindestens);
+  }
+  return gewuenscht;
+}
+
 // Das Feld wächst mit dem Inhalt bis zur Höhe aus dem CSS (10 Zeilen), höchstens aber so weit, dass es samt Hinweis und
 // Knöpfen in `platz` Pixel passt (B0803), und scrollt dann in sich; der Rand zählt zur Höhe (border-box). Zum Messen fällt
 // das Feld kurz auf seine eigene Höhe zusammen: der Verlauf darunter klemmt dabei seine Rollstellung, und das Feld am Ende
@@ -371,11 +381,12 @@ function hoeheAnpassen(feld, platz) {
   feld.style.height = `${feld.scrollHeight + rand}px`;
   const rahmen = feld.closest('.lc-bearbeiten');
   if (rahmen !== null) {
-    const uebrig = platz - (rahmen.offsetHeight - feld.offsetHeight);
-    const mindestens = parseFloat(getComputedStyle(feld).minHeight);
-    if (uebrig < feld.offsetHeight) {
-      feld.style.height = `${Math.max(uebrig, mindestens)}px`;
-    }
+    feld.style.height = `${feldHoehe({
+      gewuenscht: feld.offsetHeight,
+      platz,
+      rahmenOhneFeld: rahmen.offsetHeight - feld.offsetHeight,
+      mindestens: parseFloat(getComputedStyle(feld).minHeight),
+    })}px`;
   }
   if (verlauf !== null) {
     verlauf.scrollTop = rollstellung;

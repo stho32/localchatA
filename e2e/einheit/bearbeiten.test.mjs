@@ -2,7 +2,7 @@
 // Touch-Geräten neue Zeile, Strg Enter speichert überall, Esc bricht ab) und die Bereit-Regel (leer nur mit Anhang).
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { feldTaste, speicherHinweis, zweitesBearbeitenHinweis } from '../../web/bearbeiten.js';
+import { feldTaste, feldHoehe, speicherHinweis, zweitesBearbeitenHinweis } from '../../web/bearbeiten.js';
 import { direktgespraech } from '../../web/gespraech.js';
 import { nachrichtTaste } from '../../web/fokus.js';
 
@@ -115,4 +115,12 @@ test('Feld in einem Direktgespräch, zweites Bearbeiten im Channel: der Hinweis 
     zweitesBearbeitenHinweis({ feldChannel: direktgespraech('ben@127.0.0.3'), offenerChannel: 'allgemein', zeit: ZEIT }),
     'Erst speichern oder abbrechen: offenes Feld im Gespräch mit ben@127.0.0.3, Nachricht von 14:07.',
   );
+});
+
+// code-reviewer #85 Slice B Sollte 1: die Höhe des Bearbeiten-Felds als reine Rechnung (B0803, B0804).
+test('feldHoehe: genug Platz → die gewünschte Höhe; zu wenig → Platz minus Rahmen; Platz unter dem Minimum → das Minimum', () => {
+  assert.equal(feldHoehe({ gewuenscht: 138, platz: 400, rahmenOhneFeld: 90, mindestens: 40 }), 138);
+  assert.equal(feldHoehe({ gewuenscht: 138, platz: 200, rahmenOhneFeld: 90, mindestens: 40 }), 110);
+  assert.equal(feldHoehe({ gewuenscht: 138, platz: 100, rahmenOhneFeld: 90, mindestens: 40 }), 40);
+  assert.equal(feldHoehe({ gewuenscht: 138, platz: 228, rahmenOhneFeld: 90, mindestens: 40 }), 138, 'genau passend bleibt unverändert');
 });
