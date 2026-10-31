@@ -14,6 +14,8 @@ export function anlegen() {
   const channelNav = abschnitt('Channels', [plus], channelEintraege);
   const direktEintraege = element('div', { className: 'lc-side-eintraege' });
   const direktNav = abschnitt('Direktnachrichten', [], direktEintraege);
+  // Der Abschnitt erscheint mit der ersten Antwort auf „GET /api/direkt“: Überschrift und Inhalt im selben Frame (B0807).
+  direktNav.hidden = true;
   const leiste = element('div', { className: 'lc-side' }, [channelNav, direktNav]);
   let channels = [];
   let direkt = null;
@@ -31,6 +33,7 @@ export function anlegen() {
     direktZeigen: (eintraege, nichtGeladen) => {
       direkt = eintraege;
       direktNichtGeladen = nichtGeladen;
+      direktNav.hidden = false;
       direktZeichnen(direktEintraege, direkt, gewaehlt, direktNichtGeladen);
     },
     // schluessel: das offene Gespräch (gespraech.js) oder null
