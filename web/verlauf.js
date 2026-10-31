@@ -20,8 +20,9 @@ import { zeigerart } from './eingabe.js';
 import { mediumSpielt, medienUebernehmen, medienAblageAnlegen, blockSpielt, endeVorWiedergabe } from './player.js';
 import {
   einordnen, zusammenfuehren, fassungUebernehmen, buendlerAnlegen, folgenOderZaehlen, pillenText, auslaufNach, nichtGeladenText, hinweisTextNachziehen,
-  sprungZiel as sprungZielBerechnen, scrollTopNachHoehe, fensterNeuLesen, zeitDanach, zeitDavor, anhaengeAlsGeloescht, geloeschteAnhaenge,
+  sprungZiel as sprungZielBerechnen, scrollTopNachHoehe, fensterNeuLesen, zeitDanach, zeitDavor, geloeschteAnhaenge,
 } from './live-verlauf.js';
+import { geloeschtFolgeAnlegen } from './geloescht-folge.js';
 
 // abrufen: async (name, cursor, signal) → { art: 'block' | 'fehler' | 'abgebrochen', … } (api.js verlaufAbrufen);
 // das Ergebnis von `oeffnen` sagt, ob der Verlauf steht.
@@ -82,16 +83,25 @@ export function verlaufAnlegen({
   // Lädt der Tab von selbst (Strom getrennt oder Laden-Lauf)? Die Hauptansicht setzt die Auskunft (R00037 Regel 1).
   let selbstversuchend = () => false;
   const buendler = buendlerAnlegen({ einfuegen: jeFrameEinfuegen });
-  // IDs aller Anhänge, deren Löschen der Tab erfahren hat (R00030 B0518): eine Antwort, die vor dem Löschen begann und
-  // erst danach ankommt, zeigt sie sonst als vorhanden.
-  const geloeschteIds = new Set();
+  // Die Folge gelöschter Anhänge (R00030 B0518, Schnitt B0796): Vermerk der IDs, Zeile „Gelöscht“, Fokus und Ansage.
+  const geloeschtFolge = geloeschtFolgeAnlegen({
+    bekannteNachricht: (zeit) => bekannteNachricht(zeit),
+    ersetzen: nachrichtOhneAnhaengeZeigen,
+    hatFokus: anhangHatFokus,
+    ansagen: (text) => ansagen(text),
+    gehalten: (arbeit) => {
+      const anker = ankerMerken(log, inhalt);
+      arbeit();
+      ankerHalten(log, anker);
+    },
+  });
 
   async function abrufen(name, cursor, abbruch) {
     const ergebnis = await abrufenRoh(name, cursor, abbruch);
-    if (ergebnis.art !== 'block' || geloeschteIds.size === 0) {
+    if (ergebnis.art !== 'block') {
       return ergebnis;
     }
-    const nachrichten = ergebnis.block.nachrichten.map((nachricht) => anhaengeAlsGeloescht(nachricht, geloeschteIds));
+    const nachrichten = geloeschtFolge.nachrichtenFiltern(ergebnis.block.nachrichten);
     return { ...ergebnis, block: { ...ergebnis.block, nachrichten } };
   }
 
@@ -1048,7 +1058,7 @@ export function verlaufAnlegen({
   // Nachrichten, die nicht im Fenster stehen; im offenen Verlauf ersetzt die Zeile „Gelöscht“ im nächsten Frame Vorschau
   // oder Player. geloescht: [{ id, zeit }] (Zeit der Nachricht)
   function anhaengeAnnehmen(channel, geloescht) {
-    geloescht.forEach(({ id }) => geloeschteIds.add(id));
+    geloeschtFolge.vermerken(geloescht);
     const nichtOffen = channel !== offenerName || offenerName === null || gescheitert || !geladen;
     if (nichtOffen || geloescht.length === 0) {
       return;
@@ -1137,7 +1147,7 @@ export function verlaufAnlegen({
     }
     const loeschungen = gesammelt.filter((eintrag) => eintrag.channel === offenerName && eintrag.geloescht !== undefined);
     if (loeschungen.length > 0 && !gescheitert) {
-      anhaengeErsetzen(loeschungen.flatMap((eintrag) => eintrag.geloescht));
+      geloeschtFolge.ersetzen(loeschungen.flatMap((eintrag) => eintrag.geloescht));
     }
     ausstehendZeichnen();
     auslaufAbbauen(sichtbar, inhaltsHoehe() - inhaltVorher);
@@ -1256,58 +1266,25 @@ export function verlaufAnlegen({
     }
   }
 
-  // Die Zeile „Gelöscht“ ersetzt Vorschau und Player; die Lesestelle bleibt (Anker). Hatte ein ersetztes Element den Fokus,
-  // liegt er danach auf der Nachricht und die Ansage nennt den Anhang einmal. Steht an der Nachricht das Bearbeiten-Feld,
-  // merkt sich das Fenster nur den neuen Stand, gezeichnet wird nach dem Schließen.
-  function anhaengeErsetzen(geloescht) {
-    const idsJeZeit = new Map();
-    for (const { id, zeit } of geloescht) {
-      const bekannt = bekannteNachricht(zeit);
-      if (bekannt === null) {
-        continue;
-      }
-      if (!idsJeZeit.has(bekannt.nachricht.zeit)) {
-        idsJeZeit.set(bekannt.nachricht.zeit, new Set());
-      }
-      idsJeZeit.get(bekannt.nachricht.zeit).add(id);
-    }
-    const anker = ankerMerken(log, inhalt);
-    idsJeZeit.forEach((ids, zeit) => nachrichtOhneAnhaengeZeigen(zeit, ids));
-    ankerHalten(log, anker);
-  }
-
-  function nachrichtOhneAnhaengeZeigen(zeit, ids) {
-    const bekannt = bekannteNachricht(zeit);
-    const neu = anhaengeAlsGeloescht(bekannt.nachricht, ids);
-    if (neu === bekannt.nachricht) {
-      return;
-    }
+  // Die Zeile „Gelöscht“ ersetzt Vorschau und Player; die Lesestelle bleibt (Anker). Steht an der Nachricht das
+  // Bearbeiten-Feld, merkt sich das Fenster nur den neuen Stand, gezeichnet wird nach dem Schließen (→ false).
+  function nachrichtOhneAnhaengeZeigen(bekannt, neu) {
     const feldZeit = bearbeiten.offeneZeitIn(offenerName);
-    if (feldZeit !== null && Date.parse(feldZeit) === Date.parse(zeit)) {
+    if (feldZeit !== null && Date.parse(feldZeit) === Date.parse(bekannt.nachricht.zeit)) {
       fenster.bloecke[bekannt.blockStelle][bekannt.stelle] = neu;
-      return;
+      return false;
     }
-    const verlorenerName = nameDesAnhangsMitFokus(bekannt.nachricht, ids);
     knotenErsetzen(bekannt, neu);
-    if (verlorenerName !== null) {
-      ansagen(`Anhang gelöscht: ${verlorenerName}`);
-    }
+    return true;
   }
 
-  function nameDesAnhangsMitFokus(nachricht, ids) {
-    const knoten = nachrichtKnoten(nachricht.zeit);
+  function anhangHatFokus(zeit, anhangId) {
+    const knoten = nachrichtKnoten(zeit);
     if (knoten === null) {
-      return null;
+      return false;
     }
-    const betroffen = nachricht.anhaenge.filter((anhang) => ids.has(anhang.id) && anhang.zustand !== 'geloescht');
-    const mitFokus = betroffen.find((anhang) => {
-      const anhangKnoten = knoten.querySelector(`.lc-anhang[data-anhang="${CSS.escape(anhang.id)}"]`);
-      return anhangKnoten !== null && anhangKnoten.contains(document.activeElement);
-    });
-    if (mitFokus === undefined) {
-      return null;
-    }
-    return mitFokus.name;
+    const anhangKnoten = knoten.querySelector(`.lc-anhang[data-anhang="${CSS.escape(anhangId)}"]`);
+    return anhangKnoten !== null && anhangKnoten.contains(document.activeElement);
   }
 
   // Jede Antwort im Fenster auf die geänderte Nachricht zeigt ihr neues Zitat (zitatNachfuehren); die Lesestelle bleibt.
