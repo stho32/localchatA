@@ -624,7 +624,7 @@ function verlaufVon(von, anzahl) {
   };
 }
 
-test('Touch: der Schalter „⋯“ an fremden Nachrichten verengt .lc-body nicht anders als an eigenen (höchstens 4 px)', async ({ browser }) => {
+test('Touch: der Schalter „⋯“ reserviert an fremden und eigenen Nachrichten dieselben 48 px — .lc-body unterscheidet sich höchstens um 4 px (die Grenze „4 px zum Maus-Stand“ gilt nur für die Hover-Leiste, Karte #85)', async ({ browser }) => {
   const verlauf = verlaufVon('shoff@127.0.0.1', 1);
   instanz = await sendenStarten({ vorbereiten: verlauf.vorbereiten });
   const fremd = await claudeSendet(instanz.adresse, ['Nachricht 1']);
@@ -637,6 +637,10 @@ test('Touch: der Schalter „⋯“ an fremden Nachrichten verengt .lc-body nich
   const fremde = await breite(fremd.zeiten[0]);
 
   expect(Math.abs(eigen - fremde)).toBeLessThanOrEqual(4);
+  // Die Reserve selbst ist die bewusste Kostenentscheidung (PO 152, Zeile 157): 44 px Schalter und 4 px Abstand rechts.
+  for (const zeit of [verlauf.zeiten[0], fremd.zeiten[0]]) {
+    expect(await nachrichtMitZeit(a.page, zeit).evaluate((knoten) => parseFloat(getComputedStyle(knoten).paddingRight))).toBe(48);
+  }
 });
 
 for (const fenster of [FENSTER_TELEFON, FENSTER_MIT_TASTATUR]) {
