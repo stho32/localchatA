@@ -29,7 +29,7 @@ fn enthaelt(heu: &[u8], nadel: &[u8]) -> bool {
 }
 
 /// Kein Ort: weder `GPS` noch „52.52“, „+52.5200“, noch der binäre Wert; `exiftool`, wo installiert, meldet kein
-/// `GPS*`.
+/// `GPS*` mit Wert.
 fn ohne_ort(name: &str, bytes: &[u8]) {
     for spur in [&b"GPS"[..], b"52.52", b"+52.5200", &ORT_BINAER] {
         assert!(
@@ -53,7 +53,14 @@ fn exiftool_ohne_gps(name: &str, bytes: &[u8]) {
         return;
     };
     let text = String::from_utf8_lossy(&ausgabe.stdout);
-    assert!(!text.contains("GPS"), "{name}: {text}");
+    // ADR-0047 Regel 5d nullt in `ilst` nur die Werte: exiftool meldet den Eintrag dann ohne Wert
+    // („GPS Coordinates :“). Ein Ort ist nur ein `GPS*`-Eintrag mit Wert.
+    let mit_wert: Vec<&str> = text
+        .lines()
+        .filter(|zeile| zeile.contains("GPS"))
+        .filter(|zeile| zeile.split_once(':').is_some_and(|(_, wert)| !wert.trim().is_empty()))
+        .collect();
+    assert!(mit_wert.is_empty(), "{name}: {mit_wert:?}\n{text}");
 }
 
 /// Eine Instanz, in der `beta` Dateien hochlädt, sendet und ausgeliefert holt.
