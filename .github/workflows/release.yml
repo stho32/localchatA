@@ -131,10 +131,8 @@ jobs:
             ziel: linux-x64
             programm: localchatA
             archiv: tar.gz
-          - os: windows-latest
-            ziel: win-x64
-            programm: localchatA.exe
-            archiv: zip
+          # Kein Windows-Build: die Anhangablage arbeitet mit rustix (nur Unix).
+          # Unter Windows läuft das Linux-Archiv in WSL2 (Hinweis in den Release-Notes).
     defaults:
       run:
         shell: bash
@@ -182,3 +180,11 @@ jobs:
           name: ${{ needs.vorbereiten.outputs.tag }}
           files: ${{ steps.packen.outputs.datei }}
           fail_on_unmatched_files: true
+          body: |
+            Programm für Linux (x86_64): Archiv entpacken und `./localchatA <ordner>` starten (Hilfe: `--hilfe`).
+
+            **Windows:** Bitte unter WSL2 verwenden; einen eigenen Windows-Build gibt es noch nicht.
+            - Den Datenordner im Linux-Dateisystem anlegen (`~/…`), nicht unter `/mnt/c/…`.
+            - Andere Rechner im LAN erreichen localchatA in WSL2 erst mit `networkingMode=mirrored`
+              in `%UserProfile%\.wslconfig` (Windows 11 22H2 oder neuer), danach `wsl --shutdown`.
+              Auf älteren Windows-Versionen: `netsh interface portproxy` und eine Firewall-Regel.
