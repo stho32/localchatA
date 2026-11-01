@@ -356,7 +356,7 @@ impl Gespraeche {
             return Err(fehler);
         }
         let weg = self.anhangverzeichnis.tag_entfernen(gespraech, tag);
-        let _ = self.anhangzaehler.gebunden.fetch_update(
+        let _ = self.anhangzaehler.gebunden.try_update(
             std::sync::atomic::Ordering::SeqCst,
             std::sync::atomic::Ordering::SeqCst,
             |gebunden| Some(gebunden.saturating_sub(weg)),

@@ -218,7 +218,7 @@ impl Gespraeche {
                 let grund = match ergebnis {
                     Ok(()) => {
                         if eintrag.abzug_gewinnen() {
-                            let _ = self.anhangzaehler.gebunden.fetch_update(
+                            let _ = self.anhangzaehler.gebunden.try_update(
                                 Ordering::SeqCst,
                                 Ordering::SeqCst,
                                 |g| Some(g.saturating_sub(eintrag.z())),

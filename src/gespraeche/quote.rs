@@ -173,7 +173,7 @@ impl Belegung {
     /// Abziehen macht eine laufende Prüfung höchstens strenger (ADR-0044 Regel 2).
     pub(super) fn weg(&self, bytes: u64) -> u64 {
         self.belegt
-            .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |belegt| {
+            .try_update(Ordering::SeqCst, Ordering::SeqCst, |belegt| {
                 Some(belegt.saturating_sub(bytes))
             })
             .unwrap_or_else(|belegt| belegt)
