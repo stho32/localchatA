@@ -1,0 +1,179 @@
+name: Release
+
+on:
+  push:
+    branches: [main]
+    # Doku, Planung und Lizenz ändern das Programm nicht — kein neues Release dafür.
+    paths-ignore:
+      - "**.md"
+      - "LICENSE"
+      - ".gitignore"
+      - "Anforderungen/**"
+      - "Dokumentation/**"
+      - "Schaetzungen/**"
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: "Version bump type"
+        required: false
+        default: "patch"
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
+
+permissions:
+  contents: write
+
+# Zwei Läufe nebeneinander würden dieselbe nächste Version berechnen — nacheinander, nie abbrechen.
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  # Kein Release ohne grüne Pyramide: dasselbe Gate, das /implementierung abschluss
+  # lokal vor jedem Push fährt — Build warnungsfrei, Rust-Tests, JS-Unit-Tests, E2E.
+  pruefen:
+    runs-on: ubuntu-latest
+    env:
+      RUSTFLAGS: "-D warnings"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: e2e/package-lock.json
+
+      - name: Bauen
+        run: cargo build --all-targets
+
+      - name: Rust-Tests
+        run: cargo test
+
+      - name: JavaScript-Unit-Tests
+        run: node --test e2e/einheit/
+
+      # bauen.js baut das Programm vor dem Lauf selbst; ohne diesen Schritt fehlt der Browser.
+      # Server und Browser in derselben Zeitzone: Zeitstempel stehen ohne Zone in den Dateien,
+      # playwright.config.js setzt Europe/Berlin für den Browser.
+      - name: E2E-Tests
+        working-directory: e2e
+        env:
+          TZ: Europe/Berlin
+        run: |
+          npm ci
+          npx playwright install --with-deps chromium
+          npx playwright test
+
+      - name: E2E-Befunde sichern
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-test-results
+          path: e2e/test-results/
+          retention-days: 7
+
+  vorbereiten:
+    needs: pruefen
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.naechste.outputs.version }}
+      tag: ${{ steps.naechste.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Nächste Version bestimmen
+        id: naechste
+        run: |
+          set -euo pipefail
+          letzter=$(git tag --list 'v[0-9]*.[0-9]*.[0-9]*' --sort=-version:refname | head -n1)
+          if [ -z "$letzter" ]; then
+            version="1.0.0"
+          else
+            IFS=. read -r major minor patch <<<"${letzter#v}"
+            case "${{ github.event.inputs.bump || 'patch' }}" in
+              major) major=$((major + 1)); minor=0; patch=0 ;;
+              minor) minor=$((minor + 1)); patch=0 ;;
+              *)     patch=$((patch + 1)) ;;
+            esac
+            version="${major}.${minor}.${patch}"
+          fi
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+          echo "tag=v${version}" >> "$GITHUB_OUTPUT"
+          echo "Nächste Version: ${version} (vorher: ${letzter:-keine})"
+
+  bauen-und-veroeffentlichen:
+    needs: vorbereiten
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            ziel: linux-x64
+            programm: localchatA
+            archiv: tar.gz
+          - os: windows-latest
+            ziel: win-x64
+            programm: localchatA.exe
+            archiv: zip
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      # Die Version wird zur Buildzeit gesetzt; im Repository bleibt 0.1.0 stehen.
+      - name: Version setzen
+        env:
+          VERSION: ${{ needs.vorbereiten.outputs.version }}
+        run: sed -i "0,/^version = .*/s//version = \"${VERSION}\"/" Cargo.toml
+
+      # Die Oberfläche ist per include_bytes! eingebettet — das Programm ist eine einzige Datei.
+      - name: Bauen
+        run: cargo build --release
+
+      - name: Archiv packen
+        id: packen
+        env:
+          VERSION: ${{ needs.vorbereiten.outputs.version }}
+          ZIEL: ${{ matrix.ziel }}
+          PROGRAMM: ${{ matrix.programm }}
+          ENDUNG: ${{ matrix.archiv }}
+        run: |
+          set -euo pipefail
+          name="localchatA-${VERSION}-${ZIEL}"
+          mkdir -p "ausgabe/${name}"
+          cp "target/release/${PROGRAMM}" "ausgabe/${name}/"
+          cd ausgabe
+          if [ "${ENDUNG}" = "zip" ]; then
+            7z a -tzip -bso0 "${name}.zip" "${name}"
+          else
+            tar -czf "${name}.tar.gz" "${name}"
+          fi
+          echo "datei=ausgabe/${name}.${ENDUNG}" >> "$GITHUB_OUTPUT"
+
+      - name: An das Release hängen
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.vorbereiten.outputs.tag }}
+          name: ${{ needs.vorbereiten.outputs.tag }}
+          files: ${{ steps.packen.outputs.datei }}
+          fail_on_unmatched_files: true
