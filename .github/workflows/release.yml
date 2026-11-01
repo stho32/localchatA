@@ -57,6 +57,11 @@ jobs:
       - name: Bauen
         run: cargo build --all-targets
 
+      # Die Tests der Anhänge erzeugen Filme mit ffmpeg und lesen Metadaten mit
+      # ffprobe und exiftool; ubuntu-latest bringt keins davon mit.
+      - name: Werkzeuge für die Anhang-Tests
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg libimage-exiftool-perl
+
       - name: Rust-Tests
         run: cargo test
 
